@@ -1,0 +1,122 @@
+[
+  {
+    "id": "dde2b446-ef3d-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT from=coder",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T21:36:32.739179+00:00"
+    },
+    "timestamp": "2026-04-28T21:53:37.410609+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "e33a14d6-0568-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T21:37:51.858613+00:00"
+    },
+    "timestamp": "2026-04-28T21:53:56.157614+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "fd4e7db6-3c34-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T21:37:56.849707+00:00"
+    },
+    "timestamp": "2026-04-28T21:54:01.075404+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "66035679-a969-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T21:37:58.841672+00:00"
+    },
+    "timestamp": "2026-04-28T21:54:03.135322+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "062b096d-e8a1-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T21:38:00.899341+00:00"
+    },
+    "timestamp": "2026-04-28T21:54:05.683269+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "afd88d85-0a5d-49",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T21:38:03.565230+00:00"
+    },
+    "timestamp": "2026-04-28T21:54:08.376517+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "702a60d7-175b-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT,HANDOFF",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T21:38:07.119357+00:00"
+    },
+    "timestamp": "2026-04-28T21:54:11.375568+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "046627a3-6cbe-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,HITL_RESOLVED,HITL_RESOLUTION,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T21:48:14.861899+00:00"
+    },
+    "timestamp": "2026-04-28T21:54:16.209748+00:00",
+    "phase": "pr"
+  }
+]

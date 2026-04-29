@@ -86,10 +86,13 @@ The contract is a JSON document tracking the complete state of an issue through 
   "schemaVersion": "1.0",
   "issue": { "number": 133, "title": "...", "url": "..." },
   "current_phase": "implement",
-  "phases": [{
-    "id": "phase-1",
+  "slices": [{
+    "id": "slice-1",
     "name": "Core Library",
     "status": "in_progress",
+    "dependencies": [],
+    "serialized_chain_order": [],
+    "parent_branch_at_creation": null,
     "tasks": [{
       "id": "task-1-1",
       "description": "Create contract schema",
@@ -102,6 +105,16 @@ The contract is a JSON document tracking the complete state of an issue through 
   "audit_log": [...]
 }
 ```
+
+> **Schema rename (#2137)**: `phases[]` was renamed to `slices[]` and
+> `phase-N` IDs to `slice-N` to support the slice-DAG implement model
+> (each slice is an independent unit with its own branch, BRC, and PR).
+> Pre-#2137 contract JSON (`phases: [...]`) loads transparently via a
+> Pydantic load-time migration shim that rewrites both keys and IDs;
+> `Contract.phases` remains a read/write property proxy to
+> `Contract.slices`, and the `Phase`/`PhaseStatus` aliases preserve
+> existing imports. See [Slice-DAG Implement Phase](slice-dag.md) for
+> the full design.
 
 ## HITL (Human-in-the-Loop) Mechanism
 
@@ -178,5 +191,6 @@ The local distributed orchestrator (`orchestrator/` package) manages the full li
 ## Related Documentation
 
 - [SDLC Pipeline Operational Guide](../guides/sdlc-pipeline.md) — Day-to-day usage
+- [Slice-DAG Implement Phase](slice-dag.md) — `Phase`→`Slice` rename, slice scheduler, stacked-PR reconciler
 - [The Agentic Feedback Loop](agentic-feedback-loop.md) — Foundational work-review cycle
 - [Architecture Overview](README.md) — System design

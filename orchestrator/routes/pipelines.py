@@ -2,6 +2,7 @@
 Pipeline CRUD endpoints for egg-orchestrator.
 """
 
+import concurrent.futures
 import glob
 import json
 import os
@@ -27,6 +28,30 @@ except ImportError:
 
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
+
+
+class ForestValidationError(Exception):
+    """Raised by ``_populate_contract_from_plan`` when slice DAG is non-forest.
+
+    Added in #2137 (TASK-2-2). Any future Flask route that ingests a
+    plan in-band can catch this and ``return jsonify({"errors":
+    err.errors}), 422`` to surface the structured rejection per the
+    plan's acceptance criteria. Internal callers (``_populate_contract
+    _from_plan_safe`` and the pipeline run-loop helpers) catch this
+    exception and log a warning — the ``plan_review_feedback`` stash
+    placed on the contract by the populator is the durable signal
+    the plan reviewer prompt reads from to NACK the planner.
+    """
+
+    def __init__(self, message: str, *, errors: list[str]) -> None:
+        super().__init__(message)
+        self.errors: list[str] = list(errors)
+        self.status_code: int = 422
+
+    def to_response(self) -> tuple[dict[str, object], int]:
+        """Serialise into a Flask-compatible (body, status) tuple."""
+        return ({"error": "forest_violation", "errors": self.errors}, 422)
+
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -4332,7 +4357,7 @@ def _pull_contract_from_source_branch(
         pipeline_id=pipeline_id,
         source_branch=source_branch,
         decision_count=len(contract.decisions),
-        phase_count=len(contract.phases),
+        phase_count=len(contract.slices),
     )
     return True
 
@@ -4674,15 +4699,15 @@ def _render_contract_tasks(
     except Exception:
         return None
 
-    if not contract.phases:
+    if not contract.slices:
         return None
 
     lines = ["## Contract Tasks\n"]
-    for phase in contract.phases:
-        if not phase.tasks:
+    for slice_ in contract.slices:
+        if not slice_.tasks:
             continue
-        lines.append(f"### {phase.name}\n")
-        for task in phase.tasks:
+        lines.append(f"### {slice_.name}\n")
+        for task in slice_.tasks:
             check = "x" if task.status == TaskStatus.COMPLETE else " "
             lines.append(f"- [{check}] **{task.id}**: {task.description}")
             if task.acceptance_criteria:
@@ -8491,7 +8516,27 @@ def _build_reviewer_preparation(
                 "(c) identifying potential risks or constraints the planners "
                 "should address. "
                 "Form your own mental model of how you would approach this — "
-                "then compare against the proposals when they arrive."
+                "then compare against the proposals when they arrive. "
+                "\n\n"
+                "**#2137 slice-DAG checks (mandatory):** "
+                "(1) **Forest-violation NACK** — if the contract was "
+                "rejected at plan ingestion with a "
+                "``forest_violation`` log discriminator (or the contract's "
+                "``plan_review_feedback`` carries a 'Plan ingestion REJECTED' "
+                "block), NACK the planner and cite the structured errors "
+                "verbatim. Instruct the planner to re-emit the plan with "
+                "``serialized_chain_order`` populated on the downstream "
+                "slice. "
+                "(2) **Slice-sizing advisory (advisory only — never "
+                "NACK)**: for each slice whose estimated LOC "
+                "(count of ``files_affected`` × heuristic weight) is "
+                ">1,000, surface a non-blocking advisory line in your ACK "
+                "body. Tone scales with magnitude: 1,000–2,000 LOC: "
+                "'consider splitting'; >2,000 LOC: 'this slice is well "
+                "above the soft target — strongly consider splitting'. "
+                "Per HITL decision-6 opt-2 the plan reviewer NEVER NACKs "
+                "on size — the refiner/operator retains override "
+                "authority."
             )
     elif phase == "refine":
         if role_value in ("reviewer_refine", "reviewer_agent_design"):
@@ -9190,6 +9235,70 @@ def _build_agent_prompt(
                 "should list any pre-merge or post-merge actions required by the reviewer "
                 "or deployer; use an empty string if none.",
                 "",
+                # ----------------------------------------------------
+                # #2137 — slice-DAG planner guidance
+                # ----------------------------------------------------
+                "## Slice-DAG guidance (#2137)",
+                "",
+                "The implement-phase pipeline now ships each plan **slice** "
+                "(formerly **phase**) as its own stacked PR. The plan you "
+                "emit drives that DAG; the planner rules below are mandatory.",
+                "",
+                "**Yaml key swap**: prefer the canonical ``slices:`` key in "
+                "your ``# yaml-tasks`` block (the parser also accepts "
+                "``phases:`` for backward compatibility with already-shipped "
+                "planner prompts). New plans should use ``slices:``.",
+                "",
+                "**Slice-sizing guidance (soft, advisory only)**: target "
+                "≤1,000 LOC per slice where possible. Slices estimated above "
+                "1,000 LOC will be flagged as advisory by the plan reviewer "
+                "but are NOT rejected. There is no hard size ceiling — the "
+                "refiner/operator can override sizing concerns at any point. "
+                "The plan reviewer never NACKs on size.",
+                "",
+                "**Forest constraint (HARD)**: every slice must have at most "
+                "ONE DAG parent — the implement-phase pipeline ships every "
+                "slice as a stacked PR with exactly one base branch. "
+                "Multi-parent slices break the stacking invariant and are "
+                "rejected at plan ingestion.",
+                "",
+                "**Auto-serialization rule for would-be multi-parent slices**: "
+                "when you identify a slice that would naturally have >1 "
+                "parents, you MUST serialise the upstream slices into a "
+                "linear chain and record your chosen ordering on the "
+                "downstream slice's ``serialized_chain_order`` field. The "
+                "list names the upstream slice IDs in their chosen "
+                "serialization order.",
+                "",
+                "Worked example: if ``slice-3`` would naturally have "
+                "parents ``[slice-1, slice-2]``, instead emit:",
+                "",
+                "```yaml",
+                "  - id: 1",
+                "    name: |-",
+                "      Foundations",
+                "    # ... (root)",
+                "  - id: 2",
+                "    name: |-",
+                "      Middle",
+                "    dependencies:",
+                "      - slice-1",
+                "  - id: 3",
+                "    name: |-",
+                "      Downstream",
+                "    dependencies:",
+                "      - slice-2  # serialised — slice-2 is the only DAG parent",
+                "    serialized_chain_order:",
+                "      - slice-1",
+                "      - slice-2  # records that you deliberately picked",
+                "                 # slice-1 → slice-2 → slice-3",
+                "```",
+                "",
+                "Your judgement is the source of truth. The fallback "
+                "heuristic when you have no preference is: cluster "
+                "would-be parents by ``files_affected`` Jaccard overlap "
+                "(>0.3), then order by descending downstream fan-out.",
+                "",
                 f"Write your plan to `{draft_path}`.",
                 "",
             ]
@@ -9457,9 +9566,12 @@ def _handle_brc_consensus_timeout(
     consensus_timeout: float,
     blocking_agents: list[str],
     store: StateStore,
+    slice_id: str | None = None,
 ) -> None:
     # Extracted from _run_concurrent_phase so k3s-style top-level-module
     # layouts (and tests) can exercise this path in isolation — issue #1783.
+    # ``slice_id`` is propagated so per-slice trackers (#2137) are looked
+    # up under the nested ``{pipeline_id}/{slice_id}`` key.
     _brc_handled = False
     _brc_timeout_result: dict | None = None
     try:
@@ -9470,7 +9582,10 @@ def _handle_brc_consensus_timeout(
                 get_peer_consensus_tracker,  # type: ignore[no-redef]
             )
 
-        _brc_tracker = get_peer_consensus_tracker(pipeline_id)
+        try:
+            _brc_tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+        except TypeError:
+            _brc_tracker = get_peer_consensus_tracker(pipeline_id)
         if _brc_tracker is not None:
             _brc_timeout_result = _brc_tracker.handle_timeout()
             _brc_handled = _brc_tracker.is_timeout_handled()
@@ -9526,6 +9641,581 @@ def _handle_brc_consensus_timeout(
         )
 
 
+def _start_stacked_pr_reconciler(
+    pipeline_id: str,
+    contract_loader: Callable[[], Any],
+    gateway,
+    pipeline,
+    *,
+    interval_seconds: float | None = None,
+    worktree_repo_path: Path | None = None,
+    repo: str | None = None,
+) -> tuple[threading.Thread, threading.Event]:
+    """Start the periodic stacked-PR reconciler as a daemon thread (#2137 TASK-5-3).
+
+    Returns ``(thread, stop_event)``: caller calls ``stop_event.set()``
+    when the implement phase is shutting down so the daemon exits
+    cleanly. The daemon loops on the configured interval and invokes
+    :func:`stacked_pr_reconciler.reconcile_once` with callables that
+    decouple it from the gateway client.
+
+    The list-callables (``list_open_prs`` and ``list_remote_branches``)
+    forward to ``GatewayClient.list_open_prs`` /
+    ``GatewayClient.list_remote_branches`` — both route through
+    existing per-agent allowlists. The rebase callable forwards to
+    ``GatewayClient.rebase_onto``, which performs the full local
+    rebase + ``--force-with-lease`` push + ``gh api PATCH base=…``
+    retarget so an orphaned child PR is fully healed on origin
+    rather than just locally rewritten.
+    """
+    try:
+        from orchestrator.env_config import get_stacked_pr_reconciler_interval_seconds
+    except ImportError:
+        from env_config import (  # type: ignore[no-redef]
+            get_stacked_pr_reconciler_interval_seconds,
+        )
+    try:
+        from orchestrator.stacked_pr_reconciler import reconcile_once
+    except ImportError:
+        from stacked_pr_reconciler import reconcile_once  # type: ignore[no-redef]
+
+    if interval_seconds is None:
+        try:
+            interval_seconds = float(get_stacked_pr_reconciler_interval_seconds())
+        except Exception:  # noqa: BLE001
+            interval_seconds = 30.0
+
+    stop_event = threading.Event()
+
+    # ``repo_path`` must be a filesystem path the gateway's
+    # ``validate_repo_path`` accepts (``/home/egg/repos/``,
+    # ``/home/egg/.egg-worktrees/``, etc.) — NOT the git branch
+    # name. Use the orchestrator-side worktree path that the
+    # implement loop already owns.
+    repo_path_str = str(worktree_repo_path) if worktree_repo_path is not None else ""
+    pr_repo = repo or str(getattr(pipeline, "repo", "") or "")
+
+    def _list_open_prs() -> list[dict[str, Any]]:
+        # Lists open PRs in ``pr_repo`` so ``find_orphaned_child_prs``
+        # can detect children whose base branch was deleted (parent
+        # merged through the GitHub UI). Routes through the existing
+        # per-agent ``gh pr list`` allowlist on the gateway — no new
+        # privileged endpoint (decision-15).
+        if not pr_repo:
+            return []
+        try:
+            return list(gateway.list_open_prs(pipeline_id, pr_repo, agent_role="coder"))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "stacked_pr_reconciler: list_open_prs raised — treating as empty",
+                pipeline_id=pipeline_id,
+                error=str(exc),
+            )
+            return []
+
+    def _list_extant_branches() -> set[str]:
+        # Lists remote branches via ``git ls-remote --heads origin``
+        # so the reconciler can detect deleted parents. Routes through
+        # the existing per-agent ``git ls-remote`` allowlist.
+        if not repo_path_str:
+            return set()
+        try:
+            return set(
+                gateway.list_remote_branches(
+                    pipeline_id,
+                    repo_path_str,
+                    agent_role="coder",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "stacked_pr_reconciler: list_remote_branches raised — treating as empty",
+                pipeline_id=pipeline_id,
+                error=str(exc),
+            )
+            return set()
+
+    def _rebase_onto(orphan: Any) -> bool:
+        # ``orphan`` is a ``stacked_pr_reconciler.OrphanedChildPR``;
+        # avoid the import here so this module stays a pure consumer
+        # of the reconciler's typed interface (the type checker at
+        # the reconciler boundary already validates the shape).
+        try:
+            return bool(
+                gateway.rebase_onto(
+                    pipeline_id,
+                    repo_path_str,
+                    branch=orphan.branch,
+                    new_base=orphan.intended_new_base,
+                    old_base=orphan.deleted_base,
+                    pr_number=orphan.pr_number,
+                    repo=pr_repo or None,
+                    agent_role="coder",
+                )
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "stacked_pr_reconciler: rebase_onto raised — counted as failure",
+                pipeline_id=pipeline_id,
+                branch=getattr(orphan, "branch", "?"),
+            )
+            return False
+
+    def _loop() -> None:
+        # Defensive: a slow tick must not pin this thread on a stale
+        # sleep — Event.wait returns True the moment ``stop_event`` is
+        # set, so shutdown is bounded by the configured interval.
+        while not stop_event.wait(interval_seconds):
+            try:
+                contract = contract_loader()
+                if contract is None:
+                    continue
+                reconcile_once(
+                    contract,
+                    list_open_prs=_list_open_prs,
+                    list_extant_branches=_list_extant_branches,
+                    rebase_onto=_rebase_onto,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "stacked_pr_reconciler tick raised — continuing",
+                    pipeline_id=pipeline_id,
+                    error=str(exc),
+                )
+
+    thread = threading.Thread(
+        target=_loop,
+        name=f"stacked-pr-reconciler-{pipeline_id}",
+        daemon=True,
+    )
+    thread.start()
+    return thread, stop_event
+
+
+def _run_implement_phase_slices(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    spawner,
+    repo_volumes: dict[str, str],
+    gateway_mode: str,
+    repos: list[str],
+    sandbox_env: dict[str, str],
+    store,
+    certs_volume: str | None,
+    worktree_repo_path: Path,
+) -> tuple[int, str]:
+    """Drive the implement phase as a DAG of independent slices (#2137).
+
+    For each wave produced by :class:`SliceScheduler`, spawns a fresh
+    BRC team per slice and waits for that slice's consensus before
+    advancing the scheduler. Each slice runs through the existing
+    :func:`_run_concurrent_phase` machinery with a slice-scoped tracker
+    namespace (``{pipeline_id}/{slice_id}``) and slice-scoped per-role
+    branches (``egg/issue-N/{slice_id}/{role}/work``).
+
+    Per-slice PRs are opened via ``GatewayClient.create_slice_pr`` after
+    each slice reaches CONSENSUS_CONFIRMED — root slices target the
+    pipeline branch; child slices target their parent slice's
+    integration branch. The stacked-PR reconciler runs in parallel as a
+    daemon thread for the lifetime of this call.
+
+    Returns ``(exit_code, logs)`` where ``exit_code == 0`` means every
+    slice reached CONFIRMED; non-zero means at least one slice failed.
+    """
+    try:
+        from orchestrator.slice_scheduler import SliceScheduler
+    except ImportError:
+        from slice_scheduler import SliceScheduler  # type: ignore[no-redef]
+
+    try:
+        from egg_contracts.loader import load_contract, save_contract
+    except ImportError as exc:
+        logger.error(
+            "Slice loop: egg_contracts.loader unavailable — falling back",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+        return 1, "slice loop bootstrap failed"
+
+    contract = load_contract(pipeline_id, worktree_repo_path)
+    slices = list(getattr(contract, "slices", []) or [])
+    if not slices:
+        logger.warning(
+            "Slice loop: contract has no slices, falling back to monolithic implement",
+            pipeline_id=pipeline_id,
+        )
+        return 1, "no slices in contract"
+
+    pipeline_branch = pipeline.branch or (
+        f"egg/issue-{pipeline.issue_number}"
+        if pipeline.issue_number is not None
+        else f"egg/{pipeline_id}/work"
+    )
+    issue_number = pipeline.issue_number
+    issue_branch = f"egg/issue-{issue_number}" if issue_number is not None else pipeline_branch
+
+    # Wrap scheduler construction so the run loop doesn't crash if the
+    # contract bypassed plan-ingestion validation and reaches the
+    # scheduler with a multi-parent / cyclic forest. ``SliceScheduler``
+    # raises ``ValueError`` with the structured forest errors; surface
+    # them to the operator via the existing return path so the run
+    # loop can route to HITL escalation rather than wedge the pipeline.
+    try:
+        scheduler = SliceScheduler(contract)
+    except ValueError as exc:
+        logger.error(
+            "Slice loop: scheduler refused to start (forest validation failed)",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+        return 1, f"slice scheduler validation failed: {exc}"
+
+    def _contract_loader() -> Any:
+        try:
+            return load_contract(pipeline_id, worktree_repo_path)
+        except Exception:  # noqa: BLE001
+            return None
+
+    reconciler_thread, reconciler_stop = _start_stacked_pr_reconciler(
+        pipeline_id,
+        _contract_loader,
+        spawner.gateway,
+        pipeline,
+        worktree_repo_path=worktree_repo_path,
+        repo=getattr(pipeline, "repo", None),
+    )
+
+    aggregate_logs: list[str] = []
+    overall_exit = 0
+    poll_interval = 5.0
+
+    try:
+        while not scheduler.all_done():
+            # 1. Snapshot ready slices for this tick.
+            ready_batch = list(scheduler.iter_ready())
+            if not ready_batch:
+                # 2. Drain cascades whose grace window expired so the
+                #    descendants are visibly BLOCKED in the runtime view
+                #    and we don't busy-spin.
+                events = scheduler.poll_cascades()
+                for event in events:
+                    logger.warning(
+                        "Slice cascade fired",
+                        pipeline_id=pipeline_id,
+                        failed_slice=event.failed_slice_id,
+                        blocked=event.blocked_subtree,
+                    )
+                    try:
+                        from orchestrator.gateway_client import (
+                            get_gateway_client as _get_gateway_client,
+                        )
+
+                        _ = _get_gateway_client  # noqa: F841 — kept for symmetry
+                    except Exception:  # noqa: BLE001
+                        pass
+                if scheduler.all_done():
+                    break
+                time.sleep(poll_interval)
+                continue
+
+            # Run every ready slice in this wave in parallel
+            # (#2137 TASK-4-4 + decision-5: unbounded). The
+            # ``max_parallel_slices`` cap from ``iter_ready`` already
+            # bounds ``ready_batch`` so the executor's worker pool
+            # mirrors that cap. Each slice runs through the existing
+            # ``_run_concurrent_phase`` machinery in its own thread.
+            # Per-slice failure / completion events are recorded back
+            # on the scheduler from inside ``_run_one_slice`` so the
+            # cascade machinery sees the same wall-clock as the run
+            # loop.
+            try:
+                from orchestrator.peer_consensus import (
+                    remove_peer_consensus_tracker,
+                )
+            except ImportError:
+                from peer_consensus import (  # type: ignore[no-redef]
+                    remove_peer_consensus_tracker,
+                )
+
+            try:
+                from state_store import get_pipeline_state_lock
+            except ImportError:
+                from orchestrator.state_store import (  # type: ignore[no-redef]
+                    get_pipeline_state_lock,
+                )
+
+            def _run_one_slice(slice_id: str, parent_slice_id: str | None) -> tuple[int, str]:
+                # Resolve parent branch for stacking.
+                if parent_slice_id is None:
+                    parent_branch = pipeline_branch
+                else:
+                    parent_branch = f"{issue_branch}/{parent_slice_id}"
+                integration_branch = f"{issue_branch}/{slice_id}"
+
+                # Persist the parent-branch reference on the contract
+                # under the per-pipeline state lock so a concurrent
+                # tester / documenter contract write doesn't race with
+                # ours (reviewer_code v4 #5).
+                try:
+                    with get_pipeline_state_lock(pipeline_id):
+                        contract_local = load_contract(pipeline_id, worktree_repo_path)
+                        for s in contract_local.slices:
+                            if s.id == slice_id:
+                                s.parent_branch_at_creation = parent_branch
+                                break
+                        save_contract(contract_local, worktree_repo_path)
+                except Exception as save_err:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to persist parent_branch_at_creation",
+                        pipeline_id=pipeline_id,
+                        slice_id=slice_id,
+                        error=str(save_err),
+                    )
+
+                # #2137 TASK-4-2: create the slice integration branch
+                # on origin BEFORE spawning containers. Push
+                # ``parent_branch:refs/heads/integration_branch``
+                # through the existing per-agent push allowlist. Agents
+                # then push their commits directly to the slice's
+                # integration branch (``egg/issue-N/slice-M``) so the
+                # slice PR's diff is non-empty when ``gh pr create``
+                # runs. On failure, mark the slice failed so the
+                # cascade machinery can surface the missing-parent
+                # error to the operator instead of silently spawning
+                # agents that would push to a missing parent.
+                if pipeline.repo:
+                    try:
+                        branch_ok = bool(
+                            spawner.gateway.create_slice_integration_branch(
+                                pipeline_id,
+                                str(worktree_repo_path),
+                                integration_branch=integration_branch,
+                                parent_branch=parent_branch,
+                                agent_role="coder",
+                                mode=gateway_mode,  # type: ignore[arg-type]
+                            )
+                        )
+                    except Exception as branch_err:  # noqa: BLE001
+                        logger.error(
+                            "Slice integration branch creation raised",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            error=str(branch_err),
+                        )
+                        branch_ok = False
+                    if not branch_ok:
+                        logger.error(
+                            "Slice integration branch creation failed; "
+                            "marking slice failed (agents not spawned)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            parent_branch=parent_branch,
+                            integration_branch=integration_branch,
+                        )
+                        scheduler.record_failure(slice_id)
+                        return 1, (
+                            f"slice {slice_id}: integration branch "
+                            f"{integration_branch} could not be created from "
+                            f"{parent_branch}"
+                        )
+
+                logger.info(
+                    "Slice spawn",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    parent_branch=parent_branch,
+                    integration_branch=integration_branch,
+                )
+
+                exit_code_inner, logs_inner = _run_concurrent_phase(
+                    pipeline_id=pipeline_id,
+                    pipeline=pipeline,
+                    phase="implement",
+                    spawner=spawner,
+                    repo_volumes=repo_volumes,
+                    gateway_mode=gateway_mode,
+                    repos=repos,
+                    sandbox_env=sandbox_env,
+                    store=store,
+                    certs_volume=certs_volume,
+                    worktree_repo_path=worktree_repo_path,
+                    slice_id=slice_id,
+                )
+
+                if exit_code_inner != 0:
+                    scheduler.record_failure(slice_id)
+                    logger.warning(
+                        "Slice failed",
+                        pipeline_id=pipeline_id,
+                        slice_id=slice_id,
+                        exit_code=exit_code_inner,
+                    )
+                    return exit_code_inner, logs_inner
+
+                # Slice consensus reached — snapshot the slice's PR
+                # data under the per-pipeline state lock, then RELEASE
+                # the lock before the gateway HTTP round-trip so we
+                # don't serialise other contract writers for the
+                # gateway timeout (~30 s). The lock only needs to
+                # cover the contract read.
+                slice_pr_data: dict[str, Any] | None = None
+                try:
+                    with get_pipeline_state_lock(pipeline_id):
+                        contract_post = load_contract(pipeline_id, worktree_repo_path)
+                        slice_obj = next(
+                            (s for s in contract_post.slices if s.id == slice_id),
+                            None,
+                        )
+                        if slice_obj is not None and pipeline.repo:
+                            slice_pr_data = {
+                                "slice_name": slice_obj.name or slice_id,
+                                "slice_tasks": [
+                                    {"id": t.id, "description": t.description}
+                                    for t in (slice_obj.tasks or [])
+                                ],
+                            }
+                except Exception as load_err:  # noqa: BLE001
+                    logger.warning(
+                        "Slice PR pre-load failed (continuing)",
+                        pipeline_id=pipeline_id,
+                        slice_id=slice_id,
+                        error=str(load_err),
+                    )
+
+                pr_created = True
+                if slice_pr_data is not None and pipeline.repo:
+                    try:
+                        spawner.gateway.create_slice_pr(
+                            pipeline_id=pipeline_id,
+                            repo=pipeline.repo,
+                            slice_id=slice_id,
+                            slice_name=slice_pr_data["slice_name"],
+                            slice_tasks=slice_pr_data["slice_tasks"],
+                            head=integration_branch,
+                            base=parent_branch,
+                            issue_number=issue_number,
+                            agent_role="coder",
+                            mode=gateway_mode,  # type: ignore[arg-type]
+                        )
+                    except Exception as pr_err:  # noqa: BLE001
+                        logger.error(
+                            "Slice PR creation failed",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            error=str(pr_err),
+                        )
+                        pr_created = False
+
+                if not pr_created:
+                    scheduler.record_failure(slice_id)
+                    return 1, (
+                        f"slice {slice_id}: PR creation failed (head={integration_branch}, "
+                        f"base={parent_branch})"
+                    )
+
+                scheduler.record_complete(slice_id)
+                try:
+                    remove_peer_consensus_tracker(pipeline_id, slice_id)
+                except Exception:  # noqa: BLE001
+                    pass
+                return exit_code_inner, logs_inner
+
+            # Mark every slice in the batch as spawned BEFORE submitting
+            # them to the executor so a subsequent ``iter_ready`` from
+            # any other thread sees the in-flight count correctly.
+            for slice_id, _parent in ready_batch:
+                scheduler.mark_spawned(slice_id)
+
+            max_workers = max(1, len(ready_batch))
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max_workers,
+                thread_name_prefix=f"slice-wave-{pipeline_id}",
+            ) as wave_pool:
+                futures: dict[concurrent.futures.Future, str] = {}
+                for slice_id, parent_slice_id in ready_batch:
+                    fut = wave_pool.submit(_run_one_slice, slice_id, parent_slice_id)
+                    futures[fut] = slice_id
+
+                for fut in concurrent.futures.as_completed(futures):
+                    slice_id_done = futures[fut]
+                    try:
+                        exit_code, logs = fut.result()
+                    except Exception as exc:  # noqa: BLE001
+                        scheduler.record_failure(slice_id_done)
+                        exit_code = 1
+                        logs = f"slice {slice_id_done} raised: {exc!r}"
+                        logger.error(
+                            "Slice worker raised",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id_done,
+                            error=str(exc),
+                        )
+                    aggregate_logs.append(f"--- slice {slice_id_done} ---\n{logs}")
+                    if exit_code != 0:
+                        overall_exit = exit_code
+
+            # Drain cascades after each wave so descendants of a
+            # failed slice are visibly BLOCKED before the next
+            # iteration computes ready slices. Emit an
+            # OVERSEER_ALERT per cascade so the human operator sees
+            # the blocked subtree (#2137 TASK-3-4 emission path).
+            events = scheduler.poll_cascades()
+            for event in events:
+                logger.warning(
+                    "Slice cascade fired",
+                    pipeline_id=pipeline_id,
+                    failed_slice=event.failed_slice_id,
+                    blocked=event.blocked_subtree,
+                )
+                # Emit OVERSEER_ALERT directly through the in-process
+                # message store so the human operator's overseer
+                # surface picks up the cascade-block event (TASK-3-4
+                # emission path).
+                try:
+                    try:
+                        from message_store import Message, get_message_store
+                    except ImportError:
+                        from orchestrator.message_store import (  # type: ignore[no-redef]
+                            Message,
+                            get_message_store,
+                        )
+                    msg = Message(
+                        pipeline_id=pipeline_id,
+                        from_role="orchestrator",
+                        to_role="all",
+                        message_type="OVERSEER_ALERT",
+                        subject=f"slice-cascade-block: {event.failed_slice_id}",
+                        body=(
+                            f"Slice {event.failed_slice_id} failed; "
+                            f"downstream subtree {event.blocked_subtree} marked "
+                            "BLOCKED_ON_FAILED_DEPENDENCY (60 s grace expired). "
+                            "HITL resolution required to restart the failed slice."
+                        ),
+                        metadata={
+                            "anomaly": "slice-cascade-block",
+                            "priority": "high",
+                            "failed_slice_id": event.failed_slice_id,
+                            "blocked_subtree": list(event.blocked_subtree),
+                        },
+                        phase="implement",
+                    )
+                    get_message_store().add_message(msg)
+                except Exception:  # noqa: BLE001
+                    # Best-effort: the log line above is the
+                    # always-on fallback so the operator still sees
+                    # the cascade in the orchestrator log.
+                    pass
+    finally:
+        reconciler_stop.set()
+        try:
+            reconciler_thread.join(timeout=5.0)
+        except Exception:  # noqa: BLE001
+            pass
+
+    aggregated = "\n".join(aggregate_logs) if aggregate_logs else "Slice loop completed."
+    return overall_exit, aggregated
+
+
 def _run_concurrent_phase(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -9539,6 +10229,7 @@ def _run_concurrent_phase(
     certs_volume: str | None,
     worktree_repo_path: Path,
     review_feedback: str | None = None,
+    slice_id: str | None = None,
 ) -> tuple[int, str]:
     """Run a phase using concurrent all-agents-at-once execution.
 
@@ -9581,6 +10272,29 @@ def _run_concurrent_phase(
 
     phase_str = phase if isinstance(phase, str) else phase.value
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
+
+    # Slice-aware sandbox env (#2137 TASK-4-3): when running a per-slice
+    # team, override EGG_PIPELINE_ID with the nested ``{pipeline_id}/{slice_id}``
+    # form so agent CLIs send CONSENSUS_* messages keyed on the slice's
+    # tracker scope. The bare pipeline_id is preserved on the caller's
+    # ``sandbox_env`` so we mutate a shallow copy here.
+    #
+    # Trade-off (refine-phase decision-14 hybrid is partially honoured):
+    # the agent CLI uses the same env var for *every* outbound signal —
+    # CONSENSUS_*, HEARTBEAT, OVERSEER_ALERT — so HEARTBEAT and
+    # OVERSEER_ALERT also route to the slice-scoped tracker rather than
+    # the pipeline-scoped tracker. CONSENSUS_* isolation works as
+    # intended; cross-slice telemetry is per-slice today. A pipeline-
+    # level fan-out for OVERSEER_ALERT requires a CLI-side message-
+    # type-aware router and is tracked alongside the per-slice MCP
+    # control verbs in #2199. The orchestrator-side log line in
+    # ``_run_implement_phase_slices`` and the gateway broadcast on
+    # cascade provide the always-on fallback so a deadlocked
+    # downstream subtree is still surfaced to the operator.
+    if slice_id is not None:
+        sandbox_env = dict(sandbox_env)
+        sandbox_env["EGG_PIPELINE_ID"] = f"{pipeline_id}/{slice_id}"
+        sandbox_env["EGG_SLICE_ID"] = slice_id
 
     # Build per-role prompts for concurrent phase execution.
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
@@ -9677,6 +10391,7 @@ def _run_concurrent_phase(
         max_concurrent=max_concurrent,
         review_graph=filtered_graph,
         roles=roles,
+        slice_id=slice_id,
     )
 
     # Spawn all agents with their prompts.
@@ -9975,11 +10690,19 @@ def _run_concurrent_phase(
                 completed_container_ids: set[str] = set()
 
                 # Look up proposal commit SHAs from the BRC tracker so we can
-                # populate agent.commit (issue #1691).
+                # populate agent.commit (issue #1691). The lookup is slice-
+                # aware (#2137) — when ``slice_id`` is set the tracker key
+                # is the nested ``{pipeline_id}/{slice_id}`` form.
                 _brc = None
                 if _get_brc_tracker is not None:
                     try:
-                        _brc = _get_brc_tracker(pipeline_id)
+                        _brc = _get_brc_tracker(pipeline_id, slice_id)
+                    except TypeError:
+                        # Older tracker import-shim without slice_id support.
+                        try:
+                            _brc = _get_brc_tracker(pipeline_id)
+                        except Exception:
+                            pass
                     except Exception:
                         pass
 
@@ -10158,7 +10881,13 @@ def _run_concurrent_phase(
                         get_peer_consensus_tracker,  # type: ignore[no-redef]
                     )
 
-                _brc_tracker = get_peer_consensus_tracker(pipeline_id)
+                # Slice-aware tracker lookup (#2137): per-slice trackers
+                # are namespaced ``{pipeline_id}/{slice_id}`` so the
+                # stall-demotion check fires against the correct scope.
+                try:
+                    _brc_tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+                except TypeError:
+                    _brc_tracker = get_peer_consensus_tracker(pipeline_id)
                 if _brc_tracker is not None:
                     heartbeat_actions = _hm.check_heartbeats()
                     for hb_action in heartbeat_actions:
@@ -10468,6 +11197,7 @@ def _run_concurrent_phase(
                 consensus_timeout,
                 consensus.get("blocking_agents", []),
                 store,
+                slice_id=slice_id,
             )
 
             # Fall back: event-driven wait for remaining containers.
@@ -11095,6 +11825,20 @@ def _populate_contract_from_plan_safe(
     """
     try:
         _populate_contract_from_plan(repo_path, pipeline_id, pipeline_mode, issue_number)
+    except ForestValidationError as forest_err:
+        # Forest-validation rejection is the expected #2137 NACK
+        # path — log structurally so the discriminator shows up in
+        # operator audit, but don't propagate to the wrapper's
+        # caller (the populator already stashed the structured
+        # errors on contract.plan_review_feedback so the plan
+        # reviewer prompt can NACK the planner).
+        logger.warning(
+            "contract_phases_ingest_failed",
+            pipeline_id=pipeline_id,
+            reason="forest_violation",
+            source="safe_wrapper",
+            errors=forest_err.errors,
+        )
     except Exception as pop_err:
         logger.warning(
             "contract_phases_ingest_failed",
@@ -11181,11 +11925,64 @@ def _populate_contract_from_plan(
                 warning_context=warning.context,
             )
 
-        contract_phases = result.to_contract_phases()
+        contract_slices = result.to_contract_slices()
         changed = False
 
-        if contract_phases:
-            contract.phases = contract_phases
+        if contract_slices:
+            # Forest validation (#2137 TASK-2-2): the slice DAG must be
+            # a forest (every slice has ≤1 DAG parent). Multi-parent
+            # slices break the stacked-PR invariant and are rejected
+            # at ingestion so the plan reviewer NACKs the planner.
+            #
+            # ``parse_plan`` was already imported unconditionally above,
+            # so we don't guard ``validate_forest`` import — if the
+            # parser module is unavailable the populator has already
+            # failed; silently defaulting ``forest_errors = []`` would
+            # let a broken-import multi-parent contract slip past the
+            # gate (reviewer_code_holistic v2 finding #5).
+            from egg_contracts.plan_parser import validate_forest
+
+            forest_errors = validate_forest(contract_slices)
+
+            if forest_errors:
+                # Stash the structured errors onto the contract's
+                # ``plan_review_feedback`` so the plan reviewer's
+                # prompt picks them up and NACKs the planner with the
+                # error verbatim. The slices are NOT written to the
+                # contract — leaving ``contract.slices`` empty makes
+                # downstream phases visibly broken so the violation
+                # cannot silently leak through.
+                logger.warning(
+                    "contract_phases_ingest_failed",
+                    pipeline_id=pipeline_id,
+                    reason="forest_violation",
+                    errors=forest_errors,
+                )
+                feedback_lines = [
+                    "Plan ingestion REJECTED: the slice DAG is not a forest.",
+                    "",
+                    "Each slice must have at most one DAG parent. The "
+                    "implement phase ships every slice as a stacked PR with "
+                    "exactly one base branch — multi-parent slices break "
+                    "this invariant. Re-emit the plan with "
+                    "``serialized_chain_order`` populated on the downstream "
+                    "slice (see issue #2137 plan TASK-2-3 for the rule).",
+                    "",
+                    "Structured errors:",
+                ]
+                feedback_lines.extend(f"- {e}" for e in forest_errors)
+                contract.plan_review_feedback = "\n".join(feedback_lines)
+                save_contract(contract, repo_path)
+                # Raise a structured ForestValidationError so any
+                # caller running this in an HTTP context (e.g. a
+                # plan-ingestion API endpoint) can surface a 422 with
+                # the inlined errors. Internal callers
+                # (``_populate_contract_from_plan_safe`` and the
+                # pipeline run-loop) catch and log instead — the
+                # ``plan_review_feedback`` stash above is the durable
+                # signal the reviewer prompt picks up either way.
+                raise ForestValidationError("slice DAG is not a forest", errors=forest_errors)
+            contract.slices = contract_slices
             changed = True
 
         # Populate PR metadata from plan if available
@@ -11202,11 +11999,11 @@ def _populate_contract_from_plan(
 
         if changed:
             save_contract(contract, repo_path)
-            task_count = sum(len(p.tasks) for p in contract.phases)
+            task_count = sum(len(s.tasks) for s in contract.slices)
             logger.info(
                 "contract_phases_populated",
                 pipeline_id=pipeline_id,
-                phase_count=len(contract.phases),
+                phase_count=len(contract.slices),
                 task_count=task_count,
                 has_pr_metadata=contract.pr is not None,
             )
@@ -11221,6 +12018,12 @@ def _populate_contract_from_plan(
                 warning_count=len(result.warnings),
             )
 
+    except ForestValidationError:
+        # Re-raise so callers with HTTP context (or the safe wrapper)
+        # can surface the structured errors. The populator already
+        # stashed feedback on contract.plan_review_feedback before
+        # raising.
+        raise
     except Exception as e:
         logger.warning(
             "contract_phases_ingest_failed",
@@ -12891,21 +13694,59 @@ def _run_pipeline(
                         except Exception as e:
                             logger.debug("Failed to read hitl_feedback for phase", error=str(e))
 
+                    # #2137: route the implement phase through the slice
+                    # DAG iterator when the contract has more than one
+                    # slice. Single-slice and no-slice contracts continue
+                    # to use the legacy monolithic path so existing
+                    # pipelines are unaffected.
+                    _use_slice_loop = False
+                    if current_phase.value == "implement":
+                        try:
+                            from egg_contracts.loader import (
+                                load_contract as _load_contract_for_slice_check,
+                            )
+
+                            _check_contract = _load_contract_for_slice_check(
+                                pipeline_id, worktree_repo_path
+                            )
+                            _slice_count = len(getattr(_check_contract, "slices", []) or [])
+                            _use_slice_loop = _slice_count > 1
+                        except Exception as _slice_check_err:  # noqa: BLE001
+                            logger.debug(
+                                "Slice-loop gate: contract load failed, falling back to monolithic",
+                                pipeline_id=pipeline_id,
+                                error=str(_slice_check_err),
+                            )
+
                     try:
-                        exit_code, container_logs = _run_concurrent_phase(
-                            pipeline_id=pipeline_id,
-                            pipeline=pipeline,
-                            phase=current_phase,
-                            spawner=spawner,
-                            repo_volumes=repo_volumes,
-                            gateway_mode=gateway_mode,
-                            repos=repos,
-                            sandbox_env=sandbox_env,
-                            store=store,
-                            certs_volume=certs_volume,
-                            worktree_repo_path=worktree_repo_path,
-                            review_feedback=_phase_review_feedback,
-                        )
+                        if _use_slice_loop:
+                            exit_code, container_logs = _run_implement_phase_slices(
+                                pipeline_id=pipeline_id,
+                                pipeline=pipeline,
+                                spawner=spawner,
+                                repo_volumes=repo_volumes,
+                                gateway_mode=gateway_mode,
+                                repos=repos,
+                                sandbox_env=sandbox_env,
+                                store=store,
+                                certs_volume=certs_volume,
+                                worktree_repo_path=worktree_repo_path,
+                            )
+                        else:
+                            exit_code, container_logs = _run_concurrent_phase(
+                                pipeline_id=pipeline_id,
+                                pipeline=pipeline,
+                                phase=current_phase,
+                                spawner=spawner,
+                                repo_volumes=repo_volumes,
+                                gateway_mode=gateway_mode,
+                                repos=repos,
+                                sandbox_env=sandbox_env,
+                                store=store,
+                                certs_volume=certs_volume,
+                                worktree_repo_path=worktree_repo_path,
+                                review_feedback=_phase_review_feedback,
+                            )
                     except (ContainerSpawnError, KubernetesSpawnError) as e:
                         with get_pipeline_state_lock(pipeline_id):
                             pipeline = store.load_pipeline(pipeline_id)

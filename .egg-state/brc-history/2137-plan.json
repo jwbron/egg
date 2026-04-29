@@ -1,0 +1,2419 @@
+[
+  {
+    "id": "7bd566e9-0146-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-28T17:08:34.786515+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c6817ae4-1280-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:08:34.804756+00:00"
+    },
+    "timestamp": "2026-04-28T17:08:34.837933+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "89c821db-ee4a-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:08:34.804756+00:00"
+    },
+    "timestamp": "2026-04-28T17:09:35.045297+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4fedbb26-4037-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:08:34.804756+00:00"
+    },
+    "timestamp": "2026-04-28T17:10:35.171786+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cc893595-0083-4b",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:08:34.804756+00:00"
+    },
+    "timestamp": "2026-04-28T17:11:35.445666+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6f7e2574-5927-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:08:34.804756+00:00"
+    },
+    "timestamp": "2026-04-28T17:12:35.553078+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e6c7b9e6-cbb2-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:08:34.804756+00:00"
+    },
+    "timestamp": "2026-04-28T17:13:35.775001+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "35edf551-de6e-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:08:34.804756+00:00"
+    },
+    "timestamp": "2026-04-28T17:14:36.011430+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "63f99858-50e3-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:08:34.804756+00:00"
+    },
+    "timestamp": "2026-04-28T17:17:37.160657+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3769eab4-2e12-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Plan-phase architecture analysis for #2137 (Independent implement phases / slice scheduler). 10 components: (C1) Phase\u2192Slice schema rename with one-version migration validator; (C2) forest-constraint validation at plan ingestion; (C3) slice scheduler in the orchestrator run loop with two-tier max_cycles and 60s grace deadlock detection; (C4) per-slice agent team running the full post-#2152 implement roster; (C5) per-slice branches egg/issue-N/slice-M via create_phase_worktree (already in gateway, never wired); (C6) BRC tracker namespacing \u2014 hybrid: nested IDs for CONSENSUS_*, flat pipeline_id for HEARTBEAT/OVERSEER_ALERT; (C7) per-slice PR creation; (C8) planner-side auto-serialization with explicit serialized_chain_order field; (C9) stacked-PR rebase reconciler (GitHub auto-retarget primary + periodic reconciler for force-push edge cases); (C10) advisory slice-sizing guidance. 18 technical decisions cross-referenced (15 resolved, 3 obsoleted by revised issue text or #2152). 13 candidate tasks with dependency graph for task_planner. 11 risks for risk_analyst. AC mapping covers all 7 issue acceptance criteria. Codebase line numbers validated against current head (one minor drift: DependencyNode at 29 not 28; rest exact). Single-PR delivery scope: 1,500\u20132,500 LOC. Splits cleanly across orchestrator/, gateway/, shared/egg_contracts/, plan_parser, and agent prompts.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan-phase architecture analysis for #2137 (Independent implement phases / slice scheduler). 10 components: (C1) Phase\u2192Slice schema rename with one-version migration validator; (C2) forest-constraint validation at plan ingestion; (C3) slice scheduler in the orchestrator run loop with two-tier max_cycles and 60s grace deadlock detection; (C4) per-slice agent team running the full post-#2152 implement roster; (C5) per-slice branches egg/issue-N/slice-M via create_phase_worktree (already in gateway, never wired); (C6) BRC tracker namespacing \u2014 hybrid: nested IDs for CONSENSUS_*, flat pipeline_id for HEARTBEAT/OVERSEER_ALERT; (C7) per-slice PR creation; (C8) planner-side auto-serialization with explicit serialized_chain_order field; (C9) stacked-PR rebase reconciler (GitHub auto-retarget primary + periodic reconciler for force-push edge cases); (C10) advisory slice-sizing guidance. 18 technical decisions cross-referenced (15 resolved, 3 obsoleted by revised issue text or #2152). 13 candidate tasks with dependency graph for task_planner. 11 risks for risk_analyst. AC mapping covers all 7 issue acceptance criteria. Codebase line numbers validated against current head (one minor drift: DependencyNode at 29 not 28; rest exact). Single-PR delivery scope: 1,500\u20132,500 LOC. Splits cleanly across orchestrator/, gateway/, shared/egg_contracts/, plan_parser, and agent prompts.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2137-architect-output.json"
+        ],
+        "risk_considered": "Cross-slice architectural defects invisible to per-slice CRITICAL reviewers (explicit MVP risk acceptance per recommendation caveat 4); forest constraint may force unnatural serializations slowing the pipeline; BRC tracker namespacing is net-new and every existing tracker call site must be audited for tracker_id discipline; two-tier max_cycles introduces a pipeline-wide budget counter with off-by-one risk; 60s grace period is tunable; small-ticket slice overhead pays a fixed cost without compaction benefit; schema rename has wide reach (Pydantic + parser + plan template + docs + agent prompts); DependencyGraph generification may drift behavior for role-keyed callers if not type-narrowed; stacked-PR rebase has GitHub-native sharp edges (auto-retarget only via UI/gh pr merge); 5\u00d7 agent count multiplier on a 5-slice ticket; #2199 follow-up depends on slice-id-parameterized internal hooks #2137 must expose.",
+        "commit_sha": "986862a86923d29927fc6aab768d31493e794343",
+        "files_changed": [
+          ".egg-state/agent-outputs/2137-architect-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "986862a86923d29927fc6aab768d31493e794343"
+    },
+    "timestamp": "2026-04-28T17:18:14.988292+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "169bf814-c2f8-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:18:15.025986+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "86401aa1-794c-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:18:27.777798+00:00"
+    },
+    "timestamp": "2026-04-28T17:18:27.812870+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0fa214d8-cfeb-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:18:27.777798+00:00"
+    },
+    "timestamp": "2026-04-28T17:19:27.989554+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "aed0a081-7b0a-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "\nReviewed the architect output (419 lines) end-to-end and cross-referenced every cited file path / line number against the live codebase. Verified facts:\n\n- `Phase` model fields list at `models.py:189-216` matches (id, name, status, review_cycles, max_cycles, escalated, escalation_reason, tasks, dependencies, commit, review_feedback + validate_commit) \u2014 the architect's eleven-field claim is exact.\n- `Contract.phases: list[Phase]` at `models.py:478` confirmed.\n- `DependencyGraph` is hard-coded to `AgentRole` (DependencyNode.role/dependencies typed as AgentRole; nodes is `dict[AgentRole, DependencyNode]`); the architect's \"generify to accept arbitrary node IDs\" plan is correct and necessary.\n- `ParsedPhase.dependencies` is `str` at `plan_parser.py:106`; conversion in `to_contract_phase()` line 109 normalizes to `list[str]`. Architect's claim verified.\n- `PeerConsensusTracker` keyed exclusively on `pipeline_id`; module survey confirms zero `slice_id` references in `shared/`/`orchestrator/`/`gateway/` (the only \"slice\" hits are unrelated \u2014 `slice_limit` for string truncation and a deployment-batch-slicing comment). Net-new field as claimed.\n- `concurrent_executor.spawn_all` (266) does spawn all roles at once via ThreadPoolExecutor with no wave loop. Architect's \"single-wave dispatch today\" is accurate.\n- `gateway/worktree_manager.create_phase_worktree` (848) is dead code at runtime \u2014 only referenced from its definition + tests. Architect's \"natural fit, never wired in\" is correct.\n- `_populate_contract_from_plan_safe` at `pipelines.py:10832`, inner at 10860; `_run_pipeline` at 11443 \u2014 all confirmed.\n- Implement roster at `agent_roles.py:1110` (CODER/TESTER/DOCUMENTER) and 1116-1122 (5 reviewers) matches the post-#2152 set the architect assumes.\n\nArchitecture quality:\n- All 18 HITL decisions are mapped to selected options matching the contract resolutions.\n- Components C1\u2013C10 are well-scoped, each with file paths, decisions referenced, and key design notes.\n- Task graph T1\u2013T13 has explicit `depends_on` edges that respect schema-rename \u2192 graph-generification \u2192 scheduler ordering (T1 \u2192 T2 \u2192 T6).\n- Acceptance criteria AC1\u2013AC7 are individually mapped to specific components and tasks \u2014 useful for the task_planner downstream.\n- Risk summary (11 entries) hands off to risk_analyst with concrete items: cross-slice defects, forest-induced serialization latency, stacked-PR rebase edge cases, BRC tracker namespacing audit risk, two-tier max_cycles off-by-one, 60s grace tuning.\n- Honors single-PR delivery scope (1,500\u20132,500 LOC) per analysis caveat 7.\n- Honors decision-3/13 \"per-slice lens reviewers only \u2014 no cross-slice pass under any name\" \u2014 explicitly states the MVP risk acceptance and rejects re-introducing a synthetic merged-state review surface.\n- `serialized_chain_order` field added optionally to `Slice` (C8 + schema_changes) per decision-17.\n- Hybrid BRC namespacing (nested for CONSENSUS_*, flat for HEARTBEAT/OVERSEER_ALERT) per decision-14 is preserved end-to-end through the file list.\n\n### Non-blocking\n- **PR phase fate (open_questions[0])** \u2014 The architect openly defers whether the PR phase still runs once implement emits N stacked PRs. This is load-bearing for `_run_pipeline`'s phase iteration and for contract advancement logic. Suggest task_planner pin it during plan-phase: most natural answer per the issue's \"Each slice opens its own PR\" wording is that the PR phase becomes a no-op (or terminates the pipeline) when implement has already published per-slice PRs; alternative is a final summary PR phase that aggregates the stack into release notes / issue closure. Whichever way, it must be committed before the slice scheduler is implemented because `phase_order` iteration and the heartbeat-timeout config depend on it.\n- **C2 forest-validation NACK loop closure** \u2014 The plan reviewer ACKs/CONFIRMS the plan *before* `_populate_contract_from_plan` runs (ingestion happens during phase advancement, not consensus). The architect's \"raise structured error consumed by the existing plan reviewer NACK path\" needs a concrete mechanism: either the orchestrator emits CONSENSUS_RE_REVIEW after detecting the ingestion error to reopen plan consensus, or it rolls back the plan-phase CONFIRMED state and re-spawns the planner. Pin this in T3.\n- **C3 \"abort downstream\" semantics** \u2014 Decision-10's \"walk the DAG and abort downstream\" needs concrete definition. With stacked PRs, downstream slices that haven't spawned yet have no PR/branch/agent to \"abort\" \u2014 the action is \"mark them BLOCKED_ON_FAILED_DEPENDENCY in contract; do not spawn their agent teams.\" Spell this out so the implementer doesn't try to close phantom PRs.\n- **C7 PR-creation responsibility ambiguity** \u2014 Responsibility line says \"the orchestrator (or a small PR-helper inside the slice's coder workflow)\" but key_design_notes commits to \"PR creation happens at the orchestrator layer.\" Drop the parenthetical from the responsibility line so T8 has a single source of truth.\n- **C1 files_affected aggregation phrased as \"consider\"** \u2014 C8's auto-serialization heuristic depends on slice-level `files_affected`. C1 says \"consider adding `ParsedSlice.files_affected` aggregation\"; C8 references it as if present. Commit one way: aggregate at parse time (cheaper at runtime, larger contract) or derive on demand inside the planner's serialization logic (no schema change). Don't leave C8 dangling on a \"consider\" in C1.\n- **C3 per-slice retry counter location** \u2014 `Slice.review_cycles` (inherited unchanged from `Phase.review_cycles` line 195) is the natural location, and `Slice.max_cycles` already exists for the per-slice cap. Stating that explicitly in T6/T7 prevents the implementer from inventing parallel state. The new `Contract.pipeline_max_cycles` + `Contract.slice_cycles_used` for the pipeline-wide tier is correctly listed.\n- **C9 reconciler cadence open** \u2014 open_questions[1] flags 60-120s. Pin a default (60s sounds right; matches decision-10's grace period) so T9 has a concrete number.\n- **C6 brc-history path layout** \u2014 `.egg-state/brc-history/<pipeline_id>/<slice_id>-<phase>.json` is reasonable but breaks the existing flat layout (current files like `2137-refine.json`, `2137-refine.md`). Every reader of brc-history (the MCP `read_peer_artifact` tool, audit logging, debug tooling) needs to handle both layouts during the migration window. Worth an explicit T4 sub-task or risk_analyst flag.\n- **C8 planner reliance** \u2014 Auto-serialization is implemented as a planner prompt rule, which is prompt-following, not code enforcement. C2's ingestion-time forest validation is the safety net for prompt non-compliance. Good layering, but worth a unit test that ingestion still rejects multi-parent slices the planner failed to serialize.\n\nOverall: well-grounded, decision-aligned, scoped to single-PR delivery, with file paths verified. The non-blocking items above are downstream tightening \u2014 they don't undermine the architectural shape and should be picked up by task_planner / risk_analyst in their own outputs or in T3/T6/T7/T8/T9.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2137-architect-output.json",
+          ".egg-state/drafts/2137-analysis.md",
+          "shared/egg_contracts/models.py:189-216",
+          "shared/egg_contracts/dependency_graph.py",
+          "shared/egg_contracts/plan_parser.py:75-170",
+          "orchestrator/peer_consensus.py",
+          "orchestrator/concurrent_executor.py",
+          "gateway/worktree_manager.py",
+          "gateway/git_client.py",
+          "shared/egg_contracts/agent_roles.py:1108-1122"
+        ],
+        "reason": "\nReviewed the architect output (419 lines) end-to-end and cross-referenced every cited file path / line number against the live codebase. Verified facts:\n\n- `Phase` model fields list at `models.py:189-216` matches (id, name, status, review_cycles, max_cycles, escalated, escalation_reason, tasks, dependencies, commit, review_feedback + validate_commit) \u2014 the architect's eleven-field claim is exact.\n- `Contract.phases: list[Phase]` at `models.py:478` confirmed.\n- `DependencyGraph` is hard-coded to `AgentRole` (DependencyNode.role/dependencies typed as AgentRole; nodes is `dict[AgentRole, DependencyNode]`); the architect's \"generify to accept arbitrary node IDs\" plan is correct and necessary.\n- `ParsedPhase.dependencies` is `str` at `plan_parser.py:106`; conversion in `to_contract_phase()` line 109 normalizes to `list[str]`. Architect's claim verified.\n- `PeerConsensusTracker` keyed exclusively on `pipeline_id`; module survey confirms zero `slice_id` references in `shared/`/`orchestrator/`/`gateway/` (the only \"slice\" hits are unrelated \u2014 `slice_limit` for string truncation and a deployment-batch-slicing comment). Net-new field as claimed.\n- `concurrent_executor.spawn_all` (266) does spawn all roles at once via ThreadPoolExecutor with no wave loop. Architect's \"single-wave dispatch today\" is accurate.\n- `gateway/worktree_manager.create_phase_worktree` (848) is dead code at runtime \u2014 only referenced from its definition + tests. Architect's \"natural fit, never wired in\" is correct.\n- `_populate_contract_from_plan_safe` at `pipelines.py:10832`, inner at 10860; `_run_pipeline` at 11443 \u2014 all confirmed.\n- Implement roster at `agent_roles.py:1110` (CODER/TESTER/DOCUMENTER) and 1116-1122 (5 reviewers) matches the post-#2152 set the architect assumes.\n\nArchitecture quality:\n- All 18 HITL decisions are mapped to selected options matching the contract resolutions.\n- Components C1\u2013C10 are well-scoped, each with file paths, decisions referenced, and key design notes.\n- Task graph T1\u2013T13 has explicit `depends_on` edges that respect schema-rename \u2192 graph-generification \u2192 scheduler ordering (T1 \u2192 T2 \u2192 T6).\n- Acceptance criteria AC1\u2013AC7 are individually mapped to specific components and tasks \u2014 useful for the task_planner downstream.\n- Risk summary (11 entries) hands off to risk_analyst with concrete items: cross-slice defects, forest-induced serialization latency, stacked-PR rebase edge cases, BRC tracker namespacing audit risk, two-tier max_cycles off-by-one, 60s grace tuning.\n- Honors single-PR delivery scope (1,500\u20132,500 LOC) per analysis caveat 7.\n- Honors decision-3/13 \"per-slice lens reviewers only \u2014 no cross-slice pass under any name\" \u2014 explicitly states the MVP risk acceptance and rejects re-introducing a synthetic merged-state review surface.\n- `serialized_chain_order` field added optionally to `Slice` (C8 + schema_changes) per decision-17.\n- Hybrid BRC namespacing (nested for CONSENSUS_*, flat for HEARTBEAT/OVERSEER_ALERT) per decision-14 is preserved end-to-end through the file list.\n\n### Non-blocking\n- **PR phase fate (open_questions[0])** \u2014 The architect openly defers whether the PR phase still runs once implement emits N stacked PRs. This is load-bearing for `_run_pipeline`'s phase iteration and for contract advancement logic. Suggest task_planner pin it during plan-phase: most natural answer per the issue's \"Each slice opens its own PR\" wording is that the PR phase becomes a no-op (or terminates the pipeline) when implement has already published per-slice PRs; alternative is a final summary PR phase that aggregates the stack into release notes / issue closure. Whichever way, it must be committed before the slice scheduler is implemented because `phase_order` iteration and the heartbeat-timeout config depend on it.\n- **C2 forest-validation NACK loop closure** \u2014 The plan reviewer ACKs/CONFIRMS the plan *before* `_populate_contract_from_plan` runs (ingestion happens during phase advancement, not consensus). The architect's \"raise structured error consumed by the existing plan reviewer NACK path\" needs a concrete mechanism: either the orchestrator emits CONSENSUS_RE_REVIEW after detecting the ingestion error to reopen plan consensus, or it rolls back the plan-phase CONFIRMED state and re-spawns the planner. Pin this in T3.\n- **C3 \"abort downstream\" semantics** \u2014 Decision-10's \"walk the DAG and abort downstream\" needs concrete definition. With stacked PRs, downstream slices that haven't spawned yet have no PR/branch/agent to \"abort\" \u2014 the action is \"mark them BLOCKED_ON_FAILED_DEPENDENCY in contract; do not spawn their agent teams.\" Spell this out so the implementer doesn't try to close phantom PRs.\n- **C7 PR-creation responsibility ambiguity** \u2014 Responsibility line says \"the orchestrator (or a small PR-helper inside the slice's coder workflow)\" but key_design_notes commits to \"PR creation happens at the orchestrator layer.\" Drop the parenthetical from the responsibility line so T8 has a single source of truth.\n- **C1 files_affected aggregation phrased as \"consider\"** \u2014 C8's auto-serialization heuristic depends on slice-level `files_affected`. C1 says \"consider adding `ParsedSlice.files_affected` aggregation\"; C8 references it as if present. Commit one way: aggregate at parse time (cheaper at runtime, larger contract) or derive on demand inside the planner's serialization logic (no schema change). Don't leave C8 dangling on a \"consider\" in C1.\n- **C3 per-slice retry counter location** \u2014 `Slice.review_cycles` (inherited unchanged from `Phase.review_cycles` line 195) is the natural location, and `Slice.max_cycles` already exists for the per-slice cap. Stating that explicitly in T6/T7 prevents the implementer from inventing parallel state. The new `Contract.pipeline_max_cycles` + `Contract.slice_cycles_used` for the pipeline-wide tier is correctly listed.\n- **C9 reconciler cadence open** \u2014 open_questions[1] flags 60-120s. Pin a default (60s sounds right; matches decision-10's grace period) so T9 has a concrete number.\n- **C6 brc-history path layout** \u2014 `.egg-state/brc-history/<pipeline_id>/<slice_id>-<phase>.json` is reasonable but breaks the existing flat layout (current files like `2137-refine.json`, `2137-refine.md`). Every reader of brc-history (the MCP `read_peer_artifact` tool, audit logging, debug tooling) needs to handle both layouts during the migration window. Worth an explicit T4 sub-task or risk_analyst flag.\n- **C8 planner reliance** \u2014 Auto-serialization is implemented as a planner prompt rule, which is prompt-following, not code enforcement. C2's ingestion-time forest validation is the safety net for prompt non-compliance. Good layering, but worth a unit test that ingestion still rejects multi-parent slices the planner failed to serialize.\n\nOverall: well-grounded, decision-aligned, scoped to single-PR delivery, with file paths verified. The non-blocking items above are downstream tightening \u2014 they don't undermine the architectural shape and should be picked up by task_planner / risk_analyst in their own outputs or in T3/T6/T7/T8/T9.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-28T17:20:24.695992+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "991f1d2b-dd03-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:20:24.748691+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "80602f55-b3b1-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:20:30.159482+00:00"
+    },
+    "timestamp": "2026-04-28T17:20:30.219852+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ba5ce86c-e01b-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner', 'risk_analyst'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-28T17:20:35.629280+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "aed276e9-8229-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:20:35.795133+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "739872ce-c255-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:20:39.483459+00:00"
+    },
+    "timestamp": "2026-04-28T17:20:39.903430+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e08d6809-418a-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,CONSENSUS_PROPOSE,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:20:49.770588+00:00"
+    },
+    "timestamp": "2026-04-28T17:20:49.902293+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1917670b-1755-49",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:20:50.015418+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "01f4ca27-03bd-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:20:53.724459+00:00"
+    },
+    "timestamp": "2026-04-28T17:20:53.789471+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5f24d29e-5e0f-49",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan for #2137 (slice implement phase into DAG): 5 phases / 23 tasks decomposing the refine-resolved design into a single-PR implementation. Phase 1 schema rename (Phase\u2192Slice) with load-time migration; Phase 2 plan parser + forest validation at ingestion (rejects multi-parent slices with HTTP 422); Phase 3 DependencyGraph generification + SliceScheduler with two-tier max_cycles (local 3 / global 10) and 60s-grace cascade detection; Phase 4 slice-aware branch naming, nested-pipeline_id BRC trackers for CONSENSUS_* (unscoped pipeline_id retained for HEARTBEAT/OVERSEER_ALERT per decision-14), full implement roster per slice; Phase 5 stacked-PR creation (root\u2192pipeline branch; child\u2192parent slice branch), 30s rebase reconciler using new restricted gateway/git_client.rebase_onto endpoint, end-to-end integration test, docs. Honours all 18 HITL refinements (rename + migration; forest constraint at ingestion; planner-emitted serialized_chain_order; identical roster per slice; per-slice lenses ADVISORY; egg/issue-N/slice-M slash-separated branches; unbounded concurrency with max_parallel_slices=5 default; stacked PRs with no orchestrator merge endpoint; hybrid auto-retarget+reconciler; two-tier max_cycles; 60s grace before subtree block; 1:1 phase\u2192slice task mapping). Cross-references the architect's 10-component analysis (commit 986862a86).",
+    "metadata": {
+      "payload": {
+        "summary": "Plan for #2137 (slice implement phase into DAG): 5 phases / 23 tasks decomposing the refine-resolved design into a single-PR implementation. Phase 1 schema rename (Phase\u2192Slice) with load-time migration; Phase 2 plan parser + forest validation at ingestion (rejects multi-parent slices with HTTP 422); Phase 3 DependencyGraph generification + SliceScheduler with two-tier max_cycles (local 3 / global 10) and 60s-grace cascade detection; Phase 4 slice-aware branch naming, nested-pipeline_id BRC trackers for CONSENSUS_* (unscoped pipeline_id retained for HEARTBEAT/OVERSEER_ALERT per decision-14), full implement roster per slice; Phase 5 stacked-PR creation (root\u2192pipeline branch; child\u2192parent slice branch), 30s rebase reconciler using new restricted gateway/git_client.rebase_onto endpoint, end-to-end integration test, docs. Honours all 18 HITL refinements (rename + migration; forest constraint at ingestion; planner-emitted serialized_chain_order; identical roster per slice; per-slice lenses ADVISORY; egg/issue-N/slice-M slash-separated branches; unbounded concurrency with max_parallel_slices=5 default; stacked PRs with no orchestrator merge endpoint; hybrid auto-retarget+reconciler; two-tier max_cycles; 60s grace before subtree block; 1:1 phase\u2192slice task mapping). Cross-references the architect's 10-component analysis (commit 986862a86).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2137-plan.md"
+        ],
+        "risk_considered": "Schema migration breaking legacy contracts (mitigated by load-time shim + snapshot tests over real .egg-state/contracts/*.json); per-slice tracker overhead at slice count >10 (mitigated by stateless design and refine-phase Q1 worst-case 10\u201315); stacked-PR fragility from GitHub auto-retarget edge cases (mitigated by 30s reconciler fallback); coordinated cascade failure (mitigated by 60s grace + bounded subtree walk and sibling-continues invariant tested).",
+        "commit_sha": "03b02f591",
+        "files_changed": [
+          ".egg-state/drafts/2137-plan.md"
+        ],
+        "tests_run": [
+          "plan_parser_yaml_block_smoke (manual: python3 yaml.safe_load round-trip on the appendix \u2014 passes; 5 phases, 23 tasks, all roles valid)"
+        ],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-3-4",
+          "TASK-3-5",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-4-3",
+          "TASK-4-4",
+          "TASK-4-5",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-5-4",
+          "TASK-5-5"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "03b02f591"
+    },
+    "timestamp": "2026-04-28T17:20:56.868854+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1da825ce-d31b-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:20:57.001446+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b1b60e90-188a-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:20:57.009925+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4b717659-274a-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:21:02.440864+00:00"
+    },
+    "timestamp": "2026-04-28T17:21:02.471302+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "142f5a94-e992-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: PROPOSED",
+    "body": "Proposal version 1 sent at commit 03b02f591. Waiting for reviewer_plan ACK/NACK.",
+    "metadata": {
+      "state": "PROPOSED"
+    },
+    "timestamp": "2026-04-28T17:21:06.283172+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "24d27c8e-d442-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:21:10.142343+00:00"
+    },
+    "timestamp": "2026-04-28T17:21:10.204264+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "383b85c6-746c-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:21:10.326830+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6cbfab4f-c338-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:21:13.484181+00:00"
+    },
+    "timestamp": "2026-04-28T17:21:13.535022+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fcb590b5-8538-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:21:02.440864+00:00"
+    },
+    "timestamp": "2026-04-28T17:22:02.610252+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c9836c70-4666-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:21:13.484181+00:00"
+    },
+    "timestamp": "2026-04-28T17:22:13.748017+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0b5d2198-b625-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:21:02.440864+00:00"
+    },
+    "timestamp": "2026-04-28T17:23:02.821586+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "94815469-f902-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:21:13.484181+00:00"
+    },
+    "timestamp": "2026-04-28T17:23:13.898202+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7e19e218-dd52-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "BRC confirmation timeout \u2014 call mcp__brc__confirm",
+    "body": "You are PROPOSED and fully ACKed but have not confirmed in 180s. Call `mcp__brc__confirm` now. If it returns `status='pending_acks'`, read `message` for the guard reason and wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a producer hasn't proposed (`zero_proposal_producers`), `CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is stale or unresolved. Then retry confirm.",
+    "metadata": {
+      "alert_type": "brc_confirmation_timeout",
+      "elapsed_seconds": 180,
+      "source": "health_monitor"
+    },
+    "timestamp": "2026-04-28T17:23:53.475641+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "707f0663-e09e-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:23:53.785944+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "60f06075-3bd3-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:24:01.668642+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d885c34f-8740-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "\nReviewed the plan draft (775 lines) section-by-section against the analysis, architect output, and live code (`review_graph.py`, `routes/pipelines.py`, `routes/phases.py`). Most of the plan is solid and decision-aligned, but several blocking errors will cause the implement phase to ship incorrect or unbuildable code. Fix list:\n\n### Blocking\n\n1. **Lens criticality misstated as ADVISORY** \u2014 Lines 38-39 and 67-68 of the plan claim `reviewer_security` and `reviewer_concurrency` are \"still ADVISORY (promotion to CRITICAL is deferred to #1997)\". This is factually wrong. `orchestrator/review_graph.py:225-226` documents them as CRITICAL lens reviewers and lines 254-260 register them with `ReviewCriticality.CRITICAL`. The docstring at lines 228-231 explicitly says \"Issue #2139 promoted `reviewer_security` and `reviewer_concurrency` from ADVISORY to CRITICAL: a NACK from either lens now blocks consensus until the producer re-proposes, closing #1997.\" The analysis (lines 39-41 of `2137-analysis.md`) and the architect output (`criticality_table` field, citing review_graph.py:215-262) both correctly state CRITICAL. **Fix**: in the plan's \"Design Decisions Locked In Refine\" \u2192 \"Per-slice BRC roster\" bullet (lines 36-39), upgrade `reviewer_security` and `reviewer_concurrency` to CRITICAL; in \"Lens scope\" bullet (lines 67-68), drop the \"lenses still ADVISORY \u2014 promotion to CRITICAL is deferred to #1997\" parenthetical and replace with \"lenses are CRITICAL post-#2139\". Verify TASK-4-4's roster description matches the corrected criticality.\n\n2. **TASK-2-2 wrong file for `_populate_contract_from_plan`** \u2014 TASK-2-2 (lines 422-442) lists `orchestrator/routes/phases.py` as the file containing `_populate_contract_from_plan`. The function lives in `orchestrator/routes/pipelines.py:10860` (and the safe-wrapper at `pipelines.py:10832`). `phases.py` only contains call sites (lines 429, 434, 1002, 1004). The architect output cites `pipelines.py` correctly. **Fix**: replace `orchestrator/routes/phases.py` with `orchestrator/routes/pipelines.py` in TASK-2-2's `files:` list. The implementer following the wrong path will fail to find the function.\n\n3. **No task updates the planner prompt for auto-serialization or slice-sizing guidance** \u2014 Decisions 6 (slice sizing \u2014 soft guidance + advisory warning) and 17 (auto-serialization \u2014 planner emits explicit `serialized_chain_order`) both require changes to `shared/agent_prompts/planner/*` (or wherever the planner prompt lives). The architect explicitly listed this as components C8 and C10 in the architect output. The plan parses `serialized_chain_order` in TASK-2-1 and validates it in TASK-2-4, but **no task teaches the planner to emit it**, no task adds the slice-sizing paragraph to the planner prompt, and no task adds the `files_affected` clustering heuristic as a fallback rule. Without this, the planner will not produce the field the parser is designed to consume \u2014 the feature is half-wired. **Fix**: add a new task in Phase 2 (or split into Phase 2 sub-tasks) covering `shared/agent_prompts/planner/*.md` updates for: (a) sizing guidance \"slices should target \u22641,000 LOC where possible\"; (b) auto-serialization rules including the `files_affected` Jaccard >0.3 + descending fan-out heuristic as fallback when the planner doesn't supply explicit ordering; (c) emit `serialized_chain_order: list[str]` on each slice cluster. Also add the corresponding `shared/agent_prompts/reviewer_plan/*.md` advisory-warning lint that surfaces (but does not NACK) slices estimated >1,000 LOC, per architect C10.\n\n4. **`pr_metadata` field referenced in TASK-5-1 with no schema definition task** \u2014 TASK-5-1 (line 686) says \"Title and body come from the per-slice `pr_metadata` field on the contract (the planner emits this; the implement phase fills any gaps).\" There is no task in Phase 1 that adds a `pr_metadata` field to the `Slice` model, no task in Phase 2 that updates the parser to emit it, and no task that teaches the planner to populate it. The reference is dangling. **Fix**: either (a) add the field formally \u2014 Phase 1 schema rename adds `Slice.pr_metadata: PRMetadata | None`, Phase 2 parser parses it, planner-prompt task (per fix 3) instructs the planner to emit a sane default; or (b) drop the reference and have TASK-5-1 derive title/body from `slice.name` + `slice.tasks[*].description` aggregation deterministically. Option (b) is simpler and avoids a schema field for what is essentially a label.\n\n5. **Reconciler-rebase needs a recorded \"former base\" anchor that no task creates** \u2014 TASK-5-3 (lines 720-723) says the reconciler \"computes the intended new base (the parent's former base, recorded on the contract when the slice was created)\". No task records the former-base on the contract. Without this state, the reconciler can't reconstruct the rebase target after a parent PR merges and its branch is deleted. **Fix**: either (a) add a `Slice.parent_branch_at_creation: str | None` field in the Phase 1 schema work and populate it in TASK-4-2 when the integration branch is created; or (b) infer the new base from `slice.dependencies[0]`'s parent's branch chain at reconciler time. Option (a) is more robust. Whichever you pick, add a sub-task or extend TASK-4-2 to record the value, and extend TASK-5-3's acceptance criteria to include the round-trip.\n\n6. **`/git/rebase-onto` privileged-orchestrator endpoint reintroduces a tier decision-15 explicitly killed** \u2014 TASK-5-2 (lines 700-703) introduces a new gateway endpoint \"guarded by a privileged `orchestrator`-role allowlist (the only caller is the orchestrator's reconciler)\". Decision-15 was resolved as \"moot \u2014 no merge endpoint per revised issue text (slices stack via PRs through normal GitHub review/merge flow; the orchestrator never calls a privileged merge endpoint)\". A privileged rebase-onto endpoint is in the same authorization category \u2014 a new privileged identity tier the gateway has never had. The architect output (component C9) said \"potentially new rebase-onto helper if reconciler picks an explicit rebase path; **leverages existing rebase allowlist**\" \u2014 i.e., reuse the existing per-agent rebase allowlist rather than introducing a new privileged caller. **Fix**: either (a) drop the privileged-orchestrator-role concept and route the rebase through the existing agent gateway allowlist (the reconciler can authenticate as a low-privilege agent that only has rebase capability); or (b) explicitly raise a new HITL decision asking whether to introduce a privileged orchestrator identity for rebase-onto, since this exceeds the refine-phase scope. Option (a) is cheaper and avoids reopening refine.\n\n### Non-blocking\n\n- **Reconciler cadence default 30s** \u2014 TASK-5-3 picks 30s; architect open question floated 60-120s; no strong signal which is right. 30s gives faster recovery from edge cases at modest polling cost; fine, but pin in docs (TASK-5-5).\n- **TASK-1-1 is dense** \u2014 bundles class rename, id-pattern change, Contract field rename, PhaseStatus\u2192SliceStatus, plus all in-package references. Likely 200-300 LOC alone; consider splitting `PhaseStatus`\u2192`SliceStatus` into its own sub-task to keep diffs reviewable.\n- **PR phase fate not addressed** \u2014 Architect open_questions[0] flagged whether the PR phase still runs after implement emits N stacked PRs. The plan doesn't address this. Suggest adding a task or a \"deferred to follow-up\" line item, otherwise the implementer will hit it cold.\n- **#2199 follow-up hooks not explicitly tasked** \u2014 Architect's task T13 (\"expose internal slice-addressable hooks so #2199 can wrap as `restart_slice`/`get_slice_status`/`list_slices`\") is only implicit in TASK-3-2 (the scheduler taking a slice_id parameter). Add a one-line acceptance criterion to TASK-3-2: \"Scheduler exposes `teardown_slice(slice_id)`, `respawn_slice(slice_id)`, and `get_slice_status(slice_id)` as public helpers so #2199 can wrap them without refactoring.\"\n- **TASK-1-2 `_legacy_phases` audit field** \u2014 undertested; the round-trip test at TASK-1-4 only checks `Contract.from_dict(...).model_dump()` produces `slices[]` shape \u2014 doesn't assert `_legacy_phases` is preserved or cleared correctly. Add an explicit assertion.\n- **TASK-3-3 new env vars** \u2014 `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` and `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` are new; ensure TASK-5-5 documents them.\n- **Plan's own yaml-tasks uses `phases:`** \u2014 correct call (parser doesn't accept `slices:` yet until TASK-2-1 lands), but worth a comment in TASK-2-1's description that \"future plans should use `slices:` once this task ships\".\n- **`max_parallel_slices` cap default of 5** is set at the config layer per the plan overview (line 51-52), but no task names the env var or a config constant. Pin it in TASK-3-2 (default 5, env var `EGG_ORCH_MAX_PARALLEL_SLICES`) and document in TASK-5-5.\n- **TASK-4-3 doesn't explicitly mention `get_peer_consensus_tracker`/`remove_peer_consensus_tracker` module singletons** at `peer_consensus.py:1744`/`1761`. Threading `slice_id` through `__init__` (line 90) is necessary but not sufficient \u2014 the module-singleton lookup keys must also accept the nested ID. Add an acceptance bullet covering both call sites.\n- **TASK-5-1 acceptance criteria do not specify integration-test coverage** for the actual `gh pr create` invocation. Most of the test plan is unit-level; add an integration-level acceptance for the PR creation against the fake gateway.\n\nOnce the six blocking items are addressed (and the non-blocking ones at your discretion), this plan will be ready to ship \u2014 the underlying decomposition into 5 phases / 22 tasks is well-scoped, dependency ordering is sound (1\u21922\u21923\u21924\u21925), and the test strategy is appropriate. Re-propose with the corrections above and I'll re-review.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\nReviewed the plan draft (775 lines) section-by-section against the analysis, architect output, and live code (`review_graph.py`, `routes/pipelines.py`, `routes/phases.py`). Most of the plan is solid and decision-aligned, but several blocking errors will cause the implement phase to ship incorrect or unbuildable code. Fix list:\n\n### Blocking\n\n1. **Lens criticality misstated as ADVISORY** \u2014 Lines 38-39 and 67-68 of the plan claim `reviewer_security` and `reviewer_concurrency` are \"still ADVISORY (promotion to CRITICAL is deferred to #1997)\". This is factually wrong. `orchestrator/review_graph.py:225-226` documents them as CRITICAL lens reviewers and lines 254-260 register them with `ReviewCriticality.CRITICAL`. The docstring at lines 228-231 explicitly says \"Issue #2139 promoted `reviewer_security` and `reviewer_concurrency` from ADVISORY to CRITICAL: a NACK from either lens now blocks consensus until the producer re-proposes, closing #1997.\" The analysis (lines 39-41 of `2137-analysis.md`) and the architect output (`criticality_table` field, citing review_graph.py:215-262) both correctly state CRITICAL. **Fix**: in the plan's \"Design Decisions Locked In Refine\" \u2192 \"Per-slice BRC roster\" bullet (lines 36-39), upgrade `reviewer_security` and `reviewer_concurrency` to CRITICAL; in \"Lens scope\" bullet (lines 67-68), drop the \"lenses still ADVISORY \u2014 promotion to CRITICAL is deferred to #1997\" parenthetical and replace with \"lenses are CRITICAL post-#2139\". Verify TASK-4-4's roster description matches the corrected criticality.\n\n2. **TASK-2-2 wrong file for `_populate_contract_from_plan`** \u2014 TASK-2-2 (lines 422-442) lists `orchestrator/routes/phases.py` as the file containing `_populate_contract_from_plan`. The function lives in `orchestrator/routes/pipelines.py:10860` (and the safe-wrapper at `pipelines.py:10832`). `phases.py` only contains call sites (lines 429, 434, 1002, 1004). The architect output cites `pipelines.py` correctly. **Fix**: replace `orchestrator/routes/phases.py` with `orchestrator/routes/pipelines.py` in TASK-2-2's `files:` list. The implementer following the wrong path will fail to find the function.\n\n3. **No task updates the planner prompt for auto-serialization or slice-sizing guidance** \u2014 Decisions 6 (slice sizing \u2014 soft guidance + advisory warning) and 17 (auto-serialization \u2014 planner emits explicit `serialized_chain_order`) both require changes to `shared/agent_prompts/planner/*` (or wherever the planner prompt lives). The architect explicitly listed this as components C8 and C10 in the architect output. The plan parses `serialized_chain_order` in TASK-2-1 and validates it in TASK-2-4, but **no task teaches the planner to emit it**, no task adds the slice-sizing paragraph to the planner prompt, and no task adds the `files_affected` clustering heuristic as a fallback rule. Without this, the planner will not produce the field the parser is designed to consume \u2014 the feature is half-wired. **Fix**: add a new task in Phase 2 (or split into Phase 2 sub-tasks) covering `shared/agent_prompts/planner/*.md` updates for: (a) sizing guidance \"slices should target \u22641,000 LOC where possible\"; (b) auto-serialization rules including the `files_affected` Jaccard >0.3 + descending fan-out heuristic as fallback when the planner doesn't supply explicit ordering; (c) emit `serialized_chain_order: list[str]` on each slice cluster. Also add the corresponding `shared/agent_prompts/reviewer_plan/*.md` advisory-warning lint that surfaces (but does not NACK) slices estimated >1,000 LOC, per architect C10.\n\n4. **`pr_metadata` field referenced in TASK-5-1 with no schema definition task** \u2014 TASK-5-1 (line 686) says \"Title and body come from the per-slice `pr_metadata` field on the contract (the planner emits this; the implement phase fills any gaps).\" There is no task in Phase 1 that adds a `pr_metadata` field to the `Slice` model, no task in Phase 2 that updates the parser to emit it, and no task that teaches the planner to populate it. The reference is dangling. **Fix**: either (a) add the field formally \u2014 Phase 1 schema rename adds `Slice.pr_metadata: PRMetadata | None`, Phase 2 parser parses it, planner-prompt task (per fix 3) instructs the planner to emit a sane default; or (b) drop the reference and have TASK-5-1 derive title/body from `slice.name` + `slice.tasks[*].description` aggregation deterministically. Option (b) is simpler and avoids a schema field for what is essentially a label.\n\n5. **Reconciler-rebase needs a recorded \"former base\" anchor that no task creates** \u2014 TASK-5-3 (lines 720-723) says the reconciler \"computes the intended new base (the parent's former base, recorded on the contract when the slice was created)\". No task records the former-base on the contract. Without this state, the reconciler can't reconstruct the rebase target after a parent PR merges and its branch is deleted. **Fix**: either (a) add a `Slice.parent_branch_at_creation: str | None` field in the Phase 1 schema work and populate it in TASK-4-2 when the integration branch is created; or (b) infer the new base from `slice.dependencies[0]`'s parent's branch chain at reconciler time. Option (a) is more robust. Whichever you pick, add a sub-task or extend TASK-4-2 to record the value, and extend TASK-5-3's acceptance criteria to include the round-trip.\n\n6. **`/git/rebase-onto` privileged-orchestrator endpoint reintroduces a tier decision-15 explicitly killed** \u2014 TASK-5-2 (lines 700-703) introduces a new gateway endpoint \"guarded by a privileged `orchestrator`-role allowlist (the only caller is the orchestrator's reconciler)\". Decision-15 was resolved as \"moot \u2014 no merge endpoint per revised issue text (slices stack via PRs through normal GitHub review/merge flow; the orchestrator never calls a privileged merge endpoint)\". A privileged rebase-onto endpoint is in the same authorization category \u2014 a new privileged identity tier the gateway has never had. The architect output (component C9) said \"potentially new rebase-onto helper if reconciler picks an explicit rebase path; **leverages existing rebase allowlist**\" \u2014 i.e., reuse the existing per-agent rebase allowlist rather than introducing a new privileged caller. **Fix**: either (a) drop the privileged-orchestrator-role concept and route the rebase through the existing agent gateway allowlist (the reconciler can authenticate as a low-privilege agent that only has rebase capability); or (b) explicitly raise a new HITL decision asking whether to introduce a privileged orchestrator identity for rebase-onto, since this exceeds the refine-phase scope. Option (a) is cheaper and avoids reopening refine.\n\n### Non-blocking\n\n- **Reconciler cadence default 30s** \u2014 TASK-5-3 picks 30s; architect open question floated 60-120s; no strong signal which is right. 30s gives faster recovery from edge cases at modest polling cost; fine, but pin in docs (TASK-5-5).\n- **TASK-1-1 is dense** \u2014 bundles class rename, id-pattern change, Contract field rename, PhaseStatus\u2192SliceStatus, plus all in-package references. Likely 200-300 LOC alone; consider splitting `PhaseStatus`\u2192`SliceStatus` into its own sub-task to keep diffs reviewable.\n- **PR phase fate not addressed** \u2014 Architect open_questions[0] flagged whether the PR phase still runs after implement emits N stacked PRs. The plan doesn't address this. Suggest adding a task or a \"deferred to follow-up\" line item, otherwise the implementer will hit it cold.\n- **#2199 follow-up hooks not explicitly tasked** \u2014 Architect's task T13 (\"expose internal slice-addressable hooks so #2199 can wrap as `restart_slice`/`get_slice_status`/`list_slices`\") is only implicit in TASK-3-2 (the scheduler taking a slice_id parameter). Add a one-line acceptance criterion to TASK-3-2: \"Scheduler exposes `teardown_slice(slice_id)`, `respawn_slice(slice_id)`, and `get_slice_status(slice_id)` as public helpers so #2199 can wrap them without refactoring.\"\n- **TASK-1-2 `_legacy_phases` audit field** \u2014 undertested; the round-trip test at TASK-1-4 only checks `Contract.from_dict(...).model_dump()` produces `slices[]` shape \u2014 doesn't assert `_legacy_phases` is preserved or cleared correctly. Add an explicit assertion.\n- **TASK-3-3 new env vars** \u2014 `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` and `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` are new; ensure TASK-5-5 documents them.\n- **Plan's own yaml-tasks uses `phases:`** \u2014 correct call (parser doesn't accept `slices:` yet until TASK-2-1 lands), but worth a comment in TASK-2-1's description that \"future plans should use `slices:` once this task ships\".\n- **`max_parallel_slices` cap default of 5** is set at the config layer per the plan overview (line 51-52), but no task names the env var or a config constant. Pin it in TASK-3-2 (default 5, env var `EGG_ORCH_MAX_PARALLEL_SLICES`) and document in TASK-5-5.\n- **TASK-4-3 doesn't explicitly mention `get_peer_consensus_tracker`/`remove_peer_consensus_tracker` module singletons** at `peer_consensus.py:1744`/`1761`. Threading `slice_id` through `__init__` (line 90) is necessary but not sufficient \u2014 the module-singleton lookup keys must also accept the nested ID. Add an acceptance bullet covering both call sites.\n- **TASK-5-1 acceptance criteria do not specify integration-test coverage** for the actual `gh pr create` invocation. Most of the test plan is unit-level; add an integration-level acceptance for the PR creation against the fake gateway.\n\nOnce the six blocking items are addressed (and the non-blocking ones at your discretion), this plan will be ready to ship \u2014 the underlying decomposition into 5 phases / 22 tasks is well-scoped, dependency ordering is sound (1\u21922\u21923\u21924\u21925), and the test strategy is appropriate. Re-propose with the corrections above and I'll re-review.\n",
+        "artifact_references": [
+          ".egg-state/drafts/2137-plan.md",
+          ".egg-state/agent-outputs/2137-architect-output.json",
+          ".egg-state/drafts/2137-analysis.md",
+          "orchestrator/review_graph.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/routes/phases.py",
+          "shared/egg_contracts/agent_roles.py"
+        ],
+        "nack_version": 1
+      },
+      "reason": "\nReviewed the plan draft (775 lines) section-by-section against the analysis, architect output, and live code (`review_graph.py`, `routes/pipelines.py`, `routes/phases.py`). Most of the plan is solid and decision-aligned, but several blocking errors will cause the implement phase to ship incorrect or unbuildable code. Fix list:\n\n### Blocking\n\n1. **Lens criticality misstated as ADVISORY** \u2014 Lines 38-39 and 67-68 of the plan claim `reviewer_security` and `reviewer_concurrency` are \"still ADVISORY (promotion to CRITICAL is deferred to #1997)\". This is factually wrong. `orchestrator/review_graph.py:225-226` documents them as CRITICAL lens reviewers and lines 254-260 register them with `ReviewCriticality.CRITICAL`. The docstring at lines 228-231 explicitly says \"Issue #2139 promoted `reviewer_security` and `reviewer_concurrency` from ADVISORY to CRITICAL: a NACK from either lens now blocks consensus until the producer re-proposes, closing #1997.\" The analysis (lines 39-41 of `2137-analysis.md`) and the architect output (`criticality_table` field, citing review_graph.py:215-262) both correctly state CRITICAL. **Fix**: in the plan's \"Design Decisions Locked In Refine\" \u2192 \"Per-slice BRC roster\" bullet (lines 36-39), upgrade `reviewer_security` and `reviewer_concurrency` to CRITICAL; in \"Lens scope\" bullet (lines 67-68), drop the \"lenses still ADVISORY \u2014 promotion to CRITICAL is deferred to #1997\" parenthetical and replace with \"lenses are CRITICAL post-#2139\". Verify TASK-4-4's roster description matches the corrected criticality.\n\n2. **TASK-2-2 wrong file for `_populate_contract_from_plan`** \u2014 TASK-2-2 (lines 422-442) lists `orchestrator/routes/phases.py` as the file containing `_populate_contract_from_plan`. The function lives in `orchestrator/routes/pipelines.py:10860` (and the safe-wrapper at `pipelines.py:10832`). `phases.py` only contains call sites (lines 429, 434, 1002, 1004). The architect output cites `pipelines.py` correctly. **Fix**: replace `orchestrator/routes/phases.py` with `orchestrator/routes/pipelines.py` in TASK-2-2's `files:` list. The implementer following the wrong path will fail to find the function.\n\n3. **No task updates the planner prompt for auto-serialization or slice-sizing guidance** \u2014 Decisions 6 (slice sizing \u2014 soft guidance + advisory warning) and 17 (auto-serialization \u2014 planner emits explicit `serialized_chain_order`) both require changes to `shared/agent_prompts/planner/*` (or wherever the planner prompt lives). The architect explicitly listed this as components C8 and C10 in the architect output. The plan parses `serialized_chain_order` in TASK-2-1 and validates it in TASK-2-4, but **no task teaches the planner to emit it**, no task adds the slice-sizing paragraph to the planner prompt, and no task adds the `files_affected` clustering heuristic as a fallback rule. Without this, the planner will not produce the field the parser is designed to consume \u2014 the feature is half-wired. **Fix**: add a new task in Phase 2 (or split into Phase 2 sub-tasks) covering `shared/agent_prompts/planner/*.md` updates for: (a) sizing guidance \"slices should target \u22641,000 LOC where possible\"; (b) auto-serialization rules including the `files_affected` Jaccard >0.3 + descending fan-out heuristic as fallback when the planner doesn't supply explicit ordering; (c) emit `serialized_chain_order: list[str]` on each slice cluster. Also add the corresponding `shared/agent_prompts/reviewer_plan/*.md` advisory-warning lint that surfaces (but does not NACK) slices estimated >1,000 LOC, per architect C10.\n\n4. **`pr_metadata` field referenced in TASK-5-1 with no schema definition task** \u2014 TASK-5-1 (line 686) says \"Title and body come from the per-slice `pr_metadata` field on the contract (the planner emits this; the implement phase fills any gaps).\" There is no task in Phase 1 that adds a `pr_metadata` field to the `Slice` model, no task in Phase 2 that updates the parser to emit it, and no task that teaches the planner to populate it. The reference is dangling. **Fix**: either (a) add the field formally \u2014 Phase 1 schema rename adds `Slice.pr_metadata: PRMetadata | None`, Phase 2 parser parses it, planner-prompt task (per fix 3) instructs the planner to emit a sane default; or (b) drop the reference and have TASK-5-1 derive title/body from `slice.name` + `slice.tasks[*].description` aggregation deterministically. Option (b) is simpler and avoids a schema field for what is essentially a label.\n\n5. **Reconciler-rebase needs a recorded \"former base\" anchor that no task creates** \u2014 TASK-5-3 (lines 720-723) says the reconciler \"computes the intended new base (the parent's former base, recorded on the contract when the slice was created)\". No task records the former-base on the contract. Without this state, the reconciler can't reconstruct the rebase target after a parent PR merges and its branch is deleted. **Fix**: either (a) add a `Slice.parent_branch_at_creation: str | None` field in the Phase 1 schema work and populate it in TASK-4-2 when the integration branch is created; or (b) infer the new base from `slice.dependencies[0]`'s parent's branch chain at reconciler time. Option (a) is more robust. Whichever you pick, add a sub-task or extend TASK-4-2 to record the value, and extend TASK-5-3's acceptance criteria to include the round-trip.\n\n6. **`/git/rebase-onto` privileged-orchestrator endpoint reintroduces a tier decision-15 explicitly killed** \u2014 TASK-5-2 (lines 700-703) introduces a new gateway endpoint \"guarded by a privileged `orchestrator`-role allowlist (the only caller is the orchestrator's reconciler)\". Decision-15 was resolved as \"moot \u2014 no merge endpoint per revised issue text (slices stack via PRs through normal GitHub review/merge flow; the orchestrator never calls a privileged merge endpoint)\". A privileged rebase-onto endpoint is in the same authorization category \u2014 a new privileged identity tier the gateway has never had. The architect output (component C9) said \"potentially new rebase-onto helper if reconciler picks an explicit rebase path; **leverages existing rebase allowlist**\" \u2014 i.e., reuse the existing per-agent rebase allowlist rather than introducing a new privileged caller. **Fix**: either (a) drop the privileged-orchestrator-role concept and route the rebase through the existing agent gateway allowlist (the reconciler can authenticate as a low-privilege agent that only has rebase capability); or (b) explicitly raise a new HITL decision asking whether to introduce a privileged orchestrator identity for rebase-onto, since this exceeds the refine-phase scope. Option (a) is cheaper and avoids reopening refine.\n\n### Non-blocking\n\n- **Reconciler cadence default 30s** \u2014 TASK-5-3 picks 30s; architect open question floated 60-120s; no strong signal which is right. 30s gives faster recovery from edge cases at modest polling cost; fine, but pin in docs (TASK-5-5).\n- **TASK-1-1 is dense** \u2014 bundles class rename, id-pattern change, Contract field rename, PhaseStatus\u2192SliceStatus, plus all in-package references. Likely 200-300 LOC alone; consider splitting `PhaseStatus`\u2192`SliceStatus` into its own sub-task to keep diffs reviewable.\n- **PR phase fate not addressed** \u2014 Architect open_questions[0] flagged whether the PR phase still runs after implement emits N stacked PRs. The plan doesn't address this. Suggest adding a task or a \"deferred to follow-up\" line item, otherwise the implementer will hit it cold.\n- **#2199 follow-up hooks not explicitly tasked** \u2014 Architect's task T13 (\"expose internal slice-addressable hooks so #2199 can wrap as `restart_slice`/`get_slice_status`/`list_slices`\") is only implicit in TASK-3-2 (the scheduler taking a slice_id parameter). Add a one-line acceptance criterion to TASK-3-2: \"Scheduler exposes `teardown_slice(slice_id)`, `respawn_slice(slice_id)`, and `get_slice_status(slice_id)` as public helpers so #2199 can wrap them without refactoring.\"\n- **TASK-1-2 `_legacy_phases` audit field** \u2014 undertested; the round-trip test at TASK-1-4 only checks `Contract.from_dict(...).model_dump()` produces `slices[]` shape \u2014 doesn't assert `_legacy_phases` is preserved or cleared correctly. Add an explicit assertion.\n- **TASK-3-3 new env vars** \u2014 `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` and `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` are new; ensure TASK-5-5 documents them.\n- **Plan's own yaml-tasks uses `phases:`** \u2014 correct call (parser doesn't accept `slices:` yet until TASK-2-1 lands), but worth a comment in TASK-2-1's description that \"future plans should use `slices:` once this task ships\".\n- **`max_parallel_slices` cap default of 5** is set at the config layer per the plan overview (line 51-52), but no task names the env var or a config constant. Pin it in TASK-3-2 (default 5, env var `EGG_ORCH_MAX_PARALLEL_SLICES`) and document in TASK-5-5.\n- **TASK-4-3 doesn't explicitly mention `get_peer_consensus_tracker`/`remove_peer_consensus_tracker` module singletons** at `peer_consensus.py:1744`/`1761`. Threading `slice_id` through `__init__` (line 90) is necessary but not sufficient \u2014 the module-singleton lookup keys must also accept the nested ID. Add an acceptance bullet covering both call sites.\n- **TASK-5-1 acceptance criteria do not specify integration-test coverage** for the actual `gh pr create` invocation. Most of the test plan is unit-level; add an integration-level acceptance for the PR creation against the fake gateway.\n\nOnce the six blocking items are addressed (and the non-blocking ones at your discretion), this plan will be ready to ship \u2014 the underlying decomposition into 5 phases / 22 tasks is well-scoped, dependency ordering is sound (1\u21922\u21923\u21924\u21925), and the test strategy is appropriate. Re-propose with the corrections above and I'll re-review.\n",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-28T17:24:04.223103+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e3d52398-5747-4b",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:24:04.333372+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8bd28583-87d8-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:10.365206+00:00"
+    },
+    "timestamp": "2026-04-28T17:24:10.431913+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "30130259-7c72-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:25:01.807324+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7cd28dae-b680-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:10.365206+00:00"
+    },
+    "timestamp": "2026-04-28T17:25:10.481155+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "20f5221d-045d-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "unauthorized-overseer-action [high]",
+    "body": "risk_analyst is blocked: detached HEAD + gateway ref-update policy collides with git filesystem-ref conflict (refs/heads/egg/issue-2137 cannot be created because refs/heads/egg/issue-2137/work exists)\n\nDetail:\nRisk assessment artifact .egg-state/agent-outputs/2137-risk_analyst-output.json is fully written, committed locally at HEAD=03d607a7116cc4018e2c2f461530fa08ddf53350 on top of origin/egg/issue-2137. Diff is clean: only the JSON artifact added, no restricted-path edits. Cannot push because: (1) initial push attempt rejected due to inherited #2195 main-branch commits touching docs/development/STRUCTURE.md, docs/reference/orchestrator-cli.md; (2) git rebase origin/egg/issue-2137 detached HEAD; (3) cannot reattach to a branch \u2014 git update-ref refs/heads/egg/issue-2137 fails with filesystem-conflict 'refs/heads/egg/issue-2137/work exists; cannot create refs/heads/egg/issue-2137'; gateway only permits update-ref to that exact target; git switch/checkout/branch-D/branch-d are all blocked. Worktree add to /tmp succeeded in git's view but the filesystem path is virtual and cannot be entered. The role recovery instructions (create new branch from origin/main, cherry-pick, push) all fail because branch creation and direct push are blocked by gateway policy.\n\nRecommended action:\nOperator action needed: either (a) update gateway policy to allow git update-ref on refs/heads/egg/issue-2137-{role}/work for the role branch convention; or (b) delete the conflicting refs/heads/egg/issue-2137/work ref so refs/heads/egg/issue-2137 can be created; or (c) push commit 03d607a7116cc4018e2c2f461530fa08ddf53350 to origin/egg/issue-2137 manually (no restricted paths in the diff). The artifact is ready and the BRC propose summary is drafted.",
+    "metadata": {},
+    "timestamp": "2026-04-28T17:25:50.720811+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3824e5c6-63e3-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:25:51.065594+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fe518d34-ea84-43",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:25:57.212959+00:00"
+    },
+    "timestamp": "2026-04-28T17:25:57.292438+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4a199688-6704-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:26:02.115510+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "feb4fa2e-e066-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:25:57.212959+00:00"
+    },
+    "timestamp": "2026-04-28T17:26:57.371370+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "753563d2-b5a9-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:27:02.236408+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "14169271-8ead-44",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:25:57.212959+00:00"
+    },
+    "timestamp": "2026-04-28T17:27:57.477555+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "440794bc-b1fc-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:28:02.361626+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "473303b9-e106-4b",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:25:57.212959+00:00"
+    },
+    "timestamp": "2026-04-28T17:28:57.794912+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4b802edf-b3e2-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:29:02.560346+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5a1f6b5d-ed2c-43",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "risk_analyst is blocked on push: artifact ready at HEAD=1c1687860 but cannot reattach to a branch from detached HEAD due to gateway+git ref conflict. Sent OVERSEER_ALERT 20f5221d-045d-42 and signal_error to orchestrator. Waiting for operator/orchestrator to either delete the conflicting refs/heads/egg/issue-2137/work loose ref, relax update-ref policy, or push the commit manually.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-28T17:29:13.713374+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c0694f82-1475-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:25:57.212959+00:00"
+    },
+    "timestamp": "2026-04-28T17:29:57.840726+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1b8f56fa-27bd-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:30:02.797852+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "946eebec-6e39-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,STATUS,HANDOFF",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:30:02.559866+00:00"
+    },
+    "timestamp": "2026-04-28T17:30:02.817024+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7f2541b9-a59e-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "v2 plan addressing reviewer_plan's 6 blocking NACK items. (1) Lens criticality corrected to CRITICAL post-#2139/PR-#2152 in three locations including TASK-4-4 roster. (2) TASK-2-2 file path corrected \u2014 _populate_contract_from_plan is in orchestrator/routes/pipelines.py:10860, not phases.py. (3) Phase 2 expanded with explicit planner-prompt task (TASK-2-3) covering slice-sizing guidance, auto-serialization rules with files_affected Jaccard >0.3 + descending fan-out fallback, and slices:/phases: yaml swap; new TASK-2-4 covers reviewer_plan prompt for forest-violation NACK and >1000-LOC advisory / >2000-LOC NACK. (4) Dropped pr_metadata schema reference; TASK-5-1 derives PR title/body deterministically from slice.name + slice.tasks[*].description. (5) New Slice.parent_branch_at_creation field added to TASK-1-1, populated atomically by TASK-4-2 when integration branch is created, consumed by reconciler in TASK-5-3; round-trip explicitly asserted in TASK-1-4. (6) Dropped privileged-orchestrator endpoint per decision-15; TASK-5-2 rebase_onto helper reuses existing per-agent rebase allowlist via gateway/git_client.py:615-633 plumbing. Non-blocking: split TASK-1-1b for PhaseStatus\u2192SliceStatus, TASK-3-2 teardown/respawn/get_status helpers for #2199, TASK-4-3 module-singleton slice_id keying, TASK-5-5 documents every new env var, new PR Phase Fate section, TASK-1-4 explicit _legacy_phases round-trip. Total: 5 phases, 25 tasks (was 23). YAML validates clean.",
+    "metadata": {
+      "payload": {
+        "summary": "v2 plan addressing reviewer_plan's 6 blocking NACK items. (1) Lens criticality corrected to CRITICAL post-#2139/PR-#2152 in three locations including TASK-4-4 roster. (2) TASK-2-2 file path corrected \u2014 _populate_contract_from_plan is in orchestrator/routes/pipelines.py:10860, not phases.py. (3) Phase 2 expanded with explicit planner-prompt task (TASK-2-3) covering slice-sizing guidance, auto-serialization rules with files_affected Jaccard >0.3 + descending fan-out fallback, and slices:/phases: yaml swap; new TASK-2-4 covers reviewer_plan prompt for forest-violation NACK and >1000-LOC advisory / >2000-LOC NACK. (4) Dropped pr_metadata schema reference; TASK-5-1 derives PR title/body deterministically from slice.name + slice.tasks[*].description. (5) New Slice.parent_branch_at_creation field added to TASK-1-1, populated atomically by TASK-4-2 when integration branch is created, consumed by reconciler in TASK-5-3; round-trip explicitly asserted in TASK-1-4. (6) Dropped privileged-orchestrator endpoint per decision-15; TASK-5-2 rebase_onto helper reuses existing per-agent rebase allowlist via gateway/git_client.py:615-633 plumbing. Non-blocking: split TASK-1-1b for PhaseStatus\u2192SliceStatus, TASK-3-2 teardown/respawn/get_status helpers for #2199, TASK-4-3 module-singleton slice_id keying, TASK-5-5 documents every new env var, new PR Phase Fate section, TASK-1-4 explicit _legacy_phases round-trip. Total: 5 phases, 25 tasks (was 23). YAML validates clean.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2137-plan.md"
+        ],
+        "risk_considered": "All v1 risks remain valid. Added: PR phase fate uncertainty (mitigated by explicit \"PR Phase Fate\" prose section flagging it for the implementer); _legacy_phases preservation correctness (mitigated by explicit TASK-1-4 round-trip assertion); planner prompt drift if slice-sizing thresholds change post-merge (mitigated by single source of truth in TASK-2-3/2-4 prompt builder, with TASK-5-5 documenting the thresholds for operators).",
+        "commit_sha": "30cdb8f68",
+        "files_changed": [
+          ".egg-state/drafts/2137-plan.md"
+        ],
+        "tests_run": [
+          "plan_parser_yaml_block_smoke (manual: python3 yaml.safe_load round-trip on the appendix \u2014 passes; 5 phases, 25 tasks, all roles valid)"
+        ],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-1b",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-3-4",
+          "TASK-3-5",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-4-3",
+          "TASK-4-4",
+          "TASK-4-5",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-5-4",
+          "TASK-5-5"
+        ]
+      },
+      "version": 2,
+      "commit_sha": "30cdb8f68"
+    },
+    "timestamp": "2026-04-28T17:30:13.484754+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "767d89bf-8e0d-43",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:30:13.529740+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bdb8beb8-ec5c-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:30:25.490907+00:00"
+    },
+    "timestamp": "2026-04-28T17:30:25.555918+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "749e0c98-6761-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:31:03.457925+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8dc097a6-1639-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,STATUS,HANDOFF",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:30:02.559866+00:00"
+    },
+    "timestamp": "2026-04-28T17:31:03.474139+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6fd02b18-9a33-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:30:25.490907+00:00"
+    },
+    "timestamp": "2026-04-28T17:31:25.856010+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f680adb2-0bc8-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:32:04.287189+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1139b6bf-f5dd-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,STATUS,HANDOFF",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:30:02.559866+00:00"
+    },
+    "timestamp": "2026-04-28T17:32:04.312561+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b5b37f98-10d6-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:30:25.490907+00:00"
+    },
+    "timestamp": "2026-04-28T17:32:26.099798+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7dbd8215-92ee-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "\nReviewed the v2 plan (946 lines) against my v1 NACK fix list and the HITL contract. All six v1 blocking items are resolved cleanly:\n\n1. **Lens criticality** \u2014 corrected at lines 38-39 (`reviewer_security`/`reviewer_concurrency` now CRITICAL); lines 69-72 cite `orchestrator/review_graph.py:225-260`; TASK-4-4 lines 779-784 list the post-#2139 roster correctly with CRITICAL annotations. \u2713\n\n2. **TASK-2-2 file path** \u2014 line 487-489 now correctly cites `orchestrator/routes/pipelines.py` for both `_populate_contract_from_plan` and the safe wrapper. \u2713\n\n3. **Planner / reviewer_plan prompt tasks added** \u2014 TASK-2-3 (lines 504-541) covers planner prompt for sizing + auto-serialization + yaml swap; TASK-2-4 (lines 542-569) covers reviewer_plan prompt for forest-violation NACK and sizing. \u2713 (subject to fix below)\n\n4. **`pr_metadata` dropped** \u2014 TASK-5-1 lines 822-829 derives PR title from `slice.name` and body from `slice.tasks[*].description`; no schema field; integration test added. \u2713\n\n5. **`Slice.parent_branch_at_creation`** \u2014 added in TASK-1-1 lines 346-351, populated in TASK-4-2 lines 727-731, consumed in TASK-5-3 lines 880-885; round-trip explicitly asserted in TASK-1-4 lines 433-434. \u2713\n\n6. **Privileged orchestrator endpoint dropped** \u2014 TASK-5-2 lines 845-858 explicitly says \"NOT a new privileged orchestrator-role endpoint \u2014 decision-15 explicitly killed a privileged orchestrator merge endpoint, and this helper must not reintroduce that pattern\". Reuses existing per-agent rebase allowlist; acceptance line 863-864 asserts no new privileged identity. \u2713\n\nNon-blocking items from v1 are also addressed:\n- TASK-1-1b for `PhaseStatus`\u2192`SliceStatus` (lines 366-381) \u2713\n- TASK-3-2 exposes `teardown_slice`/`respawn_slice`/`get_slice_status` for #2199 (lines 622-633) \u2713\n- TASK-4-3 module-singleton slice_id keying (lines 750-755) \u2713\n- New \"PR Phase Fate\" prose section (lines 211-225) \u2713\n- TASK-1-4 explicit `_legacy_phases` round-trip (lines 427-441) \u2713\n- TASK-5-5 documents every new env var (lines 925-940) \u2713\n- TASK-3-2 includes `EGG_ORCH_MAX_PARALLEL_SLICES` env var \u2713\n\nHowever, while addressing v1 fix 3 the planner introduced a new issue:\n\n### Blocking\n\n1. **TASK-2-3(a) and TASK-2-4(b) violate HITL decision-6** \u2014 The contract at `.egg-state/contracts/issue-2137.json:236` records decision-6's resolution as: *\"Soft guidance + post-plan advisory warning \u2014 plan reviewer flags slices estimated >1,000 LOC but does not NACK; refiner/operator can override.\"* (opt-2). The contract at line 221 lists opt-3 (\"Soft guidance + NACK threshold \u2014 plan reviewer NACKs if any slice is estimated >2,000 LOC (hard ceiling); 1,000\u20132,000 advisory\") as a *rejected* option.\n\n   The plan implements opt-3, not opt-2:\n   - **TASK-2-3(a)** at line 514-515: planner prompt instructs \"The hard ceiling is 2,000 LOC; above that the slice should be split or the work re-scoped.\"\n   - **TASK-2-4(b)** at line 558-559: reviewer behaviour says \">2,000 LOC must NACK with an oversize error.\"\n\n   Both introduce a hard NACK at 2,000 LOC that the HITL explicitly rejected. Decision-6's selected resolution emphasises \"*does not NACK; refiner/operator can override*\" \u2014 there is no NACK threshold in the locked answer, only an advisory warning at >1,000 LOC. The operator must remain able to override; an automatic NACK at 2,000 LOC strips that ability.\n\n   **Fix**: in TASK-2-3(a), drop the \"hard ceiling is 2,000 LOC; above that the slice should be split or the work re-scoped\" sentence \u2014 leave only the soft >1,000 LOC guidance as advisory. In TASK-2-4(b), drop the \">2,000 LOC must NACK with an oversize error\" clause \u2014 the reviewer surfaces an *advisory* line for any slice >1,000 LOC and never NACKs on size. The acceptance criterion that says \"manual run on a slice with estimated 2,500 LOC produces a NACK\" must be deleted; replace it with \"manual run on a slice with estimated 2,500 LOC produces an ACK with a stronger advisory line\".\n\n   If the planner has a substantive reason to think a 2,000 LOC NACK should exist, the path is to register a follow-up HITL question asking the operator to revise decision-6 from opt-2 to opt-3 \u2014 not to encode opt-3 in the plan unilaterally.\n\n### Non-blocking\n\n- **Stale prose summaries reference the dropped privileged endpoint** \u2014 Two leftover instances of the v1 privileged-identity language survive in prose summaries even though TASK-5-2 (the operative spec) correctly drops it:\n  - Phase 5 prose summary, lines 169-171: *\"Add a `gateway/fork_policy`-style allowlist for the rebase endpoint (only the orchestrator's privileged identity may call it).\"*\n  - PR description body in `yaml-tasks` block, lines 290-292: *\"...rebases them via a new restricted `gateway/git_client.rebase_onto` endpoint guarded by a privileged-identity allowlist.\"*\n\n  Implementer following TASK-5-2 will produce the right code, but human reviewers reading these prose lines will be confused. Update both to say \"reuses the existing per-agent rebase allowlist\" or similar.\n\n- **TASK-2-3 prompt-builder file location citation** \u2014 Lines 506-509 reference \"the dynamic block that starts around line 9021 with 'Decompose the architecture analysis\u2026'\" in `orchestrator/routes/pipelines.py`. Likewise TASK-2-4 lines 545-546 cite line 8383 for the reviewer_plan block. These line numbers are best-effort references; if the prompt-builder code has shifted since the analysis was written, the implementer can grep for the literal docstrings \u2014 fine as-is, but worth a brief note that line numbers are nominal.\n\n- **TASK-2-3(b) auto-serialization heuristic** is correct but the description could be clearer that `serialized_chain_order` lives on the *downstream* slice (the one that would have had multiple parents) and lists the *upstream* slice IDs in their chosen serialization order \u2014 a one-line example would make this unambiguous.\n\n- **TASK-5-2 acceptance criterion language** \u2014 line 859-864 asserts \"no new privileged orchestrator-role identity is introduced\". This is a process assertion, not a code assertion, so it's hard to test. Suggest reframing as \"the new `rebase_onto` helper is reachable only through the existing agent allowlist plumbing and adds no new authentication surface to `gateway/gateway.py`\" \u2014 that's verifiable by a unit test.\n\nOnce blocking item 1 is fixed (drop the 2,000 LOC NACK threshold in TASK-2-3(a) and TASK-2-4(b) and align with decision-6 opt-2), the plan is ready to ship. The non-blocking items are cosmetic.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\nReviewed the v2 plan (946 lines) against my v1 NACK fix list and the HITL contract. All six v1 blocking items are resolved cleanly:\n\n1. **Lens criticality** \u2014 corrected at lines 38-39 (`reviewer_security`/`reviewer_concurrency` now CRITICAL); lines 69-72 cite `orchestrator/review_graph.py:225-260`; TASK-4-4 lines 779-784 list the post-#2139 roster correctly with CRITICAL annotations. \u2713\n\n2. **TASK-2-2 file path** \u2014 line 487-489 now correctly cites `orchestrator/routes/pipelines.py` for both `_populate_contract_from_plan` and the safe wrapper. \u2713\n\n3. **Planner / reviewer_plan prompt tasks added** \u2014 TASK-2-3 (lines 504-541) covers planner prompt for sizing + auto-serialization + yaml swap; TASK-2-4 (lines 542-569) covers reviewer_plan prompt for forest-violation NACK and sizing. \u2713 (subject to fix below)\n\n4. **`pr_metadata` dropped** \u2014 TASK-5-1 lines 822-829 derives PR title from `slice.name` and body from `slice.tasks[*].description`; no schema field; integration test added. \u2713\n\n5. **`Slice.parent_branch_at_creation`** \u2014 added in TASK-1-1 lines 346-351, populated in TASK-4-2 lines 727-731, consumed in TASK-5-3 lines 880-885; round-trip explicitly asserted in TASK-1-4 lines 433-434. \u2713\n\n6. **Privileged orchestrator endpoint dropped** \u2014 TASK-5-2 lines 845-858 explicitly says \"NOT a new privileged orchestrator-role endpoint \u2014 decision-15 explicitly killed a privileged orchestrator merge endpoint, and this helper must not reintroduce that pattern\". Reuses existing per-agent rebase allowlist; acceptance line 863-864 asserts no new privileged identity. \u2713\n\nNon-blocking items from v1 are also addressed:\n- TASK-1-1b for `PhaseStatus`\u2192`SliceStatus` (lines 366-381) \u2713\n- TASK-3-2 exposes `teardown_slice`/`respawn_slice`/`get_slice_status` for #2199 (lines 622-633) \u2713\n- TASK-4-3 module-singleton slice_id keying (lines 750-755) \u2713\n- New \"PR Phase Fate\" prose section (lines 211-225) \u2713\n- TASK-1-4 explicit `_legacy_phases` round-trip (lines 427-441) \u2713\n- TASK-5-5 documents every new env var (lines 925-940) \u2713\n- TASK-3-2 includes `EGG_ORCH_MAX_PARALLEL_SLICES` env var \u2713\n\nHowever, while addressing v1 fix 3 the planner introduced a new issue:\n\n### Blocking\n\n1. **TASK-2-3(a) and TASK-2-4(b) violate HITL decision-6** \u2014 The contract at `.egg-state/contracts/issue-2137.json:236` records decision-6's resolution as: *\"Soft guidance + post-plan advisory warning \u2014 plan reviewer flags slices estimated >1,000 LOC but does not NACK; refiner/operator can override.\"* (opt-2). The contract at line 221 lists opt-3 (\"Soft guidance + NACK threshold \u2014 plan reviewer NACKs if any slice is estimated >2,000 LOC (hard ceiling); 1,000\u20132,000 advisory\") as a *rejected* option.\n\n   The plan implements opt-3, not opt-2:\n   - **TASK-2-3(a)** at line 514-515: planner prompt instructs \"The hard ceiling is 2,000 LOC; above that the slice should be split or the work re-scoped.\"\n   - **TASK-2-4(b)** at line 558-559: reviewer behaviour says \">2,000 LOC must NACK with an oversize error.\"\n\n   Both introduce a hard NACK at 2,000 LOC that the HITL explicitly rejected. Decision-6's selected resolution emphasises \"*does not NACK; refiner/operator can override*\" \u2014 there is no NACK threshold in the locked answer, only an advisory warning at >1,000 LOC. The operator must remain able to override; an automatic NACK at 2,000 LOC strips that ability.\n\n   **Fix**: in TASK-2-3(a), drop the \"hard ceiling is 2,000 LOC; above that the slice should be split or the work re-scoped\" sentence \u2014 leave only the soft >1,000 LOC guidance as advisory. In TASK-2-4(b), drop the \">2,000 LOC must NACK with an oversize error\" clause \u2014 the reviewer surfaces an *advisory* line for any slice >1,000 LOC and never NACKs on size. The acceptance criterion that says \"manual run on a slice with estimated 2,500 LOC produces a NACK\" must be deleted; replace it with \"manual run on a slice with estimated 2,500 LOC produces an ACK with a stronger advisory line\".\n\n   If the planner has a substantive reason to think a 2,000 LOC NACK should exist, the path is to register a follow-up HITL question asking the operator to revise decision-6 from opt-2 to opt-3 \u2014 not to encode opt-3 in the plan unilaterally.\n\n### Non-blocking\n\n- **Stale prose summaries reference the dropped privileged endpoint** \u2014 Two leftover instances of the v1 privileged-identity language survive in prose summaries even though TASK-5-2 (the operative spec) correctly drops it:\n  - Phase 5 prose summary, lines 169-171: *\"Add a `gateway/fork_policy`-style allowlist for the rebase endpoint (only the orchestrator's privileged identity may call it).\"*\n  - PR description body in `yaml-tasks` block, lines 290-292: *\"...rebases them via a new restricted `gateway/git_client.rebase_onto` endpoint guarded by a privileged-identity allowlist.\"*\n\n  Implementer following TASK-5-2 will produce the right code, but human reviewers reading these prose lines will be confused. Update both to say \"reuses the existing per-agent rebase allowlist\" or similar.\n\n- **TASK-2-3 prompt-builder file location citation** \u2014 Lines 506-509 reference \"the dynamic block that starts around line 9021 with 'Decompose the architecture analysis\u2026'\" in `orchestrator/routes/pipelines.py`. Likewise TASK-2-4 lines 545-546 cite line 8383 for the reviewer_plan block. These line numbers are best-effort references; if the prompt-builder code has shifted since the analysis was written, the implementer can grep for the literal docstrings \u2014 fine as-is, but worth a brief note that line numbers are nominal.\n\n- **TASK-2-3(b) auto-serialization heuristic** is correct but the description could be clearer that `serialized_chain_order` lives on the *downstream* slice (the one that would have had multiple parents) and lists the *upstream* slice IDs in their chosen serialization order \u2014 a one-line example would make this unambiguous.\n\n- **TASK-5-2 acceptance criterion language** \u2014 line 859-864 asserts \"no new privileged orchestrator-role identity is introduced\". This is a process assertion, not a code assertion, so it's hard to test. Suggest reframing as \"the new `rebase_onto` helper is reachable only through the existing agent allowlist plumbing and adds no new authentication surface to `gateway/gateway.py`\" \u2014 that's verifiable by a unit test.\n\nOnce blocking item 1 is fixed (drop the 2,000 LOC NACK threshold in TASK-2-3(a) and TASK-2-4(b) and align with decision-6 opt-2), the plan is ready to ship. The non-blocking items are cosmetic.\n",
+        "artifact_references": [
+          ".egg-state/drafts/2137-plan.md",
+          ".egg-state/contracts/issue-2137.json",
+          ".egg-state/agent-outputs/2137-architect-output.json"
+        ],
+        "nack_version": 2
+      },
+      "reason": "\nReviewed the v2 plan (946 lines) against my v1 NACK fix list and the HITL contract. All six v1 blocking items are resolved cleanly:\n\n1. **Lens criticality** \u2014 corrected at lines 38-39 (`reviewer_security`/`reviewer_concurrency` now CRITICAL); lines 69-72 cite `orchestrator/review_graph.py:225-260`; TASK-4-4 lines 779-784 list the post-#2139 roster correctly with CRITICAL annotations. \u2713\n\n2. **TASK-2-2 file path** \u2014 line 487-489 now correctly cites `orchestrator/routes/pipelines.py` for both `_populate_contract_from_plan` and the safe wrapper. \u2713\n\n3. **Planner / reviewer_plan prompt tasks added** \u2014 TASK-2-3 (lines 504-541) covers planner prompt for sizing + auto-serialization + yaml swap; TASK-2-4 (lines 542-569) covers reviewer_plan prompt for forest-violation NACK and sizing. \u2713 (subject to fix below)\n\n4. **`pr_metadata` dropped** \u2014 TASK-5-1 lines 822-829 derives PR title from `slice.name` and body from `slice.tasks[*].description`; no schema field; integration test added. \u2713\n\n5. **`Slice.parent_branch_at_creation`** \u2014 added in TASK-1-1 lines 346-351, populated in TASK-4-2 lines 727-731, consumed in TASK-5-3 lines 880-885; round-trip explicitly asserted in TASK-1-4 lines 433-434. \u2713\n\n6. **Privileged orchestrator endpoint dropped** \u2014 TASK-5-2 lines 845-858 explicitly says \"NOT a new privileged orchestrator-role endpoint \u2014 decision-15 explicitly killed a privileged orchestrator merge endpoint, and this helper must not reintroduce that pattern\". Reuses existing per-agent rebase allowlist; acceptance line 863-864 asserts no new privileged identity. \u2713\n\nNon-blocking items from v1 are also addressed:\n- TASK-1-1b for `PhaseStatus`\u2192`SliceStatus` (lines 366-381) \u2713\n- TASK-3-2 exposes `teardown_slice`/`respawn_slice`/`get_slice_status` for #2199 (lines 622-633) \u2713\n- TASK-4-3 module-singleton slice_id keying (lines 750-755) \u2713\n- New \"PR Phase Fate\" prose section (lines 211-225) \u2713\n- TASK-1-4 explicit `_legacy_phases` round-trip (lines 427-441) \u2713\n- TASK-5-5 documents every new env var (lines 925-940) \u2713\n- TASK-3-2 includes `EGG_ORCH_MAX_PARALLEL_SLICES` env var \u2713\n\nHowever, while addressing v1 fix 3 the planner introduced a new issue:\n\n### Blocking\n\n1. **TASK-2-3(a) and TASK-2-4(b) violate HITL decision-6** \u2014 The contract at `.egg-state/contracts/issue-2137.json:236` records decision-6's resolution as: *\"Soft guidance + post-plan advisory warning \u2014 plan reviewer flags slices estimated >1,000 LOC but does not NACK; refiner/operator can override.\"* (opt-2). The contract at line 221 lists opt-3 (\"Soft guidance + NACK threshold \u2014 plan reviewer NACKs if any slice is estimated >2,000 LOC (hard ceiling); 1,000\u20132,000 advisory\") as a *rejected* option.\n\n   The plan implements opt-3, not opt-2:\n   - **TASK-2-3(a)** at line 514-515: planner prompt instructs \"The hard ceiling is 2,000 LOC; above that the slice should be split or the work re-scoped.\"\n   - **TASK-2-4(b)** at line 558-559: reviewer behaviour says \">2,000 LOC must NACK with an oversize error.\"\n\n   Both introduce a hard NACK at 2,000 LOC that the HITL explicitly rejected. Decision-6's selected resolution emphasises \"*does not NACK; refiner/operator can override*\" \u2014 there is no NACK threshold in the locked answer, only an advisory warning at >1,000 LOC. The operator must remain able to override; an automatic NACK at 2,000 LOC strips that ability.\n\n   **Fix**: in TASK-2-3(a), drop the \"hard ceiling is 2,000 LOC; above that the slice should be split or the work re-scoped\" sentence \u2014 leave only the soft >1,000 LOC guidance as advisory. In TASK-2-4(b), drop the \">2,000 LOC must NACK with an oversize error\" clause \u2014 the reviewer surfaces an *advisory* line for any slice >1,000 LOC and never NACKs on size. The acceptance criterion that says \"manual run on a slice with estimated 2,500 LOC produces a NACK\" must be deleted; replace it with \"manual run on a slice with estimated 2,500 LOC produces an ACK with a stronger advisory line\".\n\n   If the planner has a substantive reason to think a 2,000 LOC NACK should exist, the path is to register a follow-up HITL question asking the operator to revise decision-6 from opt-2 to opt-3 \u2014 not to encode opt-3 in the plan unilaterally.\n\n### Non-blocking\n\n- **Stale prose summaries reference the dropped privileged endpoint** \u2014 Two leftover instances of the v1 privileged-identity language survive in prose summaries even though TASK-5-2 (the operative spec) correctly drops it:\n  - Phase 5 prose summary, lines 169-171: *\"Add a `gateway/fork_policy`-style allowlist for the rebase endpoint (only the orchestrator's privileged identity may call it).\"*\n  - PR description body in `yaml-tasks` block, lines 290-292: *\"...rebases them via a new restricted `gateway/git_client.rebase_onto` endpoint guarded by a privileged-identity allowlist.\"*\n\n  Implementer following TASK-5-2 will produce the right code, but human reviewers reading these prose lines will be confused. Update both to say \"reuses the existing per-agent rebase allowlist\" or similar.\n\n- **TASK-2-3 prompt-builder file location citation** \u2014 Lines 506-509 reference \"the dynamic block that starts around line 9021 with 'Decompose the architecture analysis\u2026'\" in `orchestrator/routes/pipelines.py`. Likewise TASK-2-4 lines 545-546 cite line 8383 for the reviewer_plan block. These line numbers are best-effort references; if the prompt-builder code has shifted since the analysis was written, the implementer can grep for the literal docstrings \u2014 fine as-is, but worth a brief note that line numbers are nominal.\n\n- **TASK-2-3(b) auto-serialization heuristic** is correct but the description could be clearer that `serialized_chain_order` lives on the *downstream* slice (the one that would have had multiple parents) and lists the *upstream* slice IDs in their chosen serialization order \u2014 a one-line example would make this unambiguous.\n\n- **TASK-5-2 acceptance criterion language** \u2014 line 859-864 asserts \"no new privileged orchestrator-role identity is introduced\". This is a process assertion, not a code assertion, so it's hard to test. Suggest reframing as \"the new `rebase_onto` helper is reachable only through the existing agent allowlist plumbing and adds no new authentication surface to `gateway/gateway.py`\" \u2014 that's verifiable by a unit test.\n\nOnce blocking item 1 is fixed (drop the 2,000 LOC NACK threshold in TASK-2-3(a) and TASK-2-4(b) and align with decision-6 opt-2), the plan is ready to ship. The non-blocking items are cosmetic.\n",
+      "revision_count": 2
+    },
+    "timestamp": "2026-04-28T17:32:28.862681+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "451204d6-eecb-49",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:32:28.950847+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c413911d-72a6-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:32:35.671281+00:00"
+    },
+    "timestamp": "2026-04-28T17:32:35.842738+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "683838cd-d076-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on HEARTBEAT,CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:32:37.687931+00:00"
+    },
+    "timestamp": "2026-04-28T17:32:37.776607+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "373117d1-4090-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:32:37.941544+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b85c8039-fdb3-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:33:04.763307+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "68ba3297-5963-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:33:04.794672+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a42bd0cd-87c3-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,STATUS,HANDOFF,CONSENSUS_PROPOSE,CONSENSUS_CONFIRMED",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:33:26.911312+00:00"
+    },
+    "timestamp": "2026-04-28T17:33:27.001548+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8b3b219d-5751-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:33:27.172183+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ac9a883e-77cd-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,STATUS,HANDOFF,CONSENSUS_PROPOSE,CONSENSUS_ACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:33:31.804698+00:00"
+    },
+    "timestamp": "2026-04-28T17:33:31.888427+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ee61f598-af62-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on HEARTBEAT,CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:33:34.982392+00:00"
+    },
+    "timestamp": "2026-04-28T17:33:35.066823+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3b8b215d-e0e5-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:33:35.244412+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c8dfddf7-25d4-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:32:35.671281+00:00"
+    },
+    "timestamp": "2026-04-28T17:33:36.104619+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c61f4a38-6816-44",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:33:55.055050+00:00"
+    },
+    "timestamp": "2026-04-28T17:33:55.182975+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "abc0e6ae-a7cb-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:34:05.060720+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7aaaa458-5da9-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,STATUS,HANDOFF,CONSENSUS_PROPOSE,CONSENSUS_ACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:33:31.804698+00:00"
+    },
+    "timestamp": "2026-04-28T17:34:31.923388+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "354ad8fb-ffab-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "v3 plan addressing reviewer_plan's v2 NACK. Single blocking item resolved: TASK-2-3(a) and TASK-2-4(b) now align with HITL decision-6 opt-2 (\"soft guidance + post-plan advisory warning \u2014 does not NACK\"). v2 accidentally encoded opt-3 (hard NACK at 2,000 LOC) which decision-6 explicitly rejected. Fix: dropped the \"hard ceiling is 2,000 LOC\" sentence from the planner prompt task; dropped the \">2,000 LOC must NACK\" clause from the reviewer prompt task; reviewer now emits advisory lines that scale with magnitude (1,000-2,000: \"consider splitting\"; >2,000: \"well above soft target\") but never NACKs on size; refiner/operator retains override authority. TASK-2-4 acceptance: 2,500 LOC produces ACK-with-stronger-advisory (NOT NACK). Added explicit note that any future operator wanting a hard NACK threshold should register a HITL revision of decision-6 \u2014 plan does not encode opt-3 unilaterally. Non-blocking: cleaned up two stale \"privileged identity\" references in Phase 5 prose summary and PR description body (now correctly say \"reuses existing per-agent rebase allowlist\"); labelled line-number citations in TASK-2-3/2-4 as nominal with grep instruction; added concrete example for serialized_chain_order placement on downstream slice; reframed TASK-5-2 acceptance as code-checkable invariant (zero new auth surface; grep-countable register_route sites; review checklist no `if role == orchestrator`). 5 phases / 25 tasks unchanged. YAML validates clean.",
+    "metadata": {
+      "payload": {
+        "summary": "v3 plan addressing reviewer_plan's v2 NACK. Single blocking item resolved: TASK-2-3(a) and TASK-2-4(b) now align with HITL decision-6 opt-2 (\"soft guidance + post-plan advisory warning \u2014 does not NACK\"). v2 accidentally encoded opt-3 (hard NACK at 2,000 LOC) which decision-6 explicitly rejected. Fix: dropped the \"hard ceiling is 2,000 LOC\" sentence from the planner prompt task; dropped the \">2,000 LOC must NACK\" clause from the reviewer prompt task; reviewer now emits advisory lines that scale with magnitude (1,000-2,000: \"consider splitting\"; >2,000: \"well above soft target\") but never NACKs on size; refiner/operator retains override authority. TASK-2-4 acceptance: 2,500 LOC produces ACK-with-stronger-advisory (NOT NACK). Added explicit note that any future operator wanting a hard NACK threshold should register a HITL revision of decision-6 \u2014 plan does not encode opt-3 unilaterally. Non-blocking: cleaned up two stale \"privileged identity\" references in Phase 5 prose summary and PR description body (now correctly say \"reuses existing per-agent rebase allowlist\"); labelled line-number citations in TASK-2-3/2-4 as nominal with grep instruction; added concrete example for serialized_chain_order placement on downstream slice; reframed TASK-5-2 acceptance as code-checkable invariant (zero new auth surface; grep-countable register_route sites; review checklist no `if role == orchestrator`). 5 phases / 25 tasks unchanged. YAML validates clean.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2137-plan.md"
+        ],
+        "risk_considered": "All v1/v2 risks remain valid. v3 specific: alignment with decision-6 opt-2 means there is no automated guard against runaway slice sizes (mitigated by advisory escalation tone in TASK-2-4 + operator override authority + future HITL revision path).",
+        "commit_sha": "65938426e",
+        "files_changed": [
+          ".egg-state/drafts/2137-plan.md"
+        ],
+        "tests_run": [
+          "plan_parser_yaml_block_smoke (manual: python3 yaml.safe_load round-trip on the appendix \u2014 passes; 5 phases, 25 tasks, all roles valid)"
+        ],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-1b",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-3-4",
+          "TASK-3-5",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-4-3",
+          "TASK-4-4",
+          "TASK-4-5",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-5-4",
+          "TASK-5-5"
+        ]
+      },
+      "version": 3,
+      "commit_sha": "65938426e"
+    },
+    "timestamp": "2026-04-28T17:34:32.553899+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2752e9b1-c784-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:34:32.821171+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a14f0edc-251d-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:34:32.824828+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "135122e6-f926-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:34:32.829776+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7a7ae65d-6ceb-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:34:37.957164+00:00"
+    },
+    "timestamp": "2026-04-28T17:34:38.000185+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7711cc6c-1c7e-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:34:43.627740+00:00"
+    },
+    "timestamp": "2026-04-28T17:34:43.833535+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "087e87d1-2bed-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:35:05.372937+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f958e1ab-feaa-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:34:37.957164+00:00"
+    },
+    "timestamp": "2026-04-28T17:35:38.107008+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4d3a40c7-db9c-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:34:43.627740+00:00"
+    },
+    "timestamp": "2026-04-28T17:35:43.931686+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4ef41bd9-ddd1-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:36:05.464770+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "04f45b9f-7f0a-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "\nReviewed v3 (plan draft is now ~975 lines). The single v2 blocking item is resolved cleanly, and the four non-blocking items I flagged are also picked up.\n\n**v2 blocker fix verified \u2014 TASK-2-3(a) and TASK-2-4(b) now align with HITL decision-6 opt-2:**\n\n- **TASK-2-3(a)** lines 515-521: planner prompt now reads *\"Slice-sizing guidance (soft, advisory only \u2014 per HITL decision-6 opt-2): 'Slices should target \u22641,000 LOC where possible. Slices estimated >1,000 LOC will be flagged as advisory by the plan reviewer but are NOT rejected. There is no hard size ceiling; the refiner/operator can override sizing concerns at any point.' The plan reviewer never NACKs on size.\"* The \"hard ceiling 2,000 LOC\" sentence is gone. Aligns with the contract resolution at `.egg-state/contracts/issue-2137.json:236`.\n- **TASK-2-4(b)** lines 573-584: reviewer behaviour is now advisory-only \u2014 *\"the line scales in tone with the magnitude (1,000\u20132,000: 'consider splitting'; >2,000: 'this slice is well above the soft target \u2014 strongly consider splitting') but NEVER NACKs on size.\"* Plan explicitly states *\"If a future operator prefers a hard NACK threshold, they can register a follow-up HITL revision of decision-6 \u2014 the plan does not encode opt-3 unilaterally.\"* This is the exact escalation path I asked for.\n- **TASK-2-4 acceptance** lines 590-592: *\"manual run on a slice with estimated 2,500 LOC produces an ACK with a stronger advisory warning (NOT a NACK \u2014 confirming alignment with decision-6 opt-2).\"* The previous \"2,500 LOC produces a NACK\" assertion is gone.\n\n**Non-blocking items also fixed:**\n\n- **Stale prose summaries cleaned up** \u2014 Phase 5 prose at lines 168-172 now reads *\"a narrow `gateway/git_client.rebase_onto` helper to rebase them onto the parent's former base. The helper reuses the existing per-agent rebase allowlist plumbing \u2014 no new privileged orchestrator identity is introduced (per refine-phase decision-15).\"* And PR description body in `yaml-tasks` lines 287-294 now reads *\"rebases them via a narrow new `gateway/git_client.rebase_onto` helper that reuses the existing per-agent rebase allowlist (no new privileged orchestrator identity, per refine-phase decision-15).\"* Both v2 leftover instances of the privileged-identity language are corrected. \u2713\n- **Line-number citations labelled nominal** \u2014 TASK-2-3 line 511: *\"line numbers are nominal; grep for the literal docstring if the file has shifted\"*; TASK-2-4 line 564: *\"line numbers nominal; grep for the literal condition\"*. \u2713\n- **`serialized_chain_order` placement example added** \u2014 TASK-2-3 lines 532-538 give a concrete worked example: *\"if `slice-3` would naturally have parents [`slice-1`, `slice-2`], the planner instead sets `slice-3.dependencies = [\"slice-2\"]`, `slice-2.dependencies = [\"slice-1\"]`, and `slice-3.serialized_chain_order = [\"slice-1\", \"slice-2\"]` to record that the planner deliberately picked slice-1 \u2192 slice-2 \u2192 slice-3.\"* Ambiguity about which slice owns the field is resolved. \u2713\n- **TASK-5-2 acceptance reframed as code-checkable invariant** \u2014 lines 889-898 now require: *\"a unit test that grep-counts the number of `register_route` / role-guard call sites in `gateway/gateway.py` before and after the change is unchanged for the orchestrator identity, and a code-review checklist item that no `if role == \\\"orchestrator\\\"` branch is introduced.\"* This is testable rather than aspirational. \u2713\n\n**End-to-end verification across criteria:**\n\n1. *Alignment with analysis* \u2014 Every analysis recommendation (caveats 1-7) and every architect component (C1-C10) is mapped to one or more tasks. The plan honors decision-3/13 (per-slice lens reviewers, no cross-slice pass), decision-6 (advisory only, no NACK), decision-7 (one-version migration), decision-9 (two-tier max_cycles), decision-10 (60s grace + DAG walk), decision-12 (identical roster), decision-14 (hybrid BRC namespacing), decision-15 (no privileged endpoint), decision-16 (auto-retarget + reconciler), decision-17 (planner-emitted serialization), decision-18 (forest validation at ingestion).\n\n2. *Task breakdown* \u2014 5 phases, 25 tasks. Each task is single-pass-implementable. No overlapping responsibilities. TASK-1-1b correctly split off `PhaseStatus` to keep diffs reviewable. TASK-3-2/3-3/3-4 split scheduler concerns (waves, max_cycles, cascade) cleanly.\n\n3. *Acceptance criteria* \u2014 Each task has concrete, testable acceptance. TASK-1-4 explicitly asserts `_legacy_phases` round-trip and `parent_branch_at_creation` round-trip. TASK-4-3 asserts both module-singleton entry points (`get_peer_consensus_tracker` and `remove_peer_consensus_tracker`) accept the new keying. TASK-5-2 has a code-checkable invariant for the zero-new-auth-surface property.\n\n4. *Dependency ordering* \u2014 Phase 1 (schema) \u2192 Phase 2 (parser/validation) \u2192 Phase 3 (scheduler) \u2192 Phase 4 (execution) \u2192 Phase 5 (PRs/reconciler/tests). Logically sound; foundations before features. TASK-3-1 (graph generification) blocks TASK-3-2 (scheduler) but parallelizes with the rest of Phase 1/2 work.\n\n5. *Risk assessment* \u2014 Plan-level risks section is brief but substantive (schema migration, stacked-PR fragility, tracker overhead, failure cascade); risk_analyst output is forthcoming and will provide the formal coverage. The architect's risk_summary_for_risk_analyst hands off 11 specific items.\n\n6. *Test strategy* \u2014 Unit + integration + manual; specific test scenarios enumerated. TASK-3-5, TASK-4-5, TASK-5-4 cover the major moving parts (scheduler, execution, e2e). TASK-1-4 covers migration. TASK-2-5 covers forest validation. Reconciler matching logic covered in TASK-5-3 acceptance.\n\n7. *Completeness* \u2014 All seven AC from the issue (slices[]+forest, orchestrator scheduling, per-slice branch+team+BRC, full reviewer roster per slice, per-slice PRs, failed-slice\u2192HITL, oversized-ticket-without-compaction) map to one or more tasks. PR Phase Fate is addressed in a dedicated prose section. #2199 follow-up hooks (`teardown_slice`/`respawn_slice`/`get_slice_status`) are tasked in TASK-3-2. Documentation in TASK-5-5 covers all new env vars (`EGG_ORCH_MAX_PARALLEL_SLICES`, `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES`, `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES`, `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS`).\n\n### Non-blocking\n\n- **TASK-2-3(b) auto-serialization heuristic threshold** \u2014 Jaccard >0.3 is a reasonable starting point but is asserted without empirical justification. Suggest a follow-up to revisit the threshold once production data accumulates; not blocking for this PR.\n- **TASK-1-2 `_legacy_phases` field is on the migration shim, not on the `Slice` model itself** \u2014 fine, but consider documenting whether `Contract._legacy_phases` is a public field that audit code can read or a strictly-private migration artifact. The TASK-1-4 acceptance covers behaviour; documenting accessibility in TASK-5-5 would close the loop.\n- **TASK-3-4 OVERSEER_ALERT body content** \u2014 acceptance says \"OVERSEER_ALERT body lists the blocked subtree\" but doesn't pin the format. Suggest a one-line example (e.g., \"anomaly: slice-cascade-block; failed: slice-2; blocked: [slice-4, slice-5, slice-6]\").\n- **TASK-5-1 PR title truncation at 70 chars** \u2014 line 825 says \"truncated to 70 chars\". GitHub PR titles support up to 256 chars; 70 is a stricter limit than necessary but consistent with the existing PR-title convention. Document in TASK-5-5 or just keep \u2014 non-blocking.\n- **Plan reviewer's `_legacy_phases` audit field semantics** \u2014 TASK-1-4 acceptance bullet 3 specifies \"on a round-trip dump\u2192reload the `_legacy_phases` field is not re-written from the migrated `slices[]` (no double translation)\". This implies the field is one-way (set on first legacy load, never overwritten). Worth a brief comment in TASK-1-2's description that this is the intended semantic \u2014 implementer might otherwise treat it as round-trippable.\n\nThe plan is ready to ship. The single v2 blocking item is decisively fixed and the non-blocking suggestions above are polish, not material gaps.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2137-plan.md",
+          ".egg-state/contracts/issue-2137.json",
+          ".egg-state/agent-outputs/2137-architect-output.json"
+        ],
+        "reason": "\nReviewed v3 (plan draft is now ~975 lines). The single v2 blocking item is resolved cleanly, and the four non-blocking items I flagged are also picked up.\n\n**v2 blocker fix verified \u2014 TASK-2-3(a) and TASK-2-4(b) now align with HITL decision-6 opt-2:**\n\n- **TASK-2-3(a)** lines 515-521: planner prompt now reads *\"Slice-sizing guidance (soft, advisory only \u2014 per HITL decision-6 opt-2): 'Slices should target \u22641,000 LOC where possible. Slices estimated >1,000 LOC will be flagged as advisory by the plan reviewer but are NOT rejected. There is no hard size ceiling; the refiner/operator can override sizing concerns at any point.' The plan reviewer never NACKs on size.\"* The \"hard ceiling 2,000 LOC\" sentence is gone. Aligns with the contract resolution at `.egg-state/contracts/issue-2137.json:236`.\n- **TASK-2-4(b)** lines 573-584: reviewer behaviour is now advisory-only \u2014 *\"the line scales in tone with the magnitude (1,000\u20132,000: 'consider splitting'; >2,000: 'this slice is well above the soft target \u2014 strongly consider splitting') but NEVER NACKs on size.\"* Plan explicitly states *\"If a future operator prefers a hard NACK threshold, they can register a follow-up HITL revision of decision-6 \u2014 the plan does not encode opt-3 unilaterally.\"* This is the exact escalation path I asked for.\n- **TASK-2-4 acceptance** lines 590-592: *\"manual run on a slice with estimated 2,500 LOC produces an ACK with a stronger advisory warning (NOT a NACK \u2014 confirming alignment with decision-6 opt-2).\"* The previous \"2,500 LOC produces a NACK\" assertion is gone.\n\n**Non-blocking items also fixed:**\n\n- **Stale prose summaries cleaned up** \u2014 Phase 5 prose at lines 168-172 now reads *\"a narrow `gateway/git_client.rebase_onto` helper to rebase them onto the parent's former base. The helper reuses the existing per-agent rebase allowlist plumbing \u2014 no new privileged orchestrator identity is introduced (per refine-phase decision-15).\"* And PR description body in `yaml-tasks` lines 287-294 now reads *\"rebases them via a narrow new `gateway/git_client.rebase_onto` helper that reuses the existing per-agent rebase allowlist (no new privileged orchestrator identity, per refine-phase decision-15).\"* Both v2 leftover instances of the privileged-identity language are corrected. \u2713\n- **Line-number citations labelled nominal** \u2014 TASK-2-3 line 511: *\"line numbers are nominal; grep for the literal docstring if the file has shifted\"*; TASK-2-4 line 564: *\"line numbers nominal; grep for the literal condition\"*. \u2713\n- **`serialized_chain_order` placement example added** \u2014 TASK-2-3 lines 532-538 give a concrete worked example: *\"if `slice-3` would naturally have parents [`slice-1`, `slice-2`], the planner instead sets `slice-3.dependencies = [\"slice-2\"]`, `slice-2.dependencies = [\"slice-1\"]`, and `slice-3.serialized_chain_order = [\"slice-1\", \"slice-2\"]` to record that the planner deliberately picked slice-1 \u2192 slice-2 \u2192 slice-3.\"* Ambiguity about which slice owns the field is resolved. \u2713\n- **TASK-5-2 acceptance reframed as code-checkable invariant** \u2014 lines 889-898 now require: *\"a unit test that grep-counts the number of `register_route` / role-guard call sites in `gateway/gateway.py` before and after the change is unchanged for the orchestrator identity, and a code-review checklist item that no `if role == \\\"orchestrator\\\"` branch is introduced.\"* This is testable rather than aspirational. \u2713\n\n**End-to-end verification across criteria:**\n\n1. *Alignment with analysis* \u2014 Every analysis recommendation (caveats 1-7) and every architect component (C1-C10) is mapped to one or more tasks. The plan honors decision-3/13 (per-slice lens reviewers, no cross-slice pass), decision-6 (advisory only, no NACK), decision-7 (one-version migration), decision-9 (two-tier max_cycles), decision-10 (60s grace + DAG walk), decision-12 (identical roster), decision-14 (hybrid BRC namespacing), decision-15 (no privileged endpoint), decision-16 (auto-retarget + reconciler), decision-17 (planner-emitted serialization), decision-18 (forest validation at ingestion).\n\n2. *Task breakdown* \u2014 5 phases, 25 tasks. Each task is single-pass-implementable. No overlapping responsibilities. TASK-1-1b correctly split off `PhaseStatus` to keep diffs reviewable. TASK-3-2/3-3/3-4 split scheduler concerns (waves, max_cycles, cascade) cleanly.\n\n3. *Acceptance criteria* \u2014 Each task has concrete, testable acceptance. TASK-1-4 explicitly asserts `_legacy_phases` round-trip and `parent_branch_at_creation` round-trip. TASK-4-3 asserts both module-singleton entry points (`get_peer_consensus_tracker` and `remove_peer_consensus_tracker`) accept the new keying. TASK-5-2 has a code-checkable invariant for the zero-new-auth-surface property.\n\n4. *Dependency ordering* \u2014 Phase 1 (schema) \u2192 Phase 2 (parser/validation) \u2192 Phase 3 (scheduler) \u2192 Phase 4 (execution) \u2192 Phase 5 (PRs/reconciler/tests). Logically sound; foundations before features. TASK-3-1 (graph generification) blocks TASK-3-2 (scheduler) but parallelizes with the rest of Phase 1/2 work.\n\n5. *Risk assessment* \u2014 Plan-level risks section is brief but substantive (schema migration, stacked-PR fragility, tracker overhead, failure cascade); risk_analyst output is forthcoming and will provide the formal coverage. The architect's risk_summary_for_risk_analyst hands off 11 specific items.\n\n6. *Test strategy* \u2014 Unit + integration + manual; specific test scenarios enumerated. TASK-3-5, TASK-4-5, TASK-5-4 cover the major moving parts (scheduler, execution, e2e). TASK-1-4 covers migration. TASK-2-5 covers forest validation. Reconciler matching logic covered in TASK-5-3 acceptance.\n\n7. *Completeness* \u2014 All seven AC from the issue (slices[]+forest, orchestrator scheduling, per-slice branch+team+BRC, full reviewer roster per slice, per-slice PRs, failed-slice\u2192HITL, oversized-ticket-without-compaction) map to one or more tasks. PR Phase Fate is addressed in a dedicated prose section. #2199 follow-up hooks (`teardown_slice`/`respawn_slice`/`get_slice_status`) are tasked in TASK-3-2. Documentation in TASK-5-5 covers all new env vars (`EGG_ORCH_MAX_PARALLEL_SLICES`, `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES`, `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES`, `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS`).\n\n### Non-blocking\n\n- **TASK-2-3(b) auto-serialization heuristic threshold** \u2014 Jaccard >0.3 is a reasonable starting point but is asserted without empirical justification. Suggest a follow-up to revisit the threshold once production data accumulates; not blocking for this PR.\n- **TASK-1-2 `_legacy_phases` field is on the migration shim, not on the `Slice` model itself** \u2014 fine, but consider documenting whether `Contract._legacy_phases` is a public field that audit code can read or a strictly-private migration artifact. The TASK-1-4 acceptance covers behaviour; documenting accessibility in TASK-5-5 would close the loop.\n- **TASK-3-4 OVERSEER_ALERT body content** \u2014 acceptance says \"OVERSEER_ALERT body lists the blocked subtree\" but doesn't pin the format. Suggest a one-line example (e.g., \"anomaly: slice-cascade-block; failed: slice-2; blocked: [slice-4, slice-5, slice-6]\").\n- **TASK-5-1 PR title truncation at 70 chars** \u2014 line 825 says \"truncated to 70 chars\". GitHub PR titles support up to 256 chars; 70 is a stricter limit than necessary but consistent with the existing PR-title convention. Document in TASK-5-5 or just keep \u2014 non-blocking.\n- **Plan reviewer's `_legacy_phases` audit field semantics** \u2014 TASK-1-4 acceptance bullet 3 specifies \"on a round-trip dump\u2192reload the `_legacy_phases` field is not re-written from the migrated `slices[]` (no double translation)\". This implies the field is one-way (set on first legacy load, never overwritten). Worth a brief comment in TASK-1-2's description that this is the intended semantic \u2014 implementer might otherwise treat it as round-trippable.\n\nThe plan is ready to ship. The single v2 blocking item is decisively fixed and the non-blocking suggestions above are polish, not material gaps.\n",
+        "ack_version": 3
+      },
+      "version": 3
+    },
+    "timestamp": "2026-04-28T17:36:07.128107+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1bc4ec7f-d0b6-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:36:07.237631+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "041d9a98-7a81-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "AGENT_FAILED",
+    "subject": "Agent risk_analyst failed",
+    "body": "Container exited with code -1",
+    "metadata": {},
+    "timestamp": "2026-04-28T17:36:12.167703+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0543283d-e3a6-44",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:36:12.440258+00:00"
+    },
+    "timestamp": "2026-04-28T17:36:12.532782+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "93edc2e5-7735-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner (pending_acks)",
+    "body": "Agent task_planner cannot confirm: producers ['risk_analyst'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-28T17:36:21.639558+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a4021070-2d56-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:36:21.885878+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "017db097-3d97-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:36:22.045618+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "910ffb04-704e-4b",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:36:25.470420+00:00"
+    },
+    "timestamp": "2026-04-28T17:36:25.509731+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "edeb5dc4-fcc6-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:36:27.329907+00:00"
+    },
+    "timestamp": "2026-04-28T17:36:27.392649+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b197830b-49b8-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:36:27.487711+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2005106e-5d8a-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:36:32.496864+00:00"
+    },
+    "timestamp": "2026-04-28T17:36:32.537085+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a4198ab7-7a91-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:36:50.711005+00:00"
+    },
+    "timestamp": "2026-04-28T17:36:51.020796+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c400e052-15f5-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK from=risk_analyst",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:24:01.570899+00:00"
+    },
+    "timestamp": "2026-04-28T17:37:05.552854+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f66fa2de-eb97-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:36:25.470420+00:00"
+    },
+    "timestamp": "2026-04-28T17:37:25.728557+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4d057e97-fd06-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:36:32.496864+00:00"
+    },
+    "timestamp": "2026-04-28T17:37:32.711642+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0e33d21f-19b3-4b",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:36:50.711005+00:00"
+    },
+    "timestamp": "2026-04-28T17:37:51.195198+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4d57a3d4-a054-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Technical risk assessment for issue #2137 (slice-scoped DAG + stacked PRs). Identified 15 risks across security, performance, compatibility, and design categories. Three HIGH-severity HIGH-likelihood clusters: (R1) pipeline_id hierarchy fan-out across every BRC/message-bus consumer requires a typed PipelineRef value object to prevent silent mis-routing of CONSENSUS_* messages between slice scopes; (R2) stacked-PR rebase reconciler must use `git rebase --onto` and detect parent-PR state (merged-via-UI / squash / closed / force-pushed) to handle GitHub auto-retarget edge cases (research: gh-stack docs, community discussions #17880/#176698); (R4) token-cost inversion \u2014 N slices \u00d7 full reviewer roster \u00d7 unbounded parallelism produces 8-15\u00d7 cost on large tickets, recommend shipping with `max_parallel_slices = 5` operational cap. Five HIGH-severity total + seven MEDIUM + two LOW. Five areas flagged for human review (R1, R2, R4, R5 gateway slice-aware push auth, R9 per-slice lens-reviewer cross-slice blind spot). Rollback plan documented (modify migration shim to dual-write `phases[]` and `slices[]` for one release cycle to enable mid-implement rollback). 10 implementation recommendations prioritized HIGH/MEDIUM/LOW. External research conducted on GitHub stacked-PR support and Anthropic rate limits. Recommendation: PROCEED_WITH_MITIGATIONS \u2014 design is sound but surface area is unusually wide and there is no feature flag.",
+    "metadata": {
+      "payload": {
+        "summary": "Technical risk assessment for issue #2137 (slice-scoped DAG + stacked PRs). Identified 15 risks across security, performance, compatibility, and design categories. Three HIGH-severity HIGH-likelihood clusters: (R1) pipeline_id hierarchy fan-out across every BRC/message-bus consumer requires a typed PipelineRef value object to prevent silent mis-routing of CONSENSUS_* messages between slice scopes; (R2) stacked-PR rebase reconciler must use `git rebase --onto` and detect parent-PR state (merged-via-UI / squash / closed / force-pushed) to handle GitHub auto-retarget edge cases (research: gh-stack docs, community discussions #17880/#176698); (R4) token-cost inversion \u2014 N slices \u00d7 full reviewer roster \u00d7 unbounded parallelism produces 8-15\u00d7 cost on large tickets, recommend shipping with `max_parallel_slices = 5` operational cap. Five HIGH-severity total + seven MEDIUM + two LOW. Five areas flagged for human review (R1, R2, R4, R5 gateway slice-aware push auth, R9 per-slice lens-reviewer cross-slice blind spot). Rollback plan documented (modify migration shim to dual-write `phases[]` and `slices[]` for one release cycle to enable mid-implement rollback). 10 implementation recommendations prioritized HIGH/MEDIUM/LOW. External research conducted on GitHub stacked-PR support and Anthropic rate limits. Recommendation: PROCEED_WITH_MITIGATIONS \u2014 design is sound but surface area is unusually wide and there is no feature flag.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2137-risk_analyst-output.json"
+        ],
+        "risk_considered": "15 risks identified covering security (R5 gateway slice-aware push auth, R9 cross-slice lens blind spot), performance (R4 cost inversion, R14 single-slice fast-path), compatibility (R1 pipeline_id hierarchy, R2 stacked-PR rebase, R8 phase\u2192slice migration shim), and design (R3 forest validation, R6 deadlock detection, R7 max_cycles starvation, R10 auto-serialization, R11 internal slice APIs, R12 worktree lifecycle, R13 plan-prompt update, R15 babysit_pr coupling). Three HIGH/HIGH risks require human review. Token cost inversion is a NEW operational risk not covered by refine HITL.",
+        "commit_sha": "6ae970f4d92143949aa514b9a7c63c326ced2ae6",
+        "files_changed": [
+          ".egg-state/agent-outputs/2137-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "6ae970f4d92143949aa514b9a7c63c326ced2ae6"
+    },
+    "timestamp": "2026-04-28T17:38:05.300579+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bff6a2d2-8cc1-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-28T17:38:05.300615+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0ffe356a-da58-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 3) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 3
+    },
+    "timestamp": "2026-04-28T17:38:05.300627+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1b7b7fd3-d10d-43",
+    "pipeline_id": "issue-2137",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-28T17:38:05.300636+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2fe85c43-ff5c-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:38:05.805671+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5638473d-afe7-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:38:05.850051+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2e48ed65-2869-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:38:05.850802+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c45c64f4-aa8e-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:38:05.853067+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6f02d234-cd30-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-28T17:38:09.539198+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c34dfc05-bdbc-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-28T17:38:09.995152+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1552f600-74b3-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:12.309625+00:00"
+    },
+    "timestamp": "2026-04-28T17:38:12.378167+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6f176ed4-6092-45",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:38:12.516792+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "87bf0316-2b59-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:13.453506+00:00"
+    },
+    "timestamp": "2026-04-28T17:38:13.487878+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ef22495b-b4e0-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:16.078305+00:00"
+    },
+    "timestamp": "2026-04-28T17:38:16.139741+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "168e9492-740c-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:17.798083+00:00"
+    },
+    "timestamp": "2026-04-28T17:38:17.877338+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c8a7ca38-2a30-4b",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:38:18.016717+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0e0f51fd-0585-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:20.799317+00:00"
+    },
+    "timestamp": "2026-04-28T17:38:20.852093+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "61064471-c1b1-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:38:20.989984+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7a6c04b7-dbfc-47",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:24.453213+00:00"
+    },
+    "timestamp": "2026-04-28T17:38:24.545029+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2bd1e889-2d3c-4c",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:25.540086+00:00"
+    },
+    "timestamp": "2026-04-28T17:38:25.571670+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8e439d50-c994-4b",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:13.453506+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:13.776582+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c60773f8-134d-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:16.078305+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:16.628800+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "68eb4a4d-5af3-44",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:24.453213+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:24.755624+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "447736c2-16df-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:38:25.540086+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:25.753922+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dc3541b5-100c-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "\nReviewed the risk_analyst output (508 lines, 15 risks R1-R15 + 10 recommendations REC1-REC10 + rollback plan + perf/security/compat assessments). The risk inventory is comprehensive, decision-aligned, and adds substantive analysis beyond the architect's risk_summary handoff.\n\n**Coverage and quality:**\n- Each risk has structured fields (category, severity, likelihood, impact, description, affected_files, mitigation strategy + effort + residual_risk, requires_human_review flag with reason). The format is consistently filled in.\n- 5 risks correctly flagged for human review (R1 pipeline_id hierarchy, R2 stacked-PR reconciler, R4 cost inversion, R5 gateway push auth, R9 per-slice lens-reviewer scope) with named reviewer profiles.\n- External research is grounded: GitHub stacked-PR docs (gh-stack), community discussions #17880/#176698, plus Anthropic rate-limit and GHA queue depth context.\n- Rollback plan is realistic \u2014 explicitly acknowledges manual-surgery requirement for mid-implement rollback rather than over-promising clean reversibility.\n\n**High-value additions over the architect's handoff:**\n- **R4 cost-inversion observation** is the strongest analytical contribution: #2137's win is quality (no compaction), not cost \u2014 a 10-slice ticket costs ~10\u00d7 today's monolithic cost. This was implicit in the architect's \"5\u00d7 multiplier\" risk-summary entry but the risk_analyst makes the inversion explicit and ties it to the operator-facing rollout note (REC10) and product-owner sign-off (R4 review_reason). Decision-5's \"unbounded\" gets a sensible operational override via REC4's `max_parallel_slices=5` default \u2014 which the v3 plan already implements (TASK-3-2 line 621).\n- **R5 gateway push authorization** identifies a real security gap not explicitly tasked in the plan: the gateway must verify that \"agent X spawned for slice-3\" can ONLY push to `egg/issue-N/slice-3` and not to `egg/issue-N/slice-1`. This is the BRC integrity boundary and the plan's TASK-4-1/4-2 don't task gateway-side allowlist updates.\n- **R8 + REC5 two-way migration shim** is a concrete rollback enabler: writing both `phases[]` and `slices[]` for one release cycle so a mid-implement rollback doesn't lose partial slice work. The v3 plan's TASK-1-2 currently does one-way translation; this REC modifies that.\n- **R14 single-slice fast-path** is a missing performance optimization: most tickets are small, and slice scheduling overhead must amortize to zero on len(slices) == 1. The v3 plan's run-loop integration in TASK-3-2 doesn't include this fast-path.\n- **REC2 typed `PipelineRef` value object** is a stronger mitigation than the v3 plan's string-prefix `f\"{pipeline_id}/{slice_id}\"` approach in TASK-4-3 \u2014 types force classification at compile/import time and prevent future consumers from accidentally mis-routing.\n- **REC3 forest validator at every load path** (not just `_populate_contract_from_plan`) is a defense-in-depth recommendation that the v3 plan's TASK-2-2 currently doesn't enforce. The migration shim, checkpoint replay, and orchestrator scheduler entry all need to call the validator.\n\n**Cross-checking risks against v3 plan tasks:**\n- R3 (forest validation) \u2014 v3 TASK-2-2 covers ingestion-time only; REC3's \"every load path\" gap is real and worth surfacing for the implement phase.\n- R6 (deadlock detection 60s grace) \u2014 v3 TASK-3-4 covers, mitigation is satisfied.\n- R7 (two-tier max_cycles starvation) \u2014 v3 TASK-3-3 covers caps, REC7 is a tuning observation.\n- R10 (auto-serialization heuristic) \u2014 v3 TASK-2-3(b) emits `serialized_chain_order`; REC10 line is consistent with v3 TASK-2-4(a)'s forest-violation NACK behaviour. Reviewer spot-check is a soft addition.\n- R11 (slice-addressable hooks) \u2014 v3 TASK-3-2 explicitly tasks `teardown_slice`/`respawn_slice`/`get_slice_status`, satisfying R11's primary mitigation.\n- R12 (worktree cleanup) \u2014 not explicitly tasked in v3; mitigation strategy is mechanical extension of existing patterns and the implement phase can pick it up.\n- R13 (planner LLM prompt update) \u2014 v3 TASK-2-3 covers; mitigation satisfied.\n- R15 (babysit_pr decoupling) \u2014 typed PipelineMode is an architectural recommendation; v3 doesn't explicitly address but the file-level orthogonality is preserved by the slice-only branch convention.\n\n**Decision-alignment check:**\n- Decision-5 (unbounded concurrency) \u2014 REC4 introduces a runtime cap as a separate operational concern, preserving the architectural decision while making the rollout safer. \u2713\n- Decision-12 (identical roster) \u2014 R4 cost analysis quantifies the implication; doesn't override. \u2713\n- Decision-13 (per-slice lens-reviewer scope) \u2014 R9 explicitly accepts the cross-slice regression risk and recommends documentation; aligns with the analysis's caveat 4. \u2713\n- Decision-15 (no privileged orchestrator endpoint) \u2014 implicitly preserved; risk inventory doesn't reintroduce a privileged surface. \u2713\n- Decision-17 (planner-emitted serialized_chain_order) \u2014 R10 captures the residual risk that the planner's chosen order may be sub-optimal; mitigation is reviewer spot-check + audit log. \u2713\n\n### Non-blocking\n\n- **REC8 numbering bug** \u2014 at JSON line 413 the recommendation id is `\"MEDIUM\"` rather than a sequential REC8 identifier; line 414 `\"priority\": \"MEDIUM\"` repeats the value. Cosmetic, but the recommendation list is navigable by id and a duplicate / mis-named id will confuse downstream tooling that filters by `id`. Suggest renaming to `\"REC8\"` to keep the sequence (REC1...REC10) clean.\n- **REC15 cited but not numbered** \u2014 `\"compatibility_assessment.carve_outs\"` line 475 references \"REC15 typed PipelineMode\" but no such REC exists in the recommendations list (the typed PipelineMode is mentioned only in R15's mitigation). The reference is slightly misleading; either promote it to a numbered REC or rephrase as \"R15 mitigation\".\n- **R1 affected_files lists \"gateway/routes/messages.py (and equivalent BRC endpoints)\"** \u2014 best-effort path; the actual BRC endpoint surface lives across `gateway/gateway.py` and `gateway/routes/git.py` plus the orchestrator's `mcp__brc__*` tools. The implementer can grep for `pipeline_id` in the gateway tree to find the actual sites. Non-blocking; the principle (audit every consumer) is correct even if the specific file path is approximate.\n- **R5 mitigation strategy bullet 4 mentions reviewer roles cannot push code regardless of slice** \u2014 this is a correct invariant but is an existing gateway property (per-role file allowlist), not a #2137 addition. Worth a slight rewording so the implementer doesn't think it's net-new work.\n- **Performance assessment \"concurrency_envelope\"** says default cap caps to \"~40 containers\" (5 slices \u00d7 8 roles); the v3 plan's TASK-4-4 lists a roster of ~9 roles (3 producers + 5 reviewers + dual-role tester\u2192coder review), so the actual cap is closer to 45. Math nit; doesn't change the conclusion.\n\nThe risk inventory is sound, comprehensive, and aligned with both the architect output and the v3 task plan. The non-blocking items are cosmetic/numbering issues that don't affect the analytical content. The implement phase will have a useful risk catalog to consult during BRC review.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2137-risk_analyst-output.json",
+          ".egg-state/drafts/2137-plan.md",
+          ".egg-state/agent-outputs/2137-architect-output.json",
+          ".egg-state/drafts/2137-analysis.md"
+        ],
+        "reason": "\nReviewed the risk_analyst output (508 lines, 15 risks R1-R15 + 10 recommendations REC1-REC10 + rollback plan + perf/security/compat assessments). The risk inventory is comprehensive, decision-aligned, and adds substantive analysis beyond the architect's risk_summary handoff.\n\n**Coverage and quality:**\n- Each risk has structured fields (category, severity, likelihood, impact, description, affected_files, mitigation strategy + effort + residual_risk, requires_human_review flag with reason). The format is consistently filled in.\n- 5 risks correctly flagged for human review (R1 pipeline_id hierarchy, R2 stacked-PR reconciler, R4 cost inversion, R5 gateway push auth, R9 per-slice lens-reviewer scope) with named reviewer profiles.\n- External research is grounded: GitHub stacked-PR docs (gh-stack), community discussions #17880/#176698, plus Anthropic rate-limit and GHA queue depth context.\n- Rollback plan is realistic \u2014 explicitly acknowledges manual-surgery requirement for mid-implement rollback rather than over-promising clean reversibility.\n\n**High-value additions over the architect's handoff:**\n- **R4 cost-inversion observation** is the strongest analytical contribution: #2137's win is quality (no compaction), not cost \u2014 a 10-slice ticket costs ~10\u00d7 today's monolithic cost. This was implicit in the architect's \"5\u00d7 multiplier\" risk-summary entry but the risk_analyst makes the inversion explicit and ties it to the operator-facing rollout note (REC10) and product-owner sign-off (R4 review_reason). Decision-5's \"unbounded\" gets a sensible operational override via REC4's `max_parallel_slices=5` default \u2014 which the v3 plan already implements (TASK-3-2 line 621).\n- **R5 gateway push authorization** identifies a real security gap not explicitly tasked in the plan: the gateway must verify that \"agent X spawned for slice-3\" can ONLY push to `egg/issue-N/slice-3` and not to `egg/issue-N/slice-1`. This is the BRC integrity boundary and the plan's TASK-4-1/4-2 don't task gateway-side allowlist updates.\n- **R8 + REC5 two-way migration shim** is a concrete rollback enabler: writing both `phases[]` and `slices[]` for one release cycle so a mid-implement rollback doesn't lose partial slice work. The v3 plan's TASK-1-2 currently does one-way translation; this REC modifies that.\n- **R14 single-slice fast-path** is a missing performance optimization: most tickets are small, and slice scheduling overhead must amortize to zero on len(slices) == 1. The v3 plan's run-loop integration in TASK-3-2 doesn't include this fast-path.\n- **REC2 typed `PipelineRef` value object** is a stronger mitigation than the v3 plan's string-prefix `f\"{pipeline_id}/{slice_id}\"` approach in TASK-4-3 \u2014 types force classification at compile/import time and prevent future consumers from accidentally mis-routing.\n- **REC3 forest validator at every load path** (not just `_populate_contract_from_plan`) is a defense-in-depth recommendation that the v3 plan's TASK-2-2 currently doesn't enforce. The migration shim, checkpoint replay, and orchestrator scheduler entry all need to call the validator.\n\n**Cross-checking risks against v3 plan tasks:**\n- R3 (forest validation) \u2014 v3 TASK-2-2 covers ingestion-time only; REC3's \"every load path\" gap is real and worth surfacing for the implement phase.\n- R6 (deadlock detection 60s grace) \u2014 v3 TASK-3-4 covers, mitigation is satisfied.\n- R7 (two-tier max_cycles starvation) \u2014 v3 TASK-3-3 covers caps, REC7 is a tuning observation.\n- R10 (auto-serialization heuristic) \u2014 v3 TASK-2-3(b) emits `serialized_chain_order`; REC10 line is consistent with v3 TASK-2-4(a)'s forest-violation NACK behaviour. Reviewer spot-check is a soft addition.\n- R11 (slice-addressable hooks) \u2014 v3 TASK-3-2 explicitly tasks `teardown_slice`/`respawn_slice`/`get_slice_status`, satisfying R11's primary mitigation.\n- R12 (worktree cleanup) \u2014 not explicitly tasked in v3; mitigation strategy is mechanical extension of existing patterns and the implement phase can pick it up.\n- R13 (planner LLM prompt update) \u2014 v3 TASK-2-3 covers; mitigation satisfied.\n- R15 (babysit_pr decoupling) \u2014 typed PipelineMode is an architectural recommendation; v3 doesn't explicitly address but the file-level orthogonality is preserved by the slice-only branch convention.\n\n**Decision-alignment check:**\n- Decision-5 (unbounded concurrency) \u2014 REC4 introduces a runtime cap as a separate operational concern, preserving the architectural decision while making the rollout safer. \u2713\n- Decision-12 (identical roster) \u2014 R4 cost analysis quantifies the implication; doesn't override. \u2713\n- Decision-13 (per-slice lens-reviewer scope) \u2014 R9 explicitly accepts the cross-slice regression risk and recommends documentation; aligns with the analysis's caveat 4. \u2713\n- Decision-15 (no privileged orchestrator endpoint) \u2014 implicitly preserved; risk inventory doesn't reintroduce a privileged surface. \u2713\n- Decision-17 (planner-emitted serialized_chain_order) \u2014 R10 captures the residual risk that the planner's chosen order may be sub-optimal; mitigation is reviewer spot-check + audit log. \u2713\n\n### Non-blocking\n\n- **REC8 numbering bug** \u2014 at JSON line 413 the recommendation id is `\"MEDIUM\"` rather than a sequential REC8 identifier; line 414 `\"priority\": \"MEDIUM\"` repeats the value. Cosmetic, but the recommendation list is navigable by id and a duplicate / mis-named id will confuse downstream tooling that filters by `id`. Suggest renaming to `\"REC8\"` to keep the sequence (REC1...REC10) clean.\n- **REC15 cited but not numbered** \u2014 `\"compatibility_assessment.carve_outs\"` line 475 references \"REC15 typed PipelineMode\" but no such REC exists in the recommendations list (the typed PipelineMode is mentioned only in R15's mitigation). The reference is slightly misleading; either promote it to a numbered REC or rephrase as \"R15 mitigation\".\n- **R1 affected_files lists \"gateway/routes/messages.py (and equivalent BRC endpoints)\"** \u2014 best-effort path; the actual BRC endpoint surface lives across `gateway/gateway.py` and `gateway/routes/git.py` plus the orchestrator's `mcp__brc__*` tools. The implementer can grep for `pipeline_id` in the gateway tree to find the actual sites. Non-blocking; the principle (audit every consumer) is correct even if the specific file path is approximate.\n- **R5 mitigation strategy bullet 4 mentions reviewer roles cannot push code regardless of slice** \u2014 this is a correct invariant but is an existing gateway property (per-role file allowlist), not a #2137 addition. Worth a slight rewording so the implementer doesn't think it's net-new work.\n- **Performance assessment \"concurrency_envelope\"** says default cap caps to \"~40 containers\" (5 slices \u00d7 8 roles); the v3 plan's TASK-4-4 lists a roster of ~9 roles (3 producers + 5 reviewers + dual-role tester\u2192coder review), so the actual cap is closer to 45. Math nit; doesn't change the conclusion.\n\nThe risk inventory is sound, comprehensive, and aligned with both the architect output and the v3 task plan. The non-blocking items are cosmetic/numbering issues that don't affect the analytical content. The implement phase will have a useful risk catalog to consult during BRC review.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-28T17:39:36.110004+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cae2f133-6040-44",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:36.181856+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "65018ae4-32db-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-28T17:39:40.287277+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b10164d7-89a9-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:41.153075+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3aa2687a-7be8-4f",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:41.160806+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d8a68ef6-914d-48",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:41.174875+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "143519ba-da9c-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:39:44.654812+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:44.772523+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3919db8a-ed51-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:39:44.988624+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:45.067155+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f095bc0e-619f-41",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:39:45.104337+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:45.323502+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3d6c2555-1461-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-28T17:39:45.999229+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b9bdeee1-923a-4b",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:39:45.480460+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:46.064412+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1efe1deb-e0ce-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:46.152322+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7cb3e2da-0dc6-43",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:46.350203+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ece03825-dc5b-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:46.360833+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "98763f26-3ff0-4d",
+    "pipeline_id": "issue-2137",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:46.436954+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4dde4f62-4cb5-4a",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: IDLE",
+    "body": "Risk assessment ACKed by reviewer_plan; CONSENSUS_CONFIRMED sent. Staying alive for re-review/overseer events.",
+    "metadata": {
+      "state": "IDLE"
+    },
+    "timestamp": "2026-04-28T17:39:50.380481+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "970f302d-258d-46",
+    "pipeline_id": "issue-2137",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:39:52.354263+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:52.440742+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eb33e607-0106-42",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:39:54.219200+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:54.294302+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f2eea8b6-25fa-4e",
+    "pipeline_id": "issue-2137",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-28T17:39:54.412620+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1a15c744-051a-40",
+    "pipeline_id": "issue-2137",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_CONFIRMED",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-28T17:39:54.673787+00:00"
+    },
+    "timestamp": "2026-04-28T17:39:54.721497+00:00",
+    "phase": "plan"
+  }
+]

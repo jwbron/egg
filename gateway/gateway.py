@@ -1115,8 +1115,13 @@ def git_push() -> tuple[Response, int] | Response:
             "remote": "origin",
             "refspec": "branch-name",
             "force": false,
+            "force_with_lease": false,  # safer alternative to force
             "commit_sha": "<40-hex>",   # alternative to refspec; consensus pushes only
         }
+
+    ``force_with_lease`` (#2137 stacked-PR reconciler) is preferred over
+    ``force`` for non-fast-forward pushes. Both flags are mutually
+    exclusive — ``force_with_lease`` takes precedence if both are set.
 
     Policy: branch_ownership
     """
@@ -1128,6 +1133,7 @@ def git_push() -> tuple[Response, int] | Response:
     remote = data.get("remote", "origin")
     refspec = data.get("refspec", "")
     force = data.get("force", False)
+    force_with_lease = data.get("force_with_lease", False)
     container_id = data.get("container_id")
     commit_sha = data.get("commit_sha", "")
 
@@ -1873,7 +1879,13 @@ def git_push() -> tuple[Response, int] | Response:
     # core.hooksPath=/dev/null in git_cmd() which disables ALL hooks globally.
     # --no-verify is added as defense-in-depth for the pre-push hook. See issue #58.
     push_args = ["push", "--no-verify"]
-    if force:
+    if force_with_lease:
+        # ``--force-with-lease`` rejects the push if the remote has moved
+        # since we last fetched it — preferred over ``--force`` for
+        # non-fast-forward pushes (e.g. the stacked-PR reconciler's
+        # rebase-then-push heal path, #2137).
+        push_args.append("--force-with-lease")
+    elif force:
         push_args.append("--force")
     # NOTE: The push uses the original refspec (not a SHA-based refspec)
     # because it never calls ``update-ref`` pre-push, so the directory-
@@ -3704,15 +3716,25 @@ def gh_pr_comment() -> tuple[Response, int] | Response:
 @require_session_auth
 def gh_pr_edit() -> tuple[Response, int] | Response:
     """
-    Edit a PR title or body.
+    Edit a PR title, body, or base branch.
 
     Request body:
         {
             "repo": "owner/repo",
             "pr_number": 123,
             "title": "New title",  # optional
-            "body": "New body"      # optional
+            "body": "New body",     # optional
+            "base": "main"          # optional — retarget the PR base
         }
+
+    At least one of ``title``, ``body``, or ``base`` must be set.
+
+    The ``base`` field is the merge target branch ref (e.g.
+    ``main`` or ``egg/issue-N/slice-3``). It is the canonical
+    surface for the stacked-PR reconciler (#2137) to retarget a
+    child PR after the parent merges and the parent's branch is
+    deleted on origin. The ref is forwarded as-is to the GitHub
+    PATCH ``/repos/{owner}/{repo}/pulls/{pr_number}`` API.
 
     Policy: pr_ownership
     """
@@ -3724,6 +3746,7 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
     pr_number = data.get("pr_number")
     title = data.get("title")
     body = data.get("body")
+    base = data.get("base")
 
     if not repo:
         return make_error("Missing repo")
@@ -3731,8 +3754,10 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         return make_error("Missing pr_number")
     if isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number < 1:
         return make_error("Invalid pr_number: must be a positive integer")
-    if not title and not body:
-        return make_error("Must provide title or body to edit")
+    if not title and not body and not base:
+        return make_error("Must provide title, body, or base to edit")
+    if base is not None and (not isinstance(base, str) or not base.strip()):
+        return make_error("Invalid base: must be a non-empty branch ref")
 
     # Validate repo format early (before any API calls)
     repo_info = parse_owner_repo(repo)
@@ -3800,6 +3825,8 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         args.extend(["-f", f"title={title}"])
     if body:
         args.extend(["-f", f"body={body}"])
+    if base:
+        args.extend(["-f", f"base={base}"])
 
     result = github.execute(args, timeout=30, mode=auth_mode)
 

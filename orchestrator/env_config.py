@@ -173,6 +173,124 @@ def get_heartbeat_rate_limit() -> int:
 
 
 # -----------------------------------------------------------------
+# #2137 — slice-scheduler configuration knobs.
+#
+# EGG_ORCH_MAX_PARALLEL_SLICES — soft concurrency cap on slice spawns
+#   per wave. Default 5 (refine-phase decision-5 + Q1: typical 3–7
+#   slices, worst-case 10–15; trust container limits and gateway
+#   throttling but give the operator a knob to dial back when
+#   confidence is low).
+#
+# EGG_ORCH_SLICE_LOCAL_MAX_CYCLES — per-slice BRC re-proposal ceiling
+#   before HITL escalation (refine-phase decision-9 opt-3 two-tier
+#   model). Default 3.
+#
+# EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES — pipeline-wide cap on summed
+#   slice cycles. Default 10. Either trip escalates HITL.
+#
+# EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS — grace window between a slice
+#   failure and the orchestrator marking the downstream subtree
+#   ``BLOCKED_ON_FAILED_DEPENDENCY``. Default 60 (refine-phase
+#   decision-10 opt-3 hybrid). Allows HITL resolution before the
+#   cascade fires.
+#
+# EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS — period of the
+#   stacked-PR reconciler that catches child PRs whose base branch
+#   was deleted out from under them. Default 30 (refine-phase
+#   decision-16 opt-3 hybrid).
+# -----------------------------------------------------------------
+
+DEFAULT_MAX_PARALLEL_SLICES = 5
+DEFAULT_SLICE_LOCAL_MAX_CYCLES = 3
+DEFAULT_SLICE_GLOBAL_MAX_CYCLES = 10
+DEFAULT_SLICE_FAILURE_GRACE_SECONDS = 60.0
+DEFAULT_STACKED_PR_RECONCILER_INTERVAL_SECONDS = 30.0
+
+
+def _coerce_positive_int(env_name: str, default: int) -> int:
+    """Read a positive-int env var with a default; warn on bad input."""
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        return default
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "%s=%r is not an integer; falling back to %d",
+            env_name,
+            raw,
+            default,
+        )
+        return default
+    if val <= 0:
+        logger.warning(
+            "%s=%d must be > 0; falling back to %d",
+            env_name,
+            val,
+            default,
+        )
+        return default
+    return val
+
+
+def _coerce_positive_float(env_name: str, default: float) -> float:
+    """Read a positive-float env var with a default; warn on bad input."""
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        return default
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "%s=%r is not a number; falling back to %.1f",
+            env_name,
+            raw,
+            default,
+        )
+        return default
+    if val <= 0:
+        logger.warning(
+            "%s=%.1f must be > 0; falling back to %.1f",
+            env_name,
+            val,
+            default,
+        )
+        return default
+    return val
+
+
+def get_max_parallel_slices() -> int:
+    """Return the per-pipeline parallel-slice spawn cap (default 5)."""
+    return _coerce_positive_int("EGG_ORCH_MAX_PARALLEL_SLICES", DEFAULT_MAX_PARALLEL_SLICES)
+
+
+def get_slice_local_max_cycles() -> int:
+    """Return the per-slice BRC cycle ceiling (default 3)."""
+    return _coerce_positive_int("EGG_ORCH_SLICE_LOCAL_MAX_CYCLES", DEFAULT_SLICE_LOCAL_MAX_CYCLES)
+
+
+def get_slice_global_max_cycles() -> int:
+    """Return the pipeline-wide BRC cycle ceiling (default 10)."""
+    return _coerce_positive_int("EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES", DEFAULT_SLICE_GLOBAL_MAX_CYCLES)
+
+
+def get_slice_failure_grace_seconds() -> float:
+    """Return the failure-cascade grace window in seconds (default 60)."""
+    return _coerce_positive_float(
+        "EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS",
+        DEFAULT_SLICE_FAILURE_GRACE_SECONDS,
+    )
+
+
+def get_stacked_pr_reconciler_interval_seconds() -> float:
+    """Return the stacked-PR reconciler cadence in seconds (default 30)."""
+    return _coerce_positive_float(
+        "EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS",
+        DEFAULT_STACKED_PR_RECONCILER_INTERVAL_SECONDS,
+    )
+
+
+# -----------------------------------------------------------------
 # EGG_ORCH_STATE_STORE_PROBE_INTERVAL — cadence (in seconds) of the
 # background state-store self-heal probe (#2191). Lowering this
 # tightens the wedge-detection window at the cost of more frequent

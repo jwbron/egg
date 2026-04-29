@@ -1,0 +1,1755 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 2137,
+    "title": "Issue #2137",
+    "url": "https://github.com/jwbron/egg/issues/2137"
+  },
+  "pipeline_id": "issue-2137",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "**Slice merge strategy** \u2014 How should slice branches be reintegrated into the pipeline branch after each slice's BRC consensus completes?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Merge commit per slice in topological order (`git merge --no-ff slice-N`) \u2014 preserves slice boundaries in history; conflicts surface to HITL.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Rebase-and-fast-forward (`git rebase pipeline-branch && git push pipeline-branch`) \u2014 flat history; later slices auto-rebase onto earlier slice commits; conflicts handled by the slice's coder before BRC re-consensus.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Squash-merge each slice (`git merge --squash`) \u2014 one commit per slice; clean history but loses per-task commit granularity inside the slice.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer integration to a final integrator role (per #732 Tier 3 design) \u2014 independent slices push to `egg/issue-N/slice-M`, an integrator role runs after all slices ACK and produces the merged pipeline branch.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"moot \u2014 superseded by stacked PRs in revised issue text (no orchestrator-side merge step; slices stack via per-slice PRs through normal GitHub review/merge flow)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:32.334485Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "**Slice failure semantics** \u2014 A slice fails (BRC stuck, repeated NACKs, agent crash). The issue says \"downstream slices that depend on a failed slice will block, eventually deadlocking the pipeline \u2192 HITL escalation.\" What should happen to *independent* sibling slices that have already started or could still start?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Let siblings run to completion; only block on the failed slice's downstream subtree (matches issue text literally).",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Pause new slice spawns once any failure is observed; let in-flight siblings finish, then escalate to HITL with the global state.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel all in-flight slices on first failure to conserve tokens; HITL escalation immediately.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Treat slice failure as recoverable: auto-retry the failed slice once with a fresh agent team before escalating to HITL.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Let siblings run to completion; only block on the failed slice's downstream subtree (matches issue text literally).\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.399186Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "**Lens reviewer scope** \u2014 `reviewer_security` and `reviewer_concurrency` are CRITICAL lenses today. With slice-scoped reviews, where should they run?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Per-slice only \u2014 lenses review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence (a security regression spanning two slices may be missed).",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-slice + final cross-slice pass \u2014 lenses review each slice locally AND run once more on the merged pipeline branch before PR phase; more thorough but doubles the lens cost.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Pipeline-branch only \u2014 lenses skip individual slice BRC entirely and run once on the merged result before PR phase; matches today's single-pass behavior; loses per-slice early-abort benefit.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Per-slice only, but `reviewer_code_holistic` runs once on the merged pipeline branch (since it specifically catches cross-slice architectural issues per #2126).",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-slice only \u2014 lenses review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence (a security regression spanning two slices may be missed).\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.439802Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "**Reviewer roster removal** \u2014 Which reviewers should be removed from each slice's BRC roster (relative to today's implement-phase roster: `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency` + `tester` dual-role)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Remove `reviewer_code` (fan-out version) only \u2014 the issue says diff-size fan-out becomes unnecessary; keep `reviewer_code_holistic` as the per-slice CRITICAL code reviewer.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Remove both `reviewer_code` and `reviewer_code_holistic` \u2014 replace with a single `reviewer_code` that runs single-pass (since slices are now small).",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep both `reviewer_code` and `reviewer_code_holistic`, but disable fan-out in `reviewer_code` (always single-pass on slice-scoped diffs).",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Keep current roster as-is per slice; just let fan-out be inert because slice diffs are below the >10 files / >500 LOC threshold.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"resolved by #2152 (#2139 merged 2026-04-27) \u2014 reviewer_code subagent fan-out paths already torn out and lens reviewers (reviewer_security, reviewer_concurrency) already promoted to CRITICAL; no per-slice roster removal needed for #2137\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.471587Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "**Slice scheduling concurrency cap** \u2014 How many independent slices should be allowed to run in parallel within a single wave?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Unbounded \u2014 spawn every wave-N slice simultaneously; trust container limits and gateway throttling.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Cap matches today's `max_concurrent` for implement phase (whatever `ConcurrentPhaseExecutor.max_concurrent` resolves to today, typically all roles in parallel).",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "New explicit `max_parallel_slices` setting (default 3) \u2014 prevents context/cost blow-up on plans with 10+ independent slices; spillover slices wait for an open slot.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Decide based on token budget \u2014 the orchestrator estimates token cost per slice (LOC * roster size) and caps wave concurrency to fit under a `max_parallel_token_spend` ceiling.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Unbounded \u2014 spawn every wave-N slice simultaneously; trust container limits and gateway throttling.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.500028Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "**Plan-phase slice sizing guidance** \u2014 Issue says ~1,000 LOC is \"guidance to the plan phase, not enforced.\" What should the plan agent actually be told?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Soft prompt guidance only \u2014 add a paragraph to the planner system prompt (\"slices should be \u22641,000 LOC where possible\"); no validation, no warning.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Soft guidance + post-plan advisory warning \u2014 plan reviewer flags slices estimated >1,000 LOC but does not NACK; refiner/operator can override.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Soft guidance + NACK threshold \u2014 plan reviewer NACKs if any slice is estimated >2,000 LOC (hard ceiling); 1,000\u20132,000 advisory.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "No size guidance at all \u2014 the planner already groups tasks; trust its judgment; slice independence is the only criterion.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Soft guidance + post-plan advisory warning \u2014 plan reviewer flags slices estimated >1,000 LOC but does not NACK; refiner/operator can override.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.525214Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "**Renames vs. additive schema** \u2014 Issue proposes renaming `contract.phases[]` \u2192 `contract.slices[]` and `to_contract_phases()` \u2192 `to_contract_slices()` because phases is \"currently written but never read.\" Is that the right call?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Rename now \u2014 clean break; phases is unused at runtime per #2134, no backward-compat burden. Update plan_parser, plan templates, schema docs, all consumers.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add `slices[]` alongside `phases[]`; phases stays as a legacy alias \u2014 safer for any in-flight pipelines or external consumers reading the contract JSON.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep `phases[]`, just teach the orchestrator to read it for slice scheduling \u2014 no rename, no schema churn; 'slice' is just terminology used in code/docs.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Rename, but ship a one-version migration that auto-translates `phases[]` \u2192 `slices[]` on contract load.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Rename, but ship a one-version migration that auto-translates `phases[]` \u2192 `slices[]` on contract load.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.548822Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "**Babysit-PR pipelines** \u2014 Issue says `babysit_pr` is \"out of scope (#2063 stays separate).\" Is that an indefinite carve-out or a follow-up?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Indefinite \u2014 babysit_pr stays single-pass forever; it operates on existing PR diffs that are already bounded, so slicing has no benefit.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Follow-up after #2137 lands \u2014 file a separate issue to slice babysit_pr's implement-equivalent flow; mention it in the analysis but don't block on it.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Concurrent design \u2014 #2137 work should keep babysit_pr in mind so the slice machinery is reusable; don't ship slicing for it but make the API extensible.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Follow-up after #2137 lands \u2014 file a separate issue to slice babysit_pr's implement-equivalent flow; mention it in the analysis but don't block on it.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.571320Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "**Slice-level retry / max_cycles** \u2014 Today's implement phase has a `max_cycles` cap on BRC re-proposal cycles before HITL escalation. How should this apply to slices?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Each slice gets its own `max_cycles` independent of others \u2014 a noisy slice doesn't burn the global budget; if it caps, only that slice escalates HITL; siblings continue.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Global pipeline-wide `max_cycles` budget shared across slices \u2014 prevents runaway token spend across many slices.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Two-tier: each slice has a local cap (default 3); pipeline has a global cap on total cycles (default 10). Either trip escalates HITL.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Reuse today's per-phase `max_cycles` value \u2014 but applied per slice; default tuning may need to drop since slices are smaller (current default 5 \u2192 3?).",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Two-tier: each slice has a local cap (default 3); pipeline has a global cap on total cycles (default 10). Either trip escalates HITL.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.593516Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "**Deadlock detection latency** \u2014 Issue says a failed slice \"eventually deadlocks the pipeline \u2192 HITL escalation.\" How aggressively should the orchestrator detect deadlock vs. waiting for natural timeout?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Deterministic detection \u2014 as soon as a slice fails (HITL-escalated or hits max_cycles), proactively walk the DAG and mark every transitive downstream slice as `BLOCKED_ON_FAILED_DEPENDENCY`; emit one OVERSEER_ALERT.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Wait for natural heartbeat-timeout deadlock \u2014 simpler implementation; the existing `overseer_stuck_phase_transition_seconds` (180s) escalation will catch it; relies on existing machinery.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: short grace period (e.g., 60s) after a slice failure for HITL resolution; if not resolved, walk the DAG and abort downstream.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: short grace period (e.g., 60s) after a slice failure for HITL resolution; if not resolved, walk the DAG and abort downstream.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.615223Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "**Contract task \u2192 slice mapping** \u2014 Plan today emits `Phase` with `tasks[]` and `dependencies[]`. The proposal renames `Phase` \u2192 `Slice`. Should slices keep the same `tasks[]` granularity or introduce different granularity?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "1:1 with today's `Phase` \u2014 slice is just a renamed phase with the same `tasks[]` and `dependencies[]` fields; coder still iterates tasks within a slice.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Slice owns a single contract task \u2014 maximum parallelism, but tasks are too small (often <100 LOC); too many BRC rounds.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Slice = group of contract tasks defined by file_affected overlap \u2014 planner clusters tasks that touch the same files together so slices are merge-conflict-free without dependencies.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"1:1 with today's `Phase` \u2014 slice is just a renamed phase with the same `tasks[]` and `dependencies[]` fields; coder still iterates tasks within a slice.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.636897Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "**Per-slice agent team identity** \u2014 Each slice gets a \"fresh agent team.\" Should the team membership be identical across slices or vary?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Identical roster per slice \u2014 every slice runs the same {coder, tester, documenter, reviewer_*} set. Predictable, simple.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Slice-declared roster \u2014 the planner emits per-slice role overrides (e.g., a docs-only slice doesn't need tester/reviewer_security). Lower cost but more planner complexity.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Identical default with planner-supplied skip flags \u2014 e.g., `slice.skip_tester = true` for trivial slices; planner explicitly justifies skips.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Identical roster per slice \u2014 every slice runs the same {coder, tester, documenter, reviewer_*} set. Predictable, simple.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:42.686766Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "**[CORRECTION of decision-3] Lens reviewer scope** \u2014 `reviewer_security` and `reviewer_concurrency` are **ADVISORY today** (per `orchestrator/review_graph.py:225-261` \u2014 promotion to CRITICAL is deferred to #1997). With slice-scoped reviews, where should they run?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Per-slice only \u2014 lenses (still ADVISORY) review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence; even after CRITICAL promotion (#1997), per-slice would mean lens NACKs only block the slice they fired in.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-slice + final cross-slice pass \u2014 lenses review each slice locally AND run once more on the merged pipeline branch before PR phase; more thorough but doubles the lens cost; useful even at ADVISORY because cross-slice security regressions would otherwise be invisible.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Pipeline-branch only \u2014 lenses skip individual slice BRC entirely and run once on the merged result before PR phase; matches today's single-pass behavior; loses per-slice early-abort benefit.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Per-slice for lenses (matches today's ADVISORY granularity), AND `reviewer_code_holistic` (CRITICAL) runs once on the merged pipeline branch before PR phase to catch cross-slice architectural defects (#2126 motivation). NOTE: Supersedes decision-3 above; the prior options framed lenses as CRITICAL which was incorrect.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-slice only \u2014 lenses (still ADVISORY) review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence; even after CRITICAL promotion (#1997), per-slice would mean lens NACKs only block the slice they fired in.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:42.721146Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "**BRC tracker namespacing for slices** \u2014 Multiple slice BRCs run concurrently within one pipeline. The existing tracker keys all messages on `pipeline_id`. Slicing requires either nested IDs or a new field. Which approach?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Nested pipeline IDs (`issue-2137/slice-1`, `issue-2137/slice-2`) \u2014 each slice gets its own tracker; existing audit/heartbeat/overseer code requires minimal changes since it already keys on `pipeline_id`; downside: tracker count scales with slice count.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add `slice_id` field on every BRC message \u2014 single tracker per pipeline; all messages flow through one bus; downside: every existing consumer (audit, heartbeat, overseer, MCP tools) must be taught to filter on `slice_id`.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: keep `pipeline_id` for cross-slice messages (HEARTBEAT, OVERSEER_ALERT) but use nested IDs for BRC consensus (CONSENSUS_*) so per-slice consensus state is naturally isolated.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: keep `pipeline_id` for cross-slice messages (HEARTBEAT, OVERSEER_ALERT) but use nested IDs for BRC consensus (CONSENSUS_*) so per-slice consensus state is naturally isolated.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:42.754313Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "**Orchestrator merge-endpoint authorization** \u2014 The orchestrator gains the ability to merge slice branches into the pipeline branch via the gateway. Today's gateway allowlist is per-agent. How should the new merge endpoint authenticate the orchestrator?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Reuse the orchestrator's existing gateway-client identity \u2014 simplest; the orchestrator already has a privileged session with the gateway for non-agent operations; minimal new code.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Introduce a privileged `orchestrator` role on the gateway with its own credential and audit log \u2014 cleanest separation of concerns; the merge endpoint refuses any non-orchestrator caller.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Restrict the merge endpoint to a single allowlisted CLI invocation pattern (e.g., `git merge --no-ff <slice-branch>` only) \u2014 minimum surface; rejects merges with arbitrary flags (no `--strategy-option=ours`); paranoid but well-scoped.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Combination: privileged role (option B) AND CLI allowlist (option C) \u2014 belt-and-suspenders; matches the analysis's framing of merging as the most security-sensitive code path.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"moot \u2014 no merge endpoint per revised issue text (slices stack via PRs through normal GitHub review/merge flow; the orchestrator never calls a privileged merge endpoint)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:42.782711Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-16",
+      "question": "**Stacked-PR rebase mechanics** \u2014 When a parent slice's PR merges, child slice PRs were based on the parent branch. How should the child PRs' base be updated?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Rely entirely on GitHub's auto-retarget \u2014 when the parent PR merges, GitHub automatically updates child PRs to target the parent's former base. Simplest; matches Graphite-style stacked-PR norms. Risk: GitHub's auto-retarget only fires reliably when the parent is merged via the GitHub UI or `gh pr merge`; force-push or out-of-band branch deletion can break the chain.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Orchestrator explicitly rebases children onto the parent's new base after detecting a parent-merge event (via webhook or polling). More work but deterministic; the orchestrator can also force-push the rebased child branch through the gateway. Cost: a new gateway 'rebase-onto' endpoint plus webhook listener.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: rely on GitHub auto-retarget as the primary path; orchestrator runs a periodic reconciler (every N seconds) that checks for child PRs whose base no longer exists and rebases them via the gateway. Catches edge cases without adding webhook infrastructure.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer entirely to humans \u2014 the orchestrator does nothing; if a child PR's base disappears, the human reviewer rebases manually. Minimum viable; rejects the 'set-and-forget' goal of the issue.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: rely on GitHub auto-retarget as the primary path; orchestrator runs a periodic reconciler (every N seconds) that checks for child PRs whose base no longer exists and rebases them via the gateway. Catches edge cases without adding webhook infrastructure.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:47.832929Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-17",
+      "question": "**Auto-serialization heuristic for would-be multi-parent slices** \u2014 When the planner detects that converting a slice DAG into a forest requires serializing two or more parents into a chain, what ordering rule should it apply? The issue suggests \"cluster by `files_affected` overlap to minimize merge friction, then order by descending downstream fan-out\" as a starting point \u2014 please pin down the rule precisely (or override).",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Cluster by `files_affected` Jaccard overlap (merge clusters whose overlap exceeds a threshold, default 0.3); within a cluster, order by descending downstream fan-out (most-depended-on slice first). Issue's literal suggestion.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Order by descending estimated LOC \u2014 bigger slices first so smaller adjustments stack on top of them, minimizing the total rebase surface in later slices.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Order by ascending alphabetic slice ID after `files_affected` clustering \u2014 deterministic and human-predictable; ignores fan-out and size signals.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Let the planner emit an explicit `serialized_chain_order` field per cluster \u2014 the planner's own judgement is the source of truth; the heuristic is just a fallback when the planner doesn't supply ordering. Refiner can spot-check the plan during plan review.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Let the planner emit an explicit `serialized_chain_order` field per cluster \u2014 the planner's own judgement is the source of truth; the heuristic is just a fallback when the planner doesn't supply ordering. Refiner can spot-check the plan during plan review.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:47.867826Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-18",
+      "question": "**Forest constraint enforcement point** \u2014 The issue says \"multi-parent slices are rejected at plan ingestion in MVP.\" Where exactly should the validation fire, and what should it do on violation?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "At plan ingestion only (`_populate_contract_from_plan`) \u2014 reject the plan with a structured error that triggers the plan reviewer to NACK, forcing the planner to re-emit a forest. Single source of truth; matches the issue's literal text.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "At plan reviewer only (a new lint in `reviewer_plan`'s prompt) \u2014 the reviewer NACKs plans with multi-parent slices; ingestion stays permissive. Avoids hard-failing ingestion but couples the constraint to prompt adherence.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both: the plan reviewer NACKs as a soft check (better feedback), AND ingestion hard-rejects as a final safety net. Belt-and-suspenders.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "At the slice scheduler in the orchestrator's run loop \u2014 fail fast at runtime if the contract has multi-parent slices, escalating to HITL. Latest possible point; useful as a backstop but not a primary defence.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"At plan ingestion only (`_populate_contract_from_plan`) \u2014 reject the plan with a structured error that triggers the plan reviewer to NACK, forcing the planner to re-emit a forest. Single source of truth; matches the issue's literal text.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:47.896016Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-19",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Typical 3\u20137 slices per ticket; worst-case 10\u201315. Compaction empirically kicks in at ~33K LOC / 41 files (per #2105 background data); tickets above that threshold are the primary target. The default `max_parallel_slices` cap should accommodate the worst case without being overly conservative \u2014 a default of 5 is a reasonable starting point that the operator can raise as confidence builds.\", \"Q2\": \"Single PR. We don't have multi-PR support \u2014 that's exactly what #2137 adds. Splitting #2137 into multiple PRs presupposes the very feature it introduces. The single-PR scope covers the schema rename (Phase \u2192 Slice + plan_parser + plan templates), the DependencyGraph generification (or slice-keyed parallel), forest validation at plan ingestion, the orchestrator slice scheduler with per-slice BRC tracker namespacing, per-slice branch creation via `create_phase_worktree`, per-slice PR creation, the stacked-PR rebase reconciler, and the planner-side auto-serialization heuristic. Rough order-of-magnitude size: 1,500\u20132,500 LOC across orchestrator, gateway, plan_parser, models, and dependency_graph.\", \"Q3\": \"`egg/issue-N/slice-M` (slash-separated) \u2014 matches the existing `egg/babysit-pr/{pr}/{sha}/{role}` precedent in `concurrent_executor.py`. Reference: GitHub's official stacked-PR guidance is at https://github.github.com/gh-stack/ \u2014 the plan phase should consult this when designing the rebase reconciler (decision-18) and per-slice PR creation hooks. The naming convention itself is independent of gh-stack, but gh-stack's workflow assumes branch names that allow human reviewers to follow the stack chain, so a hierarchical scheme like `egg/issue-N/slice-M` aligns well.\", \"Q4\": \"No specific known caps today; trust gateway/container limits and GHA queue depth. Anthropic rate limits apply at higher concurrency tiers but are not currently a concrete blocker for this work. Recommend a conservative `max_parallel_slices` default (5) that the operator can raise as confidence builds.\\n\\n**Per-slice MCP control follow-up \u2014 #2199**. The current MCP retry surface (`restart_phase`, `restart_agent`) operates at phase granularity. With slicing, operators will routinely need to restart a single failed slice without disturbing siblings, and to inspect or restart a specific agent within a specific slice. #2199 tracks `restart_slice`, `restart_agent` with optional `slice_id`, `get_slice_status`, and `list_slices` as a follow-up to #2137. **#2137 should expose the internal slice-addressable hooks** (the slice scheduler must already know how to teardown / respawn / query a slice in isolation), but the MCP verb layer itself is out of scope for #2137 and lands in #2199 immediately after.\", \"Q5\": \"Clean tear-out \u2014 completed by PR #2152 (#2139, merged 2026-04-27). The `reviewer_code` subagent fan-out paths and `ReviewerCodeConfig.parallel` are gone. No salvage needed for #2137; the slice-scoped reviewers in this issue's roster (single-pass `reviewer_code` + `reviewer_code_holistic` + per-slice lens reviewers) replace the fan-out pattern entirely.\", \"Q6\": \"Skip \u2014 leave for the implement phase to pick. The acceptance criterion (\\\"a previously-oversized ticket completes without compaction\\\") can be tested with any ticket exceeding the ~33K LOC / 41 files threshold from #2105. If the operator wants a specific past oversized pipeline as the regression benchmark, they can name it during plan-phase HITL or in the implement phase's test plan.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:06:09.351281Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-20",
+      "question": "Per reviewer_contract NACK on commit 3164df186, the run-loop integration of the new SliceScheduler / slice spawning / per-slice PR creation / reconciler scheduling is missing. These are TASK-4-2 (slice integration-branch creation), TASK-4-4 (per-slice agent-team spawn), TASK-5-1 invocation (call create_slice_pr after CONSENSUS_CONFIRMED), TASK-5-3 wire-up (register the periodic reconciler). The library code is shipped and unit-tested, but the orchestrator's existing implement-phase run loop still spawns one monolithic team. Wiring it up is a large change to pipelines.py state-machine code that touches phase transitions, BRC tracker creation, and container spawn \u2014 high-risk to land in a single PR. Should we (1) defer the run-loop wire-up to a follow-up issue (alongside #2199's MCP control verbs) and explicitly amend this contract to mark TASK-4-2/4-4/5-1-invocation/5-3-scheduling as scope-reduced, or (2) require the wire-up to land here before consensus?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Defer run-loop wire-up to follow-up issue. Mark TASK-4-2, TASK-4-4, TASK-5-1 invocation, and TASK-5-3 scheduling as deferred. Land the library modules + unit tests now; the operator can validate the building blocks in isolation. Follow-up issue tracks the integration.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Require the run-loop wire-up here. Coder must land TASK-4-2/4-4/5-1-invocation/5-3-scheduling before re-proposing. PR is larger but ships the end-to-end feature in one commit.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: land the cheaper TASK-2-3 / TASK-2-4 / TASK-5-2 / TASK-1-3 cleanup / TASK-2-2 (HTTP 422) fixes here so the reviewer's other gaps close, but defer the run-loop wire-up (TASK-4-2/4-4/5-1-invocation/5-3-scheduling) to a follow-up since those require non-trivial state-machine surgery.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-27T06:20:58.578289Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "**Slice merge strategy** \u2014 How should slice branches be reintegrated into the pipeline branch after each slice's BRC consensus completes?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Merge commit per slice in topological order (`git merge --no-ff slice-N`) \u2014 preserves slice boundaries in history; conflicts surface to HITL.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Rebase-and-fast-forward (`git rebase pipeline-branch && git push pipeline-branch`) \u2014 flat history; later slices auto-rebase onto earlier slice commits; conflicts handled by the slice's coder before BRC re-consensus.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Squash-merge each slice (`git merge --squash`) \u2014 one commit per slice; clean history but loses per-task commit granularity inside the slice.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer integration to a final integrator role (per #732 Tier 3 design) \u2014 independent slices push to `egg/issue-N/slice-M`, an integrator role runs after all slices ACK and produces the merged pipeline branch.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Slice merge strategy** \u2014 How should slice branch...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:20:58.617784Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "**Slice failure semantics** \u2014 A slice fails (BRC stuck, repeated NACKs, agent crash). The issue says \"downstream slices that depend on a failed slice will block, eventually deadlocking the pipeline \u2192 HITL escalation.\" What should happen to *independent* sibling slices that have already started or could still start?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Let siblings run to completion; only block on the failed slice's downstream subtree (matches issue text literally).",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Pause new slice spawns once any failure is observed; let in-flight siblings finish, then escalate to HITL with the global state.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Cancel all in-flight slices on first failure to conserve tokens; HITL escalation immediately.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Treat slice failure as recoverable: auto-retry the failed slice once with a fresh agent team before escalating to HITL.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Slice failure semantics** \u2014 A slice fails (BRC s...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:20:58.637472Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "**Lens reviewer scope** \u2014 `reviewer_security` and `reviewer_concurrency` are CRITICAL lenses today. With slice-scoped reviews, where should they run?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Per-slice only \u2014 lenses review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence (a security regression spanning two slices may be missed).",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-slice + final cross-slice pass \u2014 lenses review each slice locally AND run once more on the merged pipeline branch before PR phase; more thorough but doubles the lens cost.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Pipeline-branch only \u2014 lenses skip individual slice BRC entirely and run once on the merged result before PR phase; matches today's single-pass behavior; loses per-slice early-abort benefit.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Per-slice only, but `reviewer_code_holistic` runs once on the merged pipeline branch (since it specifically catches cross-slice architectural issues per #2126).",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Lens reviewer scope** \u2014 `reviewer_security` and ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:20:58.693108Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "**Reviewer roster removal** \u2014 Which reviewers should be removed from each slice's BRC roster (relative to today's implement-phase roster: `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency` + `tester` dual-role)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Remove `reviewer_code` (fan-out version) only \u2014 the issue says diff-size fan-out becomes unnecessary; keep `reviewer_code_holistic` as the per-slice CRITICAL code reviewer.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Remove both `reviewer_code` and `reviewer_code_holistic` \u2014 replace with a single `reviewer_code` that runs single-pass (since slices are now small).",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep both `reviewer_code` and `reviewer_code_holistic`, but disable fan-out in `reviewer_code` (always single-pass on slice-scoped diffs).",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Keep current roster as-is per slice; just let fan-out be inert because slice diffs are below the >10 files / >500 LOC threshold.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Reviewer roster removal** \u2014 Which reviewers shou...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:21:23.397006Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "**Slice scheduling concurrency cap** \u2014 How many independent slices should be allowed to run in parallel within a single wave?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Unbounded \u2014 spawn every wave-N slice simultaneously; trust container limits and gateway throttling.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Cap matches today's `max_concurrent` for implement phase (whatever `ConcurrentPhaseExecutor.max_concurrent` resolves to today, typically all roles in parallel).",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "New explicit `max_parallel_slices` setting (default 3) \u2014 prevents context/cost blow-up on plans with 10+ independent slices; spillover slices wait for an open slot.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Decide based on token budget \u2014 the orchestrator estimates token cost per slice (LOC * roster size) and caps wave concurrency to fit under a `max_parallel_token_spend` ceiling.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Slice scheduling concurrency cap** \u2014 How many in...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:21:23.442098Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "**Plan-phase slice sizing guidance** \u2014 Issue says ~1,000 LOC is \"guidance to the plan phase, not enforced.\" What should the plan agent actually be told?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Soft prompt guidance only \u2014 add a paragraph to the planner system prompt (\"slices should be \u22641,000 LOC where possible\"); no validation, no warning.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Soft guidance + post-plan advisory warning \u2014 plan reviewer flags slices estimated >1,000 LOC but does not NACK; refiner/operator can override.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Soft guidance + NACK threshold \u2014 plan reviewer NACKs if any slice is estimated >2,000 LOC (hard ceiling); 1,000\u20132,000 advisory.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "No size guidance at all \u2014 the planner already groups tasks; trust its judgment; slice independence is the only criterion.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Plan-phase slice sizing guidance** \u2014 Issue says ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:21:23.475892Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "**Renames vs. additive schema** \u2014 Issue proposes renaming `contract.phases[]` \u2192 `contract.slices[]` and `to_contract_phases()` \u2192 `to_contract_slices()` because phases is \"currently written but never read.\" Is that the right call?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Rename now \u2014 clean break; phases is unused at runtime per #2134, no backward-compat burden. Update plan_parser, plan templates, schema docs, all consumers.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add `slices[]` alongside `phases[]`; phases stays as a legacy alias \u2014 safer for any in-flight pipelines or external consumers reading the contract JSON.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep `phases[]`, just teach the orchestrator to read it for slice scheduling \u2014 no rename, no schema churn; 'slice' is just terminology used in code/docs.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Rename, but ship a one-version migration that auto-translates `phases[]` \u2192 `slices[]` on contract load.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Renames vs. additive schema** \u2014 Issue proposes r...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:21:23.520410Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "**Babysit-PR pipelines** \u2014 Issue says `babysit_pr` is \"out of scope (#2063 stays separate).\" Is that an indefinite carve-out or a follow-up?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Indefinite \u2014 babysit_pr stays single-pass forever; it operates on existing PR diffs that are already bounded, so slicing has no benefit.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Follow-up after #2137 lands \u2014 file a separate issue to slice babysit_pr's implement-equivalent flow; mention it in the analysis but don't block on it.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Concurrent design \u2014 #2137 work should keep babysit_pr in mind so the slice machinery is reusable; don't ship slicing for it but make the API extensible.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Babysit-PR pipelines** \u2014 Issue says `babysit_pr`...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:21:54.351170Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "**Slice-level retry / max_cycles** \u2014 Today's implement phase has a `max_cycles` cap on BRC re-proposal cycles before HITL escalation. How should this apply to slices?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Each slice gets its own `max_cycles` independent of others \u2014 a noisy slice doesn't burn the global budget; if it caps, only that slice escalates HITL; siblings continue.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Global pipeline-wide `max_cycles` budget shared across slices \u2014 prevents runaway token spend across many slices.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Two-tier: each slice has a local cap (default 3); pipeline has a global cap on total cycles (default 10). Either trip escalates HITL.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Reuse today's per-phase `max_cycles` value \u2014 but applied per slice; default tuning may need to drop since slices are smaller (current default 5 \u2192 3?).",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Slice-level retry / max_cycles** \u2014 Today's imple...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:21:54.391530Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "**Deadlock detection latency** \u2014 Issue says a failed slice \"eventually deadlocks the pipeline \u2192 HITL escalation.\" How aggressively should the orchestrator detect deadlock vs. waiting for natural timeout?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Deterministic detection \u2014 as soon as a slice fails (HITL-escalated or hits max_cycles), proactively walk the DAG and mark every transitive downstream slice as `BLOCKED_ON_FAILED_DEPENDENCY`; emit one OVERSEER_ALERT.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Wait for natural heartbeat-timeout deadlock \u2014 simpler implementation; the existing `overseer_stuck_phase_transition_seconds` (180s) escalation will catch it; relies on existing machinery.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: short grace period (e.g., 60s) after a slice failure for HITL resolution; if not resolved, walk the DAG and abort downstream.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Deadlock detection latency** \u2014 Issue says a fail...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:21:54.433025Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "**Contract task \u2192 slice mapping** \u2014 Plan today emits `Phase` with `tasks[]` and `dependencies[]`. The proposal renames `Phase` \u2192 `Slice`. Should slices keep the same `tasks[]` granularity or introduce different granularity?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "1:1 with today's `Phase` \u2014 slice is just a renamed phase with the same `tasks[]` and `dependencies[]` fields; coder still iterates tasks within a slice.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Slice owns a single contract task \u2014 maximum parallelism, but tasks are too small (often <100 LOC); too many BRC rounds.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Slice = group of contract tasks defined by file_affected overlap \u2014 planner clusters tasks that touch the same files together so slices are merge-conflict-free without dependencies.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Contract task \u2192 slice mapping** \u2014 Plan today emi...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:21:54.481328Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "**Per-slice agent team identity** \u2014 Each slice gets a \"fresh agent team.\" Should the team membership be identical across slices or vary?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Identical roster per slice \u2014 every slice runs the same {coder, tester, documenter, reviewer_*} set. Predictable, simple.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Slice-declared roster \u2014 the planner emits per-slice role overrides (e.g., a docs-only slice doesn't need tester/reviewer_security). Lower cost but more planner complexity.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Identical default with planner-supplied skip flags \u2014 e.g., `slice.skip_tester = true` for trivial slices; planner explicitly justifies skips.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Per-slice agent team identity** \u2014 Each slice get...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:22:17.923558Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "What's the expected typical and worst-case slice count for a 'large' ticket today (e.g., the kind that triggers compaction)? This drives the default `max_parallel_slices` cap and informs whether we expect plans with 3 slices or 30.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Do you want this work split into multiple PRs (e.g., #2134 prereq \u2192 schema rename \u2192 orchestrator slice scheduler \u2192 reviewer roster cleanup) or land as one large PR? The former matches the issue's hard prereq on #2134 but adds coordination overhead.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Should the per-slice branch be `egg/issue-N/slice-M` (slash-separated, matching `egg/babysit-pr/{pr}/{sha}/{role}`) or `egg/issue-N-slice-M` (dash-separated, matching `egg/issue-N-{role}/work`)? Branch-naming convention matters for any reviewer tooling that parses branch names.",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Are there any operational constraints we should know about \u2014 e.g., gateway/container concurrency limits, GitHub Actions queue depth, Anthropic rate limits \u2014 that bound how many slices can run in parallel before things become unhealthy?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Beyond removing the diff-size fan-out paths in `reviewer_code` (#2127, #1965, #2067), is there any salvageable machinery from the current fan-out implementation we should keep (e.g., the partition cross-pass pattern, `ReviewerCodeConfig.parallel`)? Or is this a clean tear-out?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Is there a target ticket / past pipeline that should be the regression test for the acceptance criterion 'a previously-oversized ticket completes without compaction'? Naming a specific ticket helps the implement phase pick a concrete benchmark.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 6 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:31:09.854194Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.12",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-13",
+        "question": "**[CORRECTION of decision-3] Lens reviewer scope** \u2014 `reviewer_security` and `reviewer_concurrency` are **ADVISORY today** (per `orchestrator/review_graph.py:225-261` \u2014 promotion to CRITICAL is deferred to #1997). With slice-scoped reviews, where should they run?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Per-slice only \u2014 lenses (still ADVISORY) review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence; even after CRITICAL promotion (#1997), per-slice would mean lens NACKs only block the slice they fired in.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-slice + final cross-slice pass \u2014 lenses review each slice locally AND run once more on the merged pipeline branch before PR phase; more thorough but doubles the lens cost; useful even at ADVISORY because cross-slice security regressions would otherwise be invisible.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Pipeline-branch only \u2014 lenses skip individual slice BRC entirely and run once on the merged result before PR phase; matches today's single-pass behavior; loses per-slice early-abort benefit.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Per-slice for lenses (matches today's ADVISORY granularity), AND `reviewer_code_holistic` (CRITICAL) runs once on the merged pipeline branch before PR phase to catch cross-slice architectural defects (#2126 motivation). NOTE: Supersedes decision-3 above; the prior options framed lenses as CRITICAL which was incorrect.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **[CORRECTION of decision-3] Lens reviewer scope**...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:31:09.888520Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "**BRC tracker namespacing for slices** \u2014 Multiple slice BRCs run concurrently within one pipeline. The existing tracker keys all messages on `pipeline_id`. Slicing requires either nested IDs or a new field. Which approach?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Nested pipeline IDs (`issue-2137/slice-1`, `issue-2137/slice-2`) \u2014 each slice gets its own tracker; existing audit/heartbeat/overseer code requires minimal changes since it already keys on `pipeline_id`; downside: tracker count scales with slice count.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add `slice_id` field on every BRC message \u2014 single tracker per pipeline; all messages flow through one bus; downside: every existing consumer (audit, heartbeat, overseer, MCP tools) must be taught to filter on `slice_id`.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: keep `pipeline_id` for cross-slice messages (HEARTBEAT, OVERSEER_ALERT) but use nested IDs for BRC consensus (CONSENSUS_*) so per-slice consensus state is naturally isolated.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **BRC tracker namespacing for slices** \u2014 Multiple ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T06:31:09.927061Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.14",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-15",
+        "question": "**Orchestrator merge-endpoint authorization** \u2014 The orchestrator gains the ability to merge slice branches into the pipeline branch via the gateway. Today's gateway allowlist is per-agent. How should the new merge endpoint authenticate the orchestrator?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Reuse the orchestrator's existing gateway-client identity \u2014 simplest; the orchestrator already has a privileged session with the gateway for non-agent operations; minimal new code.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Introduce a privileged `orchestrator` role on the gateway with its own credential and audit log \u2014 cleanest separation of concerns; the merge endpoint refuses any non-orchestrator caller.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Restrict the merge endpoint to a single allowlisted CLI invocation pattern (e.g., `git merge --no-ff <slice-branch>` only) \u2014 minimum surface; rejects merges with arbitrary flags (no `--strategy-option=ours`); paranoid but well-scoped.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Combination: privileged role (option B) AND CLI allowlist (option C) \u2014 belt-and-suspenders; matches the analysis's framing of merging as the most security-sensitive code path.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Orchestrator merge-endpoint authorization** \u2014 Th...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T16:20:22.041377Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.15",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-16",
+        "question": "**Stacked-PR rebase mechanics** \u2014 When a parent slice's PR merges, child slice PRs were based on the parent branch. How should the child PRs' base be updated?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Rely entirely on GitHub's auto-retarget \u2014 when the parent PR merges, GitHub automatically updates child PRs to target the parent's former base. Simplest; matches Graphite-style stacked-PR norms. Risk: GitHub's auto-retarget only fires reliably when the parent is merged via the GitHub UI or `gh pr merge`; force-push or out-of-band branch deletion can break the chain.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Orchestrator explicitly rebases children onto the parent's new base after detecting a parent-merge event (via webhook or polling). More work but deterministic; the orchestrator can also force-push the rebased child branch through the gateway. Cost: a new gateway 'rebase-onto' endpoint plus webhook listener.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: rely on GitHub auto-retarget as the primary path; orchestrator runs a periodic reconciler (every N seconds) that checks for child PRs whose base no longer exists and rebases them via the gateway. Catches edge cases without adding webhook infrastructure.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer entirely to humans \u2014 the orchestrator does nothing; if a child PR's base disappears, the human reviewer rebases manually. Minimum viable; rejects the 'set-and-forget' goal of the issue.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Stacked-PR rebase mechanics** \u2014 When a parent sl...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T16:20:22.085059Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.16",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-17",
+        "question": "**Auto-serialization heuristic for would-be multi-parent slices** \u2014 When the planner detects that converting a slice DAG into a forest requires serializing two or more parents into a chain, what ordering rule should it apply? The issue suggests \"cluster by `files_affected` overlap to minimize merge friction, then order by descending downstream fan-out\" as a starting point \u2014 please pin down the rule precisely (or override).",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Cluster by `files_affected` Jaccard overlap (merge clusters whose overlap exceeds a threshold, default 0.3); within a cluster, order by descending downstream fan-out (most-depended-on slice first). Issue's literal suggestion.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Order by descending estimated LOC \u2014 bigger slices first so smaller adjustments stack on top of them, minimizing the total rebase surface in later slices.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Order by ascending alphabetic slice ID after `files_affected` clustering \u2014 deterministic and human-predictable; ignores fan-out and size signals.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Let the planner emit an explicit `serialized_chain_order` field per cluster \u2014 the planner's own judgement is the source of truth; the heuristic is just a fallback when the planner doesn't supply ordering. Refiner can spot-check the plan during plan review.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Auto-serialization heuristic for would-be multi-...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T16:20:32.700841Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.17",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-18",
+        "question": "**Forest constraint enforcement point** \u2014 The issue says \"multi-parent slices are rejected at plan ingestion in MVP.\" Where exactly should the validation fire, and what should it do on violation?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "At plan ingestion only (`_populate_contract_from_plan`) \u2014 reject the plan with a structured error that triggers the plan reviewer to NACK, forcing the planner to re-emit a forest. Single source of truth; matches the issue's literal text.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "At plan reviewer only (a new lint in `reviewer_plan`'s prompt) \u2014 the reviewer NACKs plans with multi-parent slices; ingestion stays permissive. Avoids hard-failing ingestion but couples the constraint to prompt adherence.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both: the plan reviewer NACKs as a soft check (better feedback), AND ingestion hard-rejects as a final safety net. Belt-and-suspenders.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "At the slice scheduler in the orchestrator's run loop \u2014 fail fast at runtime if the contract has multi-parent slices, escalating to HITL. Latest possible point; useful as a backstop but not a primary defence.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Forest constraint enforcement point** \u2014 The issu...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T18:20:07.838322Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.19",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-20",
+        "question": "Per reviewer_contract NACK on commit 3164df186, the run-loop integration of the new SliceScheduler / slice spawning / per-slice PR creation / reconciler scheduling is missing. These are TASK-4-2 (slice integration-branch creation), TASK-4-4 (per-slice agent-team spawn), TASK-5-1 invocation (call create_slice_pr after CONSENSUS_CONFIRMED), TASK-5-3 wire-up (register the periodic reconciler). The library code is shipped and unit-tested, but the orchestrator's existing implement-phase run loop still spawns one monolithic team. Wiring it up is a large change to pipelines.py state-machine code that touches phase transitions, BRC tracker creation, and container spawn \u2014 high-risk to land in a single PR. Should we (1) defer the run-loop wire-up to a follow-up issue (alongside #2199's MCP control verbs) and explicitly amend this contract to mark TASK-4-2/4-4/5-1-invocation/5-3-scheduling as scope-reduced, or (2) require the wire-up to land here before consensus?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Defer run-loop wire-up to follow-up issue. Mark TASK-4-2, TASK-4-4, TASK-5-1 invocation, and TASK-5-3 scheduling as deferred. Land the library modules + unit tests now; the operator can validate the building blocks in isolation. Follow-up issue tracks the integration.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Require the run-loop wire-up here. Coder must land TASK-4-2/4-4/5-1-invocation/5-3-scheduling before re-proposing. PR is larger but ships the end-to-end feature in one commit.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: land the cheaper TASK-2-3 / TASK-2-4 / TASK-5-2 / TASK-1-3 cleanup / TASK-2-2 (HTTP 422) fixes here so the reviewer's other gaps close, but defer the run-loop wire-up (TASK-4-2/4-4/5-1-invocation/5-3-scheduling) to a follow-up since those require non-trivial state-machine surgery.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Per reviewer_contract NACK on commit 3164df186, th...",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "What's the expected typical and worst-case slice count for a 'large' ticket today (e.g., the kind that triggers compaction)? This drives the default `max_parallel_slices` cap and informs whether we expect plans with 3 slices or 30.",
+        "answer": "Typical 3\u20137 slices per ticket; worst-case 10\u201315. Compaction empirically kicks in at ~33K LOC / 41 files (per #2105 background data); tickets above that threshold are the primary target. The default `max_parallel_slices` cap should accommodate the worst case without being overly conservative \u2014 a default of 5 is a reasonable starting point that the operator can raise as confidence builds."
+      },
+      {
+        "id": "Q2",
+        "question": "Do you want this work split into multiple PRs (e.g., #2134 prereq \u2192 schema rename \u2192 orchestrator slice scheduler \u2192 reviewer roster cleanup) or land as one large PR? The former matches the issue's hard prereq on #2134 but adds coordination overhead.",
+        "answer": "Single PR. We don't have multi-PR support \u2014 that's exactly what #2137 adds. Splitting #2137 into multiple PRs presupposes the very feature it introduces. The single-PR scope covers the schema rename (Phase \u2192 Slice + plan_parser + plan templates), the DependencyGraph generification (or slice-keyed parallel), forest validation at plan ingestion, the orchestrator slice scheduler with per-slice BRC tracker namespacing, per-slice branch creation via `create_phase_worktree`, per-slice PR creation, the stacked-PR rebase reconciler, and the planner-side auto-serialization heuristic. Rough order-of-magnitude size: 1,500\u20132,500 LOC across orchestrator, gateway, plan_parser, models, and dependency_graph."
+      },
+      {
+        "id": "Q3",
+        "question": "Should the per-slice branch be `egg/issue-N/slice-M` (slash-separated, matching `egg/babysit-pr/{pr}/{sha}/{role}`) or `egg/issue-N-slice-M` (dash-separated, matching `egg/issue-N-{role}/work`)? Branch-naming convention matters for any reviewer tooling that parses branch names.",
+        "answer": "`egg/issue-N/slice-M` (slash-separated) \u2014 matches the existing `egg/babysit-pr/{pr}/{sha}/{role}` precedent in `concurrent_executor.py`. Reference: GitHub's official stacked-PR guidance is at https://github.github.com/gh-stack/ \u2014 the plan phase should consult this when designing the rebase reconciler (decision-18) and per-slice PR creation hooks. The naming convention itself is independent of gh-stack, but gh-stack's workflow assumes branch names that allow human reviewers to follow the stack chain, so a hierarchical scheme like `egg/issue-N/slice-M` aligns well."
+      },
+      {
+        "id": "Q4",
+        "question": "Are there any operational constraints we should know about \u2014 e.g., gateway/container concurrency limits, GitHub Actions queue depth, Anthropic rate limits \u2014 that bound how many slices can run in parallel before things become unhealthy?",
+        "answer": "No specific known caps today; trust gateway/container limits and GHA queue depth. Anthropic rate limits apply at higher concurrency tiers but are not currently a concrete blocker for this work. Recommend a conservative `max_parallel_slices` default (5) that the operator can raise as confidence builds.\n\n**Per-slice MCP control follow-up \u2014 #2199**. The current MCP retry surface (`restart_phase`, `restart_agent`) operates at phase granularity. With slicing, operators will routinely need to restart a single failed slice without disturbing siblings, and to inspect or restart a specific agent within a specific slice. #2199 tracks `restart_slice`, `restart_agent` with optional `slice_id`, `get_slice_status`, and `list_slices` as a follow-up to #2137. **#2137 should expose the internal slice-addressable hooks** (the slice scheduler must already know how to teardown / respawn / query a slice in isolation), but the MCP verb layer itself is out of scope for #2137 and lands in #2199 immediately after."
+      },
+      {
+        "id": "Q5",
+        "question": "Beyond removing the diff-size fan-out paths in `reviewer_code` (#2127, #1965, #2067), is there any salvageable machinery from the current fan-out implementation we should keep (e.g., the partition cross-pass pattern, `ReviewerCodeConfig.parallel`)? Or is this a clean tear-out?",
+        "answer": "Clean tear-out \u2014 completed by PR #2152 (#2139, merged 2026-04-27). The `reviewer_code` subagent fan-out paths and `ReviewerCodeConfig.parallel` are gone. No salvage needed for #2137; the slice-scoped reviewers in this issue's roster (single-pass `reviewer_code` + `reviewer_code_holistic` + per-slice lens reviewers) replace the fan-out pattern entirely."
+      },
+      {
+        "id": "Q6",
+        "question": "Is there a target ticket / past pipeline that should be the regression test for the acceptance criterion 'a previously-oversized ticket completes without compaction'? Naming a specific ticket helps the implement phase pick a concrete benchmark.",
+        "answer": "Skip \u2014 leave for the implement phase to pick. The acceptance criterion (\"a previously-oversized ticket completes without compaction\") can be tested with any ticket exceeding the ~33K LOC / 41 files threshold from #2105. If the operator wants a specific past oversized pipeline as the regression benchmark, they can name it during plan-phase HITL or in the implement phase's test plan."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-28T17:06:13.308355Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "risk_analyst",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-04-28T17:29:06.199627Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Cannot push artifact: detached HEAD post-rebase, gateway blocks all paths to reattach to a branch (refs/heads/egg/issue-2137 cannot be created due to filesystem conflict with refs/heads/egg/issue-2137/work; gateway only permits update-ref to refs/heads/egg/issue-2137; switch/checkout/branch -d are blocked). Risk assessment artifact is fully written and committed locally at HEAD=1c1687860; diff vs origin/egg/issue-2137 contains only the JSON output file. Need operator to either delete the conflicting work-suffix ref, or relax gateway update-ref policy to allow refs/heads/egg/issue-2137-risk_analyst/work. See OVERSEER_ALERT id 20f5221d-045d-42 for full diagnosis.",
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
+}

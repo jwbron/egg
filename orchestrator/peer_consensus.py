@@ -1741,27 +1741,64 @@ _trackers: dict[str, PeerConsensusTracker] = {}
 _trackers_lock = threading.Lock()
 
 
-def get_peer_consensus_tracker(pipeline_id: str) -> PeerConsensusTracker | None:
-    """Get the tracker for a pipeline, if one exists."""
-    return _trackers.get(pipeline_id)
+def _tracker_key(pipeline_id: str, slice_id: str | None = None) -> str:
+    """Compose the tracker registry key.
+
+    Slice-aware (#2137 TASK-4-3, refine-phase decision-14 hybrid):
+
+    * When ``slice_id`` is supplied, the key is the nested form
+      ``{pipeline_id}/{slice_id}``. Each slice's BRC consensus has
+      its own tracker, completely isolated from siblings.
+    * When ``slice_id`` is ``None``, the key is the bare pipeline_id
+      — preserving the pre-slicing single-tracker semantics so
+      cross-slice telemetry (HEARTBEAT, OVERSEER_ALERT) keeps
+      flowing through the pipeline-scoped tracker.
+
+    The function is idempotent on already-nested ids (callers that
+    have constructed ``"issue-N/slice-M"`` themselves don't get a
+    double prefix).
+    """
+    if slice_id is None:
+        return pipeline_id
+    if "/" in pipeline_id and pipeline_id.endswith(f"/{slice_id}"):
+        return pipeline_id
+    return f"{pipeline_id}/{slice_id}"
+
+
+def get_peer_consensus_tracker(
+    pipeline_id: str, slice_id: str | None = None
+) -> PeerConsensusTracker | None:
+    """Get the tracker for a pipeline (or per-slice tracker), if one exists."""
+    return _trackers.get(_tracker_key(pipeline_id, slice_id))
 
 
 def create_peer_consensus_tracker(
     pipeline_id: str,
     graph: ReviewGraph,
+    *,
+    slice_id: str | None = None,
     **kwargs: Any,
 ) -> PeerConsensusTracker:
-    """Create and register a tracker for a pipeline."""
+    """Create and register a tracker for a pipeline (or per-slice scope).
+
+    When ``slice_id`` is supplied the tracker's logical pipeline_id
+    is the nested ``{pipeline_id}/{slice_id}`` so CONSENSUS_* messages
+    naturally route to the per-slice tracker. The bare pipeline-level
+    tracker (without slice_id) keeps existing single-tracker pipelines
+    working unchanged.
+    """
+    key = _tracker_key(pipeline_id, slice_id)
     with _trackers_lock:
-        tracker = PeerConsensusTracker(pipeline_id, graph, **kwargs)
-        _trackers[pipeline_id] = tracker
+        tracker = PeerConsensusTracker(key, graph, **kwargs)
+        _trackers[key] = tracker
     return tracker
 
 
-def remove_peer_consensus_tracker(pipeline_id: str) -> None:
-    """Remove a tracker for a pipeline."""
+def remove_peer_consensus_tracker(pipeline_id: str, slice_id: str | None = None) -> None:
+    """Remove a tracker for a pipeline (or per-slice scope)."""
+    key = _tracker_key(pipeline_id, slice_id)
     with _trackers_lock:
-        tracker = _trackers.pop(pipeline_id, None)
+        tracker = _trackers.pop(key, None)
         if tracker:
             tracker.clear()
 

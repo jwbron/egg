@@ -568,6 +568,11 @@ if is_orchestrator_mode():
 | `EGG_BRANCH` | Target branch for the agent's worktree | `egg/{pipeline_id}/work` |
 | `EGG_PRIVATE_MODE` | Private network mode (set by host wrapper, detected by `egg-sdlc`) | None |
 | `HOST_HOME` | Host machine's home directory (e.g., `/home/user`); used to translate host worktree paths to orchestrator-accessible paths | None |
+| `EGG_ORCH_MAX_PARALLEL_SLICES` | Slice-DAG: per-wave slice spawn concurrency cap (#2137) | `5` |
+| `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | Slice-DAG: per-slice BRC re-proposal ceiling before HITL escalation (#2137) | `3` |
+| `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | Slice-DAG: pipeline-wide summed slice-cycle cap (#2137) | `10` |
+| `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | Slice-DAG: grace window before failure-cascade marks downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY` (#2137) | `60.0` |
+| `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | Slice-DAG: stacked-PR reconciler polling cadence for orphaned child PRs (#2137) | `30.0` |
 
 ### Constants
 
@@ -588,3 +593,4 @@ GATEWAY_SERVICE_HOST = "gateway.egg-system.svc.cluster.local"
 - [Sandbox README](../../sandbox/README.md) - Sandbox container details
 - [Shared README](../../shared/README.md) - Shared packages
 - [egg_contracts](../../shared/egg_contracts/) - Contract models and orchestration
+- [Slice-DAG Implement Phase](slice-dag.md) — slice scheduler, stacked-PR reconciler, per-slice branches and BRC trackers (#2137)

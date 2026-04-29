@@ -140,6 +140,7 @@ class ConcurrentPhaseExecutor:
         max_concurrent: int = 6,
         review_graph: ReviewGraph | None = None,
         roles: list[AgentRole] | None = None,
+        slice_id: str | None = None,
     ) -> None:
         """Initialise the executor.
 
@@ -157,12 +158,21 @@ class ConcurrentPhaseExecutor:
                 ``Pipeline.active_roles`` when CUSTOM-mode (#1762) or when
                 BABYSIT's subsumption path populates the persisted roster.
                 None falls through to the full phase-default roster.
+            slice_id: Optional slice scope (#2137 TASK-4-3 / TASK-4-4).
+                When supplied, the executor namespaces the BRC consensus
+                tracker key under ``{pipeline_id}/{slice_id}`` so per-
+                slice consensus is naturally isolated, and per-role
+                worktree branches are emitted in the slice-scoped form
+                ``egg/issue-N/{slice_id}/{role}/work`` so commits across
+                slices stay isolated. ``None`` preserves the pre-slicing
+                pipeline-scoped semantics.
         """
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
         self.max_concurrent = max_concurrent
         self._review_graph = review_graph
         self._roles_override = roles
+        self._slice_id = slice_id
         self._failure_times: list[datetime] = []
         self._lock = threading.Lock()
 
@@ -195,7 +205,12 @@ class ConcurrentPhaseExecutor:
         )
         return [AgentRole(r.value) for r in contract_roles]
 
-    def get_worktree_branch(self, role: AgentRole) -> str:
+    def get_worktree_branch(
+        self,
+        role: AgentRole,
+        *,
+        slice_id: str | None = None,
+    ) -> str:
         """Get the worktree branch name for an agent role.
 
         Returns the pipeline's shared branch when set, falling back to
@@ -212,6 +227,21 @@ class ConcurrentPhaseExecutor:
         to the PR head moves forward.  If the PR head SHA is not known at
         call time, we fall back to the PR head branch so agents can still
         operate against the live PR.
+
+        Slice-aware mode (#2137): when ``slice_id`` is supplied, **every
+        agent in the slice shares the slice's integration branch
+        ``egg/issue-N/slice-M``** — the same shared-branch model the
+        non-slice flow has always used, just scoped per-slice. The
+        slice is the unit of isolation; within a slice all agents
+        collaborate on one history (otherwise the per-slice PR opened
+        with ``head=integration_branch`` against ``base=parent_branch``
+        would have an empty diff because the agents' commits would
+        live on per-role sibling branches GitHub doesn't see). The
+        ``slice_id`` is normalised — both ``slice-2`` and the bare
+        integer ``2`` are accepted (the latter for callers that
+        haven't yet plumbed canonical IDs through). Babysit-pr mode is
+        **not** slice-aware in this PR (refine-phase decision-8
+        deferred babysit slicing to a follow-up).
         """
         # Babysit-pr AND CUSTOM+PR (#1762): per-role staging branch
         # namespaced by PR head SHA. CUSTOM-mode pipelines that supply a
@@ -230,10 +260,63 @@ class ConcurrentPhaseExecutor:
             if self.pipeline.branch:
                 return self.pipeline.branch
 
+        if slice_id is not None:
+            # Issue-mode slice scope: ``egg/issue-N/slice-M`` — the
+            # shared integration branch for every agent in the slice.
+            # This is what the slice scheduler uses for per-slice agent
+            # teams (#2137 TASK-4-1) and is what the per-slice PR's
+            # ``head`` points at, so agents' commits MUST land here
+            # rather than on per-role sibling branches that GitHub
+            # cannot see in the slice PR's diff. We honour the
+            # pipeline's existing branch as the issue prefix when set,
+            # otherwise fall back to the issue-number / pipeline id.
+            issue = self.pipeline.issue_number or self.pipeline.id
+            issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
+            normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
+            # Defense-in-depth: re-validate the normalised slice id
+            # shape before embedding it in a git ref. The contract-
+            # layer pydantic regex already enforces this on the
+            # source, but the helper is part of the gateway-facing
+            # surface — a future caller that forgets upstream
+            # validation must not be able to smuggle path separators
+            # or shell metacharacters in via this seam (per the
+            # security reviewer's defense-in-depth suggestion on the
+            # v1 BRC review).
+            import re
+
+            if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
+                raise ValueError(
+                    f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
+                )
+            return f"{issue_branch}/{normalised_slice}"
+
         if self.pipeline.branch:
             return self.pipeline.branch
         issue = self.pipeline.issue_number or self.pipeline.id
         return f"egg/issue-{issue}"
+
+    def get_slice_integration_branch(self, slice_id: str) -> str:
+        """Return the shared integration branch for a slice's BRC.
+
+        Each slice has its own integration branch under the pipeline
+        branch — ``egg/issue-N/slice-M`` — that the per-role work
+        branches rebase onto. Roots base off the pipeline branch
+        directly; child slices base off their parent slice's
+        integration branch.
+
+        The slice id is regex-validated for defense-in-depth (see
+        ``get_worktree_branch``).
+        """
+        issue = self.pipeline.issue_number or self.pipeline.id
+        issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
+        normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
+        import re
+
+        if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
+            raise ValueError(
+                f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
+            )
+        return f"{issue_branch}/{normalised_slice}"
 
     def get_agent_env(self, role: AgentRole) -> dict[str, str]:
         """Get additional environment variables for concurrent mode."""
@@ -280,9 +363,14 @@ class ConcurrentPhaseExecutor:
         roles = self.get_agent_roles()
         graph = self._get_review_graph()
         config = self.pipeline.config
+        # When ``slice_id`` is set, the tracker is registered under the
+        # nested key ``{pipeline_id}/{slice_id}`` so each slice's BRC
+        # consensus is fully isolated from siblings (#2137 TASK-4-3,
+        # refine-phase decision-14 hybrid).
         tracker = create_peer_consensus_tracker(
             self.pipeline.id,
             graph,
+            slice_id=self._slice_id,
             auto_repropose_debounce_seconds=config.auto_repropose_debounce_seconds,
             max_auto_repropose=config.max_auto_repropose,
         )
@@ -368,7 +456,7 @@ class ConcurrentPhaseExecutor:
         Works with both ContainerSpawner.create_concurrent_spawn_fn() and
         KubernetesSpawner.create_concurrent_spawn_fn().
         """
-        branch = self.get_worktree_branch(role)
+        branch = self.get_worktree_branch(role, slice_id=self._slice_id)
         env = self.get_agent_env(role)
 
         command: list[str] | None = None
@@ -519,13 +607,21 @@ class ConcurrentPhaseExecutor:
 
     def check_consensus(self) -> dict[str, Any]:
         """Check if consensus has been reached for phase completion."""
-        tracker = get_peer_consensus_tracker(self.pipeline.id)
+        tracker = get_peer_consensus_tracker(self.pipeline.id, self._slice_id)
         if not tracker:
             logger.warning(
                 "Consensus tracker not found, attempting reconstruction",
                 pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
             )
             # Attempt lazy reconstruction from message store
+            # Reconstruction does NOT yet support slice scoping — for
+            # slice-scoped trackers we fall back to fetching the bare
+            # pipeline-id tracker (legacy behaviour). This is acceptable
+            # because reconstruction is a backstop for orchestrator
+            # restarts, not the steady-state path; per-slice trackers
+            # are stateless event consumers and are recreated by the
+            # slice scheduler on the next iteration.
             try:
                 from peer_consensus import reconstruct_tracker_from_messages
 

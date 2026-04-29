@@ -275,7 +275,7 @@ class TestFailureEvents:
         fake_result = MagicMock()
         fake_result.success = True
         fake_result.warnings = []
-        fake_result.to_contract_phases.return_value = []
+        fake_result.to_contract_slices.return_value = []
         fake_result.pr_title = None
         fake_result.pr_description = None
         fake_result.pr_test_plan = None

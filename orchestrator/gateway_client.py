@@ -1228,6 +1228,520 @@ class GatewayClient:
                 except Exception:
                     pass
 
+    # ------------------------------------------------------------
+    # #2137 — slice PR creation helpers
+    # ------------------------------------------------------------
+
+    def create_slice_pr(
+        self,
+        pipeline_id: str,
+        repo: str,
+        *,
+        slice_id: str,
+        slice_name: str,
+        slice_tasks: list[dict[str, str]] | None,
+        head: str,
+        base: str,
+        issue_number: int | None = None,
+        agent_role: str | None = None,
+        mode: Literal["public", "private"] = "public",
+        draft: bool = False,
+    ) -> str | None:
+        """Open a PR for one slice in a stacked-PR chain.
+
+        Title is deterministic: ``slice {slice_id}: {slice_name}``
+        truncated to 70 chars (matches the existing PR-title
+        guidance). Body lists the slice's tasks as bullets, each
+        truncated to 300 chars per #2137 plan TASK-5-1. The
+        human-authored ``pr.title`` / ``pr.description`` /
+        ``pr.test_plan`` block from the plan's yaml-tasks remains
+        the source of truth for the *terminal* slice (the chain's
+        tip) — the implement phase aggregates it there. Sibling
+        roots and intermediate slices ship with the auto-generated
+        copy this helper produces.
+        """
+        title = f"slice {slice_id}: {slice_name}".strip()
+        if len(title) > 70:
+            title = title[:67] + "..."
+
+        body_lines: list[str] = [slice_name]
+        if slice_tasks:
+            body_lines.append("")
+            body_lines.append("Tasks in this slice:")
+            for task in slice_tasks:
+                desc = task.get("description") or task.get("id") or ""
+                desc = " ".join(desc.split())  # collapse whitespace
+                if len(desc) > 300:
+                    desc = desc[:297] + "..."
+                task_id = task.get("id") or ""
+                bullet_prefix = f"- {task_id}: " if task_id else "- "
+                body_lines.append(f"{bullet_prefix}{desc}")
+        body_lines.append("")
+        body_lines.append(
+            f"Slice {slice_id} of pipeline {pipeline_id}. Stacked on top of `{base}`."
+        )
+        body = "\n".join(body_lines)
+
+        return self.create_pr(
+            pipeline_id=pipeline_id,
+            repo=repo,
+            title=title,
+            body=body,
+            head=head,
+            base=base,
+            issue_number=issue_number,
+            agent_role=agent_role,
+            mode=mode,
+            draft=draft,
+        )
+
+    def rebase_onto(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        branch: str,
+        new_base: str,
+        old_base: str,
+        pr_number: int | None = None,
+        repo: str | None = None,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Heal an orphaned stacked PR end-to-end.
+
+        Three steps, in order — any failure short-circuits and
+        returns ``False`` so the reconciler counts it as
+        ``rebases_failed`` and retries on the next tick:
+
+        1. ``git rebase --onto <new_base> <old_base> <branch>``
+           (via the existing per-agent ``/api/v1/git/execute``
+           endpoint and the canonical argv from
+           :func:`gateway.git_client.build_rebase_onto_args`).
+        2. ``git push --force-with-lease origin <branch>``
+           (via the existing per-agent ``/api/v1/git/push``
+           endpoint) — propagates the rewritten history to origin
+           so the open PR's head ref reflects the rebase. Without
+           this step the local rebase is invisible to GitHub and
+           the orphan remains. The ``consensus_push=true`` marker
+           is set so the gateway's pipeline-push enforcement
+           accepts the request — defense-in-depth lives in the
+           push-target enforcement, which still requires
+           ``branch == session.assigned_branch``.
+        3. ``gh api repos/<repo>/pulls/<pr_number> -X PATCH -f
+           base=<new_base>`` (via the existing per-agent
+           ``/api/v1/gh/pr/edit`` endpoint) — retargets the PR's
+           base on GitHub so the diff renders against the new
+           parent. Skipped when ``pr_number`` / ``repo`` are not
+           supplied (callers without PR context just want the
+           local rebase + push).
+
+        No new privileged orchestrator-role endpoint is introduced
+        (refine-phase decision-15) — every step routes through the
+        same per-agent allowlists already in production.
+
+        Returns ``True`` only when every applicable step succeeded.
+        Returns ``False`` on argument validation failure, push
+        failure, retarget failure, or any HTTP error. The
+        reconciler counts both ``False`` and exceptions as
+        ``rebases_failed``.
+        """
+        try:
+            from gateway.git_client import build_rebase_onto_args
+        except ImportError:
+            logger.error(
+                "rebase_onto: gateway/git_client module unavailable",
+                pipeline_id=pipeline_id,
+            )
+            return False
+
+        args, ok, err = build_rebase_onto_args(branch, new_base, old_base)
+        if not ok:
+            logger.warning(
+                "rebase_onto: argv rejected by allowlist validator",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                new_base=new_base,
+                old_base=old_base,
+                error=err,
+            )
+            return False
+
+        # Validate retarget inputs early — if the caller asked for
+        # PR retargeting, we want to fail fast rather than rebase +
+        # push and then discover the PR number was bogus.
+        retarget_requested = pr_number is not None or bool(repo)
+        if retarget_requested:
+            if (
+                pr_number is None
+                or isinstance(pr_number, bool)
+                or not isinstance(pr_number, int)
+                or pr_number <= 0
+            ):
+                logger.warning(
+                    "rebase_onto: pr_number must be a positive int when retargeting",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    pr_number=pr_number,
+                )
+                return False
+            if not repo or not isinstance(repo, str):
+                logger.warning(
+                    "rebase_onto: repo must be 'owner/name' when retargeting",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    repo=repo,
+                )
+                return False
+
+        temp_container_id = f"{pipeline_id}-stacked-pr-rebase"
+        session_token: str | None = None
+        try:
+            # The session's ``assigned_branch`` is set to the slice's
+            # integration branch when retargeting so the gateway's
+            # push-target enforcement (``branch ==
+            # session.assigned_branch``) accepts the push step. The
+            # legacy local-only path uses ``branch=None`` because no
+            # push is issued.
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                branch=branch if retarget_requested else None,
+            )
+            session_token = session.session_token
+
+            # Step 1: local rebase via /api/v1/git/execute (the
+            # gateway's git-command surface; ``/api/v1/git`` is not a
+            # registered route).
+            self._make_request(
+                "/api/v1/git/execute",
+                method="POST",
+                data={
+                    "operation": "rebase",
+                    "args": args,
+                    "repo_path": repo_path,
+                },
+                bearer_token=session_token,
+            )
+
+            # If the caller didn't ask for the full heal (push +
+            # retarget), preserve the legacy local-only behaviour.
+            if not retarget_requested:
+                return True
+
+            # Step 2: push --force-with-lease so origin sees the
+            # rebased history. The reconciler is the only writer of
+            # this branch; force-with-lease catches the rare case of
+            # a concurrent push from elsewhere and refuses rather
+            # than clobbering it.
+            #
+            # ``consensus_push=true`` short-circuits the gateway's
+            # pipeline-push enforcement (the session has a
+            # ``pipeline_id`` so a bare push would be rejected with
+            # 403). The defense-in-depth surface still applies — the
+            # push-target check requires ``branch ==
+            # session.assigned_branch`` (set above) and branch
+            # ownership, fork-policy, and force-with-lease together
+            # bound the blast radius.
+            self._make_request(
+                "/api/v1/git/push",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "refspec": f"{branch}:refs/heads/{branch}",
+                    "mode": mode,
+                    "force_with_lease": True,
+                    "consensus_push": True,
+                },
+                bearer_token=session_token,
+            )
+
+            # Step 3: retarget the PR's base on GitHub.
+            self._make_request(
+                "/api/v1/gh/pr/edit",
+                method="POST",
+                data={
+                    "repo": repo,
+                    "pr_number": int(pr_number),  # type: ignore[arg-type]
+                    "base": new_base,
+                },
+                bearer_token=session_token,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "rebase_onto: gateway request failed",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                error=str(exc),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(
+                        "rebase_onto: session cleanup failed",
+                        pipeline_id=pipeline_id,
+                        error=str(exc),
+                    )
+
+    # ------------------------------------------------------------
+    # #2137 — slice integration-branch creation (TASK-4-2)
+    # ------------------------------------------------------------
+
+    def create_slice_integration_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        integration_branch: str,
+        parent_branch: str,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Create the slice integration branch on origin from ``parent_branch``.
+
+        Sends ``git push origin parent_branch:refs/heads/integration_branch``
+        through the existing per-agent ``/api/v1/git/push`` endpoint so
+        no privileged orchestrator-role surface is introduced
+        (decision-15). The branch ownership check uses the
+        ``integration_branch`` name as the target — naming convention
+        ``egg/issue-N/slice-M`` is owned by the orchestrator role's
+        existing prefix-allowlist.
+
+        Returns ``True`` on success, ``False`` on any error (the
+        caller logs and surfaces a clear error to the run loop).
+        """
+        if not integration_branch or not parent_branch:
+            return False
+        if integration_branch == parent_branch:
+            # No-op: integration branch already exists at parent's tip.
+            return True
+        temp_container_id = f"{pipeline_id}-slice-branch-{integration_branch.replace('/', '-')}"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                branch=integration_branch,
+            )
+            session_token = session.session_token
+
+            # ``git push origin parent:refs/heads/integration`` creates
+            # ``integration`` on origin as a copy of ``parent``'s tip.
+            refspec = f"{parent_branch}:refs/heads/{integration_branch}"
+            self._make_request(
+                "/api/v1/git/push",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "refspec": refspec,
+                },
+                bearer_token=session_token,
+            )
+            logger.info(
+                "Created slice integration branch",
+                pipeline_id=pipeline_id,
+                integration_branch=integration_branch,
+                parent_branch=parent_branch,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to create slice integration branch",
+                pipeline_id=pipeline_id,
+                integration_branch=integration_branch,
+                parent_branch=parent_branch,
+                error=str(exc),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    # ------------------------------------------------------------
+    # #2137 — stacked-PR reconciler list helpers (TASK-5-3)
+    # ------------------------------------------------------------
+
+    def list_open_prs(
+        self,
+        pipeline_id: str,
+        repo: str,
+        *,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """List open PRs in ``repo`` via the existing per-agent ``gh pr list`` allowlist.
+
+        Returns a list of PR dicts with at least ``number``,
+        ``head_ref``, ``base_ref`` shaped to match
+        :func:`stacked_pr_reconciler.find_orphaned_child_prs`'s
+        contract. The transport is the standard
+        ``/api/v1/gh/execute`` route — ``pr list`` is on the
+        ``READONLY_GH_COMMANDS`` allowlist (gateway/github_client.py:54)
+        so no privileged endpoint is introduced (decision-15).
+
+        On any error (gateway 4xx/5xx, JSON parse failure) the
+        function logs and returns an empty list — the reconciler
+        treats this as "see no orphans this tick" which is safe.
+        """
+        if not repo:
+            return []
+        temp_container_id = f"{pipeline_id}-stacked-pr-list"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+            )
+            session_token = session.session_token
+
+            args = [
+                "pr",
+                "list",
+                "--repo",
+                repo,
+                "--state",
+                "open",
+                "--limit",
+                str(int(limit)),
+                "--json",
+                "number,headRefName,baseRefName",
+            ]
+            result = self._make_request(
+                "/api/v1/gh/execute",
+                method="POST",
+                data={"args": args, "repo": repo},
+                bearer_token=session_token,
+            )
+            stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
+            try:
+                items = json.loads(stdout) if stdout.strip() else []
+            except (ValueError, TypeError):
+                logger.debug(
+                    "list_open_prs: gh stdout not JSON",
+                    pipeline_id=pipeline_id,
+                    repo=repo,
+                )
+                return []
+
+            normalised: list[dict[str, Any]] = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                number = item.get("number")
+                head_ref = item.get("headRefName") or item.get("head_ref") or ""
+                base_ref = item.get("baseRefName") or item.get("base_ref") or ""
+                if number is None or not head_ref:
+                    continue
+                normalised.append(
+                    {
+                        "number": int(number),
+                        "head_ref": str(head_ref),
+                        "base_ref": str(base_ref),
+                    }
+                )
+            return normalised
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "list_open_prs: gateway request failed",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                error=str(exc),
+            )
+            return []
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    def list_remote_branches(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+    ) -> set[str]:
+        """List remote branches via ``git ls-remote --heads origin``.
+
+        Returns a set of branch names (the trailing-segment of each
+        ``refs/heads/<name>`` line in ``ls-remote`` output). The
+        transport is the existing ``/api/v1/git/fetch`` route with
+        ``operation="ls-remote"`` — no new privileged surface.
+
+        On error returns an empty set; the reconciler treats this
+        as "every base looks deleted" but since
+        :func:`list_open_prs` is the join key, the empty set is
+        safe — no PRs means no orphans.
+        """
+        if not repo_path:
+            return set()
+        temp_container_id = f"{pipeline_id}-stacked-pr-ls-remote"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+            )
+            session_token = session.session_token
+
+            result = self._make_request(
+                "/api/v1/git/fetch",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "operation": "ls-remote",
+                    "args": ["--heads"],
+                },
+                bearer_token=session_token,
+            )
+            stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
+            branches: set[str] = set()
+            for line in stdout.splitlines():
+                # Lines look like "<sha>\trefs/heads/<name>".
+                parts = line.strip().split("\t")
+                if len(parts) >= 2 and parts[1].startswith("refs/heads/"):
+                    branches.add(parts[1][len("refs/heads/") :])
+            return branches
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "list_remote_branches: gateway request failed",
+                pipeline_id=pipeline_id,
+                repo_path=repo_path,
+                error=str(exc),
+            )
+            return set()
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
     def fetch_worktree_branch(
         self,
         pipeline_id: str,

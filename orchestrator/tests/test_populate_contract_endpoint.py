@@ -138,7 +138,7 @@ class TestPopulateContractEndpoint:
         mock_phase_obj = MagicMock()
         mock_phase_obj.tasks = [MagicMock(), MagicMock()]
         mock_contract = MagicMock()
-        mock_contract.phases = [mock_phase_obj]
+        mock_contract.slices = [mock_phase_obj]
 
         with patch("egg_contracts.loader.load_contract", return_value=mock_contract):
             resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")

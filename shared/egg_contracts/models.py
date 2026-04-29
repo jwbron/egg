@@ -7,9 +7,9 @@ and provide validation and type safety for contract operations.
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 
 class TaskStatus(StrEnum):
@@ -22,13 +22,25 @@ class TaskStatus(StrEnum):
     BLOCKED = "blocked"
 
 
-class PhaseStatus(StrEnum):
-    """Status values for phases."""
+class SliceStatus(StrEnum):
+    """Status values for slices.
+
+    Renamed from ``PhaseStatus`` (#2137 — slice the implement phase). The
+    enum values are preserved verbatim so on-disk contracts that wrote
+    ``"pending"`` / ``"in_progress"`` / ``"complete"`` / ``"blocked"``
+    continue to load. ``PhaseStatus`` remains as a backward-compat alias
+    of this enum so existing imports (``from egg_contracts.models import
+    PhaseStatus``) keep working during the transition window.
+    """
 
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETE = "complete"
     BLOCKED = "blocked"
+
+
+# Backward-compat alias — see ``SliceStatus`` docstring.
+PhaseStatus = SliceStatus
 
 
 class PipelinePhase(StrEnum):
@@ -112,6 +124,19 @@ def _normalize_commit(v: Any) -> str | None:
     return str(v)
 
 
+def _normalise_slice_id(value: str) -> str:
+    """Return the canonical ``slice-<N>`` form of a slice/phase ID.
+
+    Helper added in #2137 to keep ``get_slice`` / ``get_phase`` and any
+    DAG-edge comparisons agnostic to whether the ID was written under
+    the legacy ``phase-<N>`` shape or the canonical ``slice-<N>``
+    shape. Returns the input unchanged for non-matching strings.
+    """
+    if isinstance(value, str) and value.startswith("phase-"):
+        return "slice-" + value[len("phase-") :]
+    return value
+
+
 class TaskGap(BaseModel):
     """Tester→coder coverage-gap handoff record.
 
@@ -186,25 +211,70 @@ class Task(BaseModel):
         return _normalize_commit(v)
 
 
-class Phase(BaseModel):
-    """An implementation phase containing tasks."""
+class Slice(BaseModel):
+    """An implementation slice containing tasks.
 
-    id: str = Field(..., pattern=r"^phase-[0-9]+$", description="Unique phase identifier")
-    name: str = Field(..., min_length=1, description="Human-readable phase name")
-    status: PhaseStatus = Field(default=PhaseStatus.PENDING, description="Phase status")
+    Renamed from ``Phase`` in #2137 to support the slice-DAG implement
+    model: each slice is an independent unit (its own branch, agent
+    team, BRC consensus, and PR). The on-disk schema accepts either
+    ``slice-<N>`` IDs (canonical) or legacy ``phase-<N>`` IDs (the
+    loader migration shim rewrites the latter to the former). The
+    backward-compat alias ``Phase = Slice`` is exported below so older
+    imports keep working during the transition window.
+    """
+
+    id: str = Field(
+        ...,
+        pattern=r"^(?:slice|phase)-[0-9]+$",
+        description=(
+            "Unique slice identifier — canonical ``slice-<N>``; "
+            "``phase-<N>`` is accepted for backward compatibility "
+            "with pre-#2137 contracts."
+        ),
+    )
+    name: str = Field(..., min_length=1, description="Human-readable slice name")
+    status: SliceStatus = Field(default=SliceStatus.PENDING, description="Slice status")
     review_cycles: int = Field(default=0, ge=0, description="Number of review cycles")
     max_cycles: int = Field(default=3, ge=1, description="Max cycles before escalation")
     escalated: bool = Field(default=False, description="Whether escalated")
     escalation_reason: str | None = Field(default=None, description="Reason for escalation")
-    tasks: list[Task] = Field(default_factory=list, description="Tasks in this phase")
+    tasks: list[Task] = Field(default_factory=list, description="Tasks in this slice")
     dependencies: list[str] = Field(
         default_factory=list,
-        description="Phase IDs this phase depends on (e.g., ['phase-1', 'phase-2'])",
+        description=(
+            "Slice IDs this slice depends on (e.g., ['slice-1', 'slice-2']). "
+            "After the #2137 forest constraint, each slice has at most one "
+            "DAG parent — ingestion validates this."
+        ),
+    )
+    serialized_chain_order: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Planner-emitted ordering for would-be multi-parent slices "
+            "(#2137). When the planner identifies a slice that would "
+            "naturally have >1 parents, it serialises the upstream "
+            "slices into a chain and records the chosen order here on "
+            "the downstream slice. Empty for slices with ≤1 natural "
+            "parent."
+        ),
+    )
+    parent_branch_at_creation: str | None = Field(
+        default=None,
+        description=(
+            "Git branch the slice's integration branch was forked off "
+            "of when its worktree was provisioned (#2137 TASK-4-2). "
+            "Root slices record the pipeline branch (``egg/issue-N``); "
+            "child slices record the parent slice's integration branch. "
+            "Read by the stacked-PR reconciler (TASK-5-3) when the "
+            "parent's branch has been deleted by a PR merge so it can "
+            "compute the correct rebase target. ``None`` for slices "
+            "that have not yet been provisioned."
+        ),
     )
     commit: str | None = Field(
         default=None,
         pattern=r"^[a-f0-9]{7,40}$",
-        description="Git commit SHA linked to this phase",
+        description="Git commit SHA linked to this slice",
     )
     review_feedback: list[ReviewFeedback] = Field(
         default_factory=list, description="Feedback from reviewer"
@@ -214,6 +284,11 @@ class Phase(BaseModel):
     @classmethod
     def validate_commit(cls, v: Any) -> str | None:
         return _normalize_commit(v)
+
+
+# Backward-compat alias — see ``Slice`` docstring. ``Phase`` was the
+# original name pre-#2137; new code should reference ``Slice`` directly.
+Phase = Slice
 
 
 class DecisionOption(BaseModel):
@@ -475,7 +550,23 @@ class Contract(BaseModel):
     acceptance_criteria: list[AcceptanceCriterion] = Field(
         default_factory=list, description="Top-level acceptance criteria"
     )
-    phases: list[Phase] = Field(default_factory=list, description="Implementation phases")
+    # ``slices`` is the canonical field name post-#2137 (slice the implement
+    # phase). The legacy alias ``phases`` is preserved as a Pydantic
+    # validation alias so contract JSON written before the rename keeps
+    # loading without an explicit migration step. See
+    # ``Contract._migrate_phases_to_slices`` (model_validator) which also
+    # handles the case where both ``slices`` and ``phases`` keys are
+    # absent vs. present.
+    slices: list[Slice] = Field(
+        default_factory=list,
+        description="Implementation slices (renamed from ``phases`` in #2137)",
+    )
+    # Stash of the legacy ``phases[]`` payload populated by the
+    # ``_migrate_phases_to_slices`` model validator when a contract is
+    # loaded from pre-#2137 JSON. Cleared on round-trip so a re-loaded
+    # already-migrated contract does NOT re-run the migration. Private
+    # attribute so it does not appear in serialised output.
+    _legacy_phases: list[dict[str, Any]] | None = PrivateAttr(default=None)
     decisions: list[Decision] = Field(default_factory=list, description="HITL decisions")
     workflow_owner: str | None = Field(
         default=None,
@@ -506,12 +597,102 @@ class Contract(BaseModel):
         description="Execution state for each agent in multi-agent mode",
     )
 
+    @model_validator(mode="wrap")
+    @classmethod
+    def _migrate_phases_to_slices(cls, data: Any, handler: Any) -> "Contract":
+        """Translate legacy ``phases: [...]`` JSON to ``slices: [...]``.
+
+        Added in #2137. Detects pre-rename contract JSON (no ``slices``
+        key, ``phases`` key present) and:
+
+        1. Copies ``phases[]`` into ``slices[]`` so the rename is a
+           no-op for already-shipped contract files.
+        2. Rewrites each item's ``id`` from ``phase-<N>`` to
+           ``slice-<N>`` so the post-rename ID pattern matches.
+        3. Rewrites ``dependencies[]`` entries the same way so the DAG
+           edges keep resolving after the rename.
+        4. Stashes the original ``phases[]`` payload on the private
+           ``_legacy_phases`` attribute (after pydantic constructs the
+           instance) so audit / migration tooling can link legacy log
+           entries back during the transition window.
+
+        On a brand-new ``slices: [...]`` JSON load (no ``phases`` key)
+        the shim leaves the data untouched and ``_legacy_phases``
+        remains ``None``. On a round-trip dump → reload of a migrated
+        contract the dump only emits ``slices`` (the field name on the
+        model), so the second load takes the no-op path and does NOT
+        re-run the migration — which is precisely what the round-trip
+        invariant in TASK-1-4 asserts. ``mode="wrap"`` is used so the
+        validator can both transform input *and* set the private
+        attribute on the constructed instance in one place.
+        """
+        if not isinstance(data, dict):
+            return cast("Contract", handler(data))
+
+        has_slices = "slices" in data
+        has_phases = "phases" in data
+
+        if has_slices or not has_phases:
+            return cast("Contract", handler(data))
+
+        legacy_phases = data.pop("phases")
+        if not isinstance(legacy_phases, list):
+            # Malformed input — restore for pydantic to surface the
+            # error normally.
+            data["phases"] = legacy_phases
+            return cast("Contract", handler(data))
+
+        migrated: list[Any] = []
+        for entry in legacy_phases:
+            if not isinstance(entry, dict):
+                migrated.append(entry)
+                continue
+            new_entry = dict(entry)
+            old_id = new_entry.get("id")
+            if isinstance(old_id, str) and old_id.startswith("phase-"):
+                new_entry["id"] = "slice-" + old_id[len("phase-") :]
+            deps = new_entry.get("dependencies")
+            if isinstance(deps, list):
+                new_entry["dependencies"] = [
+                    "slice-" + d[len("phase-") :]
+                    if isinstance(d, str) and d.startswith("phase-")
+                    else d
+                    for d in deps
+                ]
+            migrated.append(new_entry)
+
+        data["slices"] = migrated
+        instance: Contract = cast("Contract", handler(data))
+        instance._legacy_phases = legacy_phases
+        return instance
+
     @model_validator(mode="after")
     def _require_issue_or_pipeline_id(self) -> "Contract":
         """At least one of issue or pipeline_id must be set."""
         if self.issue is None and self.pipeline_id is None:
             raise ValueError("At least one of 'issue' or 'pipeline_id' must be set")
         return self
+
+    @property
+    def phases(self) -> list[Slice]:
+        """Backward-compat alias for ``slices`` (renamed in #2137).
+
+        Existing call sites that read ``contract.phases`` continue to
+        work; new code should reference ``contract.slices`` directly.
+        Returns the live list, so mutations propagate to ``slices``.
+        """
+        return self.slices
+
+    @phases.setter
+    def phases(self, value: list[Slice]) -> None:
+        """Backward-compat setter — writes through to ``slices``.
+
+        Some contract-mutation paths assign ``contract.phases = [...]``
+        wholesale (e.g., when re-populating from a parsed plan). The
+        setter forwards the assignment so those paths keep working
+        without each having to be updated to use ``slices`` directly.
+        """
+        self.slices = value
 
     @property
     def contract_key(self) -> str:
@@ -528,19 +709,38 @@ class Contract(BaseModel):
         return f"issue-{self.issue.number}"
 
     def get_task(self, phase_id: str, task_id: str) -> Task | None:
-        """Get a specific task by phase and task ID."""
-        for phase in self.phases:
-            if phase.id == phase_id:
-                for task in phase.tasks:
+        """Get a specific task by slice/phase and task ID.
+
+        Accepts either ``slice-<N>`` (canonical post-#2137) or
+        ``phase-<N>`` (legacy) for ``phase_id``; the lookup matches both
+        forms by normalising the prefix before comparison.
+        """
+        normalised = _normalise_slice_id(phase_id)
+        for slice_ in self.slices:
+            if _normalise_slice_id(slice_.id) == normalised:
+                for task in slice_.tasks:
                     if task.id == task_id:
                         return task
         return None
 
-    def get_phase(self, phase_id: str) -> Phase | None:
-        """Get a specific phase by ID."""
-        for phase in self.phases:
-            if phase.id == phase_id:
-                return phase
+    def get_phase(self, phase_id: str) -> Slice | None:
+        """Backward-compat alias for ``get_slice`` (renamed in #2137).
+
+        Accepts either ``slice-<N>`` (canonical) or ``phase-<N>``
+        (legacy) IDs.
+        """
+        return self.get_slice(phase_id)
+
+    def get_slice(self, slice_id: str) -> Slice | None:
+        """Get a specific slice by ID.
+
+        Accepts either ``slice-<N>`` (canonical) or ``phase-<N>``
+        (legacy) IDs.
+        """
+        normalised = _normalise_slice_id(slice_id)
+        for slice_ in self.slices:
+            if _normalise_slice_id(slice_.id) == normalised:
+                return slice_
         return None
 
     def get_decision(self, decision_id: str) -> Decision | None:

@@ -1,0 +1,613 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-04-28T16:48:58Z
+Pipeline: issue-2137
+
+### [2026-04-28T16:42:12Z] overseer (HEARTBEAT): heartbeat: WORKING
+
+Overseer active. Cycle 1 complete. All 8 alerts classified as pre-restart historical. Agents refiner/reviewer_refine/reviewer_agent_design restarted at 16:41:36 and are running. Monitoring for BRC progress.
+
+````yaml
+id: d82e9dce-d570-4c
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-28T16:42:21Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE from=refiner
+
+````yaml
+id: 281c9dfa-46c8-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:42:21.008301+00:00'
+````
+
+### [2026-04-28T16:43:21Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE from=refiner
+
+````yaml
+id: 2051cd1a-e740-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:42:21.008301+00:00'
+````
+
+### [2026-04-28T16:43:42Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Preparation complete: read draft analysis, verified all line citations against current code (review_graph.py:215-260 confirms lens reviewers are CRITICAL post-#2139; pipelines.py:11443/10832/10860/5324, concurrent_executor.py:266/177, agent_roles.py:1110/1116-1122/1287, peer_consensus.py:69/90/1744/1761, dependency_graph.py:28/51/73/114/139/194/229/282/296, models.py:189-216, plan_parser.py:75/83/106/109/170, worktree_manager.py:237/295/848/983, git_client.py:615 all check out). Cross-checked HITL contract: 18 decisions + feedback-1 (Q1-Q6) all registered. Waiting for refiner CONSENSUS_PROPOSE.
+
+````yaml
+id: 56e1b4c5-e807-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-04-28T16:43:42Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE from=refiner
+
+````yaml
+id: b6de5db2-b09e-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:43:42.295838+00:00'
+````
+
+### [2026-04-28T16:44:21Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE from=refiner
+
+````yaml
+id: e972545c-9d6c-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:42:21.008301+00:00'
+````
+
+### [2026-04-28T16:44:42Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE from=refiner
+
+````yaml
+id: 1346fc0a-e010-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:43:42.295838+00:00'
+````
+
+### [2026-04-28T16:45:21Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE from=refiner
+
+````yaml
+id: 7997c70a-0c88-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:42:21.008301+00:00'
+````
+
+### [2026-04-28T16:45:42Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE from=refiner
+
+````yaml
+id: 8efe1309-19cd-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:43:42.295838+00:00'
+````
+
+### [2026-04-28T16:45:56Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Revised #2137 refine analysis addressing three blocking review concerns: (1) #2134 is CLOSED (PR #2150, 2026-04-27), not OPEN — removed the live-blocker framing and reframed as historical context; (2) Collapsed the 6-PR landing sequence into a single cohesive PR (~1,500-2,500 LOC) since splitting #2137 itself presupposes the multi-PR-per-ticket capability it is meant to introduce; updated feedback-1 Q2 recommendation accordingly; (3) Lens reviewers run per-slice only — decisions 3 and 13 should resolve to option 1 (per-slice only), no cross-slice review pass under any name is in scope for #2137, replacing caveat 4 and updating Option A's cons. Kept Option A as the recommendation, kept new decisions 16/17/18, kept obsolete-decision markers (1, 4, 13, 15), kept all load-bearing technical findings (DependencyGraph role-keyed, BRC tracker pipeline_id-only, create_phase_worktree exists but unused, etc.).
+
+````yaml
+id: 71c885eb-7a1e-4f
+phase: refine
+metadata:
+  payload:
+    summary: "Revised #2137 refine analysis addressing three blocking review concerns:\
+      \ (1) #2134 is CLOSED (PR #2150, 2026-04-27), not OPEN \u2014 removed the live-blocker\
+      \ framing and reframed as historical context; (2) Collapsed the 6-PR landing\
+      \ sequence into a single cohesive PR (~1,500-2,500 LOC) since splitting #2137\
+      \ itself presupposes the multi-PR-per-ticket capability it is meant to introduce;\
+      \ updated feedback-1 Q2 recommendation accordingly; (3) Lens reviewers run per-slice\
+      \ only \u2014 decisions 3 and 13 should resolve to option 1 (per-slice only),\
+      \ no cross-slice review pass under any name is in scope for #2137, replacing\
+      \ caveat 4 and updating Option A's cons. Kept Option A as the recommendation,\
+      \ kept new decisions 16/17/18, kept obsolete-decision markers (1, 4, 13, 15),\
+      \ kept all load-bearing technical findings (DependencyGraph role-keyed, BRC\
+      \ tracker pipeline_id-only, create_phase_worktree exists but unused, etc.)."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/2137-analysis.md
+    risk_considered: ''
+    commit_sha: 4d18d38b9ee2043cfef366cc38036b55e65ba984
+    files_changed:
+    - .egg-state/drafts/2137-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 4d18d38b9ee2043cfef366cc38036b55e65ba984
+````
+
+### [2026-04-28T16:45:56Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: f648c53f-23e2-4d
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-28T16:45:56Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: b411d5f6-0cb3-4d
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-28T16:46:07Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK
+
+````yaml
+id: 136601c7-e1d0-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:46:07.422563+00:00'
+````
+
+### [2026-04-28T16:46:56Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+
+Reviewed `.egg-state/drafts/2137-analysis.md` v1 (commit 4d18d38) against the agent-mode-design rubric. No blocking issues — the recommended approach (Option A: slice scheduler + stacked PRs + forest constraint) is, at its core, an agent-mode-design *improvement*: it attacks the cause of compaction (a single oversized unit of work) rather than the symptom (subagent fan-out), and it shrinks per-agent context to a slice-scoped diff. This is exactly what good agent-mode design wants.
+
+Cross-checked against the eight anti-patterns:
+1. **Excessive pre-fetching** — no. The design reduces per-agent context. "Slice-aware coder prompt scoping" is deferred to plan phase but the recommendation does not prescribe baking diffs into prompts.
+2. **Structured output for humans** — no. Slices are orchestrator-internal; PRs are normal GitHub PRs.
+3. **Post-processing pipelines** — no. The caveat-5 "periodic reconciler" is infrastructure that catches GitHub auto-retarget edge cases, not a parser of agent output.
+4. **Rigid procedures** — no. Caveats give objectives without micromanaging.
+5. **Prompt-level security** — N/A.
+6. **Direct LLM API calls outside sandbox** — N/A.
+7. **Direct API calls bypassing Agent SDK** — N/A.
+8. **Hardcoded model identifiers** — N/A.
+
+Particularly aligned with agent-mode design:
+- Option D's rejection in the recommendation section explicitly cites "Re-creates the large-context surface that motivated slicing" — the analysis sees the trap and avoids it. Caveat 4 doubles down: "no cross-slice review pass under any name." That preserves the agent-mode win.
+- Caveat 6 keeps auto-serialization planner-side and visible in the plan draft rather than silently rewriting the DAG inside the orchestrator — agents and humans both retain visibility.
+- Eliminating the orchestrator merge endpoint (vs. the prior issue text) removes a privileged code path entirely; merging happens through the normal human-driven GitHub flow.
+
+### Non-blocking
+- **caveat-7 / decision-11 (slice scope definition)** — the plan phase should define each slice's scope via task IDs / file globs / directory patterns rather than by pre-fetching the slice's diff into the coder prompt. The recommendation is non-prescriptive on this point, which is fine, but worth flagging so the plan phase doesn't accidentally drift into Anti-pattern #1 when it specifies "slice-aware coder prompt scoping."
+- **caveat-6 / decision-17 (auto-serialization heuristic)** — the analysis correctly says the planner should emit the serialized chain *visibly* in the plan draft. Plan phase should make sure the serialization decisions surface as plan-draft text the human can review/override, not as invisible orchestrator-side rewrites.
+
+
+````yaml
+id: c97dee12-d04c-40
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/2137-analysis.md
+    reason: "\nReviewed `.egg-state/drafts/2137-analysis.md` v1 (commit 4d18d38) against\
+      \ the agent-mode-design rubric. No blocking issues \u2014 the recommended approach\
+      \ (Option A: slice scheduler + stacked PRs + forest constraint) is, at its core,\
+      \ an agent-mode-design *improvement*: it attacks the cause of compaction (a\
+      \ single oversized unit of work) rather than the symptom (subagent fan-out),\
+      \ and it shrinks per-agent context to a slice-scoped diff. This is exactly what\
+      \ good agent-mode design wants.\n\nCross-checked against the eight anti-patterns:\n\
+      1. **Excessive pre-fetching** \u2014 no. The design reduces per-agent context.\
+      \ \"Slice-aware coder prompt scoping\" is deferred to plan phase but the recommendation\
+      \ does not prescribe baking diffs into prompts.\n2. **Structured output for\
+      \ humans** \u2014 no. Slices are orchestrator-internal; PRs are normal GitHub\
+      \ PRs.\n3. **Post-processing pipelines** \u2014 no. The caveat-5 \"periodic\
+      \ reconciler\" is infrastructure that catches GitHub auto-retarget edge cases,\
+      \ not a parser of agent output.\n4. **Rigid procedures** \u2014 no. Caveats\
+      \ give objectives without micromanaging.\n5. **Prompt-level security** \u2014\
+      \ N/A.\n6. **Direct LLM API calls outside sandbox** \u2014 N/A.\n7. **Direct\
+      \ API calls bypassing Agent SDK** \u2014 N/A.\n8. **Hardcoded model identifiers**\
+      \ \u2014 N/A.\n\nParticularly aligned with agent-mode design:\n- Option D's\
+      \ rejection in the recommendation section explicitly cites \"Re-creates the\
+      \ large-context surface that motivated slicing\" \u2014 the analysis sees the\
+      \ trap and avoids it. Caveat 4 doubles down: \"no cross-slice review pass under\
+      \ any name.\" That preserves the agent-mode win.\n- Caveat 6 keeps auto-serialization\
+      \ planner-side and visible in the plan draft rather than silently rewriting\
+      \ the DAG inside the orchestrator \u2014 agents and humans both retain visibility.\n\
+      - Eliminating the orchestrator merge endpoint (vs. the prior issue text) removes\
+      \ a privileged code path entirely; merging happens through the normal human-driven\
+      \ GitHub flow.\n\n### Non-blocking\n- **caveat-7 / decision-11 (slice scope\
+      \ definition)** \u2014 the plan phase should define each slice's scope via task\
+      \ IDs / file globs / directory patterns rather than by pre-fetching the slice's\
+      \ diff into the coder prompt. The recommendation is non-prescriptive on this\
+      \ point, which is fine, but worth flagging so the plan phase doesn't accidentally\
+      \ drift into Anti-pattern #1 when it specifies \"slice-aware coder prompt scoping.\"\
+      \n- **caveat-6 / decision-17 (auto-serialization heuristic)** \u2014 the analysis\
+      \ correctly says the planner should emit the serialized chain *visibly* in the\
+      \ plan draft. Plan phase should make sure the serialization decisions surface\
+      \ as plan-draft text the human can review/override, not as invisible orchestrator-side\
+      \ rewrites.\n"
+    ack_version: 1
+  version: 1
+````
+
+### [2026-04-28T16:46:56Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: fb618c7e-0b66-45
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-28T16:47:00Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK from=reviewer_refine
+
+````yaml
+id: bc06b036-c19e-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:47:00.690292+00:00'
+````
+
+### [2026-04-28T16:47:02Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: ebc0d683-e76c-4d
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-28T16:47:07Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: ee398ef6-708d-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:47:07.446151+00:00'
+````
+
+### [2026-04-28T16:47:07Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: dee6082e-3366-4b
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-28T16:47:12Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: f3be8e4b-37ba-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:47:12.357256+00:00'
+````
+
+### [2026-04-28T16:48:01Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK from=reviewer_refine
+
+````yaml
+id: d693bcb9-5b0c-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:47:00.690292+00:00'
+````
+
+### [2026-04-28T16:48:12Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6e522f7f-83b8-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:47:12.357256+00:00'
+````
+
+### [2026-04-28T16:48:43Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+
+Reviewed `.egg-state/drafts/2137-analysis.md` at commit 4d18d38b9 (v1) section-by-section against the seven review criteria, plus diff-against-prior-cycle to confirm the three blocking issues from the previous NACK are addressed.
+
+### Section-by-section evaluation
+
+**1. Problem Understanding (strong).** The analysis correctly identifies the core problem (monolithic implement phase causes compaction at ≳33K LOC / 41 files), accurately describes current behavior (one branch / one team / one BRC / one PR), and reproduces the seven AC items from the revised issue text verbatim. The "What's changed since the prior refine cycle" section is exemplary — it surfaces every material delta from the issue revision (stacked PRs replacing orchestrator merges, forest constraint, #2139 landing, decisions 1/4/13/15 going obsolete) so the plan phase doesn't re-litigate.
+
+**2. Research Quality (excellent).** Verified ~20 line citations against current `main`/`origin/egg/issue-2137` HEAD; all check out:
+- `pipelines.py::_run_pipeline` line 11443 ✓; `_populate_contract_from_plan_safe` 10832 / inner 10860 ✓; `_rebase_pipeline_branch_onto_base` 5324 ✓
+- `concurrent_executor.py:266` (`spawn_all`) ✓; `:177` (`get_agent_roles`) ✓; `:236` (issue branch fallback) ✓
+- `agent_roles.py:1110` (`_PHASE_ROLES`) ✓; `:1116-1122` (`_PHASE_REVIEWERS`) ✓; `:1287` (`get_roles_for_phase`) ✓
+- `peer_consensus.py:69` (`PeerConsensusTracker`) ✓; `:90` (pipeline_id init) ✓; `:1744` / `:1761` (tracker registry) ✓
+- `dependency_graph.py:28/51/73/114/139/194/229/282/296` ✓
+- `models.py:189-216` — Phase has 11 fields including `review_cycles` and `escalation_reason` as documented ✓
+- `plan_parser.py:75/83/106/109/170` ✓
+- `worktree_manager.py:237/295/848/983` ✓
+- `git_client.py:615-633` merge allowlist ✓
+- `routes/phases.py:229` advance_phase ✓
+- `review_graph.py:215-260` confirms lens reviewers (`reviewer_security`, `reviewer_concurrency`) are CRITICAL today post-#2139 ✓
+
+The "Critical caveat" callouts (DependencyGraph is role-keyed not slice-keyed; `create_phase_worktree` exists but is never wired into runtime; `ParsedPhase` lacks `files_affected`; BRC tracker keys exclusively on `pipeline_id`) are exactly the load-bearing facts the plan phase needs. Verified `ParsedPhase` (plan_parser.py:99-107) does not have a `files_affected` field, so the auto-serialization heuristic per decision-17 will indeed need to either aggregate per-slice from `ParsedTask.files_affected` or extend `ParsedPhase`.
+
+**3. Options Analysis (strong).** Four options with meaningfully different shapes (A: full issue-as-written; B: schema-only-now-runtime-deferred; C: shared-branch rebase; D: issue-plus-final-cross-slice). Trade-offs are concrete (A reuses ~80% of scaffolding; B fails AC #7; C has rebase fragility at 5+ pushers; D conflicts with "no per-slice roster customization"). The reasoning for rejecting B/C/D is direct and references specific ACs / mandates.
+
+**4. Constraints and Dependencies (strong).** Technical constraints cover DependencyGraph keying, forest validation, auto-serialization, BRC tracker namespacing, worktree manager, branch-name length limits. Cost/token constraints estimate ~5× agent count multiplier with explicit acknowledgement that compaction empirically kicks in around 33K LOC / 41 files. Operational constraints (CI multiplier, reviewer ergonomics, container concurrency) are surfaced. Out-of-scope list is clear and aligned with the issue.
+
+**5. Open Questions (strong).** Verified contract has 18 decisions (`decision-1`..`decision-18`) and `feedback-1` with Q1-Q6, exactly matching the analysis's enumeration. Each open question in the prose has a corresponding `<!-- egg-hitl-decision -->` / `<!-- egg-hitl-feedback -->` registration. Obsolete decisions (1, 4, 13, 15) are explicitly marked obsolete with workarounds for the human ("pick Other (explain in reply): superseded — answer decision-3"). Three new decisions (16/17/18) were added this cycle for the revised issue text. **HITL registration criterion satisfied.**
+
+**6. Recommendation Quality (strong).** Clear recommendation: Option A. Seven caveats covering all the load-bearing decisions: (1) #2134 status, (2) schema rename strategy, (3) forest validation point, (4) lens reviewer scope per-slice-only, (5) stacked-PR rebase via auto-retarget+reconciler, (6) auto-serialization planner-side, (7) single-PR delivery for #2137 itself. Caveats explicitly close decisions 3/13 and feedback-1 Q2 with recommended resolutions, which the plan phase can use as defaults.
+
+**7. HITL Decision Registration (verified clean).** Cross-checked every prose-level "decision-N" reference and "Q1..Q6" reference against the contract output. All 18 decisions have proper marker registrations; feedback-1 has all 6 questions registered. No prose-only open questions detected.
+
+### Verification of prior-cycle NACK fixes
+
+The diff vs commit 92b8af1ed shows three substantive changes addressing the prior NACK:
+
+1. **#2134 status correction.** Confirmed via `gh issue view 2134` that #2134 is CLOSED (closedAt 2026-04-27T20:03:09Z) via PR #2150 ("Fix #2134: structured audit events for plan→contract populate") merged 2026-04-27T20:03:08Z. The previous draft's "**#2134 is currently OPEN**" claim is corrected to historical context. Constraints section, Out-of-scope list, recommended-approach caveat 1, and Complexity Assessment are all updated consistently.
+
+2. **Single-PR delivery (caveat 7).** The prior 6-PR landing sequence is collapsed into a single cohesive PR with a cogent self-referential justification: "splitting #2137 into multiple PRs presupposes the multi-PR-per-ticket capability that #2137 itself introduces." LOC estimate of 1,500–2,500 is reasonable for the scope (rename + dependency graph generification + forest validation + slice scheduler + per-slice BRC tracker + per-slice branch + per-slice PR + rebase reconciler + auto-serialization). feedback-1 Q2's recommendation is updated to "single-PR" while leaving the option for human override.
+
+3. **Cross-slice reviewer mandate.** Caveat 4 is rewritten to "Lens reviewers run per-slice only. Cross-slice architectural coverage is explicitly out of scope for #2137." The language is appropriately strong: "Do not run `reviewer_code_holistic`, `reviewer_security`, `reviewer_concurrency`, or any other lens against a synthetic merged state — including no draft-PR-style aggregation, no orchestrator-staged combined branch, and no 'final cross-slice pass' under any other name." Decisions 3 and 13 get explicit recommended resolutions (option 1 / per-slice only). Option D's rejection paragraph is reinforced. Option A's cons section is updated to acknowledge MVP accepts the cross-slice-defects risk explicitly. This aligns with the issue's "no per-slice roster customization" mandate.
+
+### Non-blocking observations
+
+- **caveat 1 slightly oversells PR #2150's fix.** The phrase "the slice scheduler can rely on `slices[]` being populated whenever the planner emits a non-empty plan; no further ingestion-fix work is bundled into #2137" implies behavioral fix, but PR #2150 ("structured audit events") added observability rather than changing exception-swallowing behavior — `_populate_contract_from_plan_safe` (pipelines.py:10847-10857) still catches all exceptions and only logs a structured `contract_phases_ingest_failed` warning. The slice scheduler will still see an empty `slices[]` if ingestion fails (e.g., yaml parse error), it just won't be silent now. The operative conclusion ("no further ingest-fix work is bundled into #2137") still stands. **Suggest the plan phase tighten this language to "the silent-failure path is now observable via structured audit events; the slice scheduler should still defensively handle empty `slices[]` and surface the audit event"** — but not blocking refine.
+
+- **decision-7 (rename strategy) caveat 2 is reasonable but inherits a tension.** "Internal Python types renamed in one go; on-disk JSON accepts old `phases[]` during a brief migration window." If feedback-1 Q2 stays "single-PR," there is no in-flight pipeline window between rename PR and runtime PR, so the migration window is brief by construction. Worth the plan phase noting that if Q2 is overridden to multi-PR, decision-7's recommendation should be revisited.
+
+- **caveat 5 (decision-16 hybrid) is sensible** but the "periodic reconciler" cadence is unspecified. The plan phase will need to pin a default (e.g., 60s? 5min?) and a feature flag. Non-blocking.
+
+- **Recursive note at the bottom** ("this issue may itself be a candidate first user of slicing once #2137 ships") is a nice operator-facing breadcrumb but is appropriately scoped — it does not bleed back into AC.
+
+- **The "Authored-by: egg" footer is preserved.** Good — consistent with prior drafts.
+
+### Overall
+
+The analysis is comprehensive, technically accurate, and properly addresses every prior NACK point. All HITL decisions and feedback questions are correctly registered on the contract. The recommended approach (Option A with seven caveats) is clearly justified and aligns with the issue's revised text including the forest constraint, stacked-PR delivery, and "no per-slice roster customization" mandate. The plan phase has everything it needs to start emitting tasks.
+
+ACK at version 1.
+
+
+````yaml
+id: c902678a-9105-4a
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/2137-analysis.md
+    reason: "\nReviewed `.egg-state/drafts/2137-analysis.md` at commit 4d18d38b9 (v1)\
+      \ section-by-section against the seven review criteria, plus diff-against-prior-cycle\
+      \ to confirm the three blocking issues from the previous NACK are addressed.\n\
+      \n### Section-by-section evaluation\n\n**1. Problem Understanding (strong).**\
+      \ The analysis correctly identifies the core problem (monolithic implement phase\
+      \ causes compaction at \u227333K LOC / 41 files), accurately describes current\
+      \ behavior (one branch / one team / one BRC / one PR), and reproduces the seven\
+      \ AC items from the revised issue text verbatim. The \"What's changed since\
+      \ the prior refine cycle\" section is exemplary \u2014 it surfaces every material\
+      \ delta from the issue revision (stacked PRs replacing orchestrator merges,\
+      \ forest constraint, #2139 landing, decisions 1/4/13/15 going obsolete) so the\
+      \ plan phase doesn't re-litigate.\n\n**2. Research Quality (excellent).** Verified\
+      \ ~20 line citations against current `main`/`origin/egg/issue-2137` HEAD; all\
+      \ check out:\n- `pipelines.py::_run_pipeline` line 11443 \u2713; `_populate_contract_from_plan_safe`\
+      \ 10832 / inner 10860 \u2713; `_rebase_pipeline_branch_onto_base` 5324 \u2713\
+      \n- `concurrent_executor.py:266` (`spawn_all`) \u2713; `:177` (`get_agent_roles`)\
+      \ \u2713; `:236` (issue branch fallback) \u2713\n- `agent_roles.py:1110` (`_PHASE_ROLES`)\
+      \ \u2713; `:1116-1122` (`_PHASE_REVIEWERS`) \u2713; `:1287` (`get_roles_for_phase`)\
+      \ \u2713\n- `peer_consensus.py:69` (`PeerConsensusTracker`) \u2713; `:90` (pipeline_id\
+      \ init) \u2713; `:1744` / `:1761` (tracker registry) \u2713\n- `dependency_graph.py:28/51/73/114/139/194/229/282/296`\
+      \ \u2713\n- `models.py:189-216` \u2014 Phase has 11 fields including `review_cycles`\
+      \ and `escalation_reason` as documented \u2713\n- `plan_parser.py:75/83/106/109/170`\
+      \ \u2713\n- `worktree_manager.py:237/295/848/983` \u2713\n- `git_client.py:615-633`\
+      \ merge allowlist \u2713\n- `routes/phases.py:229` advance_phase \u2713\n- `review_graph.py:215-260`\
+      \ confirms lens reviewers (`reviewer_security`, `reviewer_concurrency`) are\
+      \ CRITICAL today post-#2139 \u2713\n\nThe \"Critical caveat\" callouts (DependencyGraph\
+      \ is role-keyed not slice-keyed; `create_phase_worktree` exists but is never\
+      \ wired into runtime; `ParsedPhase` lacks `files_affected`; BRC tracker keys\
+      \ exclusively on `pipeline_id`) are exactly the load-bearing facts the plan\
+      \ phase needs. Verified `ParsedPhase` (plan_parser.py:99-107) does not have\
+      \ a `files_affected` field, so the auto-serialization heuristic per decision-17\
+      \ will indeed need to either aggregate per-slice from `ParsedTask.files_affected`\
+      \ or extend `ParsedPhase`.\n\n**3. Options Analysis (strong).** Four options\
+      \ with meaningfully different shapes (A: full issue-as-written; B: schema-only-now-runtime-deferred;\
+      \ C: shared-branch rebase; D: issue-plus-final-cross-slice). Trade-offs are\
+      \ concrete (A reuses ~80% of scaffolding; B fails AC #7; C has rebase fragility\
+      \ at 5+ pushers; D conflicts with \"no per-slice roster customization\"). The\
+      \ reasoning for rejecting B/C/D is direct and references specific ACs / mandates.\n\
+      \n**4. Constraints and Dependencies (strong).** Technical constraints cover\
+      \ DependencyGraph keying, forest validation, auto-serialization, BRC tracker\
+      \ namespacing, worktree manager, branch-name length limits. Cost/token constraints\
+      \ estimate ~5\xD7 agent count multiplier with explicit acknowledgement that\
+      \ compaction empirically kicks in around 33K LOC / 41 files. Operational constraints\
+      \ (CI multiplier, reviewer ergonomics, container concurrency) are surfaced.\
+      \ Out-of-scope list is clear and aligned with the issue.\n\n**5. Open Questions\
+      \ (strong).** Verified contract has 18 decisions (`decision-1`..`decision-18`)\
+      \ and `feedback-1` with Q1-Q6, exactly matching the analysis's enumeration.\
+      \ Each open question in the prose has a corresponding `<!-- egg-hitl-decision\
+      \ -->` / `<!-- egg-hitl-feedback -->` registration. Obsolete decisions (1, 4,\
+      \ 13, 15) are explicitly marked obsolete with workarounds for the human (\"\
+      pick Other (explain in reply): superseded \u2014 answer decision-3\"). Three\
+      \ new decisions (16/17/18) were added this cycle for the revised issue text.\
+      \ **HITL registration criterion satisfied.**\n\n**6. Recommendation Quality\
+      \ (strong).** Clear recommendation: Option A. Seven caveats covering all the\
+      \ load-bearing decisions: (1) #2134 status, (2) schema rename strategy, (3)\
+      \ forest validation point, (4) lens reviewer scope per-slice-only, (5) stacked-PR\
+      \ rebase via auto-retarget+reconciler, (6) auto-serialization planner-side,\
+      \ (7) single-PR delivery for #2137 itself. Caveats explicitly close decisions\
+      \ 3/13 and feedback-1 Q2 with recommended resolutions, which the plan phase\
+      \ can use as defaults.\n\n**7. HITL Decision Registration (verified clean).**\
+      \ Cross-checked every prose-level \"decision-N\" reference and \"Q1..Q6\" reference\
+      \ against the contract output. All 18 decisions have proper marker registrations;\
+      \ feedback-1 has all 6 questions registered. No prose-only open questions detected.\n\
+      \n### Verification of prior-cycle NACK fixes\n\nThe diff vs commit 92b8af1ed\
+      \ shows three substantive changes addressing the prior NACK:\n\n1. **#2134 status\
+      \ correction.** Confirmed via `gh issue view 2134` that #2134 is CLOSED (closedAt\
+      \ 2026-04-27T20:03:09Z) via PR #2150 (\"Fix #2134: structured audit events for\
+      \ plan\u2192contract populate\") merged 2026-04-27T20:03:08Z. The previous draft's\
+      \ \"**#2134 is currently OPEN**\" claim is corrected to historical context.\
+      \ Constraints section, Out-of-scope list, recommended-approach caveat 1, and\
+      \ Complexity Assessment are all updated consistently.\n\n2. **Single-PR delivery\
+      \ (caveat 7).** The prior 6-PR landing sequence is collapsed into a single cohesive\
+      \ PR with a cogent self-referential justification: \"splitting #2137 into multiple\
+      \ PRs presupposes the multi-PR-per-ticket capability that #2137 itself introduces.\"\
+      \ LOC estimate of 1,500\u20132,500 is reasonable for the scope (rename + dependency\
+      \ graph generification + forest validation + slice scheduler + per-slice BRC\
+      \ tracker + per-slice branch + per-slice PR + rebase reconciler + auto-serialization).\
+      \ feedback-1 Q2's recommendation is updated to \"single-PR\" while leaving the\
+      \ option for human override.\n\n3. **Cross-slice reviewer mandate.** Caveat\
+      \ 4 is rewritten to \"Lens reviewers run per-slice only. Cross-slice architectural\
+      \ coverage is explicitly out of scope for #2137.\" The language is appropriately\
+      \ strong: \"Do not run `reviewer_code_holistic`, `reviewer_security`, `reviewer_concurrency`,\
+      \ or any other lens against a synthetic merged state \u2014 including no draft-PR-style\
+      \ aggregation, no orchestrator-staged combined branch, and no 'final cross-slice\
+      \ pass' under any other name.\" Decisions 3 and 13 get explicit recommended\
+      \ resolutions (option 1 / per-slice only). Option D's rejection paragraph is\
+      \ reinforced. Option A's cons section is updated to acknowledge MVP accepts\
+      \ the cross-slice-defects risk explicitly. This aligns with the issue's \"no\
+      \ per-slice roster customization\" mandate.\n\n### Non-blocking observations\n\
+      \n- **caveat 1 slightly oversells PR #2150's fix.** The phrase \"the slice scheduler\
+      \ can rely on `slices[]` being populated whenever the planner emits a non-empty\
+      \ plan; no further ingestion-fix work is bundled into #2137\" implies behavioral\
+      \ fix, but PR #2150 (\"structured audit events\") added observability rather\
+      \ than changing exception-swallowing behavior \u2014 `_populate_contract_from_plan_safe`\
+      \ (pipelines.py:10847-10857) still catches all exceptions and only logs a structured\
+      \ `contract_phases_ingest_failed` warning. The slice scheduler will still see\
+      \ an empty `slices[]` if ingestion fails (e.g., yaml parse error), it just won't\
+      \ be silent now. The operative conclusion (\"no further ingest-fix work is bundled\
+      \ into #2137\") still stands. **Suggest the plan phase tighten this language\
+      \ to \"the silent-failure path is now observable via structured audit events;\
+      \ the slice scheduler should still defensively handle empty `slices[]` and surface\
+      \ the audit event\"** \u2014 but not blocking refine.\n\n- **decision-7 (rename\
+      \ strategy) caveat 2 is reasonable but inherits a tension.** \"Internal Python\
+      \ types renamed in one go; on-disk JSON accepts old `phases[]` during a brief\
+      \ migration window.\" If feedback-1 Q2 stays \"single-PR,\" there is no in-flight\
+      \ pipeline window between rename PR and runtime PR, so the migration window\
+      \ is brief by construction. Worth the plan phase noting that if Q2 is overridden\
+      \ to multi-PR, decision-7's recommendation should be revisited.\n\n- **caveat\
+      \ 5 (decision-16 hybrid) is sensible** but the \"periodic reconciler\" cadence\
+      \ is unspecified. The plan phase will need to pin a default (e.g., 60s? 5min?)\
+      \ and a feature flag. Non-blocking.\n\n- **Recursive note at the bottom** (\"\
+      this issue may itself be a candidate first user of slicing once #2137 ships\"\
+      ) is a nice operator-facing breadcrumb but is appropriately scoped \u2014 it\
+      \ does not bleed back into AC.\n\n- **The \"Authored-by: egg\" footer is preserved.**\
+      \ Good \u2014 consistent with prior drafts.\n\n### Overall\n\nThe analysis is\
+      \ comprehensive, technically accurate, and properly addresses every prior NACK\
+      \ point. All HITL decisions and feedback questions are correctly registered\
+      \ on the contract. The recommended approach (Option A with seven caveats) is\
+      \ clearly justified and aligns with the issue's revised text including the forest\
+      \ constraint, stacked-PR delivery, and \"no per-slice roster customization\"\
+      \ mandate. The plan phase has everything it needs to start emitting tasks.\n\
+      \nACK at version 1.\n"
+    ack_version: 1
+  version: 1
+````
+
+### [2026-04-28T16:48:43Z] orchestrator → refiner (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: f66d76c8-3af5-4d
+phase: refine
+metadata:
+  ready_to_confirm: true
+  version: 1
+````
+
+### [2026-04-28T16:48:44Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 43ab8441-2be2-4e
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-28T16:48:54Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: a4649fcb-0b34-4f
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-28T16:48:54Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 690042e8-7c88-4a
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-28T16:48:55Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: b9627c9b-cae3-4b
+phase: refine
+metadata:
+  consensus_reached: true
+````
+
+### [2026-04-28T16:48:58Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 9259da46-c32c-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-28T16:48:58.269766+00:00'
+````
+
+### [2026-04-28T16:48:58Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: e60274fc-178b-40
+phase: refine
+metadata:
+  state: WORKING
+````
