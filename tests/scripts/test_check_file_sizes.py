@@ -304,6 +304,9 @@ class TestYamlRoundTrip:
         big = repo_root / "orchestrator" / "big.py"
         big.write_text("x = 1\n" * 50)
 
+        # Seed deliberately stale line/byte values so the post-update
+        # assertion only passes when update_allowlist genuinely re-measures
+        # from the live file (rather than silently preserving the seed).
         allowlist = tmp_path / "allowlist.yaml"
         allowlist.write_text(
             textwrap.dedent(
@@ -315,8 +318,8 @@ class TestYamlRoundTrip:
                   soft_bytes: 500000
                 files:
                   orchestrator/big.py:
-                    lines: 50
-                    bytes: 300
+                    lines: 1
+                    bytes: 1
                     issue: "2248"
                 """
             )
@@ -330,6 +333,7 @@ class TestYamlRoundTrip:
         reloaded = load_config(allowlist)
         entry = reloaded.baselines["orchestrator/big.py"]
         assert entry.issue == "2248"
-        # And the line/byte counts were refreshed from the live file.
+        # And the line/byte counts were refreshed from the live file —
+        # not preserved from the stale seed values above.
         assert entry.lines == 50
         assert entry.bytes == len(big.read_bytes())
