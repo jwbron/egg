@@ -144,7 +144,7 @@ class TestGetContextWindow:
             # If it returns a value, it should be a reasonable default
             assert isinstance(window, int)
             assert window > 0
-        except (ValueError, KeyError):
+        except ValueError, KeyError:
             pass  # Also acceptable to raise for unknown models
 
 

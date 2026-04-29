@@ -81,7 +81,7 @@ def safe_int(value: str | None, default: int = 0) -> int:
         return default
     try:
         return int(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 

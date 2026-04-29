@@ -910,7 +910,7 @@ class KubernetesSpawner:
                         if isinstance(job.agent_role, AgentRole)
                         else str(job.agent_role)
                     )
-                except (AttributeError, TypeError):
+                except AttributeError, TypeError:
                     pass
             if role_label and isinstance(role_label, str):
                 worktree_ids_to_clean.add(f"{pipeline_id}-{role_label}")
