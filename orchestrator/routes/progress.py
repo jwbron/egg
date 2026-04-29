@@ -145,12 +145,12 @@ def query_progress(pipeline_id: str) -> tuple[Response, int]:
     if since_str:
         try:
             since = datetime.fromisoformat(since_str.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return _make_error("Invalid 'since' timestamp format. Use ISO 8601.")
 
     try:
         limit = int(request.args.get("limit", "100"))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return _make_error("Invalid limit parameter: must be an integer")
 
     store = get_progress_store()

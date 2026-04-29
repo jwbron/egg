@@ -87,7 +87,7 @@ def _make_pipeline(pipeline_id: str = "issue-9999", issue_number: int | None = 9
     }.items():
         try:
             setattr(config, key, val)
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             config.__dict__[key] = val
     return Pipeline(
         id=pipeline_id,

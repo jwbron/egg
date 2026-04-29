@@ -93,7 +93,7 @@ class TestOverseerRoleDefinition:
 
             self.AGENT_ROLES = AGENT_ROLES
             self.SharedAgentRole = SharedAgentRole
-        except (ImportError, AttributeError):
+        except ImportError, AttributeError:
             pytest.skip("egg_contracts.agent_roles not available")
 
     def test_overseer_in_registry(self):
