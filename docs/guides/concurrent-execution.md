@@ -722,7 +722,7 @@ If any agent is in the `OBJECTING` readiness state (separate from BRC phase), th
 
 ### Timeout Handling
 
-If consensus is not reached within `consensus_timeout_minutes`, the orchestrator first checks the **BRC progress gate** before opening a HITL decision. While any of the following have fired within `brc_consensus_progress_gate_seconds` (default 300 s), the orchestrator continues polling rather than escalating immediately:
+If consensus is not reached within `consensus_timeout_minutes`, the orchestrator first checks the **BRC progress gate** before publishing the consensus-timeout `OVERSEER_ALERT` ([issue #2264](https://github.com/jwbron/egg/issues/2264)). While any of the following have fired within `brc_consensus_progress_gate_seconds` (default 300 s), the orchestrator continues polling rather than escalating immediately:
 
 - A `CONSENSUS_PROPOSE` or ACK/NACK on the BRC bus
 - A container heartbeat from any active role in the current phase
@@ -853,7 +853,7 @@ Both are also available as MCP tools (`restart_agent`, `restart_phase`) and CLI 
 | Agent stall (restarts exhausted) | Restart agent, Abort phase, Continue without |
 | Multiple agent stalls (2+ restarts exhausted) | Restart phase, Cancel pipeline |
 | Multiple failures (2+ / 60s) | Retry phase, Cancel pipeline |
-| Consensus timeout (critical blockers) | Continue waiting, Accept current state, Abort phase |
+| Consensus timeout (critical blockers) | *(no HITL — publishes high-priority `OVERSEER_ALERT`, see Timeout Handling)* |
 | Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
 | Consensus timeout fires, consensus reached during wait | *(no HITL — recovered automatically via timeout recheck)* |
 | Agent objection | Resolve then advance, Override, Abort |
