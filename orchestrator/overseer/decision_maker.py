@@ -141,6 +141,22 @@ async def decide_corrective_action(
         '  "restart_phase" - Restart all agents in the current phase (requires HITL approval)\n'
         '  "issue" - File a diagnostic GitHub issue\n'
         '  "slack" - Send urgent Slack notification\n\n'
+        "Recommendation ladder for stall / silent-agent classifications "
+        "(issue #2190): inspecting agent state must come before any "
+        "container-restart recommendation. An apparently-silent agent is "
+        "often mid-tool-call (e.g. a multi-minute pytest). Restarting "
+        "would destroy in-flight commits.\n"
+        "  - First response: `nudge` or `redirect` whose message body "
+        'leads with "Inspect container logs via '
+        "`mcp__egg__get_container_logs(task_id=…, agent_role=…)` before "
+        'taking destructive action."\n'
+        "  - Do NOT recommend `restart_agent` for a first stall alert. "
+        "Reserve `restart_agent` for follow-up alerts that fire after a "
+        "log inspection has confirmed the agent is genuinely inactive "
+        "(no recent commits, no pushes, no tool-call results), or for "
+        "infrastructure errors classified separately.\n"
+        "  - Never embed `egg-orch container restart <id>` as a first-line "
+        "operator action in the message body.\n\n"
         "Respond with ONLY a JSON object (no markdown fences) with these keys:\n"
         '  "action": one of the actions above\n'
         '  "message": string describing the action or message to send\n'

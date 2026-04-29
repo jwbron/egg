@@ -48,6 +48,36 @@ from lifecycle_auth import require_lifecycle_secret
 
 logger = get_logger("orchestrator.commit_authorship")
 
+
+def _publish_container_activity(pipeline_id: str | None, role: str, kind: str) -> None:
+    """Best-effort publish of a CONTAINER_ACTIVITY event.
+
+    The event lets HealthMonitor suppress heartbeat/progress stall alerts
+    against agents that are demonstrably alive (mid-commit) but not
+    emitting bus-level HEARTBEATs. See issue #2190.
+
+    Failure to publish must not affect the registration response.
+    """
+    if not isinstance(pipeline_id, str) or not pipeline_id.strip():
+        return
+    try:
+        try:
+            from events import Event, EventType, get_event_bus  # type: ignore[import-not-found]
+        except ImportError:
+            from ..events import Event, EventType, get_event_bus  # type: ignore[no-redef]
+
+        get_event_bus().publish(
+            Event(
+                event_type=EventType.CONTAINER_ACTIVITY,
+                pipeline_id=pipeline_id,
+                data={"agent_role": role, "kind": kind},
+                source="commit_authorship",
+            )
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("container_activity_publish_failed", error=str(exc))
+
+
 commit_authorship_bp = Blueprint(
     "commit_authorship", __name__, url_prefix="/api/v1/commit-authorship"
 )
@@ -165,6 +195,8 @@ def register_commit() -> tuple[Response, int] | Response:
         )
         return _json_error("Failed to register commit authorship", 500)
 
+    _publish_container_activity(pipeline_id, role.strip().lower(), "git_commit")
+
     return (
         jsonify(
             {
@@ -206,6 +238,7 @@ def register_bulk() -> tuple[Response, int] | Response:
         return _json_error("Commit-authorship store unavailable", 500)
 
     results: list[dict[str, Any]] = []
+    activity_seen: set[tuple[str, str]] = set()
     for item in items:
         if not isinstance(item, dict):
             results.append({"success": False, "message": "Item must be an object"})
@@ -250,6 +283,19 @@ def register_bulk() -> tuple[Response, int] | Response:
                 "inserted": inserted,
             }
         )
+
+        item_pipeline = item.get("pipeline_id")
+        item_role = item.get("role", "")
+        if (
+            isinstance(item_pipeline, str)
+            and item_pipeline
+            and isinstance(item_role, str)
+            and item_role
+        ):
+            key = (item_pipeline, item_role.strip().lower())
+            if key not in activity_seen:
+                activity_seen.add(key)
+                _publish_container_activity(item_pipeline, key[1], "git_commit")
 
     return jsonify({"success": True, "results": results}), 200
 

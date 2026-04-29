@@ -75,6 +75,13 @@ class AgentState:
     agent_id: str
     last_heartbeat: float = field(default_factory=time.time)
     last_progress: float = field(default_factory=time.time)
+    # Wall-clock timestamp of the most recent CONTAINER_ACTIVITY event for
+    # this agent (e.g. successful git commit registration).  Used to
+    # OR-suppress heartbeat/progress stall alerts against agents that are
+    # legitimately blocked in long tool calls but still making real
+    # progress (issue #2190).  Defaults to 0.0 — never seen — so a freshly
+    # spawned agent's silence is governed by the heartbeat anchor alone.
+    last_activity: float = 0.0
     error_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     message_timestamps: list[float] = field(default_factory=list)
     heartbeat_escalated: bool = False
@@ -131,6 +138,7 @@ class HealthMonitor:
         self._event_bus.subscribe(EventType.ERROR, self._on_error)
         self._event_bus.subscribe(EventType.CONTAINER_STOPPED, self._on_container_stopped)
         self._event_bus.subscribe(EventType.MESSAGE_SENT, self._on_message_sent)
+        self._event_bus.subscribe(EventType.CONTAINER_ACTIVITY, self._on_container_activity)
 
     # -----------------------------------------------------------------
     # Callback registration
@@ -210,6 +218,45 @@ class HealthMonitor:
         if phase == "implement":
             return self._config.orchestrator_implement_heartbeat_timeout_seconds
         return self._config.orchestrator_heartbeat_timeout_seconds
+
+    def _has_recent_activity(self, agent_id: str, now: float) -> tuple[bool, str | None]:
+        """Return (defer, reason) for the focal-agent activity gate (#2190).
+
+        Suppresses ``heartbeat_timeout`` / ``progress_stall`` alerts against
+        an agent that is demonstrably alive — i.e. has emitted a
+        :class:`EventType.CONTAINER_ACTIVITY` event within
+        ``orchestrator_activity_quiet_seconds`` — even if no
+        bus-level ``HEARTBEAT`` has arrived. The repro from #2190 was a
+        coder mid-pytest with multi-minute blocking ``TaskOutput`` calls,
+        committing along the way; the bus saw silence but the agent was
+        making real progress.
+
+        Complements #2242's :func:`_has_recent_peer_progress` (peer
+        signals; self-excluded). The two gates are OR'd: either the
+        focal agent's own activity OR a peer's recent progress is
+        sufficient to defer.
+
+        Returns ``(False, None)`` when the agent has never emitted an
+        activity event (``last_activity == 0.0``) so a freshly spawned
+        but truly silent agent still escalates on the heartbeat anchor.
+
+        ``orchestrator_activity_quiet_seconds <= 0`` disables the gate.
+        """
+        threshold = self._config.orchestrator_activity_quiet_seconds
+        if threshold <= 0:
+            return False, None
+
+        with self._lock:
+            agent = self._agents.get(agent_id)
+            last_activity = agent.last_activity if agent is not None else 0.0
+
+        if last_activity <= 0.0:
+            return False, None
+
+        age = now - last_activity
+        if 0 <= age < threshold:
+            return True, f"container activity {int(age)}s ago"
+        return False, None
 
     def _is_brc_idle(self, agent_id: str) -> bool:
         """Check if an agent is idle waiting for BRC upstream producers.
@@ -307,6 +354,26 @@ class HealthMonitor:
                 new_blocker = event.data.get("blocker", "")
                 if new_state != "blocked" or new_blocker != old_blocker:
                     agent.infra_error_escalated = False
+
+    def _on_container_activity(self, event: Event) -> None:
+        """Handle CONTAINER_ACTIVITY event — record focal-agent activity (#2190).
+
+        Activity events fire on demonstrable signs of life that don't go
+        through the bus-level HEARTBEAT path: today, successful commit
+        registrations from the gateway commit observer. Used by
+        :func:`_has_recent_activity` to suppress heartbeat/progress
+        alerts against agents legitimately blocked in long tool calls.
+        """
+        if event.pipeline_id != self._pipeline_id:
+            return
+
+        agent_id = event.data.get("agent_id") or event.data.get("agent_role")
+        if not agent_id:
+            return
+
+        with self._lock:
+            agent = self._get_or_create_agent(agent_id)
+            agent.last_activity = time.time()
 
     def _on_error(self, event: Event) -> None:
         """Handle ERROR event — track repeated identical errors."""
@@ -482,6 +549,22 @@ class HealthMonitor:
             if self._is_brc_idle(agent_id):
                 continue
 
+            # Focal-agent activity gate (#2190): defer if the agent has
+            # had recent CONTAINER_ACTIVITY (e.g. successful commit) — it
+            # is alive, just not emitting bus-level HEARTBEAT (typical of
+            # long-blocking tool calls). Don't set heartbeat_escalated;
+            # the next poll re-checks.
+            defer, gate_reason = self._has_recent_activity(agent_id, now)
+            if defer:
+                logger.info(
+                    "Heartbeat alert deferred by activity gate",
+                    pipeline_id=self._pipeline_id,
+                    agent_id=agent_id,
+                    elapsed_seconds=int(elapsed),
+                    reason=gate_reason,
+                )
+                continue
+
             action = {
                 "action": "escalate",
                 "agent_id": agent_id,
@@ -563,6 +646,20 @@ class HealthMonitor:
             # BRC-idle suppression: skip reviewer-only agents waiting for
             # upstream producers to propose
             if self._is_brc_idle(agent_id):
+                continue
+
+            # Focal-agent activity gate (#2190): same as in
+            # check_heartbeats — defer when the agent has had recent
+            # CONTAINER_ACTIVITY but no bus-level progress event.
+            defer, gate_reason = self._has_recent_activity(agent_id, now)
+            if defer:
+                logger.info(
+                    "Progress alert deferred by activity gate",
+                    pipeline_id=self._pipeline_id,
+                    agent_id=agent_id,
+                    elapsed_seconds=int(elapsed),
+                    reason=gate_reason,
+                )
                 continue
 
             action = {
@@ -685,6 +782,7 @@ class HealthMonitor:
         self._event_bus.unsubscribe(EventType.ERROR, self._on_error)
         self._event_bus.unsubscribe(EventType.CONTAINER_STOPPED, self._on_container_stopped)
         self._event_bus.unsubscribe(EventType.MESSAGE_SENT, self._on_message_sent)
+        self._event_bus.unsubscribe(EventType.CONTAINER_ACTIVITY, self._on_container_activity)
 
     def _check_infra_errors(self) -> list[dict[str, Any]]:
         """Detect blocked progress events with infrastructure error keywords.
