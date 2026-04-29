@@ -1,12 +1,16 @@
 """Regression tests for routes/pipelines.py helpers.
 
 Covers issue #1783: the BRC/consensus timeout path used bare relative
-imports that crashed under k3s's top-level-module layout, and silently
-swallowed add_decision failures so the stall had no visible HITL decision.
+imports that crashed under k3s's top-level-module layout.
 
-Also covers issue #2243: the BRC progress gate must defer the auto
-consensus-failure HITL decision while the bus or container heartbeats
-have fired within the gate window.
+Covers issue #2243: the BRC progress gate must defer the auto
+consensus-failure decision while the bus or container heartbeats have
+fired within the gate window.
+
+Covers issue #2264: the consensus-timeout fallback used to open a
+``choice``-typed HITL decision; it now publishes an ``OVERSEER_ALERT``
+so the SDLC skill surfaces it as a non-blocking notification rather
+than a binary gate.
 """
 
 import time
@@ -26,32 +30,49 @@ def pipeline():
     return p
 
 
-def _make_store(pipeline):
-    """MagicMock store whose load/save round-trip the in-memory pipeline.
+def _make_store():
+    """MagicMock state store kept for call-site compatibility.
 
-    `_persist_hitl_decision` does load → mutate → save. Returning the
-    same pipeline from `load_pipeline` keeps the test assertions on
-    `pipeline.decisions` working without inventing a separate disk-side
-    Pipeline (issue #2208 review asked HITL writes go through the store).
+    Issue #2264 removed the ``_persist_hitl_decision`` call from the
+    timeout handler, so the store argument is unused in the new alert
+    flow. The fixture is retained so the test signatures don't drift
+    from the production call site (which still passes the state store).
     """
-    store = MagicMock()
-    store.load_pipeline.side_effect = lambda _pid: pipeline
-    store.save_pipeline.side_effect = lambda _p: None
-    return store
+    return MagicMock()
+
+
+def _capture_alerts(monkeypatch_target=None):
+    """Return ``(patch_context, alerts_list)`` for capturing OVERSEER_ALERT writes.
+
+    Patches ``routes.pipelines._get_message_store`` to return a factory
+    that returns a fake store whose ``add_message`` appends each message
+    to ``alerts_list``. Tests assert against the captured list.
+    """
+    alerts: list = []
+    fake_store = MagicMock()
+    fake_store.add_message.side_effect = lambda msg: alerts.append(msg) or msg
+    factory = MagicMock(return_value=fake_store)
+    return patch("routes.pipelines._get_message_store", return_value=factory), alerts
 
 
 class TestHandleBrcConsensusTimeout:
-    """The timeout handler must reach add_decision under k3s's module layout.
+    """The timeout handler publishes an OVERSEER_ALERT (issue #2264).
 
-    The test runner imports routes.pipelines via absolute imports (the same
-    layout k3s uses), so a regression that re-introduces a bare relative
-    import would surface here as an ImportError before add_decision runs.
+    Migration from the old auto-``choice`` HITL decision to a
+    non-blocking ``OVERSEER_ALERT`` notification. The SDLC skill's
+    existing alert flow (Check agent logs / Acknowledge / Cancel
+    pipeline) handles operator interaction; the platform no longer
+    gates the pipeline on a binary choice.
     """
 
     @patch("routes.pipelines._emit_event")
-    def test_no_brc_tracker_queues_hitl_decision(self, mock_emit, pipeline):
-        store = _make_store(pipeline)
-        with patch("peer_consensus.get_peer_consensus_tracker", return_value=None):
+    def test_no_brc_tracker_publishes_overseer_alert(self, mock_emit, pipeline):
+        store = _make_store()
+        capture, alerts = _capture_alerts()
+        with (
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+            capture,
+        ):
             _handle_brc_consensus_timeout(
                 pipeline,
                 pipeline.id,
@@ -60,8 +81,9 @@ class TestHandleBrcConsensusTimeout:
                 store=store,
             )
 
-        assert len(pipeline.decisions) == 1
-        assert "Consensus not reached after 30 minutes" in pipeline.decisions[0].question
+        # No HITL decision opened — the protocol shape is now a notification.
+        assert len(pipeline.decisions) == 0
+        # CONSENSUS_TIMEOUT audit event still fires on the no-tracker path.
         mock_emit.assert_called_once_with(
             EventType.CONSENSUS_TIMEOUT,
             pipeline.id,
@@ -70,35 +92,76 @@ class TestHandleBrcConsensusTimeout:
                 "blocking_agents": ["reviewer_code"],
             },
         )
+        # OVERSEER_ALERT published with the issue #2264 metadata schema.
+        assert len(alerts) == 1
+        alert = alerts[0]
+        assert alert.message_type == "OVERSEER_ALERT"
+        assert alert.from_role == "orchestrator"
+        assert alert.to_role == "all"
+        assert alert.subject.startswith("consensus-timeout: ")
+        assert "[medium]" in alert.subject
+        assert alert.metadata["anomaly_type"] == "consensus-timeout"
+        assert alert.metadata["consensus_timeout_minutes"] == 30
+        assert alert.metadata["blocking_agents"] == ["reviewer_code"]
+        assert alert.metadata["priority"] == "medium"
+        assert alert.metadata["phase"] == PipelinePhase.REFINE.value
+        # No tracker / heartbeat info available in this scenario.
+        assert alert.metadata["latest_proposal_at"] is None
+        assert alert.metadata["latest_heartbeat_at"] is None
+        # slice_id absent from metadata when call-site passes None.
+        assert "slice_id" not in alert.metadata
 
     @patch("routes.pipelines._emit_event")
-    def test_brc_escalate_queues_hitl_decision(self, mock_emit, pipeline):
-        store = _make_store(pipeline)
+    def test_brc_escalate_publishes_high_priority_alert(self, mock_emit, pipeline):
+        store = _make_store()
         tracker = MagicMock()
         tracker.handle_timeout.return_value = {"action": "escalate"}
         tracker.is_timeout_handled.return_value = True
+        proposal_ts = datetime(2026, 4, 29, 12, 0, 0, tzinfo=UTC)
+        tracker.get_latest_proposal_timestamp.return_value = proposal_ts
 
-        with patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker):
+        capture, alerts = _capture_alerts()
+        with (
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
+            capture,
+        ):
             _handle_brc_consensus_timeout(
                 pipeline,
                 pipeline.id,
                 consensus_timeout=1800.0,
-                blocking_agents=[],
+                blocking_agents=["reviewer_code"],
                 store=store,
+                slice_id="slice-1",
             )
 
-        assert len(pipeline.decisions) == 1
-        assert "BRC consensus failure" in pipeline.decisions[0].question
+        assert len(pipeline.decisions) == 0
+        # No CONSENSUS_TIMEOUT event on the escalate path — the
+        # tracker already emitted CONSENSUS_FAILURE internally.
         mock_emit.assert_not_called()
+        assert len(alerts) == 1
+        alert = alerts[0]
+        assert "[high]" in alert.subject
+        assert alert.metadata["priority"] == "high"
+        assert alert.metadata["latest_proposal_at"] == proposal_ts.isoformat()
+        assert alert.metadata["slice_id"] == "slice-1"
+        assert alert.metadata["blocking_agents"] == ["reviewer_code"]
 
     @patch("routes.pipelines._emit_event")
-    def test_brc_handled_without_escalate_no_decision(self, mock_emit, pipeline):
-        store = _make_store(pipeline)
+    def test_brc_handled_without_escalate_no_alert(self, mock_emit, pipeline):
+        # The advisory-only path (proceed_with_notification) was
+        # silent before #2264 and stays silent: the tracker has
+        # already emitted CONSENSUS_TIMEOUT internally and the handler
+        # does not re-notify the operator.
+        store = _make_store()
         tracker = MagicMock()
         tracker.handle_timeout.return_value = {"action": "proceed"}
         tracker.is_timeout_handled.return_value = True
+        capture, alerts = _capture_alerts()
 
-        with patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker):
+        with (
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
+            capture,
+        ):
             _handle_brc_consensus_timeout(
                 pipeline,
                 pipeline.id,
@@ -108,18 +171,23 @@ class TestHandleBrcConsensusTimeout:
             )
 
         assert len(pipeline.decisions) == 0
+        assert alerts == []
         mock_emit.assert_not_called()
 
     @patch("routes.pipelines.logger")
     @patch("routes.pipelines._emit_event")
-    def test_tracker_import_error_falls_back_to_hitl(self, mock_emit, mock_logger, pipeline):
+    def test_tracker_import_error_falls_back_to_alert(self, mock_emit, mock_logger, pipeline):
         # Regression test for issue #1783: bare relative import raised
-        # ImportError under k3s, and the outer except caught it but the
-        # HITL decision must still be created via the fallback path.
-        store = _make_store(pipeline)
-        with patch(
-            "peer_consensus.get_peer_consensus_tracker",
-            side_effect=ImportError("simulated k3s import failure"),
+        # ImportError under k3s. After #2264 the fallback is an
+        # OVERSEER_ALERT rather than a HITL decision.
+        store = _make_store()
+        capture, alerts = _capture_alerts()
+        with (
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                side_effect=ImportError("simulated k3s import failure"),
+            ),
+            capture,
         ):
             _handle_brc_consensus_timeout(
                 pipeline,
@@ -129,14 +197,15 @@ class TestHandleBrcConsensusTimeout:
                 store=store,
             )
 
-        # The warning log records the import failure
-        mock_logger.warning.assert_called_once()
-        _, warn_kwargs = mock_logger.warning.call_args
-        assert "simulated k3s import failure" in warn_kwargs.get("error", "")
-
-        # Fallback HITL decision is still queued
-        assert len(pipeline.decisions) == 1
-        assert "Consensus not reached after 30 minutes" in pipeline.decisions[0].question
+        # The warning log records the import failure.
+        assert any(
+            "BRC timeout check failed" in (call.args[0] if call.args else "")
+            for call in mock_logger.warning.call_args_list
+        )
+        # Fallback OVERSEER_ALERT is still published.
+        assert len(pipeline.decisions) == 0
+        assert len(alerts) == 1
+        assert "[medium]" in alerts[0].subject
         mock_emit.assert_called_once_with(
             EventType.CONSENSUS_TIMEOUT,
             pipeline.id,
@@ -148,16 +217,19 @@ class TestHandleBrcConsensusTimeout:
 
     @patch("routes.pipelines.logger")
     @patch("routes.pipelines._emit_event")
-    def test_add_decision_failure_is_logged_not_swallowed(self, mock_emit, mock_logger, pipeline):
-        # Covers the issue #1783 second-order bug: the except Exception: pass
-        # at the old decision-queue call sites hid stall-causing failures.
-        # Post-#2208 review: persistence routes through `_persist_hitl_decision`,
-        # which catches and logs at WARNING with exc_info so the original
-        # traceback survives — still not swallowed.
-        store = _make_store(pipeline)
+    def test_message_store_failure_is_logged_not_swallowed(self, mock_emit, mock_logger, pipeline):
+        # Issue #2264: the publish helper must log message-store add
+        # failures with ``exc_info`` rather than silently dropping
+        # them, so a wedged broker doesn't render the consensus
+        # timeout invisible to operators (mirrors the #1783 contract
+        # for the old _persist_hitl_decision path).
+        store = _make_store()
+        bad_store = MagicMock()
+        bad_store.add_message.side_effect = RuntimeError("broker boom")
+        factory = MagicMock(return_value=bad_store)
         with (
             patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
-            patch.object(Pipeline, "add_decision", side_effect=RuntimeError("boom")),
+            patch("routes.pipelines._get_message_store", return_value=factory),
         ):
             _handle_brc_consensus_timeout(
                 pipeline,
@@ -167,17 +239,18 @@ class TestHandleBrcConsensusTimeout:
                 store=store,
             )
 
-        # `_persist_hitl_decision` logs the failure with exc_info so the
-        # traceback is preserved rather than swallowed.
         warning_calls = [
             call
             for call in mock_logger.warning.call_args_list
-            if call.args and "Failed to persist HITL decision" in call.args[0]
+            if call.args and "Failed to publish consensus-timeout OVERSEER_ALERT" in call.args[0]
         ]
-        assert warning_calls, "add_decision failure must be logged with exc_info"
+        assert warning_calls, "message store failure must be logged with exc_info"
         _, kwargs = warning_calls[0]
         assert kwargs.get("pipeline_id") == pipeline.id
         assert kwargs.get("exc_info") is True
+        # No alert was successfully captured but the audit event
+        # still fired on the no-tracker path.
+        mock_emit.assert_called_once()
 
 
 class TestBrcProgressGate:

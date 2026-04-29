@@ -293,10 +293,16 @@ class TestConsensusTimeout:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_timeout_creates_hitl_decision(
+    def test_timeout_publishes_overseer_alert(
         self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
     ):
-        """When consensus times out, a HITL decision is created."""
+        """When consensus times out, an OVERSEER_ALERT is published (#2264).
+
+        Replaces the pre-#2264 HITL ``choice`` decision: the platform
+        no longer gates the pipeline on a binary prompt at timeout —
+        it surfaces a non-blocking notification via the SDLC skill's
+        existing alert flow.
+        """
         # Use a callable side_effect that (a) starts before the timeout,
         # (b) jumps past the 30-min consensus timeout, and (c) keeps
         # advancing so the post-timeout polling budget (#1921) also
@@ -329,8 +335,16 @@ class TestConsensusTimeout:
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
+        captured_alerts: list = []
+        fake_msg_store = MagicMock()
+        fake_msg_store.add_message.side_effect = lambda msg: captured_alerts.append(msg) or msg
+        msg_store_factory = MagicMock(return_value=fake_msg_store)
+
         mock_add_decision = MagicMock(return_value=MagicMock(id="dec-1"))
-        with patch.object(type(pipeline), "add_decision", mock_add_decision):
+        with (
+            patch.object(type(pipeline), "add_decision", mock_add_decision),
+            patch("routes.pipelines._get_message_store", return_value=msg_store_factory),
+        ):
             exit_code, logs = _run_concurrent_phase(
                 pipeline_id="issue-999",
                 pipeline=pipeline,
@@ -341,16 +355,21 @@ class TestConsensusTimeout:
             )
 
         # Timeout with no convergence → force-kill path → exit 1 (#1921).
-        # Prior to #1921 this returned 0 because wait_for_container was
-        # mocked to return a clean exit; post-#1921 the polling loop
-        # force-kills still-running containers when the 3600s budget
-        # elapses, which is the realistic outcome.
         assert exit_code == 1
-        # HITL decision should have been created on the pipeline
-        mock_add_decision.assert_called_once()
-        call_args = mock_add_decision.call_args
-        question = call_args[1].get("question", call_args[0][0] if call_args[0] else "")
-        assert "30 minutes" in question
+        # No HITL decision is opened on consensus timeout post-#2264.
+        mock_add_decision.assert_not_called()
+        # Exactly one consensus-timeout OVERSEER_ALERT is published.
+        consensus_alerts = [
+            m
+            for m in captured_alerts
+            if m.message_type == "OVERSEER_ALERT"
+            and m.metadata.get("anomaly_type") == "consensus-timeout"
+        ]
+        assert len(consensus_alerts) == 1
+        alert = consensus_alerts[0]
+        assert alert.metadata["consensus_timeout_minutes"] == 30
+        assert alert.metadata["blocking_agents"] == ["coder"]
+        assert alert.metadata["priority"] == "medium"
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
