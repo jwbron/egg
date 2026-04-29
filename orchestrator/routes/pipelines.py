@@ -14611,6 +14611,7 @@ def _run_pipeline(
         logger.error(
             "Pipeline execution failed", pipeline_id=pipeline_id, error=str(e), exc_info=True
         )
+        persisted_ok = False
         try:
             store = get_state_store(repo_path)
             with get_pipeline_state_lock(pipeline_id):
@@ -14627,6 +14628,7 @@ def _run_pipeline(
                     pipeline.status = PipelineStatus.FAILED
                     pipeline.error = str(e)
                     store.save_pipeline(pipeline)
+                    persisted_ok = True
 
                 # Report pipeline failure to collaborator
                 report_pipeline_status(
@@ -14649,13 +14651,14 @@ def _run_pipeline(
                 exc_info=True,
             )
             # Surface a synthetic ``pipeline.failed`` to the EventBus even
-            # though persistence failed.  Without this, hosts blocked on
-            # ``/status/wait`` (whose event allowlist requires
+            # though the mark-FAILED block raised.  Without this, hosts
+            # blocked on ``/status/wait`` (whose event allowlist requires
             # pipeline.failed/completed/cancelled) wait forever on a dead
-            # runner — the zombie symptom in #2234.  The persisted JSON
-            # may still report ``running``/``awaiting_human``, but the
-            # event lets the host break out and surface the wedge to the
-            # operator.
+            # runner — the zombie symptom in #2234.  ``persisted`` carries
+            # whether ``save_pipeline`` actually flushed FAILED to disk
+            # before the inner block raised: True means disk state matches
+            # the event, False means consumers should treat the event as
+            # the only authoritative source.
             if _emit_event is not None:
                 try:
                     _emit_event(
@@ -14663,7 +14666,7 @@ def _run_pipeline(
                         pipeline_id,
                         data={
                             "status": PipelineStatus.FAILED.value,
-                            "persisted": False,
+                            "persisted": persisted_ok,
                             "original_error": str(e),
                             "mark_error": str(fail_err),
                         },

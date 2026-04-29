@@ -26,6 +26,7 @@ sys.modules.setdefault("docker", MagicMock())
 sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
+from events import EventType
 from gateway_client import GatewayError, PushResult
 from models import Pipeline, PipelinePhase, PipelineStatus
 
@@ -210,7 +211,6 @@ class TestZombiePipelineSyntheticEvent:
         PIPELINE_FAILED event must be published to the EventBus with
         ``persisted=False`` and the chained error context.
         """
-        from events import EventType
         from routes.pipelines import _run_pipeline
 
         pipeline = _make_running_pipeline()
@@ -238,10 +238,10 @@ class TestZombiePipelineSyntheticEvent:
 
         mock_run_concurrent.side_effect = concurrent_phase_raises
 
-        # Inner FAILED-marking block calls ``get_state_store`` fresh
-        # (line ~14615) and then ``store.load_pipeline``.  Make
-        # post-failure load_pipeline raise to simulate the racing
-        # ``_ensure_worktree`` that kills mark-FAILED in #2234.
+        # Inner FAILED-marking block calls ``get_state_store`` fresh and
+        # then ``store.load_pipeline``.  Make post-failure load_pipeline
+        # raise to simulate the racing ``_ensure_worktree`` that kills
+        # mark-FAILED in #2234.
         def load_after_failure(*args, **kwargs):
             if in_catchall["flag"]:
                 raise RuntimeError("simulated mark-failed crash")

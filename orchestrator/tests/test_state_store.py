@@ -1656,13 +1656,14 @@ class TestEnsureWorktreeIdempotency:
         `_ensure_worktree` runs from many threads concurrently (the state
         store probe at ``state_store_probe.py``, every pipeline driver
         thread polling via ``wait_for_decision``, the ``/api/v1/health``
-        probe, sibling pipelines on the same repo).  Between
-        ``wt.exists()`` (line ~244) and ``shutil.rmtree(wt)`` (line ~275),
-        a concurrent caller can rmtree the directory, leaving our rmtree
-        to raise ``FileNotFoundError``.  The directory being gone is
-        exactly the desired post-state — we must treat ENOENT as success
-        and continue to the recreate path, not raise ``GitOperationError``
-        and zombie the pipeline.
+        probe, sibling pipelines on the same repo).  Between the
+        ``wt.exists()`` validity check and the ``shutil.rmtree(wt)`` that
+        the recreate path runs against the same path, a concurrent caller
+        can rmtree the directory, leaving our rmtree to raise
+        ``FileNotFoundError``.  The directory being gone is exactly the
+        desired post-state — we must treat ENOENT as success and continue
+        to the recreate path, not raise ``GitOperationError`` and zombie
+        the pipeline.
         """
         store, wt = self._make_store(tmp_path)
         wt.mkdir()
