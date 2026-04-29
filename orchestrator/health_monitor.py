@@ -268,7 +268,7 @@ class HealthMonitor:
         Active-agent filter: when a BRC tracker is registered for the
         pipeline, peer heartbeats are filtered to the tracker graph's
         ``all_roles()`` set — i.e. the current phase's roster as
-        installed by :func:`concurrent_executor.spawn_active_phase_agents`
+        installed by :meth:`concurrent_executor.ConcurrentExecutor.spawn_all`
         — so prior-phase ghosts in ``_last_heartbeat`` (a singleton state
         not phase-stamped on transition) cannot defer current-phase
         alerts. This mirrors :func:`_check_brc_progress_gate`'s
@@ -303,7 +303,7 @@ class HealthMonitor:
                     if 0 <= age < gate_seconds:
                         return True, f"BRC bus active {age:.0f}s ago"
                 # The tracker's graph is rebuilt per phase (see
-                # ``concurrent_executor.spawn_active_phase_agents``), so
+                # ``ConcurrentExecutor.spawn_all``), so
                 # ``all_roles()`` is the current-phase active set.
                 try:
                     active_role_set = set(tracker.graph.all_roles())
