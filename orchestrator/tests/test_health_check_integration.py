@@ -271,7 +271,7 @@ class TestBasicHealthEndpoints:
         monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             get_state_store_probe().probe_now()
             resp = client.get("/api/v1/health")
@@ -288,7 +288,7 @@ class TestBasicHealthEndpoints:
         monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             get_state_store_probe().probe_now()
             resp = client.get("/api/v1/ready")

@@ -490,6 +490,35 @@ class TestConsultAdvisor:
         )
         assert seen["model"] == "claude-opus-4-7"
 
+    def test_config_without_model_attr_falls_back_to_opus(self) -> None:
+        """A duck-typed config that omits ``overseer_advisor_model``
+        (e.g. a ``SimpleNamespace`` assembled from a partial status
+        payload that only carries the bytes-cap field) must not raise
+        ``AttributeError`` on the model lookup — the resolver uses
+        ``getattr`` with the ``"opus"`` fallback for symmetry with the
+        bytes-cap field's defensive ``getattr``.
+        """
+        seen: dict[str, str] = {}
+
+        class _PartialConf:
+            overseer_advisor_recent_log_bytes_cap = 0  # cap-only payload
+
+        async def runner(prompt: str, model: str) -> str:
+            seen["model"] = model
+            return json.dumps({"decision": "watch", "reasoning": "r"})
+
+        asyncio.run(
+            consult_advisor(
+                classification={},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=[],
+                config=_PartialConf(),  # type: ignore[arg-type]
+                _agent_runner=runner,
+            )
+        )
+        assert seen["model"] == "opus"
+
     def test_prompt_includes_distilled_summary_sections(self) -> None:
         captured: dict[str, str] = {}
 

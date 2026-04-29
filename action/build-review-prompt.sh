@@ -26,20 +26,20 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 fetch_review_rules() {
-    local rules_file=".egg/review-rules.md"
-    local script_dir
-    script_dir="$(dirname "$0")"
-    local shared_file="${script_dir}/../shared/prompts/code-review-criteria.md"
+  local rules_file=".egg/review-rules.md"
+  local script_dir
+  script_dir="$(dirname "$0")"
+  local shared_file="${script_dir}/../shared/prompts/code-review-criteria.md"
 
-    if [[ -f "$rules_file" ]]; then
-        # User override takes priority
-        cat "$rules_file"
-    elif [[ -f "$shared_file" ]]; then
-        # Shared criteria (anchored to trusted checkout via script dir)
-        cat "$shared_file"
-    else
-        # Inline fallback for rollout safety
-        cat <<'EOF'
+  if [[ -f "$rules_file" ]]; then
+    # User override takes priority
+    cat "$rules_file"
+  elif [[ -f "$shared_file" ]]; then
+    # Shared criteria (anchored to trusted checkout via script dir)
+    cat "$shared_file"
+  else
+    # Inline fallback for rollout safety
+    cat <<'EOF'
 ## Default Review Rules
 
 **Be extremely thorough.** This is critical infrastructure. Identify ALL issues in the first pass—do not stop after finding a few. A false negative (missing a bug) is far worse than extra scrutiny.
@@ -111,7 +111,7 @@ fetch_review_rules() {
 - Auto-generated files (migrations, lock files)
 - \`.egg-state/\` pipeline artifacts (contracts, drafts, BRC history — managed by the orchestrator)
 EOF
-    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -119,25 +119,25 @@ EOF
 # ---------------------------------------------------------------------------
 
 build_prompt() {
-    local review_rules
-    review_rules=$(fetch_review_rules)
+  local review_rules
+  review_rules=$(fetch_review_rules)
 
-    # Load review conventions if available
-    local conventions_file
-    conventions_file="$(dirname "$0")/review-conventions.md"
-    local conventions=""
-    if [[ -f "$conventions_file" ]]; then
-        conventions=$(cat "$conventions_file")
-    fi
+  # Load review conventions if available
+  local conventions_file
+  conventions_file="$(dirname "$0")/review-conventions.md"
+  local conventions=""
+  if [[ -f "$conventions_file" ]]; then
+    conventions=$(cat "$conventions_file")
+  fi
 
-    local prompt
-    local is_rereview=false
-    local base_ref="${BASE_REF:-main}"
+  local prompt
+  local is_rereview=false
+  local base_ref="${BASE_REF:-main}"
 
-    # Check if this is a re-review (we have a previous review commit)
-    if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
-        is_rereview=true
-        prompt="Re-review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+  # Check if this is a re-review (we have a previous review commit)
+  if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
+    is_rereview=true
+    prompt="Re-review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
 This is a **re-review** — you previously reviewed this PR at commit \`${LAST_REVIEW_COMMIT}\`.
 
@@ -164,8 +164,8 @@ ${review_rules}
 
 ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--body-file\`. Always write your review to a temp file first, then use --body-file to post it. Do NOT use --body with inline content — long reviews will fail due to shell escaping. Example: \`cat > /tmp/review-body.md << 'REVIEW_EOF'\` then \`gh pr review ${PR_NUMBER} --request-changes --body-file /tmp/review-body.md\`. Use --approve, --request-changes, or --comment as appropriate. Sign your review with: — Authored by egg}
 "
-    else
-        prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+  else
+    prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
 ## Your Task
 
@@ -192,26 +192,26 @@ ${review_rules}
 
 ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--body-file\`. Always write your review to a temp file first, then use --body-file to post it. Do NOT use --body with inline content — long reviews will fail due to shell escaping. Example: \`cat > /tmp/review-body.md << 'REVIEW_EOF'\` then \`gh pr review ${PR_NUMBER} --request-changes --body-file /tmp/review-body.md\`. Use --approve, --request-changes, or --comment as appropriate. Sign your review with: — Authored by egg}
 "
-    fi
+  fi
 
-    # Write prompt to temp file
-    local prompt_file="${RUNNER_TEMP:-/tmp}/review-prompt-${PR_NUMBER}.txt"
-    echo "$prompt" > "$prompt_file"
+  # Write prompt to temp file
+  local prompt_file="${RUNNER_TEMP:-/tmp}/review-prompt-${PR_NUMBER}.txt"
+  echo "$prompt" >"$prompt_file"
 
-    # Always use opus for reviews
-    local model="opus"
+  # Always use opus for reviews
+  local model="opus"
 
-    # Write outputs
-    {
-        echo "prompt-file=${prompt_file}"
-        echo "model=${model}"
-    } >> "${GITHUB_OUTPUT:-/dev/null}"
+  # Write outputs
+  {
+    echo "prompt-file=${prompt_file}"
+    echo "model=${model}"
+  } >>"${GITHUB_OUTPUT:-/dev/null}"
 
-    local review_type="initial"
-    if [[ "$is_rereview" == "true" ]]; then
-        review_type="re-review (since ${LAST_REVIEW_COMMIT:0:7})"
-    fi
-    echo "Review prompt built: ${#prompt} chars, model=${model}, type=${review_type}"
+  local review_type="initial"
+  if [[ "$is_rereview" == "true" ]]; then
+    review_type="re-review (since ${LAST_REVIEW_COMMIT:0:7})"
+  fi
+  echo "Review prompt built: ${#prompt} chars, model=${model}, type=${review_type}"
 }
 
 # ---------------------------------------------------------------------------

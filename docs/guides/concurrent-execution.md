@@ -33,8 +33,8 @@ Relevant `PipelineConfig` fields:
 | `start_phase` | `null` | Skip earlier phases and begin execution from `"plan"` or `"implement"` |
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
-| `consensus_timeout_minutes` | `30` | Consensus timeout before escalation or auto-advance |
-| `brc_consensus_progress_gate_seconds` | `300` | Defer the consensus-timeout HITL decision while BRC bus activity (proposals, ACKs/NACKs) or container heartbeats have fired within this window. Set to `0` to disable. |
+| `consensus_timeout_minutes` | `30` | Timeout before publishing a consensus-timeout `OVERSEER_ALERT` |
+| `brc_consensus_progress_gate_seconds` | `300` | Defer the consensus-timeout `OVERSEER_ALERT` while BRC bus activity (proposals, ACKs/NACKs) or container heartbeats have fired within this window. Set to `0` to disable. |
 | `post_consensus_iteration_budget_seconds` | `3600` | Per-iteration wait budget in the post-timeout poll loop. Resets each time a producer issues a new `CONSENSUS_PROPOSE` (initial or NACK→re-propose), giving each iteration a clean clock. |
 | `post_consensus_max_total_seconds` | `14400` | Hard ceiling on the total post-timeout wait, regardless of how often the per-iteration budget rebaselines. Must be ≥ `post_consensus_iteration_budget_seconds`. |
 | `agent_idle_timeout_minutes` | `60` | Idle agent timeout before termination |
@@ -722,7 +722,7 @@ If any agent is in the `OBJECTING` readiness state (separate from BRC phase), th
 
 ### Timeout Handling
 
-If consensus is not reached within `consensus_timeout_minutes`, the orchestrator first checks the **BRC progress gate** before opening a HITL decision. While any of the following have fired within `brc_consensus_progress_gate_seconds` (default 300 s), the orchestrator continues polling rather than escalating immediately:
+If consensus is not reached within `consensus_timeout_minutes`, the orchestrator first checks the **BRC progress gate** before publishing the `OVERSEER_ALERT`. While any of the following have fired within `brc_consensus_progress_gate_seconds` (default 300 s), the orchestrator continues polling rather than escalating immediately:
 
 - A `CONSENSUS_PROPOSE` or ACK/NACK on the BRC bus
 - A container heartbeat from any active role in the current phase
@@ -853,7 +853,7 @@ Both are also available as MCP tools (`restart_agent`, `restart_phase`) and CLI 
 | Agent stall (restarts exhausted) | Restart agent, Abort phase, Continue without |
 | Multiple agent stalls (2+ restarts exhausted) | Restart phase, Cancel pipeline |
 | Multiple failures (2+ / 60s) | Retry phase, Cancel pipeline |
-| Consensus timeout (critical blockers) | Continue waiting, Accept current state, Abort phase |
+| Consensus timeout (critical blockers) | *(no HITL — `OVERSEER_ALERT` `priority=high`; orchestrator continues post-timeout polling)* |
 | Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
 | Consensus timeout fires, consensus reached during wait | *(no HITL — recovered automatically via timeout recheck)* |
 | Agent objection | Resolve then advance, Override, Abort |

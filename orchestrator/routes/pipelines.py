@@ -2817,6 +2817,25 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         if concurrent_data:
             data["concurrent"] = concurrent_data
 
+        # Surface the orchestrator-process-wide slice-admission state
+        # (#2241 gap 1) so operators can see when slices are queued
+        # behind the global cap rather than wedged. The shape is
+        # {cap, admitted, admitted_keys}; ``admitted_keys`` lists
+        # ``"<pipeline_id>/<slice_id>"`` so the operator can tell
+        # which slices currently hold the budget.
+        try:
+            try:
+                from orchestrator import global_slice_admit
+            except ImportError:
+                import global_slice_admit  # type: ignore[no-redef]
+
+            data["slice_admit"] = global_slice_admit.snapshot()
+        except Exception:  # noqa: BLE001
+            # Defensive: never let admit-state collection crash the
+            # status endpoint — the cap is advisory, not load-bearing
+            # for the pipeline's own progress.
+            pass
+
         # Issue #1962 TASK-1-2: include the overseer-relevant config
         # subset in the status payload so the sandbox-side overseer
         # monitor can read PipelineConfig values (advisor model,
@@ -5738,6 +5757,248 @@ def _rebase_pipeline_branch_onto_base(
     )
 
 
+def _refresh_pipeline_branch_against_current_base(
+    spawner: "ContainerSpawner",  # noqa: UP037
+    pipeline_id: str,
+    worktree_repo_path: Path,
+    pipeline_branch: str,
+    base_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> bool:
+    """Rebase ``origin/<pipeline_branch>`` onto current ``origin/<base_branch>``
+    immediately before opening the PR (#2224 PR 2).
+
+    ``_rebase_pipeline_branch_onto_base`` runs at the start of each
+    phase iteration to clean up stale branch state on resume.  Nothing
+    between branch-cut and PR-open refreshes against
+    ``origin/<base_branch>``; if ``base_branch`` advances *during* the
+    PR phase's own work, the resulting PR is behind.  This helper
+    closes that gap.
+
+    The pipeline branch is the only ref this helper writes to: the
+    rebase replays pipeline-branch commits onto current
+    ``origin/<base_branch>``, and the force-push targets
+    ``pipeline_branch``.  ``base_branch`` is read-only here — no
+    commits are ever pushed to it, even when it happens to be
+    ``main``.
+
+    On success, force-pushes the rebased branch so the open PR's head
+    SHA reflects the rebase.
+
+    On *any* failure (rebase conflict, push rejection, transient gateway
+    error), restores the worktree to ``origin/<pipeline_branch>``,
+    logs at WARNING, and returns ``False`` — the caller still opens the
+    PR against the un-rebased tip.  This is intentional: a merge conflict
+    at PR-open time is better surfaced to the human reviewer than
+    swallowed by failing the whole pipeline.
+
+    Returns ``True`` when a rebase was performed and pushed; ``False``
+    when no rebase was needed or any step failed (in which case the
+    caller proceeds with the un-rebased tip).
+    """
+    if not pipeline_branch or not base_branch or pipeline_branch == base_branch:
+        return False
+
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_repo_path}",
+        "-C",
+        str(worktree_repo_path),
+    ]
+
+    def _run_git(
+        args: list[str],
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(
+                [*git_base, *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning(
+                "pr-open rebase: git command failed",
+                pipeline_id=pipeline_id,
+                branch=pipeline_branch,
+                git_args=args,
+                error=str(exc),
+            )
+            return None
+
+    # Step 1: Fetch fresh refs.  Without this we'd rebase against the
+    # base tip we saw at branch-cut, defeating the whole point.
+    fetch_ok = spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
+    )
+    if not fetch_ok:
+        logger.warning(
+            "pr-open rebase: fetch failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+        )
+        return False
+
+    # Step 2: Verify both refs resolve.
+    verify_branch = _run_git(["rev-parse", "--verify", f"origin/{pipeline_branch}"], timeout=10)
+    if verify_branch is None or verify_branch.returncode != 0:
+        return False
+    verify_base = _run_git(["rev-parse", "--verify", f"origin/{base_branch}"], timeout=10)
+    if verify_base is None or verify_base.returncode != 0:
+        return False
+
+    # Step 3: No-op when the branch is already up-to-date with current base
+    # (no commits behind).  Saves a force-push when none is needed.
+    behind = _run_git(
+        [
+            "rev-list",
+            "--count",
+            f"origin/{pipeline_branch}..origin/{base_branch}",
+        ],
+        timeout=10,
+    )
+    if behind is None or behind.returncode != 0:
+        return False
+    try:
+        behind_count = int((behind.stdout or "0").strip() or "0")
+    except ValueError:
+        behind_count = 0
+    if behind_count == 0:
+        return False
+
+    # Step 4: Compute the merge-base so we can use the safe
+    # ``--onto <new_base> <upstream>`` form (HEAD is the implicit branch
+    # being rebased after the step-5 reset).  The merge-base is the
+    # commit where the branch diverged from base_branch; using it as
+    # ``<upstream>`` tells git "replay only the commits unique to HEAD
+    # onto <new_base>" — no base-branch commits get absorbed into the
+    # branch's linear history, which is the contamination shape #2222
+    # hardened against in the push-reconcile path.
+    merge_base_proc = _run_git(
+        ["merge-base", f"origin/{pipeline_branch}", f"origin/{base_branch}"],
+        timeout=15,
+    )
+    if merge_base_proc is None or merge_base_proc.returncode != 0:
+        logger.warning(
+            "pr-open rebase: merge-base resolution failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+            stderr=(merge_base_proc.stderr.strip() if merge_base_proc is not None else None),
+        )
+        return False
+    merge_base = (merge_base_proc.stdout or "").strip()
+    if not merge_base:
+        return False
+
+    # Step 5: Reset the worktree to the current branch tip so the
+    # rebase operates on the right starting state.  The reset target
+    # is ``origin/<pipeline_branch>`` — fresh from fetch in step 1 —
+    # so we are not rebasing on top of stale local state.
+    #
+    # Unlike ``_rebase_pipeline_branch_onto_base`` (resume-time helper),
+    # there is no ``_head_on(...)`` ancestry guard before this reset.
+    # That is intentional at the PR-open call site: if we got here,
+    # ``_finalize_pr_phase_failed`` either left HEAD on
+    # ``origin/<branch>`` (push_ok=True path → reset is a no-op) or
+    # carries unpushed orchestrator housekeeping commits that are
+    # already orphan-by-design per its docstring.  Either way, no
+    # local-only work needs to be preserved here.
+    reset = _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
+    if reset is None or reset.returncode != 0:
+        logger.warning(
+            "pr-open rebase: reset to origin/<branch> failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            stderr=(reset.stderr.strip() if reset is not None else None),
+        )
+        return False
+
+    # Step 6: Rebase using the safe ``--onto <new_base> <upstream>``
+    # form.  HEAD is the implicit branch being rebased (set by the
+    # step-5 reset above).  The closest argv-shape prior art is
+    # ``gateway_client._build_rebase_cmd`` — that one rebases in the
+    # opposite direction (replay HEAD onto a stale branch tip) but uses
+    # the same explicit-upstream pattern that pins the replay range to
+    # ``<upstream>..HEAD`` and so sidesteps the bare-form contamination
+    # shape behind #2222.
+    rebase = _run_git(
+        [
+            "rebase",
+            "--onto",
+            f"origin/{base_branch}",
+            merge_base,
+        ],
+        timeout=120,
+    )
+    if rebase is None or rebase.returncode != 0:
+        # Conflict, timeout, or any failure: abort cleanly and restore
+        # to origin/<branch> so the caller can still open the PR
+        # against the un-rebased tip.  Unlike the resume-time helper,
+        # we *don't* raise here — pipeline failure for a merge conflict
+        # at PR-open time is worse than a slightly-behind PR.
+        _run_git(["rebase", "--abort"], timeout=30)
+        _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
+        stderr_text = rebase.stderr.strip() if rebase is not None else "rebase command timed out"
+        logger.warning(
+            "pr-open rebase: rebase failed, opening PR against un-rebased tip",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+            behind_base=behind_count,
+            stderr=stderr_text,
+            timed_out=rebase is None,
+        )
+        return False
+
+    # Step 7: Force-push the rebased tip so origin/<branch> matches the
+    # SHAs the PR will be opened against.
+    push_result = spawner.gateway.push_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        branch=pipeline_branch,
+        mode=gateway_mode,
+        base_branch=base_branch,
+        force=True,
+    )
+    if not push_result.ok:
+        # Best-effort restore so the worktree state is predictable for
+        # downstream callers; the PR still opens against the pre-rebase
+        # remote tip (which is what origin/<branch> still reflects).
+        _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
+        logger.warning(
+            "pr-open rebase: force-push of rebased branch failed, "
+            "opening PR against un-rebased remote tip",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            category=push_result.category,
+            detail=push_result.detail,
+        )
+        return False
+
+    # Re-fetch so origin/<branch> reflects the pushed tip locally.
+    spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
+    )
+    logger.info(
+        "pr-open rebase: rebased and force-pushed pipeline branch",
+        pipeline_id=pipeline_id,
+        branch=pipeline_branch,
+        base_branch=base_branch,
+        behind_base_at_start=behind_count,
+    )
+    return True
+
+
 def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
@@ -7355,6 +7616,35 @@ def _auto_create_pr(
         logger.warning(
             "Auto PR opened as draft: planner metadata fallback used",
             pipeline_id=pipeline.id,
+        )
+
+    # Refresh the pipeline branch against current
+    # ``origin/<base_branch>`` so the PR opens with a clean linear
+    # diff (#2224 PR 2).  Phase-start rebases
+    # (``_rebase_pipeline_branch_onto_base``) only run once per phase
+    # iteration; if ``base_branch`` advanced *during* the PR phase,
+    # the pipeline branch is now behind.  The helper is best-effort —
+    # on any failure (rebase conflict, push reject, transient gateway
+    # error) the PR still opens against the un-rebased tip and the
+    # divergence becomes visible to the human reviewer.  Only
+    # ``pipeline.branch`` is rewritten; ``base_branch`` is never
+    # modified or pushed to.
+    try:
+        _refresh_pipeline_branch_against_current_base(
+            spawner=spawner,
+            pipeline_id=pipeline.id,
+            worktree_repo_path=worktree_repo_path,
+            pipeline_branch=pipeline.branch,
+            base_branch=base,
+            gateway_mode=gateway_mode,
+        )
+    except Exception as e:
+        # Defensive — the helper already swallows its own errors, but a
+        # bug in the helper itself must not block PR creation.
+        logger.warning(
+            "pr-open rebase helper raised; opening PR against un-rebased tip",
+            pipeline_id=pipeline.id,
+            error=str(e),
         )
 
     try:
@@ -9842,6 +10132,259 @@ def _publish_consensus_timeout_alert(
         )
 
 
+# Pipeline-branch divergence alert (#2224 PR 3).
+#
+# Watches ``origin/<pipeline_branch>`` for the contamination shape from
+# #2222: branch is more than ``BRANCH_DIVERGENCE_THRESHOLD`` commits
+# ahead of ``origin/<base>`` AND those ahead-commits contain merged-PR
+# subject signatures (``(#NNNN)``).  A real pipeline branch grows by
+# refine/plan/implement/state-file commits authored by agents — none of
+# those would carry a ``(#NNNN)`` suffix in the subject.  When that
+# signature appears, the branch has absorbed merged-main commits, which
+# is the exact failure mode #2222 fixed at the root.
+#
+# Detection latency: the polling thread checks every 30 s, but the
+# orchestrator's local ``origin/<pipeline_branch>`` only refreshes
+# when it fetches — which happens at pipeline start, phase
+# boundaries, and a few resume / signal paths (the polling thread
+# itself does not fetch).  Contamination introduced mid-phase is
+# therefore detected at the next phase boundary's fetch, not within
+# 30 s.  This is **phase-boundary granularity, not real time** —
+# strictly better than detecting at PR open, but defense-in-depth
+# only; PR 1 (#2282) remains the primary gate.
+#
+# The signature heuristic is intentionally cheap and false-positive-
+# tolerant — per the issue, "we'd rather over-alert than miss another
+# contaminated PR."
+BRANCH_DIVERGENCE_THRESHOLD = 20
+_BRANCH_DIVERGENCE_PR_RE = re.compile(r"\(#\d+\)")
+
+
+def _check_branch_divergence_for_alert(
+    pipeline_id: str,
+    worktree_repo_path: Path,
+    pipeline_branch: str,
+    base_branch: str,
+    threshold: int = BRANCH_DIVERGENCE_THRESHOLD,
+) -> tuple[int, list[tuple[str, str]]]:
+    """Return ``(ahead_count, offenders)``.
+
+    ``offenders`` is the list of ahead-commits whose subjects look like
+    merged-main PRs (``(#NNNN)``) when the pipeline branch is more
+    than ``threshold`` commits ahead of base.  Returns ``(0, [])`` when
+    the branch is not far enough ahead, no signatures match, or any
+    git invocation fails (best-effort — observability must never
+    block the pipeline).  The caller relies on ``ahead_count`` for
+    the alert body and uses ``offenders`` to decide whether to fire.
+    """
+    if not pipeline_branch or not base_branch or pipeline_branch == base_branch:
+        return 0, []
+
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_repo_path}",
+        "-C",
+        str(worktree_repo_path),
+    ]
+
+    def _run(args: list[str]) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(
+                [*git_base, *args],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.debug(
+                "branch-divergence: git command failed",
+                pipeline_id=pipeline_id,
+                git_args=args,
+                error=str(exc),
+            )
+            return None
+
+    count = _run(
+        [
+            "rev-list",
+            "--count",
+            f"origin/{base_branch}..origin/{pipeline_branch}",
+        ]
+    )
+    if count is None or count.returncode != 0:
+        return 0, []
+    try:
+        ahead = int((count.stdout or "0").strip() or "0")
+    except ValueError:
+        return 0, []
+    if ahead <= threshold:
+        return ahead, []
+
+    log = _run(
+        [
+            "log",
+            "--no-merges",
+            "--pretty=format:%H%x09%s",
+            f"origin/{base_branch}..origin/{pipeline_branch}",
+        ]
+    )
+    if log is None or log.returncode != 0:
+        return ahead, []
+
+    offenders: list[tuple[str, str]] = []
+    for line in (log.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        sha, _, subject = line.partition("\t")
+        if not sha or not subject:
+            continue
+        if _BRANCH_DIVERGENCE_PR_RE.search(subject):
+            offenders.append((sha, subject))
+    return ahead, offenders
+
+
+def _publish_branch_divergence_alert(
+    pipeline: Pipeline,
+    pipeline_id: str,
+    *,
+    pipeline_branch: str,
+    base_branch: str,
+    ahead_count: int,
+    offenders: list[tuple[str, str]],
+) -> None:
+    """Publish an ``OVERSEER_ALERT`` for branch-divergence contamination.
+
+    Best-effort: import or write failures are logged at WARNING and
+    swallowed — the orchestrator log is the always-on fallback.
+    """
+    phase_value = (
+        pipeline.current_phase.value
+        if hasattr(pipeline.current_phase, "value")
+        else str(pipeline.current_phase)
+    )
+    subject = f"branch-divergence: {pipeline_branch} contains merged-main commits"
+    offender_render = "\n".join(f"  {sha[:12]} {subj}" for sha, subj in offenders[:10])
+    if len(offenders) > 10:
+        offender_render += f"\n  ... and {len(offenders) - 10} more"
+    body = (
+        f"Pipeline branch ``origin/{pipeline_branch}`` is {ahead_count} commits "
+        f"ahead of ``origin/{base_branch}`` and contains {len(offenders)} "
+        f"commit(s) whose subjects look like merged-main PRs "
+        f"(``(#NNNN)`` signature).  This is the contamination shape "
+        f"investigated in #2222 (Phase 4 / #2224 detector).\n\n"
+        f"Offending commits:\n{offender_render}\n\n"
+        f"If this is real contamination, the resulting PR will show a "
+        f"borked diff against current main — see #2222 recovery procedure "
+        f"(rebase ``--onto`` the right base).  If this is a false positive "
+        f"(e.g. an agent legitimately copied a ``(#NNNN)`` reference into "
+        f"a commit subject), no action is required."
+    )
+    metadata: dict[str, Any] = {
+        "anomaly_type": "branch-divergence",
+        "phase": phase_value,
+        "pipeline_branch": pipeline_branch,
+        "base_branch": base_branch,
+        "ahead_count": ahead_count,
+        "offending_shas": [sha for sha, _ in offenders],
+    }
+
+    try:
+        try:
+            from message_store import Message, MessageType
+        except ImportError:
+            from ..message_store import (  # type: ignore[no-redef]
+                Message,
+                MessageType,
+            )
+        store_fn = _get_message_store()
+        if store_fn is None:
+            logger.warning(
+                "Branch-divergence alert: message store unavailable",
+                pipeline_id=pipeline_id,
+            )
+            return
+        msg_store = store_fn()
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject=subject,
+                body=body,
+                metadata=metadata,
+                phase=phase_value,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to publish branch-divergence OVERSEER_ALERT",
+            pipeline_id=pipeline_id,
+            error=str(e),
+            exc_info=True,
+        )
+
+
+def _branch_divergence_tick(
+    pipeline_id: str,
+    worktree_repo_path: Path,
+    store: StateStore,
+    alerted_shas: set[str],
+) -> None:
+    """One iteration of the branch-divergence detector.
+
+    Extracted from the ``_health_monitor_poll`` closure so the
+    dedupe + reset behavior is unit-testable.  Mutates ``alerted_shas``
+    in place: adds newly-fired SHAs, and clears the set when the
+    contamination window goes empty so re-introduction (same SHA,
+    e.g. agent re-runs a bad rebase) re-fires per the issue's
+    "rather over-alert than miss" stance.
+
+    All errors are logged-and-swallowed — observability must never
+    block the pipeline.
+    """
+    try:
+        pipeline = store.load_pipeline(pipeline_id)
+        branch = pipeline.branch
+        base = pipeline.base_branch
+        if not branch or not base:
+            return
+        ahead, offenders = _check_branch_divergence_for_alert(
+            pipeline_id=pipeline_id,
+            worktree_repo_path=worktree_repo_path,
+            pipeline_branch=branch,
+            base_branch=base,
+        )
+        if not offenders and alerted_shas:
+            # Note: transient git errors in ``_check_branch_divergence_for_alert``
+            # also surface as ``offenders == []`` and therefore flush the dedupe
+            # set; this is intentional per #2224's "rather over-alert than miss"
+            # posture — a flaky git tick will re-fire on the next clean tick.
+            alerted_shas.clear()
+        new_offenders = [(sha, subj) for sha, subj in offenders if sha not in alerted_shas]
+        if new_offenders:
+            _publish_branch_divergence_alert(
+                pipeline,
+                pipeline_id,
+                pipeline_branch=branch,
+                base_branch=base,
+                ahead_count=ahead,
+                offenders=new_offenders,
+            )
+            alerted_shas.update(sha for sha, _ in new_offenders)
+    except Exception as div_err:
+        logger.debug(
+            "Branch-divergence check failed",
+            pipeline_id=pipeline_id,
+            error=str(div_err),
+        )
+
+
 def _handle_brc_consensus_timeout(
     pipeline: Pipeline,
     pipeline_id: str,
@@ -10202,6 +10745,11 @@ def _run_implement_phase_slices(
     poll_interval = 5.0
 
     try:
+        from orchestrator import global_slice_admit
+    except ImportError:
+        import global_slice_admit  # type: ignore[no-redef]
+
+    try:
         while not scheduler.all_done():
             # 1. Snapshot ready slices for this tick.
             ready_batch = list(scheduler.iter_ready())
@@ -10257,6 +10805,16 @@ def _run_implement_phase_slices(
                 )
 
             def _run_one_slice(slice_id: str, parent_slice_id: str | None) -> tuple[int, str]:
+                # Release the global-admission slot when the slice
+                # exits, regardless of how (consensus, failure, raised
+                # exception). Idempotent — safe even if a future
+                # codepath calls release() somewhere else (#2241 gap 1).
+                try:
+                    return _run_one_slice_inner(slice_id, parent_slice_id)
+                finally:
+                    global_slice_admit.release(pipeline_id, slice_id)
+
+            def _run_one_slice_inner(slice_id: str, parent_slice_id: str | None) -> tuple[int, str]:
                 # Resolve parent branch for stacking.
                 if parent_slice_id is None:
                     parent_branch = pipeline_branch
@@ -10432,19 +10990,41 @@ def _run_implement_phase_slices(
                     pass
                 return exit_code_inner, logs_inner
 
-            # Mark every slice in the batch as spawned BEFORE submitting
-            # them to the executor so a subsequent ``iter_ready`` from
-            # any other thread sees the in-flight count correctly.
-            for slice_id, _parent in ready_batch:
+            # Gate every ready slice through the orchestrator-process-wide
+            # admission counter (#2241 gap 1). Slices the global cap
+            # rejects stay in READY and re-yield next tick — the per-
+            # pipeline ``iter_ready`` accounting is unaffected because
+            # we admit BEFORE ``mark_spawned``. If the entire batch is
+            # rejected, sleep one poll interval before re-checking so
+            # we don't burn CPU spinning on iter_ready.
+            admitted_batch: list[tuple[str, str | None]] = [
+                (slice_id, parent_slice_id)
+                for slice_id, parent_slice_id in ready_batch
+                if global_slice_admit.try_admit(pipeline_id, slice_id)
+            ]
+            if not admitted_batch:
+                logger.info(
+                    "Slice wave deferred behind global cap",
+                    pipeline_id=pipeline_id,
+                    ready=[s for s, _ in ready_batch],
+                    admit=global_slice_admit.snapshot(),
+                )
+                time.sleep(poll_interval)
+                continue
+
+            # Mark admitted slices as spawned BEFORE submitting them to
+            # the executor so a subsequent ``iter_ready`` from any other
+            # thread sees the in-flight count correctly.
+            for slice_id, _parent in admitted_batch:
                 scheduler.mark_spawned(slice_id)
 
-            max_workers = max(1, len(ready_batch))
+            max_workers = max(1, len(admitted_batch))
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max_workers,
                 thread_name_prefix=f"slice-wave-{pipeline_id}",
             ) as wave_pool:
                 futures: dict[concurrent.futures.Future, str] = {}
-                for slice_id, parent_slice_id in ready_batch:
+                for slice_id, parent_slice_id in admitted_batch:
                     fut = wave_pool.submit(_run_one_slice, slice_id, parent_slice_id)
                     futures[fut] = slice_id
 
@@ -13594,6 +14174,11 @@ def _run_pipeline(
             overseer_respawn_count = 0
             max_overseer_respawns = pipeline.config.overseer_max_respawns
 
+            # SHAs we've already raised a branch-divergence alert for
+            # (#2224 PR 3).  Per-pipeline dedupe so we fire once per
+            # offending commit, not once per 30s tick.
+            divergence_alerted_shas: set[str] = set()
+
             def _health_monitor_poll(monitor, stop_event: threading.Event, interval: float = 30.0):
                 nonlocal overseer_container_id, overseer_respawn_count, phase_overseer_active
                 while not stop_event.is_set():
@@ -13608,6 +14193,17 @@ def _run_pipeline(
                             pipeline_id=pipeline_id,
                             error=str(poll_err),
                         )
+
+                    # Branch-divergence detector (#2224 PR 3).  Helper
+                    # re-loads pipeline state each tick so a
+                    # base_branch / branch update mid-pipeline is
+                    # picked up.  Dedupe set is mutated in place.
+                    _branch_divergence_tick(
+                        pipeline_id=pipeline_id,
+                        worktree_repo_path=worktree_repo_path,
+                        store=store,
+                        alerted_shas=divergence_alerted_shas,
+                    )
 
                     # Check overseer liveness and respawn if it exited mid-phase.
                     # Only check when phase_overseer_active is True — the overseer

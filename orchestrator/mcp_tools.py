@@ -2316,6 +2316,8 @@ class PipelineToolHandler:
                 snapshot["concurrent"] = status_data["concurrent"]
             if "pending_decision" in status_data:
                 snapshot["pending_decision"] = status_data["pending_decision"]
+            if "slice_admit" in status_data:
+                snapshot["slice_admit"] = status_data["slice_admit"]
         except Exception:
             pass
 

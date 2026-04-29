@@ -28,20 +28,20 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 fetch_contract_rules() {
-    local rules_file=".egg/contract-rules.md"
-    local script_dir
-    script_dir="$(dirname "$0")"
-    local shared_file="${script_dir}/../shared/prompts/contract-review-criteria.md"
+  local rules_file=".egg/contract-rules.md"
+  local script_dir
+  script_dir="$(dirname "$0")"
+  local shared_file="${script_dir}/../shared/prompts/contract-review-criteria.md"
 
-    if [[ -f "$rules_file" ]]; then
-        # User override takes priority
-        cat "$rules_file"
-    elif [[ -f "$shared_file" ]]; then
-        # Shared criteria (anchored to trusted checkout via script dir)
-        cat "$shared_file"
-    else
-        # Inline fallback for rollout safety
-        cat <<'EOF'
+  if [[ -f "$rules_file" ]]; then
+    # User override takes priority
+    cat "$rules_file"
+  elif [[ -f "$shared_file" ]]; then
+    # Shared criteria (anchored to trusted checkout via script dir)
+    cat "$shared_file"
+  else
+    # Inline fallback for rollout safety
+    cat <<'EOF'
 ## Default Contract Verification Rules
 
 ### Task Verification
@@ -75,7 +75,7 @@ Verify:
 - New changes don't break existing contract compliance
 - All required files listed in tasks are present
 EOF
-    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -83,25 +83,25 @@ EOF
 # ---------------------------------------------------------------------------
 
 build_prompt() {
-    local contract_rules
-    contract_rules=$(fetch_contract_rules)
+  local contract_rules
+  contract_rules=$(fetch_contract_rules)
 
-    # Load review conventions if available
-    local conventions_file
-    conventions_file="$(dirname "$0")/review-conventions.md"
-    local conventions=""
-    if [[ -f "$conventions_file" ]]; then
-        conventions=$(cat "$conventions_file")
-    fi
+  # Load review conventions if available
+  local conventions_file
+  conventions_file="$(dirname "$0")/review-conventions.md"
+  local conventions=""
+  if [[ -f "$conventions_file" ]]; then
+    conventions=$(cat "$conventions_file")
+  fi
 
-    local prompt
-    local is_rereview=false
-    local base_ref="${BASE_REF:-main}"
+  local prompt
+  local is_rereview=false
+  local base_ref="${BASE_REF:-main}"
 
-    # Check if this is a re-review (we have a previous review commit)
-    if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
-        is_rereview=true
-        prompt="Re-verify contract compliance for PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+  # Check if this is a re-review (we have a previous review commit)
+  if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
+    is_rereview=true
+    prompt="Re-verify contract compliance for PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
 This is a **re-review** — you previously verified this PR at commit \`${LAST_REVIEW_COMMIT}\`.
 
@@ -147,8 +147,8 @@ Your review MUST include this HTML comment at the end of your review body for tr
 <!-- egg-automated-review bot=contract-verification commit=${COMMIT_SHA:-\$(git rev-parse HEAD)} verdict=<approve|request-changes|comment> -->
 \`\`\`
 "
-    else
-        prompt="Verify contract compliance for PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+  else
+    prompt="Verify contract compliance for PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
 ## Your Task
 
@@ -199,26 +199,26 @@ Your review MUST include this HTML comment at the end of your review body for tr
 <!-- egg-automated-review bot=contract-verification commit=${COMMIT_SHA:-\$(git rev-parse HEAD)} verdict=<approve|request-changes|comment> -->
 \`\`\`
 "
-    fi
+  fi
 
-    # Write prompt to temp file
-    local prompt_file="${RUNNER_TEMP:-/tmp}/contract-verification-prompt-${PR_NUMBER}.txt"
-    echo "$prompt" > "$prompt_file"
+  # Write prompt to temp file
+  local prompt_file="${RUNNER_TEMP:-/tmp}/contract-verification-prompt-${PR_NUMBER}.txt"
+  echo "$prompt" >"$prompt_file"
 
-    # Always use opus for contract verification (needs thorough reasoning)
-    local model="opus"
+  # Always use opus for contract verification (needs thorough reasoning)
+  local model="opus"
 
-    # Write outputs
-    {
-        echo "prompt-file=${prompt_file}"
-        echo "model=${model}"
-    } >> "${GITHUB_OUTPUT:-/dev/null}"
+  # Write outputs
+  {
+    echo "prompt-file=${prompt_file}"
+    echo "model=${model}"
+  } >>"${GITHUB_OUTPUT:-/dev/null}"
 
-    local review_type="initial"
-    if [[ "$is_rereview" == "true" ]]; then
-        review_type="re-review (since ${LAST_REVIEW_COMMIT:0:7})"
-    fi
-    echo "Contract verification prompt built: ${#prompt} chars, model=${model}, type=${review_type}"
+  local review_type="initial"
+  if [[ "$is_rereview" == "true" ]]; then
+    review_type="re-review (since ${LAST_REVIEW_COMMIT:0:7})"
+  fi
+  echo "Contract verification prompt built: ${#prompt} chars, model=${model}, type=${review_type}"
 }
 
 # ---------------------------------------------------------------------------

@@ -499,6 +499,36 @@ class TestAutoCreatePr:
 
         assert result is None
 
+    def test_proceeds_to_create_pr_when_refresh_helper_raises(self):
+        """Regression #2224 PR 2: a bug-in-helper raise must not block PR creation.
+
+        ``_refresh_pipeline_branch_against_current_base`` already swallows
+        its own errors, but ``_auto_create_pr`` wraps the call in an outer
+        ``try/except`` for defense-in-depth.  This test injects an
+        exception from the helper and asserts ``gateway.create_pr`` is
+        still invoked and its URL returned.
+        """
+        pipeline = _make_pipeline()
+        spawner = MagicMock()
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/3"
+
+        with (
+            patch(
+                "routes.pipelines._build_pr_body",
+                return_value=("Fix auth", "Body text", False),
+            ),
+            patch("routes.pipelines.get_default_branch", return_value="main"),
+            patch(
+                "routes.pipelines._refresh_pipeline_branch_against_current_base",
+                side_effect=RuntimeError("simulated helper bug"),
+            ) as mock_refresh,
+        ):
+            result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
+
+        assert result == "https://github.com/owner/repo/pull/3"
+        mock_refresh.assert_called_once()
+        spawner.gateway.create_pr.assert_called_once()
+
     def test_stub_fallback_forces_draft_in_public_mode(self):
         """Regression #1975: when _build_pr_body signals stub fallback, the
         PR is opened as a draft even in public mode so humans don't

@@ -548,17 +548,45 @@ extended to teach the agents the new schema and constraints:
 
 ## Configuration knobs
 
-All five slice/scheduler knobs live in `orchestrator/env_config.py` and
+All slice/scheduler knobs live in `orchestrator/env_config.py` and
 return typed values (positive int / positive float) with logged fallbacks
 on parse failure.
 
 | Env var | Type | Default | Controls |
 |---------|------|---------|----------|
-| `EGG_ORCH_MAX_PARALLEL_SLICES` | int | 5 | Per-wave slice spawn concurrency cap. Enforced via `iter_ready` and mirrored on the wave's `ThreadPoolExecutor.max_workers`. |
+| `EGG_ORCH_MAX_PARALLEL_SLICES` | int | 5 | **Per-pipeline** wave slice spawn concurrency cap. Enforced via `iter_ready` and mirrored on the wave's `ThreadPoolExecutor.max_workers`. |
+| `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` | int | 4 | **Process-wide** slice cap across ALL running pipelines (#2241 gap 1). Enforced by `orchestrator.global_slice_admit.try_admit()` in the run loop; deferred slices stay READY and re-yield next tick. |
 | `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | int | 3 | Per-slice BRC re-proposal ceiling before HITL escalation. *Currently inert — #2199 wires the trip flag through the BRC re-proposal loop.* |
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | int | 10 | Pipeline-wide summed slice-cycle cap. *Currently inert — see local cycles row.* |
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | float | 60.0 | Grace window before a failure cascade marks the downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY`. |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | float | 30.0 | Reconciler polling cadence for orphaned child PRs. |
+
+### Per-pipeline vs. global slice caps
+
+`EGG_ORCH_MAX_PARALLEL_SLICES` (per-pipeline) and
+`EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` (process-wide) compose: the
+**lower** effective bound wins for any given wave. The per-pipeline
+cap is enforced inside `SliceScheduler.iter_ready` and bounds the
+size of the wave's `ThreadPoolExecutor`. The global cap is enforced
+by `orchestrator.global_slice_admit.try_admit()`, called from the
+run loop **before** `mark_spawned` so the per-pipeline accounting
+stays honest. Slices that the global cap rejects stay in `READY` and
+re-yield on the next 5 s tick. Each slice spawns ~8 containers, so
+the global default of 4 matches the operationally observed safe
+ceiling on a single host.
+
+The global cap is an **in-process** counter. Operators running
+multiple orchestrator replicas (HA pair) get one cap per replica —
+the semaphore does not coordinate across processes. Today the
+platform deploys one orchestrator per environment so this is fine;
+flagging it here for any future HA migration.
+
+The current global admit-state is exposed on
+`GET /api/v1/pipelines/<pipeline_id>/status` as
+`{cap, admitted, admitted_keys}` and surfaced via the
+`mcp__egg__get_pipeline_snapshot` tool's `slice_admit` field, so
+operators can see when slices are queued behind the cap rather than
+wedged.
 
 ## Resolved design decisions (from refine phase)
 

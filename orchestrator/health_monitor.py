@@ -225,6 +225,22 @@ class HealthMonitor:
             return self._config.orchestrator_implement_heartbeat_timeout_seconds
         return self._config.orchestrator_heartbeat_timeout_seconds
 
+    def _get_post_ack_confirmation_timeout(self) -> int:
+        """Return the post-ACK confirm timeout for the current phase.
+
+        Plan-phase post-ACK reconciliation (resolved decisions, feedback
+        bodies, slice-DAG sanity) legitimately exceeds the 180s default on
+        heavy pipelines (#2242). Plan uses
+        ``orchestrator_plan_post_ack_confirmation_timeout_seconds`` (default
+        300s); other phases use
+        ``orchestrator_post_ack_confirmation_timeout_seconds`` (default 180s).
+        """
+        with self._lock:
+            phase = self._current_phase
+        if phase == "plan":
+            return self._config.orchestrator_plan_post_ack_confirmation_timeout_seconds
+        return self._config.orchestrator_post_ack_confirmation_timeout_seconds
+
     def _has_recent_activity(self, agent_id: str, now: float) -> tuple[bool, str | None]:
         """Return (defer, reason) for the focal-agent activity gate (#2190).
 
@@ -246,8 +262,10 @@ class HealthMonitor:
         gate entirely — operator escape hatch if the gate produces
         false negatives in production.
 
-        Future #2242 work will OR this gate with a peer-progress gate;
-        see PR #2268 (separate, unmerged) for the peer-signal half.
+        OR'd with :func:`_has_recent_peer_progress` (#2242) at the
+        per-agent alert sites: focal-agent activity OR peer progress
+        defers. The escalated flag is intentionally not set on defer so
+        the next poll re-checks once activity goes stale.
         """
         threshold = self._config.orchestrator_activity_quiet_seconds
         if threshold <= 0:
@@ -263,6 +281,125 @@ class HealthMonitor:
         age = now - last_activity
         if 0 <= age < threshold:
             return True, f"container activity {int(age)}s ago"
+        return False, None
+
+    def _has_recent_peer_progress(
+        self, exclude_agent_id: str, now: float
+    ) -> tuple[bool, str | None]:
+        """Return (defer, reason) for the per-agent alert progress gate (#2242).
+
+        Sibling of :func:`routes.pipelines._check_brc_progress_gate`. Defers
+        a per-agent ``heartbeat_timeout`` / ``progress_stall`` alert when
+        *any* of the following has fired within
+        ``orchestrator_alert_progress_gate_seconds``:
+
+        * The BRC tracker's most recent ``CONSENSUS_PROPOSE`` or ACK/NACK
+          timestamp on this pipeline.
+        * A heartbeat from any peer agent other than ``exclude_agent_id``
+          that is currently in the active-agent set.
+
+        Self-exclusion only applies to the peer-heartbeat path. The BRC-bus
+        path is NOT filtered by focal agent — ``get_latest_progress_timestamp``
+        aggregates proposals + matrix ACK/NACK timestamps across the whole
+        tracker. On a single-producer pipeline (BRC tracker registered, no
+        peers) the producer's own recent propose/ACK therefore defers its
+        own heartbeat alert until ``gate_seconds`` elapses past that
+        timestamp; the effective stall-detection window in that case is
+        ``heartbeat_threshold + gate_seconds`` (≈360s with defaults) rather
+        than ``heartbeat_threshold`` (60s). For genuinely-dead containers
+        this is fine — ``CONTAINER_STOPPED`` covers that — but for a hung
+        process inside a live container, detection is delayed by up to
+        ``gate_seconds``. Filtering the tracker by focal agent would
+        require a new ``peer_consensus`` API; deferred until either the
+        delay matters in practice or we ship per-role tracker timestamp
+        accessors.
+
+        Failures in any signal source are logged at WARNING and treated as
+        "no signal from that source" — a crashed collector must never
+        silently keep us off the alert surface (mirrors the consensus-gate
+        contract).
+
+        ``orchestrator_alert_progress_gate_seconds <= 0`` disables the gate.
+
+        Active-agent filter: when a BRC tracker is registered for the
+        pipeline, peer heartbeats are filtered to the tracker graph's
+        ``all_roles()`` set — i.e. the current phase's roster as
+        installed by :meth:`concurrent_executor.ConcurrentPhaseExecutor.spawn_all`
+        — so prior-phase ghosts in ``_last_heartbeat`` (a singleton state
+        not phase-stamped on transition) cannot defer current-phase
+        alerts. This mirrors :func:`_check_brc_progress_gate`'s
+        ``active_role_names`` filter; using ``self._agents.keys()``
+        instead would be a no-op because every heartbeat write also
+        populates ``_agents``. When no tracker is registered (early
+        startup, between phases, or non-BRC phases) the filter is
+        skipped — the gate falls back to peer heartbeats from any
+        known agent. Same-role cross-phase pollution (``coder``
+        reappearing across implement / implement-fix) is still possible
+        because the heartbeat key is not phase-stamped; tracked under
+        #2242 alongside the equivalent TODO in
+        :func:`_check_brc_progress_gate`.
+        """
+        gate_seconds = self._config.orchestrator_alert_progress_gate_seconds
+        if gate_seconds <= 0:
+            return False, None
+
+        # 1. BRC bus signals (pipeline-scope tracker; per-slice trackers are
+        # not consulted from HealthMonitor — peer heartbeats below cover
+        # sliced pipelines where bus activity may be partitioned). The same
+        # tracker also supplies the active-role set used by step 2.
+        active_role_set: set[str] | None = None
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+
+            tracker = get_peer_consensus_tracker(self._pipeline_id)
+            if tracker is not None:
+                ts = tracker.get_latest_progress_timestamp()
+                if ts is not None:
+                    age = now - ts.timestamp()
+                    if 0 <= age < gate_seconds:
+                        return True, f"BRC bus active {age:.0f}s ago"
+                # The tracker's graph is rebuilt per phase (see
+                # ``ConcurrentPhaseExecutor.spawn_all``), so
+                # ``all_roles()`` is the current-phase active set.
+                try:
+                    active_role_set = set(tracker.graph.all_roles())
+                except Exception as e:
+                    logger.warning(
+                        "Alert progress-gate active-role lookup failed",
+                        pipeline_id=self._pipeline_id,
+                        error=str(e),
+                    )
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(
+                "Alert progress-gate tracker check failed",
+                pipeline_id=self._pipeline_id,
+                error=str(e),
+            )
+
+        # 2. Peer heartbeats. ``active_role_set`` (from the tracker graph
+        # above) drops stale heartbeats whose role isn't part of the
+        # current phase. When no tracker is registered, the filter is
+        # skipped so the gate degrades to "any known peer heartbeat
+        # within the window defers" — the pre-#2242 fallback behavior.
+        with self._lock:
+            hb_snapshot = dict(self._last_heartbeat)
+
+        latest_peer_hb: float | None = None
+        for agent_id, hb_time in hb_snapshot.items():
+            if agent_id == exclude_agent_id:
+                continue
+            if active_role_set is not None and agent_id not in active_role_set:
+                continue
+            if latest_peer_hb is None or hb_time > latest_peer_hb:
+                latest_peer_hb = hb_time
+
+        if latest_peer_hb is not None:
+            age = now - latest_peer_hb
+            if 0 <= age < gate_seconds:
+                return True, f"peer heartbeat {age:.0f}s ago"
+
         return False, None
 
     def _is_brc_idle(self, agent_id: str) -> bool:
@@ -556,15 +693,20 @@ class HealthMonitor:
             if self._is_brc_idle(agent_id):
                 continue
 
-            # Focal-agent activity gate (#2190): defer if the agent has
-            # had recent CONTAINER_ACTIVITY (e.g. successful commit) — it
-            # is alive, just not emitting bus-level HEARTBEAT (typical of
-            # long-blocking tool calls). Don't set heartbeat_escalated;
-            # the next poll re-checks.
+            # Focal-agent activity gate (#2190) OR alive-signal peer-progress
+            # gate (#2242): defer if either fires. The activity gate catches
+            # an agent legitimately blocked in a long tool call (e.g. a
+            # multi-minute background pytest) that is still committing but
+            # not emitting bus-level HEARTBEAT. The peer-progress gate
+            # catches the case where the broader pipeline is clearly alive
+            # via BRC bus signals or peer heartbeats. Don't set
+            # heartbeat_escalated on defer — the next poll re-checks.
             defer, gate_reason = self._has_recent_activity(agent_id, now)
+            if not defer:
+                defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
             if defer:
                 logger.info(
-                    "Heartbeat alert deferred by activity gate",
+                    "Heartbeat alert deferred by alive-signal gate",
                     pipeline_id=self._pipeline_id,
                     agent_id=agent_id,
                     elapsed_seconds=int(elapsed),
@@ -655,13 +797,15 @@ class HealthMonitor:
             if self._is_brc_idle(agent_id):
                 continue
 
-            # Focal-agent activity gate (#2190): same as in
-            # check_heartbeats — defer when the agent has had recent
-            # CONTAINER_ACTIVITY but no bus-level progress event.
+            # Focal-agent activity gate (#2190) OR alive-signal peer-progress
+            # gate (#2242): same OR pattern as check_heartbeats — defer when
+            # either fires.
             defer, gate_reason = self._has_recent_activity(agent_id, now)
+            if not defer:
+                defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
             if defer:
                 logger.info(
-                    "Progress alert deferred by activity gate",
+                    "Progress alert deferred by alive-signal gate",
                     pipeline_id=self._pipeline_id,
                     agent_id=agent_id,
                     elapsed_seconds=int(elapsed),
@@ -895,7 +1039,7 @@ class HealthMonitor:
 
         fully_acked = tracker.get_fully_acked_producers()
         now = time.time()
-        timeout = self._config.orchestrator_post_ack_confirmation_timeout_seconds
+        timeout = self._get_post_ack_confirmation_timeout()
         actions: list[dict[str, Any]] = []
         escalations: list[dict[str, Any]] = []
 

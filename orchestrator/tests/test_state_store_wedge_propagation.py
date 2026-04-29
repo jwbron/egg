@@ -194,7 +194,7 @@ class TestHealthEndpointReflectsStateStoreFailure:
         monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             get_state_store_probe().probe_now()
             response = client.get("/api/v1/health")
@@ -202,7 +202,8 @@ class TestHealthEndpointReflectsStateStoreFailure:
         assert response.status_code == 200
         body = response.get_json()
         assert body["status"] == "healthy"
-        assert body["components"]["state_store"] == "ok"
+        assert body["components"]["state_store"] == {"/sentinel/repo/path": {"status": "ok"}}
+        assert body["components"]["state_store_summary"] == "ok"
 
     def test_degraded_when_probe_fails(self, client, monkeypatch):
         """The exact wedge from #2167: the probe surfaces the
@@ -217,7 +218,16 @@ class TestHealthEndpointReflectsStateStoreFailure:
         )
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(False, err_msg),
+            return_value=(
+                False,
+                "1/1 repos wedged: /sentinel/repo/path",
+                {
+                    "/sentinel/repo/path": {
+                        "status": "error",
+                        "error": err_msg,
+                    }
+                },
+            ),
         ):
             get_state_store_probe().probe_now()
             response = client.get("/api/v1/health")
@@ -227,7 +237,9 @@ class TestHealthEndpointReflectsStateStoreFailure:
         assert response.status_code == 200
         body = response.get_json()
         assert body["status"] == "degraded"
-        assert "is already used by worktree" in body["components"]["state_store"]
+        repo_entry = body["components"]["state_store"]["/sentinel/repo/path"]
+        assert repo_entry["status"] == "error"
+        assert "is already used by worktree" in repo_entry["error"]
 
     def test_probe_skipped_when_no_repo_configured(self):
         """Health probe must not flap on configuration issues unrelated

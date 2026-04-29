@@ -342,15 +342,21 @@ Normal response:
 {
   "status": "healthy",
   "service": "egg-orchestrator",
-  "components": {"state_store": "ok", "docker": "unknown"},
+  "components": {
+    "state_store": {"/home/egg/repos/egg": {"status": "ok"}},
+    "state_store_summary": "ok",
+    "docker": "unknown"
+  },
   "healthy_since": "2026-04-27T12:00:00+00:00",
   "probe": {"fresh": true, "age_seconds": 4.2}
 }
 ```
 
+`components.state_store` is a per-repo map keyed by repo path (#2176), so multi-repo deployments surface every wedged repo in a single response rather than just the first one the probe loop hit. Each value is `{"status": "ok"}` or `{"status": "error", "error": "<git error>"}`. `components.state_store_summary` is the human-readable aggregate (`"ok"`, `"probe-skipped: ..."`, or `"N/M repos wedged: <paths>"`) — useful for log lines and skip cases where the per-repo map is empty.
+
 `healthy_since` is the timestamp of the most recent healthy → unhealthy → healthy transition (or process start if the orchestrator has been healthy since boot); use it to distinguish "stable since boot" from "just recovered." Transitions are recorded at BG-thread cadence (every 15s by default, tunable via `EGG_ORCH_STATE_STORE_PROBE_INTERVAL`) via the probe's `on_observation` callback, and `/api/v1/health` request hits also drive the tracker on the staleness-corrected value — so wedge cycles between sporadic operator/dashboard hits are still observed, and a wedged BG thread can surface as an unhealthy transition that the BG itself cannot record. `probe.age_seconds` is how long ago the background probe last ran — values consistently above ~2× the probe interval indicate the BG thread itself has wedged, and `/api/v1/ready` will flip to 503 even if the cached observation was healthy.
 
-If the state-store worktree is wedged (for example, after a state-volume reset that left a stale `.git/worktrees/` admin dir), `status` becomes `"degraded"` and `components.state_store` shows the underlying git error. The probe is **curative**: each tick of the background thread attempts to remove the stale admin dir and retry `git worktree add`. The curative cadence (15s) is now independent of kubelet probe traffic — operators do not need to do anything; under normal conditions the orchestrator self-heals within a few BG-thread cycles. See [Orchestrator status: degraded](#orchestrator-status-degraded-state-store-wedge) if degraded persists.
+If the state-store worktree is wedged (for example, after a state-volume reset that left a stale `.git/worktrees/` admin dir), `status` becomes `"degraded"` and `components.state_store[<repo>]["error"]` shows the underlying git error for each wedged repo (`components.state_store_summary` carries the aggregate "N/M repos wedged: <paths>" string). The probe is **curative**: each tick of the background thread attempts to remove the stale admin dir and retry `git worktree add` on **every** wedged repo, so a wedge on repo A no longer hides an independent wedge on repo B. The curative cadence (15s) is now independent of kubelet probe traffic — operators do not need to do anything; under normal conditions the orchestrator self-heals within a few BG-thread cycles. See [Orchestrator status: degraded](#orchestrator-status-degraded-state-store-wedge) if degraded persists.
 
 ## Troubleshooting
 
@@ -490,7 +496,7 @@ sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
 
 ### Orchestrator status: degraded (state-store wedge)
 
-If `GET /api/v1/health` returns `"status": "degraded"` with a `components.state_store` error mentioning `"is already used by worktree"`, the state branch is pinned by a stale git admin dir — typically left behind after a state-volume reset or a deployment that changed the worktree path.
+If `GET /api/v1/health` returns `"status": "degraded"` with one or more `components.state_store[<repo>]["error"]` values mentioning `"is already used by worktree"`, the state branch for that repo is pinned by a stale git admin dir — typically left behind after a state-volume reset or a deployment that changed the worktree path. In multi-repo deployments, every wedged repo appears in the per-repo map at once; `components.state_store_summary` lists them as `"N/M repos wedged: <paths>"`.
 
 Because the orchestrator's background state-store probe runs the curative self-heal every 15s (see [Orchestrator health](#orchestrator-health)), the recovery attempt happens continuously without operator action. Wait 30–60 seconds and re-check; the orchestrator should recover on its own. If `degraded` persists, the self-heal could not match the stale entry — typically because the path embedded in the git error is still on disk (so `_add_worktree_with_branch_recovery` refuses to touch it, treating it as a live worktree) or because no admin dir under `<repo>/.git/worktrees/` references that path. Check orchestrator logs for the underlying error:
 
@@ -498,7 +504,7 @@ Because the orchestrator's background state-store probe runs the curative self-h
 kubectl logs -n egg-system deploy/orchestrator | grep "State store"
 ```
 
-When the self-heal cannot match, the stale admin dir must be removed manually from the volume holding the source repo at `EGG_REPO_PATH` (mounted at `/home/egg/repos` in the local overlay; production deployments should substitute their own `EGG_REPO_PATH`). The state volume at `/home/egg/.egg-state` only holds the worktree itself (e.g. `pipeline-worktree`, or `pipeline-worktree-<repo>` in multi-repo setups) — admin dirs live in the source repo's `.git/worktrees/`. The path is reported in the `components.state_store` error string; resolve it to the matching admin dir under `<repo>/.git/worktrees/<name>/` (the `gitdir` file inside each admin dir points to the worktree it was created for) and `rm -rf` that single admin dir. After removal, the next BG probe tick will succeed at `git worktree add` and the orchestrator returns to `healthy` without further action. Rolling the pod is not required and will not help on its own — without removing the admin dir, the wedge reproduces immediately on restart:
+When the self-heal cannot match, the stale admin dir must be removed manually from the volume holding the source repo at `EGG_REPO_PATH` (mounted at `/home/egg/repos` in the local overlay; production deployments should substitute their own `EGG_REPO_PATH`). The state volume at `/home/egg/.egg-state` only holds the worktree itself (e.g. `pipeline-worktree`, or `pipeline-worktree-<repo>` in multi-repo setups) — admin dirs live in the source repo's `.git/worktrees/`. The wedged path is the key of the entry in `components.state_store` (each `state_store[<repo>]["error"]` value contains the underlying git error); resolve it to the matching admin dir under `<repo>/.git/worktrees/<name>/` (the `gitdir` file inside each admin dir points to the worktree it was created for) and `rm -rf` that single admin dir. Repeat for every wedged repo — the probe heals each repo independently, so removing the admin dir for one will not heal the others. After removal, the next BG probe tick will succeed at `git worktree add` and the orchestrator returns to `healthy` without further action. Rolling the pod is not required and will not help on its own — without removing the admin dir, the wedge reproduces immediately on restart:
 
 ```bash
 # After locating the matching admin dir under EGG_REPO_PATH:
