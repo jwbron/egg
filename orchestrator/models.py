@@ -37,7 +37,7 @@ def resolve_consensus_timeout_minutes(config: PipelineConfig, phase: str) -> int
        (the smallest calibrated budget — safe upper bound for unrecognized
        phases that may have shorter NACK loops than ``implement``).
     """
-    override = getattr(config, f"consensus_timeout_minutes_{phase}", None)
+    override: int | None = getattr(config, f"consensus_timeout_minutes_{phase}", None)
     if override is not None:
         return override
     if config.consensus_timeout_minutes is not None:
