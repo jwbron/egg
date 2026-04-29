@@ -1232,11 +1232,18 @@ Or pass it in the pipeline config JSON (e.g. via the API):
     "concurrent_execution": true,
     "max_concurrent_agents": 6,
     "message_poll_hint_seconds": 30,
-    "consensus_timeout_minutes": 30,
     "agent_idle_timeout_minutes": 60
   }
 }
 ```
+
+Leave `consensus_timeout_minutes` unset to use the calibrated per-phase
+defaults below (refine 30 / plan 60 / implement 90). To tune a single
+phase, set the per-phase override — `consensus_timeout_minutes_implement: 120`
+to give implement extra runway without touching refine/plan. Setting the
+legacy global (`consensus_timeout_minutes`) overrides *every* phase, so a
+value of `30` would shrink plan from 60→30 and implement from 90→30; prefer
+per-phase overrides unless that uniform behaviour is intended.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

@@ -33,14 +33,18 @@ def resolve_consensus_timeout_minutes(config: "PipelineConfig", phase: str) -> i
        set — preserves the AC clause that pipelines passing only the global
        continue to behave identically across all three phases.
     3. The phase-aware default from :data:`PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN`,
-       falling back to 30 for any unknown phase string.
+       falling back to the ``refine`` default for any unknown phase string
+       (the smallest calibrated budget — safe upper bound for unrecognized
+       phases that may have shorter NACK loops than ``implement``).
     """
     override = getattr(config, f"consensus_timeout_minutes_{phase}", None)
     if override is not None:
         return override
     if config.consensus_timeout_minutes is not None:
         return config.consensus_timeout_minutes
-    return PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN.get(phase, 30)
+    return PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN.get(
+        phase, PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN["refine"]
+    )
 
 
 class PipelineStatus(StrEnum):
