@@ -363,10 +363,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-29T04:55:38.433405Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-29T05:09:03.023624Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"C. Both — union of (A) and (B) with deduplication on canonical Confluence page ID (Recommended). Most complete coverage at the cost of two reads per refine\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -455,7 +455,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T05:09:01.134200Z",
+  "updated_at": "2026-04-29T05:09:03.052654Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -469,6 +469,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 34,
+  "version": 35,
   "jira_ticket": null
 }
