@@ -1606,6 +1606,13 @@ class PeerConsensusTracker:
         """
         result: dict[str, float] = {}
         with self._lock:
+            # Iterating ``_producer_phases`` (rather than
+            # ``self.graph.all_roles()`` filtered by ``is_producer``, as
+            # ``_collect_newly_ready_producers`` does) is safe today because
+            # every graph producer is registered before consensus begins —
+            # both iterations yield the same set. If registration ever
+            # becomes optional, prefer the graph-based iteration so the
+            # detector and the post-handler nudge stay in lockstep.
             for role, phase in self._producer_phases.items():
                 if phase != ConsensusPhase.PROPOSED:
                     continue

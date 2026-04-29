@@ -3057,16 +3057,30 @@ class TestGetFullyAckedProducers:
         assert "coder" not in result, "Confirmed producer should be excluded"
 
     def test_excludes_partially_acked(self, tracker):
-        """Producer with only some ACKs is not returned."""
+        """Producer with only some ACKs is not returned.
+
+        Both producers propose first so the global zero-proposal guard
+        clears — that way the helper's exclusion is genuinely driven by the
+        per-role partial-ACK check on ``coder``, not subsumed by the global
+        guard (covered separately in
+        ``test_excludes_when_global_zero_proposal_blocks``).
+        ``simple_graph`` gives ``tester`` only an ADVISORY reviewer, so a
+        bare propose leaves it fully ACKed and ready to confirm.
+        """
         tracker.handle_propose(
             "coder",
             {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
         )
-        # Only one of two critical reviewers ACKs
+        tracker.handle_propose(
+            "tester",
+            {"summary": "tests", "artifacts": ["tests/t.py"], "commit_sha": "def456"},
+        )
+        # Only one of coder's two critical reviewers ACKs.
         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
 
         result = tracker.get_fully_acked_producers()
         assert "coder" not in result, "Partially ACKed should not be in result"
+        assert "tester" in result, "Sanity: global guard cleared, tester is fully ACKed"
 
     def test_advisory_ack_not_needed(self):
         """Advisory-only reviewer ACK is not required for fully-acked status."""

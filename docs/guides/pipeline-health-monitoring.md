@@ -204,7 +204,7 @@ The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_p
 
 **How it works:**
 1. `check_brc_progress()` is called as part of `check_tripwires()` on each monitoring cycle
-2. It queries `PeerConsensusTracker.get_fully_acked_producers()` to find producers where all reviewers have ACKed but the producer hasn't yet confirmed
+2. It queries `PeerConsensusTracker.get_fully_acked_producers()` to find producers that are actually ready to confirm — all of their reviewers have ACKed *and* `check_confirm_guard` would allow `mcp__brc__confirm` to succeed (notably the global zero-proposal guard, #1648). A producer that is fully ACKed but blocked because a peer producer still has `proposal_version == 0` is intentionally excluded so the timeout doesn't fire against an agent that is correctly waiting on its peer (#2187).
 3. For each such producer, it records a first-seen timestamp in `_fully_acked_first_seen`
 4. If `time.time() - first_seen > orchestrator_post_ack_confirmation_timeout_seconds` and the agent hasn't already been escalated (via `brc_progress_escalated` flag on `AgentState`), it creates an escalation with `alert_type: "brc_confirmation_timeout"` and fires registered callbacks
 5. The `_send_brc_confirmation_nudge` callback sends an `OVERSEER_ALERT` directly to the stuck producer (bypassing `MESSAGE_SENT` tracking to avoid rate-limit and heartbeat-tracking side-effects). The message body tells the producer to call `mcp__brc__confirm` and explains how to handle `status='pending_acks'` guard failures.
