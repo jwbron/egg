@@ -71,7 +71,7 @@ def _issue_pipeline(
     config = PipelineConfig()
     try:
         config.concurrent_execution = True  # type: ignore[attr-defined]
-    except (AttributeError, ValueError):
+    except AttributeError, ValueError:
         config.__dict__["concurrent_execution"] = True
     return Pipeline(
         id=pipeline_id,

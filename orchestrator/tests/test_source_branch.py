@@ -1438,7 +1438,7 @@ class TestPullContractFromSourceBranch:
         if pipeline_id.startswith("issue-"):
             try:
                 issue_number = int(pipeline_id.split("-")[1])
-            except (IndexError, ValueError):
+            except IndexError, ValueError:
                 pass
 
         return Contract(

@@ -94,7 +94,7 @@ def _parse_ts(value: str) -> dt.datetime | None:
     """Parse an ISO-8601 timestamp; return None if unparseable."""
     try:
         return dt.datetime.fromisoformat(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 
