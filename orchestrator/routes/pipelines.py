@@ -8662,7 +8662,16 @@ def _build_producer_orientation(
                 "read the contract (`egg-contract show`) to understand what is "
                 "being implemented. Check the existing test infrastructure — "
                 "test frameworks, fixtures, conftest files, and naming conventions. "
-                "Identify edge cases from the requirements before writing tests."
+                "Identify edge cases from the requirements before writing tests. "
+                "**Scaffold-first while the coder is producing**: draft test "
+                "scaffolding from the plan alone — test file paths from "
+                "`tasks[].files`, function signatures from each task's acceptance "
+                "criteria, fixture imports, and mock-input scenarios from the YAML. "
+                "Leave assertion bodies as TODOs. Do NOT call `wait-loop` for the "
+                "coder's CONSENSUS_PROPOSE before drafting these scaffolds — the "
+                "scaffold work does not depend on coder output and recovers "
+                "downstream-producer time. Your propose-ready iteration should "
+                "start at the coder's first commit, not their first propose."
                 + sync_note
                 + reviewer_awareness
             )
