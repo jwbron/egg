@@ -5,7 +5,7 @@
   "branch": "egg/issue-1557-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -292,10 +292,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-29T05:47:52.356606Z",
       "work_started_at": "2026-04-29T05:47:53.032054Z",
-      "completed_at": null,
+      "completed_at": "2026-04-29T07:18:21.367227Z",
       "containers": [
         {
           "container_id": "e2aac530-b983-475d-842f-3c9154d2ea05",
@@ -514,12 +514,12 @@
         {
           "cycle": 0,
           "started_at": "2026-04-29T05:47:53.032054Z",
-          "completed_at": null,
+          "completed_at": "2026-04-29T07:18:21.367196Z",
           "commit_sha": "e84951b05bd320c4b482ee48a87f721fee84c1d5"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n\n- **orchestrator/routes/pipelines.py:1682-1697 — Jira-ticket fallback regex on `pipeline_id` is over-permissive.** The fallback `[A-Z][A-Z0-9_]*-\\d+(-[a-z0-9]+(-[a-z0-9]+)*)?` will fire `getJiraIssue` against the gateway for any pipeline_id that happens to start with an uppercase project-shaped prefix (e.g. an internal `PIPELINE-001` test fixture). The call soft-fails to `EpicSnapshot.empty()` so it's not catastrophic, but it does cost a gateway round-trip per pipeline-create on shapes that aren't Jira tickets. Consider gating the fallback behind `jira_ticket_raw is None` only (today both branches can fire when callers pass `jira_ticket` explicitly — the explicit branch handles that case fully, so the pipeline_id branch is only there for legacy callers and should run only when the explicit field is absent). If you keep it as-is, that's fine — the soft-fail path is safe — but a one-line guard buys you fewer phantom queries.\n\n- **orchestrator/jira_epic.py:317-319 — the `from gateway_client import GatewayError` retry-fallback to `from .gateway_client` is reachable only when the orchestrator is loaded as a package (`orchestrator.jira_epic`). It's well-defended (`# pragma: no cover` on the second arm) but the symmetric pattern at line 53-59 / 144-149 elsewhere in the file uses `try: ... except ImportError: from .module import …` — the package-relative import in a function body that executed without `__package__` set will raise `ImportError`, which is the same exception you're already catching. Confirmed safe; flagging only because it duplicates the pattern several times in a single file and a small `_lazy_import_gateway_error()` helper would let Slice 2 / 3 / 4 reuse it without re-implementing the dance.\n\n- **orchestrator/jira_epic.py:_normalise_child (line ~248) — Atlassian's `description` field is ADF (a dict) by default; the helper drops it to `None` rather than flattening.** This is exactly the \"Slice 2's prompt builder does its own ADF-to-Markdown\" handoff your docstring promises and matches the Slice 1 contract (snapshot is advisory, the field is optional). Just want to confirm Slice 2's prompt builder will exercise an ADF reader; if it ends up needing a flat string at refine-time, you'll be back here. Not blocking on Slice 1.\n\n- **shared/egg_contracts/plan_parser.py:_validate_jira_epic_task_fields — wonderful coverage.** One micro-suggestion: the `wont_do` validator silently accepts `False`, `0`, `\"\"`, `\"false\"`, `\"False\"` as \"fine, treat as False\" but emits a warning on every other non-bool. Asymmetric. Consider treating *anything that isn't `True` or `False`* as \"not a bool, warn\". Test scope: cover the silent-accept branch in test_plan_parser.py so a future refactor doesn't regress it.\n\n- **orchestrator/models.py:_validate_epic_link_field — frozenset comparison is correct** but the validator could also return a deterministic error message if Atlassian ever adds a third field name (e.g. `customfield_10008`). The `_VALID_EPIC_LINK_FIELDS` constant lives in three places now (gateway/jira_policy.py, orchestrator/models.py, orchestrator/jira_epic.py) — your existing `# Mirrors …` comment is accurate but a single-source-of-truth via a shared constant would close the drift surface. Slice 5 docs is the right place to call this out, not Slice 1.",
       "hitl_feedback": null,
       "phase_start_sha": "e84951b05bd320c4b482ee48a87f721fee84c1d5",
       "agent_exits": [
@@ -908,7 +908,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T07:18:21.322761Z",
+  "updated_at": "2026-04-29T07:18:21.367353Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -916,12 +916,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n\n- **orchestrator/routes/pipelines.py:1682-1697 — Jira-ticket fallback regex on `pipeline_id` is over-permissive.** The fallback `[A-Z][A-Z0-9_]*-\\d+(-[a-z0-9]+(-[a-z0-9]+)*)?` will fire `getJiraIssue` against the gateway for any pipeline_id that happens to start with an uppercase project-shaped prefix (e.g. an internal `PIPELINE-001` test fixture). The call soft-fails to `EpicSnapshot.empty()` so it's not catastrophic, but it does cost a gateway round-trip per pipeline-create on shapes that aren't Jira tickets. Consider gating the fallback behind `jira_ticket_raw is None` only (today both branches can fire when callers pass `jira_ticket` explicitly — the explicit branch handles that case fully, so the pipeline_id branch is only there for legacy callers and should run only when the explicit field is absent). If you keep it as-is, that's fine — the soft-fail path is safe — but a one-line guard buys you fewer phantom queries.\n\n- **orchestrator/jira_epic.py:317-319 — the `from gateway_client import GatewayError` retry-fallback to `from .gateway_client` is reachable only when the orchestrator is loaded as a package (`orchestrator.jira_epic`). It's well-defended (`# pragma: no cover` on the second arm) but the symmetric pattern at line 53-59 / 144-149 elsewhere in the file uses `try: ... except ImportError: from .module import …` — the package-relative import in a function body that executed without `__package__` set will raise `ImportError`, which is the same exception you're already catching. Confirmed safe; flagging only because it duplicates the pattern several times in a single file and a small `_lazy_import_gateway_error()` helper would let Slice 2 / 3 / 4 reuse it without re-implementing the dance.\n\n- **orchestrator/jira_epic.py:_normalise_child (line ~248) — Atlassian's `description` field is ADF (a dict) by default; the helper drops it to `None` rather than flattening.** This is exactly the \"Slice 2's prompt builder does its own ADF-to-Markdown\" handoff your docstring promises and matches the Slice 1 contract (snapshot is advisory, the field is optional). Just want to confirm Slice 2's prompt builder will exercise an ADF reader; if it ends up needing a flat string at refine-time, you'll be back here. Not blocking on Slice 1.\n\n- **shared/egg_contracts/plan_parser.py:_validate_jira_epic_task_fields — wonderful coverage.** One micro-suggestion: the `wont_do` validator silently accepts `False`, `0`, `\"\"`, `\"false\"`, `\"False\"` as \"fine, treat as False\" but emits a warning on every other non-bool. Asymmetric. Consider treating *anything that isn't `True` or `False`* as \"not a bool, warn\". Test scope: cover the silent-accept branch in test_plan_parser.py so a future refactor doesn't regress it.\n\n- **orchestrator/models.py:_validate_epic_link_field — frozenset comparison is correct** but the validator could also return a deterministic error message if Atlassian ever adds a third field name (e.g. `customfield_10008`). The `_VALID_EPIC_LINK_FIELDS` constant lives in three places now (gateway/jira_policy.py, orchestrator/models.py, orchestrator/jira_epic.py) — your existing `# Mirrors …` comment is accurate but a single-source-of-truth via a shared constant would close the drift surface. Slice 5 docs is the right place to call this out, not Slice 1.",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-29T05:47:49.682719Z",
-  "version": 63,
+  "version": 64,
   "jira_ticket": null
 }
