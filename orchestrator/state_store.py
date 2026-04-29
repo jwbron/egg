@@ -226,115 +226,128 @@ class StateStore:
                 f"the state store."
             )
 
-        # Clean up stale admin dir for THIS worktree only (e.g., from crashes).
-        # IMPORTANT: Do NOT use `git worktree prune` — the orchestrator cannot
-        # see the gateway's worktree paths (different bind mounts), so prune
-        # would incorrectly remove admin dirs for active gateway worktrees,
-        # breaking all container git operations.
-        #
-        # This early call covers the wt-gone case: the worktree directory was
-        # wiped (e.g., state volume reset) but the admin dir under
-        # `<repo>/.git/worktrees/` survived.  The forced call later in this
-        # method (line ~259) covers the wt-broken case: the worktree directory
-        # is on disk but rev-parse rejects it.
-        self._remove_stale_admin_dir()
-
-        wt = self._worktree_dir
-
-        if wt.exists():
-            # Validate against `git rev-parse` rather than relying on the
-            # presence of `wt/.git`.  The `.git` link can be missing or
-            # broken (e.g., the matching admin dir under
-            # `<repo>/.git/worktrees/...` was orphaned by a crash) while
-            # the worktree directory itself still sits on disk.  In that
-            # state, falling through to `git worktree add` below would
-            # fail with `'<wt>' already exists` and strand the pipeline
-            # on `request_changes` re-runs (#2140).  Probe with rev-parse
-            # and only treat the worktree as healthy when git agrees.
+        # Serialize the entire worktree bring-up sequence under the same
+        # reentrant RLock + flock that ``_run_git`` uses.  Without this,
+        # concurrent callers (state-store probe, pipeline driver thread,
+        # ``/api/v1/health``) race between detect-failure → cleanup →
+        # retry inside ``_add_worktree_with_branch_recovery`` and surface
+        # misleading one-shot 500s on whichever arrived second (#2177).
+        # The same root cause produced #2234's ENOENT race.  ``_git_op``
+        # is reentrant via ``_flock_depth``, so nested ``_run_git`` calls
+        # compose without deadlock.  Cost: lock window grows from "one
+        # git command" to "the worktree-bring-up sequence" — tens of ms
+        # in steady state; the cold-start ``_restore_from_remote`` fetch
+        # is the longest case, runs at most once per repo per process.
+        with self._git_op():
+            # Clean up stale admin dir for THIS worktree only (e.g., from crashes).
+            # IMPORTANT: Do NOT use `git worktree prune` — the orchestrator cannot
+            # see the gateway's worktree paths (different bind mounts), so prune
+            # would incorrectly remove admin dirs for active gateway worktrees,
+            # breaking all container git operations.
             #
-            # One retry covers transient git contention (e.g., concurrent
-            # _commit_statefiles_to_worktree holding a lock on the shared
-            # .git directory).  See #1396.
-            healthy = False
-            for _attempt in range(2):
-                result = self._run_git("rev-parse", "--is-inside-work-tree", cwd=wt, check=False)
-                if result.returncode == 0:
-                    healthy = True
-                    break
-                if _attempt == 0:
-                    time.sleep(0.1)
-            if healthy:
-                return wt
+            # This early call covers the wt-gone case: the worktree directory was
+            # wiped (e.g., state volume reset) but the admin dir under
+            # `<repo>/.git/worktrees/` survived.  The forced call later in this
+            # method covers the wt-broken case: the worktree directory
+            # is on disk but rev-parse rejects it.
+            self._remove_stale_admin_dir()
 
-            logger.warning(
-                "Worktree validation failed, recreating: worktree=%s returncode=%s",
-                str(wt),
-                result.returncode,
-            )
-            try:
-                shutil.rmtree(wt)
-            except FileNotFoundError:
-                # Concurrent caller (e.g. the state-store probe at
-                # ``state_store_probe.py``, a sibling pipeline thread, or
-                # the ``/api/v1/health`` probe) already cleaned up the
-                # worktree between our ``wt.exists()`` check and this
-                # rmtree.  ``_ensure_worktree`` is invoked from many
-                # threads concurrently and is not wrapped in
-                # ``_git_op()``, so the TOCTOU window is real.  ENOENT
-                # here is exactly the post-state we wanted — fall
-                # through to recreate.  Issue #2234.
-                pass
-            except OSError as exc:
-                raise GitOperationError(
-                    f"Failed to remove stale state worktree at {wt}: {exc}"
-                ) from exc
-            # Force-remove the admin dir too — the matching wt directory
-            # was just removed, but `_remove_stale_admin_dir` checks
-            # `wt.exists()` before deleting, so call the forced variant
-            # to guarantee `git worktree add` won't refuse.
-            self._remove_stale_admin_dir(force=True)
+            wt = self._worktree_dir
+
             if wt.exists():
-                # Defensive: rmtree returned without raising but the
-                # directory persists (e.g., a sub-mount).  Refuse to
-                # call `git worktree add` over it.
-                raise GitOperationError(
-                    f"State worktree at {wt} could not be removed; "
-                    "refusing to recreate over existing directory"
+                # Validate against `git rev-parse` rather than relying on the
+                # presence of `wt/.git`.  The `.git` link can be missing or
+                # broken (e.g., the matching admin dir under
+                # `<repo>/.git/worktrees/...` was orphaned by a crash) while
+                # the worktree directory itself still sits on disk.  In that
+                # state, falling through to `git worktree add` below would
+                # fail with `'<wt>' already exists` and strand the pipeline
+                # on `request_changes` re-runs (#2140).  Probe with rev-parse
+                # and only treat the worktree as healthy when git agrees.
+                #
+                # One retry covers transient git contention (e.g., concurrent
+                # _commit_statefiles_to_worktree holding a lock on the shared
+                # .git directory).  See #1396.
+                healthy = False
+                for _attempt in range(2):
+                    result = self._run_git(
+                        "rev-parse", "--is-inside-work-tree", cwd=wt, check=False
+                    )
+                    if result.returncode == 0:
+                        healthy = True
+                        break
+                    if _attempt == 0:
+                        time.sleep(0.1)
+                if healthy:
+                    return wt
+
+                logger.warning(
+                    "Worktree validation failed, recreating: worktree=%s returncode=%s",
+                    str(wt),
+                    result.returncode,
                 )
+                try:
+                    shutil.rmtree(wt)
+                except FileNotFoundError:
+                    # Defensive: with the ``_git_op`` wrap above, the
+                    # cross-thread/process race that produced #2234 is
+                    # closed.  Keep tolerating ENOENT anyway — the
+                    # post-state is what we wanted, and an external
+                    # actor (operator cleanup, container restart between
+                    # the ``wt.exists()`` check and this rmtree) can
+                    # still produce it.
+                    pass
+                except OSError as exc:
+                    raise GitOperationError(
+                        f"Failed to remove stale state worktree at {wt}: {exc}"
+                    ) from exc
+                # Force-remove the admin dir too — the matching wt directory
+                # was just removed, but `_remove_stale_admin_dir` checks
+                # `wt.exists()` before deleting, so call the forced variant
+                # to guarantee `git worktree add` won't refuse.
+                self._remove_stale_admin_dir(force=True)
+                if wt.exists():
+                    # Defensive: rmtree returned without raising but the
+                    # directory persists (e.g., a sub-mount).  Refuse to
+                    # call `git worktree add` over it.
+                    raise GitOperationError(
+                        f"State worktree at {wt} could not be removed; "
+                        "refusing to recreate over existing directory"
+                    )
 
-        wt.parent.mkdir(parents=True, exist_ok=True)
+            wt.parent.mkdir(parents=True, exist_ok=True)
 
-        # Try to restore from remote if the local branch doesn't exist yet.
-        # This enables cross-host recovery when the local state volume is lost.
-        if not self._state_branch_exists():
-            self._restore_from_remote()
+            # Try to restore from remote if the local branch doesn't exist yet.
+            # This enables cross-host recovery when the local state volume is lost.
+            if not self._state_branch_exists():
+                self._restore_from_remote()
 
-        if self._state_branch_exists():
-            self._add_worktree_with_branch_recovery(wt)
-        else:
-            # First run: create orphan branch
-            # Wrap in try/except to clean up on partial failure
-            try:
-                self._run_git("worktree", "add", "--detach", str(wt))
-                self._run_git("checkout", "--orphan", STATE_BRANCH, cwd=wt)
-                self._run_git("rm", "-rf", "--cached", ".", cwd=wt, check=False)
-                # Remove inherited files from working directory
-                for item in wt.iterdir():
-                    if item.name == ".git":
-                        continue
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
-            except (GitOperationError, OSError):
-                # Clean up partial worktree on failure to avoid broken state.
-                # Catch both GitOperationError (git command failures) and OSError
-                # (filesystem errors during file cleanup like permission denied).
-                shutil.rmtree(wt, ignore_errors=True)
-                self._remove_stale_admin_dir()
-                raise
+            if self._state_branch_exists():
+                self._add_worktree_with_branch_recovery(wt)
+            else:
+                # First run: create orphan branch
+                # Wrap in try/except to clean up on partial failure
+                try:
+                    self._run_git("worktree", "add", "--detach", str(wt))
+                    self._run_git("checkout", "--orphan", STATE_BRANCH, cwd=wt)
+                    self._run_git("rm", "-rf", "--cached", ".", cwd=wt, check=False)
+                    # Remove inherited files from working directory
+                    for item in wt.iterdir():
+                        if item.name == ".git":
+                            continue
+                        if item.is_dir():
+                            shutil.rmtree(item)
+                        else:
+                            item.unlink()
+                except (GitOperationError, OSError):
+                    # Clean up partial worktree on failure to avoid broken state.
+                    # Catch both GitOperationError (git command failures) and OSError
+                    # (filesystem errors during file cleanup like permission denied).
+                    shutil.rmtree(wt, ignore_errors=True)
+                    self._remove_stale_admin_dir()
+                    raise
 
-        return wt
+            return wt
 
     def _remove_stale_admin_dir(self, force: bool = False) -> None:
         """Remove the git admin dir for the state worktree if it's stale.
@@ -401,32 +414,41 @@ class StateStore:
         because the orchestrator pod cannot see the gateway's worktree
         paths (different bind mounts) and prune would incorrectly
         remove their admin dirs (see ``_remove_stale_admin_dir``).
+
+        The body runs under ``_git_op`` so the detect-failure → cleanup
+        → retry sequence is atomic against concurrent callers.  Without
+        this, two callers raced and the loser saw a misleading 500
+        because the admin dir was already cleaned by the winner (#2177).
+        ``_git_op`` is reentrant; ``_ensure_worktree`` already holds it
+        when calling this method, and the inner ``_run_git`` calls
+        nest on the same lock.
         """
-        try:
-            self._run_git("worktree", "add", str(wt), STATE_BRANCH)
-            return
-        except GitOperationError as exc:
-            match = self._BRANCH_IN_USE_PATTERN.search(str(exc))
-            if not match:
-                raise
-            stale_path = Path(match.group(1))
-            if stale_path.exists():
-                # A live worktree genuinely holds the branch.  Refuse to
-                # touch it; surface the original error.
-                raise
-            removed = self._remove_admin_dir_for_path(stale_path)
-            if not removed:
-                logger.warning(
-                    "Branch %s held by prunable worktree at %s but no admin dir matched",
-                    STATE_BRANCH,
+        with self._git_op():
+            try:
+                self._run_git("worktree", "add", str(wt), STATE_BRANCH)
+                return
+            except GitOperationError as exc:
+                match = self._BRANCH_IN_USE_PATTERN.search(str(exc))
+                if not match:
+                    raise
+                stale_path = Path(match.group(1))
+                if stale_path.exists():
+                    # A live worktree genuinely holds the branch.  Refuse to
+                    # touch it; surface the original error.
+                    raise
+                removed = self._remove_admin_dir_for_path(stale_path)
+                if not removed:
+                    logger.warning(
+                        "Branch %s held by prunable worktree at %s but no admin dir matched",
+                        STATE_BRANCH,
+                        stale_path,
+                    )
+                    raise
+                logger.info(
+                    "Cleared stale admin dir for prunable worktree; retrying add: path=%s",
                     stale_path,
                 )
-                raise
-            logger.info(
-                "Cleared stale admin dir for prunable worktree; retrying add: path=%s",
-                stale_path,
-            )
-            self._run_git("worktree", "add", str(wt), STATE_BRANCH)
+                self._run_git("worktree", "add", str(wt), STATE_BRANCH)
 
     def _remove_admin_dir_for_path(self, target_wt_path: Path) -> bool:
         """Remove the admin dir whose ``gitdir`` references ``target_wt_path``.
