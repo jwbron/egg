@@ -98,6 +98,8 @@ orchestrator/
 ├── kubernetes_spawner.py   # Agent Job lifecycle (replaces ContainerSpawner)
 ├── kubernetes_monitor.py   # k8s Job state monitoring (replaces ContainerMonitor)
 ├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
+├── slice_scheduler.py      # Wave-based scheduler for the implement-phase slice DAG: computes execution waves, caps concurrency, two-tier max_cycles accounting, failure-cascade detection (#2137)
+├── stacked_pr_reconciler.py # Stacked-PR rebase reconciler: detects child slice PRs whose base branch was deleted after a parent merge and retargets them via gateway rebase_onto (#2137)
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
@@ -324,7 +326,7 @@ shared/
 │   ├── agent_roles.py      # Multi-agent role definitions (all agent and reviewer roles)
 │   ├── orchestrator.py     # Multi-agent orchestration dispatch logic
 │   ├── orchestration.py    # Agent execution state management
-│   ├── dependency_graph.py # Agent dependency resolution for parallel execution
+│   ├── dependency_graph.py # Generic dependency graph (PEP-695 typed): used for agent-role DAGs and for the implement-phase slice DAG (#2137 generification)
 │   ├── plan_parser.py      # Plan document parsing with task extraction and phase dependency normalization
 │   ├── agent_recovery.py   # Failed agent recovery logic
 │   ├── checkpoints.py      # Checkpoint data models

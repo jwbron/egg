@@ -1,6 +1,8 @@
 # Concurrent Execution Mode
 
-Concurrent execution mode runs all agents for the current pipeline phase simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is active by default for the **refine**, **plan**, and **implement** phases. Additional phases (such as `review`) can be added via the `concurrent_phases` config.
+Concurrent execution mode runs all agents for the current pipeline phase simultaneously rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is active by default for the **refine**, **plan**, and **implement** phases. Additional phases (such as `review`) can be added via the `concurrent_phases` config.
+
+**Implement-phase note**: the implement phase no longer runs as a single team on a shared branch. Instead, the plan's tasks are split into a DAG of independent **slices** — each slice runs its own concurrent agent team on its own integration branch. Concurrent execution within each slice follows the BRC protocol described here. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the slice-level orchestration model.
 
 This is distinct from the standard wave-based parallel execution (Tier 2), where agents run in dependency order but multiple independent agents execute in parallel within each wave.
 
