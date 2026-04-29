@@ -202,6 +202,8 @@ After all reviewers ACK a producer's proposal, the producer must send `CONSENSUS
 
 The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_progress()`. When a producer is fully ACKed (all reviewers have sent `CONSENSUS_ACK`) but hasn't yet sent `CONSENSUS_CONFIRMED`, a timeout clock starts. If the producer doesn't confirm within `orchestrator_post_ack_confirmation_timeout_seconds` (default: 180s / 3 minutes), the health monitor fires an escalation callback that **directly sends an `OVERSEER_ALERT` to the stuck producer** instructing it to call `mcp__brc__confirm` — bypassing the overseer agent's decision loop for this deterministic failure mode. The alert also triggers the standard overseer/HITL escalation path.
 
+**Plan-phase override:** The plan phase uses a higher threshold of `orchestrator_plan_post_ack_confirmation_timeout_seconds` (default: 300s / 5 minutes) instead of the standard 180s. Plan-phase post-ACK reconciliation (resolved decisions, feedback bodies, slice-DAG sanity checks) legitimately takes longer on heavy pipelines. (#2242)
+
 **How it works:**
 1. `check_brc_progress()` is called as part of `check_tripwires()` on each monitoring cycle
 2. It queries `PeerConsensusTracker.get_fully_acked_producers()` to find producers where all reviewers have ACKed but the producer hasn't yet confirmed
@@ -216,6 +218,19 @@ The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_p
 
 **Relationship to `IncompleteConsensusStallCheck`:** The Tier 1 health check `IncompleteConsensusStallCheck` catches a broader class of incomplete consensus stalls (including reviewers that haven't ACKed). The post-ACK confirmation timeout is narrower and faster — it specifically targets the "heartbeating but not confirming" failure mode and fires within 3 minutes rather than the ~10 minutes required by the Tier 1 check's grace + tick threshold.
 
+### Alive-Signal Gate for Heartbeat and Progress Alerts
+
+Before firing a per-agent `heartbeat_timeout` or `progress_stall` alert, the health monitor checks whether the pipeline still has observable forward progress from peers. This **alive-signal gate** defers the alert when any of the following has fired within `orchestrator_alert_progress_gate_seconds` (default: 300s):
+
+- The BRC tracker's most recent `CONSENSUS_PROPOSE` or ACK/NACK timestamp on this pipeline
+- A heartbeat from any **other** agent in the current-phase active-agent set
+
+If a peer signal is found within the window, the alert is deferred until the next monitor cycle — preventing false-positive escalations when one agent is slow but the pipeline as a whole is still moving. The gate mirrors `brc_consensus_progress_gate_seconds` but applies to the per-agent tripwires rather than the BRC consensus route.
+
+**Active-agent filter:** When a BRC tracker is registered, peer heartbeats are filtered to the tracker graph's current-phase roster. Prior-phase agents (e.g., a `coder` role that last heartbeated during the previous implement phase) are excluded. When no tracker is registered, the filter is skipped and any known peer heartbeat within the window defers the alert.
+
+**Setting `orchestrator_alert_progress_gate_seconds = 0` disables the gate.** (#2242)
+
 ### Configuration
 
 Tripwire thresholds are configurable in `PipelineConfig`:
@@ -229,6 +244,8 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `orchestrator_message_rate_limit` | `20` | Auto-throttle above this many messages per minute |
 | `post_proposal_grace_seconds` | `300` | Grace period (seconds) for reviewer-only agents after an upstream producer proposes, before heartbeat/progress stall checks apply (must be >= 30). This reuses the existing BRC proposal grace period setting. |
 | `orchestrator_post_ack_confirmation_timeout_seconds` | `180` | Timeout (seconds) for fully-ACKed producers to send `CONSENSUS_CONFIRMED` before escalation, regardless of heartbeat activity (must be >= 30) |
+| `orchestrator_plan_post_ack_confirmation_timeout_seconds` | `300` | Plan-phase override for the post-ACK confirm timeout. Plan-phase reconciliation (resolved decisions, feedback bodies, slice-DAG sanity) legitimately exceeds 180s on heavy pipelines. (must be >= 30; #2242) |
+| `orchestrator_alert_progress_gate_seconds` | `300` | Defer `heartbeat_timeout` and `progress_stall` per-agent alerts while any peer agent or the BRC bus has emitted a signal within this many seconds. Mirrors `brc_consensus_progress_gate_seconds` but for per-agent tripwires. 0 disables the gate. (#2242) |
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
 | `overseer_decision_maker_model` | `"sonnet"` | LLM model for overseer decision-making tier |
