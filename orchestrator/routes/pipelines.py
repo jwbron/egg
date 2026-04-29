@@ -370,7 +370,7 @@ def _build_minimal_status_envelope(
 
 def _check_and_respawn_overseer(
     *,
-    spawner: ContainerSpawner,
+    spawner: "ContainerSpawner",  # noqa: UP037
     store: StateStore,
     pipeline_id: str,
     pipeline: Pipeline,
@@ -637,7 +637,7 @@ def _send_brc_confirmation_nudge(
 
 
 def _teardown_phase_overseer(
-    spawner: ContainerSpawner,
+    spawner: "ContainerSpawner",  # noqa: UP037
     container_id: str,
     pipeline_id: str,
     phase_label: str,
@@ -5198,7 +5198,7 @@ def _aggregate_review_verdicts(
 
 
 def _sync_worktree_with_remote(
-    spawner: ContainerSpawner,
+    spawner: "ContainerSpawner",  # noqa: UP037
     pipeline_id: str,
     worktree_repo_path: Path,
     prior_phase_succeeded: bool = True,
@@ -5425,7 +5425,7 @@ class StalePipelineBranchError(RuntimeError):
 
 
 def _rebase_pipeline_branch_onto_base(
-    spawner: ContainerSpawner,
+    spawner: "ContainerSpawner",  # noqa: UP037
     pipeline_id: str,
     worktree_repo_path: Path,
     pipeline_branch: str,
@@ -7315,7 +7315,7 @@ def _build_pr_body(
 def _auto_create_pr(
     pipeline: Pipeline,
     worktree_repo_path: Path,
-    spawner: ContainerSpawner,
+    spawner: "ContainerSpawner",  # noqa: UP037
     gateway_mode: Literal["public", "private"] = "public",
 ) -> str | None:
     """Auto-create a PR for a pipeline without spawning an agent.
@@ -11457,7 +11457,7 @@ def _spawn_and_wait(
     store=None,
     certs_volume: str | None = None,
     branch: str | None = None,
-    extra_mounts: list[MountSpec] | None = None,
+    extra_mounts: list["MountSpec"] | None = None,  # noqa: UP037
     spawn_max_retries: int | None = None,
     spawn_retry_initial_backoff_seconds: float | None = None,
 ) -> tuple[int, str]:

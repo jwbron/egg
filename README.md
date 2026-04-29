@@ -262,7 +262,7 @@ make security          # Run security scans
 make build             # Build Docker images
 ```
 
-Requires Python >= 3.11. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and [docs/guides/testing.md](docs/guides/testing.md) for the changeset-aware test selection model.
+Requires Python >= 3.14. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and [docs/guides/testing.md](docs/guides/testing.md) for the changeset-aware test selection model.
 
 ## License
 
