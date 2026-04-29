@@ -187,35 +187,13 @@ class TestReconcilerOnProducerShape:
         # ``slice-2``'s parent ``slice-1`` was merged and its branch
         # was deleted on origin → ``slice-2``'s open PR points at a
         # base that no longer exists.
-        producer_prs: list[dict[str, Any]] = [
+        only_orphan: list[dict[str, Any]] = [
             {
                 "number": 4242,
                 "head_ref": "egg/issue-2137/slice-2",
                 "base_ref": "egg/issue-2137/slice-1",
-            },
-            # ``slice-3``'s base is still alive — GitHub auto-retarget
-            # already handled it; the reconciler must skip it.
-            {
-                "number": 4243,
-                "head_ref": "egg/issue-2137/slice-3",
-                "base_ref": "egg/issue-2137/slice-1",
-            },
+            }
         ]
-        # ``slice-3``'s base still exists; ``slice-2``'s does not.
-        extant = {"egg/issue-2137/slice-1-still-here"}
-        # Move ``slice-3``'s base into the extant set so that PR is
-        # filtered out:
-        extant.add("egg/issue-2137/slice-1")
-        producer_prs[1]["base_ref"] = "egg/issue-2137/slice-1"
-
-        # Re-run with only ``slice-2``'s base missing.
-        extant_only_slice3 = {"egg/issue-2137/slice-1-still-here"}
-        # Make slice-3's base extant; slice-2's is gone.
-        extant_only_slice3.add("egg/issue-2137/slice-1")
-
-        # Drop the second PR for clarity in this assertion: just
-        # check the orphan-detection behaviour.
-        only_orphan = [producer_prs[0]]
         orphans = find_orphaned_child_prs(contract, only_orphan, set())
         assert len(orphans) == 1
         orphan = orphans[0]
@@ -276,7 +254,7 @@ class TestEndToEndOrphanHeal:
     """Drive ``GatewayClient.rebase_onto`` against an in-memory fake
     HTTP transport and assert the three-step heal lands all of:
 
-    1. local rebase via ``/api/v1/git`` (canonical argv shape).
+    1. local rebase via ``/api/v1/git/execute`` (canonical argv shape).
     2. ``--force-with-lease`` push via ``/api/v1/git/push``.
     3. PR retarget via ``/api/v1/gh/pr/edit`` with ``base=...``.
 

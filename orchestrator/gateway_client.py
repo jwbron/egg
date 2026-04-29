@@ -1484,8 +1484,12 @@ class GatewayClient:
             if session_token:
                 try:
                     self.delete_session(session_token)
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(
+                        "rebase_onto: session cleanup failed",
+                        pipeline_id=pipeline_id,
+                        error=str(exc),
+                    )
 
     # ------------------------------------------------------------
     # #2137 — slice integration-branch creation (TASK-4-2)
