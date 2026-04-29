@@ -47,7 +47,7 @@ def get_message_poll_max_wait() -> int:
         return DEFAULT_MESSAGE_POLL_MAX_WAIT_SECONDS
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_MESSAGE_POLL_MAX_WAIT=%r is not an integer; falling back to %ds",
             raw,
@@ -124,7 +124,7 @@ def get_waitress_threads() -> int:
         return DEFAULT_WAITRESS_THREADS
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_ORCH_WAITRESS_THREADS=%r is not an integer; falling back to %d",
             raw,
@@ -160,7 +160,7 @@ def get_heartbeat_rate_limit() -> int:
         return DEFAULT_HEARTBEAT_RATE_LIMIT_PER_MIN
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_HEARTBEAT_RATE_LIMIT=%r not an integer; falling back to %d/min",
             raw,
@@ -179,7 +179,15 @@ def get_heartbeat_rate_limit() -> int:
 #   per wave. Default 5 (refine-phase decision-5 + Q1: typical 3–7
 #   slices, worst-case 10–15; trust container limits and gateway
 #   throttling but give the operator a knob to dial back when
-#   confidence is low).
+#   confidence is low). Per-pipeline only.
+#
+# EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES — orchestrator-process-wide
+#   cap on slices in flight across ALL running pipelines (#2241
+#   gap 1). Default 4 (operationally observed safe ceiling — each
+#   slice spawns ~8 containers and the host saturates beyond that).
+#   Slice spawn defers when saturated; admission happens before
+#   ``mark_spawned`` so the per-pipeline cap accounting stays
+#   honest.
 #
 # EGG_ORCH_SLICE_LOCAL_MAX_CYCLES — per-slice BRC re-proposal ceiling
 #   before HITL escalation (refine-phase decision-9 opt-3 two-tier
@@ -201,6 +209,7 @@ def get_heartbeat_rate_limit() -> int:
 # -----------------------------------------------------------------
 
 DEFAULT_MAX_PARALLEL_SLICES = 5
+DEFAULT_GLOBAL_MAX_PARALLEL_SLICES = 4
 DEFAULT_SLICE_LOCAL_MAX_CYCLES = 3
 DEFAULT_SLICE_GLOBAL_MAX_CYCLES = 10
 DEFAULT_SLICE_FAILURE_GRACE_SECONDS = 60.0
@@ -214,7 +223,7 @@ def _coerce_positive_int(env_name: str, default: int) -> int:
         return default
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "%s=%r is not an integer; falling back to %d",
             env_name,
@@ -240,7 +249,7 @@ def _coerce_positive_float(env_name: str, default: float) -> float:
         return default
     try:
         val = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "%s=%r is not a number; falling back to %.1f",
             env_name,
@@ -262,6 +271,29 @@ def _coerce_positive_float(env_name: str, default: float) -> float:
 def get_max_parallel_slices() -> int:
     """Return the per-pipeline parallel-slice spawn cap (default 5)."""
     return _coerce_positive_int("EGG_ORCH_MAX_PARALLEL_SLICES", DEFAULT_MAX_PARALLEL_SLICES)
+
+
+def get_global_max_parallel_slices() -> int:
+    """Return the orchestrator-process-wide parallel-slice cap (default 4).
+
+    Distinct from ``EGG_ORCH_MAX_PARALLEL_SLICES`` which caps slices
+    per pipeline. This cap bounds slices across **all** running
+    pipelines in the orchestrator process — the operationally
+    observed safe ceiling is ~4 because each slice spawns ~8
+    containers and the host saturates beyond that.
+
+    Slice spawn defers (the slice stays READY) when the cap is
+    saturated; the per-pipeline ``iter_ready`` accounting is not
+    affected because admission happens *before* ``mark_spawned``.
+
+    Note: this is a per-process counter. Operators running multiple
+    orchestrator replicas (HA pair) get one cap per replica — the
+    semaphore does not coordinate across processes.
+    """
+    return _coerce_positive_int(
+        "EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES",
+        DEFAULT_GLOBAL_MAX_PARALLEL_SLICES,
+    )
 
 
 def get_slice_local_max_cycles() -> int:
@@ -315,7 +347,7 @@ def get_state_store_probe_interval() -> float:
         return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
     try:
         val = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_ORCH_STATE_STORE_PROBE_INTERVAL=%r is not a number; falling back to %.1fs",
             raw,

@@ -1632,7 +1632,7 @@ class PipelineToolHandler:
                     started_dt = started_dt.replace(tzinfo=UTC)
                 status["phase_started_at"] = started_dt.isoformat()
                 status["phase_elapsed_seconds"] = max(0, int((now - started_dt).total_seconds()))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
         for agent in status["running_agents"]:
@@ -1643,7 +1643,7 @@ class PipelineToolHandler:
                     if agent_dt.tzinfo is None:
                         agent_dt = agent_dt.replace(tzinfo=UTC)
                     agent["elapsed_seconds"] = max(0, int((now - agent_dt).total_seconds()))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
         # Extract decisions
@@ -1675,7 +1675,7 @@ class PipelineToolHandler:
                             "completed_at": completed_dt.isoformat(),
                             "since_seconds": since_seconds,
                         }
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
         # Enrichment: recent messages (optional)
@@ -2316,6 +2316,8 @@ class PipelineToolHandler:
                 snapshot["concurrent"] = status_data["concurrent"]
             if "pending_decision" in status_data:
                 snapshot["pending_decision"] = status_data["pending_decision"]
+            if "slice_admit" in status_data:
+                snapshot["slice_admit"] = status_data["slice_admit"]
         except Exception:
             pass
 
