@@ -484,6 +484,26 @@ class PipelineConfig(BaseModel):
         ge=30,
         description="Timeout for producers to send CONFIRMED after being fully ACKed",
     )
+    orchestrator_plan_post_ack_confirmation_timeout_seconds: int = Field(
+        default=300,
+        ge=30,
+        description=(
+            "Plan-phase post-ACK confirm timeout. Plan-phase reconciliation "
+            "(resolved decisions, feedback bodies, slice-DAG sanity) "
+            "legitimately exceeds the default 180s on heavy pipelines, so "
+            "plan uses a higher threshold than refine/implement. (#2242)"
+        ),
+    )
+    orchestrator_alert_progress_gate_seconds: int = Field(
+        default=300,
+        ge=0,
+        description=(
+            "Defer heartbeat-stall and progress-stall alerts while any peer "
+            "agent or the BRC bus has emitted a signal within this many "
+            "seconds. Mirrors brc_consensus_progress_gate_seconds but for "
+            "per-agent tripwires (#2242). 0 disables the gate."
+        ),
+    )
     active_agent_stall_extension_seconds: int = Field(
         default=120,
         ge=30,

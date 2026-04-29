@@ -666,7 +666,12 @@ class TestMultiAgentTracking:
     def test_heartbeat_timeout_per_agent(self):
         """Heartbeat timeout only fires for the agent that stalled."""
         bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        # Disable the alive-signal gate (#2242) so this test isolates the
+        # per-agent isolation behavior from the peer-progress deferral.
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
         monitor = _make_monitor(bus, config)
 
         # Both agents send heartbeats
@@ -2596,3 +2601,321 @@ class TestHeartbeatMessageWiring:
             # No escalation because HEARTBEAT reset the clock.
             actions = monitor.check_heartbeats()
         assert actions == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: alive-signal progress gate (issue #2242)
+# ---------------------------------------------------------------------------
+
+
+class TestAlertProgressGate:
+    """Issue #2242: heartbeat / progress alerts defer while the broader
+    pipeline is still emitting peer or BRC-bus signals.
+
+    Sibling of the consensus-failure progress gate added in #2243 / #2254;
+    the same alive-signal vocabulary applied to per-agent tripwires so a
+    single producer mid-Anthropic-completion does not trip an
+    ``agent-heartbeat-stall`` while peers are clearly alive.
+    """
+
+    def test_heartbeat_alert_defers_when_peer_heartbeat_fresh(self):
+        """A peer heartbeat within gate_seconds defers a stalled agent's alert."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+
+        # Silent agent established at t=base.
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # Peer heartbeats at t=base+200 — the broader pipeline is alive.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 200
+            _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+
+        # At t=base+250 the focal agent has been silent for 250s
+        # (>60s threshold). Peer heartbeat is 50s old — within the
+        # 300s gate. Defer.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 250
+            actions = monitor.check_heartbeats()
+
+        assert actions == [], "Heartbeat alert should defer while peer is heartbeating"
+
+        # The escalated flag must NOT be set, so the next poll re-checks.
+        agent_state = monitor._agents[AGENT_ID]
+        assert not agent_state.heartbeat_escalated
+
+    def test_heartbeat_alert_fires_when_gate_window_elapsed(self):
+        """Once peer signal ages past gate_seconds, the alert proceeds."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+        _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+
+        # Both agents silent for 400s — past the 300s gate window.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 400
+            actions = monitor.check_heartbeats()
+
+        # Both agents fire (each has the other as a stale peer).
+        assert len(actions) == 2
+
+    def test_heartbeat_alert_excludes_self_from_peer_signal(self):
+        """A solo agent's own heartbeat must not defer its own alert."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # Only the focal agent exists. At t=base+61 it's silent for 61s.
+        # Without self-exclusion, its own heartbeat (61s old, within
+        # gate) would defer trivially.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Self-exclusion must let solo-agent alerts through"
+
+    def test_gate_disabled_when_seconds_zero(self):
+        """orchestrator_alert_progress_gate_seconds=0 reverts to pre-fix behavior."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # Peer alive — but gate disabled, so still escalate.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 100
+            _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 150
+            actions = monitor.check_heartbeats()
+
+        # AGENT_ID has been silent 150s (>60s); gate disabled fires.
+        assert any(a["agent_id"] == AGENT_ID for a in actions)
+
+    def test_progress_alert_defers_when_peer_heartbeat_fresh(self):
+        """progress_stall path also consults the gate."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 200
+            _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 250
+            actions = monitor.check_progress()
+
+        assert actions == [], "Progress-stall must defer while peers are alive"
+        assert not monitor._agents[AGENT_ID].progress_escalated
+
+    def test_gate_defers_when_brc_bus_active(self):
+        """A fresh BRC-tracker progress timestamp defers the alert even if
+        no peer heartbeat is fresh."""
+        from datetime import UTC, datetime
+
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # Mock tracker reporting a CONSENSUS_PROPOSE at base+200 (50s ago
+        # relative to the mocked check time of base+250).
+        mock_tracker = MagicMock()
+        mock_tracker.get_latest_progress_timestamp.return_value = datetime.fromtimestamp(
+            base + 200, tz=UTC
+        )
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = base + 250
+            actions = monitor.check_heartbeats()
+
+        assert actions == [], "Fresh BRC-bus signal should defer the alert"
+
+    def test_gate_handles_missing_tracker_gracefully(self):
+        """If no BRC tracker is registered, fall back to peer heartbeats only."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # No tracker, no peer heartbeat — alert proceeds.
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+        ):
+            mock_time.time.return_value = base + 100
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+
+    def test_gate_filters_inactive_agent_heartbeats(self):
+        """A heartbeat from a role not in the current-phase tracker graph
+        does not defer alerts (mirrors ``_check_brc_progress_gate``'s
+        ``active_role_names`` filter)."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # AGENT_ID_2 has a real heartbeat 50s before check time — production
+        # state shape after a phase transition that didn't ``reset_agent``
+        # AGENT_ID_2's role (which lingers in ``_last_heartbeat`` and
+        # ``_agents`` together; the prior ``_agents.keys()`` filter would
+        # have been a no-op against this).
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 200
+            _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+
+        # Mock a tracker whose phase-scoped graph contains only AGENT_ID
+        # — i.e. AGENT_ID_2 belonged to a prior phase. The gate must
+        # drop AGENT_ID_2's heartbeat and proceed with AGENT_ID's alert.
+        mock_tracker = MagicMock()
+        mock_tracker.get_latest_progress_timestamp.return_value = None
+        mock_tracker.graph.all_roles.return_value = {AGENT_ID}
+
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = base + 250
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Inactive-role heartbeats must not defer alerts for active peers"
+
+
+# ---------------------------------------------------------------------------
+# Tests: phase-aware post-ACK confirmation timeout (issue #2242)
+# ---------------------------------------------------------------------------
+
+
+class TestPlanPhasePostAckTimeout:
+    """Issue #2242: plan phase uses a higher post-ACK confirm threshold than
+    refine/implement. Plan-phase reconciliation (resolved decisions, feedback
+    bodies, slice-DAG sanity) legitimately exceeds the 180s default on heavy
+    pipelines."""
+
+    def test_plan_phase_post_ack_default_300(self):
+        """orchestrator_plan_post_ack_confirmation_timeout_seconds defaults to 300."""
+        config = PipelineConfig()
+        assert config.orchestrator_plan_post_ack_confirmation_timeout_seconds == 300
+
+    def test_plan_phase_post_ack_validation_minimum_30(self):
+        """Value must be >= 30."""
+        with pytest.raises(ValueError):
+            PipelineConfig(orchestrator_plan_post_ack_confirmation_timeout_seconds=10)
+
+    def test_get_post_ack_confirmation_timeout_phase_aware(self):
+        """Helper returns plan-phase value during plan, default elsewhere."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_post_ack_confirmation_timeout_seconds=180,
+            orchestrator_plan_post_ack_confirmation_timeout_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        # No phase set — default.
+        assert monitor._get_post_ack_confirmation_timeout() == 180
+
+        monitor.set_current_phase("plan")
+        assert monitor._get_post_ack_confirmation_timeout() == 300
+
+        for phase in ["refine", "implement", "pr"]:
+            monitor.set_current_phase(phase)
+            assert monitor._get_post_ack_confirmation_timeout() == 180, (
+                f"Phase {phase} should use the default 180s"
+            )
+
+    def test_check_brc_progress_uses_plan_phase_threshold(self):
+        """During plan phase, check_brc_progress waits for the longer threshold."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_post_ack_confirmation_timeout_seconds=180,
+            orchestrator_plan_post_ack_confirmation_timeout_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_current_phase("plan")
+
+        # Register the producer so it has an AgentState.
+        _emit_heartbeat(bus, agent_id="architect")
+
+        mock_tracker = MagicMock()
+        # Producer fully ACKed since base.
+        mock_tracker.get_fully_acked_producers.return_value = {"architect": time.time()}
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            # First call: records first-seen.
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()
+
+            # At base+200 — past 180s default but within 300s plan threshold.
+            mock_time.time.return_value = base + 200
+            actions = monitor.check_brc_progress()
+            assert actions == [], "Plan phase should not fire at 200s (threshold=300s)"
+
+            # At base+301 — past plan threshold.
+            mock_time.time.return_value = base + 301
+            actions = monitor.check_brc_progress()
+            assert len(actions) == 1
+            assert actions[0]["alert_type"] == "brc_confirmation_timeout"

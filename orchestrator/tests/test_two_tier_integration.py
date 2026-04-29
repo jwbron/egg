@@ -441,7 +441,12 @@ class TestMultipleAgentsStalling:
     def test_two_agents_stall_at_different_times(self):
         """Two agents stall independently; each receives its own escalation."""
         bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        # Disable the alive-signal gate (#2242) so this test isolates the
+        # per-agent escalation behavior from the peer-progress deferral.
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
         monitor = HealthMonitor(
             event_bus=bus,
             pipeline_id=PIPELINE_ID,
@@ -471,7 +476,12 @@ class TestMultipleAgentsStalling:
     def test_both_agents_stall_get_independent_escalations(self):
         """When both agents stall, each gets an independent escalation."""
         bus = _make_event_bus()
-        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        # Disable the alive-signal gate (#2242) so this test isolates the
+        # per-agent escalation behavior from the peer-progress deferral.
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
         monitor = HealthMonitor(
             event_bus=bus,
             pipeline_id=PIPELINE_ID,
@@ -494,9 +504,12 @@ class TestMultipleAgentsStalling:
     def test_one_agent_resolves_other_stays_escalated(self):
         """One agent recovers after escalation; the other remains escalated (no re-escalation)."""
         bus = _make_event_bus()
+        # Disable the alive-signal gate (#2242) so this test isolates the
+        # per-agent escalation behavior from the peer-progress deferral.
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
             overseer_enabled=True,
+            orchestrator_alert_progress_gate_seconds=0,
         )
         monitor = HealthMonitor(
             event_bus=bus,
@@ -535,9 +548,12 @@ class TestMultipleAgentsStalling:
     def test_independent_escalation_types(self):
         """Each agent's escalation is independent and carries correct metadata."""
         bus = _make_event_bus()
+        # Disable the alive-signal gate (#2242) so this test isolates the
+        # per-agent escalation behavior from the peer-progress deferral.
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
             overseer_enabled=True,
+            orchestrator_alert_progress_gate_seconds=0,
         )
         monitor = HealthMonitor(
             event_bus=bus,
