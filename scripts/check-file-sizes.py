@@ -18,20 +18,21 @@ Test files are exempt -- parametrized cases legitimately push line counts
 past these caps and decomposing them mechanically would hurt readability.
 
 Files already over the hard cap on day one are listed in
-``scripts/file-size-allowlist.yaml`` with their line and byte baselines.
-The lint allows allowlisted files to stay over the cap, but rejects further
-growth past the recorded baseline -- decomposition follow-ups land as the
-file shrinks. Removing a file from the allowlist (or letting it grow under
-the cap) is encouraged as cleanup proceeds.
+``scripts/file-size-allowlist.yaml``. The lint allows allowlisted files to
+stay over the cap regardless of size; per-file size baselines were dropped
+because every unrelated PR that touched one of these files needed a
+baseline bump in the allowlist, conflicting with every other in-flight PR.
+Removing a file from the allowlist (or letting it drop under the cap) is
+encouraged as decomposition proceeds.
 
 Usage:
     scripts/check-file-sizes.py
-    scripts/check-file-sizes.py --update-allowlist  # rewrite baselines
+    scripts/check-file-sizes.py --update-allowlist  # add over-cap files
     scripts/check-file-sizes.py --list              # report all files
 
 Exit codes:
     0  no violations
-    1  one or more files exceed caps or grew past their allowlist baseline
+    1  one or more non-allowlisted files exceed the hard cap
 """
 
 from __future__ import annotations
@@ -63,13 +64,6 @@ class Caps:
 
 
 @dataclass(frozen=True)
-class Baseline:
-    lines: int
-    bytes: int
-    issue: str | None = None
-
-
-@dataclass(frozen=True)
 class FileStats:
     path: Path
     lines: int
@@ -79,7 +73,9 @@ class FileStats:
 @dataclass
 class Config:
     caps: Caps
-    baselines: dict[str, Baseline]
+    # path -> optional tracking issue. Membership is what gates the lint;
+    # the issue field is documentation only.
+    allowlist: dict[str, str | None]
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -95,15 +91,14 @@ def load_config(path: Path | None = None) -> Config:
         soft_bytes=int(caps_raw["soft_bytes"]),
     )
     files_raw: dict[str, Any] = raw.get("files") or {}
-    baselines = {
-        rel: Baseline(
-            lines=int(entry["lines"]),
-            bytes=int(entry["bytes"]),
-            issue=(str(entry["issue"]) if entry.get("issue") is not None else None),
-        )
-        for rel, entry in files_raw.items()
-    }
-    return Config(caps=caps, baselines=baselines)
+    allowlist: dict[str, str | None] = {}
+    for rel, entry in files_raw.items():
+        if isinstance(entry, dict):
+            issue = entry.get("issue")
+            allowlist[rel] = str(issue) if issue is not None else None
+        else:
+            allowlist[rel] = None
+    return Config(caps=caps, allowlist=allowlist)
 
 
 def is_test_file(rel: Path) -> bool:
@@ -146,37 +141,24 @@ def evaluate(
     errors: list[str] = []
     warnings: list[str] = []
     caps = config.caps
-    baseline = config.baselines.get(rel)
+    in_allowlist = rel in config.allowlist
 
     over_hard_lines = stats.lines > caps.hard_lines
     over_hard_bytes = stats.bytes > caps.hard_bytes
 
     if over_hard_lines or over_hard_bytes:
-        if baseline is None:
+        if not in_allowlist:
             errors.append(
                 f"{rel}: {stats.lines} lines / {stats.bytes} bytes exceeds hard cap "
                 f"({caps.hard_lines} lines / {caps.hard_bytes} bytes). "
                 "Decompose the file or, if you cannot in this PR, add it to "
                 "scripts/file-size-allowlist.yaml with a tracking issue."
             )
-        else:
-            if stats.lines > baseline.lines:
-                errors.append(
-                    f"{rel}: {stats.lines} lines exceeds allowlist baseline "
-                    f"({baseline.lines}). Reduce the file or open a separate PR "
-                    "raising the baseline with justification."
-                )
-            if stats.bytes > baseline.bytes:
-                errors.append(
-                    f"{rel}: {stats.bytes} bytes exceeds allowlist baseline "
-                    f"({baseline.bytes}). Reduce the file or open a separate PR "
-                    "raising the baseline with justification."
-                )
         return errors, warnings
 
     # Soft warnings are skipped for allowlisted files -- they're already
     # tracked for decomposition.
-    if baseline is not None:
+    if in_allowlist:
         return errors, warnings
 
     if stats.lines > caps.soft_lines:
@@ -207,18 +189,17 @@ def check_all(repo_root: Path = REPO_ROOT) -> tuple[list[str], list[str], list[s
         errors.extend(file_errors)
         warnings.extend(file_warnings)
 
-    stale = sorted(rel for rel in config.baselines if rel not in seen)
+    stale = sorted(rel for rel in config.allowlist if rel not in seen)
     return errors, warnings, stale
 
 
-def write_allowlist(config: Config, baselines: dict[str, Baseline]) -> None:
-    """Rewrite the allowlist file preserving caps + sorted baselines."""
+def write_allowlist(config: Config, allowlist: dict[str, str | None]) -> None:
+    """Rewrite the allowlist file preserving caps + sorted entries."""
 
-    def _entry(b: Baseline) -> dict[str, Any]:
-        out: dict[str, Any] = {"lines": b.lines, "bytes": b.bytes}
-        if b.issue is not None:
-            out["issue"] = b.issue
-        return out
+    def _entry(issue: str | None) -> Any:
+        if issue is None:
+            return None
+        return {"issue": issue}
 
     payload: dict[str, Any] = {
         "caps": {
@@ -227,32 +208,29 @@ def write_allowlist(config: Config, baselines: dict[str, Baseline]) -> None:
             "soft_lines": config.caps.soft_lines,
             "soft_bytes": config.caps.soft_bytes,
         },
-        "files": {rel: _entry(b) for rel, b in sorted(baselines.items())},
+        "files": {rel: _entry(issue) for rel, issue in sorted(allowlist.items())},
     }
     ALLOWLIST_PATH.write_text(yaml.safe_dump(payload, sort_keys=False))
 
 
 def update_allowlist(repo_root: Path = REPO_ROOT) -> int:
-    """Refresh allowlist baselines from current file sizes.
+    """Sync the allowlist with the current set of over-cap files.
 
-    The ``issue:`` tracking field on each existing entry is carried forward;
-    losing it would drop the link between the file and its decomposition
-    follow-up.
+    Adds over-cap files not yet listed (with no issue link) and drops
+    entries for files that have shrunk under the cap or no longer exist.
+    The ``issue:`` tracking field on each existing entry is carried
+    forward; losing it would drop the link between the file and its
+    decomposition follow-up.
     """
     config = load_config()
-    new_baselines: dict[str, Baseline] = {}
+    new_allowlist: dict[str, str | None] = {}
     for path in iter_source_files(repo_root):
         rel = str(path.relative_to(repo_root))
         stats = measure(path)
         if stats.lines > config.caps.hard_lines or stats.bytes > config.caps.hard_bytes:
-            existing = config.baselines.get(rel)
-            new_baselines[rel] = Baseline(
-                lines=stats.lines,
-                bytes=stats.bytes,
-                issue=existing.issue if existing is not None else None,
-            )
-    write_allowlist(config, new_baselines)
-    print(f"Wrote {len(new_baselines)} entries to {ALLOWLIST_PATH.name}")
+            new_allowlist[rel] = config.allowlist.get(rel)
+    write_allowlist(config, new_allowlist)
+    print(f"Wrote {len(new_allowlist)} entries to {ALLOWLIST_PATH.name}")
     return 0
 
 
@@ -274,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--update-allowlist",
         action="store_true",
-        help="Rewrite scripts/file-size-allowlist.yaml from current file sizes.",
+        help="Sync scripts/file-size-allowlist.yaml with current over-cap files.",
     )
     parser.add_argument(
         "--list",
