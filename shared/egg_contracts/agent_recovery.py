@@ -296,7 +296,7 @@ class ConflictDetector:
                 conflicts.append(conflict)
                 self._detected_conflicts.append(conflict)
 
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        except subprocess.TimeoutExpired, subprocess.SubprocessError:
             pass
 
         return conflicts

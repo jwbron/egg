@@ -65,7 +65,7 @@ def _parse_verdict(text: str) -> tuple[HealthStatus, str]:
 
     try:
         data = json.loads(cleaned)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         return HealthStatus.HEALTHY, f"Could not parse verdict JSON: {text[:200]}"
 
     raw_status = str(data.get("status", "")).upper()
@@ -184,7 +184,7 @@ def _run_inspector_container(
                 force=True,
                 cleanup_session=True,
             )
-        except (DockerClientError, ContainerSpawnError):
+        except DockerClientError, ContainerSpawnError:
             pass  # Best effort cleanup
 
 
@@ -214,7 +214,7 @@ def _parse_container_output(logs: str) -> str:
             try:
                 data = json.loads(stripped)
                 return str(data.get("raw_response", ""))
-            except (json.JSONDecodeError, ValueError):
+            except json.JSONDecodeError, ValueError:
                 continue
 
     raise ValueError(f"No valid JSON found in container output: {logs[-300:]}")
