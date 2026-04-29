@@ -224,7 +224,7 @@ When a pipeline's branch absorbs merged-main commits (the contamination shape in
 **Detection mechanism:**
 - Each 30-second health monitor tick calls `_branch_divergence_tick()`, which runs two git commands against `origin/<pipeline_branch>`:
   1. `git rev-list --count origin/<base>..origin/<pipeline_branch>` — count commits ahead
-  2. If count > `BRANCH_DIVERGENCE_THRESHOLD` (20), `git log --pretty=format:%H%x09%s` — list subjects
+  2. If count > `BRANCH_DIVERGENCE_THRESHOLD` (20), `git log --no-merges --pretty=format:%H%x09%s` — list non-merge subjects
 - If any subjects match the `(#NNNN)` pattern (merged-PR signatures), those commits are "offenders"
 - An `OVERSEER_ALERT` with `anomaly_type: "branch-divergence"` is published listing the offending SHAs and subjects
 - All git errors are logged and swallowed — observability must never block the pipeline
@@ -233,7 +233,7 @@ When a pipeline's branch absorbs merged-main commits (the contamination shape in
 
 **Deduplication:** A per-pipeline `divergence_alerted_shas` set tracks which offending commit SHAs have already fired an alert. New alerts fire only for newly-discovered offenders. The set clears when the contamination window goes empty (including on transient git errors), so re-introduced contamination re-fires — consistent with the "rather over-alert than miss" posture of #2224.
 
-**False positives:** An agent legitimately including a `(#NNNN)` reference in a commit subject (e.g., "Implement fix for issue #2222") would trigger the detector. The alert body explains the false-positive scenario and instructs that no action is required if the diff against main looks clean.
+**False positives:** An agent legitimately including a `(#NNNN)` literal (with parentheses) in a commit subject — e.g., `"Reference benchmark suite (#2222)"` — would trigger the detector. The regex (`\(#\d+\)`) requires the literal `(` and `)` characters, so a bare `#2222` reference does not match. The alert body explains the false-positive scenario and instructs that no action is required if the diff against main looks clean.
 
 ### Configuration
 
