@@ -50,6 +50,7 @@ import datetime as dt
 import glob
 import json
 import re
+import statistics
 import sys
 from pathlib import Path
 from typing import Any
@@ -57,14 +58,16 @@ from typing import Any
 # Heartbeat-body language that suggests the tester drafted test
 # scaffolding while waiting. Matched case-insensitively against the
 # whole body; word boundaries on the keys keep "fixture" from matching
-# inside unrelated identifiers.
+# inside unrelated identifiers. ``drafted`` and ``signature`` are
+# qualified with test-context anchors so unrelated phrasing like
+# "drafted plan" or "method signature changed in dep" does not fire.
 _SCAFFOLD_KEYWORDS = (
     r"\bscaffold",  # scaffold, scaffolds, scaffolding, scaffolded
     r"\btest file",  # test file, test files
-    r"\bdrafted\b",
+    r"\bdrafted (test|scaffold|fixture)",
     r"\bprepared test",  # prepared test, prepared tests, prepared testing
     r"\bfixture",
-    r"\bsignature",
+    r"\btest signature",
     r"\bstub",
 )
 _SCAFFOLD_RE = re.compile("|".join(_SCAFFOLD_KEYWORDS), re.IGNORECASE)
@@ -107,15 +110,27 @@ def _first_propose_ts(messages: list[dict[str, Any]], role: str) -> str | None:
 def _heartbeats_before(
     messages: list[dict[str, Any]], role: str, cutoff_ts: str
 ) -> list[dict[str, Any]]:
-    """Return ``role``'s heartbeats with timestamp < ``cutoff_ts``."""
-    return [
-        msg
-        for msg in messages
-        if msg.get("from_role") == role
-        and msg.get("message_type") == "HEARTBEAT"
-        and isinstance(msg.get("timestamp"), str)
-        and msg["timestamp"] < cutoff_ts
-    ]
+    """Return ``role``'s heartbeats with timestamp < ``cutoff_ts``.
+
+    Compares parsed datetimes rather than raw strings so mixed offset
+    forms (``+00:00`` vs. ``Z``) sort correctly. Heartbeats with
+    unparseable timestamps are dropped — there is no defensible way to
+    place them in the wait window.
+    """
+    cutoff = _parse_ts(cutoff_ts)
+    if cutoff is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        if msg.get("from_role") != role or msg.get("message_type") != "HEARTBEAT":
+            continue
+        ts_value = msg.get("timestamp")
+        if not isinstance(ts_value, str):
+            continue
+        ts = _parse_ts(ts_value)
+        if ts is not None and ts < cutoff:
+            out.append(msg)
+    return out
 
 
 def _scaffold_signal(heartbeats: list[dict[str, Any]]) -> tuple[bool, list[str]]:
@@ -244,10 +259,9 @@ def _summarize(rows: list[PipelineRow]) -> dict[str, Any]:
         "scaffold_signal_fraction": (len(with_signal) / len(eligible)) if eligible else None,
     }
     if waits:
-        waits_sorted = sorted(waits)
-        summary["wait_minutes_min"] = round(waits_sorted[0], 2)
-        summary["wait_minutes_max"] = round(waits_sorted[-1], 2)
-        summary["wait_minutes_median"] = round(waits_sorted[len(waits_sorted) // 2], 2)
+        summary["wait_minutes_min"] = round(min(waits), 2)
+        summary["wait_minutes_max"] = round(max(waits), 2)
+        summary["wait_minutes_median"] = round(statistics.median(waits), 2)
         summary["wait_minutes_mean"] = round(sum(waits) / len(waits), 2)
     return summary
 

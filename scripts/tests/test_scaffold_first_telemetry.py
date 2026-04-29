@@ -82,7 +82,7 @@ def test_scaffold_signal_matches_keyword_variants() -> None:
         "Drafted test scaffolding for Phase 4 (7 test files).",
         "Prepared tests for the auth-widening surface.",
         "Sketched fixture for the new client.",
-        "Wrote function signatures for tasks 1-3.",
+        "Wrote test signatures for tasks 1-3.",
         "Added test stubs covering edge cases.",
     ]
     heartbeats = [{"body": b} for b in bodies]
@@ -92,11 +92,18 @@ def test_scaffold_signal_matches_keyword_variants() -> None:
 
 
 def test_scaffold_signal_ignores_unrelated_bodies() -> None:
-    """Generic 'waiting on coder' bodies must not fire the signal."""
+    """Generic 'waiting on coder' bodies must not fire the signal.
+
+    The ``drafted`` and ``signature`` keywords are qualified with
+    test-context anchors, so unrelated phrasing like "drafted plan" or
+    "method signature changed in dep" must NOT trigger.
+    """
     heartbeats = [
         {"body": "Waiting on coder for CONSENSUS_PROPOSE."},
         {"body": "Reviewing the contract."},
         {"body": ""},
+        {"body": "Drafted plan for Phase 2 implementation."},
+        {"body": "Method signature changed in upstream dep."},
     ]
     matched, excerpts = sft._scaffold_signal(heartbeats)
     assert not matched
@@ -348,7 +355,9 @@ def test_summarize_computes_fraction_and_wait_stats() -> None:
     assert summary["ineligible_pipelines"] == 1
     assert summary["scaffold_signal_count"] == 1
     assert summary["scaffold_signal_fraction"] == 0.5
-    assert summary["wait_minutes_median"] in (10.0, 30.0)
+    # statistics.median averages the two middle values for even-length
+    # samples — strict-median semantics, not "high median".
+    assert summary["wait_minutes_median"] == 20.0
 
 
 def test_summarize_handles_no_eligible_pipelines() -> None:
@@ -392,3 +401,72 @@ def test_main_missing_brc_dir_returns_error(tmp_path: Path, capsys) -> None:
     assert rc == 1
     err = capsys.readouterr().err
     assert "is not a directory" in err
+
+
+def test_main_text_output_includes_header_and_summary(tmp_path: Path, capsys) -> None:
+    """Default (non-JSON) path renders the table header + aggregate summary."""
+    history = [
+        _msg(
+            "tester",
+            "HEARTBEAT",
+            "2026-04-24T00:10:00+00:00",
+            body="Drafted test scaffolding.",
+        ),
+        _msg("coder", "CONSENSUS_PROPOSE", "2026-04-24T00:30:00+00:00"),
+        _msg("tester", "CONSENSUS_PROPOSE", "2026-04-24T00:45:00+00:00"),
+    ]
+    _write_history(tmp_path / "1901-implement.json", history)
+
+    rc = sft.main(["--brc-dir", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "pipeline_id" in out
+    assert "scaffold-first fraction" in out
+    assert "1901" in out
+    # 1/1 eligible pipelines matched scaffold-first.
+    assert "1/1 (100.0%)" in out
+
+
+def test_main_text_output_verbose_includes_excerpts(tmp_path: Path, capsys) -> None:
+    """--verbose surfaces the matched heartbeat excerpts under each row."""
+    history = [
+        _msg(
+            "tester",
+            "HEARTBEAT",
+            "2026-04-24T00:10:00+00:00",
+            body="Drafted test scaffolding for Phase 4.",
+        ),
+        _msg("coder", "CONSENSUS_PROPOSE", "2026-04-24T00:30:00+00:00"),
+    ]
+    _write_history(tmp_path / "1902-implement.json", history)
+
+    rc = sft.main(["--brc-dir", str(tmp_path), "--verbose"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "matched: Drafted test scaffolding" in out
+
+
+def test_heartbeats_before_handles_z_suffix_timestamps(tmp_path: Path) -> None:
+    """``Z``-suffixed timestamps sort correctly against ``+00:00`` cutoffs.
+
+    Lex compare on raw strings would order ``...Z`` AFTER ``...+00:00``
+    even when the moments are equal, silently dropping pre-cutoff
+    heartbeats. Datetime-parsed compare avoids that.
+    """
+    history = [
+        _msg(
+            "tester",
+            "HEARTBEAT",
+            "2026-04-24T00:10:00Z",
+            body="Drafted test scaffolding.",
+        ),
+        _msg("coder", "CONSENSUS_PROPOSE", "2026-04-24T00:30:00+00:00"),
+    ]
+    f = tmp_path / "1903-implement.json"
+    _write_history(f, history)
+
+    row = sft.analyze_file(f)
+    assert row.has_tester
+    assert row.has_upstream
+    assert row.tester_heartbeats_before_upstream == 1
+    assert row.tester_scaffold_signal
