@@ -1,11 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Pinned to v0.14.14: v0.15.0's ruff-format hook corrupts
-    # `except (X, Y):` into invalid Py2 syntax `except X, Y:` for
-    # orchestrator/kubernetes_spawner.py under our pre-commit invocation
-    # (the standalone v0.15.0 binary does not reproduce). 0.14.14
-    # matches the version pinned in the project's local venv.
-    rev: v0.14.14
+    rev: v0.15.12
     hooks:
       - id: ruff
         args: [--fix]

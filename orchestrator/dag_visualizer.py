@@ -263,7 +263,7 @@ def _compute_wave_order(
                 for target_wave in sorted(target_groups, reverse=True):
                     insert_at = min(target_wave, len(non_reviewer_waves))
                     non_reviewer_waves.insert(insert_at, target_groups[target_wave])
-            except (ImportError, KeyError, ValueError):
+            except ImportError, KeyError, ValueError:
                 # Fallback: append at the end before reviewers
                 non_reviewer_waves.append(non_reviewer_rem)
 
