@@ -166,8 +166,114 @@
       "started_at": "2026-04-29T05:09:33.886403Z",
       "work_started_at": "2026-04-29T05:09:34.680158Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "87e09b19-44e4-4d83-b137-a3277b76b568",
+          "container_name": "egg-sandbox-egg-agent-issue-1557-v2-risk-analyst",
+          "status": "running",
+          "started_at": "2026-04-29T05:09:41.569892Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "risk_analyst",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1557-v2-risk-analyst"
+        },
+        {
+          "container_id": "011a7cb7-049e-4542-b6f5-5ef9d290f0f0",
+          "container_name": "egg-sandbox-egg-agent-issue-1557-v2-reviewer-plan",
+          "status": "running",
+          "started_at": "2026-04-29T05:09:41.569909Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_plan",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1557-v2-reviewer-plan"
+        },
+        {
+          "container_id": "cd5bb0c3-92bc-4a57-a336-1f2ea7828c86",
+          "container_name": "egg-sandbox-egg-agent-issue-1557-v2-architect",
+          "status": "running",
+          "started_at": "2026-04-29T05:09:41.569914Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "architect",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1557-v2-architect"
+        },
+        {
+          "container_id": "9d78703b-06bc-4ac7-8ae8-9faec7866a0d",
+          "container_name": "egg-sandbox-egg-agent-issue-1557-v2-task-planner",
+          "status": "running",
+          "started_at": "2026-04-29T05:09:41.569917Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "task_planner",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1557-v2-task-planner"
+        }
+      ],
+      "agents": [
+        {
+          "role": "risk_analyst",
+          "status": "running",
+          "container_id": "87e09b19-44e4-4d83-b137-a3277b76b568",
+          "container_info": null,
+          "started_at": "2026-04-29T05:09:41.569904Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_plan",
+          "status": "running",
+          "container_id": "011a7cb7-049e-4542-b6f5-5ef9d290f0f0",
+          "container_info": null,
+          "started_at": "2026-04-29T05:09:41.569912Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "cd5bb0c3-92bc-4a57-a336-1f2ea7828c86",
+          "container_info": null,
+          "started_at": "2026-04-29T05:09:41.569916Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "task_planner",
+          "status": "running",
+          "container_id": "9d78703b-06bc-4ac7-8ae8-9faec7866a0d",
+          "container_info": null,
+          "started_at": "2026-04-29T05:09:41.569919Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -479,7 +585,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T05:09:34.682992Z",
+  "updated_at": "2026-04-29T05:09:41.569989Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -493,6 +599,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-29T05:09:31.870477Z",
-  "version": 42,
+  "version": 43,
   "jira_ticket": null
 }
