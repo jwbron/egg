@@ -294,7 +294,7 @@ The contract tracks per-reviewer verdicts for debugging:
 
 ### Multi-Agent Orchestration
 
-The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped at `EGG_ORCH_MAX_PARALLEL_SLICES`, default 5); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
+The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped at `EGG_ORCH_MAX_PARALLEL_SLICES`, default 5 per pipeline; a process-wide `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` cap, default 4, applies across all pipelines running in the same orchestrator process — #2241); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
 
 Within each slice, concurrent BRC execution runs: specialized agents run simultaneously and coordinate via the message bus.
 
