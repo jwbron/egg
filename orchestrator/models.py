@@ -375,15 +375,17 @@ class PipelineConfig(BaseModel):
         default=30, ge=1, description="Suggested message polling interval for agents"
     )
     consensus_timeout_minutes: int = Field(
-        default=30, ge=1, description="Timeout for consensus before HITL escalation"
+        default=30,
+        ge=1,
+        description="Timeout for consensus before publishing an OVERSEER_ALERT (#2264)",
     )
     brc_consensus_progress_gate_seconds: int = Field(
         default=300,
         ge=0,
         description=(
-            "Defer the consensus-timeout HITL decision while any BRC progress signal "
+            "Defer the consensus-timeout OVERSEER_ALERT while any BRC progress signal "
             "(CONSENSUS_PROPOSE/ACK/NACK or container heartbeat) has fired within this "
-            "many seconds. 0 disables the gate. (#2243)"
+            "many seconds. 0 disables the gate. (#2243, #2264)"
         ),
     )
     agent_idle_timeout_minutes: int = Field(

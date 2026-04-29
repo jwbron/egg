@@ -9592,9 +9592,10 @@ def _check_brc_progress_gate(
     crashed signal collector must not silently keep us off the alert
     surface.
 
-    Heartbeat-cadence contract: the decision-17 path (coder mid-merge-
-    conflict before any ``CONSENSUS_PROPOSE``) relies on container
-    heartbeats firing at least every ``gate_seconds``. Sandbox
+    Heartbeat-cadence contract: the coder-mid-merge-conflict path
+    (no ``CONSENSUS_PROPOSE`` yet, only container heartbeats — the
+    original incident's ``decision-17`` flavour, pre-#2264) relies on
+    container heartbeats firing at least every ``gate_seconds``. Sandbox
     heartbeats (see ``shared/egg_agent`` heartbeat scheduler and
     ``orchestrator/health_monitor.py``) cadence today is well under
     300s, but a long uninterruptible subprocess (e.g. ``git rebase``
