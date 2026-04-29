@@ -34,7 +34,7 @@ def get_default_branch(repo_path: Path | str) -> str:
             for line in result.stdout.splitlines():
                 if "HEAD branch:" in line:
                     return line.split(":")[-1].strip()
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+    except subprocess.TimeoutExpired, subprocess.SubprocessError:
         pass
 
     # Fallback: check which common branches exist

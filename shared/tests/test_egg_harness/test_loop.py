@@ -272,7 +272,7 @@ class TestAgentLoopBasic:
         try:
             result = await loop.run("", messages=[])
             assert isinstance(result, AgentResult)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             pass
 
 

@@ -327,7 +327,7 @@ async def run_agent_async(
                             # Serialize tool input for logging (truncated)
                             try:
                                 input_str = json.dumps(block.input, default=str)
-                            except (TypeError, ValueError):
+                            except TypeError, ValueError:
                                 input_str = str(block.input)
                             logger.info(
                                 "Tool call",
@@ -358,7 +358,7 @@ async def run_agent_async(
                                 elif block.content is not None:
                                     try:
                                         result_str = json.dumps(block.content, default=str)
-                                    except (TypeError, ValueError):
+                                    except TypeError, ValueError:
                                         result_str = str(block.content)
                                 else:
                                     result_str = ""

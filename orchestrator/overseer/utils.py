@@ -13,7 +13,7 @@ def parse_json_or_fallback(raw: str, fallback: dict[str, Any]) -> dict[str, Any]
     """
     try:
         return json.loads(raw)  # type: ignore[no-any-return]
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         pass
     # Try extracting a JSON block from markdown fences
     if "```" in raw:
@@ -24,6 +24,6 @@ def parse_json_or_fallback(raw: str, fallback: dict[str, Any]) -> dict[str, Any]
             if block.startswith("{"):
                 try:
                     return json.loads(block)  # type: ignore[no-any-return]
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError, TypeError:
                     pass
     return fallback

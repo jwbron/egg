@@ -47,7 +47,7 @@ def get_message_poll_max_wait() -> int:
         return DEFAULT_MESSAGE_POLL_MAX_WAIT_SECONDS
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_MESSAGE_POLL_MAX_WAIT=%r is not an integer; falling back to %ds",
             raw,
@@ -124,7 +124,7 @@ def get_waitress_threads() -> int:
         return DEFAULT_WAITRESS_THREADS
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_ORCH_WAITRESS_THREADS=%r is not an integer; falling back to %d",
             raw,
@@ -160,7 +160,7 @@ def get_heartbeat_rate_limit() -> int:
         return DEFAULT_HEARTBEAT_RATE_LIMIT_PER_MIN
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_HEARTBEAT_RATE_LIMIT=%r not an integer; falling back to %d/min",
             raw,
@@ -214,7 +214,7 @@ def _coerce_positive_int(env_name: str, default: int) -> int:
         return default
     try:
         val = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "%s=%r is not an integer; falling back to %d",
             env_name,
@@ -240,7 +240,7 @@ def _coerce_positive_float(env_name: str, default: float) -> float:
         return default
     try:
         val = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "%s=%r is not a number; falling back to %.1f",
             env_name,
@@ -315,7 +315,7 @@ def get_state_store_probe_interval() -> float:
         return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
     try:
         val = float(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning(
             "EGG_ORCH_STATE_STORE_PROBE_INTERVAL=%r is not a number; falling back to %.1fs",
             raw,

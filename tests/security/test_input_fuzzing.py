@@ -370,7 +370,7 @@ class TestIPAddressFuzzing:
 
                 # If it succeeds, verify IP is stored correctly
                 assert session.container_ip == ip
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 # Validation errors are acceptable
                 pass
 
@@ -412,7 +412,7 @@ class TestContainerIdFuzzing:
 
                 # If it succeeds, verify container ID is stored correctly
                 assert session.container_id == container_id
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 # Validation errors are acceptable
                 pass
 

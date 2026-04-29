@@ -449,7 +449,7 @@ def _detached_head_hint(
             timeout=2,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return ""
     # Tight check: returncode 1 with no stdout and no stderr is unambiguously
     # detached HEAD.  Anything else (corrupt repo, missing .git, EAGAIN) gets
@@ -925,7 +925,7 @@ def _check_squid_health() -> dict[str, Any]:
             timeout=5,
         )
         result["running"] = proc.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         pass
 
     # Check if squid is actually accepting connections on port 3129.
@@ -2865,7 +2865,7 @@ def _int_param(name: str) -> int | None:
         return None
     try:
         return int(val)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 
@@ -4834,7 +4834,7 @@ def jira_search() -> tuple[Response, int] | Response:
     if max_results is not None:
         try:
             effective_max = max(1, min(int(max_results), 100))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             audit_log(
                 "jira_search_rejected",
                 "jira_search",
@@ -6213,7 +6213,7 @@ def _confluence_clamp_limit(value: Any) -> int | None:
         return None
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise ValueError("limit must be an integer") from None
     if parsed <= 0:
         raise ValueError("limit must be positive")
@@ -8759,7 +8759,7 @@ def _is_streaming_request(request_body: bytes) -> bool:
     try:
         body_json = json.loads(request_body)
         return body_json.get("stream", False) is True
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return False
 
 
@@ -8784,7 +8784,7 @@ def _capture_non_streaming_response(
 
     try:
         response_json = json.loads(response_body)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         # For non-JSON responses (error pages, malformed responses), capture basic info
         # This is important for debugging failed API calls
         if status_code >= 400:
@@ -9074,7 +9074,7 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     # Parse request body for transcript capture
     try:
         request_json = json.loads(request_body)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         request_json = {}
 
     client = get_anthropic_client()

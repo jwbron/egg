@@ -627,7 +627,7 @@ class CheckpointHandler:
                     # Apply redaction
                     transcript = self._redact_transcript(transcript)
                     tool_calls = self._redact_tool_calls(tool_calls)
-            except (TranscriptExtractError, ValueError):
+            except TranscriptExtractError, ValueError:
                 logger.debug(
                     "No transcript available for session-end checkpoint",
                     container_id=container_id,

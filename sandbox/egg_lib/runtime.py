@@ -175,7 +175,7 @@ def _get_repo_owner_name(repo_path: Path) -> str | None:
             return path
 
         return None
-    except (subprocess.CalledProcessError, IndexError):
+    except subprocess.CalledProcessError, IndexError:
         return None
 
 

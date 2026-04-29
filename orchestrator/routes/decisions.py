@@ -259,7 +259,7 @@ def _persist_deferred_actions(
         worktree_path = resolve_worktree_path(pipeline_id, repo_path)
         contract_id = _pipeline_identifier(pipeline.issue_number, pipeline.id)
         contract = load_contract(contract_id, worktree_path)
-    except (ContractNotFoundError, OSError, ValueError, ContractValidationError):
+    except ContractNotFoundError, OSError, ValueError, ContractValidationError:
         logger.warning(
             "Cannot load contract to persist deferred_actions",
             pipeline_id=pipeline_id,
@@ -295,7 +295,7 @@ def _persist_deferred_actions(
 
     try:
         save_contract(contract, worktree_path)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         # The gate decision is already resolved, so the human's intent is
         # recorded. Recovery depends on the tracker surviving until the
         # next complete_phase call, where _ensure_conditional_ack_gate

@@ -70,7 +70,7 @@ class StartupTimer:
                 data = json.loads(host_timing_json)
                 self.host_timings = data.get("timings", [])
                 self.host_total_time = data.get("total_time", 0.0)
-            except (json.JSONDecodeError, KeyError):
+            except json.JSONDecodeError, KeyError:
                 pass
 
         # Calculate docker startup gap (time between host launching container and Python starting)
@@ -80,7 +80,7 @@ class StartupTimer:
                 host_launch_time = float(host_launch_time_str)
                 # Gap = container start time - host launch time (in milliseconds)
                 self.docker_startup_time = (_CONTAINER_START_TIME - host_launch_time) * 1000
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
     def start_phase(self, name: str) -> None:
@@ -1863,7 +1863,7 @@ def _exclude_from_git(file_path: Path) -> None:
                         resolved = (parent / resolved).resolve()
                     if resolved.is_dir():
                         git_meta_dir = resolved
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 pass
 
         if git_meta_dir is not None:
