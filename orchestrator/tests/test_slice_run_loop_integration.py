@@ -1031,3 +1031,230 @@ class TestHandleBrcConsensusTimeoutSliceId:
             if slice_passed is None and len(args) >= 2:
                 slice_passed = args[1]
             assert slice_passed is None
+
+
+# ---------------------------------------------------------------------------
+# Global slice admission cap (#2241 gap 1)
+# ---------------------------------------------------------------------------
+
+
+class TestGlobalSliceAdmit:
+    """Run-loop integration with the orchestrator-process-wide admission cap.
+
+    The per-pipeline ``EGG_ORCH_MAX_PARALLEL_SLICES`` cap inside
+    ``SliceScheduler.iter_ready`` does not bound the total slice count
+    across pipelines. ``orchestrator.global_slice_admit`` closes that
+    gap. These tests verify the wire-up:
+
+    * A slice rejected by the global cap stays READY and re-yields,
+      and the run loop sleeps for one ``poll_interval`` before
+      re-checking.
+    * The slice's admission slot is released on every exit path
+      (consensus, ``_run_concurrent_phase`` failure, raised
+      exception, integration-branch failure).
+    * Sibling pipelines do not deadlock — releasing one slice's
+      slot lets another's slice admit on the next tick.
+    """
+
+    def _make_spawner(self) -> MagicMock:
+        spawner = MagicMock()
+        spawner.gateway = MagicMock()
+        spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+        return spawner
+
+    def test_release_called_on_consensus_path(self) -> None:
+        """The finally block in _run_one_slice releases the admission slot."""
+        from orchestrator import global_slice_admit
+
+        global_slice_admit.reset_for_testing(cap=4)
+
+        pipeline = _make_pipeline()
+        contract = _make_contract(slices=[_make_slice("slice-1")])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=self._make_spawner(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        snap = global_slice_admit.snapshot()
+        assert snap["admitted"] == 0, "Admission slot must be released after slice consensus"
+        global_slice_admit.reset_for_testing()
+
+    def test_release_called_on_phase_failure(self) -> None:
+        """A failed slice still releases its admission slot."""
+        from orchestrator import global_slice_admit
+
+        global_slice_admit.reset_for_testing(cap=4)
+
+        pipeline = _make_pipeline()
+        contract = _make_contract(slices=[_make_slice("slice-1")])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase",
+                return_value=(1, "phase failed"),
+            ),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=self._make_spawner(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert global_slice_admit.snapshot()["admitted"] == 0
+        global_slice_admit.reset_for_testing()
+
+    def test_release_called_when_inner_raises(self) -> None:
+        """An exception inside _run_one_slice still releases the slot."""
+        from orchestrator import global_slice_admit
+
+        global_slice_admit.reset_for_testing(cap=4)
+
+        pipeline = _make_pipeline()
+        contract = _make_contract(slices=[_make_slice("slice-1")])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=self._make_spawner(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert global_slice_admit.snapshot()["admitted"] == 0, (
+            "finally block must run even when the worker raises"
+        )
+        global_slice_admit.reset_for_testing()
+
+    def test_global_cap_defers_until_external_releases(self) -> None:
+        """Pre-saturate the global cap; the run loop must defer until
+        the external slot frees, then admit and run the slice.
+
+        Drives the time.sleep inside the deferral path to release the
+        external slot deterministically — no timing brittleness."""
+        from orchestrator import global_slice_admit
+
+        global_slice_admit.reset_for_testing(cap=1)
+        # Saturate the global cap with an "external" admission so our
+        # test pipeline's slice is rejected on the first iteration.
+        assert global_slice_admit.try_admit("external-pipeline", "slice-99") is True
+
+        pipeline = _make_pipeline()
+        contract = _make_contract(slices=[_make_slice("slice-1")])
+        sleep_calls: list[float] = []
+
+        def _release_on_first_sleep(seconds: float) -> None:
+            sleep_calls.append(seconds)
+            if len(sleep_calls) == 1:
+                global_slice_admit.release("external-pipeline", "slice-99")
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+            patch("routes.pipelines.time.sleep", side_effect=_release_on_first_sleep),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=self._make_spawner(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # The slice eventually ran exactly once (after deferral).
+        assert mock_run_phase.call_count == 1
+        # The deferral path slept at least once.
+        assert len(sleep_calls) >= 1
+        # Both slots are released at exit.
+        assert global_slice_admit.snapshot()["admitted"] == 0
+        global_slice_admit.reset_for_testing()
+
+    def test_release_called_on_integration_branch_failure(self) -> None:
+        """create_slice_integration_branch failure must still release admit.
+
+        The codepath returns before reaching ``_run_concurrent_phase``, so
+        no patch on it is needed.
+        """
+        from orchestrator import global_slice_admit
+
+        global_slice_admit.reset_for_testing(cap=4)
+
+        pipeline = _make_pipeline()
+        contract = _make_contract(slices=[_make_slice("slice-1")])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = MagicMock()
+            spawner.gateway = MagicMock()
+            spawner.gateway.create_slice_integration_branch.return_value = False
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert global_slice_admit.snapshot()["admitted"] == 0
+        global_slice_admit.reset_for_testing()

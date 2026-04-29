@@ -2817,6 +2817,25 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         if concurrent_data:
             data["concurrent"] = concurrent_data
 
+        # Surface the orchestrator-process-wide slice-admission state
+        # (#2241 gap 1) so operators can see when slices are queued
+        # behind the global cap rather than wedged. The shape is
+        # {cap, admitted, admitted_keys}; ``admitted_keys`` lists
+        # ``"<pipeline_id>/<slice_id>"`` so the operator can tell
+        # which slices currently hold the budget.
+        try:
+            try:
+                from orchestrator import global_slice_admit
+            except ImportError:
+                import global_slice_admit  # type: ignore[no-redef]
+
+            data["slice_admit"] = global_slice_admit.snapshot()
+        except Exception:  # noqa: BLE001
+            # Defensive: never let admit-state collection crash the
+            # status endpoint — the cap is advisory, not load-bearing
+            # for the pipeline's own progress.
+            pass
+
         # Issue #1962 TASK-1-2: include the overseer-relevant config
         # subset in the status payload so the sandbox-side overseer
         # monitor can read PipelineConfig values (advisor model,
@@ -10202,6 +10221,11 @@ def _run_implement_phase_slices(
     poll_interval = 5.0
 
     try:
+        from orchestrator import global_slice_admit
+    except ImportError:
+        import global_slice_admit  # type: ignore[no-redef]
+
+    try:
         while not scheduler.all_done():
             # 1. Snapshot ready slices for this tick.
             ready_batch = list(scheduler.iter_ready())
@@ -10257,6 +10281,16 @@ def _run_implement_phase_slices(
                 )
 
             def _run_one_slice(slice_id: str, parent_slice_id: str | None) -> tuple[int, str]:
+                # Release the global-admission slot when the slice
+                # exits, regardless of how (consensus, failure, raised
+                # exception). Idempotent — safe even if a future
+                # codepath calls release() somewhere else (#2241 gap 1).
+                try:
+                    return _run_one_slice_inner(slice_id, parent_slice_id)
+                finally:
+                    global_slice_admit.release(pipeline_id, slice_id)
+
+            def _run_one_slice_inner(slice_id: str, parent_slice_id: str | None) -> tuple[int, str]:
                 # Resolve parent branch for stacking.
                 if parent_slice_id is None:
                     parent_branch = pipeline_branch
@@ -10432,19 +10466,41 @@ def _run_implement_phase_slices(
                     pass
                 return exit_code_inner, logs_inner
 
-            # Mark every slice in the batch as spawned BEFORE submitting
-            # them to the executor so a subsequent ``iter_ready`` from
-            # any other thread sees the in-flight count correctly.
-            for slice_id, _parent in ready_batch:
+            # Gate every ready slice through the orchestrator-process-wide
+            # admission counter (#2241 gap 1). Slices the global cap
+            # rejects stay in READY and re-yield next tick — the per-
+            # pipeline ``iter_ready`` accounting is unaffected because
+            # we admit BEFORE ``mark_spawned``. If the entire batch is
+            # rejected, sleep one poll interval before re-checking so
+            # we don't burn CPU spinning on iter_ready.
+            admitted_batch: list[tuple[str, str | None]] = [
+                (slice_id, parent_slice_id)
+                for slice_id, parent_slice_id in ready_batch
+                if global_slice_admit.try_admit(pipeline_id, slice_id)
+            ]
+            if not admitted_batch:
+                logger.info(
+                    "Slice wave deferred behind global cap",
+                    pipeline_id=pipeline_id,
+                    ready=[s for s, _ in ready_batch],
+                    admit=global_slice_admit.snapshot(),
+                )
+                time.sleep(poll_interval)
+                continue
+
+            # Mark admitted slices as spawned BEFORE submitting them to
+            # the executor so a subsequent ``iter_ready`` from any other
+            # thread sees the in-flight count correctly.
+            for slice_id, _parent in admitted_batch:
                 scheduler.mark_spawned(slice_id)
 
-            max_workers = max(1, len(ready_batch))
+            max_workers = max(1, len(admitted_batch))
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max_workers,
                 thread_name_prefix=f"slice-wave-{pipeline_id}",
             ) as wave_pool:
                 futures: dict[concurrent.futures.Future, str] = {}
-                for slice_id, parent_slice_id in ready_batch:
+                for slice_id, parent_slice_id in admitted_batch:
                     fut = wave_pool.submit(_run_one_slice, slice_id, parent_slice_id)
                     futures[fut] = slice_id
 
