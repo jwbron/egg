@@ -657,7 +657,7 @@ def _render_handler_error(err: Any) -> int:
     if details:
         try:
             print(f"Details: {json.dumps(details, indent=2)}", file=sys.stderr)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     return int(getattr(err, "exit_code", 1))
 
@@ -1483,7 +1483,7 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
             try:
                 if err.details and isinstance(err.details, dict):
                     retry_after = int(err.details.get("retry_after", 60))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
             print(
                 f"Error: HEARTBEAT rate limit exceeded; retry after {retry_after}s.",
