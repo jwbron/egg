@@ -234,7 +234,7 @@ async def file_diagnostic_issue(
             if url and "/" in url:
                 try:
                     issue_number = int(url.rstrip("/").rsplit("/", 1)[-1])
-                except (ValueError, IndexError):
+                except ValueError, IndexError:
                     pass
             logger.info(
                 "Filed diagnostic issue #%s for pipeline %s agent %s",

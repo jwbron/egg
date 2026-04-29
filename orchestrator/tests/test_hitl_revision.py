@@ -545,7 +545,7 @@ class TestJSONResolutionParsing:
                     raise json.JSONDecodeError("unknown action", resolution_str, 0)
             else:
                 raise json.JSONDecodeError("no action field", resolution_str, 0)
-        except (json.JSONDecodeError, TypeError, AttributeError):
+        except json.JSONDecodeError, TypeError, AttributeError:
             if resolution_str.lower() in _APPROVE_KEYWORDS:
                 _is_approved = True
             elif resolution_str.lower() in _BARE_OPTION_LABELS:
@@ -909,7 +909,7 @@ class TestSyncPipelineDecisionsToContract:
             try:
                 num = int(d.id.split("-")[1])
                 max_existing_id = max(max_existing_id, num)
-            except (IndexError, ValueError):
+            except IndexError, ValueError:
                 pass
 
         assert max_existing_id == 3

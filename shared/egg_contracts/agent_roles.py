@@ -1012,7 +1012,7 @@ def get_file_patterns(role_value: str) -> dict[str, list[str]] | None:
     """
     try:
         role_def = get_role_definition(role_value)
-    except (ValueError, KeyError):
+    except ValueError, KeyError:
         return None
     if not role_def or not role_def.file_access:
         return None

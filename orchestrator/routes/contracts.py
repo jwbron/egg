@@ -191,7 +191,7 @@ def _branch_read_contract(
 
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
-    except (PipelineNotFoundError, InvalidPipelineIdError):
+    except PipelineNotFoundError, InvalidPipelineIdError:
         return None
     except Exception as exc:  # pragma: no cover — defensive
         logger.warning(
