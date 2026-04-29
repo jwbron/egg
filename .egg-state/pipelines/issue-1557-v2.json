@@ -254,10 +254,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Done children handling (issue's open question 3): how do we feed Done children to the plan prompt?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "A. Exclude Done children entirely — keeps prompt short, prevents agent from re-planning equivalent work; risk: agent may re-propose work that's already shipped without seeing the existing key",
+        "B. Include Done with `status: Done, do-not-replan` marker — agent sees the full epic history, can cross-link to shipped work, but must respect the marker; risk: prompt bloat on long-lived epics (Recommended)",
+        "C. Include only Done titles + keys (no descriptions) — compromise: agent has the breadcrumbs to avoid duplication but not the full text",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-29T04:55:38.095109Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T04:55:38.049079Z",
+  "updated_at": "2026-04-29T04:55:38.118531Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -271,6 +290,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null
 }
