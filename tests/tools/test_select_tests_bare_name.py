@@ -38,8 +38,19 @@ def test_extract_imports_plain_import() -> None:
 
 
 def test_extract_imports_dotted_import() -> None:
+    """``import a.b.c`` actually loads ``a``, ``a.b``, AND ``a.b.c`` —
+    each parent package's ``__init__.py`` runs on the way down, so a
+    change to any of them is a real dependency of the importer.  The
+    resolver yields every dotted prefix so the leaf-name index can
+    bridge edges to all of them."""
     targets = selector._extract_imports(_parse("import egg_logging.signatures\n"))
-    assert targets == {"egg_logging.signatures"}
+    assert targets == {"egg_logging", "egg_logging.signatures"}
+
+
+def test_extract_imports_deeply_dotted_import_yields_all_prefixes() -> None:
+    """Three-level dotted import yields all three prefixes."""
+    targets = selector._extract_imports(_parse("import a.b.c\n"))
+    assert targets == {"a", "a.b", "a.b.c"}
 
 
 def test_extract_imports_from_module_yields_parent_and_attribute() -> None:
@@ -270,12 +281,29 @@ def test_upstream_edges_handles_syntax_error(tmp_path: Path) -> None:
 
 def test_upstream_edges_handles_missing_file(tmp_path: Path) -> None:
     """A module name with no matching file (e.g., grimp registered a
-    namespace package without `__init__.py` materially) is skipped."""
-    _write(tmp_path, {"orchestrator/action_guards.py": "X = 1\n"})
-    all_modules = {"orchestrator.action_guards", "orchestrator.does_not_exist"}
+    namespace package without `__init__.py` materially) is skipped —
+    BUT a co-resident valid file's edges must still be recorded.  The
+    point of fail-open is to skip the broken/missing module without
+    losing analysis of its peers."""
+    _write(
+        tmp_path,
+        {
+            "orchestrator/action_guards.py": "X = 1\n",
+            "orchestrator/api.py": "from action_guards import X\n",
+        },
+    )
+    all_modules = {
+        "orchestrator.action_guards",
+        "orchestrator.api",
+        "orchestrator.does_not_exist",
+    }
     # Must not raise.
     edges = selector.build_bare_name_upstream_edges(all_modules, tmp_path)
-    assert "orchestrator.action_guards" in edges or edges == {}
+    # The valid file's edge IS recorded — fail-open skips the missing
+    # file without losing its peer's analysis.
+    assert "orchestrator.api" in edges["orchestrator.action_guards"]
+    # The missing module produced no key (no source to scan).
+    assert "orchestrator.does_not_exist" not in edges
 
 
 def test_upstream_edges_ignores_third_party_imports(tmp_path: Path) -> None:

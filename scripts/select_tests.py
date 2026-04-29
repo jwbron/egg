@@ -719,9 +719,15 @@ def _module_to_filesystem_path(module: str, repo_root: Path) -> Path | None:
 def _extract_imports(tree: ast.Module) -> set[str]:
     """Yield every top-level absolute-import target from `tree`.
 
-    For ``import X`` and ``import X.Y`` we yield the dotted name as
-    written.  For ``from X import Y`` we yield BOTH ``X`` (because the
-    parent package is loaded) AND ``X.Y`` (because Y may itself be a
+    For ``import X`` we yield ``X``.  For ``import X.Y.Z`` we yield
+    every dotted prefix — ``X``, ``X.Y``, AND ``X.Y.Z`` — because
+    Python's import machinery actually loads each parent package on
+    the way down, so a change to ``X/__init__.py`` is a real
+    dependency of any module that does ``import X.Y.Z`` (not just
+    ones that do ``import X`` directly).
+
+    For ``from X import Y`` we yield BOTH ``X`` (because the parent
+    package is loaded) AND ``X.Y`` (because Y may itself be a
     submodule — common in this repo, e.g. ``from egg_logging.signatures
     import …`` or ``from egg_logging import signatures``).
 
@@ -734,8 +740,14 @@ def _extract_imports(tree: ast.Module) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name:
-                    targets.add(alias.name)
+                if not alias.name:
+                    continue
+                # Add every dotted prefix so a change to the parent
+                # package's __init__.py reaches importers of a deeper
+                # submodule.  ``import a.b.c`` -> {"a", "a.b", "a.b.c"}.
+                parts = alias.name.split(".")
+                for i in range(1, len(parts) + 1):
+                    targets.add(".".join(parts[:i]))
         elif isinstance(node, ast.ImportFrom):
             if node.level != 0:
                 continue
@@ -767,17 +779,19 @@ def build_bare_name_index(all_modules: set[str]) -> dict[str, set[str]]:
         if fq in TEST_PACKAGES or any(fq.startswith(p) for p in test_prefixes):
             continue
         index.setdefault(fq, set()).add(fq)
+        # Policy: record EVERY applicable prefix-stripped view (not
+        # just the longest match).  Both `sandbox.` and `sandbox.tools.`
+        # may apply to `sandbox.tools.foo`, and either short form
+        # (`tools.foo` or `foo`) is a valid runtime bare-name import
+        # in this repo — the resolver records both so the closure
+        # widens through whichever shape an importer wrote.  Ambiguity
+        # here over-includes consumers, which is the safer side of the
+        # narrow-vs-widen trade-off.
         for prefix in BARE_NAME_STRIP_PREFIXES:
             if fq.startswith(prefix):
                 bare = fq[len(prefix) :]
                 if bare:
                     index.setdefault(bare, set()).add(fq)
-                # The longest matching prefix is the right resolution
-                # (`sandbox.tools.foo` should NOT also surface as
-                # `tools.foo` AND `foo` if both `sandbox.` and
-                # `sandbox.tools.` match — but in practice we want both
-                # views since either form is a valid runtime import).
-                # Continue the loop so we record every applicable view.
     return index
 
 
@@ -1471,6 +1485,52 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     else:
         diff = []
 
+    # PYTEST_ARGS bypass classifier (R5 / Q5) — runs BEFORE both the
+    # empty-diff short-circuit and the fallback evaluator so an
+    # explicit-path PYTEST_ARGS short-circuits everything (the
+    # developer is steering pytest manually and doesn't want
+    # narrowing).  In particular, on a clean tree (`make test
+    # PYTEST_ARGS=tests/foo/test_bar.py`) the empty-diff branch must
+    # NOT fire — the user wants pytest to run that path.  Flag values
+    # like `--hypothesis-seed=gateway/tests/x.py` correctly classify
+    # as intersect (narrow) — see pytest_args_have_explicit_path
+    # comments and TASK-5-4 for the regression cases.
+    pytest_args_tokens = _split_pytest_args_env()
+    bypass_narrowing = pytest_args_have_explicit_path(pytest_args_tokens, repo_root)
+
+    if bypass_narrowing:
+        # Bypass mode — emit nothing on stdout, let the Makefile fall
+        # through to the user's explicit PYTEST_ARGS path.  Record
+        # the decision so telemetry catches the override.  We
+        # deliberately skip `build_graph` here because the bypass
+        # ignores the closure entirely; total_count falls back to the
+        # cheap TEST_ROOT_DIRS count.
+        compute_ms = int((time.monotonic() - t0) * 1000)
+        _log(
+            "select-tests: bypass mode — PYTEST_ARGS contains an explicit "
+            "test path; narrowing skipped, pytest runs only the user-"
+            "supplied path(s)"
+        )
+        try:
+            write_selection_record(
+                head=head_sha,
+                baseline_sha=baseline_sha,
+                baseline_source=baseline_source,
+                branch=branch,
+                mode="bypass",
+                trigger="PYTEST_ARGS explicit path",
+                selected_count=0,
+                total_count=len(TEST_ROOT_DIRS),
+                compute_ms=compute_ms,
+                changed_files_list=diff,
+                changed_modules_list=[],
+                dynamic_import_seeds_hit=[],
+                repo_root=repo_root,
+            )
+        except OSError:
+            pass
+        return 0
+
     # Empty diff against a resolvable, current baseline = nothing to
     # test.  Skip pytest entirely — the Makefile prints "no tests
     # selected" when the selector emits zero stdout lines.
@@ -1514,47 +1574,6 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
         # Without a graph we still want to evaluate the
         # path-pattern triggers — but if none fire, we must widen to
         # full suite anyway because we cannot compute the closure.
-
-    # PYTEST_ARGS bypass classifier (R5 / Q5) — runs BEFORE the
-    # fallback evaluator so an explicit-path PYTEST_ARGS short-
-    # circuits everything (the developer is steering pytest manually
-    # and doesn't want narrowing).  Flag values like
-    # `--hypothesis-seed=gateway/tests/x.py` correctly classify as
-    # intersect (narrow) — see pytest_args_have_explicit_path
-    # comments and TASK-5-4 for the regression cases.
-    pytest_args_tokens = _split_pytest_args_env()
-    bypass_narrowing = pytest_args_have_explicit_path(pytest_args_tokens, repo_root)
-
-    if bypass_narrowing:
-        # Bypass mode — emit nothing on stdout, let the Makefile fall
-        # through to the user's explicit PYTEST_ARGS path.  Record
-        # the decision so telemetry catches the override.
-        compute_ms = int((time.monotonic() - t0) * 1000)
-        total_count = len(bundle.all_test_modules) if bundle is not None else len(TEST_ROOT_DIRS)
-        _log(
-            "select-tests: bypass mode — PYTEST_ARGS contains an explicit "
-            "test path; narrowing skipped, pytest runs only the user-"
-            "supplied path(s)"
-        )
-        try:
-            write_selection_record(
-                head=head_sha,
-                baseline_sha=baseline_sha,
-                baseline_source=baseline_source,
-                branch=branch,
-                mode="bypass",
-                trigger="PYTEST_ARGS explicit path",
-                selected_count=0,
-                total_count=total_count,
-                compute_ms=compute_ms,
-                changed_files_list=diff,
-                changed_modules_list=[],
-                dynamic_import_seeds_hit=[],
-                repo_root=repo_root,
-            )
-        except OSError:
-            pass
-        return 0
 
     # Pre-compute changed-modules-list + seeds-hit ONCE so both the
     # narrow and full-suite branches can write a uniformly-detailed

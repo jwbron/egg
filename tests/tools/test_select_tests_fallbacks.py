@@ -114,6 +114,72 @@ def test_empty_diff_no_longer_triggers_full_suite() -> None:
     assert trigger is None
 
 
+def test_pytest_args_bypass_takes_precedence_over_empty_diff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: when the diff is empty AND ``PYTEST_ARGS_RAW`` has
+    an explicit test path, the bypass branch MUST fire — not the
+    empty-diff short-circuit.  Otherwise ``make test
+    PYTEST_ARGS=tests/foo/test_bar.py`` on a clean tree silently
+    drops the user's path (Makefile keys off ``mode=bypass`` to
+    invoke pytest with the user's args).
+
+    Drives ``_run_narrow_or_fallback`` in-process with a stubbed
+    ``_run_git`` to simulate a clean tree on a resolvable baseline,
+    independent of the sandbox's gateway-wrapped git binary."""
+    # Build a real test file so pytest_args_have_explicit_path resolves.
+    tests_dir = tmp_path / "tests" / "tools"
+    tests_dir.mkdir(parents=True)
+    target = tests_dir / "test_dummy.py"
+    target.write_text("def test_one():\n    assert True\n", encoding="utf-8")
+
+    # Stub `_run_git` so resolve_baseline / HEAD lookups succeed
+    # against an entirely synthetic repo (no real .git directory).
+    fake_head = "0" * 39 + "a"
+    fake_baseline = "0" * 39 + "b"
+
+    def fake_run_git(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
+        if args[:2] == ["rev-parse", "HEAD"]:
+            return 0, fake_head + "\n", ""
+        if args[:1] == ["rev-parse"] and args[-1] == "--abbrev-ref":
+            return 0, "main\n", ""
+        if args[:2] == ["rev-parse", "--abbrev-ref"]:
+            return 0, "main\n", ""
+        if args[:2] == ["rev-parse", "--show-toplevel"]:
+            return 0, str(tmp_path) + "\n", ""
+        if args[:2] == ["merge-base", "HEAD"]:
+            return 0, fake_baseline + "\n", ""
+        if args[:1] == ["merge-base"] and "--is-ancestor" in args:
+            return 0, "", ""
+        if args[:2] == ["cat-file", "-e"]:
+            return 0, "", ""
+        if args[:1] == ["diff"]:
+            # Empty diff = clean tree.
+            return 0, "", ""
+        if args[:1] == ["status"]:
+            return 0, "", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(selector, "_run_git", fake_run_git)
+    # User asked for an explicit test path — bypass MUST win.
+    monkeypatch.setenv("PYTEST_ARGS_RAW", "tests/tools/test_dummy.py")
+    monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+    # Avoid LKG sidecar reads — tmp_path has no .egg-state.
+    monkeypatch.chdir(tmp_path)
+
+    rc = selector._run_narrow_or_fallback(tmp_path)
+    assert rc == 0
+
+    # Selection record must record `mode=bypass`, not `mode=narrow`.
+    record_path = tmp_path / ".egg-state" / "selection" / f"{fake_head}.json"
+    assert record_path.is_file(), f"missing record at {record_path}"
+    import json
+
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["mode"] == "bypass", record
+    assert record["trigger"] == "PYTEST_ARGS explicit path", record
+
+
 # ----------------------------------------------------------------------
 # Path-pattern triggers — each test uses the documented explicit
 # trigger string; a generic word ("fallback") is NOT acceptable.
@@ -454,6 +520,77 @@ def test_empty_diff_subprocess_skips_pytest(
         f"empty diff must not widen to full suite: {proc.stderr!r}"
     )
     assert "trigger=empty diff" not in proc.stderr
+
+
+def test_empty_diff_with_pytest_args_explicit_path_takes_bypass(
+    real_git, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: empty diff + ``PYTEST_ARGS_RAW`` containing an
+    explicit test path must classify as ``mode=bypass``, not the
+    silent ``mode=narrow`` empty-diff skip.  Otherwise
+    ``make test PYTEST_ARGS=tests/foo/test_bar.py`` on a clean tree
+    would silently drop the user's path — pytest would never run.
+
+    The bypass contract (``docs/guides/testing.md``) says: an explicit
+    path in PYTEST_ARGS bypasses narrowing.  That contract must hold
+    even when the diff is empty."""
+    init_git_repo(tmp_path)
+    commit_file(
+        tmp_path,
+        ".gitignore",
+        ".egg-state/last-known-good/\n.egg-state/selection/\n.egg-state/grimp-cache/\n",
+        "gitignore selector sidecars",
+    )
+    # Create a real test file so pytest_args_have_explicit_path can
+    # resolve the path against an actual file on disk.
+    commit_file(
+        tmp_path,
+        "tests/tools/test_dummy.py",
+        "def test_one():\n    assert True\n",
+        "add dummy test",
+    )
+    head_sha = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", head_sha)
+    # NO uncommitted change — diff against origin/main is empty.
+
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("EGG_AGENT_ROLE", None)
+    # The user is asking for a specific test — bypass MUST win over
+    # the empty-diff short-circuit.
+    env["PYTEST_ARGS_RAW"] = "tests/tools/test_dummy.py"
+    proc = subprocess.run(
+        [find_python(), str(SELECTOR_PATH)],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=30,
+    )
+    assert proc.returncode == 0, (
+        f"selector exited {proc.returncode}\nstdout: {proc.stdout!r}\nstderr: {proc.stderr!r}"
+    )
+    # Bypass mode emits empty stdout (Makefile falls through to
+    # PYTEST_ARGS) and logs the bypass decision to stderr.
+    assert "bypass mode" in proc.stderr, f"expected 'bypass mode' in stderr, got: {proc.stderr!r}"
+    # The empty-diff skip log MUST NOT have fired — that's the
+    # regression we're guarding against.
+    assert "skipping pytest" not in proc.stderr, (
+        f"empty-diff skip must not fire when PYTEST_ARGS has an explicit path: {proc.stderr!r}"
+    )
+    # Selection record must be `mode=bypass` so the Makefile keys off
+    # it correctly (`Makefile:308` greps for `"mode": "bypass"` in
+    # `.egg-state/selection/<head>.json` to decide whether to invoke
+    # pytest with the user's PYTEST_ARGS).
+    record_path = tmp_path / ".egg-state" / "selection" / f"{head_sha}.json"
+    assert record_path.is_file(), (
+        f"selection record missing at {record_path}; selector stderr: {proc.stderr!r}"
+    )
+    import json
+
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["mode"] == "bypass", record
 
 
 def test_fail_open_subprocess_grimp_unavailable(
