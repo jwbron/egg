@@ -187,7 +187,7 @@ each surface so reviewers know to keep them in sync.
 
 ### `tester`
 
-**Purpose**: Find gaps in the implementation, write and run tests, run linters and type checkers, and report issues for the coder to fix.
+**Purpose**: Scaffold tests early, then finalize them once coder output lands. While the coder is producing, draft test scaffolding from the plan alone — test file paths from `tasks[].files`, function signatures from each task's acceptance criteria, fixture imports, and mocked-input scenarios — leaving assertion bodies as TODOs. Do **not** call `wait-loop` on the coder's `CONSENSUS_PROPOSE` before drafting these scaffolds; propose-ready iteration should start at the coder's first commit, not their first propose. This is enforced by the producer-orientation prompt in `orchestrator/routes/pipelines.py::_build_producer_orientation` (#2249). Once coder commits land, finalize tests, run linters and type checkers, find gaps in the implementation, and report issues for the coder to fix.
 
 **File access**:
 - Owned scope (allowed writes): **test files and test infrastructure only.**
