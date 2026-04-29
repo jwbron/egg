@@ -407,10 +407,55 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Cross-project children: can a Jira epic ever have children in a different project from the epic itself (e.g. a platform epic with children in `KORE` and `OPS`)? If yes, the gateway's project-allowlist scope (`extract_search_projects` in `gateway/jira_search.py`) currently requires every JQL query to be scoped to a single project clause and will reject queries that union projects via `OR`. We will need to issue one query per child project, and write/edit/transition routes will need to accept tickets in any of the allowlisted projects. If you want this MVP to support cross-project epics, please say so explicitly so we plan the multi-query refine sweep and the multi-project apply step. Otherwise we will assume single-project epics and reject cross-project children with a clear error.",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Epic Description length cap: Jira's text-field limits are not strict but very long Description fields render poorly and break some Atlassian search facets. Today's refine analysis drafts run ≈ 8–16KB. Should the apply step truncate / refuse / warn if the refined analysis exceeds a target size (e.g. 32KB)? If you have a preferred upper bound, please name it; otherwise we will document a soft warning at 32KB and a hard refusal at 64KB.",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Cross-task issue-link types: the issue text suggests `Blocks` / `Is blocked by` for plan-emitted dependencies. Some Jira deployments restrict the link-type allowlist. The gateway's `createIssueLink` already enforces a configurable allow rule (per #1924). Should we (a) require operators to add `Blocks` to their allowlist as a deploy-time prerequisite, (b) fall back to `Relates` if `Blocks` is not allowed, or (c) refuse to apply the plan if the deployment cannot represent the dependency edge?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "PR-phase BRC roster for child pipelines: each Jira child runs as its own `submit_task <CHILD-KEY>` pipeline with the standard implement → PR phases. Are there any epic-aware reviewers we want spawned on those child pipelines (e.g. an `epic_consistency` lens that checks the child PR description still matches the epic Description), or should children be reviewed exactly the same as today's Jira-ticket pipelines? Default assumption: identical roster, no epic-aware reviewer in MVP.",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Concurrency control on per-epic apply: a large reassess plan could trigger dozens of `createJiraIssue` calls in a single approval. Atlassian rate-limits per-tenant and the gateway already has 429-retry-once-with-`min(Retry-After, 30)` per #1556. Are there per-tenant call caps you want us to respect (e.g. \"never burst more than 50 creates in 30s\") or is the default gateway throttling sufficient?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Child ordering in the apply step: when the plan creates N new tickets that depend on each other via `Blocks`, we have to create the tickets first (to obtain keys) and only then create the issue-links. Within the create batch, is there a preferred ordering (e.g. depth-first along the dependency DAG so each child's predecessors exist before it is created)? Dependency-link creation is naturally a separate post-pass; the question is only whether create order itself matters to your team.",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-29T04:55:38.614338Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T04:55:38.566302Z",
+  "updated_at": "2026-04-29T04:55:38.636569Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -424,6 +469,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
