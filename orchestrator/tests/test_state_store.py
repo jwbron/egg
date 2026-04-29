@@ -1921,9 +1921,12 @@ class TestBranchHeldByPrunableWorktree:
         original_remove = StateStore._remove_admin_dir_for_path
 
         def tracked_remove(self, target_path):
-            # _flock_depth > 0 proves the recovery is running under
-            # the cross-process lock — i.e., the loser cannot squeeze
-            # in between our failing add and our retry.
+            # _flock_depth >= 2 proves *both* wraps are in place: the
+            # outer one in _ensure_worktree (depth 1) and the inner one
+            # in _add_worktree_with_branch_recovery (depth 2).  A weaker
+            # ``> 0`` assertion would still pass if a future refactor
+            # dropped the outer wrap and left only the inner one — and
+            # that would re-open the #2177 race.
             depth_when_removing_admin.append(StateStore._flock_depth)
             return original_remove(self, target_path)
 
@@ -1957,9 +1960,14 @@ class TestBranchHeldByPrunableWorktree:
             f"expected one fail + one retry, got {add_call_count['n']} adds"
         )
         # The recovery removed the admin dir while holding the lock.
+        # Depth must be >= 2: the outer wrap in _ensure_worktree
+        # contributes 1, and the inner wrap in
+        # _add_worktree_with_branch_recovery contributes another.  A
+        # weaker ``> 0`` check would still pass with only the inner
+        # wrap present, which would re-open the #2177 race.
         assert depth_when_removing_admin, "recovery never ran"
-        assert all(d > 0 for d in depth_when_removing_admin), (
-            f"_remove_admin_dir_for_path ran outside _git_op: depths={depth_when_removing_admin}"
+        assert all(d >= 2 for d in depth_when_removing_admin), (
+            f"_remove_admin_dir_for_path ran without both _git_op wraps: depths={depth_when_removing_admin}"
         )
         assert not admin_dir.exists()
 
