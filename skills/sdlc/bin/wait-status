@@ -12,8 +12,9 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+REPO_ROOT="$(cd -P "$SCRIPT_DIR/../../.." && pwd)"
 
 VENV_PYTHON="$REPO_ROOT/.venv/bin/python"
 if [[ ! -x "$VENV_PYTHON" ]]; then
