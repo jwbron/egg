@@ -76,19 +76,8 @@ class _StubGraph:
 
 
 # ----------------------------------------------------------------------
-# Top-of-list triggers (canary, unresolvable, stale LKG, empty diff)
+# Top-of-list triggers (unresolvable, stale LKG)
 # ----------------------------------------------------------------------
-
-
-def test_canary_trigger_short_circuits() -> None:
-    trigger = selector.evaluate_fallback_triggers(
-        paths=["gateway/policy.py"],
-        bundle=_StubBundle(),
-        baseline_source="LKG",
-        lkg_was_stale=False,
-        canary_fired=True,
-    )
-    assert trigger == "canary (every-10th invocation)"
 
 
 def test_unresolvable_baseline_trigger() -> None:
@@ -97,7 +86,6 @@ def test_unresolvable_baseline_trigger() -> None:
         bundle=_StubBundle(),
         baseline_source="UNRESOLVABLE",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger == "unresolvable baseline"
 
@@ -108,20 +96,88 @@ def test_lkg_not_ancestor_trigger() -> None:
         bundle=_StubBundle(),
         baseline_source="BASE_BRANCH",
         lkg_was_stale=True,
-        canary_fired=False,
     )
     assert trigger == "LKG not ancestor of HEAD"
 
 
-def test_empty_diff_trigger() -> None:
+def test_empty_diff_no_longer_triggers_full_suite() -> None:
+    """Empty diff against a resolvable baseline must NOT widen to the
+    full suite — it short-circuits to ``selected_count=0`` in
+    ``_run_narrow_or_fallback`` so pytest is skipped entirely.  The
+    trigger evaluator returns None for this case."""
     trigger = selector.evaluate_fallback_triggers(
         paths=[],
         bundle=_StubBundle(),
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
-    assert trigger == "empty diff"
+    assert trigger is None
+
+
+def test_pytest_args_bypass_takes_precedence_over_empty_diff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: when the diff is empty AND ``PYTEST_ARGS_RAW`` has
+    an explicit test path, the bypass branch MUST fire — not the
+    empty-diff short-circuit.  Otherwise ``make test
+    PYTEST_ARGS=tests/foo/test_bar.py`` on a clean tree silently
+    drops the user's path (Makefile keys off ``mode=bypass`` to
+    invoke pytest with the user's args).
+
+    Drives ``_run_narrow_or_fallback`` in-process with a stubbed
+    ``_run_git`` to simulate a clean tree on a resolvable baseline,
+    independent of the sandbox's gateway-wrapped git binary."""
+    # Build a real test file so pytest_args_have_explicit_path resolves.
+    tests_dir = tmp_path / "tests" / "tools"
+    tests_dir.mkdir(parents=True)
+    target = tests_dir / "test_dummy.py"
+    target.write_text("def test_one():\n    assert True\n", encoding="utf-8")
+
+    # Stub `_run_git` so resolve_baseline / HEAD lookups succeed
+    # against an entirely synthetic repo (no real .git directory).
+    fake_head = "0" * 39 + "a"
+    fake_baseline = "0" * 39 + "b"
+
+    def fake_run_git(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
+        if args[:2] == ["rev-parse", "HEAD"]:
+            return 0, fake_head + "\n", ""
+        if args[:1] == ["rev-parse"] and args[-1] == "--abbrev-ref":
+            return 0, "main\n", ""
+        if args[:2] == ["rev-parse", "--abbrev-ref"]:
+            return 0, "main\n", ""
+        if args[:2] == ["rev-parse", "--show-toplevel"]:
+            return 0, str(tmp_path) + "\n", ""
+        if args[:2] == ["merge-base", "HEAD"]:
+            return 0, fake_baseline + "\n", ""
+        if args[:1] == ["merge-base"] and "--is-ancestor" in args:
+            return 0, "", ""
+        if args[:2] == ["cat-file", "-e"]:
+            return 0, "", ""
+        if args[:1] == ["diff"]:
+            # Empty diff = clean tree.
+            return 0, "", ""
+        if args[:1] == ["status"]:
+            return 0, "", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(selector, "_run_git", fake_run_git)
+    # User asked for an explicit test path — bypass MUST win.
+    monkeypatch.setenv("PYTEST_ARGS_RAW", "tests/tools/test_dummy.py")
+    monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+    # Avoid LKG sidecar reads — tmp_path has no .egg-state.
+    monkeypatch.chdir(tmp_path)
+
+    rc = selector._run_narrow_or_fallback(tmp_path)
+    assert rc == 0
+
+    # Selection record must record `mode=bypass`, not `mode=narrow`.
+    record_path = tmp_path / ".egg-state" / "selection" / f"{fake_head}.json"
+    assert record_path.is_file(), f"missing record at {record_path}"
+    import json
+
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["mode"] == "bypass", record
+    assert record["trigger"] == "PYTEST_ARGS explicit path", record
 
 
 # ----------------------------------------------------------------------
@@ -146,7 +202,6 @@ def test_conftest_at_any_level_triggers(path: str) -> None:
         bundle=_StubBundle(all_modules={"x"}),
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger == "conftest changed"
 
@@ -157,7 +212,6 @@ def test_shared_tests_change_triggers() -> None:
         bundle=_StubBundle(all_modules={"shared.tests.test_foo"}),
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger == "shared/tests/ changed"
 
@@ -178,7 +232,6 @@ def test_static_path_triggers(path: str, expected: str) -> None:
         bundle=_StubBundle(all_modules={"x"}),
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger == expected
 
@@ -203,7 +256,6 @@ def test_gateway_source_change_widens_to_full_suite(path: str) -> None:
         bundle=_StubBundle(all_modules={"gateway." + Path(path).stem}),
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger == "gateway source change (importlib test-loader)"
 
@@ -223,7 +275,6 @@ def test_gateway_test_change_does_not_fire_gateway_rule() -> None:
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger != "gateway source change (importlib test-loader)"
 
@@ -239,7 +290,6 @@ def test_nested_gateway_path_does_not_fire_gateway_rule() -> None:
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger != "gateway source change (importlib test-loader)"
 
@@ -266,7 +316,6 @@ def test_non_py_change_triggers(path: str) -> None:
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger == "non-.py change"
 
@@ -286,7 +335,6 @@ def test_source_file_missing_from_graph_triggers() -> None:
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger == "source file missing from graph: shared/egg_config/_orphan.py"
 
@@ -308,7 +356,6 @@ def test_unresolvable_module_path_triggers() -> None:
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger is not None
     assert "unresolvable module path" in trigger
@@ -332,7 +379,6 @@ def test_dynamic_import_reachability_changed_module_in_seed_set() -> None:
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     # gateway/*.py rule fires before the dynamic-import rule, so we get
     # the more-specific R1 string.  This is intentional priority order.
@@ -355,7 +401,6 @@ def test_dynamic_import_reachability_via_upstream() -> None:
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger == "dynamic-import reachability"
 
@@ -372,7 +417,6 @@ def test_simple_leaf_change_no_trigger() -> None:
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
-        canary_fired=False,
     )
     assert trigger is None
 
@@ -421,6 +465,132 @@ def test_fail_open_argparse_error_still_exits_nonzero(
         selector.main(["--no-such-flag"])
     # argparse uses exit code 2.
     assert exc_info.value.code != 0
+
+
+def test_empty_diff_subprocess_skips_pytest(
+    real_git, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: a clean repo with no diff against the baseline must
+    emit zero stdout lines, log `selected 0 tests (skipping pytest)`,
+    and exit 0.  The Makefile keys off the empty stdout to skip pytest
+    entirely — running the full suite for a no-op would defeat the
+    point of changeset-aware narrowing."""
+    init_git_repo(tmp_path)
+    # Mirror the real repo's gitignore for selector-internal sidecars
+    # so any files the selector writes don't surface as untracked
+    # entries in `git status --porcelain` and false-fire the `non-.py
+    # change` trigger on subsequent invocations.
+    commit_file(
+        tmp_path,
+        ".gitignore",
+        ".egg-state/last-known-good/\n.egg-state/selection/\n.egg-state/grimp-cache/\n",
+        "gitignore selector sidecars",
+    )
+    commit_file(tmp_path, "shared/egg_config/x.py", "x = 1\n", "first")
+    head_sha = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", head_sha)
+    # NOTE: no uncommitted change — diff against origin/main is empty.
+
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("EGG_AGENT_ROLE", None)
+    proc = subprocess.run(
+        [find_python(), str(SELECTOR_PATH)],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=30,
+    )
+    assert proc.returncode == 0, (
+        f"selector exited {proc.returncode}\nstdout: {proc.stdout!r}\nstderr: {proc.stderr!r}"
+    )
+    # Empty stdout — pytest-skip signal to the Makefile.
+    assert proc.stdout.strip() == "", (
+        f"expected empty stdout, got: {proc.stdout!r}\nstderr: {proc.stderr!r}"
+    )
+    # Stderr explains the decision.
+    assert "selected 0 tests" in proc.stderr, (
+        f"expected 'selected 0 tests' in stderr, got: {proc.stderr!r}"
+    )
+    # And it must NOT have reported a fallback trigger or full-suite
+    # widening — the whole point is that empty diff no longer widens.
+    assert "full suite" not in proc.stderr, (
+        f"empty diff must not widen to full suite: {proc.stderr!r}"
+    )
+    assert "trigger=empty diff" not in proc.stderr
+
+
+def test_empty_diff_with_pytest_args_explicit_path_takes_bypass(
+    real_git, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: empty diff + ``PYTEST_ARGS_RAW`` containing an
+    explicit test path must classify as ``mode=bypass``, not the
+    silent ``mode=narrow`` empty-diff skip.  Otherwise
+    ``make test PYTEST_ARGS=tests/foo/test_bar.py`` on a clean tree
+    would silently drop the user's path — pytest would never run.
+
+    The bypass contract (``docs/guides/testing.md``) says: an explicit
+    path in PYTEST_ARGS bypasses narrowing.  That contract must hold
+    even when the diff is empty."""
+    init_git_repo(tmp_path)
+    commit_file(
+        tmp_path,
+        ".gitignore",
+        ".egg-state/last-known-good/\n.egg-state/selection/\n.egg-state/grimp-cache/\n",
+        "gitignore selector sidecars",
+    )
+    # Create a real test file so pytest_args_have_explicit_path can
+    # resolve the path against an actual file on disk.
+    commit_file(
+        tmp_path,
+        "tests/tools/test_dummy.py",
+        "def test_one():\n    assert True\n",
+        "add dummy test",
+    )
+    head_sha = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", head_sha)
+    # NO uncommitted change — diff against origin/main is empty.
+
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("EGG_AGENT_ROLE", None)
+    # The user is asking for a specific test — bypass MUST win over
+    # the empty-diff short-circuit.
+    env["PYTEST_ARGS_RAW"] = "tests/tools/test_dummy.py"
+    proc = subprocess.run(
+        [find_python(), str(SELECTOR_PATH)],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=30,
+    )
+    assert proc.returncode == 0, (
+        f"selector exited {proc.returncode}\nstdout: {proc.stdout!r}\nstderr: {proc.stderr!r}"
+    )
+    # Bypass mode emits empty stdout (Makefile falls through to
+    # PYTEST_ARGS) and logs the bypass decision to stderr.
+    assert "bypass mode" in proc.stderr, f"expected 'bypass mode' in stderr, got: {proc.stderr!r}"
+    # The empty-diff skip log MUST NOT have fired — that's the
+    # regression we're guarding against.
+    assert "skipping pytest" not in proc.stderr, (
+        f"empty-diff skip must not fire when PYTEST_ARGS has an explicit path: {proc.stderr!r}"
+    )
+    # Selection record must be `mode=bypass` so the Makefile keys off
+    # it correctly (`Makefile:308` greps for `"mode": "bypass"` in
+    # `.egg-state/selection/<head>.json` to decide whether to invoke
+    # pytest with the user's PYTEST_ARGS).
+    record_path = tmp_path / ".egg-state" / "selection" / f"{head_sha}.json"
+    assert record_path.is_file(), (
+        f"selection record missing at {record_path}; selector stderr: {proc.stderr!r}"
+    )
+    import json
+
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["mode"] == "bypass", record
 
 
 def test_fail_open_subprocess_grimp_unavailable(
@@ -524,9 +694,9 @@ def test_subprocess_with_leaked_pythonpath_does_not_abort_graph() -> None:
     logs ``select-tests: --why: graph build failed: NotATopLevelModule:``
     on stderr, and with the strip in ``main()`` neither marker appears.
 
-    ``--why`` is purely read-only — no canary counter bump, no selection
-    record write — so this test has no effect on subsequent ``make test``
-    runs in the same checkout.
+    ``--why`` is purely read-only — no selection record write — so this
+    test has no effect on subsequent ``make test`` runs in the same
+    checkout.
 
     Skips when grimp isn't installed because the bug is a grimp-specific
     failure mode.

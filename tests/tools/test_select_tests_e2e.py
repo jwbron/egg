@@ -7,7 +7,7 @@ verification steps by confirming:
 
   (a) ``select_tests.py`` (default mode) on a single-file change exits 0.
   (b) ``select_tests.py --full-suite`` emits the four test-root paths
-      on stdout and resets the canary counter.
+      on stdout.
   (c) ``select_tests.py --record-good`` writes the LKG sidecar.
   (d) ``select_tests.py --patch-selection-json --head <sha> --pytest-ms <ms>``
       patches an existing selection record.
@@ -131,22 +131,6 @@ def test_full_suite_emits_test_root_dirs(real_git, tmp_path: Path) -> None:
         assert d in out, f"missing {d} in stdout: {out!r}"
 
 
-def test_full_suite_resets_canary_counter(real_git, tmp_path: Path) -> None:
-    init_git_repo(tmp_path)
-    commit_file(tmp_path, "x.py", "x = 1\n", "first")
-    # Pre-seed the canary to a non-zero value (writes are CWD-relative
-    # in the current implementation, so we must chdir before writing).
-    canary_dir = tmp_path / selector.SIDECAR_DIR
-    canary_dir.mkdir(parents=True, exist_ok=True)
-    (canary_dir / "main.canary").write_text("7\n", encoding="utf-8")
-    proc = _run_selector(tmp_path, "--full-suite")
-    assert proc.returncode == 0
-    # After --full-suite the counter MUST be 0.
-    canary = canary_dir / "main.canary"
-    if canary.exists():
-        assert canary.read_text(encoding="utf-8").strip() == "0"
-
-
 # ----------------------------------------------------------------------
 # (c) --record-good writes the sidecar.
 # ----------------------------------------------------------------------
@@ -195,7 +179,6 @@ def test_patch_selection_json_appends_pytest_ms(real_git, tmp_path: Path) -> Non
         "compute_ms": 5,
         "pytest_ms": None,
         "timestamp": "2026-04-24T12:00:00+00:00",
-        "canary_fired": False,
         "changed_files": ["x.py"],
         "changed_modules": ["x"],
         "dynamic_import_seeds_hit": [],
