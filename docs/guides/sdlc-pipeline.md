@@ -1254,6 +1254,8 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `consensus_timeout_minutes_plan` | int \| null | `null` (effective `60`) | Per-phase consensus timeout for plan. Wins over the legacy global. |
 | `consensus_timeout_minutes_implement` | int \| null | `null` (effective `90`) | Per-phase consensus timeout for implement. Wins over the legacy global. |
 | `brc_consensus_progress_gate_seconds` | int | `300` | Defer consensus-timeout HITL while BRC bus or container heartbeats are active. Set to `0` to disable. |
+| `post_consensus_iteration_budget_seconds` | int | `3600` | Per-iteration wait budget after consensus timeout. Resets on each new `CONSENSUS_PROPOSE` from a producer. |
+| `post_consensus_max_total_seconds` | int | `14400` | Hard ceiling on total post-timeout wait. Must be ≥ `post_consensus_iteration_budget_seconds`. |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
 | `overseer_enabled` | bool | `true` | Enable the overseer agent for pipeline health monitoring |
 | `spawn_max_retries` | int | `2` | Max additional retry attempts for transient gateway worktree-creation failures during agent spawn. Total attempts = `spawn_max_retries + 1`. Set to `0` to disable retry. |
@@ -1449,8 +1451,14 @@ role. Messages are filtered by `to_role` — only targeted messages and broadcas
 **Consensus timeout**: If agents don't reach consensus within the resolved per-phase
 budget (`consensus_timeout_minutes_<phase>` if set, else the legacy global
 `consensus_timeout_minutes`, else the calibrated default — refine 30 / plan 60 /
-implement 90), a HITL decision is created. Check agent states via
-`egg-orch pipeline status` to identify blocked or stuck agents.
+implement 90), the orchestrator publishes an `OVERSEER_ALERT` (subject
+`consensus-timeout: <agent_role> [<priority>]`, matching the SDLC skill's
+`<anomaly_type>: <agent_role> [<priority>]` convention so "Check agent logs" can
+extract the role) rather than gating the pipeline on a `choice` decision
+(see [issue #2264](https://github.com/jwbron/egg/issues/2264)). The SDLC skill surfaces the alert via
+its existing notification flow (Check agent logs / Acknowledge / Cancel pipeline). Check agent
+states via `egg-orch pipeline status` to identify blocked or stuck agents; intervene with
+`cancel_task` or `restart_phase` if you want to act.
 
 **Message bus empty**: Verify the pipeline has `concurrent_execution: true` in its
 config. The message bus is only active for concurrent pipelines.

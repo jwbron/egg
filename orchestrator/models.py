@@ -406,11 +406,11 @@ class PipelineConfig(BaseModel):
         default=None,
         ge=1,
         description=(
-            "Global consensus timeout in minutes before HITL escalation. When set, "
-            "applies to every phase and overrides phase-aware defaults. When None "
-            "(the default), each phase uses its calibrated default from "
-            "PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN unless a per-phase field below "
-            "is set. (#2263)"
+            "Global consensus timeout in minutes before publishing an "
+            "OVERSEER_ALERT. When set, applies to every phase and overrides "
+            "phase-aware defaults. When None (the default), each phase uses "
+            "its calibrated default from PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN "
+            "unless a per-phase field below is set. (#2263, #2264)"
         ),
     )
     consensus_timeout_minutes_refine: int | None = Field(
@@ -465,9 +465,9 @@ class PipelineConfig(BaseModel):
         default=300,
         ge=0,
         description=(
-            "Defer the consensus-timeout HITL decision while any BRC progress signal "
+            "Defer the consensus-timeout OVERSEER_ALERT while any BRC progress signal "
             "(CONSENSUS_PROPOSE/ACK/NACK or container heartbeat) has fired within this "
-            "many seconds. 0 disables the gate. (#2243)"
+            "many seconds. 0 disables the gate. (#2243, #2264)"
         ),
     )
     agent_idle_timeout_minutes: int = Field(

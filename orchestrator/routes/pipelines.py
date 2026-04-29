@@ -8662,7 +8662,16 @@ def _build_producer_orientation(
                 "read the contract (`egg-contract show`) to understand what is "
                 "being implemented. Check the existing test infrastructure — "
                 "test frameworks, fixtures, conftest files, and naming conventions. "
-                "Identify edge cases from the requirements before writing tests."
+                "Identify edge cases from the requirements before writing tests. "
+                "**Scaffold-first while the coder is producing**: draft test "
+                "scaffolding from the plan alone — test file paths from "
+                "`tasks[].files`, function signatures from each task's acceptance "
+                "criteria, fixture imports, and mock-input scenarios from the YAML. "
+                "Leave assertion bodies as TODOs. Do NOT call `wait-loop` for the "
+                "coder's CONSENSUS_PROPOSE before drafting these scaffolds — the "
+                "scaffold work does not depend on coder output and recovers "
+                "downstream-producer time. Your propose-ready iteration should "
+                "start at the coder's first commit, not their first propose."
                 + sync_note
                 + reviewer_awareness
             )
@@ -9568,8 +9577,9 @@ def _check_brc_progress_gate(
 ) -> tuple[bool, str | None]:
     """Return (defer, reason) for the BRC consensus-timeout progress gate (#2243).
 
-    Defers the auto-HITL consensus-failure decision when *any* of the
-    following has fired within ``gate_seconds``:
+    Defers the consensus-timeout ``OVERSEER_ALERT`` (#2264; previously
+    an auto-``choice`` HITL decision) when *any* of the following has
+    fired within ``gate_seconds``:
 
     * The BRC tracker's most recent ``CONSENSUS_PROPOSE`` (producer
       proposal) timestamp.
@@ -9582,18 +9592,19 @@ def _check_brc_progress_gate(
     :data:`consensus_timeout_minutes` we previously opened a `choice`
     decision unconditionally, even when producers were minutes from
     their first commit. With the gate, the polling loop keeps polling
-    while signals are alive; the decision only opens once the bus and
-    containers have both gone quiet for ``gate_seconds``.
+    while signals are alive; the alert is only published once the bus
+    and containers have both gone quiet for ``gate_seconds``.
 
     ``gate_seconds <= 0`` disables the gate (returns ``(False, None)``).
     Failures in any signal source are logged at WARNING and treated as
     "no signal from that source" — never as a gate defer, since a
-    crashed signal collector must not silently keep us off the HITL
+    crashed signal collector must not silently keep us off the alert
     surface.
 
-    Heartbeat-cadence contract: the decision-17 path (coder mid-merge-
-    conflict before any ``CONSENSUS_PROPOSE``) relies on container
-    heartbeats firing at least every ``gate_seconds``. Sandbox
+    Heartbeat-cadence contract: the coder-mid-merge-conflict path
+    (no ``CONSENSUS_PROPOSE`` yet, only container heartbeats — the
+    original incident's ``decision-17`` flavour, pre-#2264) relies on
+    container heartbeats firing at least every ``gate_seconds``. Sandbox
     heartbeats (see ``shared/egg_agent`` heartbeat scheduler and
     ``orchestrator/health_monitor.py``) cadence today is well under
     300s, but a long uninterruptible subprocess (e.g. ``git rebase``
@@ -9679,20 +9690,182 @@ def _check_brc_progress_gate(
     return False, None
 
 
+def _latest_active_role_heartbeat(active_role_names: list[str]) -> datetime | None:
+    """Return the most recent heartbeat timestamp across ``active_role_names``.
+
+    Mirrors the heartbeat half of :func:`_check_brc_progress_gate` so the
+    consensus-timeout ``OVERSEER_ALERT`` carries a meaningful
+    ``latest_heartbeat_at`` value. Filters by active role to avoid
+    pollution from stale entries in the singleton ``HealthMonitor``.
+
+    Returns ``None`` when no live heartbeat is available (no roles
+    given, no health monitor, or any failure in the lookup — failures
+    are logged at WARNING and treated as "no signal", consistent with
+    the gate).
+    """
+    if not active_role_names:
+        return None
+    try:
+        from health_monitor import get_health_monitor
+
+        hm = get_health_monitor()
+        if hm is None:
+            return None
+        active_set = set(active_role_names)
+        latest_hb: float | None = None
+        with hm._lock:  # noqa: SLF001 — read-only snapshot
+            hb_snapshot = dict(hm._last_heartbeat)  # noqa: SLF001
+        for agent_id, hb_time in hb_snapshot.items():
+            if agent_id not in active_set:
+                continue
+            if latest_hb is None or hb_time > latest_hb:
+                latest_hb = hb_time
+        if latest_hb is None:
+            return None
+        return datetime.fromtimestamp(latest_hb, tz=UTC)
+    except Exception as e:
+        logger.warning(
+            "Consensus-timeout alert heartbeat lookup failed",
+            error=str(e),
+            exc_info=True,
+        )
+        return None
+
+
+def _publish_consensus_timeout_alert(
+    pipeline: Pipeline,
+    pipeline_id: str,
+    consensus_timeout: float,
+    blocking_agents: list[str],
+    *,
+    priority: str,
+    latest_proposal_at: datetime | None,
+    latest_heartbeat_at: datetime | None,
+    slice_id: str | None,
+) -> None:
+    """Publish a consensus-timeout ``OVERSEER_ALERT`` (#2264).
+
+    Replaces the old auto-``choice`` HITL decision the orchestrator
+    used to open at ``consensus_timeout_minutes``. The SDLC skill's
+    existing ``OVERSEER_ALERT`` flow surfaces this as a non-blocking
+    notification (Check agent logs / Acknowledge / Cancel pipeline)
+    rather than gating the pipeline on a binary choice.
+
+    Best-effort: if the message store import or write fails, log at
+    WARNING and return — the orchestrator log is the always-on
+    fallback (mirrors the slice-cascade alert path).
+    """
+    timeout_minutes = int(consensus_timeout / 60)
+    phase_value = (
+        pipeline.current_phase.value
+        if hasattr(pipeline.current_phase, "value")
+        else str(pipeline.current_phase)
+    )
+    # Subject role slot follows the SDLC skill convention
+    # ``<anomaly_type>: <agent_role> [<priority>]`` (skills/sdlc/SKILL.md
+    # §"Overseer Alert Detection") so "Check agent logs" extracts a role
+    # the host can pass to ``get_container_logs``. Fall back to the phase
+    # only when no blocking role is reported — the phase still appears in
+    # ``metadata.phase`` regardless.
+    subject_role = blocking_agents[0] if blocking_agents else phase_value
+    subject = f"consensus-timeout: {subject_role} [{priority}]"
+    blockers_render = ", ".join(blocking_agents) if blocking_agents else "(none reported)"
+    proposal_render = (
+        latest_proposal_at.isoformat() if latest_proposal_at is not None else "no proposals seen"
+    )
+    heartbeat_render = (
+        latest_heartbeat_at.isoformat()
+        if latest_heartbeat_at is not None
+        else "no recent heartbeat"
+    )
+    body = (
+        f"BRC consensus has not converged after {timeout_minutes} minutes "
+        f"in phase '{phase_value}'.\n"
+        f"Blocking agents: {blockers_render}\n"
+        f"Latest proposal: {proposal_render}\n"
+        f"Latest heartbeat (active roles): {heartbeat_render}\n\n"
+        "The pipeline continues to poll for convergence (up to ~60 min "
+        "before still-running containers are force-killed). If you want "
+        "to intervene, use `cancel_task` to stop the pipeline or "
+        "`restart_phase` to retry."
+    )
+    metadata: dict[str, Any] = {
+        "anomaly_type": "consensus-timeout",
+        "phase": phase_value,
+        "blocking_agents": list(blocking_agents),
+        "latest_proposal_at": (
+            latest_proposal_at.isoformat() if latest_proposal_at is not None else None
+        ),
+        "latest_heartbeat_at": (
+            latest_heartbeat_at.isoformat() if latest_heartbeat_at is not None else None
+        ),
+        "consensus_timeout_minutes": timeout_minutes,
+        "priority": priority,
+    }
+    if slice_id is not None:
+        metadata["slice_id"] = slice_id
+
+    try:
+        try:
+            from message_store import Message, MessageType
+        except ImportError:
+            from ..message_store import (  # type: ignore[no-redef]
+                Message,
+                MessageType,
+            )
+        store_fn = _get_message_store()
+        if store_fn is None:
+            logger.warning(
+                "Consensus-timeout alert: message store unavailable",
+                pipeline_id=pipeline_id,
+            )
+            return
+        msg_store = store_fn()
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject=subject,
+                body=body,
+                metadata=metadata,
+                phase=phase_value,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to publish consensus-timeout OVERSEER_ALERT",
+            pipeline_id=pipeline_id,
+            error=str(e),
+            exc_info=True,
+        )
+
+
 def _handle_brc_consensus_timeout(
     pipeline: Pipeline,
     pipeline_id: str,
     consensus_timeout: float,
     blocking_agents: list[str],
-    store: StateStore,
+    store: StateStore,  # noqa: ARG001 — kept for call-site compatibility (#2264)
     slice_id: str | None = None,
+    active_role_names: list[str] | None = None,
 ) -> None:
     # Extracted from _run_concurrent_phase so k3s-style top-level-module
     # layouts (and tests) can exercise this path in isolation — issue #1783.
     # ``slice_id`` is propagated so per-slice trackers (#2137) are looked
     # up under the nested ``{pipeline_id}/{slice_id}`` key.
+    #
+    # Issue #2264: the auto-``choice`` HITL decision this used to open
+    # was the wrong protocol shape — the platform should not gate the
+    # pipeline on a binary choice when the operator already has the
+    # levers (`cancel_task`, `restart_phase`, `provide_input`).  The
+    # two former decision paths now publish ``OVERSEER_ALERT`` messages
+    # so the SDLC skill's existing alert flow surfaces them as
+    # notifications rather than a blocking decision.
     _brc_handled = False
     _brc_timeout_result: dict | None = None
+    _brc_tracker = None
     try:
         try:
             from peer_consensus import get_peer_consensus_tracker
@@ -9713,26 +9886,50 @@ def _handle_brc_consensus_timeout(
             )
     except Exception as e:
         logger.warning(
-            "BRC timeout check failed, falling back to HITL",
+            "BRC timeout check failed, falling back to OVERSEER_ALERT",
             pipeline_id=pipeline_id,
             error=str(e),
         )
+
+    latest_proposal_at: datetime | None = None
+    if _brc_tracker is not None:
+        try:
+            latest_proposal_at = _brc_tracker.get_latest_proposal_timestamp()
+        except Exception as e:
+            logger.warning(
+                "Consensus-timeout alert proposal lookup failed",
+                pipeline_id=pipeline_id,
+                error=str(e),
+                exc_info=True,
+            )
+    latest_heartbeat_at = _latest_active_role_heartbeat(active_role_names or [])
 
     if (
         _brc_handled
         and _brc_timeout_result is not None
         and _brc_timeout_result.get("action") == "escalate"
     ):
-        _persist_hitl_decision(
-            pipeline_id,
+        # Narrow the alert's blocking_agents to the *critical* blockers
+        # the tracker just escalated on. The caller-supplied
+        # ``blocking_agents`` is the full unconfirmed-roles set
+        # (advisory + critical) from ``evaluate()`` — surfacing
+        # advisory roles on a high-priority alert dilutes the signal.
+        critical_entries = _brc_timeout_result.get("critical_blockers") or []
+        critical_role_names: list[str] = []
+        for entry in critical_entries:
+            for role in (entry.get("reviewer_role"), entry.get("producer_role")):
+                if role and role not in critical_role_names:
+                    critical_role_names.append(role)
+        escalate_blocking = critical_role_names or blocking_agents
+        _publish_consensus_timeout_alert(
             pipeline,
-            store,
-            question=(
-                f"BRC consensus failure: critical reviewers unconfirmed after "
-                f"{int(consensus_timeout / 60)} minutes. How to proceed?"
-            ),
-            options=["Continue waiting", "Accept current state", "Abort phase"],
-            phase=pipeline.current_phase,
+            pipeline_id,
+            consensus_timeout,
+            escalate_blocking,
+            priority="high",
+            latest_proposal_at=latest_proposal_at,
+            latest_heartbeat_at=latest_heartbeat_at,
+            slice_id=slice_id,
         )
     elif not _brc_handled:
         if _emit_event is not None:
@@ -9744,16 +9941,15 @@ def _handle_brc_consensus_timeout(
                     "blocking_agents": blocking_agents,
                 },
             )
-        _persist_hitl_decision(
-            pipeline_id,
+        _publish_consensus_timeout_alert(
             pipeline,
-            store,
-            question=(
-                f"Consensus not reached after {int(consensus_timeout / 60)} minutes. "
-                f"How to proceed?"
-            ),
-            options=["Continue waiting", "Accept current state", "Abort phase"],
-            phase=pipeline.current_phase,
+            pipeline_id,
+            consensus_timeout,
+            blocking_agents,
+            priority="medium",
+            latest_proposal_at=latest_proposal_at,
+            latest_heartbeat_at=latest_heartbeat_at,
+            slice_id=slice_id,
         )
 
 
@@ -11330,12 +11526,13 @@ def _run_concurrent_phase(
 
         # 6. Consensus timeout
         if elapsed >= consensus_timeout:
-            # #2243 progress gate: keep polling instead of opening the
-            # auto-HITL decision while producer/reviewer activity is
-            # still live on the BRC bus or in container heartbeats.
-            # Without this gate, decision-15 / decision-17 on
-            # ``issue-1557-v2`` fired minutes before the next commit
-            # landed; "Continue waiting" was the only correct answer.
+            # #2243 progress gate: keep polling instead of publishing
+            # the consensus-timeout alert while producer/reviewer
+            # activity is still live on the BRC bus or in container
+            # heartbeats. Without this gate, the historical decision-15
+            # / decision-17 misfires on ``issue-1557-v2`` (now
+            # ``OVERSEER_ALERT`` post-#2264) fired minutes before the
+            # next commit landed.
             _gate_seconds = max(
                 0,
                 int(getattr(pipeline.config, "brc_consensus_progress_gate_seconds", 300)),
@@ -11379,6 +11576,7 @@ def _run_concurrent_phase(
                 consensus.get("blocking_agents", []),
                 store,
                 slice_id=slice_id,
+                active_role_names=[e.role.value for e in active_executions],
             )
 
             # Fall back: event-driven wait for remaining containers.
