@@ -293,7 +293,7 @@ def get_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
             f"Invalid container ID format: {container_id}",
             status_code=400,
         )
-    except (ContainerNotFoundError, PodNotFoundError):
+    except ContainerNotFoundError, PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
@@ -340,7 +340,7 @@ def remove_container(pipeline_id: str, container_id: str) -> tuple[Response, int
             f"Invalid container ID format: {container_id}",
             status_code=400,
         )
-    except (ContainerNotFoundError, PodNotFoundError):
+    except ContainerNotFoundError, PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
@@ -402,7 +402,7 @@ def stop_container(pipeline_id: str, container_id: str) -> tuple[Response, int]:
             f"Invalid container ID format: {container_id}",
             status_code=400,
         )
-    except (ContainerNotFoundError, PodNotFoundError):
+    except ContainerNotFoundError, PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
@@ -435,7 +435,7 @@ def get_container_logs(pipeline_id: str, container_id: str) -> tuple[Response, i
     """
     try:
         tail = int(request.args.get("tail", request.args.get("lines", 100)))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         tail = 100
 
     try:
@@ -452,7 +452,7 @@ def get_container_logs(pipeline_id: str, container_id: str) -> tuple[Response, i
             f"Invalid container ID format: {container_id}",
             status_code=400,
         )
-    except (ContainerNotFoundError, PodNotFoundError):
+    except ContainerNotFoundError, PodNotFoundError:
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,

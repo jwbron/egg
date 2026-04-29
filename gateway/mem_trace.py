@@ -50,7 +50,7 @@ def _read_rss_mb() -> float | None:
                 if line.startswith("VmRSS:"):
                     kb = int(line.split()[1])
                     return kb / 1024
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     return None
 

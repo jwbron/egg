@@ -81,7 +81,7 @@ def consensus_push() -> tuple[int, str | None]:
             cwd=repo_path or None,
             stderr=subprocess.DEVNULL,
         ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except subprocess.CalledProcessError, FileNotFoundError:
         branch = ""
 
     payload_data: dict[str, object] = {
@@ -108,7 +108,7 @@ def consensus_push() -> tuple[int, str | None]:
                 ).strip()
                 remote_branch = tracking.removeprefix("refs/heads/")
                 refspec = f"{branch}:{remote_branch}" if remote_branch != branch else branch
-            except (subprocess.CalledProcessError, FileNotFoundError):
+            except subprocess.CalledProcessError, FileNotFoundError:
                 refspec = branch
         payload_data["refspec"] = refspec
     else:
@@ -125,7 +125,7 @@ def consensus_push() -> tuple[int, str | None]:
                 cwd=repo_path or None,
                 stderr=subprocess.DEVNULL,
             ).strip()
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except subprocess.CalledProcessError, FileNotFoundError:
             commit_sha = ""
         if not commit_sha:
             msg = "could not determine HEAD commit for push"

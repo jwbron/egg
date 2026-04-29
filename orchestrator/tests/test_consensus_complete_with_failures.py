@@ -36,7 +36,7 @@ def _make_concurrent_pipeline(pipeline_id: str = "issue-1495") -> Pipeline:
     }.items():
         try:
             setattr(config, key, val)
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             config.__dict__[key] = val
 
     return Pipeline(

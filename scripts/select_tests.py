@@ -817,7 +817,7 @@ def build_bare_name_upstream_edges(all_modules: set[str], repo_root: Path) -> di
         try:
             source = source_path.read_text(encoding="utf-8", errors="replace")
             tree = ast.parse(source, filename=str(source_path))
-        except (SyntaxError, OSError, ValueError):
+        except SyntaxError, OSError, ValueError:
             # ValueError covers null-byte source etc.
             continue
         for imported in _extract_imports(tree):
