@@ -205,12 +205,13 @@ class TestRefreshPipelineBranchAgainstCurrentBase:
             assert spawner.gateway.fetch_worktree_branch.call_count == 2
 
     def test_uses_safe_onto_form(self):
-        """The rebase call uses ``--onto <new_base> <merge_base>`` (3-arg safe form).
+        """The rebase call uses ``--onto <new_base> <upstream>`` (2-arg form).
 
-        This is the contamination-safe shape from #2222 — verifying
-        argv shape so a refactor that drops ``--onto`` (reintroducing
-        the bare-form contamination shape) is caught at unit-test
-        time.
+        HEAD is the implicit branch being rebased — the step-5 reset to
+        ``origin/<pipeline_branch>`` puts it there.  Verifying argv
+        shape so a refactor that drops ``--onto`` (reintroducing the
+        bare-form contamination shape from #2222) is caught at
+        unit-test time.
         """
         spawner = _make_spawner()
         merge_base_sha = "abcdef0123456789"
@@ -231,7 +232,10 @@ class TestRefreshPipelineBranchAgainstCurrentBase:
                 for call in mock_run.call_args_list
                 if any("rebase" == arg for arg in call.args[0])
             ]
-            assert rebase_calls, "expected exactly one rebase invocation"
+            assert rebase_calls, "expected at least one rebase invocation"
+            assert len(rebase_calls) == 1, (
+                f"expected exactly one rebase invocation, got {len(rebase_calls)}"
+            )
             rebase_argv = rebase_calls[0]
             # Strip leading ``git -c ... -C ... rebase``.
             assert "rebase" in rebase_argv

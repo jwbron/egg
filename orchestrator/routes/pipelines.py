@@ -5846,12 +5846,14 @@ def _refresh_pipeline_branch_against_current_base(
     if behind_count == 0:
         return False
 
-    # Step 4: Compute the merge-base so we can use the safe 3-arg
-    # ``--onto`` form (``--onto <new_base> <old_base> <branch>``) — the
-    # form #2222 hardened against contamination.  The merge-base is the
-    # commit where the branch diverged from base; using it as ``<old_base>``
-    # tells git "replay only the commits unique to <branch> onto <new_base>"
-    # — no main commits get absorbed into the branch's linear history.
+    # Step 4: Compute the merge-base so we can use the safe
+    # ``--onto <new_base> <upstream>`` form (HEAD is the implicit branch
+    # being rebased after the step-5 reset).  The merge-base is the
+    # commit where the branch diverged from base; using it as
+    # ``<upstream>`` tells git "replay only the commits unique to HEAD
+    # onto <new_base>" — no main commits get absorbed into the branch's
+    # linear history, which is the contamination shape #2222 hardened
+    # against in the push-reconcile path.
     merge_base_proc = _run_git(
         ["merge-base", f"origin/{pipeline_branch}", f"origin/{base_branch}"],
         timeout=15,
@@ -5873,6 +5875,15 @@ def _refresh_pipeline_branch_against_current_base(
     # rebase operates on the right starting state.  The reset target
     # is ``origin/<pipeline_branch>`` — fresh from fetch in step 1 —
     # so we are not rebasing on top of stale local state.
+    #
+    # Unlike ``_rebase_pipeline_branch_onto_base`` (resume-time helper),
+    # there is no ``_head_on(...)`` ancestry guard before this reset.
+    # That is intentional at the PR-open call site: if we got here,
+    # ``_finalize_pr_phase_failed`` either left HEAD on
+    # ``origin/<branch>`` (push_ok=True path → reset is a no-op) or
+    # carries unpushed orchestrator housekeeping commits that are
+    # already orphan-by-design per its docstring.  Either way, no
+    # local-only work needs to be preserved here.
     reset = _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
     if reset is None or reset.returncode != 0:
         logger.warning(
@@ -5883,9 +5894,14 @@ def _refresh_pipeline_branch_against_current_base(
         )
         return False
 
-    # Step 6: Rebase using the safe ``--onto`` form.  The shape is
-    # exactly the contamination-safe form from #2222 — see
-    # ``_rebase_pipeline_branch_onto_base`` step 5 for prior art.
+    # Step 6: Rebase using the safe ``--onto <new_base> <upstream>``
+    # form.  HEAD is the implicit branch being rebased (set by the
+    # step-5 reset above).  The closest argv-shape prior art is
+    # ``gateway_client._build_rebase_cmd`` — that one rebases in the
+    # opposite direction (replay HEAD onto a stale branch tip) but uses
+    # the same explicit-upstream pattern that pins the replay range to
+    # ``<upstream>..HEAD`` and so sidesteps the bare-form contamination
+    # shape behind #2222.
     rebase = _run_git(
         [
             "rebase",
