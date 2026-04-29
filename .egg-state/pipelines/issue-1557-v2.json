@@ -446,16 +446,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-29T04:55:38.614338Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-29T05:09:27.974877Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Single-project only (default). Reject cross-project children with a clear error.\", \"Q2\": \"32KB warn, 64KB refuse (default).\", \"Q3\": \"Require Blocks in operator allowlist as a deploy-time prerequisite. Apply step fails fast if missing.\", \"Q4\": \"Identical roster, no epic-aware reviewer in MVP. Children reviewed exactly the same as today's Jira-ticket pipelines.\", \"Q5\": \"Default gateway throttling sufficient (rely on existing 429-retry-once-with-min(Retry-After,30) per #1556). No extra orchestrator-side cap.\", \"Q6\": \"Depth-first along dependency DAG so each child's predecessors exist before it is created. Link creation is a separate post-pass.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T05:09:08.236469Z",
+  "updated_at": "2026-04-29T05:09:28.008719Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -469,6 +469,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 37,
+  "version": 38,
   "jira_ticket": null
 }
