@@ -95,14 +95,17 @@ by the `make test` recipe. The algorithm is:
      `as_package=True` for `__init__.py` edits (package-level edit
      can affect anything downstream of the whole package);
      `as_package=False` for leaf-module edits.
-   - **Bare-name AST edges:** An AST scan of every in-repo `.py`
-     maps bare-name import targets (e.g. `from action_guards import
-     …`) to fully-qualified grimp module ids, covering the test and
-     production files that import via short names rather than
-     fully-qualified package paths. Applies to `shared.*`,
-     `orchestrator.*`, and `sandbox.*`; `gateway.*` is excluded —
-     its importlib test-loader pattern is handled by the
-     `gateway/*.py` widening trigger (§7).
+   - **Bare-name AST edges:** An AST scan of every module
+     registered in the grimp graph (i.e. every `.py` under the
+     `PACKAGES` constant — the four source roots and four test
+     roots; `scripts/`, `integration_tests/`, and other un-registered
+     trees are not scanned) maps bare-name import targets (e.g.
+     `from action_guards import …`) to fully-qualified grimp module
+     ids, covering the test and production files that import via
+     short names rather than fully-qualified package paths. Applies
+     to `shared.*`, `orchestrator.*`, and `sandbox.*`; `gateway.*`
+     is excluded — its importlib test-loader pattern is handled by
+     the `gateway/*.py` widening trigger (§7).
 6. **Map modules → test files.** Intersect the downstream set with
    the pre-collected set of every `test_*.py` / `*_test.py` file
    in the graph. The selector emits the resulting set of test file
