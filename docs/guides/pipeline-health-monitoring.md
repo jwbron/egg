@@ -106,6 +106,7 @@ The orchestrator processes structured progress events with deterministic rules. 
 | **Progress stall** | No structured progress update within threshold | Escalate to overseer/HITL (overseer decides whether to nudge) |
 | **Infrastructure error** | Agent reports `blocked` state with infrastructure-related blocker (git failures, gateway errors, permission denied) | Critical alert → overseer routes to HITL fast-path (bypasses nudge/redirect ladder) |
 | **BRC progress stall** | Fully-ACKed producer hasn't sent `CONSENSUS_CONFIRMED` within timeout | Send direct `OVERSEER_ALERT` to stuck producer instructing it to call `mcp__brc__confirm`; also escalate to overseer/HITL |
+| **Branch divergence** | Pipeline branch is >20 commits ahead of base AND ahead-commits contain merged-PR subject signatures (`(#NNNN)`) — the contamination shape from #2222 | Publish `OVERSEER_ALERT` with `anomaly_type: "branch-divergence"` listing offending commits; deduplicates per SHA |
 
 ### Infrastructure Error Detection
 
@@ -215,6 +216,24 @@ The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_p
 **Example:** In a pipeline run documented in issue #1613, a producer received reviewer ACKs and the orchestrator broadcast "All reviewers have ACKed — ready to confirm." Four out of five agents confirmed normally. The remaining producer entered a tight loop (heartbeat + message poll every ~4 seconds) for 11 minutes without ever sending `CONFIRMED`. With the post-ACK confirmation timeout, this would be detected and escalated after 3 minutes instead of 11.
 
 **Relationship to `IncompleteConsensusStallCheck`:** The Tier 1 health check `IncompleteConsensusStallCheck` catches a broader class of incomplete consensus stalls (including reviewers that haven't ACKed). The post-ACK confirmation timeout is narrower and faster — it specifically targets the "heartbeating but not confirming" failure mode and fires within 3 minutes rather than the ~10 minutes required by the Tier 1 check's grace + tick threshold.
+
+### Branch-Divergence Detection
+
+When a pipeline's branch absorbs merged-main commits (the contamination shape investigated in #2222), the resulting PR shows a diff against main that includes unrelated merged work. The branch-divergence detector catches this at phase-boundary granularity — strictly better than detecting at PR open, but complementary to the primary gate in #2282.
+
+**Detection mechanism:**
+- Each 30-second health monitor tick calls `_branch_divergence_tick()`, which runs two git commands against `origin/<pipeline_branch>`:
+  1. `git rev-list --count origin/<base>..origin/<pipeline_branch>` — count commits ahead
+  2. If count > `BRANCH_DIVERGENCE_THRESHOLD` (20), `git log --no-merges --pretty=format:%H%x09%s` — list non-merge subjects
+- If any subjects match the `(#NNNN)` pattern (merged-PR signatures), those commits are "offenders"
+- An `OVERSEER_ALERT` with `anomaly_type: "branch-divergence"` is published listing the offending SHAs and subjects
+- All git errors are logged and swallowed — observability must never block the pipeline
+
+**Detection latency:** The local `origin/<pipeline_branch>` ref only refreshes when the orchestrator fetches — at pipeline start, phase boundaries, and a few resume/signal paths. The poll thread itself does not fetch. Contamination introduced mid-phase is therefore detected at the next phase boundary's fetch, not within 30 seconds.
+
+**Deduplication:** A per-pipeline `divergence_alerted_shas` set tracks which offending commit SHAs have already fired an alert. New alerts fire only for newly-discovered offenders. The set clears when the contamination window goes empty (including on transient git errors), so re-introduced contamination re-fires — consistent with the "rather over-alert than miss" posture of #2224.
+
+**False positives:** An agent legitimately including a `(#NNNN)` literal (with parentheses) in a commit subject — e.g., `"Reference benchmark suite (#2222)"` — would trigger the detector. The regex (`\(#\d+\)`) requires the literal `(` and `)` characters, so a bare `#2222` reference does not match. The alert body explains the false-positive scenario and instructs that no action is required if the diff against main looks clean.
 
 ### Configuration
 
