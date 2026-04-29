@@ -2081,16 +2081,15 @@ def _cleanup_remote_branches(
         # remote) is satisfied — count it as success rather than churning a
         # warning every time a pipeline is cleaned up before any branch was
         # ever pushed.
-        category = getattr(result, "category", None)
-        if result or category == "already_deleted":
+        if result or result.category == "already_deleted":
             deleted += 1
         else:
             logger.warning(
                 "Remote branch deletion failed during pipeline cleanup",
                 pipeline_id=pipeline_id,
                 branch=branch,
-                category=category,
-                detail=getattr(result, "detail", None),
+                category=result.category,
+                detail=result.detail,
             )
 
     if deleted:

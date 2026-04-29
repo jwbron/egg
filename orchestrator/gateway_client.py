@@ -1134,10 +1134,11 @@ class GatewayClient:
 
         Raises:
             GatewayError: On request failure. Unlike push_worktree_branch/
-                delete_remote_branch/fetch_worktree_branch (which catch errors
-                internally and return bool), this method lets errors propagate
-                so the caller can decide whether a failed PR creation should
-                abort the phase.
+                delete_remote_branch (which catch errors internally and
+                return PushResult — truthy on success) or
+                fetch_worktree_branch (which returns bool), this method
+                lets errors propagate so the caller can decide whether a
+                failed PR creation should abort the phase.
         """
         temp_container_id = f"{pipeline_id}-auto-pr"
         session_token: str | None = None
