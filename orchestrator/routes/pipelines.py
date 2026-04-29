@@ -329,7 +329,7 @@ def _message_store_tip_id(pipeline_id: str) -> str | None:
 
 
 def _build_minimal_status_envelope(
-    pipeline: "Pipeline",
+    pipeline: Pipeline,
     cursor: str,
 ) -> dict[str, Any]:
     """Compute the small envelope used on both wait paths.
@@ -370,10 +370,10 @@ def _build_minimal_status_envelope(
 
 def _check_and_respawn_overseer(
     *,
-    spawner: "ContainerSpawner",
-    store: "StateStore",
+    spawner: ContainerSpawner,
+    store: StateStore,
     pipeline_id: str,
-    pipeline: "Pipeline",
+    pipeline: Pipeline,
     overseer_container_id: str | None,
     overseer_respawn_count: int,
     max_overseer_respawns: int,
@@ -637,7 +637,7 @@ def _send_brc_confirmation_nudge(
 
 
 def _teardown_phase_overseer(
-    spawner: "ContainerSpawner",
+    spawner: ContainerSpawner,
     container_id: str,
     pipeline_id: str,
     phase_label: str,
@@ -680,7 +680,7 @@ TESTER_FINDINGS_HEADER = "### tester findings"
 def _pipeline_identifier(
     issue_number: int | None,
     pipeline_id: str,
-    mode: "PipelineMode | None" = None,
+    mode: PipelineMode | None = None,
 ) -> int | str:
     """Derive the pipeline identifier used for namespaced .egg-state filenames.
 
@@ -739,7 +739,7 @@ def _pipeline_identifier(
     return issue_number if issue_number is not None else pipeline_id
 
 
-def _uses_per_role_staging(pipeline: "Pipeline") -> bool:
+def _uses_per_role_staging(pipeline: Pipeline) -> bool:
     """Return True when a pipeline uses BABYSIT-style per-role staging branches.
 
     Broadened from the BABYSIT-only check in #1748 to cover CUSTOM-mode
@@ -875,7 +875,7 @@ except ImportError:
     _emit_event = None  # type: ignore[assignment]
 
 # Map report_pipeline_status event_type strings to EventType enum values
-_EVENT_TYPE_MAP: dict[str, "EventType"] = {}
+_EVENT_TYPE_MAP: dict[str, EventType] = {}
 if _emit_event is not None:
     _EVENT_TYPE_MAP = {
         "phase.started": EventType.PHASE_STARTED,
@@ -1826,9 +1826,9 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
 
 
 def _mark_pipeline_records_terminated(
-    store: "StateStore",
+    store: StateStore,
     pipeline_id: str,
-) -> "Pipeline":
+) -> Pipeline:
     """Mark all running containers and agents as stopped after pipeline termination.
 
     Called when a pipeline transitions to a terminal state (cancelled or failed).
@@ -2026,7 +2026,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
 
 def _compute_gateway_mode(
-    pipeline: "Pipeline",
+    pipeline: Pipeline,
 ) -> tuple[Literal["public", "private"], str | None]:
     """Compute gateway session mode from pipeline config and repo visibility.
 
@@ -2050,7 +2050,7 @@ def _compute_gateway_mode(
 
 def _cleanup_remote_branches(
     pipeline_id: str,
-    pipeline: "Pipeline",
+    pipeline: Pipeline,
     repo_path: Path,
 ) -> None:
     """Best-effort cleanup of remote branches for a pipeline.
@@ -3120,7 +3120,7 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         # timeout elapses (plan risk R14, accepted).
 
 
-def _get_pr_info(pipeline: "Pipeline") -> tuple[str | None, int | None]:
+def _get_pr_info(pipeline: Pipeline) -> tuple[str | None, int | None]:
     """Extract PR URL and number from the PR phase artifacts.
 
     Returns ``(pr_url, pr_number)`` or ``(None, None)`` when no PR has
@@ -3141,7 +3141,7 @@ def _get_pr_info(pipeline: "Pipeline") -> tuple[str | None, int | None]:
     return pr_url, pr_number
 
 
-def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
+def _get_concurrent_status(pipeline: Pipeline) -> dict | None:
     """Get concurrent execution monitoring data for a pipeline.
 
     Returns None if concurrent execution is not enabled for this pipeline.
@@ -3850,7 +3850,7 @@ def _get_draft_path(
     phase: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
-    mode: "PipelineMode | None" = None,
+    mode: PipelineMode | None = None,
 ) -> str | None:
     """Return relative path to the draft file for a phase.
 
@@ -5198,7 +5198,7 @@ def _aggregate_review_verdicts(
 
 
 def _sync_worktree_with_remote(
-    spawner: "ContainerSpawner",
+    spawner: ContainerSpawner,
     pipeline_id: str,
     worktree_repo_path: Path,
     prior_phase_succeeded: bool = True,
@@ -5425,7 +5425,7 @@ class StalePipelineBranchError(RuntimeError):
 
 
 def _rebase_pipeline_branch_onto_base(
-    spawner: "ContainerSpawner",
+    spawner: ContainerSpawner,
     pipeline_id: str,
     worktree_repo_path: Path,
     pipeline_branch: str,
@@ -6013,7 +6013,7 @@ def _cleanup_agent_outputs_for_pr(
 
 def _ensure_statefiles_on_branch(
     worktree_repo_path: Path,
-    pipeline: "Pipeline",
+    pipeline: Pipeline,
 ) -> bool:
     """Verify the contract file exists in the worktree and re-create if missing.
 
@@ -6887,7 +6887,7 @@ def _rewrite_brc_history_for_pr(
     )
 
 
-def _resolve_pipeline_worktree_path(pipeline: "Pipeline", fallback: Path) -> Path:
+def _resolve_pipeline_worktree_path(pipeline: Pipeline, fallback: Path) -> Path:
     """Resolve the on-disk worktree path for *pipeline*.
 
     Prefers ``WORKTREE_BASE_DIR / pipeline.id / <repo_short>`` when it
@@ -6910,8 +6910,8 @@ def _resolve_pipeline_worktree_path(pipeline: "Pipeline", fallback: Path) -> Pat
 
 
 def _persist_phase_brc_history(
-    pipeline: "Pipeline",
-    store: "StateStore",
+    pipeline: Pipeline,
+    store: StateStore,
     phase: str,
 ) -> None:
     """Persist BRC history for *phase* and commit it, best-effort.
@@ -7315,7 +7315,7 @@ def _build_pr_body(
 def _auto_create_pr(
     pipeline: Pipeline,
     worktree_repo_path: Path,
-    spawner: "ContainerSpawner",
+    spawner: ContainerSpawner,
     gateway_mode: Literal["public", "private"] = "public",
 ) -> str | None:
     """Auto-create a PR for a pipeline without spawning an agent.
@@ -7943,7 +7943,7 @@ def _build_brc_preamble(
     branch: str | None = None,
     base_branch: str | None = None,
     *,
-    mode: "PipelineMode | None" = None,
+    mode: PipelineMode | None = None,
     pr_number: int | None = None,
 ) -> str:
     """Build the BRC consensus lifecycle preamble for an agent.
@@ -8349,7 +8349,7 @@ def _build_reviewer_preparation(
     *,
     branch: str | None = None,
     base_branch: str | None = None,
-    mode: "PipelineMode | None" = None,
+    mode: PipelineMode | None = None,
     pr_number: int | None = None,
 ) -> str:
     """Build proactive preparation instructions for reviewer agents.
@@ -8567,7 +8567,7 @@ def _build_producer_orientation(
     branch: str | None = None,
     *,
     base_branch: str | None = None,
-    mode: "PipelineMode | None" = None,
+    mode: PipelineMode | None = None,
     pr_number: int | None = None,
 ) -> str:
     """Build orientation instructions for producer agents.
@@ -8773,7 +8773,7 @@ def _build_agent_prompt(
     concurrent: bool = False,
     network_mode: str | None = None,
     *,
-    mode: "PipelineMode | None" = None,
+    mode: PipelineMode | None = None,
     pr_number: int | None = None,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
@@ -10589,7 +10589,7 @@ def _run_concurrent_phase(
     # Track which containers have exited and their results.
     exited_containers: dict[str, ContainerInfo] = {}
 
-    def _record_container_exit(exec_info: "StateAgentExecution", final_info: ContainerInfo) -> None:
+    def _record_container_exit(exec_info: StateAgentExecution, final_info: ContainerInfo) -> None:
         """Capture logs and update pipeline state for an exited container."""
         container_logs = ""
         if final_info.exit_code != 0:
@@ -11457,7 +11457,7 @@ def _spawn_and_wait(
     store=None,
     certs_volume: str | None = None,
     branch: str | None = None,
-    extra_mounts: "list[MountSpec] | None" = None,
+    extra_mounts: list[MountSpec] | None = None,
     spawn_max_retries: int | None = None,
     spawn_retry_initial_backoff_seconds: float | None = None,
 ) -> tuple[int, str]:

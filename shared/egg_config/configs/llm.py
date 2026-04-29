@@ -153,7 +153,7 @@ class LLMConfig(BaseConfig):
         }
 
     @classmethod
-    def from_env(cls) -> "LLMConfig":
+    def from_env(cls) -> LLMConfig:
         """Load LLM configuration from environment variables.
 
         Environment variables:

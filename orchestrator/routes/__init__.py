@@ -163,7 +163,7 @@ def resolve_repo_path_for_pipeline(pipeline_id: str, base_path: Path) -> Path:
     return base_path
 
 
-def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipeline"]:
+def get_state_store_for_pipeline(pipeline_id: str) -> tuple[StateStore, Pipeline]:
     """Get state store and pipeline, resolving multi-repo paths automatically.
 
     This is the preferred way for routes to load a pipeline.  It handles

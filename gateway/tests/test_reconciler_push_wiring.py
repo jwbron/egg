@@ -141,7 +141,7 @@ def _push_context(mock_session, captured_cmds: list[list[str]]):
     )
 
 
-def _post_push(client, payload: dict) -> "object":
+def _post_push(client, payload: dict) -> object:
     return client.post(
         "/api/v1/git/push",
         headers={"Authorization": "Bearer test-session-token"},

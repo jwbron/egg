@@ -93,13 +93,13 @@ class ConfigRegistry:
         print(health.status)  # "healthy", "degraded", or "unhealthy"
     """
 
-    _instance: "ConfigRegistry | None" = None
+    _instance: ConfigRegistry | None = None
     _instance_lock: RLock = RLock()
     _configs: dict[str, BaseConfig]
     _dry_run: bool
     _lock: RLock
 
-    def __new__(cls) -> "ConfigRegistry":
+    def __new__(cls) -> ConfigRegistry:
         """Ensure only one instance exists (singleton pattern)."""
         with cls._instance_lock:
             if cls._instance is None:

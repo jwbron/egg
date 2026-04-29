@@ -368,7 +368,7 @@ class ApprovalMatrix:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], graph: ReviewGraph) -> "ApprovalMatrix":
+    def from_dict(cls, data: dict[str, Any], graph: ReviewGraph) -> ApprovalMatrix:
         """Deserialize a matrix."""
         matrix = cls(graph)
 

@@ -724,9 +724,7 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         pipeline.phases = phases
         return pipeline
 
-    def _monitor_with_store(
-        self, pipeline, pipeline_id: str
-    ) -> tuple["OverseerMonitor", MagicMock]:
+    def _monitor_with_store(self, pipeline, pipeline_id: str) -> tuple[OverseerMonitor, MagicMock]:
         """Build a monitor with HITL/broadcast/Slack stubbed and a store
         patched in that returns ``pipeline`` from load_pipeline."""
         monitor = OverseerMonitor(pipeline_id=pipeline_id, config=_MockConfig())

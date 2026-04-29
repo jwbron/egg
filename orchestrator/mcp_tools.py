@@ -1978,7 +1978,7 @@ class PipelineToolHandler:
 
     # --- Gateway request infrastructure ---
 
-    def _get_gateway_client(self, **kwargs: Any) -> "GatewayClient":  # noqa: F821
+    def _get_gateway_client(self, **kwargs: Any) -> GatewayClient:  # noqa: F821
         """Create a GatewayClient from the configured gateway URL.
 
         Extra kwargs are forwarded to the GatewayClient constructor

@@ -7774,7 +7774,7 @@ def worktrees_prune() -> tuple[Response, int] | Response:
 # =============================================================================
 
 
-def _branch_exists_on_remote(manager: "WorktreeManager", repo_name: str, branch: str) -> bool:
+def _branch_exists_on_remote(manager: WorktreeManager, repo_name: str, branch: str) -> bool:
     """Check if a branch exists on the remote (origin) for a repository.
 
     Args:
