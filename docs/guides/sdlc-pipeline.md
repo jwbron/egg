@@ -1160,7 +1160,14 @@ The `source_branch` and `source_artifact_prefix` parameters are also accepted by
 }
 ```
 
-**Branch reuse for resubmissions** — when resubmitting a pipeline after a prior run was cancelled or failed, the orchestrator no longer returns HTTP 409 if the branch already exists on the remote. The check now considers whether an active (non-terminal) pipeline exists for that pipeline ID. If the prior pipeline is in a terminal state (cancelled, failed, or complete) or no pipeline state exists, the branch is reused. A 409 is only returned when both the branch exists AND an active pipeline is running.
+**Branch reuse for resubmissions** — when resubmitting a pipeline after a prior run was cancelled or failed, `create_pipeline` checks two conditions before allowing branch reuse:
+
+1. **Active pipeline conflict**: if the branch exists and an active (non-terminal) pipeline holds it, the call returns HTTP 409 with `reason: branch_exists`. Use a qualifier to create a parallel pipeline, or cancel the existing one first.
+2. **Stale branch guard** (#2222): if the branch exists, no active pipeline holds it, but the branch tip differs from `origin/<base_branch>`, the call returns HTTP 409 with `reason: stale_branch`. This prevents a new pipeline from inheriting commits left by a prior failed/cancelled run — which would contaminate the resulting PR via the push-reconcile path. The response body includes a `hint` field pointing to the resolution: `cancel_task(task_id='<id>', cleanup=true)` deletes the stale branch and pipeline state so the resubmission can proceed cleanly. When the call is made without a `pipeline_id` (rare — most callers carry one), the `hint` falls back to the generic `"Delete the stale branch and any associated pipeline state, then resubmit."` form since `cancel_task` has no task to target.
+
+`<base_branch>` is the request's `base_branch` parameter when supplied, otherwise the orchestrator's auto-detected default (`origin/HEAD` → `origin/main` → `origin/master`, in that order). Branch reuse proceeds silently only when the branch tip equals `origin/<base_branch>` (a fresh branch carrying no prior-pipeline commits).
+
+Other 409 conditions on `create_pipeline` (`pr_merged`, `pr_closed`, `pr_empty_diff`, and a `StateStoreError` "already exists" catch-all) are unrelated to branch reuse and are surfaced with their own `reason` codes.
 
 ### Contract CLI Commands
 
