@@ -747,7 +747,7 @@ def _collect_unresolved_phase_decisions(
                 unresolved.extend(
                     d.id for d in contract.decisions if not d.resolved and d.phase == current_phase
                 )
-        except (OSError, ValueError, ContractValidationError):
+        except OSError, ValueError, ContractValidationError:
             # OSError covers filesystem failures loading the contract,
             # ValueError covers serialization/validation issues (pydantic V2
             # raises ValueError for invalid data), and

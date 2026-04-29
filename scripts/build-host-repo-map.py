@@ -60,7 +60,7 @@ def get_origin_url(repo_path: Path) -> str | None:
             check=False,
             timeout=5,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     if result.returncode != 0:
         return None
