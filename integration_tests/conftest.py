@@ -643,7 +643,7 @@ def _capture_container_logs(container_name: str) -> str:
         return f"(log capture failed: {e})"
 
 
-def _preflight_gateway_check(egg_stack: "EggStack", timeout: int = 10) -> tuple[bool, str]:
+def _preflight_gateway_check(egg_stack: EggStack, timeout: int = 10) -> tuple[bool, str]:
     """Perform a pre-flight health check on the gateway before spawning containers.
 
     This catches infrastructure issues early (before the 180s test timeout)
@@ -667,7 +667,7 @@ def _preflight_gateway_check(egg_stack: "EggStack", timeout: int = 10) -> tuple[
 
 
 def run_claude_structured(
-    egg_stack: "EggStack",
+    egg_stack: EggStack,
     session_token: str,
     prompt: str,
     *,

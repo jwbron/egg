@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 # Install git for state management, curl for health checks, gosu for dropping privileges
 RUN apt-get update && apt-get install -y \

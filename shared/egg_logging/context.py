@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # Thread-local and async-safe context storage
-_current_context: ContextVar["LogContext | None"] = ContextVar("egg_log_context", default=None)
+_current_context: ContextVar[LogContext | None] = ContextVar("egg_log_context", default=None)
 
 
 @dataclass
@@ -48,7 +48,7 @@ class LogContext:
         if self.span_id is None:
             self.span_id = secrets.token_hex(8)
 
-    def new_span(self) -> "LogContext":
+    def new_span(self) -> LogContext:
         """Create a new context with a new span_id but same trace_id."""
         return LogContext(
             trace_id=self.trace_id,
@@ -62,7 +62,7 @@ class LogContext:
             extra=dict(self.extra),
         )
 
-    def with_extra(self, **kwargs: Any) -> "LogContext":
+    def with_extra(self, **kwargs: Any) -> LogContext:
         """Create a new context with additional extra fields."""
         new_extra = dict(self.extra)
         new_extra.update(kwargs)
