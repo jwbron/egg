@@ -195,10 +195,19 @@ def _enforce_no_first_stall_restart(
     Prompts are advisory; this guard is the load-bearing enforcement.
 
     Trigger: ``action == "restart_agent"`` AND classification is
-    ``stuck``/``needs_help`` AND no prior nudge or redirect appears in
-    ``redirect_history``. In that state we rewrite the decision to a
-    ``nudge`` whose message body leads with the log-inspection step
-    documented in the prompt.
+    ``stuck``/``needs_help`` AND no prior intervention of any kind appears
+    in ``redirect_history``. In that state we rewrite the decision to a
+    ``hitl`` so the operator gets a real decision surface (the original
+    recommendation and the model's reasoning are preserved in the
+    question text).
+
+    The "no prior intervention" check spans ``nudge``, ``redirect``,
+    ``restart_agent``, and ``hitl`` so a previous restart (which may
+    itself have been the wrong call) doesn't fast-track the next one
+    past the guard. The intent is "ensure at least one non-destructive
+    intervention before destruction" — if any kind of corrective action
+    has already fired, the guard yields and the model's recommendation
+    stands.
     """
     if decision.get("action") != "restart_agent":
         return decision
@@ -208,19 +217,21 @@ def _enforce_no_first_stall_restart(
         return decision
 
     history = redirect_history or []
-    if any(h.get("action") in {"nudge", "redirect"} for h in history):
+    _PRIOR_INTERVENTIONS = {"nudge", "redirect", "restart_agent", "hitl"}
+    if any(h.get("action") in _PRIOR_INTERVENTIONS for h in history):
         return decision
 
     original_msg = decision.get("message", "")
+    original_suffix = f" Model's recommendation: {original_msg}" if original_msg else ""
     return {
-        "action": "nudge",
+        "action": "hitl",
         "message": (
-            "Inspect container logs via "
-            "`mcp__egg__get_container_logs(task_id=…, agent_role=…)` before "
-            "taking destructive action. The agent may be mid-tool-call (e.g. "
+            "Overseer overrode a `restart_agent` recommendation on a "
+            "first-occurrence stall. The agent may be mid-tool-call (e.g. "
             "a multi-minute pytest) rather than genuinely stuck; restart "
-            "would destroy in-flight commits. "
-            f"Original recommendation: {original_msg}"
+            "would destroy in-flight commits. Inspect container logs via "
+            "`mcp__egg__get_container_logs(task_id=…, agent_role=…)` "
+            "before approving a restart." + original_suffix
         ).strip(),
         "priority": decision.get("priority", "medium"),
     }

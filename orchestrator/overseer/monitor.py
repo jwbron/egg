@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -45,6 +46,26 @@ logger = logging.getLogger(__name__)
 # indicating human intervention is needed.
 _HUMAN_WORDS = ("human", "manual", "operator")
 _ACTION_WORDS = ("intervention", "attention", "review", "required", "needed", "escalat")
+
+
+def _accepts_kwarg(func: Any, name: str) -> bool:
+    """Return True if *func* accepts a keyword argument named *name*.
+
+    Uses :func:`inspect.signature` to inspect the callable. ``True`` is
+    returned when the parameter is declared explicitly or absorbed by a
+    ``**kwargs`` catch-all. Callables whose signature can't be
+    introspected (e.g. some C-implemented builtins) default to ``True``
+    on the assumption that they accept arbitrary kwargs — matching how
+    :class:`unittest.mock.AsyncMock` and friends behave at the call site.
+    """
+    try:
+        sig = inspect.signature(func)
+    except TypeError, ValueError:
+        return True
+    params = sig.parameters
+    if name in params:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
 class _DefaultConfig:
@@ -237,19 +258,20 @@ class OverseerMonitor:
     ) -> dict:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
         if self._decision_maker and hasattr(self._decision_maker, "decide_corrective_action"):
-            try:
-                return await self._decision_maker.decide_corrective_action(
+            method = self._decision_maker.decide_corrective_action
+            if _accepts_kwarg(method, "redirect_history"):
+                return await method(
                     classification,
                     context,
                     model=model,
                     redirect_history=redirect_history,
                 )
-            except TypeError:
-                # Custom test doubles may not accept redirect_history; fall
-                # back to the legacy signature.
-                return await self._decision_maker.decide_corrective_action(
-                    classification, context, model=model
-                )
+            # Test doubles with explicit signatures that pre-date the
+            # redirect_history kwarg fall through here; the guard
+            # downstream (_enforce_no_first_stall_restart) is bypassed
+            # in that path, which is fine for tests that don't exercise
+            # it.
+            return await method(classification, context, model=model)
         return await decide_corrective_action(
             classification,
             context,
