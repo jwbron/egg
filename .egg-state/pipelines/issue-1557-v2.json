@@ -344,10 +344,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-29T04:55:38.367192Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-29T05:09:01.112940Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"A. Inline in the plan draft markdown as a YAML-tasks block field (e.g. `existing_key: ENG-123`, `mapping: {plan_node_id, jira_key, status}`) — single artifact, version-controlled with the rest of the plan, but plan-parser must learn the new fields (Recommended)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -455,7 +455,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T05:08:57.852732Z",
+  "updated_at": "2026-04-29T05:09:01.134200Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -469,6 +469,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 33,
+  "version": 34,
   "jira_ticket": null
 }
