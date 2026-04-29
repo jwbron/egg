@@ -9590,12 +9590,39 @@ def _check_brc_progress_gate(
     "no signal from that source" — never as a gate defer, since a
     crashed signal collector must not silently keep us off the HITL
     surface.
+
+    Heartbeat-cadence contract: the decision-17 path (coder mid-merge-
+    conflict before any ``CONSENSUS_PROPOSE``) relies on container
+    heartbeats firing at least every ``gate_seconds``. Sandbox
+    heartbeats (see ``shared/egg_agent`` heartbeat scheduler and
+    ``orchestrator/health_monitor.py``) cadence today is well under
+    300s, but a long uninterruptible subprocess (e.g. ``git rebase``
+    blocked on a merge driver) could starve them; once that happens
+    the gate falls open and the pre-fix behaviour returns. Tracked as
+    a follow-up under #2243.
+
+    TODO(#2243 step 2): same-role cross-phase pollution. The role-name
+    filter handles different-role ghosts (refiner heartbeat lingering
+    during a coder phase) but not same-role ghosts: ``coder`` reappears
+    across implement / implement-fix / fix-on-PR phases and
+    ``HealthMonitor._last_heartbeat['coder']`` is only popped on
+    ``clear_agent_state``. A phase boundary clear (or stamping the
+    heartbeat key with the phase) would close it; per-phase timeouts
+    in step 2 of the issue plan will likely subsume it.
     """
     if gate_seconds <= 0:
         return False, None
 
+    # Two clocks, deliberately. ``now_dt`` is used for tracker
+    # timestamps (datetime in UTC). ``now_wallclock`` is the float
+    # epoch ``time.time()`` returns, matching the wall-clock values
+    # ``HealthMonitor._last_heartbeat`` is populated with. Despite the
+    # earlier name ``now_mono``, these are NOT monotonic — an NTP step
+    # on the orchestrator host can make ``(now - latest_hb)`` negative
+    # or skip the gate window. Acceptable today; revisit alongside the
+    # per-phase-timeout follow-up.
     now_dt = datetime.now(UTC)
-    now_mono = time.time()
+    now_wallclock = time.time()
 
     # 1. BRC bus signals (proposal + ACK/NACK timestamps).
     try:
@@ -9605,10 +9632,7 @@ def _check_brc_progress_gate(
             from ..peer_consensus import (
                 get_peer_consensus_tracker,  # type: ignore[no-redef]
             )
-        try:
-            tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
-        except TypeError:
-            tracker = get_peer_consensus_tracker(pipeline_id)
+        tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
         if tracker is not None:
             ts = tracker.get_latest_progress_timestamp()
             if ts is not None and (now_dt - ts).total_seconds() < gate_seconds:
@@ -9623,7 +9647,11 @@ def _check_brc_progress_gate(
 
     # 2. Container heartbeats. Filter by active roles so a stale
     # heartbeat from a prior phase in the singleton HealthMonitor
-    # doesn't keep us out of the HITL surface forever.
+    # doesn't keep us out of the HITL surface forever. An empty
+    # ``active_role_names`` means the caller has no live containers
+    # to gate on, so match nothing rather than every stale heartbeat.
+    if not active_role_names:
+        return False, None
     try:
         from health_monitor import get_health_monitor
 
@@ -9634,12 +9662,12 @@ def _check_brc_progress_gate(
             with hm._lock:  # noqa: SLF001 — read-only snapshot
                 hb_snapshot = dict(hm._last_heartbeat)  # noqa: SLF001
             for agent_id, hb_time in hb_snapshot.items():
-                if active_set and agent_id not in active_set:
+                if agent_id not in active_set:
                     continue
                 if latest_hb is None or hb_time > latest_hb:
                     latest_hb = hb_time
-            if latest_hb is not None and (now_mono - latest_hb) < gate_seconds:
-                age = now_mono - latest_hb
+            if latest_hb is not None and (now_wallclock - latest_hb) < gate_seconds:
+                age = now_wallclock - latest_hb
                 return True, f"container heartbeat {age:.0f}s ago"
     except Exception as e:
         logger.warning(
@@ -9673,10 +9701,7 @@ def _handle_brc_consensus_timeout(
                 get_peer_consensus_tracker,  # type: ignore[no-redef]
             )
 
-        try:
-            _brc_tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
-        except TypeError:
-            _brc_tracker = get_peer_consensus_tracker(pipeline_id)
+        _brc_tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
         if _brc_tracker is not None:
             _brc_timeout_result = _brc_tracker.handle_timeout()
             _brc_handled = _brc_tracker.is_timeout_handled()

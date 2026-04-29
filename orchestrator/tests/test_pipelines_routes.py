@@ -283,6 +283,22 @@ class TestBrcProgressGate:
         assert defer is False
         assert reason is None
 
+    def test_empty_active_roles_does_not_defer_on_heartbeat(self):
+        # Contract: an empty ``active_role_names`` means the caller has
+        # no live containers to gate on, so match nothing rather than
+        # accept every stale heartbeat in the singleton HealthMonitor.
+        # ``_run_concurrent_phase`` exits before reaching the gate when
+        # there are no live containers, but the contract is explicit so
+        # a future caller can't accidentally widen the gate.
+        recent_hb = time.time() - 30
+        with (
+            self._patch_tracker(None),
+            self._patch_health_monitor({"coder": recent_hb, "refiner": recent_hb}),
+        ):
+            defer, reason = _check_brc_progress_gate(self.PIPELINE_ID, None, [], gate_seconds=300)
+        assert defer is False
+        assert reason is None
+
     def test_no_signals_returns_no_defer(self):
         with (
             self._patch_tracker(None),

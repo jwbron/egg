@@ -320,12 +320,16 @@ class TestProgressTimestamps:
             "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
         )
         proposal_ts = tracker.get_latest_proposal_timestamp()
-        # ACK happens after proposal — progress should advance to the ACK ts.
+        # ACK happens after proposal — progress should advance strictly
+        # past the proposal ts. ``datetime.now(UTC)`` has microsecond
+        # resolution so back-to-back calls are reliably increasing;
+        # using ``>`` (not ``>=``) catches a regression where ACKs stop
+        # advancing progress.
         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
         progress_ts = tracker.get_latest_progress_timestamp()
         assert proposal_ts is not None
         assert progress_ts is not None
-        assert progress_ts >= proposal_ts
+        assert progress_ts > proposal_ts
 
 
 class TestAgentCrash:
