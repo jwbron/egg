@@ -23,7 +23,8 @@ Caveats
 This is a proxy signal, not a direct tool-call audit. We cannot see the
 tester's Edit/Write tool calls from BRC history alone, so we match
 keywords against tester heartbeat bodies in the wait window
-(scaffold/test file/drafted/prepared test/fixture/signature/stub). False
+(scaffold/test file/drafted {test,scaffold,fixture}/prepared test/
+fixture/test signature/stub — see ``_SCAFFOLD_KEYWORDS``). False
 negatives are possible — a tester that scaffolded silently without
 emitting a heartbeat that named the work will look like it skipped.
 False positives are unlikely (the keyword set is specific to test-prep
