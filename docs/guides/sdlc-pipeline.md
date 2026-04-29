@@ -1249,8 +1249,8 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"`. When set to `"implement"`, pass top-level `analysis`/`plan` fields to seed the contract (see Short-flow pipelines above). |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
-| `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
-| `brc_consensus_progress_gate_seconds` | int | `300` | Defer consensus-timeout HITL while BRC bus or container heartbeats are active. Set to `0` to disable. |
+| `consensus_timeout_minutes` | int | `30` | Timeout before publishing an OVERSEER_ALERT (#2264) |
+| `brc_consensus_progress_gate_seconds` | int | `300` | Defer consensus-timeout OVERSEER_ALERT while BRC bus or container heartbeats are active. Set to `0` to disable. |
 | `post_consensus_iteration_budget_seconds` | int | `3600` | Per-iteration wait budget after consensus timeout. Resets on each new `CONSENSUS_PROPOSE` from a producer. |
 | `post_consensus_max_total_seconds` | int | `14400` | Hard ceiling on total post-timeout wait. Must be ≥ `post_consensus_iteration_budget_seconds`. |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
@@ -1318,9 +1318,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
    - The orchestrator polls every 5 seconds and stops containers immediately on consensus
 4. Any agent can object (signal `OBJECTING`) to block completion
    - A HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
-5. Timeout (`consensus_timeout_minutes`, default 30) triggers HITL escalation
-   - Options: **Continue waiting**, **Accept current state**, **Abort phase**
-   - Phase falls back to exit-code-based completion while awaiting the decision
+5. Timeout (`consensus_timeout_minutes`, default 30) publishes an `OVERSEER_ALERT` (non-blocking; subject `consensus-timeout: <agent_role> [<priority>]`) — the pipeline continues polling; intervene with `cancel_task` or `restart_phase` if needed (#2264)
 6. If a container exits cleanly without signaling `READY`, the consensus wrapper restarts it with a recovery prompt (up to `MAX_CONSENSUS_RESTARTS`, default 2). After exhausting restarts, the wrapper performs a final consensus check — if consensus has already been reached (`is_complete=True`), it exits with code 0 (success). Only if consensus is genuinely incomplete does it exit with code 1, triggering the single-agent failure path (HITL decision: retry, abort, or continue without). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
 7. **Consensus gates phase advancement unconditionally.** When all containers have exited — whether with failures or cleanly — the orchestrator performs a final consensus recheck before returning success. If BRC consensus is incomplete, the phase fails (exit code 1) regardless of individual container exit codes. This prevents a PR from being opened when agents exit code 0 without completing the full BRC lifecycle. See [Concurrent Execution: All-Container-Exit Consensus Recovery](concurrent-execution.md#all-container-exit-consensus-recovery).
 

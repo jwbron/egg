@@ -34,7 +34,7 @@ Relevant `PipelineConfig` fields:
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | `30` | Consensus timeout before escalation or auto-advance |
-| `brc_consensus_progress_gate_seconds` | `300` | Defer the consensus-timeout HITL decision while BRC bus activity (proposals, ACKs/NACKs) or container heartbeats have fired within this window. Set to `0` to disable. |
+| `brc_consensus_progress_gate_seconds` | `300` | Defer the consensus-timeout OVERSEER_ALERT while BRC bus activity (proposals, ACKs/NACKs) or container heartbeats have fired within this window. Set to `0` to disable. |
 | `post_consensus_iteration_budget_seconds` | `3600` | Per-iteration wait budget in the post-timeout poll loop. Resets each time a producer issues a new `CONSENSUS_PROPOSE` (initial or NACK→re-propose), giving each iteration a clean clock. |
 | `post_consensus_max_total_seconds` | `14400` | Hard ceiling on the total post-timeout wait, regardless of how often the per-iteration budget rebaselines. Must be ≥ `post_consensus_iteration_budget_seconds`. |
 | `agent_idle_timeout_minutes` | `60` | Idle agent timeout before termination |
