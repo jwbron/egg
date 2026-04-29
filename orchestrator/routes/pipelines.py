@@ -359,7 +359,7 @@ def _build_minimal_status_envelope(
                     started_dt = started_dt.replace(tzinfo=UTC)
                 elapsed = int((datetime.now(UTC) - started_dt).total_seconds())
                 envelope["phase_elapsed_seconds"] = max(0, elapsed)
-            except (ValueError, TypeError, AttributeError):
+            except ValueError, TypeError, AttributeError:
                 pass
 
     concurrent_data = _get_concurrent_status(pipeline)
@@ -2854,7 +2854,7 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                         cfg, "overseer_nack_unresolved_seconds", 180
                     ),
                 }
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             # Defensive: never let a config-shape change crash the
             # status endpoint.
             pass
@@ -2945,7 +2945,7 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             GET_STATUS_MAX_WAIT = 25  # conservative fallback
     try:
         requested_wait = int(request.args.get("wait", str(GET_STATUS_MAX_WAIT)))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return make_error_response(
             "Invalid 'wait' query parameter: must be an integer",
             status_code=400,
@@ -3062,7 +3062,7 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         # consistent snapshot for the minimal envelope.
         try:
             _store2, fresh_pipeline = _resolve_pipeline(pipeline_id, repo_path)
-        except (InvalidPipelineIdError, PipelineNotFoundError):
+        except InvalidPipelineIdError, PipelineNotFoundError:
             fresh_pipeline = pipeline
 
         if source == "event":
@@ -6291,7 +6291,7 @@ def get_pr_base_branch(
                     ref = data.get("baseRefName")
                     if isinstance(ref, str) and ref:
                         return ref
-                except (json.JSONDecodeError, ValueError):
+                except json.JSONDecodeError, ValueError:
                     logger.warning(
                         "get_pr_base_branch: gh output was not valid JSON; falling back",
                         pr_number=pr_number,
@@ -6471,7 +6471,7 @@ def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
         return {}
     try:
         data = json.loads(result.stdout)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError, ValueError:
         return {}
 
     head_repo = data.get("headRepository") or {}
@@ -8730,7 +8730,7 @@ def _build_file_boundary_section(role_value: str) -> str:
         from egg_contracts.agent_roles import get_role_definition
 
         role_def = get_role_definition(role_value)
-    except (ValueError, KeyError, ImportError):
+    except ValueError, KeyError, ImportError:
         return ""
 
     if not role_def or not role_def.file_access:
@@ -10795,6 +10795,28 @@ def _run_concurrent_phase(
             get_peer_consensus_tracker as _get_brc_tracker,  # type: ignore[no-redef]
         )
 
+    def _latest_proposal_ts(_pid: str, _sid: str | None) -> datetime | None:
+        """Return the latest CONSENSUS_PROPOSE timestamp from the BRC tracker.
+
+        Used by the post-consensus-timeout poll loop (#2245) to rebaseline
+        the per-iteration budget on producer progress.  Returns ``None`` if
+        the tracker is unavailable, has no proposals, or any lookup raises —
+        callers treat ``None`` as "no progress signal yet" and proceed
+        without a rebaseline.
+        """
+        if _get_brc_tracker is None:
+            return None
+        try:
+            _t = _get_brc_tracker(_pid, _sid)
+        except Exception:
+            return None
+        if _t is None:
+            return None
+        try:
+            return _t.get_latest_proposal_timestamp()
+        except Exception:
+            return None
+
     def _update_agents_complete() -> None:
         """Mark all running agents as COMPLETE in pipeline state (consensus path)."""
         if store is None:
@@ -11369,15 +11391,52 @@ def _run_concurrent_phase(
             # container status in short steps and re-check consensus
             # between steps, early-returning on completion before
             # force-killing anything.
+            #
+            # Issue #2245: the per-iteration budget rebaselines on
+            # producer progress.  Each new CONSENSUS_PROPOSE (initial
+            # or NACK→re-propose) resets ``last_progress_at`` so the
+            # producer's next iteration gets a clean clock instead of
+            # inheriting the prior iterations' wall-clock spend.  An
+            # absolute cap (``post_consensus_max_total_seconds``)
+            # bounds the total wait so an unbounded propose churn
+            # can't stall the pipeline indefinitely.
             remaining = [e for e in active_executions if e.container_id not in exited_containers]
             if remaining:
-                post_timeout_budget = 3600  # seconds total
+                post_timeout_iteration_budget = (
+                    pipeline.config.post_consensus_iteration_budget_seconds
+                )
+                post_timeout_max_total = pipeline.config.post_consensus_max_total_seconds
                 post_timeout_poll_interval = 30  # seconds between checks
                 post_timeout_start = time.monotonic()
+                last_progress_at = post_timeout_start
+
+                # Snapshot the latest proposal timestamp at entry so we
+                # only count *new* proposals as progress signals.  ``None``
+                # is fine: the rebaseline check at the bottom of the loop
+                # short-circuits on ``last_seen_proposal_ts is None``
+                # before any datetime comparison runs.
+                last_seen_proposal_ts = _latest_proposal_ts(pipeline_id, slice_id)
 
                 while remaining:
-                    elapsed_post_timeout = time.monotonic() - post_timeout_start
-                    if elapsed_post_timeout >= post_timeout_budget:
+                    now_monotonic = time.monotonic()
+                    total_elapsed = now_monotonic - post_timeout_start
+                    iteration_elapsed = now_monotonic - last_progress_at
+                    if total_elapsed >= post_timeout_max_total:
+                        logger.warning(
+                            "Post-consensus-timeout absolute cap reached",
+                            pipeline_id=pipeline_id,
+                            total_elapsed_seconds=round(total_elapsed, 1),
+                            max_total_seconds=post_timeout_max_total,
+                        )
+                        break
+                    if iteration_elapsed >= post_timeout_iteration_budget:
+                        logger.warning(
+                            "Post-consensus-timeout iteration budget exhausted",
+                            pipeline_id=pipeline_id,
+                            iteration_elapsed_seconds=round(iteration_elapsed, 1),
+                            iteration_budget_seconds=post_timeout_iteration_budget,
+                            total_elapsed_seconds=round(total_elapsed, 1),
+                        )
                         break
 
                     # A. Re-check consensus; if agents converged during
@@ -11409,12 +11468,32 @@ def _run_concurrent_phase(
                         logger.info(
                             "Consensus reached during post-timeout wait",
                             pipeline_id=pipeline_id,
-                            elapsed_post_timeout_seconds=round(elapsed_post_timeout, 1),
+                            elapsed_post_timeout_seconds=round(total_elapsed, 1),
                             total_elapsed_seconds=round(_total_elapsed, 1),
                         )
                         _update_agents_complete()
                         _stop_running_containers()
                         return 0, combined_logs
+
+                    # A'. Rebaseline the iteration clock on producer
+                    # progress (#2245).  A fresh CONSENSUS_PROPOSE
+                    # timestamp means a producer just landed work
+                    # (initial propose or NACK→re-propose) — the next
+                    # round of reviews deserves its own iteration
+                    # budget, not whatever's left of the prior round's.
+                    current_proposal_ts = _latest_proposal_ts(pipeline_id, slice_id)
+                    if current_proposal_ts is not None and (
+                        last_seen_proposal_ts is None or current_proposal_ts > last_seen_proposal_ts
+                    ):
+                        logger.info(
+                            "Post-consensus-timeout clock rebaselined on producer progress",
+                            pipeline_id=pipeline_id,
+                            iteration_elapsed_seconds=round(iteration_elapsed, 1),
+                            total_elapsed_seconds=round(total_elapsed, 1),
+                            proposal_timestamp=current_proposal_ts.isoformat(),
+                        )
+                        last_seen_proposal_ts = current_proposal_ts
+                        last_progress_at = time.monotonic()
 
                     # B. Non-blocking container status check; record
                     # any that have exited naturally.
@@ -11828,7 +11907,7 @@ def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
             elif action in ("request_changes", "change_approach"):
                 return False, feedback_text
             # Unknown action — fall through to legacy matching
-    except (json.JSONDecodeError, TypeError, AttributeError):
+    except json.JSONDecodeError, TypeError, AttributeError:
         pass
 
     # Legacy bare-string resolution
@@ -12258,7 +12337,7 @@ def _sync_pipeline_decisions_to_contract(
         try:
             num = int(d.id.split("-")[1])
             max_existing_id = max(max_existing_id, num)
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             pass
 
     synced_count = 0
@@ -12454,7 +12533,7 @@ def _queue_and_await_contract_decisions(
                     raw_answers = payload.get("answers")
                     if isinstance(raw_answers, dict):
                         answers = {str(k): str(v) for k, v in raw_answers.items()}
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
 
             fb_id = pending_feedback.id
@@ -12514,7 +12593,7 @@ def _persist_phase_gate_resolution(
                     return
             else:
                 resolution_context = raw
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             resolution_context = raw
 
     if not resolution_context:
@@ -12542,7 +12621,7 @@ def _persist_phase_gate_resolution(
                 try:
                     num = int(d.id.split("-")[1])
                     max_existing_id = max(max_existing_id, num)
-                except (IndexError, ValueError):
+                except IndexError, ValueError:
                     pass
 
             contract_options = [
@@ -14324,7 +14403,7 @@ def _run_pipeline(
                     else:
                         # Valid JSON but no action field — fall through to legacy
                         raise json.JSONDecodeError("no action field", resolution, 0)
-                except (json.JSONDecodeError, TypeError, AttributeError):
+                except json.JSONDecodeError, TypeError, AttributeError:
                     # Legacy bare-string resolution — existing keyword matching
                     if resolution.lower() in _APPROVE_KEYWORDS:
                         _is_approved = True
@@ -14356,7 +14435,7 @@ def _run_pipeline(
                             if isinstance(_parsed, dict)
                             else resolution
                         )
-                    except (json.JSONDecodeError, TypeError, AttributeError):
+                    except json.JSONDecodeError, TypeError, AttributeError:
                         display_resolution = resolution
                     followup = dq.queue_decision(
                         question=(
@@ -14392,7 +14471,7 @@ def _run_pipeline(
                                 raise json.JSONDecodeError("unknown", followup_resolution, 0)
                         else:
                             raise json.JSONDecodeError("no action", followup_resolution, 0)
-                    except (json.JSONDecodeError, TypeError, AttributeError):
+                    except json.JSONDecodeError, TypeError, AttributeError:
                         if (
                             followup_resolution.lower() in _APPROVE_KEYWORDS
                             or followup_resolution.lower() in _BARE_OPTION_LABELS
