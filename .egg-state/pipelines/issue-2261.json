@@ -206,10 +206,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "_run_pipeline strategy (the 2,362-line state machine inside pipelines.py): how do we drop it under the 1,500-line cap?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "B1: Mechanical extraction only — move _run_pipeline verbatim to a submodule. Zero behavior risk but the new file is still over the cap, requiring a fresh allowlist entry on the same PR meant to remove one.",
+        "B2: Per-phase handler refactor (recommended) — split into per-phase handlers (refine/plan/implement/pr) plus a thin orchestration loop. Solves the cap; carries real behavioral risk on a state machine with subtle ordering.",
+        "B3: Permanent allowlist exception for _run_pipeline — decompose everything else, leave _run_pipeline as a documented exception. Contradicts the issue's explicit \"_run_pipeline is in scope\" non-negotiable.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-30T03:56:36.135392Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T03:56:36.075111Z",
+  "updated_at": "2026-04-30T03:56:36.160028Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -223,6 +242,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null
 }
