@@ -46,7 +46,5 @@ files:
     issue: "2248"
   gateway/checkpoint_handler.py:
     issue: "2248"
-  scripts/select_tests.py:
-    issue: "2248"
   orchestrator/routes/deployment.py:
     issue: "2248"

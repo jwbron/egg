@@ -272,7 +272,7 @@ lint-custom: sync-venv-if-uv
 	fi
 
 ## Changeset-aware narrow default (issue #1973).
-## `make test` invokes scripts/select_tests.py to compute the
+## `make test` invokes scripts/select_tests/__main__.py to compute the
 ## transitive reverse-import closure of files touched since the
 ## per-branch Last-Known-Good (LKG) commit (or base branch when no
 ## LKG sidecar exists), and runs pytest on only that subset.  Any
@@ -280,24 +280,24 @@ lint-custom: sync-venv-if-uv
 ## uv.lock / workflow / shared/tests / non-.py / gateway/*.py /
 ## dynamic-import / unresolvable-baseline / LKG-not-ancestor) widens
 ## to the full suite with an explicit trigger string on stderr.  See
-## docs/guides/testing.md and scripts/select_tests.py for the full
-## design.
+## docs/guides/testing.md and scripts/select_tests/__init__.py for
+## the full design.
 ##
 ## CI runs `make test-all` (below) to keep the 80% coverage gate
 ## enforced; narrowing is a local-inner-loop optimisation only.
 ##
 ## After pytest returns, this target invokes
-## `select_tests.py --patch-selection-json` to append `pytest_ms`
-## to the existing `.egg-state/selection/<head>.json` record so
-## the JSON envelope captures both compute_ms and pytest_ms in
-## one place.  LKG sidecar is NEVER updated by `make test` (Q12);
-## only `make test-all` records LKG on green.
+## `select_tests/__main__.py --patch-selection-json` to append
+## `pytest_ms` to the existing `.egg-state/selection/<head>.json`
+## record so the JSON envelope captures both compute_ms and
+## pytest_ms in one place.  LKG sidecar is NEVER updated by
+## `make test` (Q12); only `make test-all` records LKG on green.
 test: export PYTHONPATH := shared:gateway:orchestrator
 test: sync-venv-if-uv
 	@echo "==> Running narrowed unit tests (changeset-aware; see docs/guides/testing.md)..."
 	@selected_file=$$(mktemp); \
 	PYTEST_ARGS_RAW="$(PYTEST_ARGS)" \
-		env -u PYTHONPATH $(PYTHON) scripts/select_tests.py >"$$selected_file"; \
+		env -u PYTHONPATH $(PYTHON) scripts/select_tests/__main__.py >"$$selected_file"; \
 	selector_rc=$$?; \
 	if [ "$$selector_rc" -ne 0 ]; then \
 		echo "select-tests: selector exited $$selector_rc; running full suite as fallback"; \
@@ -327,7 +327,7 @@ test: sync-venv-if-uv
 	t1=$$(date +%s%N); \
 	rm -f "$$selected_file"; \
 	pytest_ms=$$(( (t1 - t0) / 1000000 )); \
-	env -u PYTHONPATH $(PYTHON) scripts/select_tests.py --patch-selection-json --head "$$head_sha" --pytest-ms "$$pytest_ms" || true; \
+	env -u PYTHONPATH $(PYTHON) scripts/select_tests/__main__.py --patch-selection-json --head "$$head_sha" --pytest-ms "$$pytest_ms" || true; \
 	exit $$pytest_rc
 
 ## Full-suite escape hatch (issue #1973).  Runs the historical
@@ -348,7 +348,7 @@ test-all: sync-venv-if-uv  ## Run the full unit-test suite + record LKG on green
 	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m "not functional" $(PYTEST_ARGS); \
 	pytest_rc=$$?; \
 	if [ "$$pytest_rc" -eq 0 ]; then \
-		env -u PYTHONPATH $(PYTHON) scripts/select_tests.py --record-good \
+		env -u PYTHONPATH $(PYTHON) scripts/select_tests/__main__.py --record-good \
 			|| echo "select-tests: --record-good failed; LKG not updated"; \
 	else \
 		echo "select-tests: pytest failed; LKG not updated"; \
@@ -363,7 +363,7 @@ test-all: sync-venv-if-uv  ## Run the full unit-test suite + record LKG on green
 ## input.
 test-record-good:
 	@echo "==> Recording HEAD as Last-Known-Good baseline (issue #1973)..."
-	@env -u PYTHONPATH $(PYTHON) scripts/select_tests.py --record-good
+	@env -u PYTHONPATH $(PYTHON) scripts/select_tests/__main__.py --record-good
 
 smoketest-long-poll: export PYTHONPATH := shared:gateway:orchestrator
 smoketest-long-poll: venv  ## Smoke-test the long-poll / event-driven wait infrastructure
