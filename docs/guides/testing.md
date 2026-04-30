@@ -348,6 +348,23 @@ Static reverse import graphs are powerful, but they cannot see:
   resolver only inspects source so the runtime importlib pattern
   doesn't affect its view.
 
+  Note: the AST resolver only delivers narrowing if the
+  dynamic-import fallback (R6, "dynamic-import reachability") does
+  not fire in its place. Because `_scan_dynamic_imports` regex-scans
+  every module's source for `__import__`, `importlib.util.*`,
+  `SourceFileLoader`, etc., any gateway module that legitimately
+  uses those primitives becomes a seed — and R6 widens for every
+  module reachable through that seed's `find_upstream_modules`
+  closure. To keep `gateway/*.py` edits narrowable, the importlib
+  bootstrap lives in `gateway/_module_loader.py`, a leaf module that
+  imports only stdlib; its upstream closure is empty, so R6 only
+  fires when the bootstrap itself is edited (which is the right
+  call). Keep this invariant in mind when adding any further
+  dynamic-import primitives anywhere in `gateway/` — adding them to
+  a module that is upstream of much of the gateway package would
+  silently re-disable narrowing for everything that flows through
+  it.
+
 These limits are the reason the fallback-trigger list in §4 is as
 broad as it is — narrowing trades coverage for speed, and any
 hint that static analysis cannot be trusted widens to the safe

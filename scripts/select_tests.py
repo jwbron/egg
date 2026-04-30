@@ -157,6 +157,28 @@ SOURCE_ROOTS: tuple[str, ...] = ("gateway", "orchestrator", "sandbox", "shared")
 # test→production edges that grimp cannot see, replacing the
 # previous blanket "any `gateway/*.py` edit widens to full suite"
 # fallback.
+#
+# Important: parity with `shared.`/`orchestrator.`/`sandbox.` requires
+# that the dynamic-import seed set (R6, `dynamic-import reachability`)
+# does not also pull every gateway production module back into a
+# full-suite fallback.  Because `_scan_dynamic_imports` source-greps
+# for `__import__(`, `importlib.util.spec_from_file_location`, etc.,
+# any gateway module that contains those primitives becomes a seed —
+# and `is_dynamic_import_touched` then widens for every module in
+# that seed's `find_upstream_modules` closure.  When `gateway.gateway`
+# itself was a seed (its source contained `__import__(module_name)`
+# and `__import__("threading")`), the closure spanned ~32 of the 41
+# gateway production modules, so R6 fired in place of the deleted
+# R1 — narrowing in name only.  The fix is to keep the dynamic-import
+# primitives in `gateway/_module_loader.py` (a leaf bootstrap that
+# imports only stdlib), so its upstream closure is empty and R6 only
+# fires when the loader itself is edited.  See
+# `tests/tools/test_select_tests_fallbacks.py::
+# test_gateway_source_change_does_not_widen_with_module_loader_seed`
+# for the regression pin and
+# `tests/tools/test_select_tests_fallbacks.py::
+# test_gateway_source_change_widens_if_gateway_gateway_becomes_seed`
+# for the failure mode being guarded against.
 BARE_NAME_STRIP_PREFIXES: tuple[str, ...] = (
     "shared.",
     "orchestrator.",

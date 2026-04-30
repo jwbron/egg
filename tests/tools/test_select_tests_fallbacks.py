@@ -241,23 +241,31 @@ def test_static_path_triggers(path: str, expected: str) -> None:
 # the importlib test-loader pattern via `gateway.` in
 # `BARE_NAME_STRIP_PREFIXES`, so a `gateway/<file>.py` edit must
 # resolve to None here and be handled by narrow analysis.
+#
+# Two tests pin both ends of the contract:
+#   * The R6 dynamic-import trigger MUST NOT fire for gateway production
+#     paths even when the seed set is non-empty AND `gateway.gateway`
+#     itself is a seed (modelling the production bundle's actual shape).
+#     If `gateway/gateway.py` regrew an importlib primitive and pulled
+#     all of `gateway/*.py` back into its upstream closure, this test
+#     would catch it.
+#   * The original "no seeds at all" stub-bundle case is kept as a
+#     baseline assertion below `test_gateway_source_change_does_not_widen`.
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        "gateway/policy.py",
-        "gateway/auth.py",
-        "gateway/checkpoint_handler.py",
-        "gateway/worktree_manager.py",
-    ],
-)
+_GATEWAY_PROD_PATHS = [
+    "gateway/policy.py",
+    "gateway/auth.py",
+    "gateway/checkpoint_handler.py",
+    "gateway/worktree_manager.py",
+]
+
+
+@pytest.mark.parametrize("path", _GATEWAY_PROD_PATHS)
 def test_gateway_source_change_does_not_widen(path: str) -> None:
-    """`gateway/<file>.py` edits used to short-circuit to the full
-    suite via the dedicated importlib-test-loader trigger.  The AST
-    resolver now records the test→production edges grimp cannot see,
-    so these edits must fall through to narrow analysis."""
+    """Baseline: with no dynamic-import seeds, `gateway/<file>.py` edits
+    must fall through to narrow analysis (no full-suite trigger)."""
     bundle = _StubBundle(all_modules={"gateway." + Path(path).stem})
     trigger = selector.evaluate_fallback_triggers(
         paths=[path],
@@ -266,6 +274,75 @@ def test_gateway_source_change_does_not_widen(path: str) -> None:
         lkg_was_stale=False,
     )
     assert trigger is None
+
+
+@pytest.mark.parametrize("path", _GATEWAY_PROD_PATHS)
+def test_gateway_source_change_does_not_widen_with_module_loader_seed(path: str) -> None:
+    """Production-shape regression: the gateway dynamic-import seed is
+    `gateway._module_loader` (not `gateway.gateway`) so its
+    ``find_upstream_modules`` closure is empty for gateway production
+    files.  Editing any `gateway/<file>.py` must therefore NOT trigger
+    R6 even though the seed set is non-empty.
+
+    If a future refactor reintroduces an importlib primitive into
+    `gateway/gateway.py` (or any module that transitively imports the
+    rest of `gateway/`), the seed's upstream closure would balloon and
+    R6 would fire for every gateway prod path.  This test pins the
+    contract that the seed is leaf-shaped.
+    """
+    module = "gateway." + Path(path).stem
+    bundle = _StubBundle(
+        all_modules={module, "gateway._module_loader"},
+        # The seed exists, but its upstream closure does NOT include any
+        # gateway production module (the bootstrap loader only imports
+        # stdlib).  This mirrors what `_scan_dynamic_imports` produces
+        # against the real gateway tree post-refactor.
+        dynamic_import_modules={"gateway._module_loader"},
+        upstream_map={"gateway._module_loader": set()},
+    )
+    trigger = selector.evaluate_fallback_triggers(
+        paths=[path],
+        bundle=bundle,
+        baseline_source="LKG",
+        lkg_was_stale=False,
+    )
+    assert trigger is None
+
+
+@pytest.mark.parametrize("path", _GATEWAY_PROD_PATHS)
+def test_gateway_source_change_widens_if_gateway_gateway_becomes_seed(path: str) -> None:
+    """Inverse of the above: documents what we are guarding against.
+
+    If `gateway.gateway` re-acquires a dynamic-import primitive and
+    becomes a seed, every production module it transitively imports
+    will hit R6 (`dynamic-import reachability`) and widen to the full
+    suite.  This test pins the diagnostic so a future regression is
+    obvious — failing here means you reintroduced the seed and the
+    gateway-production narrowing has silently reverted to full-suite
+    fallback for ~80% of files.
+    """
+    module = "gateway." + Path(path).stem
+    # Model the pre-refactor production bundle: gateway.gateway is a
+    # seed AND its upstream closure includes the rest of gateway prod.
+    bundle = _StubBundle(
+        all_modules={module, "gateway.gateway"},
+        dynamic_import_modules={"gateway.gateway"},
+        upstream_map={
+            "gateway.gateway": {
+                "gateway.policy",
+                "gateway.auth",
+                "gateway.checkpoint_handler",
+                "gateway.worktree_manager",
+            }
+        },
+    )
+    trigger = selector.evaluate_fallback_triggers(
+        paths=[path],
+        bundle=bundle,
+        baseline_source="LKG",
+        lkg_was_stale=False,
+    )
+    assert trigger == "dynamic-import reachability"
 
 
 # ----------------------------------------------------------------------
