@@ -506,6 +506,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
+      # Capture the run-start timestamp before egg runs. The post-run feedback-contract
+      # guard uses this to (a) scope its scan to comments posted during this run and
+      # (b) verify that any deferred-to issues were filed during/after this run started.
+      - name: Capture run start time
+        id: run-start
+        if: steps.should-proceed.outputs.ok == 'true'
+        run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       # Post acknowledgment comment with marker for iteration tracking
       - name: Post starting comment
         if: steps.should-proceed.outputs.ok == 'true'
@@ -536,6 +544,20 @@ jobs:
           REVIEWER_USERNAME: ${{ needs.resolve-inputs.outputs.reviewer_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
 
+      # SECURITY: Stash the verify-contract script from the trusted main checkout
+      # into RUNNER_TEMP before swapping to the PR branch. The PR-branch checkout
+      # would otherwise overwrite action/verify-feedback-contract.sh, letting a
+      # PR ship a modified verifier that polices its own run.
+      - name: Stash trusted verify-contract script
+        if: steps.should-proceed.outputs.ok == 'true'
+        id: stash-verifier
+        run: |
+          set -euo pipefail
+          dest="${RUNNER_TEMP}/verify-feedback-contract.sh"
+          cp action/verify-feedback-contract.sh "$dest"
+          chmod +x "$dest"
+          echo "path=$dest" >> "$GITHUB_OUTPUT"
+
       - name: Checkout PR branch
         if: steps.should-proceed.outputs.ok == 'true'
         uses: actions/checkout@v4
@@ -562,6 +584,100 @@ jobs:
         env:
           EGG_BOT_NAME: feedback
 
+      # Post-run feedback-contract guard. Scans the bot's top-level response
+      # comments posted during this run for forbidden phantom-follow-up
+      # phrases (e.g. "will file a follow-up"), and verifies that every
+      # `deferred-to #NNNN` reference points to a real issue (not a PR)
+      # created during this run, with a 60s grace window for clock skew.
+      # Lines beginning with `>` (quoted reviewer text) and contents of
+      # fenced code blocks / inline backtick spans are excluded from the
+      # phrase scan to avoid false positives on legitimate citations.
+      #
+      # On violation: this step exits non-zero, the next step posts a
+      # flag comment naming the offenses, and the workflow run fails
+      # loudly so the violation cannot quietly merge into PR history.
+      #
+      # The verification logic lives in action/verify-feedback-contract.sh
+      # (stashed into RUNNER_TEMP from the trusted main checkout above) so it
+      # can be exercised by the fixture-driven test under
+      # action/tests/verify-feedback-contract.test.sh.
+      - name: Verify feedback contract
+        id: verify-contract
+        if: steps.should-proceed.outputs.ok == 'true' && steps.egg.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          BOT_USERNAME: ${{ env.EGG_BOT_USERNAME }}
+          RUN_START: ${{ steps.run-start.outputs.ts }}
+          REPO: ${{ github.repository }}
+          VERIFIER: ${{ steps.stash-verifier.outputs.path }}
+        run: |
+          set -euo pipefail
+
+          comments_file="${RUNNER_TEMP:-/tmp}/feedback-comments.json"
+          violations_file="${RUNNER_TEMP:-/tmp}/feedback-violations.txt"
+
+          # Defend against `body: null` comments (rare but observed for some
+          # App-authored comments). Without `(.body // "")`, jq's `contains()`
+          # raises on the null and aborts the whole filter.
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate --slurp \
+            | jq --arg user "$BOT_USERNAME" \
+                 --arg user_bot "${BOT_USERNAME}[bot]" \
+                 --arg start "$RUN_START" \
+                 '[.[][]
+                   | select((.user.login == $user or .user.login == $user_bot)
+                            and .created_at >= $start
+                            and ((.body // "") | contains("<!-- egg-status-comment -->") | not)
+                            and ((.body // "") | contains("<!-- egg-feedback-contract-violation -->") | not))]' \
+            > "$comments_file"
+
+          export COMMENTS_JSON_FILE="$comments_file"
+          export VIOLATIONS_FILE="$violations_file"
+          export RUN_START REPO
+
+          if "$VERIFIER"; then
+            echo "Feedback contract: clean"
+          else
+            echo "::error::Feedback contract violations detected:"
+            cat "$violations_file"
+            echo "violations_file=${violations_file}" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Flag feedback-contract violations
+        if: failure() && steps.verify-contract.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          VIOLATIONS_FILE: ${{ steps.verify-contract.outputs.violations_file }}
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${REPO}/actions/runs/${{ github.run_id }}"
+          if [[ -z "${VIOLATIONS_FILE:-}" || ! -f "${VIOLATIONS_FILE}" ]]; then
+            echo "No violations file to post; skipping flag comment"
+            exit 0
+          fi
+
+          # shellcheck disable=SC2016 # backticks inside single quotes are intentional markdown
+          # Build flag comment with the violations list inline.
+          {
+            printf '<!-- egg-feedback-contract-violation -->\n'
+            printf '**Feedback contract violation detected.**\n\n'
+            printf 'The response comment posted during this run violates the contract in '
+            printf '`action/build-feedback-prompt.sh`. Each actionable item must be marked '
+            printf '`fixed-in-PR (commit <SHA>)`, `deferred-to #<NNNN>` (with the issue '
+            printf 'filed during this run), or `disagree (<reasoning>)`. Phantom follow-ups '
+            printf '(promises to file later, references to non-existent or pre-existing '
+            printf 'issues) are not allowed.\n\n'
+            printf 'Violations:\n```\n'
+            cat "${VIOLATIONS_FILE}"
+            printf '```\n\n'
+            printf '[View run logs](%s)\n\n' "${RUN_URL}"
+            printf -- '— Authored by egg\n'
+          } > "${RUNNER_TEMP:-/tmp}/feedback-flag-body.md"
+
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -F body=@"${RUNNER_TEMP:-/tmp}/feedback-flag-body.md"
+
       - name: Post result comment
         if: always() && !cancelled() && steps.should-proceed.outputs.ok == 'true'
         run: |
@@ -578,9 +694,15 @@ jobs:
           *${HIDDEN_COUNT} previous review(s) hidden.*"
           fi
 
-          if [[ "${{ steps.egg.outcome }}" == "success" ]]; then
+          if [[ "${{ steps.egg.outcome }}" == "success" && "${{ steps.verify-contract.outcome }}" == "success" ]]; then
             BODY="<!-- egg-status-comment -->
           egg feedback addressed. [View run logs](${RUN_URL})${HIDDEN_MSG}"
+          elif [[ "${{ steps.verify-contract.outcome }}" == "failure" ]]; then
+            BODY="<!-- egg-status-comment -->
+          egg ran but the feedback contract was violated — see the flag comment above. [View run logs](${RUN_URL})${HIDDEN_MSG}"
+          elif [[ "${{ steps.egg.outcome }}" == "cancelled" ]]; then
+            BODY="<!-- egg-status-comment -->
+          egg was cancelled mid-run. [View run logs](${RUN_URL})${HIDDEN_MSG}"
           elif [[ "${{ steps.egg.outcome }}" == "failure" ]]; then
             BODY="<!-- egg-status-comment -->
           egg failed to address feedback. [View run logs](${RUN_URL})${HIDDEN_MSG}"
