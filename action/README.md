@@ -21,6 +21,8 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 | `build-doc-updater-prompt.sh` | Builds prompts for documentation update workflows |
 | `build-conflict-prompt.sh` | Builds prompts for merge conflict resolution |
 | `build-contract-verification-prompt.sh` | Builds prompts for contract verification reviews |
+| **Validators** | |
+| `verify-feedback-contract.sh` | Verifies feedback-addressing agent response comments against the contract (response posted, no phantom follow-up phrases, deferred-to issues are real and new) |
 | **Convention Documents** | |
 | `review-conventions.md` | Code review conventions and guidelines |
 | `autofixer-conventions.md` | Autofixer workflow conventions |
