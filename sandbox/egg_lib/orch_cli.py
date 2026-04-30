@@ -2440,13 +2440,26 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
 
     pid = require_pipeline_id(args)
     role = _require_role(args)
+    pre_merge_condition = getattr(args, "pre_merge_condition", "") or ""
+    pre_merge_condition_resolved_in_diff = (
+        getattr(args, "pre_merge_condition_resolved_in_diff", "") or ""
+    )
+    if pre_merge_condition_resolved_in_diff and not pre_merge_condition:
+        print(
+            "error: --pre-merge-condition-resolved-in-diff requires "
+            "--pre-merge-condition; a resolution SHA has nothing to resolve "
+            "on a plain ACK",
+            file=sys.stderr,
+        )
+        return 2
     req = {
         "pipeline_id": pid,
         "role": role,
         "producer_role": args.producer_role,
         "reason": args.reason,
         "files_reviewed": list(args.files_reviewed or []),
-        "pre_merge_condition": getattr(args, "pre_merge_condition", "") or "",
+        "pre_merge_condition": pre_merge_condition,
+        "pre_merge_condition_resolved_in_diff": pre_merge_condition_resolved_in_diff,
         "ack_version": args.ack_version,
     }
     try:
@@ -2462,9 +2475,14 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
         print_json(resp.get("signal", {}))
         return 0
     if req["pre_merge_condition"]:
+        suffix = (
+            f"; resolved in {req['pre_merge_condition_resolved_in_diff']}"
+            if req["pre_merge_condition_resolved_in_diff"]
+            else ""
+        )
         print(
             f"Conditional ACK sent by {role} for {args.producer_role} "
-            f"(obligation: {req['pre_merge_condition']})"
+            f"(obligation: {req['pre_merge_condition']}{suffix})"
         )
     else:
         print(f"ACK sent by {role} for {args.producer_role}")
@@ -2614,12 +2632,23 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
 
     conditions = consensus.get("pre_merge_conditions") or []
     if conditions:
-        print("\nPending pre-merge obligations:")
-        for cond in conditions:
-            reviewer = cond.get("reviewer", "?")
-            producer = cond.get("producer", "?")
-            text = cond.get("condition", "")
-            print(f"  {reviewer} → {producer}: {text}")
+        open_conditions = [c for c in conditions if not (c.get("resolved_in_diff") or "")]
+        resolved_conditions = [c for c in conditions if (c.get("resolved_in_diff") or "")]
+        if open_conditions:
+            print("\nPending pre-merge obligations:")
+            for cond in open_conditions:
+                reviewer = cond.get("reviewer", "?")
+                producer = cond.get("producer", "?")
+                text = cond.get("condition", "")
+                print(f"  {reviewer} → {producer}: {text}")
+        if resolved_conditions:
+            print("\nResolved within this PR:")
+            for cond in resolved_conditions:
+                reviewer = cond.get("reviewer", "?")
+                producer = cond.get("producer", "?")
+                text = cond.get("condition", "")
+                sha = cond.get("resolved_in_diff", "")
+                print(f"  {reviewer} → {producer}: {text} [resolved in {sha}]")
 
     return 0
 
@@ -3254,6 +3283,19 @@ def create_parser() -> argparse.ArgumentParser:
             "approved but the named action must be performed by a human "
             "before merging (e.g. 'git mv old/path new/path'). Surfaces as "
             "a Pre-merge Obligations section on the auto-created PR."
+        ),
+    )
+    cons_ack.add_argument(
+        "--pre-merge-condition-resolved-in-diff",
+        dest="pre_merge_condition_resolved_in_diff",
+        default="",
+        help=(
+            "Optional: commit SHA that satisfied --pre-merge-condition within "
+            "the same PR's diff (#2336). Use on a re-ACK when the obligation "
+            "has been met in-pipeline since the initial conditional ACK — the "
+            "PR-body renderer moves the obligation out of the merge-blocking "
+            "section and into a 'Resolved within this PR' subsection. Requires "
+            "--pre-merge-condition."
         ),
     )
     _add_json_flag(cons_ack)

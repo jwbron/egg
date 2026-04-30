@@ -205,6 +205,13 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
             as a dedicated "Pre-merge Obligations" section on the auto-created
             PR so the merger sees it instead of skimming past a prose note in
             the ACK reason (#1998).
+        pre_merge_condition_resolved_in_diff (str): optional commit SHA. Set
+            on a re-ACK when ``pre_merge_condition`` has been satisfied within
+            the same PR's diff since the initial conditional ACK — the PR-body
+            renderer demotes resolved obligations to a "Resolved within this
+            PR" subsection so reviewers don't see merge-blocking boilerplate
+            on busywork (#2336). Only meaningful alongside a non-empty
+            ``pre_merge_condition``.
         pipeline_id, role: overrides.
     """
     pid = _require_pipeline_id(req)
@@ -223,8 +230,14 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
         "ack_version": ack_version,
     }
     pre_merge_condition = req.get("pre_merge_condition") or ""
+    resolved_in_diff = req.get("pre_merge_condition_resolved_in_diff") or ""
+    # Thread both fields through unconditionally so the signal-layer
+    # validator can reject a resolution-without-condition request rather
+    # than silently dropping the SHA at the MCP boundary (#2336 review).
     if pre_merge_condition:
         payload["pre_merge_condition"] = pre_merge_condition
+    if resolved_in_diff:
+        payload["pre_merge_condition_resolved_in_diff"] = resolved_in_diff
 
     data = {
         "signal_type": "consensus_ack",

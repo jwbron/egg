@@ -7321,47 +7321,117 @@ def _persist_phase_brc_history(
 
 def _build_pre_merge_obligations_section(
     pipeline_id: str,
-    contract_deferred_actions: list[str] | None = None,
+    contract_deferred_actions: list[Any] | None = None,
 ) -> str:
     """Render the "Pre-merge Obligations" section from active conditional ACKs.
 
     Two sources, in order of preference:
 
-    1. ``contract_deferred_actions`` — strings previously persisted to
-       ``contract.pr.deferred_actions`` when a human approved the
-       conditional-ACK HITL gate (#2004). This is the durable path:
-       the tracker may have been torn down by the time PR creation
-       runs, and the contract survives.
+    1. ``contract_deferred_actions`` — ``DeferredAction`` objects (or legacy
+       strings) previously persisted to ``contract.pr.deferred_actions`` when
+       a human approved the conditional-ACK HITL gate (#2004). This is the
+       durable path: the tracker may have been torn down by the time PR
+       creation runs, and the contract survives.
     2. The live consensus tracker (#1998). Used when the contract has
        no deferred_actions — either because the gate landed before
        tracker teardown, or the gate was never required.
 
-    Returns an empty string if neither source yields conditions, so
-    callers can unconditionally append the result to the PR body.
+    Each obligation is classified as **open** or **resolved** (#2336):
+
+    * Open obligations (no ``resolved_in_diff``) render under a merge-blocking
+      "Pre-merge Obligations" banner — a human must act before merging.
+    * Resolved obligations (the reviewer marked them satisfied within the same
+      PR's diff) render under a "Resolved within this PR" subsection with a
+      pointer to the satisfying commit. They do not block merge.
+
+    Returns an empty string if neither source yields obligations, so callers
+    can unconditionally append the result to the PR body.
     """
-    # Tier 1 — contract.pr.deferred_actions (persisted across teardown).
+    obligations = _collect_pre_merge_obligations(pipeline_id, contract_deferred_actions)
+    if not obligations:
+        return ""
+
+    open_obligations = [o for o in obligations if not o["resolved_in_diff"]]
+    resolved_obligations = [o for o in obligations if o["resolved_in_diff"]]
+
+    sections: list[str] = []
+
+    if open_obligations:
+        lines: list[str] = [
+            "## ⚠️ Pre-merge Obligations",
+            "",
+            "The reviewers below issued a **conditional ACK** — the work is "
+            "approved, but a human must perform the listed action before "
+            "merging. Do **not** merge this PR until every obligation is "
+            "complete.",
+            "",
+        ]
+        for o in open_obligations:
+            lines.extend(_format_obligation_bullet(o, resolved=False))
+        sections.append("\n".join(lines))
+
+    if resolved_obligations:
+        # When the only obligations on the PR are already-satisfied ones, this
+        # subsection stands on its own — there's no "do not merge" banner to
+        # contradict (#2336). Reviewers still get a record of what was
+        # promised and what diff resolved it.
+        lines = [
+            "## ✅ Resolved within this PR",
+            "",
+            "The reviewers below issued a **conditional ACK** and later "
+            "marked the obligation satisfied within this PR's diff. Listed "
+            "for the audit trail; no merge action required.",
+            "",
+        ]
+        for o in resolved_obligations:
+            lines.extend(_format_obligation_bullet(o, resolved=True))
+        sections.append("\n".join(lines))
+
+    return "\n\n".join(sections)
+
+
+def _collect_pre_merge_obligations(
+    pipeline_id: str,
+    contract_deferred_actions: list[Any] | None,
+) -> list[dict[str, str]]:
+    """Normalize obligations from contract or live tracker into a uniform shape.
+
+    Returns a list of ``{reviewer, condition, resolved_in_diff}`` dicts. The
+    contract source takes precedence over the live tracker when present.
+    """
     if contract_deferred_actions:
-        bullets = []
+        normalized: list[dict[str, str]] = []
         for entry in contract_deferred_actions:
-            text = entry.strip()
-            if not text:
+            # ``DeferredAction`` (Pydantic) — the post-#2336 shape.
+            reviewer = getattr(entry, "reviewer", None)
+            condition = getattr(entry, "condition", None)
+            resolved = getattr(entry, "resolved_in_diff", None)
+            if condition is None and isinstance(entry, str):
+                # Defensive: a caller passed a legacy string list directly
+                # without going through the field validator (e.g. a unit test
+                # that constructs the input by hand). Parse it the same way
+                # the validator would.
+                text = entry.strip()
+                if not text:
+                    continue
+                head, sep, tail = text.partition(": ")
+                if sep and tail.strip():
+                    reviewer, condition = head.strip(), tail.strip()
+                else:
+                    reviewer, condition = "", text
+                resolved = ""
+            condition_text = (condition or "").strip()
+            if not condition_text:
                 continue
-            first, *rest = text.splitlines()
-            bullets.append(f"- {first}")
-            bullets.extend(f"  {line}" for line in rest)
-        if bullets:
-            return "\n".join(
-                [
-                    "## ⚠️ Pre-merge Obligations",
-                    "",
-                    "The reviewers below issued a **conditional ACK** — the "
-                    "work is approved, but a human must perform the listed "
-                    "action before merging. Do **not** merge this PR until "
-                    "every obligation is complete.",
-                    "",
-                    *bullets,
-                ]
+            normalized.append(
+                {
+                    "reviewer": (reviewer or "").strip(),
+                    "condition": condition_text,
+                    "resolved_in_diff": (resolved or "").strip(),
+                }
             )
+        if normalized:
+            return normalized
 
     # Tier 2 — live tracker (pre-#2004 path; kept so conditions still
     # render if the HITL gate hasn't resolved yet, e.g. under force=true).
@@ -7371,7 +7441,7 @@ def _build_pre_merge_obligations_section(
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
     tracker = get_peer_consensus_tracker(pipeline_id)
     if tracker is None:
-        return ""
+        return []
     try:
         conditions = tracker.get_pre_merge_conditions()
     except Exception as e:  # defensive — never block PR creation on this
@@ -7380,35 +7450,45 @@ def _build_pre_merge_obligations_section(
             pipeline_id=pipeline_id,
             error=str(e),
         )
-        return ""
-    if not conditions:
-        return ""
+        return []
 
-    lines = [
-        "## ⚠️ Pre-merge Obligations",
-        "",
-        "The reviewers below issued a **conditional ACK** — the work is "
-        "approved, but a human must perform the listed action before "
-        "merging. Do **not** merge this PR until every obligation is "
-        "complete.",
-        "",
-    ]
+    normalized = []
     for c in conditions:
-        reviewer = c.get("reviewer", "unknown")
         condition = str(c.get("condition", "")).strip()
         if not condition:
             continue
-        # Indent multi-line conditions under the bullet so they stay
-        # visually grouped in rendered markdown.
-        first, *rest = condition.splitlines()
-        lines.append(f"- **{reviewer}** — {first}")
-        for extra in rest:
-            lines.append(f"  {extra}")
-    # If every condition was whitespace-only, no bullets were added — return
-    # empty to avoid rendering a header with zero items (#1998 review).
-    if len(lines) == 4:
-        return ""
-    return "\n".join(lines)
+        normalized.append(
+            {
+                "reviewer": str(c.get("reviewer", "") or "").strip(),
+                "condition": condition,
+                "resolved_in_diff": str(c.get("resolved_in_diff", "") or "").strip(),
+            }
+        )
+    return normalized
+
+
+def _format_obligation_bullet(
+    obligation: dict[str, str],
+    resolved: bool,
+) -> list[str]:
+    """Format a single obligation as a markdown bullet (multi-line aware)."""
+    reviewer = obligation["reviewer"] or "unknown"
+    # ``strip()`` before splitlines so a leading/trailing newline doesn't
+    # produce an empty first line ("- **reviewer** — " with nothing after the
+    # em-dash). The collector filters whitespace-only conditions but a
+    # ``"\nreal text"`` value would otherwise slip through with an empty
+    # first line (#2336 review).
+    condition = obligation["condition"].strip()
+    first, *rest = condition.splitlines()
+    bullet = f"- **{reviewer}** — {first}"
+    lines = [bullet]
+    for extra in rest:
+        lines.append(f"  {extra}")
+    if resolved and obligation["resolved_in_diff"]:
+        # Bare SHA (no backticks) so GitHub auto-links it to the commit page
+        # in the rendered PR body — code-span text is not auto-linked.
+        lines.append(f"  - Resolved in {obligation['resolved_in_diff']}")
+    return lines
 
 
 def _build_brc_history_link_line(
@@ -7538,7 +7618,7 @@ def _build_pr_body(
     pr_description: str | None = None
     pr_test_plan: str = ""
     pr_manual_steps: str = ""
-    pr_deferred_actions: list[str] = []
+    pr_deferred_actions: list[Any] = []
     issue_title: str | None = None
     plan_draft_warnings: list[str] = []
     plan_draft_path: str | None = None
@@ -8562,6 +8642,13 @@ def _build_brc_preamble(
                 '--pre-merge-condition "A human must `git mv legacy/x '
                 'new/x` before merging — agents cannot push renames through"\n'
                 "   ```\n"
+                "\n"
+                "   If an obligation you attached earlier was satisfied "
+                "within the same PR's diff (e.g. another producer landed the "
+                "commit you required), re-ACK with "
+                "`--pre-merge-condition-resolved-in-diff <sha>` so the "
+                "PR-body renderer demotes it to a 'Resolved within this PR' "
+                "subsection instead of a merge-blocker (#2336).\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
                 "Boilerplate like 'lgtm' or 'no issues' will be rejected.\n"

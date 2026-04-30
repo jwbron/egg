@@ -435,6 +435,7 @@ class PeerConsensusTracker:
                 artifact_refs=review.artifact_references,
                 commit_sha=proposal_commit_sha,
                 pre_merge_condition=review.pre_merge_condition,
+                pre_merge_condition_resolved_in_diff=(review.pre_merge_condition_resolved_in_diff),
             )
 
             # Transition reviewer to REVIEWING
@@ -455,8 +456,11 @@ class PeerConsensusTracker:
             # Use the normalized value (record_ack strips whitespace) so the
             # event stream is consistent with persisted matrix state.
             normalized_condition = (review.pre_merge_condition or "").strip()
+            normalized_resolution = (review.pre_merge_condition_resolved_in_diff or "").strip()
             if normalized_condition:
                 event_data["pre_merge_condition"] = normalized_condition
+                if normalized_resolution:
+                    event_data["pre_merge_condition_resolved_in_diff"] = normalized_resolution
 
             emit_event(
                 EventType.CONSENSUS_ACK_RECEIVED,
@@ -474,6 +478,8 @@ class PeerConsensusTracker:
             }
             if normalized_condition:
                 result["pre_merge_condition"] = normalized_condition
+                if normalized_resolution:
+                    result["pre_merge_condition_resolved_in_diff"] = normalized_resolution
             return result
 
     def handle_nack(
