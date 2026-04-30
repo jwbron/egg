@@ -351,10 +351,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-30T03:56:36.562512Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-30T04:00:00.134966Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Single slice with multiple commits/sub-tasks (recommended for plan simplicity) — slice-16 lands as one PR (or a small chain of stacked PRs scoped to this slice's branch) covering all submodule extractions and the _run_pipeline refactor.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -435,7 +435,7 @@
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T03:59:52.436430Z",
+  "updated_at": "2026-04-30T04:00:00.157705Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -449,6 +449,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 31,
+  "version": 32,
   "jira_ticket": null
 }
