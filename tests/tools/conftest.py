@@ -1,7 +1,7 @@
 """Shared pytest fixtures for ``tests/tools/`` (issue #1973).
 
 The selector test suite (``test_select_tests_*``) auto-patches
-``selector._run_git`` so tests run inside the egg sandbox where
+``selector._io._run_git`` so tests run inside the egg sandbox where
 ``git`` on PATH is intercepted by a gateway-proxy wrapper.  See
 ``_select_tests_helpers.patched_run_git`` for details.
 """
@@ -15,7 +15,7 @@ from tests.tools._select_tests_helpers import load_selector, patched_run_git
 
 @pytest.fixture(autouse=False)
 def real_git(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch ``selector._run_git`` to invoke the real git binary.
+    """Patch ``selector._io._run_git`` to invoke the real git binary.
 
     Opt-in fixture used by tests that drive selector flows which call
     git on a synthetic ``tmp_path`` repository (e.g. ``record_good``,

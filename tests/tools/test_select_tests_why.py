@@ -1,4 +1,4 @@
-"""TASK-5-4 — `--why <test>` introspection tests for scripts/select_tests.py.
+"""TASK-5-4 — `--why <test>` introspection tests for scripts/select_tests/.
 
 The ``--why`` flag prints the import chain from any changed module to
 the named test, helping agents debug "I expected this to run".  Three

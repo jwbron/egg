@@ -393,7 +393,7 @@ gateway.__path__ = [str(GATEWAY_DIR)]
 
 # Set __spec__ so importlib.util.find_spec("gateway") returns a valid
 # package spec instead of raising "gateway.__spec__ is None". Tools
-# like grimp (used by scripts/select_tests.py) call find_spec to
+# like grimp (used by scripts/select_tests/) call find_spec to
 # locate the gateway package on disk; without this, they fail at
 # graph build time once the gateway tests have populated sys.modules.
 _gateway_spec = ModuleSpec(

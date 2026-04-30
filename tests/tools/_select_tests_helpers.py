@@ -1,11 +1,17 @@
-"""Shared helpers for the scripts/select_tests.py test suite (issue #1973).
+"""Shared helpers for the scripts/select_tests/ test suite (issue #1973).
 
-The helpers below load the selector module from its on-disk path so the
-test files don't have to repeat the SourceFileLoader dance. They also
-provide a synthetic-monorepo fixture builder for the graph / fallback /
-e2e tests.
+The helpers below load the selector package from its on-disk path so the
+test files don't have to repeat the import dance. They also provide a
+synthetic-monorepo fixture builder for the graph / fallback / e2e tests.
 
 Test files importing from this module should be under ``tests/tools/``.
+
+NOTE: ``scripts/select_tests`` was decomposed from a single 1,875-line
+module into a sub-package in issue #2261 (slice-1).  ``load_selector``
+now imports the package via ``importlib`` after inserting
+``scripts/`` on ``sys.path`` so the test suite continues to use the
+``select_tests`` short-name (matching the original ``importlib`` shape
+the helpers used before the decomposition).
 """
 
 from __future__ import annotations
@@ -22,7 +28,14 @@ import pytest
 # Repository root — three levels up from this file
 # (tests/tools/_select_tests_helpers.py).
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SELECTOR_PATH = REPO_ROOT / "scripts" / "select_tests.py"
+# scripts/ contains the ``select_tests`` package post-#2261 decomposition.
+SELECTOR_PARENT = REPO_ROOT / "scripts"
+# Path-style entry point for subprocess-based tests.  Post-#2261 the
+# selector ships as the ``select_tests`` sub-package; ``__main__.py``
+# inserts ``scripts/`` on ``sys.path`` so the package resolves whether
+# invoked as ``python __main__.py`` or ``python -m select_tests``.  The
+# Makefile uses the same path.
+SELECTOR_PATH = REPO_ROOT / "scripts" / "select_tests" / "__main__.py"
 
 # Real git binary inside the egg sandbox.  The egg-runtime image
 # replaces ``/usr/bin/git`` with a shell wrapper that proxies all git
@@ -37,24 +50,26 @@ REAL_GIT: str = str(_INTERNAL_GIT) if _INTERNAL_GIT.exists() else "git"
 
 
 def load_selector() -> ModuleType:
-    """Load scripts/select_tests.py as a Python module.
+    """Load the ``scripts/select_tests`` package as a Python module.
 
-    The selector is shipped as a script under ``scripts/`` rather than a
-    package, so we need ``importlib.util`` to import it.  We register
-    the module under the name ``select_tests`` in sys.modules so repeat
-    calls in the same process return the same instance (matters for
-    ``isinstance`` checks and module-level state).
+    Post-#2261 the selector is a sub-package
+    (``scripts/select_tests/__init__.py``) with private ``_*.py``
+    submodules; the public surface (every ``selector._foo`` symbol the
+    test suite uses) is re-exported from ``__init__.py``.  We insert
+    ``scripts/`` on ``sys.path`` so ``import select_tests`` resolves the
+    package, register it under the short name ``select_tests`` in
+    ``sys.modules`` for stable identity across calls, and return the
+    package object.
     """
-    import importlib.util
+    import importlib
     import sys
 
     if "select_tests" in sys.modules:
         return sys.modules["select_tests"]
-    spec = importlib.util.spec_from_file_location("select_tests", str(SELECTOR_PATH))
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["select_tests"] = module
-    spec.loader.exec_module(module)
-    return module
+    parent = str(SELECTOR_PARENT)
+    if parent not in sys.path:
+        sys.path.insert(0, parent)
+    return importlib.import_module("select_tests")
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -67,10 +82,10 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     The selector calls ``git`` via the system ``PATH`` — inside the
     sandbox that resolves to a wrapper that proxies through the
     gateway and rejects ``git init`` on synthetic repos.  When tests
-    invoke ``selector._run_git`` (e.g. ``record_good``,
+    invoke ``selector._io._run_git`` (e.g. ``record_good``,
     ``resolve_baseline``), they need the same wrapper-bypassing
-    binary the helpers use, so monkeypatch ``selector._run_git`` in
-    tests that exercise repo-side flows; for the helpers themselves,
+    binary the helpers use, so monkeypatch ``selector._io._run_git``
+    in tests that exercise repo-side flows; for the helpers themselves,
     we always call ``REAL_GIT`` directly.
     """
     env = os.environ.copy()
@@ -91,7 +106,7 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def patched_run_git(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch ``selector._run_git`` to invoke the real git binary.
+    """Patch ``selector._io._run_git`` to invoke the real git binary.
 
     Without this patch, the selector's ``_run_git`` would invoke ``git``
     via PATH which inside the sandbox resolves to a gateway-wrapper
@@ -99,9 +114,16 @@ def patched_run_git(monkeypatch: pytest.MonkeyPatch) -> None:
     ``record_good`` / ``resolve_baseline`` / etc. must call this
     helper from a fixture / per-test setup so the selector reads from
     the synthetic repo we built under ``tmp_path``.
+
+    The patch target is ``selector._io._run_git`` — internal callers
+    inside ``_io.py`` reference the function by bare name, which Python
+    resolves through the module's own namespace at call time, so
+    patching ``_io._run_git`` reaches every call site (including the
+    qualified ``_io._run_git`` access from ``_cli.py``) without
+    per-callsite indirection.
     """
     selector = load_selector()
-    real_run_git = selector._run_git  # for chaining
+    real_run_git = selector._io._run_git  # for chaining
 
     def _patched(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
         env = os.environ.copy()
@@ -117,7 +139,7 @@ def patched_run_git(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         return proc.returncode, proc.stdout, proc.stderr
 
-    monkeypatch.setattr(selector, "_run_git", _patched)
+    monkeypatch.setattr(selector._io, "_run_git", _patched)
     return real_run_git  # type: ignore[no-any-return]
 
 

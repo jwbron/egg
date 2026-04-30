@@ -1,0 +1,896 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 2261,
+    "title": "Issue #2261",
+    "url": "https://github.com/jwbron/egg/issues/2261"
+  },
+  "pipeline_id": "issue-2261",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Module layout pattern for the decomposition: which structure should we use across the 15 files?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "A1: Sub-package with __init__.py re-export barrel (recommended) \u2014 orchestrator/routes/pipelines/__init__.py imports from submodules; tests' patch targets keep resolving through the barrel.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "A2: Sibling-file fa\u00e7ade \u2014 keep pipelines.py as a thin file that re-exports from siblings _pipelines_run.py, _pipelines_criteria.py, ... Less restructuring but uglier naming.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "A3: Mixed \u2014 sub-package for non-route files, Flask Blueprint refactor for route files (largest behavior-adjacent change; likely scope creep).",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"A1: Sub-package with __init__.py re-export barrel (recommended) \u2014 orchestrator/routes/pipelines/__init__.py imports from submodules; tests' patch targets keep resolving through the barrel.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T03:59:03.462821Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "_run_pipeline strategy (the 2,362-line state machine inside pipelines.py): how do we drop it under the 1,500-line cap?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "B1: Mechanical extraction only \u2014 move _run_pipeline verbatim to a submodule. Zero behavior risk but the new file is still over the cap, requiring a fresh allowlist entry on the same PR meant to remove one.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "B2: Per-phase handler refactor (recommended) \u2014 split into per-phase handlers (refine/plan/implement/pr) plus a thin orchestration loop. Solves the cap; carries real behavioral risk on a state machine with subtle ordering.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "B3: Permanent allowlist exception for _run_pipeline \u2014 decompose everything else, leave _run_pipeline as a documented exception. Contradicts the issue's explicit \"_run_pipeline is in scope\" non-negotiable.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"B2: Per-phase handler refactor (recommended) \u2014 split into per-phase handlers (refine/plan/implement/pr) plus a thin orchestration loop. Solves the cap; carries real behavioral risk on a state machine with subtle ordering.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T03:59:08.519232Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Slice DAG shape: how should plan model the decomposition program?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "C1: One slice per file under a single \"pattern adoption\" parent (recommended) \u2014 16 slices total; max reviewability, max parallelism (waves up to EGG_ORCH_MAX_PARALLEL_SLICES=5).",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "C2: Per-package cohort slices \u2014 ~9 slices grouping files by package; fewer PRs but larger and harder to revert.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "C3: One slice for the whole program \u2014 a single mega-PR. Fast but unreviewable; included only for completeness.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"C1: One slice per file under a single \\\"pattern adoption\\\" parent (recommended) \u2014 16 slices total; max reviewability, max parallelism (waves up to EGG_ORCH_MAX_PARALLEL_SLICES=5).\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T03:59:23.611735Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Pattern-adoption parent slice (slice-1): what should its scope be?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Docs + one small reference file (recommended) \u2014 slice-1 lands docs/guides/decomposition-pattern.md, updates orchestrator/CLAUDE.md and gateway/CLAUDE.md, AND decomposes one small file (suggested: scripts/select_tests.py) as the worked reference.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Docs only \u2014 slice-1 lands only docs and CLAUDE.md updates. Decomposition starts in slice-2 with no proven reference.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Skip the parent \u2014 each slice independently follows the convention; no upstream dependency. Fastest fan-out but inconsistent shapes are hard to course-correct.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Docs + one small reference file (recommended) \u2014 slice-1 lands docs/guides/decomposition-pattern.md, updates orchestrator/CLAUDE.md and gateway/CLAUDE.md, AND decomposes one small file (suggested: scripts/select_tests.py) as the worked reference.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T03:59:23.655323Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Re-export style inside the barrel __init__.py: how should we re-export symbols from submodules?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Explicit per-symbol re-exports (recommended) \u2014 `from ._run_loop import _run_pipeline, _spawn_pipeline_run_thread, ...`. Most explicit; easy to spot drift in code review; works with linters out of the box.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "__all__-driven wildcard \u2014 each submodule defines __all__; barrel does `from ._run_loop import *`. Less code in the barrel; harder to audit; some linters flag wildcard imports.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 each submodule defines __all__ and the barrel does explicit re-exports listing every name. Belt-and-braces; most verbose.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Explicit per-symbol re-exports (recommended) \u2014 `from ._run_loop import _run_pipeline, _spawn_pipeline_run_thread, ...`. Most explicit; easy to spot drift in code review; works with linters out of the box.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T03:59:28.705979Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Submodule naming inside the new packages: prefixed or unprefixed?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Underscore-prefixed (recommended) \u2014 `_run_loop.py`, `_criteria.py`, `_pr_lifecycle.py`. Matches existing codebase convention for package-private helpers; signals \"internal API\".",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Unprefixed \u2014 `run_loop.py`, `criteria.py`, `pr_lifecycle.py`. More discoverable; promotes submodules to part of the public structure; deviates from current convention.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Underscore-prefixed (recommended) \u2014 `_run_loop.py`, `_criteria.py`, `_pr_lifecycle.py`. Matches existing codebase convention for package-private helpers; signals \\\"internal API\\\".\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T03:59:33.759248Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "mcp_tools.py and other production importers: should they keep importing through the barrel or migrate to direct submodule imports?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep importing via the barrel (recommended) \u2014 `from routes.pipelines import _read_phase_draft`. Stable API surface; survives future internal moves; one extra layer of indirection.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Migrate to direct submodule imports \u2014 `from routes.pipelines._readers import _read_phase_draft`. Avoids one indirection; couples the consumer to internal layout; future moves require updating consumers.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Mixed \u2014 keep external/cross-package consumers on the barrel; allow internal cross-submodule imports to use direct paths.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep importing via the barrel (recommended) \u2014 `from routes.pipelines import _read_phase_draft`. Stable API surface; survives future internal moves; one extra layer of indirection.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T03:59:48.908946Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Routes registration when splitting routes/pipelines.py: how should @app.route(...) be handled?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep @app.route(...) decorations in routes/pipelines/__init__.py with thin wrappers delegating to submodule implementations (recommended) \u2014 minimal behavior change; routes still register on `app` exactly as today.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Refactor to a Flask Blueprint \u2014 each submodule registers handlers on a shared Blueprint, __init__.py registers the Blueprint on the app. Cleaner long-term but introduces Blueprint URL/error-handler scoping changes (behavior-adjacent).",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 keep decorators in __init__.py, but expose the implementation submodules without wrappers (`@app.route(...) (handler := _impl.handler)`). Saves a wrapper layer; less idiomatic Python.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep @app.route(...) decorations in routes/pipelines/__init__.py with thin wrappers delegating to submodule implementations (recommended) \u2014 minimal behavior change; routes still register on `app` exactly as today.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T03:59:53.973425Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "slice-16 (orchestrator/routes/pipelines.py) sub-stacking: how should plan model the internal decomposition of the largest file?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Single slice with multiple commits/sub-tasks (recommended for plan simplicity) \u2014 slice-16 lands as one PR (or a small chain of stacked PRs scoped to this slice's branch) covering all submodule extractions and the _run_pipeline refactor.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Chain of sub-slices (slice-16a, slice-16b, ...) \u2014 each cluster (run loop, PR lifecycle, criteria, BRC verdicts, prompt building, status helpers, decisions, worktree ops) is its own slice. More PRs but each one is small.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Decide during plan \u2014 leave the choice to the planner once the cluster boundaries are concrete.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Single slice with multiple commits/sub-tasks (recommended for plan simplicity) \u2014 slice-16 lands as one PR (or a small chain of stacked PRs scoped to this slice's branch) covering all submodule extractions and the _run_pipeline refactor.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T04:00:04.109319Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Concurrency budget for the 15 sibling slices: how many should run in parallel at peak?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "EGG_ORCH_MAX_PARALLEL_SLICES=5 (default, recommended) \u2014 use the existing default; 3 waves of 5 fan out the bulk of the work.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Cap at 3 \u2014 lower concurrency to keep reviewer/overseer review queue manageable; ~5 waves total.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cap at 1 \u2014 strictly serial; no parallelism. Slowest but lowest reviewer load.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Run hot \u2014 raise the budget (e.g. 8) to fan out faster; risks oversubscribing reviewers.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"EGG_ORCH_MAX_PARALLEL_SLICES=5 (default, recommended) \u2014 use the existing default; 3 waves of 5 fan out the bulk of the work.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-30T04:00:09.166257Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-30T03:46:52.710972Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Module layout pattern for the decomposition: which structure should we use across the 15 files?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "A1: Sub-package with __init__.py re-export barrel (recommended) \u2014 orchestrator/routes/pipelines/__init__.py imports from submodules; tests' patch targets keep resolving through the barrel.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "A2: Sibling-file fa\u00e7ade \u2014 keep pipelines.py as a thin file that re-exports from siblings _pipelines_run.py, _pipelines_criteria.py, ... Less restructuring but uglier naming.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "A3: Mixed \u2014 sub-package for non-route files, Flask Blueprint refactor for route files (largest behavior-adjacent change; likely scope creep).",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Module layout pattern for the decomposition: which...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:00.721793Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "_run_pipeline strategy (the 2,362-line state machine inside pipelines.py): how do we drop it under the 1,500-line cap?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "B1: Mechanical extraction only \u2014 move _run_pipeline verbatim to a submodule. Zero behavior risk but the new file is still over the cap, requiring a fresh allowlist entry on the same PR meant to remove one.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "B2: Per-phase handler refactor (recommended) \u2014 split into per-phase handlers (refine/plan/implement/pr) plus a thin orchestration loop. Solves the cap; carries real behavioral risk on a state machine with subtle ordering.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "B3: Permanent allowlist exception for _run_pipeline \u2014 decompose everything else, leave _run_pipeline as a documented exception. Contradicts the issue's explicit \"_run_pipeline is in scope\" non-negotiable.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: _run_pipeline strategy (the 2,362-line state machi...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:06.696378Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Slice DAG shape: how should plan model the decomposition program?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "C1: One slice per file under a single \"pattern adoption\" parent (recommended) \u2014 16 slices total; max reviewability, max parallelism (waves up to EGG_ORCH_MAX_PARALLEL_SLICES=5).",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "C2: Per-package cohort slices \u2014 ~9 slices grouping files by package; fewer PRs but larger and harder to revert.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "C3: One slice for the whole program \u2014 a single mega-PR. Fast but unreviewable; included only for completeness.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Slice DAG shape: how should plan model the decompo...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:13.374072Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Pattern-adoption parent slice (slice-1): what should its scope be?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Docs + one small reference file (recommended) \u2014 slice-1 lands docs/guides/decomposition-pattern.md, updates orchestrator/CLAUDE.md and gateway/CLAUDE.md, AND decomposes one small file (suggested: scripts/select_tests.py) as the worked reference.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Docs only \u2014 slice-1 lands only docs and CLAUDE.md updates. Decomposition starts in slice-2 with no proven reference.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Skip the parent \u2014 each slice independently follows the convention; no upstream dependency. Fastest fan-out but inconsistent shapes are hard to course-correct.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Pattern-adoption parent slice (slice-1): what shou...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:19.628755Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Re-export style inside the barrel __init__.py: how should we re-export symbols from submodules?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Explicit per-symbol re-exports (recommended) \u2014 `from ._run_loop import _run_pipeline, _spawn_pipeline_run_thread, ...`. Most explicit; easy to spot drift in code review; works with linters out of the box.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "__all__-driven wildcard \u2014 each submodule defines __all__; barrel does `from ._run_loop import *`. Less code in the barrel; harder to audit; some linters flag wildcard imports.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid \u2014 each submodule defines __all__ and the barrel does explicit re-exports listing every name. Belt-and-braces; most verbose.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Re-export style inside the barrel __init__.py: how...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:24.381221Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Submodule naming inside the new packages: prefixed or unprefixed?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Underscore-prefixed (recommended) \u2014 `_run_loop.py`, `_criteria.py`, `_pr_lifecycle.py`. Matches existing codebase convention for package-private helpers; signals \"internal API\".",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Unprefixed \u2014 `run_loop.py`, `criteria.py`, `pr_lifecycle.py`. More discoverable; promotes submodules to part of the public structure; deviates from current convention.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Submodule naming inside the new packages: prefixed...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:29.936391Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "mcp_tools.py and other production importers: should they keep importing through the barrel or migrate to direct submodule imports?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep importing via the barrel (recommended) \u2014 `from routes.pipelines import _read_phase_draft`. Stable API surface; survives future internal moves; one extra layer of indirection.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Migrate to direct submodule imports \u2014 `from routes.pipelines._readers import _read_phase_draft`. Avoids one indirection; couples the consumer to internal layout; future moves require updating consumers.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Mixed \u2014 keep external/cross-package consumers on the barrel; allow internal cross-submodule imports to use direct paths.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: mcp_tools.py and other production importers: shoul...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:36.609684Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Routes registration when splitting routes/pipelines.py: how should @app.route(...) be handled?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep @app.route(...) decorations in routes/pipelines/__init__.py with thin wrappers delegating to submodule implementations (recommended) \u2014 minimal behavior change; routes still register on `app` exactly as today.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Refactor to a Flask Blueprint \u2014 each submodule registers handlers on a shared Blueprint, __init__.py registers the Blueprint on the app. Cleaner long-term but introduces Blueprint URL/error-handler scoping changes (behavior-adjacent).",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid \u2014 keep decorators in __init__.py, but expose the implementation submodules without wrappers (`@app.route(...) (handler := _impl.handler)`). Saves a wrapper layer; less idiomatic Python.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Routes registration when splitting routes/pipeline...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:44.268765Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "slice-16 (orchestrator/routes/pipelines.py) sub-stacking: how should plan model the internal decomposition of the largest file?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Single slice with multiple commits/sub-tasks (recommended for plan simplicity) \u2014 slice-16 lands as one PR (or a small chain of stacked PRs scoped to this slice's branch) covering all submodule extractions and the _run_pipeline refactor.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Chain of sub-slices (slice-16a, slice-16b, ...) \u2014 each cluster (run loop, PR lifecycle, criteria, BRC verdicts, prompt building, status helpers, decisions, worktree ops) is its own slice. More PRs but each one is small.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Decide during plan \u2014 leave the choice to the planner once the cluster boundaries are concrete.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: slice-16 (orchestrator/routes/pipelines.py) sub-st...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:47:50.960527Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "Concurrency budget for the 15 sibling slices: how many should run in parallel at peak?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "EGG_ORCH_MAX_PARALLEL_SLICES=5 (default, recommended) \u2014 use the existing default; 3 waves of 5 fan out the bulk of the work.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Cap at 3 \u2014 lower concurrency to keep reviewer/overseer review queue manageable; ~5 waves total.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Cap at 1 \u2014 strictly serial; no parallelism. Slowest but lowest reviewer load.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Run hot \u2014 raise the budget (e.g. 8) to fan out faster; risks oversubscribing reviewers.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Concurrency budget for the 15 sibling slices: how ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-30T03:48:09.866688Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Test patch surface drift: some test modules patch with both `routes.pipelines._foo` and `orchestrator.routes.pipelines._foo` forms. Is it acceptable to fix any drifted patch paths inside the same slice that owns the moved symbol, or should those test rewrites stay strictly out of scope (i.e. tests are only updated when a re-export shim is impossible)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Pre-existing growth in the allowlisted files: `orchestrator/routes/pipelines.py` is now 16,401 lines (issue body listed 15,356) and `scripts/select_tests.py` is 1,875 (listed 1,650). Should plan use the higher current numbers as the baselines, or treat the issue body's numbers as the contract?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Sequencing: the issue suggests cheap files first to validate the pattern. Are there integration windows (release cuts, scheduled deploys, on-call coverage) we should align with when ordering the 15 slices, or is a strict size-ordered fan-out fine?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Are integration / E2E / smoke tests outside `make test-all` that should also gate each slice's PR (e.g. release-channel smoke runs, post-deploy verifications)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "`gateway/gateway.py` Flask routes: the same routes-registration question as decision-8 applies here. Confirm whether the same convention (thin wrappers in __init__.py vs Blueprint vs hybrid) should be used, or whether the larger gateway file warrants a different approach (e.g. Blueprint here even if not in routes/pipelines.py)?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Are there any non-public-API symbols inside the 15 files that we DON'T need to re-export because no test or production code patches/imports them? If so, can plan rely on `git grep` of the symbol name to determine re-export necessity, or does the issue mandate re-exporting everything for safety?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "When `_run_pipeline` is decomposed (option B2), should the per-phase handlers (`_run_refine_phase`, `_run_plan_phase`, `_run_implement_phase_slices`, `_run_pr_phase`) be testable in isolation (i.e. plan adds new unit tests for them) or kept as private helpers tested only through `_run_pipeline`?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Should `docs/guides/decomposition-pattern.md` be a precondition (slice-1 lands it) or a postcondition (slice-16's PR adds it after the pattern is proven)? Decision-4's recommended option assumes precondition, but a postcondition path lets the pattern evolve with the code.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 8 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Test patch surface drift: some test modules patch with both `routes.pipelines._foo` and `orchestrator.routes.pipelines._foo` forms. Is it acceptable to fix any drifted patch paths inside the same slice that owns the moved symbol, or should those test rewrites stay strictly out of scope (i.e. tests are only updated when a re-export shim is impossible)?",
+        "answer": "In scope when the fix is mechanical (one-line patch-path rewrite). Out of scope when it requires test-logic rewrites \u2014 file a follow-up issue for those instead. Rule of thumb: a slice may touch tests only if (a) the move strictly requires it AND (b) the diff is mechanical. The default is to use re-export shims and leave tests alone."
+      },
+      {
+        "id": "Q2",
+        "question": "Pre-existing growth in the allowlisted files: `orchestrator/routes/pipelines.py` is now 16,401 lines (issue body listed 15,356) and `scripts/select_tests.py` is 1,875 (listed 1,650). Should plan use the higher current numbers as the baselines, or treat the issue body's numbers as the contract?",
+        "answer": "Use current sizes (16,401 / 1,875 / 9,890) as the baselines. The allowlist lint operates on actual file size, so the contract has to match reality. The issue body's numbers were a snapshot; treat them as informational, not authoritative."
+      },
+      {
+        "id": "Q3",
+        "question": "Sequencing: the issue suggests cheap files first to validate the pattern. Are there integration windows (release cuts, scheduled deploys, on-call coverage) we should align with when ordering the 15 slices, or is a strict size-ordered fan-out fine?",
+        "answer": "Strict size-ordered fan-out (smallest first) is fine. No special release-window alignment unless an active freeze is in effect. This is a pure refactor with `make test-all` as the contract \u2014 there's no behavior change that warrants release-cut coordination."
+      },
+      {
+        "id": "Q4",
+        "question": "Are integration / E2E / smoke tests outside `make test-all` that should also gate each slice's PR (e.g. release-channel smoke runs, post-deploy verifications)?",
+        "answer": "`make test-all` is the contract per the issue's acceptance criteria. No additional gates required up front. If plan discovers a release-channel smoke test or post-deploy verification that's a known regression vector for this kind of refactor, file a follow-up issue and gate that one slice."
+      },
+      {
+        "id": "Q5",
+        "question": "`gateway/gateway.py` Flask routes: the same routes-registration question as decision-8 applies here. Confirm whether the same convention (thin wrappers in __init__.py vs Blueprint vs hybrid) should be used, or whether the larger gateway file warrants a different approach (e.g. Blueprint here even if not in routes/pipelines.py)?",
+        "answer": "Same convention as decision-9 (thin wrappers in `__init__.py`). Consistency across the two largest files outweighs the size delta. If gateway.py's route count is large enough that the wrappers themselves push `__init__.py` over the cap, plan should call that out and we'll revisit per-slice; otherwise stay uniform."
+      },
+      {
+        "id": "Q6",
+        "question": "Are there any non-public-API symbols inside the 15 files that we DON'T need to re-export because no test or production code patches/imports them? If so, can plan rely on `git grep` of the symbol name to determine re-export necessity, or does the issue mandate re-exporting everything for safety?",
+        "answer": "Re-export everything that has any external reference (`git grep <symbol>` returns hits in tests/, gateway/, orchestrator/, sandbox/, or shared/ outside the file's own package). Only skip re-exports for symbols that are (a) underscore-prefixed AND (b) referenced exclusively inside the same submodule the symbol now lives in. The plan procedure should bake this `git grep` check into the per-slice template."
+      },
+      {
+        "id": "Q7",
+        "question": "When `_run_pipeline` is decomposed (option B2), should the per-phase handlers (`_run_refine_phase`, `_run_plan_phase`, `_run_implement_phase_slices`, `_run_pr_phase`) be testable in isolation (i.e. plan adds new unit tests for them) or kept as private helpers tested only through `_run_pipeline`?",
+        "answer": "Keep the per-phase handlers as private helpers tested through `_run_pipeline` for this refactor. Adding new unit tests for them is out of scope for slice-16 \u2014 file a follow-up issue so we don't lose track. Rationale: minimize behavior risk for the refactor; tighten coverage in a separate, focused PR."
+      },
+      {
+        "id": "Q8",
+        "question": "Should `docs/guides/decomposition-pattern.md` be a precondition (slice-1 lands it) or a postcondition (slice-16's PR adds it after the pattern is proven)? Decision-4's recommended option assumes precondition, but a postcondition path lets the pattern evolve with the code.",
+        "answer": "Precondition \u2014 slice-1 lands `docs/guides/decomposition-pattern.md` along with the docs + reference-file work decision-5 already approved. Downstream slices reference it. If the pattern needs to evolve mid-program, the doc moves with the code in whichever slice surfaces the change."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-30T04:00:09.202773Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}

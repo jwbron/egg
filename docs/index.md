@@ -60,6 +60,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
 | [Harness Configuration](guides/harness-configuration.md) | Selecting and configuring agent runtime harness (egg, claude-sdk, claude-code) |
 | [Deployment Diagnostics](guides/deployment-diagnostics.md) | When to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, and redaction guarantees |
+| [File Decomposition Pattern](guides/decomposition-pattern.md) | Canonical sub-package + explicit re-export barrel pattern for decomposing oversize Python files under the `scripts/file-size-allowlist.yaml` cap; covers conversion mechanics, method-modules-on-class shape, audit recipe, allowlist rebase, and routes-handling convention |
 
 ### Deploy
 

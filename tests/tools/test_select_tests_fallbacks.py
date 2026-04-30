@@ -1,4 +1,4 @@
-"""TASK-5-2 — Fallback-trigger tests for scripts/select_tests.py.
+"""TASK-5-2 — Fallback-trigger tests for scripts/select_tests/.
 
 Each fallback trigger from algorithm §5 has at least one parametrized
 case below.  The tests drive ``selector.evaluate_fallback_triggers``
@@ -160,7 +160,10 @@ def test_pytest_args_bypass_takes_precedence_over_empty_diff(
             return 0, "", ""
         return 0, "", ""
 
-    monkeypatch.setattr(selector, "_run_git", fake_run_git)
+    # Patch ``_run_git`` at its definition module so internal callers
+    # in ``_io.py`` (which resolve the bare name through ``_io``'s own
+    # namespace) see the stub — see ``_select_tests_helpers``.
+    monkeypatch.setattr(selector._io, "_run_git", fake_run_git)
     # User asked for an explicit test path — bypass MUST win.
     monkeypatch.setenv("PYTEST_ARGS_RAW", "tests/tools/test_dummy.py")
     monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
@@ -493,7 +496,11 @@ def test_fail_open_unhandled_exception_emits_full_suite_and_exits_0(
     def boom(*_args: object, **_kwargs: object) -> int:
         raise RuntimeError("synthetic selector failure")
 
-    monkeypatch.setattr(selector, "_main_inner", boom)
+    # ``main`` is defined in ``_cli`` and calls ``_main_inner`` by
+    # bare name; Python resolves the lookup through ``_cli``'s own
+    # namespace, so patching the package-barrel attribute does not
+    # reach ``main``.  Patch at the definition module.
+    monkeypatch.setattr(selector._cli, "_main_inner", boom)
     rc = selector.main([])
     assert rc == 0
     captured = capsys.readouterr()
@@ -690,7 +697,7 @@ def test_fail_open_subprocess_grimp_unavailable(
 
 # ----------------------------------------------------------------------
 # PYTHONPATH leak — the Makefile exports `PYTHONPATH=shared:gateway:orchestrator`
-# for pytest, which previously also reached `select_tests.py`.  With
+# for pytest, which previously also reached `select_tests/__main__.py`.  With
 # `shared/` on sys.path, grimp's `build_graph` aborts with
 # `NotATopLevelModule: shared.egg_agent` and the selector silently
 # fell back to the full suite.  The two regression cases below pin
