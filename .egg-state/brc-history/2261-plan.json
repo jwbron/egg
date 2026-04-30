@@ -1,0 +1,2581 @@
+[
+  {
+    "id": "5eb6cc85-4c39-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 6 complete. 8 alerts present \u2014 all classified as false positives (3 completed-agent post-exit stalls + 2 overseer polling-gap artifacts). Pipeline healthy in awaiting_human HITL gate. HITL still unresolved. Continuing monitoring loop.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-30T04:00:30.619003+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bb77bd64-a1b8-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:01:16.699083+00:00"
+    },
+    "timestamp": "2026-04-30T04:01:16.749674+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "791dd7c7-ef6e-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:01:16.699083+00:00"
+    },
+    "timestamp": "2026-04-30T04:02:17.028578+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ddf6876c-bac5-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:01:16.699083+00:00"
+    },
+    "timestamp": "2026-04-30T04:03:17.104939+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "615ffb76-5572-4d",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:01:16.699083+00:00"
+    },
+    "timestamp": "2026-04-30T04:04:17.165483+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9c711ee0-f12d-4a",
+    "pipeline_id": "issue-2261",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 3 complete. Plan phase running normally \u2014 4 agents active (task_planner, architect, reviewer_plan, risk_analyst) at 257s elapsed. reviewer_plan correctly waiting for CONSENSUS_PROPOSE. No actionable alerts. Calibration-only overseer stall suppressed. Continuing poll loop.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:04:59.898458+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f2250fec-cc4d-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:01:16.699083+00:00"
+    },
+    "timestamp": "2026-04-30T04:05:17.260773+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2cbd079b-9492-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:01:16.699083+00:00"
+    },
+    "timestamp": "2026-04-30T04:06:17.340952+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5292558c-367b-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:01:16.699083+00:00"
+    },
+    "timestamp": "2026-04-30T04:07:17.434076+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f9a7a573-7de0-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:01:16.699083+00:00"
+    },
+    "timestamp": "2026-04-30T04:08:17.469035+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "49100544-5d9e-4a",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan for #2261 (decompose 15 oversize Python files into a 15-slice forest DAG): slice-1 (parent) lands docs/guides/decomposition-pattern.md + seam-table templates in orchestrator/CLAUDE.md & gateway/CLAUDE.md + decomposes scripts/select_tests.py as the worked reference. Slices 2\u201315 are siblings under slice-1, one decomposition per remaining file, ordered smallest first; slice-15 (orchestrator/routes/pipelines.py) carries the B2 per-phase _run_pipeline refactor. All 10 HITL decisions implemented (sub-package + explicit re-export barrel + underscore-prefixed submodules + thin route wrappers in __init__.py + barrel-stable importer convention). Forest invariant satisfied: each slice has \u22641 DAG parent. Plan validates as YAML with slices=15, deps={1: none, 2..15: [slice-1]}; pr.title/description/test_plan/manual_steps populated. Tests: implicit via make lint + make test-all on each slice's PR (the 43+ patched symbols across routes.pipelines.*, gateway.gateway.*, mcp_tools.* fail loudly if any re-export drifts); no new isolation tests for _run_pipeline per-phase handlers (feedback Q7 \u2014 out-of-scope follow-up).",
+    "metadata": {
+      "payload": {
+        "summary": "Plan for #2261 (decompose 15 oversize Python files into a 15-slice forest DAG): slice-1 (parent) lands docs/guides/decomposition-pattern.md + seam-table templates in orchestrator/CLAUDE.md & gateway/CLAUDE.md + decomposes scripts/select_tests.py as the worked reference. Slices 2\u201315 are siblings under slice-1, one decomposition per remaining file, ordered smallest first; slice-15 (orchestrator/routes/pipelines.py) carries the B2 per-phase _run_pipeline refactor. All 10 HITL decisions implemented (sub-package + explicit re-export barrel + underscore-prefixed submodules + thin route wrappers in __init__.py + barrel-stable importer convention). Forest invariant satisfied: each slice has \u22641 DAG parent. Plan validates as YAML with slices=15, deps={1: none, 2..15: [slice-1]}; pr.title/description/test_plan/manual_steps populated. Tests: implicit via make lint + make test-all on each slice's PR (the 43+ patched symbols across routes.pipelines.*, gateway.gateway.*, mcp_tools.* fail loudly if any re-export drifts); no new isolation tests for _run_pipeline per-phase handlers (feedback Q7 \u2014 out-of-scope follow-up).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2261-plan.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "359cf2f17d5ba9125369b73814d2a78a2781b815",
+        "files_changed": [
+          ".egg-state/drafts/2261-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "359cf2f17d5ba9125369b73814d2a78a2781b815"
+    },
+    "timestamp": "2026-04-30T04:08:17.802161+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f20c2fc8-c07e-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:08:17.847314+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "207d2dd5-43a7-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:23.145023+00:00"
+    },
+    "timestamp": "2026-04-30T04:08:23.175341+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a13e6c3c-8624-40",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:08:23.287453+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6c8db617-da8b-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:08:26.823193+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cf0c87cd-3dbc-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:09:26.907149+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a311462c-c6eb-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:10:26.939960+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a16526fe-bce2-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:10:29.303069+00:00"
+    },
+    "timestamp": "2026-04-30T04:10:29.346650+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a8972260-d59a-4b",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for issue #2261 (decompose 15 oversize Python source files). 15 risks documented across compatibility, design, security, and operations categories: 3 HIGH severity (routing-mechanism mismatch in decision-8 vs pipelines.py reality, _run_pipeline per-phase refactor state-machine risk, test patch surface of 1,200+ calls), 5 MEDIUM (mega-functions beyond _run_pipeline, gateway.py security-critical handlers, mcp_tools.py class-based shape, allowlist conflicts under concurrent slices, slice-16 sub-stacking ambiguity), 7 LOW. Output written to .egg-state/agent-outputs/2261-risk_analyst-output.json. Includes 12 implementation recommendations, rollback plan, security/performance/compatibility assessments, and 4 areas flagged for human review (R1 routing reinterpretation, R2 _run_pipeline approach, R5 gateway security, R11 sub-stacking).",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for issue #2261 (decompose 15 oversize Python source files). 15 risks documented across compatibility, design, security, and operations categories: 3 HIGH severity (routing-mechanism mismatch in decision-8 vs pipelines.py reality, _run_pipeline per-phase refactor state-machine risk, test patch surface of 1,200+ calls), 5 MEDIUM (mega-functions beyond _run_pipeline, gateway.py security-critical handlers, mcp_tools.py class-based shape, allowlist conflicts under concurrent slices, slice-16 sub-stacking ambiguity), 7 LOW. Output written to .egg-state/agent-outputs/2261-risk_analyst-output.json. Includes 12 implementation recommendations, rollback plan, security/performance/compatibility assessments, and 4 areas flagged for human review (R1 routing reinterpretation, R2 _run_pipeline approach, R5 gateway security, R11 sub-stacking).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2261-risk_analyst-output.json"
+        ],
+        "risk_considered": "Routing-mechanism mismatch (Blueprint vs @app.route) was discovered by inspecting pipelines.py directly \u2014 decision-8 question text presumed @app.route, which is incorrect; flagged as R1/REC1 and as area requiring human review. _run_pipeline state-machine refactor risk is the single highest-impact item \u2014 flagged as R2 with two-stage extraction recommendation and manual smoke-run requirement. External research skipped per task instructions (pure internal Python refactor, no third-party dependency changes).",
+        "commit_sha": "3eda4061760000000000000000000000",
+        "files_changed": [
+          ".egg-state/agent-outputs/2261-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "3eda4061760000000000000000000000"
+    },
+    "timestamp": "2026-04-30T04:10:59.381948+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d61d9822-0113-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:10:59.421876+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c651b415-65cd-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:11:27.013260+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3910b7f4-a9da-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:38.364569+00:00"
+    },
+    "timestamp": "2026-04-30T04:11:38.411578+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7ad41c37-53dd-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:11:38.481271+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a5edceff-44f1-4a",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:43.434860+00:00"
+    },
+    "timestamp": "2026-04-30T04:11:43.467367+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "27ad3198-0a5c-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architect output for plan phase \u2014 submodule seam-cluster proposals for the 15-file decomposition program. Confirms refine's A1+B2+C1 recommendation with all 10 HITL decisions and 8 feedback answers locked in: sub-package + explicit per-symbol re-export barrel, underscore-prefixed submodules, _run_pipeline per-phase refactor in slice-15, 16-slice forest (1 parent + 15 siblings under EGG_ORCH_MAX_PARALLEL_SLICES=5). Per-file cluster boundaries proposed for task_planner. CRITICAL routing observation: routes/*.py already uses Flask Blueprints (`pipelines_bp`, `signals_bp`, `deployment_bp`) so decision-8's \"thin wrappers in __init__.py\" composes cleanly with existing dialect; gateway/gateway.py keeps `@app.route(...)` shape. Test re-export surface enumerated: 34 distinct routes.pipelines symbols across 1,203 patch invocations, plus production importers in api.py / mcp_tools.py / unified_sse.py / routes/decisions.py / routes/phases.py. 5 architect-level open questions surfaced for task_planner/risk_analyst/implementer (big-class composition strategy, per-phase handler module shape, slice-15 sub-stacking, mutable module-level re-export discipline, contract slice ordering). 9 risk seeds enumerated for risk_analyst to expand.",
+    "metadata": {
+      "payload": {
+        "summary": "Architect output for plan phase \u2014 submodule seam-cluster proposals for the 15-file decomposition program. Confirms refine's A1+B2+C1 recommendation with all 10 HITL decisions and 8 feedback answers locked in: sub-package + explicit per-symbol re-export barrel, underscore-prefixed submodules, _run_pipeline per-phase refactor in slice-15, 16-slice forest (1 parent + 15 siblings under EGG_ORCH_MAX_PARALLEL_SLICES=5). Per-file cluster boundaries proposed for task_planner. CRITICAL routing observation: routes/*.py already uses Flask Blueprints (`pipelines_bp`, `signals_bp`, `deployment_bp`) so decision-8's \"thin wrappers in __init__.py\" composes cleanly with existing dialect; gateway/gateway.py keeps `@app.route(...)` shape. Test re-export surface enumerated: 34 distinct routes.pipelines symbols across 1,203 patch invocations, plus production importers in api.py / mcp_tools.py / unified_sse.py / routes/decisions.py / routes/phases.py. 5 architect-level open questions surfaced for task_planner/risk_analyst/implementer (big-class composition strategy, per-phase handler module shape, slice-15 sub-stacking, mutable module-level re-export discipline, contract slice ordering). 9 risk seeds enumerated for risk_analyst to expand.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2261-architect-output.json"
+        ],
+        "risk_considered": "",
+        "commit_sha": "494d46adffb695f9a6f849ae68f017f0938b1d55",
+        "files_changed": [
+          ".egg-state/agent-outputs/2261-architect-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "494d46adffb695f9a6f849ae68f017f0938b1d55"
+    },
+    "timestamp": "2026-04-30T04:11:51.316783+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4b0c1f68-d74e-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-30T04:11:51.316850+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "67a89ba7-b479-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:11:51.345137+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2683d0e9-e26d-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:57.510704+00:00"
+    },
+    "timestamp": "2026-04-30T04:11:57.540727+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "de84097c-0229-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:11:59.430150+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0bcac64f-1add-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:12:02.396130+00:00"
+    },
+    "timestamp": "2026-04-30T04:12:02.642684+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bc2af3cb-ab64-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:12:27.075091+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7e63d540-55ac-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:57.510704+00:00"
+    },
+    "timestamp": "2026-04-30T04:12:57.746529+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6db9c278-769a-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:12:59.790893+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "46d952db-6aa3-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:12:02.396130+00:00"
+    },
+    "timestamp": "2026-04-30T04:13:02.835286+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c948ce4d-4e47-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:13:27.181192+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ef94b8ef-259d-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:57.510704+00:00"
+    },
+    "timestamp": "2026-04-30T04:13:57.887611+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7d50f5be-96e7-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:13:59.916538+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c29beabf-b308-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:12:02.396130+00:00"
+    },
+    "timestamp": "2026-04-30T04:14:02.923771+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "19031014-57f9-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:14:27.307241+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "337a22f8-1c24-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:57.510704+00:00"
+    },
+    "timestamp": "2026-04-30T04:14:58.053934+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b562288c-8228-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:14:59.967282+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a1b53ef5-24f0-4a",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:12:02.396130+00:00"
+    },
+    "timestamp": "2026-04-30T04:15:03.025463+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "08da82bd-5440-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:15:27.540105+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6fd7e0da-2c45-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:57.510704+00:00"
+    },
+    "timestamp": "2026-04-30T04:15:58.202016+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b44d1e96-2f82-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:16:00.064296+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "19421348-f495-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:12:02.396130+00:00"
+    },
+    "timestamp": "2026-04-30T04:16:03.117893+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a18df8b7-fe9e-4d",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:16:27.839676+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9017cc8a-6b95-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:57.510704+00:00"
+    },
+    "timestamp": "2026-04-30T04:16:58.363437+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "03319835-35b6-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:17:00.158523+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "71e19b61-7697-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:12:02.396130+00:00"
+    },
+    "timestamp": "2026-04-30T04:17:03.224031+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ac37bc13-1391-45",
+    "pipeline_id": "issue-2261",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "BRC confirmation timeout \u2014 call mcp__brc__confirm",
+    "body": "You are PROPOSED and fully ACKed but have not confirmed in 304s. Call `mcp__brc__confirm` now. If it returns `status='pending_acks'`, read `message` for the guard reason and wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a producer hasn't proposed (`zero_proposal_producers`), `CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is stale or unresolved. Then retry confirm.",
+    "metadata": {
+      "alert_type": "brc_confirmation_timeout",
+      "elapsed_seconds": 304,
+      "source": "health_monitor"
+    },
+    "timestamp": "2026-04-30T04:17:21.365631+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f7f17de6-ab69-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:17:21.560302+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5b7c55a7-7c14-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-30T04:17:25.211625+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "da03ec79-12e8-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:17:27.942800+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "25345d37-4bd4-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:17:36.242616+00:00"
+    },
+    "timestamp": "2026-04-30T04:17:36.374763+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4ad767d7-6269-4f",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:18:00.282781+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c1a76dfe-de72-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:12:02.396130+00:00"
+    },
+    "timestamp": "2026-04-30T04:18:03.323056+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "aa071ae4-2616-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:18:28.140555+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2a1ea794-cee3-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:17:36.242616+00:00"
+    },
+    "timestamp": "2026-04-30T04:18:36.486316+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "644d9cd7-b265-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:19:00.482740+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b147ed1d-dd4e-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:12:02.396130+00:00"
+    },
+    "timestamp": "2026-04-30T04:19:03.450499+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "19b7ca6b-58fc-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Architect proposal sent (commit 494d46adff). Awaiting ACK/NACK from reviewer_plan.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "reviewer_plan"
+    },
+    "timestamp": "2026-04-30T04:19:12.772714+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3852a065-3cc5-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:08:26.755914+00:00"
+    },
+    "timestamp": "2026-04-30T04:19:28.283630+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f90258b2-4e58-40",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:17:36.242616+00:00"
+    },
+    "timestamp": "2026-04-30T04:19:36.677674+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b18526b1-06a1-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [low]",
+    "body": "brc_confirmation_timeout for risk_analyst self-resolved \u2014 no intervention required\n\nDetail:\nrisk_analyst was fully ACKed by reviewer_plan and triggered a brc_confirmation_timeout alert at 04:17:21 (304s, 4s over 300s threshold). The agent confirmed 4 seconds later at 04:17:25 (consensus_reached state CONFIRMED). Self-resolved; no agent action taken. Remaining producers task_planner and architect are still in PROPOSED state; reviewer_plan is actively reviewing their proposals (reviewer_phase: WORKING). Pipeline is healthy and progressing normally at ~18.8 min elapsed.\n\nRecommended action:\nNo action required. Continue monitoring task_planner and architect for ACK completion. If confirmation timeout recurs without self-resolution within ~60s, investigate reviewer_plan ACK delivery.",
+    "metadata": {},
+    "timestamp": "2026-04-30T04:19:58.349377+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cf079f57-ecbc-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:19:58.550446+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9d2c1412-e01d-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:19:58.638480+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1904eb97-d2ed-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:19:58.735518+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "834209cb-656d-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:20:00.570113+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eba84cc8-7a8d-4f",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:20:02.105807+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5a709b01-3deb-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:20:03.802657+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0f394328-92e1-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:20:04.683224+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "be8f2343-e704-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:21:00.693682+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c444d047-0aa3-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:21:02.227769+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "435e06e7-38c7-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:21:03.912318+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d386d627-bd50-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:21:04.795323+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ebd35595-c333-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:22:00.867972+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1c7d9393-06e0-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:22:02.331713+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e6a1bc75-9e74-40",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:22:03.991897+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f09acb5e-76d1-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:22:04.886131+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "705fb460-090a-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:23:00.998599+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "21d0d965-bac7-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:23:02.491091+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ff29d6b9-2451-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:23:04.124748+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eeff7c01-0c1e-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:23:04.985675+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9ece37bd-acd2-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:24:01.164170+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "df2735a0-29f1-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:24:02.605858+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "53eaa003-2a99-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:24:04.217991+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d9961e2f-4d05-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:24:05.105453+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f17a92c8-20aa-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:25:01.325261+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4d703791-1011-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:25:02.709760+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "129bdd84-a3f5-40",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:25:04.281989+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4b4500f5-5b36-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:25:05.217627+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eb14575a-cd3c-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:26:01.441943+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8bbc6383-b160-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:26:02.814551+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a65fdd9a-1451-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:26:04.425906+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e5f049d7-a7f4-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:26:05.360827+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9aca07a5-9718-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:11:59.357886+00:00"
+    },
+    "timestamp": "2026-04-30T04:27:01.596063+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c31458e2-9893-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:27:02.905488+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "732811d5-dcea-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:27:04.540592+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5b71e96a-cac9-45",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:27:05.485848+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7b14ade6-858f-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:02.056916+00:00"
+    },
+    "timestamp": "2026-04-30T04:28:02.938790+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5e260736-1350-4f",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:03.764567+00:00"
+    },
+    "timestamp": "2026-04-30T04:28:04.607820+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "af1ae823-122b-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:28:05.564358+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ec507db5-ebad-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [high]",
+    "body": "Plan-phase BRC deadlock: reviewer_plan missed task_planner and architect proposals; both producers un-ACKed for 15+ min\n\nDetail:\nRoot cause: reviewer_plan exited its CONSENSUS_PROPOSE wait loop once (at 04:10:59 when risk_analyst proposed), processed risk_analyst's proposal, ACKed it (risk_analyst confirmed at 04:17:25), then re-entered a CONSENSUS_PROPOSE wait with a new since-timestamp of ~04:17. Both task_planner (proposed ~04:10:26) and architect (proposed ~04:12) sent their proposals BEFORE this re-entry timestamp \u2014 their events will never trigger the reviewer's current wait. BRC message bus confirms: CONSENSUS_ACK:2 total (1 refine + 1 plan=risk_analyst only). task_planner and architect have been in PROPOSED state un-ACKed for 15+ minutes. reviewer_plan heartbeats every 60s to wait_loop blocked on CONSENSUS_PROPOSE with no new events arriving. Deadlock is complete. architect currently includes OVERSEER_ALERT in its wait condition; task_planner does not (dropped after processing prior alert at 04:19:58).\n\nRecommended action:\narchitect and task_planner must re-propose so reviewer_plan receives new CONSENSUS_PROPOSE events. This alert will wake architect (OVERSEER_ALERT in its wait condition); architect should re-propose (bump version). task_planner no longer listens for OVERSEER_ALERT \u2014 a second alert after architect re-proposes may be needed once task_planner re-adds OVERSEER_ALERT to its wait, or the human operator should restart the task_planner container.",
+    "metadata": {},
+    "timestamp": "2026-04-30T04:28:40.511195+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "98c2203e-de16-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:28:40.646304+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5b9ffadf-aee8-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:28:40.702851+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "265ec5bb-31c6-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:28:45.835398+00:00"
+    },
+    "timestamp": "2026-04-30T04:28:45.867288+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c4ce2089-f4ea-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:29:05.821166+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ccf78fe6-bf6f-4e",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Re-propose (architect v2) to wake reviewer_plan from stale wait \u2014 overseer-alert at 04:28:40 indicated reviewer_plan's CONSENSUS_PROPOSE wait drifted past my v1 timestamp (deadlock). Same artifact, no content change since v1; this is purely a wake-up re-proposal. Original architect output for plan phase: submodule seam-cluster proposals for the 15-file decomposition program. Confirms refine's A1+B2+C1 with all 10 HITL decisions + 8 feedback answers. Per-file cluster boundaries for task_planner. Routes/*.py already uses Flask Blueprints so decision-8 (thin __init__.py wrappers) composes cleanly. Test re-export surface: 34 distinct routes.pipelines symbols, 1,203 patch invocations. 5 architect-level open questions, 9 risk seeds.",
+    "metadata": {
+      "payload": {
+        "summary": "Re-propose (architect v2) to wake reviewer_plan from stale wait \u2014 overseer-alert at 04:28:40 indicated reviewer_plan's CONSENSUS_PROPOSE wait drifted past my v1 timestamp (deadlock). Same artifact, no content change since v1; this is purely a wake-up re-proposal. Original architect output for plan phase: submodule seam-cluster proposals for the 15-file decomposition program. Confirms refine's A1+B2+C1 with all 10 HITL decisions + 8 feedback answers. Per-file cluster boundaries for task_planner. Routes/*.py already uses Flask Blueprints so decision-8 (thin __init__.py wrappers) composes cleanly. Test re-export surface: 34 distinct routes.pipelines symbols, 1,203 patch invocations. 5 architect-level open questions, 9 risk seeds.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2261-architect-output.json"
+        ],
+        "risk_considered": "",
+        "commit_sha": "494d46adffb695f9a6f849ae68f017f0938b1d55",
+        "files_changed": [
+          ".egg-state/agent-outputs/2261-architect-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 2,
+      "commit_sha": "494d46adffb695f9a6f849ae68f017f0938b1d55"
+    },
+    "timestamp": "2026-04-30T04:29:17.693710+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9fb0b7bb-6acb-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:29:22.754487+00:00"
+    },
+    "timestamp": "2026-04-30T04:29:22.783633+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "655634f5-5fc7-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:28:45.835398+00:00"
+    },
+    "timestamp": "2026-04-30T04:29:45.983617+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5d5ba603-5eef-4b",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:30:05.915608+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ffe566df-ba70-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:29:22.754487+00:00"
+    },
+    "timestamp": "2026-04-30T04:30:22.930413+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "65a4040a-0cbd-40",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:28:45.835398+00:00"
+    },
+    "timestamp": "2026-04-30T04:30:46.083212+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "18280bce-9f9e-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:31:06.093530+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e600d0a4-9241-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:29:22.754487+00:00"
+    },
+    "timestamp": "2026-04-30T04:31:23.051578+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "09129bf8-75f9-40",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:28:45.835398+00:00"
+    },
+    "timestamp": "2026-04-30T04:31:46.214327+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6678f8a3-1995-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:20:04.652983+00:00"
+    },
+    "timestamp": "2026-04-30T04:32:06.199651+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8f936acf-56e4-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "\nReviewed the plan draft against the issue, the refine analysis, the architect's submodule_seam_proposals (~18 clusters for pipelines.py vs the plan's 8), and the risk_analyst's 15-risk inventory. The plan's overall shape (A1+B2+C1, 15 slices, smallest-first) is correct and aligns with HITL D1-D10 + Q1-Q8. But the slice-15 cluster taxonomy is too coarse to actually hit the 1,500-line cap, and several mega-functions are unassigned. Blocking items below.\n\n### Blocking\n\n1. **TASK-15-2 cluster taxonomy is missing `_run_concurrent_phase` (1,350 lines).** The plan enumerates 8 canonical cluster submodules for pipelines.py decomposition: `_criteria.py`, `_readers.py`, `_decisions.py`, `_status_helpers.py`, `_prompt_building.py`, `_brc_verdicts.py`, `_pr_lifecycle.py`, `_worktree_ops.py`. None of them own `_run_concurrent_phase` (lines 11124-12473, ~1,350 lines \u2014 the second-largest function in the file after `_run_pipeline`) or its companion `_spawn_and_wait` (line 12474). TASK-15-3 only covers `_run_pipeline` and per-phase handlers in `_run_loop.py`. Where does `_run_concurrent_phase` go? The architect proposed a dedicated `_concurrent_phase.py` and explicitly flagged it as **\"STILL OVER CAP, MUST SPLIT FURTHER (split into _spawn.py + _consensus_wait.py)\"**. *Fix:* add `_concurrent_phase.py` (with the explicit \"must split further into _spawn.py + _consensus_wait.py\") to the TASK-15-2 cluster list, OR explicitly assign `_run_concurrent_phase` and `_spawn_and_wait` to `_run_loop.py` and acknowledge the loop-module size budget consequences.\n\n2. **TASK-15-2 underestimates submodule sizes \u2014 at least three clusters will land at-or-over the cap.** Using the architect's verified per-cluster line estimates:\n   - **`_worktree_ops.py`** owns `_sync_worktree_with_remote`, `_rebase_pipeline_branch_onto_base`, `StalePipelineBranchError`, `_refresh_pipeline_branch_against_current_base`, `_commit_statefiles_to_worktree`, `_cleanup_agent_outputs_for_pr`, `_ensure_statefiles_on_branch` \u2014 architect estimate **1,500-1,700 lines, OVER CAP**. Plan must pre-split into `_worktree_sync.py` + `_worktree_rebase.py` + `_worktree_statefiles.py` (architect's recommendation) instead of leaving it as a single submodule.\n   - **`_prompt_building.py`** owns `_build_phase_prompt` (514) + `_build_agent_prompt` (710) + `_build_brc_preamble` (386) + ~8 other dynamic-section builders \u2014 architect estimate **1,400-1,500 lines, AT CAP**. Plan must pre-split (e.g. `_prompt_phase.py` + `_prompt_agent.py` + `_prompt_review.py`) OR acknowledge the risk explicitly with a contingent further-split task.\n   - **`_pr_lifecycle.py`** owns `_auto_create_pr`, `_handle_pr_creation_failure`, `_format_rescue_hint`, `_finalize_pr_phase_failed`, `_build_pr_body`, `_build_pre_merge_obligations_section`, `_build_brc_history_link_line`, `_pr_metadata_from_plan_draft`, `_start_stacked_pr_reconciler`, `_fetch_pr_state`, `_verify_pr_head_unchanged`, `get_pr_base_branch`, `_resolve_origin_ref`, `_detect_default_branch` \u2014 architect estimate **1,300-1,500 lines, AT CAP**. Same \u2014 pre-split or contingent further-split task.\n   \n   The current plan only addresses this generally (\"If any submodule still exceeds the cap, the slice owner must split that submodule further\") but doesn't enumerate the WHICH submodules need it. Without explicit pre-allocation, the implementer will write the cluster as one file, hit the cap, then have to re-do the work mid-slice. *Fix:* either pre-allocate the sub-splits in TASK-15-2's `files:` list, or add a TASK-15-2.5 that mandates the further-split work for these three named clusters.\n\n3. **TASK-12-1 (mcp_tools.py) cluster taxonomy contradicts the actual file structure.** The plan describes mcp_tools.py decomposition as \"grouped by namespace: `_brc.py`, `_checkpoint.py`, `_phase.py`, `_progress.py`, `_sdlc.py`, `_task.py`, `_registry.py` (MCP server boilerplate + decorator registration)\". But the current `orchestrator/mcp_tools.py` is **2,820 lines containing one module-level helper (`_is_timeout_error`) and ONE class `PipelineToolHandler` at line 1026** with ~30 `_handle_*` methods (verified via grep). There's no per-namespace tool registration scattered through the file \u2014 it's a single dispatcher class. The architect explicitly recommends **method modules attached to the class** (AQ1 in the architect's output) and proposes 7 cluster submodules organized by *responsibility* (`_dispatch.py`, `_tasks.py`, `_status.py`, `_lifecycle.py`, `_health.py`, `_query.py`, `_deployment.py`) \u2014 not by MCP namespace. The plan's namespace clustering will not work mechanically and will confuse the implementer. *Fix:* replace TASK-12-1's submodule list with the architect's responsibility-based cluster proposal, AND document the \"method modules on existing class\" decomposition pattern in slice-1's `docs/guides/decomposition-pattern.md` (TASK-1-1) so both `mcp_tools.py` AND `gateway_client.py` (same shape) have a documented approach. Also note: tests patch `mcp_tools.PipelineToolHandler` (the class) AND `mcp_tools._make_request` \u2014 the barrel must re-export both.\n\n4. **TASK-14-2 (gateway/gateway.py) does not pre-allocate sub-splits for the four mega-handlers that exceed cap on their own.** `git_push` (968 lines), `git_execute` (716), `gh_execute` (651), and `session_create` (398) are the largest functions. The architect identified `_git_routes.py` (git_push + git_execute + git_fetch) at **1,500-1,700 lines OVER CAP, must split into `_git_push.py` + `_git_execute.py` + `_git_fetch.py`** and `_jira_routes.py` at **1,500-1,700 lines OVER CAP, split into `_jira_routes.py` + `_jira_writes.py` + `_jira_validators.py`**. The plan's TASK-14-2 mentions `_git_routes.py` may need a sub-split into `_git_push.py` / `_git_fetch.py` (missing `_git_execute.py`!) but treats it as a hypothetical. There is no Jira sub-split mentioned at all \u2014 the `_jira_routes.py` module is missing from the plan entirely (gateway.py has substantial Jira route handlers). The risk_analyst's R5 also flags `git_push` as security-critical: it enforces the gateway's primary file-boundary policy and warrants explicit decomposition design, not \"split if you have to\". *Fix:* enumerate the Jira routes submodule, expand the git-routes split to include `_git_execute.py`, and add explicit TASK-14-2.5 sub-tasks for decomposing `git_push` into named helpers (e.g. `_validate_push_targets`, `_enforce_file_boundaries`, `_check_branch_policy`, `_inject_credentials`, `_execute_git_push`) per the architect's `_anthropic_proxy.py` and `_session_routes.py` cluster guidance.\n\n5. **TASK-15-3 should stage the `_run_pipeline` refactor \u2014 currently it's a single big-bang.** The risk_analyst's R2 explicitly recommends a two-stage approach: stage-1 introduces the `PHASE_HANDLERS` dispatch table with bodies still inline (no behavior change, no size win \u2014 bisectable safety net), stage-2 lifts each phase block into its own per-phase handler function. The plan's TASK-15-3 description lumps everything into one task (\"Extract per-phase handlers into `_run_loop.py`...\") with a single acceptance criterion. For a 2,362-line state machine with run-epoch / supersession / PNFE-recovery invariants, a single-commit refactor is high-risk and hard to revert if a regression slips past `make test-all`. *Fix:* split TASK-15-3 into TASK-15-3a (introduce dispatch table, no body extraction; verify tests still green with the indirection in place) and TASK-15-3b (lift bodies into per-phase handler modules). Also add an acceptance criterion that TASK-15-3 (or TASK-15-3b) requires a manual smoke-run verification \u2014 a real `submit_task` against a small issue completes end-to-end \u2014 because `make test-all` alone cannot fully verify race-condition preservation.\n\n### Non-blocking\n\n- **plan.md:54-68 \u2014 slice ordering violates \"smallest first\" between slice-2 and slice-3.** slice-2 is `gateway/checkpoint_handler.py` at **1,655** lines and slice-3 is `orchestrator/routes/deployment.py` at **1,604** lines. Per feedback Q3 (\"Strict size-ordered fan-out, smallest first\") and the plan's own claim at line 47, slice-3 (1,604) should come before slice-2 (1,655). Trivial swap; impact is symbolic since wave scheduling will pick them up in parallel anyway.\n\n- **plan.md:1085 \u2014 Blueprint dialect framing for slice-15 routes-registration could be tighter.** The plan says \"thin `pipelines_bp.route(...)` wrappers delegating each route's body to the appropriate submodule.\" That works, but `pipelines.py` already uses a Flask Blueprint (`pipelines_bp = Blueprint(...)` at line 830). With Blueprints, the more idiomatic decomposition is: `__init__.py` defines/re-exports `pipelines_bp`, and submodules import the Blueprint and attach `@pipelines_bp.route(...)` directly \u2014 no thin wrappers needed. Both shapes work; the plan's choice is consistent with `gateway/gateway.py` (which actually uses `@app.route`) at the cost of one more layer of indirection on the routes side. Worth a sentence in `docs/guides/decomposition-pattern.md` (TASK-1-1) clarifying that \"thin wrappers in __init__.py\" is the normalized convention even when Blueprints would technically allow direct attachment, so contributors don't second-guess the pattern. Also note that `routes/deployment.py` (slice-3) and `routes/signals.py` (slice-4) ALSO use Blueprints \u2014 the wrappers convention should apply there too.\n\n- **TASK-15-2 doesn't describe the file\u2192package conversion mechanics.** Python doesn't allow `routes/pipelines.py` and `routes/pipelines/__init__.py` to coexist. TASK-15-2's description starts with \"One commit per cluster; each commit lands the new submodule plus the additions to `__init__.py`'s explicit re-export barrel\" \u2014 but the FIRST commit needs a setup step to: (a) delete `routes/pipelines.py`, (b) create `routes/pipelines/__init__.py` with all its content, (c) add the package directory entry. Either add a TASK-15-2.0 setup step (\"Convert pipelines.py \u2192 pipelines/ as a baseline state\") or document the convention in the pattern doc.\n\n- **TASK-1-3 \u2014 `python scripts/select_tests.py` won't work after the conversion.** The acceptance says \"preserve the existing CLI entry-point so `python scripts/select_tests.py` continues to work.\" But after converting to a sub-package directory, `scripts/select_tests.py` no longer exists as a file \u2014 invocations of `python scripts/select_tests.py` will fail with FileNotFoundError. The `scripts/select_tests/__main__.py` shim only handles `python -m scripts.select_tests`, which is a different invocation. Check the Makefile and CI for any literal `python scripts/select_tests.py` invocations \u2014 they need updating, OR the conversion needs a thin compat shim file, OR the acceptance criterion should be relaxed to \"the entry-points used by Makefile/CI continue to work\" with an enumeration of what those are.\n\n- **R7 (allowlist YAML conflicts under parallelism) not addressed.** With `EGG_ORCH_MAX_PARALLEL_SLICES=5` and 15 slices each modifying `scripts/file-size-allowlist.yaml`, expect ~10 mechanical rebase conflicts on this single file across the program. risk_analyst's R7 mitigation (pre-rebase recipe in pattern doc + PR template checklist item) should be reflected in TASK-1-1's pattern doc content.\n\n- **Slice-sizing advisories (informational, never blocking per HITL decision-6 of #2137):**\n  - slice-14 (gateway.py decomposition, ~9,890-line source file \u2192 ~13 submodules): expected diff well above 2,000 LOC \u2014 **strongly consider splitting** if TASK-14-2 produces a single PR.\n  - slice-15 (pipelines.py decomposition + `_run_pipeline` B2 refactor, ~16,401-line source file \u2192 ~18 submodules): expected diff well above 2,000 LOC \u2014 **strongly consider splitting**, and risk_analyst's R11 specifically recommends a stacked-PR shape inside the slice's branch with a per-PR ~1,500-line cap. Decision-9 selected \"single slice with multiple commits/sub-tasks\" but its alternative wording (\"a small chain of stacked PRs scoped to this slice's branch\") is exactly what risk_analyst recommends. The plan's \"single PR\" interpretation is defensible but worth re-checking with the operator if reviewer fatigue becomes a problem mid-slice.\n\n- **Per-slice template (plan.md:117-138) should incorporate risk_analyst's `git grep` recipe for re-export auditing.** R3 mitigation suggests: `git grep -nE \"(routes\\.pipelines\\.|from .* import.*\\b<symbol>\\b)\" -- '*.py'` to handle name disambiguation. Fold into `docs/guides/decomposition-pattern.md` (TASK-1-1) so every implementer uses the same audit recipe.\n\n- **No follow-up issues enumerated.** Several risk_analyst items mandate follow-up issues (Q7 per-phase handler isolation tests; potential pattern-doc evolution; R12 unit-test gap). The plan's manual_steps section says \"Post-merge: none.\" but should at minimum reference the follow-up issue for per-phase handler unit tests (TASK-15-3 calls this out inline but doesn't commit to filing it). Worth adding a TASK-15-6 \"File follow-up issue for `_run_pipeline` per-phase handler unit tests\" as a documenter task.\n\nRe-propose with the four blocking items addressed (cluster reassignment / pre-splits / class-shape mcp_tools strategy / gateway sub-splits / staged `_run_pipeline` refactor). The non-blocking items are recommendations \u2014 fold them in if cheap, otherwise file follow-ups.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\nReviewed the plan draft against the issue, the refine analysis, the architect's submodule_seam_proposals (~18 clusters for pipelines.py vs the plan's 8), and the risk_analyst's 15-risk inventory. The plan's overall shape (A1+B2+C1, 15 slices, smallest-first) is correct and aligns with HITL D1-D10 + Q1-Q8. But the slice-15 cluster taxonomy is too coarse to actually hit the 1,500-line cap, and several mega-functions are unassigned. Blocking items below.\n\n### Blocking\n\n1. **TASK-15-2 cluster taxonomy is missing `_run_concurrent_phase` (1,350 lines).** The plan enumerates 8 canonical cluster submodules for pipelines.py decomposition: `_criteria.py`, `_readers.py`, `_decisions.py`, `_status_helpers.py`, `_prompt_building.py`, `_brc_verdicts.py`, `_pr_lifecycle.py`, `_worktree_ops.py`. None of them own `_run_concurrent_phase` (lines 11124-12473, ~1,350 lines \u2014 the second-largest function in the file after `_run_pipeline`) or its companion `_spawn_and_wait` (line 12474). TASK-15-3 only covers `_run_pipeline` and per-phase handlers in `_run_loop.py`. Where does `_run_concurrent_phase` go? The architect proposed a dedicated `_concurrent_phase.py` and explicitly flagged it as **\"STILL OVER CAP, MUST SPLIT FURTHER (split into _spawn.py + _consensus_wait.py)\"**. *Fix:* add `_concurrent_phase.py` (with the explicit \"must split further into _spawn.py + _consensus_wait.py\") to the TASK-15-2 cluster list, OR explicitly assign `_run_concurrent_phase` and `_spawn_and_wait` to `_run_loop.py` and acknowledge the loop-module size budget consequences.\n\n2. **TASK-15-2 underestimates submodule sizes \u2014 at least three clusters will land at-or-over the cap.** Using the architect's verified per-cluster line estimates:\n   - **`_worktree_ops.py`** owns `_sync_worktree_with_remote`, `_rebase_pipeline_branch_onto_base`, `StalePipelineBranchError`, `_refresh_pipeline_branch_against_current_base`, `_commit_statefiles_to_worktree`, `_cleanup_agent_outputs_for_pr`, `_ensure_statefiles_on_branch` \u2014 architect estimate **1,500-1,700 lines, OVER CAP**. Plan must pre-split into `_worktree_sync.py` + `_worktree_rebase.py` + `_worktree_statefiles.py` (architect's recommendation) instead of leaving it as a single submodule.\n   - **`_prompt_building.py`** owns `_build_phase_prompt` (514) + `_build_agent_prompt` (710) + `_build_brc_preamble` (386) + ~8 other dynamic-section builders \u2014 architect estimate **1,400-1,500 lines, AT CAP**. Plan must pre-split (e.g. `_prompt_phase.py` + `_prompt_agent.py` + `_prompt_review.py`) OR acknowledge the risk explicitly with a contingent further-split task.\n   - **`_pr_lifecycle.py`** owns `_auto_create_pr`, `_handle_pr_creation_failure`, `_format_rescue_hint`, `_finalize_pr_phase_failed`, `_build_pr_body`, `_build_pre_merge_obligations_section`, `_build_brc_history_link_line`, `_pr_metadata_from_plan_draft`, `_start_stacked_pr_reconciler`, `_fetch_pr_state`, `_verify_pr_head_unchanged`, `get_pr_base_branch`, `_resolve_origin_ref`, `_detect_default_branch` \u2014 architect estimate **1,300-1,500 lines, AT CAP**. Same \u2014 pre-split or contingent further-split task.\n   \n   The current plan only addresses this generally (\"If any submodule still exceeds the cap, the slice owner must split that submodule further\") but doesn't enumerate the WHICH submodules need it. Without explicit pre-allocation, the implementer will write the cluster as one file, hit the cap, then have to re-do the work mid-slice. *Fix:* either pre-allocate the sub-splits in TASK-15-2's `files:` list, or add a TASK-15-2.5 that mandates the further-split work for these three named clusters.\n\n3. **TASK-12-1 (mcp_tools.py) cluster taxonomy contradicts the actual file structure.** The plan describes mcp_tools.py decomposition as \"grouped by namespace: `_brc.py`, `_checkpoint.py`, `_phase.py`, `_progress.py`, `_sdlc.py`, `_task.py`, `_registry.py` (MCP server boilerplate + decorator registration)\". But the current `orchestrator/mcp_tools.py` is **2,820 lines containing one module-level helper (`_is_timeout_error`) and ONE class `PipelineToolHandler` at line 1026** with ~30 `_handle_*` methods (verified via grep). There's no per-namespace tool registration scattered through the file \u2014 it's a single dispatcher class. The architect explicitly recommends **method modules attached to the class** (AQ1 in the architect's output) and proposes 7 cluster submodules organized by *responsibility* (`_dispatch.py`, `_tasks.py`, `_status.py`, `_lifecycle.py`, `_health.py`, `_query.py`, `_deployment.py`) \u2014 not by MCP namespace. The plan's namespace clustering will not work mechanically and will confuse the implementer. *Fix:* replace TASK-12-1's submodule list with the architect's responsibility-based cluster proposal, AND document the \"method modules on existing class\" decomposition pattern in slice-1's `docs/guides/decomposition-pattern.md` (TASK-1-1) so both `mcp_tools.py` AND `gateway_client.py` (same shape) have a documented approach. Also note: tests patch `mcp_tools.PipelineToolHandler` (the class) AND `mcp_tools._make_request` \u2014 the barrel must re-export both.\n\n4. **TASK-14-2 (gateway/gateway.py) does not pre-allocate sub-splits for the four mega-handlers that exceed cap on their own.** `git_push` (968 lines), `git_execute` (716), `gh_execute` (651), and `session_create` (398) are the largest functions. The architect identified `_git_routes.py` (git_push + git_execute + git_fetch) at **1,500-1,700 lines OVER CAP, must split into `_git_push.py` + `_git_execute.py` + `_git_fetch.py`** and `_jira_routes.py` at **1,500-1,700 lines OVER CAP, split into `_jira_routes.py` + `_jira_writes.py` + `_jira_validators.py`**. The plan's TASK-14-2 mentions `_git_routes.py` may need a sub-split into `_git_push.py` / `_git_fetch.py` (missing `_git_execute.py`!) but treats it as a hypothetical. There is no Jira sub-split mentioned at all \u2014 the `_jira_routes.py` module is missing from the plan entirely (gateway.py has substantial Jira route handlers). The risk_analyst's R5 also flags `git_push` as security-critical: it enforces the gateway's primary file-boundary policy and warrants explicit decomposition design, not \"split if you have to\". *Fix:* enumerate the Jira routes submodule, expand the git-routes split to include `_git_execute.py`, and add explicit TASK-14-2.5 sub-tasks for decomposing `git_push` into named helpers (e.g. `_validate_push_targets`, `_enforce_file_boundaries`, `_check_branch_policy`, `_inject_credentials`, `_execute_git_push`) per the architect's `_anthropic_proxy.py` and `_session_routes.py` cluster guidance.\n\n5. **TASK-15-3 should stage the `_run_pipeline` refactor \u2014 currently it's a single big-bang.** The risk_analyst's R2 explicitly recommends a two-stage approach: stage-1 introduces the `PHASE_HANDLERS` dispatch table with bodies still inline (no behavior change, no size win \u2014 bisectable safety net), stage-2 lifts each phase block into its own per-phase handler function. The plan's TASK-15-3 description lumps everything into one task (\"Extract per-phase handlers into `_run_loop.py`...\") with a single acceptance criterion. For a 2,362-line state machine with run-epoch / supersession / PNFE-recovery invariants, a single-commit refactor is high-risk and hard to revert if a regression slips past `make test-all`. *Fix:* split TASK-15-3 into TASK-15-3a (introduce dispatch table, no body extraction; verify tests still green with the indirection in place) and TASK-15-3b (lift bodies into per-phase handler modules). Also add an acceptance criterion that TASK-15-3 (or TASK-15-3b) requires a manual smoke-run verification \u2014 a real `submit_task` against a small issue completes end-to-end \u2014 because `make test-all` alone cannot fully verify race-condition preservation.\n\n### Non-blocking\n\n- **plan.md:54-68 \u2014 slice ordering violates \"smallest first\" between slice-2 and slice-3.** slice-2 is `gateway/checkpoint_handler.py` at **1,655** lines and slice-3 is `orchestrator/routes/deployment.py` at **1,604** lines. Per feedback Q3 (\"Strict size-ordered fan-out, smallest first\") and the plan's own claim at line 47, slice-3 (1,604) should come before slice-2 (1,655). Trivial swap; impact is symbolic since wave scheduling will pick them up in parallel anyway.\n\n- **plan.md:1085 \u2014 Blueprint dialect framing for slice-15 routes-registration could be tighter.** The plan says \"thin `pipelines_bp.route(...)` wrappers delegating each route's body to the appropriate submodule.\" That works, but `pipelines.py` already uses a Flask Blueprint (`pipelines_bp = Blueprint(...)` at line 830). With Blueprints, the more idiomatic decomposition is: `__init__.py` defines/re-exports `pipelines_bp`, and submodules import the Blueprint and attach `@pipelines_bp.route(...)` directly \u2014 no thin wrappers needed. Both shapes work; the plan's choice is consistent with `gateway/gateway.py` (which actually uses `@app.route`) at the cost of one more layer of indirection on the routes side. Worth a sentence in `docs/guides/decomposition-pattern.md` (TASK-1-1) clarifying that \"thin wrappers in __init__.py\" is the normalized convention even when Blueprints would technically allow direct attachment, so contributors don't second-guess the pattern. Also note that `routes/deployment.py` (slice-3) and `routes/signals.py` (slice-4) ALSO use Blueprints \u2014 the wrappers convention should apply there too.\n\n- **TASK-15-2 doesn't describe the file\u2192package conversion mechanics.** Python doesn't allow `routes/pipelines.py` and `routes/pipelines/__init__.py` to coexist. TASK-15-2's description starts with \"One commit per cluster; each commit lands the new submodule plus the additions to `__init__.py`'s explicit re-export barrel\" \u2014 but the FIRST commit needs a setup step to: (a) delete `routes/pipelines.py`, (b) create `routes/pipelines/__init__.py` with all its content, (c) add the package directory entry. Either add a TASK-15-2.0 setup step (\"Convert pipelines.py \u2192 pipelines/ as a baseline state\") or document the convention in the pattern doc.\n\n- **TASK-1-3 \u2014 `python scripts/select_tests.py` won't work after the conversion.** The acceptance says \"preserve the existing CLI entry-point so `python scripts/select_tests.py` continues to work.\" But after converting to a sub-package directory, `scripts/select_tests.py` no longer exists as a file \u2014 invocations of `python scripts/select_tests.py` will fail with FileNotFoundError. The `scripts/select_tests/__main__.py` shim only handles `python -m scripts.select_tests`, which is a different invocation. Check the Makefile and CI for any literal `python scripts/select_tests.py` invocations \u2014 they need updating, OR the conversion needs a thin compat shim file, OR the acceptance criterion should be relaxed to \"the entry-points used by Makefile/CI continue to work\" with an enumeration of what those are.\n\n- **R7 (allowlist YAML conflicts under parallelism) not addressed.** With `EGG_ORCH_MAX_PARALLEL_SLICES=5` and 15 slices each modifying `scripts/file-size-allowlist.yaml`, expect ~10 mechanical rebase conflicts on this single file across the program. risk_analyst's R7 mitigation (pre-rebase recipe in pattern doc + PR template checklist item) should be reflected in TASK-1-1's pattern doc content.\n\n- **Slice-sizing advisories (informational, never blocking per HITL decision-6 of #2137):**\n  - slice-14 (gateway.py decomposition, ~9,890-line source file \u2192 ~13 submodules): expected diff well above 2,000 LOC \u2014 **strongly consider splitting** if TASK-14-2 produces a single PR.\n  - slice-15 (pipelines.py decomposition + `_run_pipeline` B2 refactor, ~16,401-line source file \u2192 ~18 submodules): expected diff well above 2,000 LOC \u2014 **strongly consider splitting**, and risk_analyst's R11 specifically recommends a stacked-PR shape inside the slice's branch with a per-PR ~1,500-line cap. Decision-9 selected \"single slice with multiple commits/sub-tasks\" but its alternative wording (\"a small chain of stacked PRs scoped to this slice's branch\") is exactly what risk_analyst recommends. The plan's \"single PR\" interpretation is defensible but worth re-checking with the operator if reviewer fatigue becomes a problem mid-slice.\n\n- **Per-slice template (plan.md:117-138) should incorporate risk_analyst's `git grep` recipe for re-export auditing.** R3 mitigation suggests: `git grep -nE \"(routes\\.pipelines\\.|from .* import.*\\b<symbol>\\b)\" -- '*.py'` to handle name disambiguation. Fold into `docs/guides/decomposition-pattern.md` (TASK-1-1) so every implementer uses the same audit recipe.\n\n- **No follow-up issues enumerated.** Several risk_analyst items mandate follow-up issues (Q7 per-phase handler isolation tests; potential pattern-doc evolution; R12 unit-test gap). The plan's manual_steps section says \"Post-merge: none.\" but should at minimum reference the follow-up issue for per-phase handler unit tests (TASK-15-3 calls this out inline but doesn't commit to filing it). Worth adding a TASK-15-6 \"File follow-up issue for `_run_pipeline` per-phase handler unit tests\" as a documenter task.\n\nRe-propose with the four blocking items addressed (cluster reassignment / pre-splits / class-shape mcp_tools strategy / gateway sub-splits / staged `_run_pipeline` refactor). The non-blocking items are recommendations \u2014 fold them in if cheap, otherwise file follow-ups.\n",
+        "artifact_references": [
+          ".egg-state/drafts/2261-plan.md",
+          ".egg-state/drafts/2261-analysis.md",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/mcp_tools.py",
+          "scripts/file-size-allowlist.yaml"
+        ],
+        "nack_version": 1
+      },
+      "reason": "\nReviewed the plan draft against the issue, the refine analysis, the architect's submodule_seam_proposals (~18 clusters for pipelines.py vs the plan's 8), and the risk_analyst's 15-risk inventory. The plan's overall shape (A1+B2+C1, 15 slices, smallest-first) is correct and aligns with HITL D1-D10 + Q1-Q8. But the slice-15 cluster taxonomy is too coarse to actually hit the 1,500-line cap, and several mega-functions are unassigned. Blocking items below.\n\n### Blocking\n\n1. **TASK-15-2 cluster taxonomy is missing `_run_concurrent_phase` (1,350 lines).** The plan enumerates 8 canonical cluster submodules for pipelines.py decomposition: `_criteria.py`, `_readers.py`, `_decisions.py`, `_status_helpers.py`, `_prompt_building.py`, `_brc_verdicts.py`, `_pr_lifecycle.py`, `_worktree_ops.py`. None of them own `_run_concurrent_phase` (lines 11124-12473, ~1,350 lines \u2014 the second-largest function in the file after `_run_pipeline`) or its companion `_spawn_and_wait` (line 12474). TASK-15-3 only covers `_run_pipeline` and per-phase handlers in `_run_loop.py`. Where does `_run_concurrent_phase` go? The architect proposed a dedicated `_concurrent_phase.py` and explicitly flagged it as **\"STILL OVER CAP, MUST SPLIT FURTHER (split into _spawn.py + _consensus_wait.py)\"**. *Fix:* add `_concurrent_phase.py` (with the explicit \"must split further into _spawn.py + _consensus_wait.py\") to the TASK-15-2 cluster list, OR explicitly assign `_run_concurrent_phase` and `_spawn_and_wait` to `_run_loop.py` and acknowledge the loop-module size budget consequences.\n\n2. **TASK-15-2 underestimates submodule sizes \u2014 at least three clusters will land at-or-over the cap.** Using the architect's verified per-cluster line estimates:\n   - **`_worktree_ops.py`** owns `_sync_worktree_with_remote`, `_rebase_pipeline_branch_onto_base`, `StalePipelineBranchError`, `_refresh_pipeline_branch_against_current_base`, `_commit_statefiles_to_worktree`, `_cleanup_agent_outputs_for_pr`, `_ensure_statefiles_on_branch` \u2014 architect estimate **1,500-1,700 lines, OVER CAP**. Plan must pre-split into `_worktree_sync.py` + `_worktree_rebase.py` + `_worktree_statefiles.py` (architect's recommendation) instead of leaving it as a single submodule.\n   - **`_prompt_building.py`** owns `_build_phase_prompt` (514) + `_build_agent_prompt` (710) + `_build_brc_preamble` (386) + ~8 other dynamic-section builders \u2014 architect estimate **1,400-1,500 lines, AT CAP**. Plan must pre-split (e.g. `_prompt_phase.py` + `_prompt_agent.py` + `_prompt_review.py`) OR acknowledge the risk explicitly with a contingent further-split task.\n   - **`_pr_lifecycle.py`** owns `_auto_create_pr`, `_handle_pr_creation_failure`, `_format_rescue_hint`, `_finalize_pr_phase_failed`, `_build_pr_body`, `_build_pre_merge_obligations_section`, `_build_brc_history_link_line`, `_pr_metadata_from_plan_draft`, `_start_stacked_pr_reconciler`, `_fetch_pr_state`, `_verify_pr_head_unchanged`, `get_pr_base_branch`, `_resolve_origin_ref`, `_detect_default_branch` \u2014 architect estimate **1,300-1,500 lines, AT CAP**. Same \u2014 pre-split or contingent further-split task.\n   \n   The current plan only addresses this generally (\"If any submodule still exceeds the cap, the slice owner must split that submodule further\") but doesn't enumerate the WHICH submodules need it. Without explicit pre-allocation, the implementer will write the cluster as one file, hit the cap, then have to re-do the work mid-slice. *Fix:* either pre-allocate the sub-splits in TASK-15-2's `files:` list, or add a TASK-15-2.5 that mandates the further-split work for these three named clusters.\n\n3. **TASK-12-1 (mcp_tools.py) cluster taxonomy contradicts the actual file structure.** The plan describes mcp_tools.py decomposition as \"grouped by namespace: `_brc.py`, `_checkpoint.py`, `_phase.py`, `_progress.py`, `_sdlc.py`, `_task.py`, `_registry.py` (MCP server boilerplate + decorator registration)\". But the current `orchestrator/mcp_tools.py` is **2,820 lines containing one module-level helper (`_is_timeout_error`) and ONE class `PipelineToolHandler` at line 1026** with ~30 `_handle_*` methods (verified via grep). There's no per-namespace tool registration scattered through the file \u2014 it's a single dispatcher class. The architect explicitly recommends **method modules attached to the class** (AQ1 in the architect's output) and proposes 7 cluster submodules organized by *responsibility* (`_dispatch.py`, `_tasks.py`, `_status.py`, `_lifecycle.py`, `_health.py`, `_query.py`, `_deployment.py`) \u2014 not by MCP namespace. The plan's namespace clustering will not work mechanically and will confuse the implementer. *Fix:* replace TASK-12-1's submodule list with the architect's responsibility-based cluster proposal, AND document the \"method modules on existing class\" decomposition pattern in slice-1's `docs/guides/decomposition-pattern.md` (TASK-1-1) so both `mcp_tools.py` AND `gateway_client.py` (same shape) have a documented approach. Also note: tests patch `mcp_tools.PipelineToolHandler` (the class) AND `mcp_tools._make_request` \u2014 the barrel must re-export both.\n\n4. **TASK-14-2 (gateway/gateway.py) does not pre-allocate sub-splits for the four mega-handlers that exceed cap on their own.** `git_push` (968 lines), `git_execute` (716), `gh_execute` (651), and `session_create` (398) are the largest functions. The architect identified `_git_routes.py` (git_push + git_execute + git_fetch) at **1,500-1,700 lines OVER CAP, must split into `_git_push.py` + `_git_execute.py` + `_git_fetch.py`** and `_jira_routes.py` at **1,500-1,700 lines OVER CAP, split into `_jira_routes.py` + `_jira_writes.py` + `_jira_validators.py`**. The plan's TASK-14-2 mentions `_git_routes.py` may need a sub-split into `_git_push.py` / `_git_fetch.py` (missing `_git_execute.py`!) but treats it as a hypothetical. There is no Jira sub-split mentioned at all \u2014 the `_jira_routes.py` module is missing from the plan entirely (gateway.py has substantial Jira route handlers). The risk_analyst's R5 also flags `git_push` as security-critical: it enforces the gateway's primary file-boundary policy and warrants explicit decomposition design, not \"split if you have to\". *Fix:* enumerate the Jira routes submodule, expand the git-routes split to include `_git_execute.py`, and add explicit TASK-14-2.5 sub-tasks for decomposing `git_push` into named helpers (e.g. `_validate_push_targets`, `_enforce_file_boundaries`, `_check_branch_policy`, `_inject_credentials`, `_execute_git_push`) per the architect's `_anthropic_proxy.py` and `_session_routes.py` cluster guidance.\n\n5. **TASK-15-3 should stage the `_run_pipeline` refactor \u2014 currently it's a single big-bang.** The risk_analyst's R2 explicitly recommends a two-stage approach: stage-1 introduces the `PHASE_HANDLERS` dispatch table with bodies still inline (no behavior change, no size win \u2014 bisectable safety net), stage-2 lifts each phase block into its own per-phase handler function. The plan's TASK-15-3 description lumps everything into one task (\"Extract per-phase handlers into `_run_loop.py`...\") with a single acceptance criterion. For a 2,362-line state machine with run-epoch / supersession / PNFE-recovery invariants, a single-commit refactor is high-risk and hard to revert if a regression slips past `make test-all`. *Fix:* split TASK-15-3 into TASK-15-3a (introduce dispatch table, no body extraction; verify tests still green with the indirection in place) and TASK-15-3b (lift bodies into per-phase handler modules). Also add an acceptance criterion that TASK-15-3 (or TASK-15-3b) requires a manual smoke-run verification \u2014 a real `submit_task` against a small issue completes end-to-end \u2014 because `make test-all` alone cannot fully verify race-condition preservation.\n\n### Non-blocking\n\n- **plan.md:54-68 \u2014 slice ordering violates \"smallest first\" between slice-2 and slice-3.** slice-2 is `gateway/checkpoint_handler.py` at **1,655** lines and slice-3 is `orchestrator/routes/deployment.py` at **1,604** lines. Per feedback Q3 (\"Strict size-ordered fan-out, smallest first\") and the plan's own claim at line 47, slice-3 (1,604) should come before slice-2 (1,655). Trivial swap; impact is symbolic since wave scheduling will pick them up in parallel anyway.\n\n- **plan.md:1085 \u2014 Blueprint dialect framing for slice-15 routes-registration could be tighter.** The plan says \"thin `pipelines_bp.route(...)` wrappers delegating each route's body to the appropriate submodule.\" That works, but `pipelines.py` already uses a Flask Blueprint (`pipelines_bp = Blueprint(...)` at line 830). With Blueprints, the more idiomatic decomposition is: `__init__.py` defines/re-exports `pipelines_bp`, and submodules import the Blueprint and attach `@pipelines_bp.route(...)` directly \u2014 no thin wrappers needed. Both shapes work; the plan's choice is consistent with `gateway/gateway.py` (which actually uses `@app.route`) at the cost of one more layer of indirection on the routes side. Worth a sentence in `docs/guides/decomposition-pattern.md` (TASK-1-1) clarifying that \"thin wrappers in __init__.py\" is the normalized convention even when Blueprints would technically allow direct attachment, so contributors don't second-guess the pattern. Also note that `routes/deployment.py` (slice-3) and `routes/signals.py` (slice-4) ALSO use Blueprints \u2014 the wrappers convention should apply there too.\n\n- **TASK-15-2 doesn't describe the file\u2192package conversion mechanics.** Python doesn't allow `routes/pipelines.py` and `routes/pipelines/__init__.py` to coexist. TASK-15-2's description starts with \"One commit per cluster; each commit lands the new submodule plus the additions to `__init__.py`'s explicit re-export barrel\" \u2014 but the FIRST commit needs a setup step to: (a) delete `routes/pipelines.py`, (b) create `routes/pipelines/__init__.py` with all its content, (c) add the package directory entry. Either add a TASK-15-2.0 setup step (\"Convert pipelines.py \u2192 pipelines/ as a baseline state\") or document the convention in the pattern doc.\n\n- **TASK-1-3 \u2014 `python scripts/select_tests.py` won't work after the conversion.** The acceptance says \"preserve the existing CLI entry-point so `python scripts/select_tests.py` continues to work.\" But after converting to a sub-package directory, `scripts/select_tests.py` no longer exists as a file \u2014 invocations of `python scripts/select_tests.py` will fail with FileNotFoundError. The `scripts/select_tests/__main__.py` shim only handles `python -m scripts.select_tests`, which is a different invocation. Check the Makefile and CI for any literal `python scripts/select_tests.py` invocations \u2014 they need updating, OR the conversion needs a thin compat shim file, OR the acceptance criterion should be relaxed to \"the entry-points used by Makefile/CI continue to work\" with an enumeration of what those are.\n\n- **R7 (allowlist YAML conflicts under parallelism) not addressed.** With `EGG_ORCH_MAX_PARALLEL_SLICES=5` and 15 slices each modifying `scripts/file-size-allowlist.yaml`, expect ~10 mechanical rebase conflicts on this single file across the program. risk_analyst's R7 mitigation (pre-rebase recipe in pattern doc + PR template checklist item) should be reflected in TASK-1-1's pattern doc content.\n\n- **Slice-sizing advisories (informational, never blocking per HITL decision-6 of #2137):**\n  - slice-14 (gateway.py decomposition, ~9,890-line source file \u2192 ~13 submodules): expected diff well above 2,000 LOC \u2014 **strongly consider splitting** if TASK-14-2 produces a single PR.\n  - slice-15 (pipelines.py decomposition + `_run_pipeline` B2 refactor, ~16,401-line source file \u2192 ~18 submodules): expected diff well above 2,000 LOC \u2014 **strongly consider splitting**, and risk_analyst's R11 specifically recommends a stacked-PR shape inside the slice's branch with a per-PR ~1,500-line cap. Decision-9 selected \"single slice with multiple commits/sub-tasks\" but its alternative wording (\"a small chain of stacked PRs scoped to this slice's branch\") is exactly what risk_analyst recommends. The plan's \"single PR\" interpretation is defensible but worth re-checking with the operator if reviewer fatigue becomes a problem mid-slice.\n\n- **Per-slice template (plan.md:117-138) should incorporate risk_analyst's `git grep` recipe for re-export auditing.** R3 mitigation suggests: `git grep -nE \"(routes\\.pipelines\\.|from .* import.*\\b<symbol>\\b)\" -- '*.py'` to handle name disambiguation. Fold into `docs/guides/decomposition-pattern.md` (TASK-1-1) so every implementer uses the same audit recipe.\n\n- **No follow-up issues enumerated.** Several risk_analyst items mandate follow-up issues (Q7 per-phase handler isolation tests; potential pattern-doc evolution; R12 unit-test gap). The plan's manual_steps section says \"Post-merge: none.\" but should at minimum reference the follow-up issue for per-phase handler unit tests (TASK-15-3 calls this out inline but doesn't commit to filing it). Worth adding a TASK-15-6 \"File follow-up issue for `_run_pipeline` per-phase handler unit tests\" as a documenter task.\n\nRe-propose with the four blocking items addressed (cluster reassignment / pre-splits / class-shape mcp_tools strategy / gateway sub-splits / staged `_run_pipeline` refactor). The non-blocking items are recommendations \u2014 fold them in if cheap, otherwise file follow-ups.\n",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-30T04:32:08.292952+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e1563ddd-2fa2-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:32:08.450543+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c637457-c730-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "\nReviewed the 15-risk inventory (R1-R15) against the actual codebase, the refine analysis, the architect's submodule_seam_proposals, and the task_planner's plan draft. Each risk is properly classified (severity \u00d7 likelihood), affected files are concrete, and mitigations are actionable. Overall HIGH risk with PROCEED_WITH_MITIGATIONS is the right call given the test patch surface (1,200+ patch calls into routes.pipelines), the in-band `_run_pipeline` state-machine refactor, and two structural-outlier files (pipelines.py, gateway.py) at the end of the slice chain.\n\nVerified critical claims:\n- **R1 (routing mechanism)**: `pipelines.py` line 830 declares `pipelines_bp = Blueprint(...)`, `api.py` line 50 imports `pipelines_bp` directly. Confirms decision-8's question text used misleading framing (`@app.route` vs the actual `@pipelines_bp.route`). The risk's recommended reinterpretation (\"re-export `pipelines_bp` from `__init__.py`, attach `@pipelines_bp.route(...)` in submodules\") is correct. The risk_analyst's note that `gateway/gateway.py` uses `@app.route` (line 516) is also accurate. The architect arrived at the same conclusion independently and the task_planner's plan acknowledges the Blueprint reality at line 22-23 of the plan draft, so this risk is procedurally already absorbed \u2014 but flagging it for the operator in `requires_human_review` is the right call.\n- **R2 (`_run_pipeline` per-phase refactor)**: `_run_pipeline` is at line 13524, body 2,362 lines (verified via grep). The two-stage extraction recommendation (stage-1: introduce dispatch table; stage-2: lift bodies) is the standard safety mechanism for this kind of state-machine refactor. The current task_planner's plan (TASK-15-3) is single-stage; I've blocked on this in my task_planner NACK. The manual smoke-run requirement is the right gate.\n- **R4 (`_run_concurrent_phase` and three other mega-functions)**: `_run_concurrent_phase` at line 11124, 1,350 lines (confirmed via `awk` survey). `_build_agent_prompt` (710), `create_pipeline` (613), `_build_phase_prompt` (514) are also confirmed. The risk that no single submodule clustering can put all of these under cap without further function-level decomposition is real \u2014 and the task_planner's plan misses this. I've blocked on it.\n- **R5 (gateway.py mega-functions)**: `git_push` (968), `git_execute` (716), `gh_execute` (651) verified via the architect's largest_functions analysis. R5's security-review recommendation for `git_push` (file-boundary policy enforcement) is appropriate.\n- **R6 (mcp_tools class shape)**: confirmed via grep \u2014 mcp_tools.py is one helper function (`_is_timeout_error`) plus one large class (`PipelineToolHandler` at line 1026 with ~30 `_handle_*` methods). The risk that a \"namespace-cluster\" decomposition won't apply mechanically is correct and worth flagging.\n- **R7 (allowlist YAML conflicts)**: `scripts/file-size-allowlist.yaml` has 15 file entries that 5 concurrent slices will each modify. The mitigation (pre-rebase recipe in pattern doc + PR template checklist) is right.\n\nThe areas_requiring_human_review (4 items: routing mismatch, _run_pipeline approach, git_push decomposition, slice-16 sub-stacking interpretation) are all genuine HITL escalation candidates and are surfaced through `requires_human_review: true` flags \u2014 the operator can scan them quickly and decide which need re-opening as decisions vs. which the plan-phase reviewer can resolve.\n\nThe rollback_plan (\"per-slice revert via GitHub UI\") is appropriate for the 16-PR forest shape \u2014 each slice is self-contained and revertible.\n\n### Non-blocking\n\n- **R3 mitigation point (b)** (\"PR description lists every symbol re-exported and the count of external references for each\") would be more useful as a CI lint rather than a human-checked PR-description item. Even if not in scope for this issue, file a follow-up for an automated re-export drift detector (`scripts/check-reexports.py`-style) that compares barrel `__all__` to submodule symbols and fails if a moved symbol is missing.\n\n- **R7 (allowlist conflicts)** could go further \u2014 consider whether the gateway's own pre-rebase logic (per #2224) already handles this for slice PRs. If yes, R7's residual risk is lower than \"friction\"; if no, the PR template checklist should call out the manual step explicitly.\n\n- **R8 (test patch path drift \"mechanical\" definition)** is well-scoped but the definition could be tightened: \"1:1 string substitution of an import path or patch target, with no test-logic changes\" is good \u2014 adding \"preserves the asserted exception type, the order of patch decorators, and any side_effect ordering\" would close the most common ambiguity.\n\n- **R10 (per-slice context resets)** mitigation (b) (\"Per-slice prompts reference the doc explicitly\") is useful but depends on the task_planner threading the doc reference into each task's description. Worth coordinating with task_planner explicitly \u2014 the plan draft does NOT currently reference `docs/guides/decomposition-pattern.md` from each child slice's task descriptions, only from slice-1's TASK-1-1.\n\n- **AQ4 from architect (mutable module-level state rebinding)** is a real risk that doesn't have a corresponding R-number in this assessment. Recommend adding an R16 covering the rebinding case so it has a tracked mitigation owner. Currently the architect's AQ4 names \"risk_analyst / implementer\" as owner but no risk-analyst output addresses it directly.\n\nThe risk_analyst's output is comprehensive, accurate, and gives the task_planner concrete handles to fold into the plan. Approving.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2261-risk_analyst-output.json",
+          ".egg-state/drafts/2261-analysis.md",
+          "orchestrator/routes/pipelines.py",
+          "scripts/file-size-allowlist.yaml"
+        ],
+        "reason": "\nReviewed the 15-risk inventory (R1-R15) against the actual codebase, the refine analysis, the architect's submodule_seam_proposals, and the task_planner's plan draft. Each risk is properly classified (severity \u00d7 likelihood), affected files are concrete, and mitigations are actionable. Overall HIGH risk with PROCEED_WITH_MITIGATIONS is the right call given the test patch surface (1,200+ patch calls into routes.pipelines), the in-band `_run_pipeline` state-machine refactor, and two structural-outlier files (pipelines.py, gateway.py) at the end of the slice chain.\n\nVerified critical claims:\n- **R1 (routing mechanism)**: `pipelines.py` line 830 declares `pipelines_bp = Blueprint(...)`, `api.py` line 50 imports `pipelines_bp` directly. Confirms decision-8's question text used misleading framing (`@app.route` vs the actual `@pipelines_bp.route`). The risk's recommended reinterpretation (\"re-export `pipelines_bp` from `__init__.py`, attach `@pipelines_bp.route(...)` in submodules\") is correct. The risk_analyst's note that `gateway/gateway.py` uses `@app.route` (line 516) is also accurate. The architect arrived at the same conclusion independently and the task_planner's plan acknowledges the Blueprint reality at line 22-23 of the plan draft, so this risk is procedurally already absorbed \u2014 but flagging it for the operator in `requires_human_review` is the right call.\n- **R2 (`_run_pipeline` per-phase refactor)**: `_run_pipeline` is at line 13524, body 2,362 lines (verified via grep). The two-stage extraction recommendation (stage-1: introduce dispatch table; stage-2: lift bodies) is the standard safety mechanism for this kind of state-machine refactor. The current task_planner's plan (TASK-15-3) is single-stage; I've blocked on this in my task_planner NACK. The manual smoke-run requirement is the right gate.\n- **R4 (`_run_concurrent_phase` and three other mega-functions)**: `_run_concurrent_phase` at line 11124, 1,350 lines (confirmed via `awk` survey). `_build_agent_prompt` (710), `create_pipeline` (613), `_build_phase_prompt` (514) are also confirmed. The risk that no single submodule clustering can put all of these under cap without further function-level decomposition is real \u2014 and the task_planner's plan misses this. I've blocked on it.\n- **R5 (gateway.py mega-functions)**: `git_push` (968), `git_execute` (716), `gh_execute` (651) verified via the architect's largest_functions analysis. R5's security-review recommendation for `git_push` (file-boundary policy enforcement) is appropriate.\n- **R6 (mcp_tools class shape)**: confirmed via grep \u2014 mcp_tools.py is one helper function (`_is_timeout_error`) plus one large class (`PipelineToolHandler` at line 1026 with ~30 `_handle_*` methods). The risk that a \"namespace-cluster\" decomposition won't apply mechanically is correct and worth flagging.\n- **R7 (allowlist YAML conflicts)**: `scripts/file-size-allowlist.yaml` has 15 file entries that 5 concurrent slices will each modify. The mitigation (pre-rebase recipe in pattern doc + PR template checklist) is right.\n\nThe areas_requiring_human_review (4 items: routing mismatch, _run_pipeline approach, git_push decomposition, slice-16 sub-stacking interpretation) are all genuine HITL escalation candidates and are surfaced through `requires_human_review: true` flags \u2014 the operator can scan them quickly and decide which need re-opening as decisions vs. which the plan-phase reviewer can resolve.\n\nThe rollback_plan (\"per-slice revert via GitHub UI\") is appropriate for the 16-PR forest shape \u2014 each slice is self-contained and revertible.\n\n### Non-blocking\n\n- **R3 mitigation point (b)** (\"PR description lists every symbol re-exported and the count of external references for each\") would be more useful as a CI lint rather than a human-checked PR-description item. Even if not in scope for this issue, file a follow-up for an automated re-export drift detector (`scripts/check-reexports.py`-style) that compares barrel `__all__` to submodule symbols and fails if a moved symbol is missing.\n\n- **R7 (allowlist conflicts)** could go further \u2014 consider whether the gateway's own pre-rebase logic (per #2224) already handles this for slice PRs. If yes, R7's residual risk is lower than \"friction\"; if no, the PR template checklist should call out the manual step explicitly.\n\n- **R8 (test patch path drift \"mechanical\" definition)** is well-scoped but the definition could be tightened: \"1:1 string substitution of an import path or patch target, with no test-logic changes\" is good \u2014 adding \"preserves the asserted exception type, the order of patch decorators, and any side_effect ordering\" would close the most common ambiguity.\n\n- **R10 (per-slice context resets)** mitigation (b) (\"Per-slice prompts reference the doc explicitly\") is useful but depends on the task_planner threading the doc reference into each task's description. Worth coordinating with task_planner explicitly \u2014 the plan draft does NOT currently reference `docs/guides/decomposition-pattern.md` from each child slice's task descriptions, only from slice-1's TASK-1-1.\n\n- **AQ4 from architect (mutable module-level state rebinding)** is a real risk that doesn't have a corresponding R-number in this assessment. Recommend adding an R16 covering the rebinding case so it has a tracked mitigation owner. Currently the architect's AQ4 names \"risk_analyst / implementer\" as owner but no risk-analyst output addresses it directly.\n\nThe risk_analyst's output is comprehensive, accurate, and gives the task_planner concrete handles to fold into the plan. Approving.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-30T04:32:08.638777+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ad955322-f3dc-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:29:22.754487+00:00"
+    },
+    "timestamp": "2026-04-30T04:32:23.141781+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d3cf33d4-d3c0-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:28:45.835398+00:00"
+    },
+    "timestamp": "2026-04-30T04:32:46.297087+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2d6841d5-499f-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "\nRe-reviewing v2 \u2014 commit_sha (494d46adffb695f9a6f849ae68f017f0938b1d55) is unchanged from v1, so the architect-output.json content is unchanged. My v1 review still applies; re-confirming.\n\nReviewed the architect's submodule seam proposals against the actual files on disk, the refine HITL decisions, and the issue's \"allowlist empty\" acceptance criterion. The output is comprehensive: ~18 cluster proposals for pipelines.py, ~13 for gateway.py, with explicit per-cluster line estimates and explicit \"OVER CAP, MUST SPLIT FURTHER\" callouts (`_concurrent_phase.py` 1,300-1,500; `_worktree_ops.py` 1,500-1,700; `_prompt_building.py` 1,400-1,500; `_pr_lifecycle.py` 1,300-1,500; `_git_routes.py` 1,500-1,700; `_jira_routes.py` 1,500-1,700). These are the splits the task_planner must ratchet into the plan. Verified independently:\n- `pipelines.py` line 13524 = `def _run_pipeline(...)`, body 2,362 lines (matches architect's claim).\n- `_run_concurrent_phase` lines 11124-12473 = 1,350 lines (matches architect's \"1,300-1,500\" estimate; this function is what the task_planner's plan misses).\n- `mcp_tools.py` line 1026 = `class PipelineToolHandler` with ~30 `_handle_*` methods on it (matches architect's class-shape observation; AQ1 method-modules recommendation is correct given current code).\n- `gateway/gateway.py` line 516 = `app = Flask(__name__)` and uses `@app.route(...)` directly (matches architect's blueprint_dialect_observation distinguishing this from routes/* Blueprint usage).\n- `routes/pipelines.py` line 830 = `pipelines_bp = Blueprint(...)` (confirms decision-8's \"thin wrappers in __init__.py\" choice survives without Blueprint conversion debt).\n\nThe HITL alignment table (decisions D1-D10 + Q1-Q8) is accurate and traces every recommendation back to a resolved decision. The 5 open questions (AQ1-AQ5) are correctly scoped \u2014 they're concrete implementation choices for the task_planner, not new HITL gates. The downstream_handoffs section gives the task_planner a precise, line-numbered seam map to consume.\n\n### Non-blocking\n\n- **architect-output.json L186 \u2014 `_anthropic_proxy.py` size estimate (1,200-1,500 lines, \"at cap\")** is on the edge; if the implementer hits the cap the SSEAccumulator class + the streaming/non-streaming capture helpers would naturally split into `_anthropic_proxy.py` (request/response shaping) + `_anthropic_sse.py` (SSE machinery) + `_anthropic_credentials.py` (credential injection / header filtering). Worth flagging in slice-14's task list as a likely-split, not a guaranteed one.\n\n- **AQ4 (mutable module-level state rebinding rule)** is important enough that it should be hardened from \"should verify\" to a lint rule or PR-template checklist item. Currently AQ4's owner is \"risk_analyst / implementer\" but no R-numbered risk in the risk_analyst output explicitly covers the rebinding case (R3 covers re-export drift but not mutable-state rebinding specifically). Recommend the risk_analyst add an R16-style risk on re-bound module-level mutables, or that AQ4's resolution land in `docs/guides/decomposition-pattern.md` as a cardinal rule.\n\n- **Slice-numbering** in `implementation_plan_outline.slices` lists slices 1-15 but the wave_shape_estimate counts 4 waves with the parent on its own \u2014 matches the gating dependency. Slice-3 (1,604) is listed AFTER slice-2 (1,655), violating the smallest-first ordering also present in the task_planner's plan. Trivial inconsistency; raised with task_planner too.\n\n- **`gateway.py` route-count: architect says 45, plan says ~46**. Either is fine; the actual count via `git grep -c '^@app.route' gateway/gateway.py` is the source of truth. Not load-bearing.\n\nThe architect's output is the most rigorous of the three plan-phase producers and is what enabled identifying the missing-cluster issues in the task_planner's plan. Approving as-is.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2261-architect-output.json",
+          ".egg-state/drafts/2261-analysis.md",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/mcp_tools.py",
+          "gateway/gateway.py"
+        ],
+        "reason": "\nRe-reviewing v2 \u2014 commit_sha (494d46adffb695f9a6f849ae68f017f0938b1d55) is unchanged from v1, so the architect-output.json content is unchanged. My v1 review still applies; re-confirming.\n\nReviewed the architect's submodule seam proposals against the actual files on disk, the refine HITL decisions, and the issue's \"allowlist empty\" acceptance criterion. The output is comprehensive: ~18 cluster proposals for pipelines.py, ~13 for gateway.py, with explicit per-cluster line estimates and explicit \"OVER CAP, MUST SPLIT FURTHER\" callouts (`_concurrent_phase.py` 1,300-1,500; `_worktree_ops.py` 1,500-1,700; `_prompt_building.py` 1,400-1,500; `_pr_lifecycle.py` 1,300-1,500; `_git_routes.py` 1,500-1,700; `_jira_routes.py` 1,500-1,700). These are the splits the task_planner must ratchet into the plan. Verified independently:\n- `pipelines.py` line 13524 = `def _run_pipeline(...)`, body 2,362 lines (matches architect's claim).\n- `_run_concurrent_phase` lines 11124-12473 = 1,350 lines (matches architect's \"1,300-1,500\" estimate; this function is what the task_planner's plan misses).\n- `mcp_tools.py` line 1026 = `class PipelineToolHandler` with ~30 `_handle_*` methods on it (matches architect's class-shape observation; AQ1 method-modules recommendation is correct given current code).\n- `gateway/gateway.py` line 516 = `app = Flask(__name__)` and uses `@app.route(...)` directly (matches architect's blueprint_dialect_observation distinguishing this from routes/* Blueprint usage).\n- `routes/pipelines.py` line 830 = `pipelines_bp = Blueprint(...)` (confirms decision-8's \"thin wrappers in __init__.py\" choice survives without Blueprint conversion debt).\n\nThe HITL alignment table (decisions D1-D10 + Q1-Q8) is accurate and traces every recommendation back to a resolved decision. The 5 open questions (AQ1-AQ5) are correctly scoped \u2014 they're concrete implementation choices for the task_planner, not new HITL gates. The downstream_handoffs section gives the task_planner a precise, line-numbered seam map to consume.\n\n### Non-blocking\n\n- **architect-output.json L186 \u2014 `_anthropic_proxy.py` size estimate (1,200-1,500 lines, \"at cap\")** is on the edge; if the implementer hits the cap the SSEAccumulator class + the streaming/non-streaming capture helpers would naturally split into `_anthropic_proxy.py` (request/response shaping) + `_anthropic_sse.py` (SSE machinery) + `_anthropic_credentials.py` (credential injection / header filtering). Worth flagging in slice-14's task list as a likely-split, not a guaranteed one.\n\n- **AQ4 (mutable module-level state rebinding rule)** is important enough that it should be hardened from \"should verify\" to a lint rule or PR-template checklist item. Currently AQ4's owner is \"risk_analyst / implementer\" but no R-numbered risk in the risk_analyst output explicitly covers the rebinding case (R3 covers re-export drift but not mutable-state rebinding specifically). Recommend the risk_analyst add an R16-style risk on re-bound module-level mutables, or that AQ4's resolution land in `docs/guides/decomposition-pattern.md` as a cardinal rule.\n\n- **Slice-numbering** in `implementation_plan_outline.slices` lists slices 1-15 but the wave_shape_estimate counts 4 waves with the parent on its own \u2014 matches the gating dependency. Slice-3 (1,604) is listed AFTER slice-2 (1,655), violating the smallest-first ordering also present in the task_planner's plan. Trivial inconsistency; raised with task_planner too.\n\n- **`gateway.py` route-count: architect says 45, plan says ~46**. Either is fine; the actual count via `git grep -c '^@app.route' gateway/gateway.py` is the source of truth. Not load-bearing.\n\nThe architect's output is the most rigorous of the three plan-phase producers and is what enabled identifying the missing-cluster issues in the task_planner's plan. Approving as-is.\n",
+        "ack_version": 2
+      },
+      "version": 2
+    },
+    "timestamp": "2026-04-30T04:33:01.856941+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5cb3dc3f-b268-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 2) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 2
+    },
+    "timestamp": "2026-04-30T04:33:01.856981+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0e77e220-93be-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:33:01.959801+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "57ed28b0-f167-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan (pending_acks)",
+    "body": "Reviewer reviewer_plan cannot confirm: unresolved NACKs. Wait for these producers to re-propose before confirming: ['task_planner']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-30T04:33:07.937581+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "74147d58-9d66-45",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:33:08.112211+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b60d4193-8b74-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:11.409171+00:00"
+    },
+    "timestamp": "2026-04-30T04:33:11.443981+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "96e0cca1-bf4f-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:13.212557+00:00"
+    },
+    "timestamp": "2026-04-30T04:33:13.271335+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "460c732c-a2a0-4f",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-30T04:33:16.330305+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e8080b6b-8dae-4d",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:33:16.477010+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "631912ff-823d-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:33:16.603479+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0d671139-08c6-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:20.318917+00:00"
+    },
+    "timestamp": "2026-04-30T04:33:20.378360+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bd38e51b-ad64-4f",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:27.843243+00:00"
+    },
+    "timestamp": "2026-04-30T04:33:27.948267+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e8d81765-b97e-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:34.093826+00:00"
+    },
+    "timestamp": "2026-04-30T04:33:34.250189+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4229e3a3-73dc-46",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:20.318917+00:00"
+    },
+    "timestamp": "2026-04-30T04:34:20.504679+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "09bcfa25-6541-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:27.843243+00:00"
+    },
+    "timestamp": "2026-04-30T04:34:28.055500+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cfed51e7-8965-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:34.093826+00:00"
+    },
+    "timestamp": "2026-04-30T04:34:34.338148+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cf428452-8aeb-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:20.318917+00:00"
+    },
+    "timestamp": "2026-04-30T04:35:20.660954+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7f20ddcc-3ff6-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:27.843243+00:00"
+    },
+    "timestamp": "2026-04-30T04:35:28.157831+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a3da5e2a-306c-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:34.093826+00:00"
+    },
+    "timestamp": "2026-04-30T04:35:34.452955+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "68a53910-d82c-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:20.318917+00:00"
+    },
+    "timestamp": "2026-04-30T04:36:20.797129+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "78f06d43-3e1a-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:27.843243+00:00"
+    },
+    "timestamp": "2026-04-30T04:36:28.257389+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "42d2b2d7-8a3f-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:34.093826+00:00"
+    },
+    "timestamp": "2026-04-30T04:36:34.546499+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ef81b24c-015c-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:20.318917+00:00"
+    },
+    "timestamp": "2026-04-30T04:37:20.905714+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0ba75cee-78bb-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:27.843243+00:00"
+    },
+    "timestamp": "2026-04-30T04:37:28.465599+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "27bcb10c-4651-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:34.093826+00:00"
+    },
+    "timestamp": "2026-04-30T04:37:34.580669+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8b06aa8f-055f-4b",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:20.318917+00:00"
+    },
+    "timestamp": "2026-04-30T04:38:21.043040+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c624d90-ebcc-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:27.843243+00:00"
+    },
+    "timestamp": "2026-04-30T04:38:28.559068+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cc988b2f-bb1b-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:34.093826+00:00"
+    },
+    "timestamp": "2026-04-30T04:38:34.729997+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4be05520-a380-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:20.318917+00:00"
+    },
+    "timestamp": "2026-04-30T04:39:21.077885+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "14c66b62-a84f-4d",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Re-proposal v2 for #2261 plan. Addresses all 5 blocking items from reviewer_plan NACK v1: (1) `_concurrent_phase/` cluster added to slice-15, pre-split into `_spawn.py` + `_consensus_wait.py`; (2) at-cap clusters in slice-15 pre-split \u2014 `_prompt_building/`, `_pr_lifecycle/`, `_worktree_ops/` now nested sub-packages with named further-splits; (3) slice-12 (mcp_tools.py) cluster taxonomy replaced with class-method-modules pattern matching actual `PipelineToolHandler` shape (`_dispatch.py`, `_tasks.py`, `_status.py`, `_lifecycle.py`, `_health.py`, `_query.py`, `_deployment.py`), with the pattern documented in TASK-1-1 for slice-11 reuse; (4) slice-14 (gateway.py) pre-allocates `_git_routes/` (push + execute + fetch) and `_jira_routes/` (reads + writes + validators) sub-packages, plus a new TASK-14-3 decomposing the `git_push` security-critical mega-handler into named helpers (R5 mitigation); (5) slice-15's `_run_pipeline` refactor staged across TASK-15-4 (PHASE_HANDLERS dispatch, bodies inline) and TASK-15-5 (lift bodies into `_run_loop/` modules, requires manual smoke-run verification per R2). Non-blocking polish folded in: slice-2/3 ordering swap, expanded pattern doc (file\u2192package conversion mechanics, method-modules-on-class shape, git-grep recipe, allowlist rebase recipe, follow-up convention), TASK-1-3 CLI acceptance criterion relaxed, TASK-15-7 follow-up issue task. Forest invariant validated (15 slices, \u22641 parent each).",
+    "metadata": {
+      "payload": {
+        "summary": "Re-proposal v2 for #2261 plan. Addresses all 5 blocking items from reviewer_plan NACK v1: (1) `_concurrent_phase/` cluster added to slice-15, pre-split into `_spawn.py` + `_consensus_wait.py`; (2) at-cap clusters in slice-15 pre-split \u2014 `_prompt_building/`, `_pr_lifecycle/`, `_worktree_ops/` now nested sub-packages with named further-splits; (3) slice-12 (mcp_tools.py) cluster taxonomy replaced with class-method-modules pattern matching actual `PipelineToolHandler` shape (`_dispatch.py`, `_tasks.py`, `_status.py`, `_lifecycle.py`, `_health.py`, `_query.py`, `_deployment.py`), with the pattern documented in TASK-1-1 for slice-11 reuse; (4) slice-14 (gateway.py) pre-allocates `_git_routes/` (push + execute + fetch) and `_jira_routes/` (reads + writes + validators) sub-packages, plus a new TASK-14-3 decomposing the `git_push` security-critical mega-handler into named helpers (R5 mitigation); (5) slice-15's `_run_pipeline` refactor staged across TASK-15-4 (PHASE_HANDLERS dispatch, bodies inline) and TASK-15-5 (lift bodies into `_run_loop/` modules, requires manual smoke-run verification per R2). Non-blocking polish folded in: slice-2/3 ordering swap, expanded pattern doc (file\u2192package conversion mechanics, method-modules-on-class shape, git-grep recipe, allowlist rebase recipe, follow-up convention), TASK-1-3 CLI acceptance criterion relaxed, TASK-15-7 follow-up issue task. Forest invariant validated (15 slices, \u22641 parent each).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2261-plan.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "0c2fc3fbbfdbe2759766cada6780ac6af6f0af39",
+        "files_changed": [
+          ".egg-state/drafts/2261-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 2,
+      "commit_sha": "0c2fc3fbbfdbe2759766cada6780ac6af6f0af39"
+    },
+    "timestamp": "2026-04-30T04:39:28.168627+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e9592e2d-9019-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:39:28.200336+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d4912078-2bef-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:27.843243+00:00"
+    },
+    "timestamp": "2026-04-30T04:39:28.593327+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6b69d380-c0a6-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:39:32.813289+00:00"
+    },
+    "timestamp": "2026-04-30T04:39:32.843507+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "99794c0b-a071-49",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:34.093826+00:00"
+    },
+    "timestamp": "2026-04-30T04:39:34.810189+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "013d1bbc-d688-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:27.843243+00:00"
+    },
+    "timestamp": "2026-04-30T04:40:28.712741+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7ce4d4cf-4985-4d",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:39:32.813289+00:00"
+    },
+    "timestamp": "2026-04-30T04:40:32.931013+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9865cf08-02a0-42",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:33:34.093826+00:00"
+    },
+    "timestamp": "2026-04-30T04:40:34.918733+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3da468c-b9a6-48",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "\nReviewed v2 against the v1 NACK. All 5 blocking items resolved with substantive changes to the plan body and yaml-tasks block; all non-blocking suggestions also folded in.\n\n### Resolution of v1 blocking items\n\n1. **`_run_concurrent_phase` (1,350 lines) cluster assignment** \u2014 RESOLVED. TASK-15-3 now creates a dedicated `_concurrent_phase/` sub-package with the architect's recommended `_spawn.py` + `_consensus_wait.py` further-split, and the inventory step (TASK-15-1 acceptance) explicitly assigns `_run_concurrent_phase` to `_concurrent_phase/` and `_run_pipeline` to `_run_loop/`. Plan.md lines 1302-1313, 1347-1349.\n\n2. **At-cap cluster pre-splits** \u2014 RESOLVED. TASK-15-3 pre-allocates three nested sub-packages instead of single submodules:\n   - `_prompt_building/` \u2192 `_prompt_phase.py` + `_prompt_agent.py` + `_prompt_review.py` (lines 1265-1271)\n   - `_pr_lifecycle/` \u2192 `_pr_creation.py` + `_pr_metadata.py` + `_pr_lookup.py` + `_pr_reconciler.py` (lines 1275-1288)\n   - `_worktree_ops/` \u2192 `_worktree_sync.py` + `_worktree_rebase.py` + `_worktree_statefiles.py` (lines 1289-1301)\n   Acceptance criterion explicitly requires \"NO submodule (including the nested sub-package files) exceeds the cap\" (lines 1322-1325).\n\n3. **mcp_tools.py method-modules-on-class pattern** \u2014 RESOLVED. TASK-12-1 (lines 907-962) now uses the architect's responsibility-based clustering (`_dispatch.py`, `_tasks.py`, `_status.py`, `_lifecycle.py`, `_health.py`, `_query.py`, `_deployment.py`), explicitly documents the \"class stays in `__init__.py`; each `_handle_<name>` method becomes a one-line delegating wrapper\" approach, and re-exports both `PipelineToolHandler` AND `_make_request` for the patch surface. The pattern is documented once in TASK-1-1 section (c) (lines 337-348) and reused for `gateway_client.py` slice-11 (lines 858-866).\n\n4. **gateway.py mega-handler decomposition** \u2014 RESOLVED. TASK-14-2 now pre-allocates `_git_routes/` sub-package with `_git_push.py` + `_git_execute.py` + `_git_fetch.py` (the missing `_git_execute.py` from v1 is now explicitly listed) and `_jira_routes/` sub-package with `_jira_reads.py` + `_jira_writes.py` + `_jira_validators.py` (the entirely-missing Jira routes from v1 are now present). New TASK-14-3 (lines 1137-1166) explicitly decomposes `git_push` into the named helpers I requested (`_validate_push_targets`, `_enforce_file_boundaries`, `_check_branch_policy`, `_inject_credentials`, `_execute_git_push`, `_attribute_changed_files`) per R5, and applies the same shape to `git_execute`, `gh_execute`, `session_create`. Files list at lines 1117-1136 reflects the new sub-package layout.\n\n5. **Staged `_run_pipeline` refactor** \u2014 RESOLVED. TASK-15-3 split into TASK-15-4 (Stage 1: introduce `PHASE_HANDLERS` dispatch table with bodies still inline as local closures, \"behavior-preserving indirection step that delivers a bisectable safety net\") and TASK-15-5 (Stage 2: lift bodies into `_run_loop/_run_refine.py`, `_run_plan.py`, `_run_implement.py`, `_run_pr.py`). The state-machine invariants (respawn, gateway-mode probes, run-epoch guards, overseer teardown ordering, PNFE recovery) are explicitly enumerated in TASK-15-4's description (lines 1364-1369). Manual smoke-run verification is required in TASK-15-5 acceptance (lines 1411-1417, 1423-1426) per R2.\n\n### Resolution of v1 non-blocking items\n\n- **slice-2/3 ordering** \u2014 RESOLVED. slice-2 is now `routes/deployment.py` (1,604), slice-3 is `gateway/checkpoint_handler.py` (1,655). plan.md lines 55-56.\n- **Blueprint dialect framing** \u2014 RESOLVED. TASK-1-1 section (f) (lines 368-377) now explicitly documents that \"thin wrappers in `__init__.py` is the normalized shape across ALL route files in this program\" with rationale, so contributors don't second-guess. TASK-2-1 (lines 482-494) reiterates the convention explicitly for `routes/deployment.py`.\n- **File\u2192package conversion mechanics** \u2014 RESOLVED. TASK-1-1 section (b) (lines 329-335) documents the canonical `git mv` step. TASK-15-2 (lines 1229-1247) is now a dedicated baseline-conversion commit before any submodule extractions.\n- **`scripts/select_tests.py` CLI invocation** \u2014 RESOLVED. TASK-1-3 (lines 426-471) now requires inventorying every Makefile/CI/scripts caller, migrating each to `python -m scripts.select_tests`, with a thin wrapper-script fallback if mechanical migration fails. Acceptance verifies \"Every Makefile / CI / scripts invocation of `select_tests` resolves identically to before\".\n- **R7 allowlist YAML rebase recipe** \u2014 RESOLVED. TASK-1-1 section (e) (lines 358-366) documents the standard rebase recipe.\n- **`git grep` re-export audit recipe** \u2014 RESOLVED. TASK-1-1 section (d) (lines 350-356) documents the canonical disambiguation recipe.\n- **Follow-up issues** \u2014 RESOLVED. TASK-15-7 (lines 1464-1484) explicitly files a follow-up issue covering the per-phase handler isolation tests (Q7), test patch-path drift cleanup, and `EGG_PIPELINE_ID` cross-slice telemetry. TASK-1-1 section (h) (lines 387-391) documents the follow-up convention for downstream slices.\n\n### Verified the YAML-tasks structure is consistent\n\n- 15 slices total (1 parent + 14 sibling children), each child has `dependencies: [slice-1]` (forest invariant holds).\n- Per-slice acceptance criteria are concrete and testable.\n- Files lists are complete and reflect the pre-allocated sub-package layouts.\n- TASK-15-2's acceptance \"make lint (still over cap on `__init__.py`, accepted for this commit only)\" is technically OK because the allowlist still references the file at this point \u2014 the lint allows allowlisted files to grow freely; the wording could be tighter (\"`make lint` green; the allowlist entry still exempts the over-cap baseline file from the cap until TASK-15-6 drops it\") but this is a wording nit, not a correctness issue.\n\n### Slice-sizing advisories (informational, never blocking per HITL decision-6 of #2137)\n\n- slice-14 (gateway.py decomposition): expected diff well above 2,000 LOC \u2014 strongly consider splitting if TASK-14-2/14-3 produce a single PR (informational only \u2014 operator's standing override on slice scope holds).\n- slice-15 (pipelines.py + 8 tasks including B2 staged refactor): expected diff well above 2,000 LOC \u2014 strongly consider splitting (informational only \u2014 see decision-9 / R11 alternate stacked-PR shape).\n\n### Non-blocking nits (do not block this ACK)\n\n- TASK-15-3's acceptance requires \"make lint and make test-all green after each commit\" but the per-commit constraint is implicit \u2014 the implementer might bundle multiple cluster extractions into one commit to save CI time. Recommend a non-blocking sentence in TASK-1-1 section (g) clarifying that \"one commit per submodule extraction is the canonical commit shape inside slice-15 for bisectability.\"\n- TASK-15-7's `gh issue create` step adds operational complexity; the slice's documenter could equivalently emit a `.egg-state/agent-outputs/2261-followup-issue.md` and let the operator file it. Either is fine.\n- TASK-15-8 acceptance lists 5 nested sub-packages (`_prompt_building/`, `_pr_lifecycle/`, `_worktree_ops/`, `_concurrent_phase/`, `_run_loop/`) \u2014 minor: the description text says \"three nested sub-packages\" but lists four sub-packages plus `_run_loop/`. Trivial wording inconsistency.\n\nThe v2 plan is comprehensive, internally consistent, and aligned with the architect's submodule_seam_proposals and the risk_analyst's R1-R15 mitigations. Approving.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2261-plan.md"
+        ],
+        "reason": "\nReviewed v2 against the v1 NACK. All 5 blocking items resolved with substantive changes to the plan body and yaml-tasks block; all non-blocking suggestions also folded in.\n\n### Resolution of v1 blocking items\n\n1. **`_run_concurrent_phase` (1,350 lines) cluster assignment** \u2014 RESOLVED. TASK-15-3 now creates a dedicated `_concurrent_phase/` sub-package with the architect's recommended `_spawn.py` + `_consensus_wait.py` further-split, and the inventory step (TASK-15-1 acceptance) explicitly assigns `_run_concurrent_phase` to `_concurrent_phase/` and `_run_pipeline` to `_run_loop/`. Plan.md lines 1302-1313, 1347-1349.\n\n2. **At-cap cluster pre-splits** \u2014 RESOLVED. TASK-15-3 pre-allocates three nested sub-packages instead of single submodules:\n   - `_prompt_building/` \u2192 `_prompt_phase.py` + `_prompt_agent.py` + `_prompt_review.py` (lines 1265-1271)\n   - `_pr_lifecycle/` \u2192 `_pr_creation.py` + `_pr_metadata.py` + `_pr_lookup.py` + `_pr_reconciler.py` (lines 1275-1288)\n   - `_worktree_ops/` \u2192 `_worktree_sync.py` + `_worktree_rebase.py` + `_worktree_statefiles.py` (lines 1289-1301)\n   Acceptance criterion explicitly requires \"NO submodule (including the nested sub-package files) exceeds the cap\" (lines 1322-1325).\n\n3. **mcp_tools.py method-modules-on-class pattern** \u2014 RESOLVED. TASK-12-1 (lines 907-962) now uses the architect's responsibility-based clustering (`_dispatch.py`, `_tasks.py`, `_status.py`, `_lifecycle.py`, `_health.py`, `_query.py`, `_deployment.py`), explicitly documents the \"class stays in `__init__.py`; each `_handle_<name>` method becomes a one-line delegating wrapper\" approach, and re-exports both `PipelineToolHandler` AND `_make_request` for the patch surface. The pattern is documented once in TASK-1-1 section (c) (lines 337-348) and reused for `gateway_client.py` slice-11 (lines 858-866).\n\n4. **gateway.py mega-handler decomposition** \u2014 RESOLVED. TASK-14-2 now pre-allocates `_git_routes/` sub-package with `_git_push.py` + `_git_execute.py` + `_git_fetch.py` (the missing `_git_execute.py` from v1 is now explicitly listed) and `_jira_routes/` sub-package with `_jira_reads.py` + `_jira_writes.py` + `_jira_validators.py` (the entirely-missing Jira routes from v1 are now present). New TASK-14-3 (lines 1137-1166) explicitly decomposes `git_push` into the named helpers I requested (`_validate_push_targets`, `_enforce_file_boundaries`, `_check_branch_policy`, `_inject_credentials`, `_execute_git_push`, `_attribute_changed_files`) per R5, and applies the same shape to `git_execute`, `gh_execute`, `session_create`. Files list at lines 1117-1136 reflects the new sub-package layout.\n\n5. **Staged `_run_pipeline` refactor** \u2014 RESOLVED. TASK-15-3 split into TASK-15-4 (Stage 1: introduce `PHASE_HANDLERS` dispatch table with bodies still inline as local closures, \"behavior-preserving indirection step that delivers a bisectable safety net\") and TASK-15-5 (Stage 2: lift bodies into `_run_loop/_run_refine.py`, `_run_plan.py`, `_run_implement.py`, `_run_pr.py`). The state-machine invariants (respawn, gateway-mode probes, run-epoch guards, overseer teardown ordering, PNFE recovery) are explicitly enumerated in TASK-15-4's description (lines 1364-1369). Manual smoke-run verification is required in TASK-15-5 acceptance (lines 1411-1417, 1423-1426) per R2.\n\n### Resolution of v1 non-blocking items\n\n- **slice-2/3 ordering** \u2014 RESOLVED. slice-2 is now `routes/deployment.py` (1,604), slice-3 is `gateway/checkpoint_handler.py` (1,655). plan.md lines 55-56.\n- **Blueprint dialect framing** \u2014 RESOLVED. TASK-1-1 section (f) (lines 368-377) now explicitly documents that \"thin wrappers in `__init__.py` is the normalized shape across ALL route files in this program\" with rationale, so contributors don't second-guess. TASK-2-1 (lines 482-494) reiterates the convention explicitly for `routes/deployment.py`.\n- **File\u2192package conversion mechanics** \u2014 RESOLVED. TASK-1-1 section (b) (lines 329-335) documents the canonical `git mv` step. TASK-15-2 (lines 1229-1247) is now a dedicated baseline-conversion commit before any submodule extractions.\n- **`scripts/select_tests.py` CLI invocation** \u2014 RESOLVED. TASK-1-3 (lines 426-471) now requires inventorying every Makefile/CI/scripts caller, migrating each to `python -m scripts.select_tests`, with a thin wrapper-script fallback if mechanical migration fails. Acceptance verifies \"Every Makefile / CI / scripts invocation of `select_tests` resolves identically to before\".\n- **R7 allowlist YAML rebase recipe** \u2014 RESOLVED. TASK-1-1 section (e) (lines 358-366) documents the standard rebase recipe.\n- **`git grep` re-export audit recipe** \u2014 RESOLVED. TASK-1-1 section (d) (lines 350-356) documents the canonical disambiguation recipe.\n- **Follow-up issues** \u2014 RESOLVED. TASK-15-7 (lines 1464-1484) explicitly files a follow-up issue covering the per-phase handler isolation tests (Q7), test patch-path drift cleanup, and `EGG_PIPELINE_ID` cross-slice telemetry. TASK-1-1 section (h) (lines 387-391) documents the follow-up convention for downstream slices.\n\n### Verified the YAML-tasks structure is consistent\n\n- 15 slices total (1 parent + 14 sibling children), each child has `dependencies: [slice-1]` (forest invariant holds).\n- Per-slice acceptance criteria are concrete and testable.\n- Files lists are complete and reflect the pre-allocated sub-package layouts.\n- TASK-15-2's acceptance \"make lint (still over cap on `__init__.py`, accepted for this commit only)\" is technically OK because the allowlist still references the file at this point \u2014 the lint allows allowlisted files to grow freely; the wording could be tighter (\"`make lint` green; the allowlist entry still exempts the over-cap baseline file from the cap until TASK-15-6 drops it\") but this is a wording nit, not a correctness issue.\n\n### Slice-sizing advisories (informational, never blocking per HITL decision-6 of #2137)\n\n- slice-14 (gateway.py decomposition): expected diff well above 2,000 LOC \u2014 strongly consider splitting if TASK-14-2/14-3 produce a single PR (informational only \u2014 operator's standing override on slice scope holds).\n- slice-15 (pipelines.py + 8 tasks including B2 staged refactor): expected diff well above 2,000 LOC \u2014 strongly consider splitting (informational only \u2014 see decision-9 / R11 alternate stacked-PR shape).\n\n### Non-blocking nits (do not block this ACK)\n\n- TASK-15-3's acceptance requires \"make lint and make test-all green after each commit\" but the per-commit constraint is implicit \u2014 the implementer might bundle multiple cluster extractions into one commit to save CI time. Recommend a non-blocking sentence in TASK-1-1 section (g) clarifying that \"one commit per submodule extraction is the canonical commit shape inside slice-15 for bisectability.\"\n- TASK-15-7's `gh issue create` step adds operational complexity; the slice's documenter could equivalently emit a `.egg-state/agent-outputs/2261-followup-issue.md` and let the operator file it. Either is fine.\n- TASK-15-8 acceptance lists 5 nested sub-packages (`_prompt_building/`, `_pr_lifecycle/`, `_worktree_ops/`, `_concurrent_phase/`, `_run_loop/`) \u2014 minor: the description text says \"three nested sub-packages\" but lists four sub-packages plus `_run_loop/`. Trivial wording inconsistency.\n\nThe v2 plan is comprehensive, internally consistent, and aligned with the architect's submodule_seam_proposals and the risk_analyst's R1-R15 mitigations. Approving.\n",
+        "ack_version": 2
+      },
+      "version": 2
+    },
+    "timestamp": "2026-04-30T04:41:03.265675+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "933a2787-c4d5-45",
+    "pipeline_id": "issue-2261",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 2) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 2
+    },
+    "timestamp": "2026-04-30T04:41:03.265713+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fa5b8831-5b5f-4b",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:41:03.320648+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e03ed8f9-3053-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-30T04:41:06.662074+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "09ff7a2b-2381-4a",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:41:06.879543+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7970efe7-86a6-4a",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-30T04:41:06.944151+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "843d28e1-4329-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-30T04:41:07.043372+00:00",
+    "phase": "plan"
+  }
+]
