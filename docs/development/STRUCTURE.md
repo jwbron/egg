@@ -342,6 +342,8 @@ shared/
 │   ├── contract-review-criteria.md # Contract verification rules
 │   └── onboarding-docs-prompt.md # Documentation onboarding standard (egg-onboarding-docs)
 ├── egg_git/                # Git utilities
+│   ├── cross_process_lock.py # Cross-process flock serialization for shared bare-repo git ops (bare_repo_lock, lock_path_for_repo)
+│   └── default_branch.py   # get_default_branch() helper
 ├── egg_health/             # Runtime health-transition tracking (readiness history for /api/v1/health)
 │   ├── __init__.py         # Public API: HealthTracker
 │   └── tracker.py          # Thread-safe healthy/unhealthy transition recorder with snapshot()
