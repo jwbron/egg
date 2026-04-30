@@ -257,12 +257,16 @@ def build_bare_name_upstream_edges(all_modules: set[str], repo_root: Path) -> di
         try:
             source = source_path.read_text(encoding="utf-8", errors="replace")
             tree = ast.parse(source, filename=str(source_path))
-        except SyntaxError, OSError, ValueError:
-            # ValueError covers null-byte source etc.  Parenthesised
-            # tuple form for clarity — Python 3.14's PEP 758 also accepts
-            # ``except A, B, C`` without parens, but the visual collision
-            # with the Python-2 ``except E, e`` form is a known migration
-            # hazard, so we keep the canonical tuple shape.
+        except SyntaxError, OSError, ValueError:  # noqa: B014 — PEP 758 form
+            # ValueError covers null-byte source etc.  PEP 758 (Python
+            # 3.14+) makes the unparenthesised tuple form the canonical
+            # ``except`` shape and ruff format normalises
+            # ``except (A, B, C):`` to this bare form on every save —
+            # the parens cannot be pinned via inline directives.  The
+            # visual collision with the Python-2 ``except E, e``
+            # migration hazard is noted, but the project's
+            # ``requires-python = ">=3.14"`` floor (pyproject.toml:7)
+            # makes the bare form unambiguous to the language grammar.
             continue
         for imported in _extract_imports(tree):
             for fq in leaf_index.get(imported, ()):
