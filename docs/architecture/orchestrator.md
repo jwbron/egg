@@ -32,7 +32,8 @@ The orchestrator persists pipeline state using a dedicated git worktree on an or
 **Worktree lifecycle:**
 - Created lazily on first state access
 - Validated on each access (repairs stale/broken worktrees)
-- Cleaned up via `git worktree prune` on first access (not container startup)
+- Locked via `git worktree lock` after creation, and idempotently re-locked on the healthy fast path so worktrees that pre-date this change get the lock too — cross-pod `git worktree prune` skips a locked worktree (#2324)
+- Stale admin dirs from crashed worktrees removed surgically on recreation (not via `git worktree prune`)
 
 This differs from agent worktrees (managed by the gateway for agent isolation). The orchestrator manages its own state worktree independently.
 
