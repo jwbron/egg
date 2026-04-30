@@ -242,6 +242,54 @@ class TestRegisterEndpoint:
         # Generic message — no internal details.
         assert "simulated backing-store failure" not in body["message"]
 
+    def test_register_publishes_container_activity(self, client, monkeypatch):
+        """A successful registration publishes a CONTAINER_ACTIVITY event so
+        HealthMonitor can suppress heartbeat/progress alerts against an
+        agent that is demonstrably alive (#2190)."""
+        # Reroute get_event_bus inside the route module's helper. The route
+        # imports get_event_bus lazily inside _publish_container_activity,
+        # so patching the events module is sufficient.
+        import events as events_mod  # type: ignore[import-not-found]
+        from events import EventBus, EventType  # type: ignore[import-not-found]
+
+        bus = EventBus(async_delivery=False)
+        monkeypatch.setattr(events_mod, "get_event_bus", lambda: bus)
+
+        captured: list = []
+        bus.subscribe(EventType.CONTAINER_ACTIVITY, lambda e: captured.append(e))
+
+        response = client.post(
+            "/api/v1/commit-authorship/register",
+            data=json.dumps({"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert len(captured) == 1
+        evt = captured[0]
+        assert evt.pipeline_id == "issue-1882"
+        assert evt.data["agent_role"] == "coder"
+        assert evt.data["kind"] == "git_commit"
+
+    def test_register_without_pipeline_id_does_not_publish(self, client, monkeypatch):
+        """Orphan registrations (no pipeline_id) do not publish CONTAINER_ACTIVITY —
+        the event has no pipeline scope to attach to."""
+        import events as events_mod  # type: ignore[import-not-found]
+        from events import EventBus, EventType  # type: ignore[import-not-found]
+
+        bus = EventBus(async_delivery=False)
+        monkeypatch.setattr(events_mod, "get_event_bus", lambda: bus)
+
+        captured: list = []
+        bus.subscribe(EventType.CONTAINER_ACTIVITY, lambda e: captured.append(e))
+
+        response = client.post(
+            "/api/v1/commit-authorship/register",
+            data=json.dumps({"sha": _VALID_SHA, "role": "coder"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert captured == []
+
 
 # ---------------------------------------------------------------------------
 # /lookup — batch attribution

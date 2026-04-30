@@ -495,6 +495,16 @@ class PipelineConfig(BaseModel):
     orchestrator_message_rate_limit: int = Field(
         default=20, ge=1, description="Max messages per minute before auto-throttle"
     )
+    orchestrator_activity_quiet_seconds: int = Field(
+        default=120,
+        ge=0,
+        description=(
+            "Seconds since the last CONTAINER_ACTIVITY event below which an "
+            "agent is considered alive — suppresses heartbeat/progress stall "
+            "alerts even when bus-level HEARTBEATs are absent (issue #2190). "
+            "Set to 0 to disable the gate entirely (operator escape hatch)."
+        ),
+    )
     overseer_poll_interval_seconds: int = Field(
         default=30, ge=5, description="Overseer polling interval in seconds"
     )

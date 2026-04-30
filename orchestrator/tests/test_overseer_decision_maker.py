@@ -153,6 +153,161 @@ class TestDecideCorrectiveActionEscalate:
         mock_agent.assert_awaited_once()
 
 
+class TestDecideCorrectiveActionFirstStallDowngrade:
+    """Issue #2190: a `restart_agent` recommendation on a first-occurrence
+    `stuck` classification must be overridden to `hitl` to avoid
+    destroying in-flight commits from agents mid-tool-call. Routing
+    through HITL (rather than `nudge`) keeps operator-targeted text out
+    of the agent's inbox and gives the operator a real decision surface.
+
+    The decision-maker prompt asks the model not to recommend
+    `restart_agent` for a first stall alert, but prompts are advisory.
+    The post-hoc guard in `_enforce_no_first_stall_restart` is the
+    load-bearing enforcement.
+    """
+
+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
+    def test_first_stall_restart_overridden_to_hitl(self, mock_agent: AsyncMock) -> None:
+        # Model disregards the prompt and emits restart_agent on a first
+        # stall — the guard must rewrite the action.
+        mock_agent.return_value = _make_result(
+            json.dumps(
+                {
+                    "action": "restart_agent",
+                    "message": "Agent is stuck. Restart to recover.",
+                    "priority": "high",
+                }
+            )
+        )
+        classification = {
+            "classification": "stuck",
+            "confidence": 0.9,
+            "reasoning": "No heartbeat for 5 minutes",
+        }
+
+        result = _run(decide_corrective_action(classification, {}, redirect_history=[]))
+
+        assert result["action"] == "hitl"
+        # Original recommendation is preserved in the message body for the
+        # operator to see what the model wanted to do.
+        assert "Agent is stuck. Restart to recover." in result["message"]
+        # Inspection-first guidance is included for the operator.
+        assert "mcp__egg__get_container_logs" in result["message"]
+
+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
+    def test_first_stall_restart_with_empty_message_no_dangling_colon(
+        self, mock_agent: AsyncMock
+    ) -> None:
+        # When the model returns an empty message, the override must not
+        # leave a dangling ``Model's recommendation:`` suffix.
+        mock_agent.return_value = _make_result(
+            json.dumps(
+                {
+                    "action": "restart_agent",
+                    "message": "",
+                    "priority": "high",
+                }
+            )
+        )
+        classification = {"classification": "stuck", "confidence": 0.9, "reasoning": ""}
+
+        result = _run(decide_corrective_action(classification, {}, redirect_history=[]))
+
+        assert result["action"] == "hitl"
+        assert "Model's recommendation:" not in result["message"]
+        # And no trailing colon at the end of the body.
+        assert not result["message"].rstrip().endswith(":")
+
+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
+    def test_restart_allowed_after_prior_redirect(self, mock_agent: AsyncMock) -> None:
+        # Once a nudge or redirect has already been sent, restart_agent
+        # is permitted (the agent has had a chance to recover).
+        mock_agent.return_value = _make_result(
+            json.dumps(
+                {
+                    "action": "restart_agent",
+                    "message": "Restart after no response to redirect.",
+                    "priority": "high",
+                }
+            )
+        )
+        classification = {"classification": "stuck", "confidence": 0.95, "reasoning": ""}
+        history = [{"action": "redirect", "timestamp": 1000}]
+
+        result = _run(decide_corrective_action(classification, {}, redirect_history=history))
+
+        assert result["action"] == "restart_agent"
+
+    @pytest.mark.parametrize(
+        "prior_action",
+        ["issue", "slack", "restart_phase"],
+    )
+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
+    def test_restart_allowed_after_other_intervention_types(
+        self, mock_agent: AsyncMock, prior_action: str
+    ) -> None:
+        # Any prior intervention bypasses the guard — the docstring
+        # promises every action in the decision-maker vocabulary counts,
+        # not just nudge/redirect/restart_agent/hitl.
+        mock_agent.return_value = _make_result(
+            json.dumps(
+                {
+                    "action": "restart_agent",
+                    "message": f"Restart after {prior_action} didn't help.",
+                    "priority": "high",
+                }
+            )
+        )
+        classification = {"classification": "stuck", "confidence": 0.95, "reasoning": ""}
+        history = [{"action": prior_action, "timestamp": 1000}]
+
+        result = _run(decide_corrective_action(classification, {}, redirect_history=history))
+
+        assert result["action"] == "restart_agent"
+
+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
+    def test_restart_allowed_after_prior_restart(self, mock_agent: AsyncMock) -> None:
+        # Prior `restart_agent` history also bypasses the guard — the
+        # "first occurrence" check spans every intervention type, so a
+        # second restart isn't blocked once any corrective action has
+        # already fired.
+        mock_agent.return_value = _make_result(
+            json.dumps(
+                {
+                    "action": "restart_agent",
+                    "message": "Second restart after first didn't help.",
+                    "priority": "high",
+                }
+            )
+        )
+        classification = {"classification": "stuck", "confidence": 0.95, "reasoning": ""}
+        history = [{"action": "restart_agent", "timestamp": 1000}]
+
+        result = _run(decide_corrective_action(classification, {}, redirect_history=history))
+
+        assert result["action"] == "restart_agent"
+
+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
+    def test_non_stall_classification_unchanged(self, mock_agent: AsyncMock) -> None:
+        # The guard only triggers on stuck / needs_help. A "working"
+        # classification (which does flow through the LLM path) leaves
+        # the model's restart_agent recommendation alone.
+        mock_agent.return_value = _make_result(
+            json.dumps(
+                {
+                    "action": "restart_agent",
+                    "message": "Agent crashed.",
+                    "priority": "critical",
+                }
+            )
+        )
+        classification = {"classification": "working", "confidence": 0.7, "reasoning": ""}
+
+        result = _run(decide_corrective_action(classification, {}, redirect_history=[]))
+
+        assert result["action"] == "restart_agent"
+
+
 # ===================================================================
 # compose_redirect_message
 # ===================================================================
