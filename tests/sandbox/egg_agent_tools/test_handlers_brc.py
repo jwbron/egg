@@ -15,6 +15,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "sandbox"))
 sys.path.insert(0, str(ROOT / "shared"))
+# Orchestrator path is needed for the cross-check tests that import
+# ``attestation_schemas.validate_attestation`` and assert pre-flight
+# verdicts agree with the strict-mode orchestrator validator.
+sys.path.insert(0, str(ROOT / "orchestrator"))
 
 from egg_agent_tools.handlers import brc  # noqa: E402
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError  # noqa: E402
@@ -103,6 +107,340 @@ class TestBrcPropose:
         ):
             with pytest.raises(GatewayError):
                 brc.brc_propose({"pipeline_id": "p", "role": "coder", "summary": "x" * 60})
+
+
+class TestBrcProposeTesterAttestationPreFlight:
+    """Pre-flight tester-attestation validation in ``brc_propose`` (#2338).
+
+    Mirrors the orchestrator's strict-mode tester checks but runs at the
+    handler boundary so misconfigurations fail locally with an actionable
+    HandlerError rather than as a 400 bouncing off the orchestrator.
+    """
+
+    def _propose_tester(self, attestation: dict):
+        with (
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=_ok_response(),
+            ),
+            patch(
+                "egg_agent_tools.handlers.brc._resolve_head_sha",
+                return_value="abc1234",
+            ),
+        ):
+            return brc.brc_propose(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "tester",
+                    "summary": "x" * 60,
+                    "attestation": attestation,
+                }
+            )
+
+    def test_missing_tests_run_rejected_pre_flight(self):
+        """Empty / missing tests_run is rejected at handler boundary."""
+        with pytest.raises(HandlerError, match="tests_run > 0"):
+            self._propose_tester({})
+
+    def test_zero_tests_run_rejected(self):
+        with pytest.raises(HandlerError, match="tests_run > 0"):
+            self._propose_tester({"tests_run": 0, "checks_passed": ["test"]})
+
+    def test_non_integer_tests_run_rejected(self):
+        with pytest.raises(HandlerError, match="must be an integer"):
+            self._propose_tester({"tests_run": "many", "checks_passed": ["test"]})
+
+    def test_missing_checks_passed_rejected(self):
+        with pytest.raises(HandlerError, match="checks_passed"):
+            self._propose_tester({"tests_run": 5})
+
+    def test_empty_checks_passed_rejected(self):
+        with pytest.raises(HandlerError, match="checks_passed"):
+            self._propose_tester({"tests_run": 5, "checks_passed": []})
+
+    def test_happy_path_passes_pre_flight(self):
+        resp = self._propose_tester({"tests_run": 42, "checks_passed": ["lint", "test"]})
+        assert resp["ok"] is True
+
+    def test_blocked_with_reason_passes(self):
+        """tests_execution_blocked=true with a reason is accepted —
+        no tests_run / checks_passed required for blocked pipelines."""
+        resp = self._propose_tester(
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": (
+                    "private-network mode blocked package downloads"
+                ),
+            }
+        )
+        assert resp["ok"] is True
+
+    def test_blocked_without_reason_rejected(self):
+        with pytest.raises(HandlerError, match="tests_execution_blocked_reason"):
+            self._propose_tester({"tests_execution_blocked": True})
+
+    def test_blocked_with_tests_run_conflict(self):
+        """blocked=true + tests_run > 0 is contradictory."""
+        with pytest.raises(HandlerError, match="conflicts with tests_run"):
+            self._propose_tester(
+                {
+                    "tests_execution_blocked": True,
+                    "tests_execution_blocked_reason": "x",
+                    "tests_run": 5,
+                }
+            )
+
+    def test_other_roles_skip_validator(self):
+        """Coder / documenter etc. should not be subject to tester
+        attestation requirements — pre-flight only fires on role=tester."""
+        with (
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=_ok_response(),
+            ),
+            patch(
+                "egg_agent_tools.handlers.brc._resolve_head_sha",
+                return_value="abc",
+            ),
+        ):
+            resp = brc.brc_propose(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "coder",
+                    "summary": "x" * 60,
+                    "attestation": {},  # empty — would fail tester pre-flight
+                }
+            )
+        assert resp["ok"] is True
+
+    def test_omitted_attestation_treated_as_empty_and_rejected(self):
+        """Caller that omits ``attestation`` entirely defaults to ``{}``,
+        which fails strict-mode pre-flight — the canonical "tester
+        forgot to populate" scenario from #2338. The handler surfaces
+        the same actionable error the orchestrator would have returned
+        as a 400."""
+        with (
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=_ok_response(),
+            ),
+            patch(
+                "egg_agent_tools.handlers.brc._resolve_head_sha",
+                return_value="abc",
+            ),
+        ):
+            with pytest.raises(HandlerError, match="tests_run > 0"):
+                brc.brc_propose(
+                    {
+                        "pipeline_id": "pipe-1",
+                        "role": "tester",
+                        "summary": "x" * 60,
+                        # No attestation — defaults to {} and fails pre-flight.
+                    }
+                )
+
+    # --- Coverage-gap cases flagged in the PR review --------------------
+
+    def test_non_list_checks_passed_rejected(self):
+        """``checks_passed`` as a non-list (string) trips the
+        ``isinstance(..., list)`` guard. The orchestrator's Pydantic
+        parse step also rejects this, so pre-flight catches it first
+        with a friendlier message."""
+        with pytest.raises(HandlerError, match="checks_passed"):
+            self._propose_tester({"tests_run": 5, "checks_passed": "lint"})
+
+    def test_negative_tests_run_passes_pre_flight(self):
+        """The orchestrator's ``_validate_strict`` only rejects
+        ``tests_run == 0`` (negative ints slip past Pydantic's plain
+        ``int`` field). Pre-flight intentionally mirrors that — see the
+        cross-check test below."""
+        resp = self._propose_tester({"tests_run": -1, "checks_passed": ["test"]})
+        assert resp["ok"] is True
+
+    def test_string_false_tests_execution_blocked_passes_through(self):
+        """Pydantic v2 coerces the string ``"false"`` to ``False``, so
+        the orchestrator routes a payload like
+        ``{"tests_execution_blocked": "false", "tests_run": 5,
+        "checks_passed": ["t"]}`` into the non-blocked branch and
+        accepts it. Pre-flight uses ``_coerce_attestation_bool`` to
+        match — without it, ``bool("false")`` is truthy and pre-flight
+        would wrongly demand a reason."""
+        resp = self._propose_tester(
+            {
+                "tests_execution_blocked": "false",
+                "tests_run": 5,
+                "checks_passed": ["test"],
+            }
+        )
+        assert resp["ok"] is True
+
+    def test_string_true_tests_execution_blocked_requires_reason(self):
+        """Symmetric to the previous: string ``"true"`` is coerced to
+        ``True``, so pre-flight enters the blocked branch and demands
+        a reason — same verdict the orchestrator would reach."""
+        with pytest.raises(HandlerError, match="tests_execution_blocked_reason"):
+            self._propose_tester({"tests_execution_blocked": "true"})
+
+    def test_unparseable_tests_execution_blocked_rejected(self):
+        """Values neither bool-like nor recognized strings (e.g. a
+        list) are rejected pre-flight with a coercion error. Pydantic
+        would also reject these — pre-flight just surfaces the message
+        before the request hits the wire."""
+        with pytest.raises(HandlerError, match="must be a bool"):
+            self._propose_tester({"tests_execution_blocked": ["maybe"]})
+
+    def test_non_string_checks_passed_items_rejected(self):
+        """``checks_passed=[1, 2, 3]`` is the same #2338 footgun shape
+        as the canonical empty-attestation case — the agent forgot to
+        stringify check identifiers. Pydantic's ``list[str]`` field
+        rejects this; pre-flight catches it first with a message that
+        names the bad items."""
+        with pytest.raises(HandlerError, match="must be strings"):
+            self._propose_tester({"tests_run": 5, "checks_passed": [1, 2, 3]})
+
+
+class TestPreFlightMirrorsOrchestrator:
+    """Cross-check: pre-flight and orchestrator's strict validator agree.
+
+    The pre-flight docstring claims it "mirrors the orchestrator's
+    strict-mode tester checks." This class enforces that as an
+    invariant rather than a docstring claim — every payload runs
+    through both validators, and the verdicts (accept / reject) must
+    match. If someone tightens one side and not the other, one of these
+    parametrized cases fails. See PR #2344 review feedback.
+    """
+
+    @staticmethod
+    def _orchestrator_verdict(attestation: dict) -> bool:
+        """Return True if the orchestrator's strict validator would
+        accept the payload, False if it raises. Catches ``ValueError``
+        — pydantic.ValidationError inherits from ValueError in v2, and
+        ``_validate_strict`` raises ``ValueError`` directly."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        try:
+            validate_attestation(
+                "tester",
+                attestation,
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _pre_flight_verdict(attestation: dict) -> bool:
+        """Return True if pre-flight accepts (passes silently), False
+        if it raises ``HandlerError``."""
+        try:
+            brc._validate_tester_attestation_pre_flight(attestation)
+        except HandlerError:
+            return False
+        return True
+
+    @pytest.mark.parametrize(
+        "attestation",
+        [
+            # Empty payload — both reject.
+            {},
+            # Missing checks_passed — both reject.
+            {"tests_run": 5},
+            # Missing tests_run — both reject.
+            {"checks_passed": ["test"]},
+            # Zero tests_run — both reject.
+            {"tests_run": 0, "checks_passed": ["test"]},
+            # Empty checks_passed list — both reject.
+            {"tests_run": 5, "checks_passed": []},
+            # Blocked without reason — both reject.
+            {"tests_execution_blocked": True},
+            # Blocked + tests_run > 0 — both reject (mutual exclusion).
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "tests_run": 5,
+            },
+            # Happy path — both accept.
+            {"tests_run": 42, "checks_passed": ["lint", "test"]},
+            # Blocked with reason — both accept.
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "private-network mode",
+            },
+            # Negative tests_run — both accept (Pydantic has no constraint,
+            # _validate_strict only rejects == 0; pre-flight mirrors).
+            {"tests_run": -3, "checks_passed": ["test"]},
+            # String "false" for tests_execution_blocked — both accept.
+            {
+                "tests_execution_blocked": "false",
+                "tests_run": 1,
+                "checks_passed": ["test"],
+            },
+            # String "true" without reason — both reject.
+            {"tests_execution_blocked": "true"},
+            # --- Pydantic parse-step type checks (PR #2344 re-review) ---
+            # Bad tests_run type (unparseable string) — Pydantic rejects in
+            # both modes; pre-flight now mirrors via _coerce_attestation_int.
+            {"tests_run": "abc", "checks_passed": ["test"]},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "tests_run": "abc",
+            },
+            # Bad tests_run type (list) — same.
+            {"tests_run": ["t1", "t2"], "checks_passed": ["test"]},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "tests_run": ["t1", "t2"],
+            },
+            # Non-integer-valued float — Pydantic rejects (only int-like
+            # floats coerce to int); pre-flight mirrors.
+            {"tests_run": 0.5, "checks_passed": ["test"]},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "tests_run": 0.5,
+            },
+            # Integer-valued float — Pydantic accepts (2.0 → 2); pre-flight
+            # mirrors via float.is_integer() in the coercion helper.
+            {"tests_run": 2.0, "checks_passed": ["test"]},
+            # Parseable integer string — Pydantic accepts; pre-flight mirrors.
+            {"tests_run": "42", "checks_passed": ["test"]},
+            # Non-list checks_passed — Pydantic rejects (list[str] field) in
+            # both blocked and non-blocked modes; pre-flight mirrors with
+            # an unconditional isinstance(..., list) check above the
+            # branch split.
+            {"tests_run": 5, "checks_passed": "lint"},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "checks_passed": "lint",
+            },
+            # Non-string items in checks_passed — Pydantic's list[str] field
+            # rejects this (the operationally-relevant #2338 footgun shape
+            # flagged in the second re-review). Pre-flight now mirrors with
+            # an explicit item-type check.
+            {"tests_run": 5, "checks_passed": [1, 2, 3]},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "checks_passed": [1, 2, 3],
+            },
+            # Mixed string + non-string items — pre-flight should still
+            # reject (Pydantic does too).
+            {"tests_run": 5, "checks_passed": ["lint", 42, "test"]},
+        ],
+    )
+    def test_pre_flight_matches_orchestrator(self, attestation: dict):
+        pre_flight = self._pre_flight_verdict(attestation)
+        orchestrator = self._orchestrator_verdict(attestation)
+        assert pre_flight == orchestrator, (
+            f"Verdict divergence for {attestation!r}: "
+            f"pre-flight={'accept' if pre_flight else 'reject'}, "
+            f"orchestrator={'accept' if orchestrator else 'reject'}. "
+            "Pre-flight must mirror the orchestrator's strict validator."
+        )
 
 
 class TestBrcAck:
