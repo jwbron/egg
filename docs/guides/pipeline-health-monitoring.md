@@ -221,7 +221,13 @@ The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_p
 
 ### Alive-Signal Gate for Heartbeat and Progress Alerts
 
-Before firing a per-agent `heartbeat_timeout` or `progress_stall` alert, the health monitor checks whether the pipeline still has observable forward progress from peers. This **alive-signal gate** defers the alert when any of the following has fired within `orchestrator_alert_progress_gate_seconds` (default: 300s):
+Before firing a per-agent `heartbeat_timeout` or `progress_stall` alert, the health monitor evaluates two OR'd gates. Either gate deferring the alert prevents escalation; both must pass for the alert to fire.
+
+**Gate 1 — Focal-agent activity gate (#2190):** Checked first. Defers the alert when the focal agent itself has emitted a `CONTAINER_ACTIVITY` event within `orchestrator_activity_quiet_seconds` (default: 120s). `CONTAINER_ACTIVITY` events fire on demonstrable signs of life that don't use the bus-level `HEARTBEAT` path — today, a successful commit registration from the gateway commit observer. This gate addresses agents that are mid-tool-call (e.g., a multi-minute background pytest) and are committing along the way; the bus is silent, but the agent is making real progress. The gate returns `(False, None)` when no `CONTAINER_ACTIVITY` event has ever been recorded for the agent (the implementation compares `last_activity` against the named module-level sentinel `_NEVER_SEEN_ACTIVITY`), so a freshly spawned but truly silent agent still escalates on the heartbeat anchor. The `escalated` flag is intentionally not set on defer so the next poll re-checks once activity goes stale.
+
+**Setting `orchestrator_activity_quiet_seconds = 0` disables the focal-agent gate entirely** — operator escape hatch if the gate produces false negatives in production.
+
+**Gate 2 — Peer-progress gate (#2242):** Evaluated when Gate 1 does not defer. Defers the alert when any of the following has fired within `orchestrator_alert_progress_gate_seconds` (default: 300s):
 
 - The BRC tracker's most recent `CONSENSUS_PROPOSE` or ACK/NACK timestamp on this pipeline
 - A heartbeat from any **other** agent in the current-phase active-agent set
@@ -234,7 +240,7 @@ If a peer signal is found within the window, the alert is deferred. The deferral
 
 **Caveat — single-producer self-deferral:** Self-exclusion only applies to the peer-heartbeat path. The BRC-bus path (`get_latest_progress_timestamp`) aggregates proposals + ACK/NACK timestamps across the whole tracker and is **not** filtered by focal agent. On a single-producer pipeline (BRC tracker registered, no peers) the producer's own recent `CONSENSUS_PROPOSE` / ACK therefore defers its own heartbeat alert until `gate_seconds` elapses past that timestamp. The effective stall-detection window in that case is `heartbeat_threshold + gate_seconds` (≈360s with defaults) rather than `heartbeat_threshold` (≈60s). Genuinely-dead containers are still caught by `CONTAINER_STOPPED`; for a hung process inside a live container, detection is delayed by up to `gate_seconds`. Operators tuning these values on single-producer pipelines should size them with this combined window in mind.
 
-**Setting `orchestrator_alert_progress_gate_seconds = 0` disables the gate.** (#2242)
+**Setting `orchestrator_alert_progress_gate_seconds = 0` disables the peer-progress gate.** (#2242)
 
 ### Branch-Divergence Detection
 
@@ -268,6 +274,7 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `post_proposal_grace_seconds` | `300` | Grace period (seconds) for reviewer-only agents after an upstream producer sends `CONSENSUS_PROPOSE`, before heartbeat/progress stall checks apply (must be >= 30). Resets on each new proposal. |
 | `orchestrator_post_ack_confirmation_timeout_seconds` | `180` | Timeout (seconds) for fully-ACKed producers to send `CONSENSUS_CONFIRMED` before escalation, regardless of heartbeat activity (must be >= 30) |
 | `orchestrator_plan_post_ack_confirmation_timeout_seconds` | `300` | Plan-phase override for the post-ACK confirm timeout. Plan-phase reconciliation (resolved decisions, feedback bodies, slice-DAG sanity) legitimately exceeds 180s on heavy pipelines. (must be >= 30; #2242) |
+| `orchestrator_activity_quiet_seconds` | `120` | Seconds since the last `CONTAINER_ACTIVITY` event below which the focal agent is considered alive — suppresses `heartbeat_timeout` and `progress_stall` alerts even when bus-level `HEARTBEAT` traffic is absent. `CONTAINER_ACTIVITY` fires on successful commit registrations. Set to `0` to disable this gate entirely. (#2190) |
 | `orchestrator_alert_progress_gate_seconds` | `300` | Defer `heartbeat_timeout` and `progress_stall` per-agent alerts while any peer agent or the BRC bus has emitted a signal within this many seconds. Mirrors `brc_consensus_progress_gate_seconds` but for per-agent tripwires. 0 disables the gate. (#2242) |
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
@@ -399,6 +406,8 @@ The system follows a progressive escalation ladder:
 | 7 | **Slack notification** | Human escalation for urgent issues |
 
 **Escalation safety net**: If the decision-maker selects `nudge` or `redirect` but the accompanying message indicates human intervention is required (e.g., contains phrases combining human/manual/operator with intervention/review/needed), the action is automatically upgraded to `hitl`. This prevents under-escalation caused by LLM phrasing that signals urgency without selecting the appropriate action level.
+
+**No-first-stall-restart guard (#2190)**: A deterministic post-hoc check (`_enforce_no_first_stall_restart`) downgrades `restart_agent` to `hitl` when three conditions all hold: the action is `restart_agent`, the classification is `stuck` or `needs_help`, and there is no prior corrective intervention of any kind (`nudge`, `redirect`, `issue`, `slack`, `restart_agent`, `restart_phase`, `hitl`) in the agent's redirect history. The guard exists because an apparently-silent agent is often mid-tool-call (e.g., a multi-minute pytest), and restarting would destroy in-flight commits. The HITL decision preserves the model's original recommendation and reasoning so the operator can approve a restart if appropriate. Reserve `restart_agent` for follow-up alerts where prior log inspection has confirmed the agent is genuinely inactive.
 
 ### Post-Consensus Stall Detection
 
