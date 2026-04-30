@@ -511,3 +511,87 @@ class TestSyncWorktreeOutcomeLogging:
             )
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
             assert "divergence_rebase_failed" in _outcome_cases(mock_logger)
+
+    def test_local_ahead_discarded_emits_outcome(self):
+        """#2337 review S2: prior-phase-failed-discard branch must emit a
+        case-discriminator outcome before falling through to reset, so
+        log-based dashboards see a uniform exit-path event.
+        """
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                # Local 2 ahead, 0 behind — prior phase failed → discard.
+                _make_subprocess_result(stdout="2\t0\n"),
+                # Reset succeeds.
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                prior_phase_succeeded=False,
+            )
+            cases = _outcome_cases(mock_logger)
+            # The fall-through emits BOTH the discard discriminator and
+            # the reset_succeeded outcome — fall-through paths emit a
+            # sequence so dashboards see every exit-path event.
+            assert "local_ahead_discarded_falling_through_to_reset" in cases
+            assert "reset_succeeded" in cases
+
+    def test_divergence_with_base_branch_none_logs_contamination_warning(self):
+        """#2337 review S7: divergence rebase with ``base_branch=None``
+        falls back to the bare-rebase form (the #2222 contamination
+        vector); log a warning so the next person debugging
+        contamination has a breadcrumb at the call site.
+        """
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="2\t3\n"),
+            ]
+            mock_rebase.return_value = PushResult(ok=True, category="", detail="")
+            # base_branch=None — the contamination-prone fallback path.
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                base_branch=None,
+            )
+            warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
+            assert any("base_branch=None" in m and "#2222" in m for m in warning_msgs)
+
+    def test_divergence_with_base_branch_set_does_not_log_contamination_warning(self):
+        """#2337 review S7: with ``base_branch`` threaded the safer
+        ``--onto`` form is used; no contamination breadcrumb required.
+        """
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="2\t3\n"),
+            ]
+            mock_rebase.return_value = PushResult(ok=True, category="", detail="")
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                base_branch="main",
+            )
+            warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
+            assert not any("base_branch=None" in m for m in warning_msgs)

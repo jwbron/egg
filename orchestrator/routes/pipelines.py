@@ -5418,6 +5418,17 @@ def _sync_worktree_with_remote(
                 branch=branch,
                 local_ahead=local_ahead,
             )
+            # The reset below emits its own outcome (reset_succeeded /
+            # reset_failed / reset_exception), but those don't name *why*
+            # we fell through.  Emit a discriminator so log-based
+            # dashboards see a uniform exit-path event for every branch.
+            logger.info(
+                "worktree_sync_outcome",
+                case="local_ahead_discarded_falling_through_to_reset",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                local_ahead=local_ahead,
+            )
         # Fall through to reset (Step 4)
 
     elif local_ahead > 0 and remote_ahead > 0:
@@ -5426,6 +5437,27 @@ def _sync_worktree_with_remote(
         # push-reject reconcile path (#2337).  --ff-only would always
         # fail here by definition, leaving the worktree stale for
         # downstream populator/decision-sync paths.
+        #
+        # ⚠️ When ``base_branch_for_reconcile`` is None,
+        # ``_build_rebase_cmd`` falls back to the plain
+        # ``git rebase origin/{branch}`` form — the same form that
+        # triggered #2222 main-contamination on the gateway-side
+        # push-reject path.  That fallback is the contamination vector:
+        # with HEAD at current main and origin/{branch} on a stale
+        # snapshot, the plain form replays merge-base..HEAD on the
+        # stale tip, producing a PR full of duplicate-by-content
+        # commits.  Callers should always thread ``pipeline.base_branch``
+        # so the helper emits the safer
+        # ``--onto origin/{branch} origin/{base_branch}`` form.  Logging
+        # the None case so the next person debugging contamination has a
+        # breadcrumb.
+        if base_branch_for_reconcile is None:
+            logger.warning(
+                "worktree_sync divergence_rebase with base_branch=None — "
+                "falling back to bare-rebase form (#2222 contamination risk)",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
         logger.info(
             "Local and remote have diverged — rebasing local onto origin",
             pipeline_id=pipeline_id,
@@ -15232,6 +15264,13 @@ def _run_pipeline(
                         branch=pipeline.branch,
                     )
                 except PlanDraftMissingOnLocalError as missing_err:
+                    # Mirror the slice-gate failure handler at the
+                    # implement-phase entry: mark FAILED in state,
+                    # then run the same cleanup sequence as the
+                    # ``if phase_failed:`` block above (teardown phase
+                    # overseer, report pipeline status, best-effort push
+                    # for backup) so both load-bearing failure paths
+                    # have a uniform cleanup story.  Re #2337 review.
                     with get_pipeline_state_lock(pipeline_id):
                         pipeline = store.load_pipeline(pipeline_id)
                         phase_execution = pipeline.get_phase_execution(current_phase)
@@ -15246,7 +15285,43 @@ def _run_pipeline(
                         pipeline_id=pipeline_id,
                         error=str(missing_err),
                     )
+                    phase_failed = True
+                    # Stop the phase-scoped overseer on failure.
+                    # Hold the lock to prevent the poll thread from seeing
+                    # the container as EXITED and respawning it.
+                    with overseer_lock:
+                        if overseer_container_id and phase_overseer_active:
+                            phase_overseer_active = False
+                            _teardown_phase_overseer(
+                                spawner,
+                                overseer_container_id,
+                                pipeline_id,
+                                phase_label=str(current_phase),
+                                reason="plan draft missing on local",
+                            )
+                    report_pipeline_status(
+                        pipeline,
+                        event_type="pipeline.failed",
+                        message=f"Pipeline failed: {(pipeline.error or 'unknown')[:100]}",
+                    )
                     _emit_pipeline_event(pipeline, "pipeline.failed")
+                    # Best-effort: push worktree branch to remote so work
+                    # is backed up before the pipeline exits.
+                    if pipeline.branch and worktree_repo_path != repo_path:
+                        try:
+                            spawner.gateway.push_worktree_branch(
+                                pipeline_id=pipeline_id,
+                                repo_path=str(worktree_repo_path),
+                                branch=pipeline.branch,
+                                mode=gateway_mode,
+                                base_branch=pipeline.base_branch,
+                            )
+                        except Exception as push_err:
+                            logger.warning(
+                                "Best-effort push on failure failed",
+                                pipeline_id=pipeline_id,
+                                error=str(push_err),
+                            )
                     break
 
             # After refine and plan phases: sync substantive HITL decisions
