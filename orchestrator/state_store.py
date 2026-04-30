@@ -513,12 +513,14 @@ class StateStore:
         The state worktree lives on a per-pod ``emptyDir`` mount that the
         gateway pod cannot see, while the bare repo (and its
         ``.git/worktrees/<name>/gitdir`` pointers) is shared via
-        ``hostPath``.  When the gateway runs ``git worktree prune`` (e.g.
-        in checkpoint-handler cleanup), ours is the one entry whose
-        ``gitdir`` points to a path that does not exist from the
-        gateway's filesystem — so prune marks it ``prunable`` and
-        removes the admin dir, taking down every subsequent
-        ``rev-parse`` from the orchestrator (#2324).
+        ``hostPath``.  The remaining cross-pod prune surfaces are the
+        operator-facing ``/api/v1/worktrees/prune`` endpoint and the
+        gateway's startup ``prune_stale_worktrees`` defense-in-depth
+        sweep — from those callers' filesystem the orchestrator's
+        state-worktree path resolves to a non-existent location, so
+        without a lock the admin dir is treated as ``prunable`` and
+        removed, taking down every subsequent ``rev-parse`` from the
+        orchestrator (#2324).
 
         Locking is best-effort: on failure we log and continue, mirroring
         ``gateway/worktree_manager.py``'s lock-after-add pattern.  An
