@@ -531,11 +531,15 @@ class PhaseFilter:
         carrying its blocklist + block-exempt patterns so the gateway's
         early-reject path matches the per-commit attribution path.
 
-        ``blocked_reason`` is derived from the source ``AgentFilePattern.description``
-        when present so error messages stay role-specific (and don't all
-        collapse to a generic "see patterns.py" hint that misleads
-        downstream callers nudging users toward ``egg-contract`` for
-        non-contract violations).
+        ``blocked_reason`` is derived from the source
+        ``AgentFilePattern.description`` (which describes the role's
+        positive scope — what it IS allowed to touch) so error messages
+        stay role-specific. The negative-lead "Role 'X' cannot modify
+        these files. <positive description>" wording was rejected in
+        review as misleading on first read (the positive description
+        sounded like the disallowed scope). The current "is restricted
+        to" framing keeps the description's positive framing readable
+        after the negative lead.
         """
         restrictions: list[FileRestriction] = []
         for role, pattern in AGENT_PATTERNS.items():
@@ -543,7 +547,7 @@ class PhaseFilter:
                 continue
             if pattern.description:
                 blocked_reason = (
-                    f"Role '{role}' cannot modify these files. {pattern.description} "
+                    f"Role '{role}' is restricted to: {pattern.description} "
                     "(see shared/egg_restrictions/patterns.py)."
                 )
             else:
