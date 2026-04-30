@@ -185,9 +185,21 @@ Without it, the system falls back to posting reviews as comments (self-review mo
    - Makes fixes addressing actionable feedback
    - Runs tests and linters before pushing
    - Commits and pushes all fixes together
-   - Replies to feedback it disagrees with or cannot address
+   - Posts a top-level summary comment with a per-item disposition for every actionable
+     feedback item (see [Feedback Contract](#feedback-contract) below); may also reply
+     inline on specific threads
 
-8. **Result comment** — Posts success or failure status with link to run logs.
+8. **Contract verification** — Scans the agent's response comments (posted since run
+   start) for forbidden phantom-follow-up phrases and verifies that every
+   `deferred-to #NNNN` reference points to a real GitHub issue created during this run.
+   On violation, posts a flag comment naming the offenses and fails the workflow.
+
+9. **Result comment** — Posts status with link to run logs. Possible outcomes:
+   - *Feedback addressed* — agent succeeded and contract passed
+   - *Feedback contract violated* — agent ran but the contract guard detected a violation (see flag comment)
+   - *Cancelled* — agent was cancelled mid-run
+   - *Failed* — agent failed to address feedback
+   - *Workflow failed before running egg* — an earlier step failed (e.g. trusted-prompt build), so `steps.egg.outcome` was `skipped` or unset
 
 ### Iteration Limiting
 
@@ -198,15 +210,36 @@ To prevent infinite feedback loops, the workflow limits rounds to 5 by default:
 
 There's a small race window where concurrent runs could exceed the limit by one round, but the concurrency group (`cancel-in-progress: true`) mitigates this for most cases.
 
-### Feedback Rules
+### Feedback Contract
 
-The agent addresses all actionable review feedback:
+Every actionable review item must receive one of three dispositions in the agent's
+top-level response comment:
 
-| Action | When |
-|--------|------|
-| **Fix** | Correctness issues, security concerns, logic errors, missing error handling, resource leaks, breaking changes, pattern violations |
-| **Respond (do not fix)** | Disagreement with feedback — agent posts a reply explaining reasoning instead of making the change |
-| **Skip** | Pure style suggestions that linters handle, subjective preferences without technical justification |
+| Disposition | Usage |
+|-------------|-------|
+| `fixed-in-PR (commit <SHA>)` | Change was made in this PR. Must cite the commit SHA. |
+| `deferred-to #<NNNN>` | Not fixing in this PR. Agent must file the issue with `gh issue create` *before* posting the response; `#NNNN` must be the resulting issue number created during this run. |
+| `disagree (<reasoning>)` | Agent disagrees the change is needed. Must explain why. |
+
+**Default to in-PR fixes.** Deferral is allowed only when the fix would balloon PR scope,
+requires design alignment that can't be reached here, or the reviewer explicitly asked for
+a follow-up. Phantom follow-ups — promises to file an issue after posting the response, or
+`deferred-to` references to non-existent or pre-existing issues — are forbidden and
+detected by a post-run guard that fails the workflow.
+
+**Posting a response is mandatory.** Failing to post any top-level response comment is
+itself a contract violation; the verifier flags `count == 0` and fails the run. There
+is no "silent skip" path — pure style suggestions handled by linters or subjective
+preferences without technical justification still appear in the response with a
+`disagree (style preference, no technical impact)` tag or similar.
+
+**Post-run contract verification:** After the agent runs, the workflow automatically
+scans the agent's response comments for forbidden phrases and verifies every
+`deferred-to #NNNN` reference points to a real GitHub issue (not a PR) created during
+this run (with a 60s clock-skew grace window). Quoted reviewer text, fenced code
+blocks, and inline `` `code` `` spans are excluded from the phrase scan to avoid
+false positives. If violations are found, a flag comment is posted naming the
+offenses and the workflow run fails.
 
 **Note:** Reviewers can include non-blocking suggestions in approval reviews by adding `<!-- has-suggestions -->` anywhere in the review body. This marker signals that the approval includes suggestions the agent should address, triggering the feedback workflow even though the review state is "approved".
 
@@ -214,8 +247,11 @@ The agent addresses all actionable review feedback:
 
 The workflow follows the trusted prompt build pattern:
 1. Prompt script runs from `main` to prevent PR-based prompt injection
-2. Agent runs in the sandbox with no credential access
-3. Gateway enforces branch ownership and blocks merges
+2. The contract verifier (`action/verify-feedback-contract.sh`) is stashed from the
+   `main` checkout into `RUNNER_TEMP` before switching to the PR branch, preventing
+   a malicious PR from shipping a modified verifier that polices its own run
+3. Agent runs in the sandbox with no credential access
+4. Gateway enforces branch ownership and blocks merges
 
 ## Design Review
 
