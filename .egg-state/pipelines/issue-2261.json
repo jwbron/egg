@@ -263,10 +263,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Re-export style inside the barrel __init__.py: how should we re-export symbols from submodules?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Explicit per-symbol re-exports (recommended) — `from ._run_loop import _run_pipeline, _spawn_pipeline_run_thread, ...`. Most explicit; easy to spot drift in code review; works with linters out of the box.",
+        "__all__-driven wildcard — each submodule defines __all__; barrel does `from ._run_loop import *`. Less code in the barrel; harder to audit; some linters flag wildcard imports.",
+        "Hybrid — each submodule defines __all__ and the barrel does explicit re-exports listing every name. Belt-and-braces; most verbose.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-30T03:56:36.332175Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T03:56:36.293829Z",
+  "updated_at": "2026-04-30T03:56:36.353929Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -280,6 +299,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null
 }
