@@ -176,9 +176,18 @@ def find_orphaned_child_prs(
             pr_by_head[head] = pr
 
     orphans: list[OrphanedChildPR] = []
-    issue_number = contract.issue.number if contract.issue is not None else None
-    pipeline_id = contract.contract_key
-    issue_branch = f"egg/issue-{issue_number}" if issue_number else f"egg/{pipeline_id}"
+    # ``contract_key`` returns the canonical pipeline id for all
+    # supported shapes — issue-driven (``issue-N``), qualified
+    # (``issue-N-v3``, ``issue-N-backend``), and JIRA (``ENG-1234``).
+    # The orchestrator's slice-integration branches preserve the
+    # qualifier (see ``routes/pipelines.py`` ``pipeline.branch``
+    # propagation), so deriving the issue branch from ``contract_key``
+    # keeps the reconciler's lookup shape aligned with the producer's
+    # branch shape. A pre-#2137 split here that hard-coded
+    # ``egg/issue-N`` for any contract with a populated ``issue``
+    # field silently no-op'd orphan detection on every qualified
+    # pipeline.
+    issue_branch = f"egg/{contract.contract_key}"
     slices_by_id = {s.id: s for s in contract.slices}
 
     for slice_ in contract.slices:

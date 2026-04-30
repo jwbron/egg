@@ -843,6 +843,32 @@ class TestSliceIntegrationBranchExemption:
             response = _do_push(client, refspec="egg/issue-2261")
             assert response.status_code == 403
 
+    def test_synthetic_session_multi_segment_base_blocked(self, client):
+        """Multi-segment base shapes (``egg/foo/bar/slice-N``) are not produced
+        by the orchestrator and the regex MUST reject them.
+
+        The documented branch shape is ``egg/<single-segment>/(slice|phase)-N``;
+        accepting multi-segment bases would widen the exemption surface beyond
+        what the orchestrator actually emits.
+        """
+        session = _make_session(synthetic=True, assigned_branch="egg/foo/bar/slice-1")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/foo:refs/heads/egg/foo/bar/slice-1",
+            )
+            assert response.status_code == 403
+
     def test_audit_event_records_slice_integration_exempt_type(self, client):
         """Exemption emits a distinct audit event so operators can trace
         synthetic-session pushes separately from checkpoint/state writes."""

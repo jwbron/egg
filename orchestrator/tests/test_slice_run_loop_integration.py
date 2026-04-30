@@ -78,23 +78,27 @@ from routes.pipelines import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def _make_pipeline(pipeline_id: str = "issue-9999", issue_number: int | None = 9999) -> Pipeline:
-    """Pipeline with concurrent_execution enabled for slice-loop tests."""
-    config = PipelineConfig()
-    for key, val in {
-        "concurrent_execution": True,
-        "max_concurrent_agents": 6,
-        "consensus_timeout_minutes": 30,
-    }.items():
-        try:
-            setattr(config, key, val)
-        except AttributeError, ValueError:
-            config.__dict__[key] = val
+def _make_pipeline(
+    pipeline_id: str = "issue-9999",
+    issue_number: int | None = 9999,
+) -> Pipeline:
+    """Pipeline with concurrent_execution enabled for slice-loop tests.
+
+    ``branch`` is derived from ``pipeline_id`` so qualified pipelines
+    (``issue-N-v3``, ``issue-N-backend``) propagate the qualifier into
+    ``pipeline.branch`` — the slice-loop's canonical source for the
+    integration-branch parent (#2370 review).
+    """
+    config = PipelineConfig(
+        concurrent_execution=True,
+        max_concurrent_agents=6,
+        consensus_timeout_minutes=30,
+    )
     return Pipeline(
         id=pipeline_id,
         issue_number=issue_number,
         repo="owner/repo",
-        branch=f"egg/issue-{issue_number}" if issue_number else f"egg/{pipeline_id}",
+        branch=f"egg/{pipeline_id}",
         status=PipelineStatus.RUNNING,
         current_phase=PipelinePhase.IMPLEMENT,
         config=config,
@@ -1522,25 +1526,8 @@ class TestSliceIntegrationBranchQualifierPreserved:
 
     def test_qualified_pipeline_branch_propagates_to_slice_branches(self) -> None:
         """``egg/issue-N-v3`` ⇒ slices stack under the qualified prefix."""
-        config = PipelineConfig()
-        for key, val in {
-            "concurrent_execution": True,
-            "max_concurrent_agents": 6,
-            "consensus_timeout_minutes": 30,
-        }.items():
-            try:
-                setattr(config, key, val)
-            except AttributeError, ValueError:
-                config.__dict__[key] = val
-        pipeline = Pipeline(
-            id="issue-2261-v3",
-            issue_number=2261,
-            repo="owner/repo",
-            branch="egg/issue-2261-v3",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-            config=config,
-        )
+        pipeline = _make_pipeline(pipeline_id="issue-2261-v3", issue_number=2261)
+        assert pipeline.branch == "egg/issue-2261-v3"  # helper-derived; sanity-check
         contract = _make_contract(
             pipeline_id="issue-2261-v3",
             issue_number=2261,

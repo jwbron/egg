@@ -1076,12 +1076,14 @@ def config_reload() -> Response:
 
 
 # Slice integration-branch shape for the synthetic-session exemption (#2368).
-# Matches ``egg/<base>/(slice|phase)-<digits>`` where ``<base>`` is the parent
-# pipeline branch (issue-driven, JIRA-driven, or qualifier-suffixed).  Only
+# Matches ``egg/<base>/(slice|phase)-<digits>`` where ``<base>`` is a single
+# segment naming the parent pipeline branch (issue-driven, JIRA-driven, or
+# qualifier-suffixed) — multi-segment bases are never produced by the
+# orchestrator, so the second character class excludes ``/``.  Only
 # orchestrator-issued sessions can ever set ``synthetic=True`` (the launcher
 # secret gates ``/api/v1/sessions/create``), so this exemption is not reachable
 # from a sandboxed agent's session token.
-_SLICE_INTEGRATION_BRANCH_RE = re.compile(r"^egg/[A-Za-z0-9][A-Za-z0-9_/-]*/(?:slice|phase)-\d+$")
+_SLICE_INTEGRATION_BRANCH_RE = re.compile(r"^egg/[A-Za-z0-9][A-Za-z0-9_-]*/(?:slice|phase)-\d+$")
 
 
 @app.route("/api/v1/git/push", methods=["POST"])
@@ -1343,6 +1345,15 @@ def git_push() -> tuple[Response, int] | Response:
                 exempt_type = "slice_integration_branch"
             else:
                 exempt_type = "infrastructure_branch"
+            # A successful slice-integration push intentionally emits BOTH
+            # ``push_slice_integration_exempt`` (above, the orchestrator-
+            # specific event) AND ``push_infrastructure_exempt`` with
+            # ``exempt_type="slice_integration_branch"`` (here, the generic
+            # exemption event).  Operators grepping ``push_infrastructure_exempt``
+            # for "infra pushes" should filter out the slice variant via
+            # ``exempt_type``; the dual emission is intentional so the
+            # orchestrator-specific path is also visible to operators
+            # filtering on the slice-integration event name (#2370 review).
             audit_log(
                 "push_infrastructure_exempt",
                 "git_push",
