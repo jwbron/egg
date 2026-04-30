@@ -5,7 +5,7 @@
   "branch": "egg/issue-2261-v2",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -67,10 +67,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-30T17:18:27.314849Z",
       "work_started_at": "2026-04-30T17:18:27.594992Z",
-      "completed_at": null,
+      "completed_at": "2026-04-30T17:20:17.339462Z",
       "containers": [
         {
           "container_id": "0098eb2c-5d01-4c5c-9625-a42f761b2ffd",
@@ -159,12 +159,12 @@
         {
           "cycle": 0,
           "started_at": "2026-04-30T17:18:27.594992Z",
-          "completed_at": null,
+          "completed_at": "2026-04-30T17:20:17.339447Z",
           "commit_sha": "7090ea90edf77a981e4a35b9c71928383a654e1f"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff12c49600>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff12c49600>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets May 2, 9am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Startup failure on restart 2 (code 1 after 1s). Will retry.\n[consensus-wrapper] Max restarts (2) exhausted. Agent never reached CONFIRMED. Exiting with failure.\nYou've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=reviewer_agent_design, reviewer_refine, refiner",
       "hitl_feedback": null,
       "phase_start_sha": "7090ea90edf77a981e4a35b9c71928383a654e1f",
       "agent_exits": [
@@ -327,7 +327,7 @@
     }
   ],
   "created_at": "2026-04-30T17:18:23.738933Z",
-  "updated_at": "2026-04-30T17:20:17.306366Z",
+  "updated_at": "2026-04-30T17:20:17.339523Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -335,12 +335,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff12c49600>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff12c49600>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets May 2, 9am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Startup failure on restart 2 (code 1 after 1s). Will retry.\n[consensus-wrapper] Max restarts (2) exhausted. Agent never reached CONFIRMED. Exiting with failure.\nYou've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)You've hit your limit · resets May 2, 9am (UTC)\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=reviewer_agent_design, reviewer_refine, refiner",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11,
+  "version": 12,
   "jira_ticket": null
 }
