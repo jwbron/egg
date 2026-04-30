@@ -277,9 +277,9 @@ lint-custom: sync-venv-if-uv
 ## per-branch Last-Known-Good (LKG) commit (or base branch when no
 ## LKG sidecar exists), and runs pytest on only that subset.  Any
 ## sign of static-analysis fog (conftest / Makefile / pyproject /
-## uv.lock / workflow / shared/tests / non-.py / gateway/*.py /
-## dynamic-import / unresolvable-baseline / LKG-not-ancestor) widens
-## to the full suite with an explicit trigger string on stderr.  See
+## uv.lock / workflow / shared/tests / non-.py / dynamic-import /
+## unresolvable-baseline / LKG-not-ancestor) widens to the full
+## suite with an explicit trigger string on stderr.  See
 ## docs/guides/testing.md and scripts/select_tests/__init__.py for
 ## the full design.
 ##

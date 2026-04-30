@@ -203,10 +203,9 @@ _NARROW_LINE_RE = re.compile(
     r"\(baseline=[0-9a-f]{7}, trigger=diff\)$"
 )
 _FULL_LINE_RE = re.compile(
-    # trigger= ... up to the FINAL closing paren of the line.  The
-    # trigger string itself may legitimately contain `(...)` (e.g.
-    # ``gateway source change (importlib test-loader)``) so we anchor
-    # on the line end rather than the first close-paren.
+    # trigger= ... up to the FINAL closing paren of the line.  Anchor
+    # on line end rather than the first close-paren so trigger strings
+    # that legitimately contain `(...)` round-trip through the regex.
     r"^select-tests: full suite \d+ tests \(trigger=.+\)$"
 )
 
@@ -236,7 +235,6 @@ def test_narrow_line_format_matches_regex() -> None:
         "unresolvable baseline",
         "dynamic-import reachability",
         "non-.py change",
-        "gateway source change (importlib test-loader)",
         "source file missing from graph: shared/egg_config/_orphan.py",
         "graph unavailable",
     ],

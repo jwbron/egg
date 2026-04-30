@@ -88,6 +88,15 @@ def _load_module_with_replaced_imports(
 
 
 # Load modules in dependency order
+# _module_loader holds the importlib bootstrap for gateway.py's
+# sibling-loader.  It has no relative imports.  Loading it here makes
+# `from _module_loader import ...` resolvable in flat-module test
+# mode, mirroring how other gateway dependencies are pre-seeded.
+module_loader = _load_module_with_replaced_imports(
+    "_module_loader",
+    GATEWAY_DIR / "_module_loader.py",
+)
+
 # github_client has no relative imports to other gateway modules
 github_client = _load_module_with_replaced_imports(
     "github_client",
@@ -345,6 +354,7 @@ gateway = _load_module_with_replaced_imports(
     "gateway",
     GATEWAY_DIR / "gateway.py",
     import_replacements={
+        "from ._module_loader import": "from _module_loader import",
         "from .anthropic_credentials import": "from anthropic_credentials import",
         "from .auth import": "from auth import",
         "from .checkpoint_handler import": "from checkpoint_handler import",

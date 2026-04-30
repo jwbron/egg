@@ -157,13 +157,14 @@ def test_index_strips_sandbox_tools_prefix() -> None:
     assert index["foo"] == {"sandbox.tools.foo"}
 
 
-def test_index_does_not_strip_gateway_prefix() -> None:
-    """`gateway/` is NOT on sys.path during build_graph — gateway
-    bare-name imports are handled by the dedicated widening trigger,
-    not the AST resolver.  The index should NOT include `policy` as
-    an alias for `gateway.policy`."""
+def test_index_strips_gateway_prefix() -> None:
+    """`gateway/tests/conftest.py` loads gateway production modules via
+    `importlib.util.spec_from_file_location`, so every gateway test
+    imports production by bare name (`from policy import X`).  The
+    AST resolver bridges those edges, and the index records `policy`
+    as a bare-name alias for `gateway.policy`."""
     index = selector.build_bare_name_index({"gateway.policy"})
-    assert "policy" not in index
+    assert index["policy"] == {"gateway.policy"}
     assert index["gateway.policy"] == {"gateway.policy"}
 
 
@@ -241,6 +242,28 @@ def test_upstream_edges_resolves_dotted_bare_name(tmp_path: Path) -> None:
     }
     edges = selector.build_bare_name_upstream_edges(all_modules, tmp_path)
     assert "tests.shared.egg_logging.test_signatures" in edges["shared.egg_logging.signatures"]
+
+
+def test_upstream_edges_resolves_gateway_bare_name(tmp_path: Path) -> None:
+    """`gateway/tests/test_policy.py` does `from policy import X` —
+    grimp does not see this edge because gateway tests load
+    production via `importlib.spec_from_file_location` rather than
+    sys.path.  The AST resolver bridges the gap via the `gateway.`
+    strip prefix."""
+    _write(
+        tmp_path,
+        {
+            "gateway/policy.py": "X = 1\n",
+            "gateway/tests/test_policy.py": "from policy import X\n",
+        },
+    )
+    all_modules = {
+        "gateway.policy",
+        "gateway.tests.test_policy",
+    }
+    edges = selector.build_bare_name_upstream_edges(all_modules, tmp_path)
+    assert "gateway.policy" in edges
+    assert "gateway.tests.test_policy" in edges["gateway.policy"]
 
 
 def test_upstream_edges_drops_self_edge(tmp_path: Path) -> None:

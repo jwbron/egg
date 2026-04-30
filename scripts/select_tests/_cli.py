@@ -185,32 +185,7 @@ def evaluate_fallback_triggers(
             if _fnmatch(raw_path, pattern):
                 return trigger_string
 
-    # 3d. Gateway importlib-test-loader mapping (R1).  Hits any
-    # `gateway/<file>.py` that is NOT under `gateway/tests/`.  Checked
-    # BEFORE the generic non-.py rule so a mixed diff names the
-    # specific blind spot.
-    #
-    # Layout assumption (locked by current repo as of this PR): gateway/
-    # production source is FLAT — every .py production file is directly
-    # under `gateway/<file>.py`, no subdirectories (verified with
-    # `ls gateway/*.py`).  The TASK-2-3 spec phrases the rule as "any
-    # changed path matching `gateway/*.py`", which is what the
-    # `"/" not in raw_path[len("gateway/") :]` guard implements.  If
-    # gateway production code is ever reorganised into subdirectories
-    # (e.g., `gateway/api/foo.py`), this check would NOT widen on those
-    # subdirectory edits — extend the guard to drop the `"/" not in`
-    # clause at that point.  TASK-5-2's parametrized cases cover the
-    # current flat layout and would catch a change in semantics.
-    for raw_path in paths:
-        if (
-            raw_path.startswith("gateway/")
-            and not raw_path.startswith("gateway/tests/")
-            and "/" not in raw_path[len("gateway/") :]
-            and raw_path.endswith(".py")
-        ):
-            return "gateway source change (importlib test-loader)"
-
-    # 3e. Non-.py changes (decision-5) — the catch-all when none of
+    # 3d. Non-.py changes (decision-5) — the catch-all when none of
     # the more-specific path triggers fired.
     for raw_path in paths:
         if not raw_path.endswith(".py"):

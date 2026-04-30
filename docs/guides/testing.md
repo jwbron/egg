@@ -104,9 +104,12 @@ The algorithm is:
      `from action_guards import …`) to fully-qualified grimp module
      ids, covering the test and production files that import via
      short names rather than fully-qualified package paths. Applies
-     to `shared.*`, `orchestrator.*`, and `sandbox.*`; `gateway.*`
-     is excluded — its importlib test-loader pattern is handled by
-     the `gateway/*.py` widening trigger (§7).
+     to `shared.*`, `orchestrator.*`, `sandbox.*`, AND `gateway.*` —
+     gateway tests reach production via `gateway/tests/conftest.py`'s
+     `importlib.spec_from_file_location` loader (which makes every
+     gateway production module importable by bare name), so the AST
+     resolver bridges those edges the same way it does for the
+     sys.path-injected packages. See §7 for the full rationale.
 6. **Map modules → test files.** Intersect the downstream set with
    the pre-collected set of every `test_*.py` / `*_test.py` file
    in the graph. The selector emits the resulting set of test file
@@ -184,7 +187,6 @@ suite, with the explicit trigger string written to stderr (e.g.
 | **`.github/workflows/test.yml` change** | The CI definition itself — running narrow risks misrepresenting CI's posture. |
 | **`shared/tests/**` change** | `shared/tests/conftest.py` is a universally-consumed cross-package fixture; v1 widens on any path under `shared/tests/` to avoid an allowlist that has not yet been audited. May narrow in a follow-up. |
 | **Any non-`.py` change** | Schemas, fixture data, scripts, YAML, Markdown — none are reachable via the import graph. Conservative v1 default; an allowlist of known-safe paths can be added later. |
-| **`gateway/*.py` change** (production files directly under `gateway/`, NOT `gateway/tests/`) | **Known static-analysis blind spot.** `gateway/tests/conftest.py`'s `_load_module_with_replaced_imports` loads production modules via `importlib.util.spec_from_file_location`, so gateway tests import production by **bare name** (`from policy import ...`, never `from gateway.policy import ...`). Grimp cannot see those edges. Without this trigger, `gateway/policy.py` edits would silently select zero tests. The explicit trigger string is `gateway source change (importlib test-loader)`. See §7 for the long form. |
 | **Source file missing from grimp graph** | At graph-construction time, the selector enumerates every non-test `.py` under `gateway/`, `shared/`, `orchestrator/`, `sandbox/` (excluding `__pycache__`, `.venv`, test directories) and asserts each path resolves to a node in `graph.modules`. Any miss (PACKAGES drift, encoding quirk, grimp cache bug) widens to the full suite with trigger `source file missing from graph: <path>`. |
 | **Dynamic-import-touched module** | During graph construction, the selector regex-scans each module for `importlib.{import_module,util,machinery}`, `__import__`, `SourceFileLoader`, and entry-point plugin patterns. If any changed module is in (or reverse-reachable from) that set, narrow analysis is unsafe. |
 | **Unresolvable changed path** | A changed path that cannot be mapped to an in-repo module (e.g. brand-new file not yet in grimp's graph, a `scripts/*.py` with no wheel binding). |
@@ -192,9 +194,9 @@ suite, with the explicit trigger string written to stderr (e.g.
 | **LKG not ancestor of HEAD** | The recorded LKG sha is not reachable from `HEAD` (force-push, reset, history rewrite). |
 
 When a fallback fires, the stderr line uses the **explicit trigger
-name** (e.g. `Makefile changed`, `gateway source change (importlib
-test-loader)`), not generic wording — the trigger reason is the
-single most useful diagnostic.
+name** (e.g. `Makefile changed`, `dynamic-import reachability`),
+not generic wording — the trigger reason is the single most useful
+diagnostic.
 
 ---
 
@@ -330,30 +332,39 @@ Static reverse import graphs are powerful, but they cannot see:
   do not have static import edges from their consumers. The
   dynamic-import scan picks up the consumer side; missed cases
   surface when CI runs `make test-all`.
-- **Bare-name imports for non-gateway packages.** `shared.*`,
-  `orchestrator.*`, and `sandbox.*` modules are almost universally
+- **Bare-name imports across packages.** `shared.*`, `orchestrator.*`,
+  `sandbox.*`, and `gateway.*` modules are almost universally
   imported by bare name throughout the codebase (e.g. `from
   egg_logging.signatures import …` rather than `from
-  shared.egg_logging.signatures import …`). Grimp registers modules
-  under fully-qualified names, so a plain grimp traversal misses
-  those edges. **Mitigation:** the bare-name AST resolver (step 5)
-  AST-scans every `.py` and maps bare-name targets back to
-  fully-qualified ids, making these edges visible to narrowing.
-- **Gateway's importlib test-loader.** `gateway/tests/conftest.py`
-  defines `_load_module_with_replaced_imports`, which uses
-  `importlib.util.spec_from_file_location` to load production
-  modules and then injects mocks via `sys.modules`. Every gateway
-  test imports production by **bare name** (`from policy import
-  ...`), so grimp sees zero edges from `gateway/tests/test_*.py`
-  to `gateway/policy.py`. Without mitigation, a `gateway/policy.py`
-  edit would resolve an empty test set. **Mitigation:** any change
-  to a file matching `gateway/*.py` (production files directly
-  under `gateway/`, NOT `gateway/tests/`) widens to the full suite
-  with the explicit trigger string `gateway source change (importlib
-  test-loader)`. The bare-name AST resolver (step 5) intentionally
-  excludes `gateway.*` — the importlib loader pattern makes AST
-  edges unreliable there, so the widening trigger remains the stable
-  workaround.
+  shared.egg_logging.signatures import …`, or `from policy import …`
+  rather than `from gateway.policy import …`). Grimp registers
+  modules under fully-qualified names, so a plain grimp traversal
+  misses those edges. **Mitigation:** the bare-name AST resolver
+  (step 5) AST-scans every `.py` and maps bare-name targets back to
+  fully-qualified ids, making these edges visible to narrowing. The
+  resolver covers `gateway.*` even though `gateway/` is not on
+  sys.path during graph build — `gateway/tests/conftest.py`'s
+  `importlib.spec_from_file_location` loader makes every gateway
+  production module bare-name-importable at test time, and the AST
+  resolver only inspects source so the runtime importlib pattern
+  doesn't affect its view.
+
+  Note: the AST resolver only delivers narrowing if the
+  dynamic-import fallback (R6, "dynamic-import reachability") does
+  not fire in its place. Because `_scan_dynamic_imports` regex-scans
+  every module's source for `__import__`, `importlib.util.*`,
+  `SourceFileLoader`, etc., any gateway module that legitimately
+  uses those primitives becomes a seed — and R6 widens for every
+  module reachable through that seed's `find_upstream_modules`
+  closure. To keep `gateway/*.py` edits narrowable, the importlib
+  bootstrap lives in `gateway/_module_loader.py`, a leaf module that
+  imports only stdlib; its upstream closure is empty, so R6 only
+  fires when the bootstrap itself is edited (which is the right
+  call). Keep this invariant in mind when adding any further
+  dynamic-import primitives anywhere in `gateway/` — adding them to
+  a module that is upstream of much of the gateway package would
+  silently re-disable narrowing for everything that flows through
+  it.
 
 These limits are the reason the fallback-trigger list in §4 is as
 broad as it is — narrowing trades coverage for speed, and any
@@ -464,8 +475,6 @@ The stderr trigger string is the diagnostic. Common cases:
   sidecar.
 - `unresolvable baseline` — `origin/main` is missing or
   inaccessible. Check `git remote -v` and `git fetch origin`.
-- `gateway source change (importlib test-loader)` — known blind
-  spot, see §7. The full suite is the right answer here.
 
 **"I want to force the full suite for a single run."**
 
