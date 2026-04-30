@@ -453,6 +453,7 @@ class TestPrRenderPrefersContract:
     """PR body renderer tier-1 is contract.pr.deferred_actions (#2004)."""
 
     def test_contract_lines_take_precedence_over_tracker(self, graph):
+        from egg_contracts.models import DeferredAction
         from routes import pipelines as p
 
         tracker = _make_tracker(graph, condition="stale tracker-only condition")
@@ -463,11 +464,17 @@ class TestPrRenderPrefersContract:
         ):
             section = p._build_pre_merge_obligations_section(
                 "pipeline-x",
-                contract_deferred_actions=["reviewer_code: git mv durable/X new/X"],
+                contract_deferred_actions=[
+                    DeferredAction(
+                        reviewer="reviewer_code",
+                        condition="git mv durable/X new/X",
+                    )
+                ],
             )
 
         assert "Pre-merge Obligations" in section
-        assert "reviewer_code: git mv durable/X new/X" in section
+        assert "reviewer_code" in section
+        assert "git mv durable/X new/X" in section
         # Tracker-only condition must not appear — contract wins.
         assert "stale tracker-only condition" not in section
 
@@ -515,3 +522,266 @@ class TestPrRenderPrefersContract:
             section = p._build_pre_merge_obligations_section("pipeline-x")
 
         assert "git mv foo bar" in section
+
+    def test_legacy_string_entries_still_render(self):
+        """Pre-#2336 contracts persisted ``list[str]``; renderer still loads them."""
+        from routes import pipelines as p
+
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=None,
+        ):
+            section = p._build_pre_merge_obligations_section(
+                "pipeline-x",
+                contract_deferred_actions=["reviewer_code: git mv durable/X new/X"],
+            )
+
+        assert "Pre-merge Obligations" in section
+        # Legacy string is parsed into reviewer + condition and rendered with
+        # the same bullet shape as a structured DeferredAction.
+        assert "reviewer_code" in section
+        assert "git mv durable/X new/X" in section
+
+
+class TestPrRenderResolvedObligations:
+    """Resolved obligations move out of the merge-blocking section (#2336)."""
+
+    def test_resolved_obligation_renders_under_resolved_section_only(self):
+        from egg_contracts.models import DeferredAction
+        from routes import pipelines as p
+
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=None,
+        ):
+            section = p._build_pre_merge_obligations_section(
+                "pipeline-x",
+                contract_deferred_actions=[
+                    DeferredAction(
+                        reviewer="reviewer_code",
+                        condition="git mv legacy/x new/x before merge",
+                        resolved_in_diff="2c319626a",
+                    )
+                ],
+            )
+
+        # All-resolved → no merge-blocking banner anywhere.
+        assert "Pre-merge Obligations" not in section
+        assert "Do **not** merge" not in section
+        # Resolved subsection present, with SHA pointer.
+        assert "Resolved within this PR" in section
+        assert "git mv legacy/x new/x" in section
+        assert "2c319626a" in section
+
+    def test_mixed_open_and_resolved_renders_both_sections(self):
+        from egg_contracts.models import DeferredAction
+        from routes import pipelines as p
+
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=None,
+        ):
+            section = p._build_pre_merge_obligations_section(
+                "pipeline-x",
+                contract_deferred_actions=[
+                    DeferredAction(
+                        reviewer="reviewer_code",
+                        condition="open obligation X",
+                    ),
+                    DeferredAction(
+                        reviewer="reviewer_contract",
+                        condition="resolved obligation Y",
+                        resolved_in_diff="abc1234",
+                    ),
+                ],
+            )
+
+        # Open section + banner.
+        assert "## ⚠️ Pre-merge Obligations" in section
+        assert "Do **not** merge" in section
+        assert "open obligation X" in section
+        # Resolved section.
+        assert "## ✅ Resolved within this PR" in section
+        assert "resolved obligation Y" in section
+        assert "abc1234" in section
+        # Open section appears first (merge-blocking is the higher-priority
+        # signal for the merger).
+        assert section.find("## ⚠️ Pre-merge Obligations") < section.find(
+            "## ✅ Resolved within this PR"
+        )
+
+    def test_resolved_via_live_tracker(self, graph):
+        """Tier-2 (live tracker) also surfaces resolutions (#2336)."""
+        from routes import pipelines as p
+
+        tracker = PeerConsensusTracker("pipeline-x", graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "artifact_references": ["src/a.py"],
+                "pre_merge_condition": "verify tester landed patch-path rewrite",
+                "pre_merge_condition_resolved_in_diff": "2c319626a",
+            },
+        )
+
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=tracker,
+        ):
+            section = p._build_pre_merge_obligations_section(
+                "pipeline-x",
+                contract_deferred_actions=[],
+            )
+
+        assert "Resolved within this PR" in section
+        assert "2c319626a" in section
+        assert "Pre-merge Obligations" not in section
+
+
+class TestApprovalMatrixResolvedField:
+    """ApprovalEntry round-trips ``pre_merge_condition_resolved_in_diff`` (#2336)."""
+
+    def test_record_ack_stores_resolution(self, graph):
+        from approval_matrix import ApprovalMatrix
+
+        matrix = ApprovalMatrix(graph)
+        version = matrix.record_proposal("coder")
+        entry = matrix.record_ack(
+            "reviewer_code",
+            "coder",
+            version,
+            artifact_refs=["src/a.py"],
+            pre_merge_condition="verify migration in prod",
+            pre_merge_condition_resolved_in_diff="abc1234",
+        )
+        assert entry.pre_merge_condition == "verify migration in prod"
+        assert entry.pre_merge_condition_resolved_in_diff == "abc1234"
+
+    def test_resolution_dropped_without_condition(self, graph):
+        """A resolution SHA on a plain ACK has nothing to attach to."""
+        from approval_matrix import ApprovalMatrix
+
+        matrix = ApprovalMatrix(graph)
+        version = matrix.record_proposal("coder")
+        entry = matrix.record_ack(
+            "reviewer_code",
+            "coder",
+            version,
+            artifact_refs=["src/a.py"],
+            pre_merge_condition="",
+            pre_merge_condition_resolved_in_diff="abc1234",
+        )
+        assert entry.pre_merge_condition == ""
+        assert entry.pre_merge_condition_resolved_in_diff == ""
+
+    def test_nack_clears_resolution(self, graph):
+        from approval_matrix import ApprovalMatrix
+
+        matrix = ApprovalMatrix(graph)
+        version = matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_code",
+            "coder",
+            version,
+            artifact_refs=["src/a.py"],
+            pre_merge_condition="verify migration in prod",
+            pre_merge_condition_resolved_in_diff="abc1234",
+        )
+        matrix.record_nack(
+            "reviewer_code",
+            "coder",
+            version,
+            reason="found a bug",
+            artifact_refs=["src/a.py"],
+        )
+        entry = matrix._entries[("reviewer_code", "coder")]
+        assert entry.pre_merge_condition == ""
+        assert entry.pre_merge_condition_resolved_in_diff == ""
+
+    def test_get_pre_merge_conditions_includes_resolution(self, graph):
+        from approval_matrix import ApprovalMatrix
+
+        matrix = ApprovalMatrix(graph)
+        version = matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_code",
+            "coder",
+            version,
+            artifact_refs=["src/a.py"],
+            pre_merge_condition="verify migration in prod",
+            pre_merge_condition_resolved_in_diff="abc1234",
+        )
+        conditions = matrix.get_pre_merge_conditions()
+        assert len(conditions) == 1
+        assert conditions[0]["resolved_in_diff"] == "abc1234"
+
+    def test_serialization_round_trip_preserves_resolution(self, graph):
+        from approval_matrix import ApprovalMatrix
+
+        matrix = ApprovalMatrix(graph)
+        version = matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_code",
+            "coder",
+            version,
+            artifact_refs=["src/a.py"],
+            pre_merge_condition="verify migration in prod",
+            pre_merge_condition_resolved_in_diff="abc1234",
+        )
+        data = matrix.to_dict()
+        # Carry proposal_versions through so the from_dict re-hydration
+        # can answer "what's the latest version?".
+        data.setdefault("proposal_versions", {"coder": version})
+        restored = ApprovalMatrix.from_dict(data, graph)
+        entry = restored._entries[("reviewer_code", "coder")]
+        assert entry.pre_merge_condition_resolved_in_diff == "abc1234"
+
+
+class TestDeferredActionLegacyMigration:
+    """``PRMetadata.deferred_actions`` accepts legacy ``list[str]`` input (#2336)."""
+
+    def test_legacy_string_promoted_to_deferred_action(self):
+        from egg_contracts.models import PRMetadata
+
+        meta = PRMetadata(
+            title="t",
+            deferred_actions=["reviewer_code: git mv legacy/x new/x"],
+        )
+        assert len(meta.deferred_actions) == 1
+        action = meta.deferred_actions[0]
+        assert action.reviewer == "reviewer_code"
+        assert action.condition == "git mv legacy/x new/x"
+        assert action.resolved_in_diff == ""
+
+    def test_structured_input_passes_through(self):
+        from egg_contracts.models import DeferredAction, PRMetadata
+
+        meta = PRMetadata(
+            title="t",
+            deferred_actions=[
+                DeferredAction(
+                    reviewer="reviewer_code",
+                    condition="verify migration",
+                    resolved_in_diff="abc1234",
+                )
+            ],
+        )
+        assert meta.deferred_actions[0].resolved_in_diff == "abc1234"
+
+    def test_legacy_string_without_separator_treated_as_unknown_reviewer(self):
+        from egg_contracts.models import PRMetadata
+
+        meta = PRMetadata(
+            title="t",
+            deferred_actions=["raw obligation text with no reviewer prefix"],
+        )
+        assert meta.deferred_actions[0].reviewer == ""
+        assert meta.deferred_actions[0].condition == ("raw obligation text with no reviewer prefix")

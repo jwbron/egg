@@ -318,6 +318,38 @@ class Decision(BaseModel):
     debounce_until: datetime | None = Field(default=None, description="Debounce expiration")
 
 
+class DeferredAction(BaseModel):
+    """A single pre-merge obligation persisted from a conditional ACK.
+
+    Replaces the free-form ``list[str]`` shape used in #2004 so the renderer
+    can distinguish open obligations (which still merge-block) from
+    obligations the reviewer marked resolved within the same PR's diff
+    (#2336). Legacy ``list[str]`` entries still load — see the field
+    validator on ``PRMetadata.deferred_actions``.
+    """
+
+    reviewer: str = Field(
+        default="",
+        description="Reviewer role that issued the conditional ACK (may be empty for legacy entries).",
+    )
+    condition: str = Field(
+        ...,
+        min_length=1,
+        description="The obligation text the reviewer attached to their ACK.",
+    )
+    resolved_in_diff: str = Field(
+        default="",
+        max_length=200,
+        description=(
+            "Commit SHA that satisfied the obligation within the same PR's "
+            "diff. Empty string means the obligation is still open and will "
+            "render under the merge-blocking 'Pre-merge Obligations' section. "
+            "When non-empty, the obligation moves to a 'Resolved within this "
+            "PR' subsection (#2336)."
+        ),
+    )
+
+
 class PRMetadata(BaseModel):
     """Planner-generated PR metadata: title, description, test plan, and manual steps."""
 
@@ -331,17 +363,49 @@ class PRMetadata(BaseModel):
         default="",
         description="Manual pre/post-merge steps (migrations, config changes, etc.)",
     )
-    deferred_actions: list[str] = Field(
+    deferred_actions: list[DeferredAction] = Field(
         default_factory=list,
         description=(
             "Durable record of pre-merge obligations from conditional ACKs "
-            "(#1998/#2004). Each entry is a human-readable line (e.g. "
-            "'reviewer_code: git mv legacy/x new/x'). Written when the 3-way "
-            "HITL gate at complete_phase resolves as approve+accept, so "
-            "obligations survive tracker teardown between phase close and "
-            "PR creation."
+            "(#1998/#2004/#2336). Written when the 3-way HITL gate at "
+            "complete_phase resolves as approve+accept, so obligations "
+            "survive tracker teardown between phase close and PR creation. "
+            "Each entry carries the reviewer, the obligation text, and an "
+            "optional ``resolved_in_diff`` SHA when the reviewer marked the "
+            "obligation satisfied within the same PR's diff."
         ),
     )
+
+    @field_validator("deferred_actions", mode="before")
+    @classmethod
+    def _coerce_legacy_deferred_actions(cls, value: Any) -> Any:
+        """Accept legacy ``list[str]`` shape (#2004) by promoting to ``DeferredAction``.
+
+        Pre-#2336 contracts persisted obligations as ``"<reviewer>: <condition>"``
+        strings. Treat those as open obligations with the reviewer parsed
+        from the prefix when present.
+        """
+        if not isinstance(value, list):
+            return value
+        coerced: list[Any] = []
+        for entry in value:
+            if isinstance(entry, str):
+                # Legacy format: "<reviewer>: <condition>". Split on first
+                # ": " to recover the reviewer; fall back to the whole string
+                # as ``condition`` if no separator is present.
+                reviewer, sep, condition = entry.partition(": ")
+                if sep and condition.strip():
+                    coerced.append(
+                        {
+                            "reviewer": reviewer.strip(),
+                            "condition": condition.strip(),
+                        }
+                    )
+                elif entry.strip():
+                    coerced.append({"reviewer": "", "condition": entry.strip()})
+            else:
+                coerced.append(entry)
+        return coerced
 
 
 class CheckDefinition(BaseModel):

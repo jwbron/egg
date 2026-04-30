@@ -89,6 +89,8 @@ Concurrent BRC reviewers can attach `--pre-merge-condition "…"` to an ACK to r
 - **NACK** — blocking issues the producer can address. Examples: a logic bug, a missing test for a regression, a security flaw, a broken end-to-end path. Do **not** downgrade a NACK into a conditional ACK to unblock the pipeline — a conditional ACK is not a soft NACK. If the producer could fix it, NACK instead.
 - **Plain ACK with non-blocking note** — the work is correct and merge-safe as-is. Optional suggestions (style nits, naming ideas, defense-in-depth additions) belong under a "Non-blocking" subsection of the `--reason`, not as a pre-merge condition.
 
+If an obligation you attached earlier gets satisfied within the same PR's diff (e.g. another producer lands the commit you required), re-ACK with `--pre-merge-condition-resolved-in-diff <sha>`. The PR-body renderer demotes resolved obligations to a "Resolved within this PR" subsection so the merger does not see merge-blocking boilerplate on busywork (#2336). Do **not** delete the obligation by re-ACKing with an empty `--pre-merge-condition` to "tidy up" — the resolution-in-diff field is the audit trail.
+
 This section is BRC-only. PR reviewers and sequential SDLC reviewers have no conditional-ACK analogue (see `REVIEWER-SYNC.md`).
 
 ### Skip

@@ -39,6 +39,12 @@ class ApprovalEntry:
     # Optional human-facing obligation attached to a conditional ACK (#1998).
     # Empty string for unconditional ACKs. Cleared on NACK and on re-propose.
     pre_merge_condition: str = ""
+    # SHA that satisfied the obligation within the same PR's diff (#2336). When
+    # non-empty, the renderer demotes this entry from the merge-blocking
+    # "Pre-merge Obligations" section to a "Resolved within this PR"
+    # subsection — the obligation was met in-pipeline and the merger no longer
+    # needs to act. Cleared on NACK and on re-propose alongside the condition.
+    pre_merge_condition_resolved_in_diff: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +58,7 @@ class ApprovalEntry:
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "ack_commit_sha": self.ack_commit_sha,
             "pre_merge_condition": self.pre_merge_condition,
+            "pre_merge_condition_resolved_in_diff": (self.pre_merge_condition_resolved_in_diff),
         }
 
 
@@ -98,6 +105,7 @@ class ApprovalMatrix:
         artifact_refs: list[str] | None = None,
         commit_sha: str = "",
         pre_merge_condition: str = "",
+        pre_merge_condition_resolved_in_diff: str = "",
     ) -> ApprovalEntry:
         """Record an ACK from a reviewer for a producer's proposal.
 
@@ -106,6 +114,14 @@ class ApprovalMatrix:
         old/path new/path`` before merging". Empty string means an
         unconditional ACK. The condition is scoped to this (reviewer, producer,
         version) edge and is cleared on NACK and re-propose.
+
+        ``pre_merge_condition_resolved_in_diff`` (optional, issue #2336) is the
+        commit SHA — typically observed by the reviewer between their initial
+        conditional ACK and a re-ACK on the current proposal — that satisfied
+        the obligation within the same PR's diff. When non-empty, the PR-body
+        renderer moves the obligation out of the merge-blocking section and
+        into a "Resolved within this PR" subsection. Only meaningful when
+        ``pre_merge_condition`` is also non-empty; ignored otherwise.
         """
         key = (reviewer, producer)
         entry = self._entries.get(key)
@@ -121,7 +137,14 @@ class ApprovalMatrix:
         entry.reason = ""
         entry.timestamp = datetime.now(UTC)
         entry.ack_commit_sha = commit_sha
-        entry.pre_merge_condition = (pre_merge_condition or "").strip()
+        normalized_condition = (pre_merge_condition or "").strip()
+        entry.pre_merge_condition = normalized_condition
+        # Resolution is meaningless without an obligation — drop it if the
+        # caller passes a SHA on a plain (non-conditional) ACK.
+        normalized_resolution = (pre_merge_condition_resolved_in_diff or "").strip()
+        entry.pre_merge_condition_resolved_in_diff = (
+            normalized_resolution if normalized_condition else ""
+        )
         return entry
 
     def record_nack(
@@ -147,6 +170,7 @@ class ApprovalMatrix:
         # A NACK supersedes any prior conditional ACK on this edge — the
         # producer must re-propose, so any deferred obligation is moot (#1998).
         entry.pre_merge_condition = ""
+        entry.pre_merge_condition_resolved_in_diff = ""
 
         # Increment revision count for this edge
         self._revision_counts[key] = self._revision_counts.get(key, 0) + 1
@@ -238,6 +262,7 @@ class ApprovalMatrix:
             # that ACK goes with it (#1998). The reviewer must re-ACK to
             # re-attach a condition if they still want one.
             entry.pre_merge_condition = ""
+            entry.pre_merge_condition_resolved_in_diff = ""
             return True
         return False
 
@@ -318,10 +343,13 @@ class ApprovalMatrix:
         dropped — the producer has re-proposed and the reviewer hasn't
         re-asserted the obligation on the new version.
 
-        Returns a list of dicts: ``{reviewer, producer, condition, version}``,
-        one per active conditional ACK. Callers (e.g. the PR-body builder,
-        HITL gate) surface these to humans so merge-time obligations aren't
-        silently dropped (#1998).
+        Returns a list of dicts: ``{reviewer, producer, condition, version,
+        resolved_in_diff}``, one per active conditional ACK. ``resolved_in_diff``
+        is the empty string for open obligations and the satisfying commit SHA
+        when the reviewer marked the obligation resolved within the same PR
+        (#2336). Callers (PR-body builder, HITL gate, live-status renderer)
+        use it to demote resolved obligations out of the merge-blocking
+        section.
         """
         conditions: list[dict[str, Any]] = []
         for (reviewer, producer), entry in self._entries.items():
@@ -340,6 +368,7 @@ class ApprovalMatrix:
                     "producer": producer,
                     "condition": entry.pre_merge_condition,
                     "version": entry.version,
+                    "resolved_in_diff": entry.pre_merge_condition_resolved_in_diff,
                 }
             )
         return conditions
@@ -409,6 +438,9 @@ class ApprovalMatrix:
                     ),
                     ack_commit_sha=entry_data.get("ack_commit_sha", ""),
                     pre_merge_condition=entry_data.get("pre_merge_condition", ""),
+                    pre_merge_condition_resolved_in_diff=entry_data.get(
+                        "pre_merge_condition_resolved_in_diff", ""
+                    ),
                 )
 
         for key_str, count in data.get("revision_counts", {}).items():

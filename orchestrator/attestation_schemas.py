@@ -170,6 +170,19 @@ class ReviewPayload(BaseModel):
             "an unconditional ACK."
         ),
     )
+    pre_merge_condition_resolved_in_diff: str = Field(
+        default="",
+        max_length=200,
+        description=(
+            "Optional commit SHA that satisfied ``pre_merge_condition`` within "
+            "the same PR's diff (issue #2336). Set this on a re-ACK when the "
+            "obligation has been met in-pipeline since your initial conditional "
+            "ACK — the PR-body renderer demotes resolved obligations out of "
+            "the merge-blocking section so reviewers don't see boilerplate "
+            "'do not merge' text on busywork. Only meaningful when "
+            "``pre_merge_condition`` is also non-empty."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_artifact_references(self) -> ReviewPayload:
@@ -198,6 +211,23 @@ class ReviewPayload(BaseModel):
             raise ValueError(
                 "pre_merge_condition is only valid on ACK verdicts (conditional ACK); "
                 "NACK already blocks the producer"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_resolution_requires_condition(self) -> ReviewPayload:
+        """Reject a resolution SHA without an accompanying obligation.
+
+        ``pre_merge_condition_resolved_in_diff`` only makes sense when the ACK
+        also carries a ``pre_merge_condition`` to resolve (#2336). A resolution
+        SHA on a plain ACK has nothing to attach to and would be silently
+        dropped downstream — fail loudly at the boundary instead.
+        """
+        if self.pre_merge_condition_resolved_in_diff and not self.pre_merge_condition:
+            raise ValueError(
+                "pre_merge_condition_resolved_in_diff requires a non-empty "
+                "pre_merge_condition; a resolution SHA has nothing to resolve "
+                "on a plain ACK"
             )
         return self
 

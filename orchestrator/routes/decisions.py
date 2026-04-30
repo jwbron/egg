@@ -241,7 +241,7 @@ def _persist_deferred_actions(
             load_contract,
             save_contract,
         )
-        from egg_contracts.models import PRMetadata
+        from egg_contracts.models import DeferredAction, PRMetadata
     except ImportError:
         logger.warning(
             "egg_contracts unavailable; cannot persist deferred_actions",
@@ -267,14 +267,21 @@ def _persist_deferred_actions(
         )
         return
 
-    new_lines: list[str] = []
+    new_actions: list[DeferredAction] = []
     for c in conditions:
         reviewer = str(c.get("reviewer", "")).strip() or "unknown"
         condition = str(c.get("condition", "")).strip()
         if not condition:
             continue
-        new_lines.append(f"{reviewer}: {condition}")
-    if not new_lines:
+        resolved_in_diff = str(c.get("resolved_in_diff", "")).strip()
+        new_actions.append(
+            DeferredAction(
+                reviewer=reviewer,
+                condition=condition,
+                resolved_in_diff=resolved_in_diff,
+            )
+        )
+    if not new_actions:
         return
 
     # PR metadata may be absent (e.g. on babysit pipelines with
@@ -285,12 +292,20 @@ def _persist_deferred_actions(
             title=(contract.issue.title if contract.issue else "Pipeline deferred actions"),
         )
 
-    existing = set(contract.pr.deferred_actions)
-    merged = list(contract.pr.deferred_actions)
-    for line in new_lines:
-        if line not in existing:
-            merged.append(line)
-            existing.add(line)
+    # Dedupe by (reviewer, condition) so re-resolving the same gate doesn't
+    # double-list. A later call that adds a ``resolved_in_diff`` for an
+    # already-persisted obligation upgrades the existing entry in place.
+    merged: list[DeferredAction] = list(contract.pr.deferred_actions)
+    by_key: dict[tuple[str, str], DeferredAction] = {(a.reviewer, a.condition): a for a in merged}
+    for action in new_actions:
+        key = (action.reviewer, action.condition)
+        existing = by_key.get(key)
+        if existing is None:
+            merged.append(action)
+            by_key[key] = action
+        elif action.resolved_in_diff and not existing.resolved_in_diff:
+            # Upgrade open → resolved; preserve list ordering.
+            existing.resolved_in_diff = action.resolved_in_diff
     contract.pr.deferred_actions = merged
 
     try:

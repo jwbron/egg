@@ -1189,6 +1189,19 @@ def handle_consensus_ack_signal(
         if condition_error:
             return make_error_response(condition_error, 400)
 
+    # A resolution SHA without an obligation has nothing to resolve (#2336);
+    # reject at the boundary so downstream code can assume the invariant.
+    pre_merge_condition_resolved_in_diff = (
+        payload.get("pre_merge_condition_resolved_in_diff") or ""
+    ).strip()
+    if pre_merge_condition_resolved_in_diff and not pre_merge_condition:
+        return make_error_response(
+            "pre_merge_condition_resolved_in_diff requires a non-empty "
+            "pre_merge_condition; a resolution SHA has nothing to resolve "
+            "on a plain ACK",
+            400,
+        )
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:

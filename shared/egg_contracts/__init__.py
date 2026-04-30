@@ -149,6 +149,7 @@ from .models import (
     Decision,
     DecisionOption,
     DecisionType,
+    DeferredAction,
     Feedback,
     FeedbackQuestion,
     HumanReviewMechanism,
@@ -246,6 +247,7 @@ __all__ = [
     "Decision",
     "DecisionOption",
     "DecisionType",
+    "DeferredAction",
     "HumanReviewMechanism",
     "PhaseConfig",
     # Roles
