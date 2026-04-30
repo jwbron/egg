@@ -232,7 +232,7 @@ The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to c
 
 2. **Fetch from remote** (inbound): Before starting pipeline phases, the orchestrator syncs the local worktree with the remote branch via `_sync_worktree_with_remote()`. This handles orchestrator restarts where the local worktree branch lags behind origin: commits pushed by agents in previous phases (contracts, drafts, statefiles) exist on the remote but not in the local checkout. The function performs a gateway-authenticated fetch (`GatewayClient.fetch_worktree_branch()`), then resolves divergence and resets the local branch to `origin/<branch>` via `git reset --hard` when needed. The sync behavior depends on the prior phase's outcome:
 
-   - **Prior phase succeeded, local ahead:** Local commits are pushed to remote first, preserving completed work, then the worktree is reset.
+   - **Prior phase succeeded, local ahead:** Local commits are pushed to remote first, preserving completed work. After a successful push the local branch already matches `origin/<branch>`, so no further reset is needed; on push failure the worktree falls through to a reset against `origin/<branch>`, discarding the unpushed commits.
    - **Prior phase failed, local ahead:** Local commits are discarded and the worktree is reset to remote (removes incomplete work from a failed/killed agent).
    - **Diverged (local and remote both have unique commits):** A fast-forward merge is attempted. If the merge fails, the worktree is left unchanged and the error is logged (may require manual intervention).
    - **Local behind remote:** Standard reset to remote tip.
