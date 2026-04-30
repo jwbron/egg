@@ -187,10 +187,29 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions (pre-answered to auto-resolve Wave 2 deferred decisions)\\n\\n**Choice decisions:**\\n1. Slice numbering for unallocated files → N1: Gap-fill the existing seam tables — slice-9=orch_cli, slice-10=entrypoint, slice-13=checkpoint_cli (preserves pre-allocated numbers in CLAUDE.md).\\n2. Sandbox/shared seam-table hosting → S1: Per-component CLAUDE.md — add a seam-table section to sandbox/CLAUDE.md and create shared/CLAUDE.md.\\n3. Slice-15 PR shape → Single slice with multiple commits in one PR (confirms v1 decision-9).\\n4. Slice-14 git_push decomposition scope → Inside slice-14 (matches seam-table 'R5 mitigation' note).\\n5. Concurrency budget → Keep 5 (confirms v1 decision-10; EGG_ORCH_MAX_PARALLEL_SLICES=5).\\n6. v3 contract ingestion → Copy resolved v1 decisions into v3 contract verbatim (full audit trail; differs from refiner's recommendation of read-direct).\\n\\n**Feedback questions:**\\nQ1 (baseline) → Yes — baseline on current HEAD sizes (16,976 / 9,870 / 3,759 / etc.). Confirms v1 feedback Q2.\\nQ2 (contract_cli.py near the cap) → SCOPE EXPANSION: Absorb preemptive decomposition into this issue's scope. sandbox/egg_lib/contract_cli.py (1,494 lines, NOT allowlisted) gets a 15th decomposition slice. Plan must add this as an additional slice and number it accordingly.\\nQ3 (#2335 DAG predecessor) → Independent fan-out at the DAG level; reference #2335 as prior art in PR bodies only.\\n\\n**Additional intra-v3 DAG question raised by operator (not registered as a decision):**\\nIntra-v3 cross-dependency modeling → Soft order only — size-ascending waves, fan-out 5. NO hard DAG edges between v3 slices. Trust the barrel for import stability; slice-14/15 naturally land in the final wave by size; allowlist/CLAUDE.md merge conflicts are resolved mechanically at PR time. This confirms v1 decision-3 (fan-out under a single parent).\\n\\n**Net effect on plan:** 15 sibling slices total (was 14 in the draft). Slice numbering: 2..15 from the existing seam tables, plus slice-16 for contract_cli.py. Smallest first by current HEAD size; fan-out 5; flat DAG with #2335 as documentation reference only. v1 decisions copied into v3 contract.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Slice numbering for the three currently-unallocated files (sandbox/egg_lib/orch_cli.py, sandbox/entrypoint.py, shared/egg_contracts/checkpoint_cli.py): which assignment should plan use?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "N1: Gap-fill the existing seam tables — slice-9=orch_cli, slice-10=entrypoint, slice-13=checkpoint_cli (recommended; preserves pre-allocated numbers in CLAUDE.md)",
+        "N2: Renumber strictly by current size ascending across all 14 slices (cleaner monotonic order; updates existing TBD rows)",
+        "Other (explain in reply)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-30T18:02:47.626974Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T17:27:52.618820Z",
-  "updated_at": "2026-04-30T18:02:45.668865Z",
+  "updated_at": "2026-04-30T18:02:47.636768Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -204,6 +223,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
