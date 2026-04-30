@@ -668,7 +668,7 @@ class TestStoreCheckpointV2Concurrency:
         import checkpoint_handler
 
         # Reset the per-repo lock dict so this test is isolated.
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
@@ -695,7 +695,7 @@ class TestStoreCheckpointV2Concurrency:
         """If `worktree add` itself raises, cleanup still runs `worktree prune`."""
         import checkpoint_handler
 
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
@@ -729,7 +729,7 @@ class TestStoreCheckpointV2Concurrency:
         import checkpoint_handler
 
         # Reset the per-repo lock dict so this test is isolated.
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
@@ -777,7 +777,7 @@ class TestStoreCheckpointV2Concurrency:
 
         import checkpoint_handler
 
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
@@ -821,6 +821,62 @@ class TestStoreCheckpointV2Concurrency:
         assert max_in_flight >= 2, (
             "Expected concurrent execution across different repos, "
             f"saw max_in_flight={max_in_flight}"
+        )
+
+    def test_concurrent_stores_with_shared_checkpoint_repo_serialized(self):
+        """Different source repos pushing to the same checkpoint_repo serialize.
+
+        Regression test for #2316: before the target-keyed lock, two source
+        repos targeting the shared ``egg/checkpoints/v2`` branch in
+        ``jwbron/egg-checkpoints`` could push concurrently, and the second
+        writer would see a non-FF rejection.
+        """
+        import threading
+        import time
+
+        import checkpoint_handler
+
+        checkpoint_handler._store_locks.clear()
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        in_flight = 0
+        max_in_flight = 0
+        observe_lock = threading.Lock()
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal in_flight, max_in_flight
+            with observe_lock:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+            time.sleep(0.05)
+            with observe_lock:
+                in_flight -= 1
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        def run_store(repo_path):
+            try:
+                handler.store_checkpoint_v2(
+                    self._make_checkpoint(),
+                    repo_path,
+                    checkpoint_repo="jwbron/egg-checkpoints",
+                )
+            except Exception:
+                pass
+
+        t1 = threading.Thread(target=run_store, args=("/fake/repo-a",))
+        t2 = threading.Thread(target=run_store, args=("/fake/repo-b",))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert max_in_flight == 1, (
+            "Expected serialization across source repos when checkpoint_repo "
+            f"is shared, saw max_in_flight={max_in_flight}"
         )
 
 
@@ -1797,7 +1853,7 @@ class TestPushRetryInStore:
 
     @patch("time.sleep")
     def test_push_retries_on_non_fast_forward(self, mock_sleep):
-        """Push fails with non-fast-forward, fetch+rebase succeeds, second push succeeds."""
+        """Push fails with non-fast-forward, regenerate against fresh tip succeeds."""
         import checkpoint_handler
 
         handler, checkpoint = self._make_handler_and_checkpoint()
@@ -1822,15 +1878,19 @@ class TestPushRetryInStore:
 
         push_calls = [c for c in git_calls if "push" in c[1]]
         assert len(push_calls) == 2, f"Expected 2 push attempts, got {len(push_calls)}"
-        # Verify fetch+rebase happened between pushes
-        fetch_after_push = [
-            c
-            for c in git_calls
-            if "fetch" in c[1] and git_calls.index(c) > git_calls.index(push_calls[0])
-        ]
-        rebase_calls = [c for c in git_calls if "rebase" in c[1]]
+        # Verify regenerate flow ran between pushes: fetch + reset --hard + re-add + re-commit
+        first_push_idx = git_calls.index(push_calls[0])
+        post_push = git_calls[first_push_idx + 1 :]
+        fetch_after_push = [c for c in post_push if "fetch" in c[1]]
+        reset_after_push = [c for c in post_push if "reset" in c[1]]
+        commit_after_push = [c for c in post_push if "commit" in c[1]]
         assert len(fetch_after_push) >= 1, "Expected fetch after failed push"
-        assert len(rebase_calls) >= 1, "Expected rebase after failed push"
+        assert len(reset_after_push) >= 1, "Expected reset --hard after failed push"
+        assert len(commit_after_push) >= 1, "Expected re-commit after regenerate"
+        # No rebase under the new strategy
+        assert not [c for c in git_calls if "rebase" in c[1]], (
+            "rebase should not be invoked under the regenerate strategy"
+        )
 
     @patch("time.sleep")
     def test_push_raises_after_max_attempts(self, mock_sleep):
@@ -1918,37 +1978,40 @@ class TestPushRetryInStore:
         )
 
     @patch("time.sleep")
-    def test_push_fails_when_rebase_in_retry_fails(self, mock_sleep):
-        """Rebase within the retry loop fails — returns False."""
+    def test_push_fails_when_regenerate_commit_fails(self, mock_sleep):
+        """Regenerate-step commit failure during retry surfaces as False."""
         import checkpoint_handler
 
         handler, checkpoint = self._make_handler_and_checkpoint()
         git_calls = []
         push_count = 0
+        push_failed = False
 
         def track_run_git(cwd, args, **kwargs):
-            nonlocal push_count
+            nonlocal push_count, push_failed
             git_calls.append((cwd, args, kwargs))
             if "push" in args:
                 push_count += 1
                 if push_count == 1:
+                    push_failed = True
                     raise checkpoint_handler.CheckpointError(
                         "Git command failed: ! [rejected] non-fast-forward"
                     )
-            if "rebase" in args:
+            # Fail the re-commit during the regenerate step.
+            if push_failed and args[:1] == ["commit"]:
                 raise checkpoint_handler.CheckpointError(
-                    "Git command failed: CONFLICT (content): Merge conflict"
+                    "Git command failed: nothing to commit, working tree clean"
                 )
             return MagicMock(returncode=0, stdout="", stderr="")
 
         handler._run_git = track_run_git
 
         result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
-        assert result is False, "Expected store to return False on rebase failure"
+        assert result is False, "Expected store to return False on regenerate-commit failure"
 
         push_calls = [c for c in git_calls if "push" in c[1]]
         assert len(push_calls) == 1, (
-            f"Expected 1 push attempt before rebase failure, got {len(push_calls)}"
+            f"Expected 1 push attempt before regenerate failure, got {len(push_calls)}"
         )
 
 

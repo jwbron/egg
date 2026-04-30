@@ -356,6 +356,7 @@ class GatewayClient:
         branch: str | None = None,
         worktree_container_id: str | None = None,
         jira_ticket: str | None = None,
+        synthetic: bool = False,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -424,6 +425,8 @@ class GatewayClient:
             # any Jira call on its value — the project allowlist is the only
             # hard boundary.
             request_data["jira_ticket"] = jira_ticket
+        if synthetic:
+            request_data["synthetic"] = True
         result = self._make_request(
             "/api/v1/sessions/create",
             method="POST",
@@ -1735,6 +1738,7 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode=mode,
                 pipeline_id=pipeline_id,
+                synthetic=True,
             )
             session_token = session.session_token
 
@@ -1797,6 +1801,7 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode=mode,
                 pipeline_id=pipeline_id,
+                synthetic=True,
             )
             session_token = session.session_token
 
@@ -1860,6 +1865,7 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode=mode,
                 pipeline_id=pipeline_id,
+                synthetic=True,
             )
             session_token = session.session_token
 
@@ -1921,6 +1927,7 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode=mode,
                 pipeline_id=pipeline_id,
+                synthetic=True,
             )
             session_token = session.session_token
 

@@ -103,6 +103,13 @@ def _capture_and_cleanup_session(
         was skipped/failed. Callers can wait on this event to coordinate
         cleanup (e.g., worktree removal) with checkpoint storage.
     """
+    # Synthetic sessions are orchestrator-internal helpers (ls-remote,
+    # failsafe-fetch). They run no agent, have no proxy buffer, and would
+    # only produce metadata-only checkpoints whose push fails noisily when
+    # the source repo is read-only (#2316). Skip them entirely.
+    if session.synthetic:
+        return None
+
     # Deduplicate: only capture once per container
     with _captured_containers_lock:
         if session.container_id in _captured_containers:
@@ -317,6 +324,7 @@ class Session:
     assigned_branch: str | None = None  # Worktree branch locked to this session
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
     jira_ticket: str | None = None  # Advisory Jira ticket key (issue #1556)
+    synthetic: bool = False  # Orchestrator-internal temp session — skip checkpoint capture
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -364,6 +372,8 @@ class Session:
             result["auto_commit_sha"] = self.auto_commit_sha
         if self.jira_ticket is not None:
             result["jira_ticket"] = self.jira_ticket
+        if self.synthetic:
+            result["synthetic"] = True
         return result
 
     @classmethod
@@ -391,6 +401,7 @@ class Session:
             assigned_branch=data.get("assigned_branch"),
             auto_commit_sha=data.get("auto_commit_sha"),
             jira_ticket=data.get("jira_ticket"),
+            synthetic=bool(data.get("synthetic", False)),
         )
 
 
@@ -548,6 +559,7 @@ class SessionManager:
         claude_code_version: str | None = None,
         branch: str | None = None,
         jira_ticket: str | None = None,
+        synthetic: bool = False,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -590,6 +602,7 @@ class SessionManager:
             agent_anchor_id=agent_anchor_id,
             claude_code_version=claude_code_version,
             jira_ticket=jira_ticket,
+            synthetic=synthetic,
         )
 
         if branch:
