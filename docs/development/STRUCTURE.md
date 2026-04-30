@@ -451,6 +451,9 @@ action/
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
 ├── build-contract-verification-prompt.sh  # Contract verification review prompt builder
+├── verify-feedback-contract.sh             # Validates feedback-addressing agent response comments against the contract
+├── tests/                                  # Bash tests for action scripts
+│   └── verify-feedback-contract.test.sh   # Fixture-driven tests for verify-feedback-contract.sh
 ├── autofixer-conventions.md                # Guidelines for autofixer behavior
 ├── conflict-conventions.md                 # Guidelines for conflict resolution via merge commits
 ├── review-conventions.md                   # Guidelines for review communication
