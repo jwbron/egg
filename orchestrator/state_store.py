@@ -289,12 +289,17 @@ class StateStore:
                     if _attempt == 0:
                         time.sleep(0.1)
                 if healthy:
+                    # Ensure existing worktrees that pre-date the lock-on-create
+                    # path are locked too (#2324).  ``_lock_worktree`` is a
+                    # no-op if it is already locked.
+                    self._lock_worktree(wt)
                     return wt
 
                 logger.warning(
-                    "Worktree validation failed, recreating: worktree=%s returncode=%s",
+                    "Worktree validation failed, recreating: worktree=%s returncode=%s stderr=%s",
                     str(wt),
                     result.returncode,
+                    (result.stderr or "").strip(),
                 )
                 try:
                     shutil.rmtree(wt)
@@ -357,6 +362,18 @@ class StateStore:
                     self._remove_stale_admin_dir()
                     raise
 
+            # Lock the worktree so `git worktree prune` (run from any pod
+            # sharing the bare repo) cannot remove its admin dir.  The
+            # gateway pod runs prune in its checkpoint cleanup path; from
+            # the gateway's filesystem the orchestrator's state-worktree
+            # path resolves to a non-existent location (per-pod emptyDir
+            # mounts), so without a lock the admin dir is treated as
+            # prunable and surgically removed (#2324).  Removal here is
+            # still possible because state_store tears down via
+            # ``shutil.rmtree`` + ``_remove_stale_admin_dir(force=True)``
+            # rather than ``git worktree remove``, neither of which is
+            # blocked by the lock.
+            self._lock_worktree(wt)
             return wt
 
     def _remove_stale_admin_dir(self, force: bool = False) -> None:
@@ -486,6 +503,35 @@ class StateStore:
             except OSError:
                 continue
         return False
+
+    def _lock_worktree(self, wt: Path) -> None:
+        """Mark ``wt`` as locked so ``git worktree prune`` will skip it.
+
+        The state worktree lives on a per-pod ``emptyDir`` mount that the
+        gateway pod cannot see, while the bare repo (and its
+        ``.git/worktrees/<name>/gitdir`` pointers) is shared via
+        ``hostPath``.  When the gateway runs ``git worktree prune`` (e.g.
+        in checkpoint-handler cleanup), ours is the one entry whose
+        ``gitdir`` points to a path that does not exist from the
+        gateway's filesystem — so prune marks it ``prunable`` and
+        removes the admin dir, taking down every subsequent
+        ``rev-parse`` from the orchestrator (#2324).
+
+        Locking is best-effort: on failure we log and continue, mirroring
+        ``gateway/worktree_manager.py``'s lock-after-add pattern.  An
+        already-locked worktree (e.g. on a re-entry after a crash) also
+        produces a non-zero return code; treat that as success.
+        """
+        result = self._run_git("worktree", "lock", str(wt), check=False)
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            if "already locked" in stderr.lower():
+                return
+            logger.warning(
+                "Failed to lock state worktree (continuing): worktree=%s stderr=%s",
+                str(wt),
+                stderr,
+            )
 
     def _state_branch_exists(self) -> bool:
         """Check if the state branch exists locally."""

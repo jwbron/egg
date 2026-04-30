@@ -51,6 +51,7 @@ Integration points:
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1083,11 +1084,20 @@ class CheckpointHandler:
                     # Drop any stale .git/worktrees/<basename> entry so a
                     # failed remove (or a failed worktree add) doesn't
                     # leak across attempts.
-                    self._run_git(
-                        repo_path,
-                        ["worktree", "prune"],
-                        check=False,
-                    )
+                    #
+                    # IMPORTANT: surgically remove this worktree's admin
+                    # dir; do NOT call ``git worktree prune``.  The
+                    # gateway pod cannot see other pods' worktree paths
+                    # (orchestrator's state worktree lives on a per-pod
+                    # ``emptyDir`` mount while the bare repo is shared
+                    # via ``hostPath``), so prune treats those entries
+                    # as ``prunable`` and removes their admin dirs —
+                    # taking down the orchestrator's state-store
+                    # operations until they self-heal (#2324).  Same
+                    # rationale documented at
+                    # ``worktree_manager.py``'s manual-cleanup branch.
+                    admin_dir = Path(repo_path) / ".git" / "worktrees" / temp_path.name
+                    shutil.rmtree(admin_dir, ignore_errors=True)
 
         except Exception as e:
             logger.error(
