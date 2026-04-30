@@ -1047,6 +1047,19 @@ class CheckpointHandler:
                                 checkpoint_id=checkpoint.id,
                             )
                             time.sleep(1)
+                            # Detach the temp worktree from CHECKPOINT_BRANCH
+                            # so the next ``fetch +CHECKPOINT_BRANCH:CHECKPOINT_BRANCH``
+                            # can update that ref without git refusing because
+                            # the branch is checked out in this worktree. The
+                            # orphan path leaves the worktree on the branch
+                            # (``checkout --orphan`` switches to it), so this
+                            # step matters when a concurrent writer created
+                            # the branch on origin between ``_branch_exists``
+                            # and our push.
+                            self._run_git(
+                                str(temp_path),
+                                ["checkout", "--detach"],
+                            )
                             # Fetch the latest remote state into the local
                             # branch, then reset the temp worktree to it —
                             # discards our prior commit and pulls in any
@@ -1381,7 +1394,13 @@ def _get_store_lock(key: str, repo_path: str) -> Generator[None]:
       ``egg/checkpoints/v2`` branch serialize their fetch + commit + push
       sequence (#2316).  When unset, callers fall back to ``repo_path``
       so same-source-repo writers still serialize on local
-      ``.git/worktrees`` state (#2069).
+      ``.git/worktrees`` state (#2069).  The destination key only
+      synchronizes within a *single gateway process* — multiple gateway
+      pods writing to the same ``checkpoint_repo`` race past this lock,
+      and the regenerate-on-non-FF retry in ``store_checkpoint_v2`` is
+      the actual cross-pod protection (the ``bare_repo_lock`` flock
+      below is keyed by ``repo_path``, not by destination, so it does
+      not serialize cross-pod writers on the shared destination either).
     * ``bare_repo_lock(repo_path)`` for cross-process serialization
       against the orchestrator's state-store, which runs git from a
       different pod but shares the same hostPath-mounted bare repo

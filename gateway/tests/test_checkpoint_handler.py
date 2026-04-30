@@ -875,12 +875,24 @@ class TestStoreCheckpointV2Concurrency:
         in_flight = 0
         max_in_flight = 0
         observe_lock = threading.Lock()
+        # Force overlap if the lock disappears: a regression that drops
+        # the destination-keyed lock would let both threads into
+        # ``_run_git`` concurrently, the barrier would release them
+        # together, and ``max_in_flight`` would jump to 2. With the
+        # lock in place only one thread reaches the barrier; the wait
+        # times out, ``BrokenBarrierError`` is caught, and serialization
+        # is still observed.
+        barrier = threading.Barrier(2)
 
         def track_run_git(cwd, args, **kwargs):
             nonlocal in_flight, max_in_flight
             with observe_lock:
                 in_flight += 1
                 max_in_flight = max(max_in_flight, in_flight)
+            try:
+                barrier.wait(timeout=2.0)
+            except threading.BrokenBarrierError:
+                pass
             time.sleep(0.05)
             with observe_lock:
                 in_flight -= 1
@@ -1910,12 +1922,18 @@ class TestPushRetryInStore:
 
         push_calls = [c for c in git_calls if "push" in c[1]]
         assert len(push_calls) == 2, f"Expected 2 push attempts, got {len(push_calls)}"
-        # Verify regenerate flow ran between pushes: fetch + reset --hard + re-add + re-commit
+        # Verify regenerate flow ran between pushes:
+        # checkout --detach + fetch + reset --hard + re-add + re-commit
         first_push_idx = git_calls.index(push_calls[0])
         post_push = git_calls[first_push_idx + 1 :]
+        detach_after_push = [c for c in post_push if "checkout" in c[1] and "--detach" in c[1]]
         fetch_after_push = [c for c in post_push if "fetch" in c[1]]
         reset_after_push = [c for c in post_push if "reset" in c[1]]
         commit_after_push = [c for c in post_push if "commit" in c[1]]
+        assert len(detach_after_push) >= 1, (
+            "Expected checkout --detach before fetch so the local "
+            "CHECKPOINT_BRANCH ref is updatable from the orphan path"
+        )
         assert len(fetch_after_push) >= 1, "Expected fetch after failed push"
         assert len(reset_after_push) >= 1, "Expected reset --hard after failed push"
         assert len(commit_after_push) >= 1, "Expected re-commit after regenerate"

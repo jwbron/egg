@@ -1155,6 +1155,7 @@ class GatewayClient:
                 repos=[repo],
                 issue_number=issue_number,
                 agent_role=agent_role,
+                synthetic=True,
             )
             session_token = session.session_token
 
@@ -1378,6 +1379,7 @@ class GatewayClient:
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
                 branch=branch if retarget_requested else None,
+                synthetic=True,
             )
             session_token = session.session_token
 
@@ -1501,6 +1503,7 @@ class GatewayClient:
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
                 branch=integration_branch,
+                synthetic=True,
             )
             session_token = session.session_token
 
@@ -1578,6 +1581,7 @@ class GatewayClient:
                 mode=mode,
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
+                synthetic=True,
             )
             session_token = session.session_token
 
@@ -1673,6 +1677,7 @@ class GatewayClient:
                 mode=mode,
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
+                synthetic=True,
             )
             session_token = session.session_token
 

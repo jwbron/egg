@@ -8007,7 +8007,7 @@ def session_create() -> tuple[Response, int] | Response:
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
     jira_ticket = data.get("jira_ticket")  # Optional Atlassian ticket key — advisory only
-    synthetic = bool(data.get("synthetic", False))  # Orchestrator-internal temp session
+    synthetic = data.get("synthetic", False)  # Orchestrator-internal temp session
 
     # Validate required fields
     if not container_id:
@@ -8083,6 +8083,10 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid branch: must be a string")
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
+
+    # Validate synthetic if provided
+    if not isinstance(synthetic, bool):
+        return make_error("Invalid synthetic: must be a boolean")
 
     # Validate worktree_container_id if provided
     if worktree_container_id is not None:
