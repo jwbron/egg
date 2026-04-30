@@ -366,42 +366,16 @@ from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
 logger = get_logger("gateway")
 
 
-def _load_sibling_gateway_module(module_name: str) -> Any:
-    """Import a sibling gateway module regardless of test vs prod shape.
-
-    Gateway modules are loaded two ways in this codebase: as a package
-    (``gateway.x``) in production and as flat top-level modules by the
-    test conftest (``__package__ == ""``).  Plain ``import X`` works in
-    production when ``gateway/`` is on ``sys.path``, and in tests when
-    the conftest preloaded ``X`` into ``sys.modules``.  For modules the
-    conftest does *not* preload — like the ones added in #1882 — we
-    fall back to loading the file by explicit path so the features are
-    still exercisable in tests without forcing a conftest edit by the
-    tester role.
-    """
-    mod = sys.modules.get(module_name) or sys.modules.get(f"gateway.{module_name}")
-    if mod is not None:
-        return mod
-    try:
-        mod = __import__(module_name)
-        return mod
-    except ImportError:
-        pass
-    try:
-        import importlib.util
-
-        mod_path = Path(__file__).parent / f"{module_name}.py"
-        if not mod_path.exists():
-            return None
-        spec = importlib.util.spec_from_file_location(module_name, str(mod_path))
-        if spec is None or spec.loader is None:
-            return None
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = mod
-        spec.loader.exec_module(mod)
-        return mod
-    except Exception:  # pragma: no cover - defensive
-        return None
+try:
+    # Production / package mode.
+    from ._module_loader import load_sibling_gateway_module as _load_sibling_gateway_module
+except ImportError:
+    # Standalone-script mode (the test conftest loads gateway.py as
+    # a flat top-level module, in which case the relative import
+    # above raises ImportError before sys.modules has been seeded).
+    from _module_loader import (  # type: ignore[no-redef, import-untyped]
+        load_sibling_gateway_module as _load_sibling_gateway_module,
+    )
 
 
 def _lookup_commit_observer_fn(name: str) -> Any:
@@ -3377,7 +3351,7 @@ def _resolve_checkpoint_token(repo_path: str) -> str | None:
 
 _CHECKPOINT_SCRATCH_DIR = "/home/egg/.egg-worktrees/.checkpoint-scratch"
 
-_checkpoint_scratch_lock = __import__("threading").Lock()
+_checkpoint_scratch_lock = threading.Lock()
 
 
 def _ensure_checkpoint_scratch_repo() -> str | None:

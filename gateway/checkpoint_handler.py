@@ -885,7 +885,7 @@ class CheckpointHandler:
 
         try:
             with (
-                _get_store_lock(checkpoint_repo or repo_path, repo_path),
+                _get_store_lock(checkpoint_repo or repo_path),
                 tempfile.TemporaryDirectory(
                     prefix="checkpoint_", ignore_cleanup_errors=True
                 ) as temp_dir,
@@ -949,30 +949,42 @@ class CheckpointHandler:
                                         error=str(exc),
                                     )
                                     raise
-                        self._run_git(
-                            repo_path,
-                            [
-                                "worktree",
-                                "add",
-                                "--detach",
-                                str(temp_path),
-                                CHECKPOINT_BRANCH,
-                            ],
-                        )
+                        # Cross-process flock only around the bare-repo
+                        # `.git/` writer (#2332). State-store races on
+                        # `.git/config.lock` come from `worktree add`,
+                        # not from fetch — so the flock window is just
+                        # this call.
+                        with bare_repo_lock(repo_path):
+                            self._run_git(
+                                repo_path,
+                                [
+                                    "worktree",
+                                    "add",
+                                    "--detach",
+                                    str(temp_path),
+                                    CHECKPOINT_BRANCH,
+                                ],
+                            )
                     else:
                         # Delete any stale local branch before creating orphan.
                         # The branch may exist locally from a different remote
                         # (e.g., checkpoints were previously stored in the source
                         # repo before migrating to an external checkpoint repo).
-                        self._run_git(
-                            repo_path,
-                            ["branch", "-D", CHECKPOINT_BRANCH],
-                            check=False,
-                        )
-                        self._run_git(
-                            repo_path,
-                            ["worktree", "add", "--detach", str(temp_path)],
-                        )
+                        # Both the `branch -D` and `worktree add` write under
+                        # the bare repo's `.git/`, so they share one flock
+                        # window. `checkout --orphan` and `rm -rf .` run
+                        # inside the temp worktree and don't touch the bare
+                        # repo's config, so they stay outside the flock.
+                        with bare_repo_lock(repo_path):
+                            self._run_git(
+                                repo_path,
+                                ["branch", "-D", CHECKPOINT_BRANCH],
+                                check=False,
+                            )
+                            self._run_git(
+                                repo_path,
+                                ["worktree", "add", "--detach", str(temp_path)],
+                            )
                         self._run_git(
                             str(temp_path),
                             ["checkout", "--orphan", CHECKPOINT_BRANCH],
@@ -1120,19 +1132,23 @@ class CheckpointHandler:
                     return True
 
                 finally:
-                    self._run_git(
-                        repo_path,
-                        ["worktree", "remove", "--force", str(temp_path)],
-                        check=False,
-                    )
-                    # Drop any stale .git/worktrees/<basename> entry so a
-                    # failed remove (or a failed worktree add) doesn't
-                    # leak across attempts.
-                    self._run_git(
-                        repo_path,
-                        ["worktree", "prune"],
-                        check=False,
-                    )
+                    # Worktree cleanup writes under the bare repo's
+                    # `.git/worktrees/`, so it shares the cross-process
+                    # flock with `worktree add` (#2332).
+                    with bare_repo_lock(repo_path):
+                        self._run_git(
+                            repo_path,
+                            ["worktree", "remove", "--force", str(temp_path)],
+                            check=False,
+                        )
+                        # Drop any stale .git/worktrees/<basename> entry so a
+                        # failed remove (or a failed worktree add) doesn't
+                        # leak across attempts.
+                        self._run_git(
+                            repo_path,
+                            ["worktree", "prune"],
+                            check=False,
+                        )
 
         except Exception as e:
             logger.error(
@@ -1383,37 +1399,38 @@ _store_locks_guard = threading.Lock()
 
 
 @contextlib.contextmanager
-def _get_store_lock(key: str, repo_path: str) -> Generator[None]:
-    """Hold the per-destination lock plus cross-process flock.
+def _get_store_lock(key: str) -> Generator[None]:
+    """Hold the per-destination in-process lock for the whole checkpoint op.
 
-    Combines two layers, mirroring ``WorktreeManager._get_repo_lock``:
+    Per-destination ``threading.Lock`` keyed on ``key`` for in-process
+    serialization.  When ``checkpoint_repo`` is set, callers pass it as
+    ``key`` so cross-source-repo writers contending on the same shared
+    ``egg/checkpoints/v2`` branch serialize their fetch + commit + push
+    sequence (#2316).  When unset, callers fall back to ``repo_path``
+    so same-source-repo writers still serialize on local
+    ``.git/worktrees`` state (#2069).  The destination key only
+    synchronizes within a *single gateway process* — multiple gateway
+    pods writing to the same ``checkpoint_repo`` race past this lock,
+    and the regenerate-on-non-FF retry in ``store_checkpoint_v2`` is
+    the actual cross-pod protection.
 
-    * Per-destination ``threading.Lock`` keyed on ``key`` for in-process
-      serialization.  When ``checkpoint_repo`` is set, callers pass it as
-      ``key`` so cross-source-repo writers contending on the same shared
-      ``egg/checkpoints/v2`` branch serialize their fetch + commit + push
-      sequence (#2316).  When unset, callers fall back to ``repo_path``
-      so same-source-repo writers still serialize on local
-      ``.git/worktrees`` state (#2069).  The destination key only
-      synchronizes within a *single gateway process* — multiple gateway
-      pods writing to the same ``checkpoint_repo`` race past this lock,
-      and the regenerate-on-non-FF retry in ``store_checkpoint_v2`` is
-      the actual cross-pod protection (the ``bare_repo_lock`` flock
-      below is keyed by ``repo_path``, not by destination, so it does
-      not serialize cross-pod writers on the shared destination either).
-    * ``bare_repo_lock(repo_path)`` for cross-process serialization
-      against the orchestrator's state-store, which runs git from a
-      different pod but shares the same hostPath-mounted bare repo
-      (#2311).  Without this, a checkpoint store's ``git worktree add``
-      can race a state-store commit on ``.git/config.lock`` and fail
-      with ``could not lock config file .git/config: File exists``.
+    Cross-process serialization against the orchestrator's state-store
+    on ``.git/config.lock`` (#2311) is handled with narrower
+    ``bare_repo_lock`` windows around the specific git operations that
+    touch the bare repo's ``.git/`` (worktree add, worktree remove/
+    prune) — see #2332.  Holding the cross-process flock for the
+    entire op would block every state-store commit and other gateway
+    worktree op against the same bare repo for up to ~135s under
+    fetch-retry pathology, which is much wider than necessary: fetch,
+    the in-temp-worktree commit, and the push do not race the state-
+    store on ``.git/config.lock``.
     """
     with _store_locks_guard:
         thread_lock = _store_locks.get(key)
         if thread_lock is None:
             thread_lock = threading.Lock()
             _store_locks[key] = thread_lock
-    with thread_lock, bare_repo_lock(repo_path):
+    with thread_lock:
         yield
 
 

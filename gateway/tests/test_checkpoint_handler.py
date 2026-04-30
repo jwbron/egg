@@ -36,6 +36,10 @@ def _stub_bare_repo_lock(monkeypatch):
     is covered by ``shared/tests/test_cross_process_lock.py`` and the
     worktree integration test — here we only need ``_get_store_lock``'s
     in-process serialization to work.
+
+    Tests that need to observe ``bare_repo_lock`` acquire/release order
+    (e.g. #2332's regression that the flock is *not* held across the
+    fetch-retry window) override this with their own recording stand-in.
     """
     import checkpoint_handler
 
@@ -921,6 +925,77 @@ class TestStoreCheckpointV2Concurrency:
         assert max_in_flight == 1, (
             "Expected serialization across source repos when checkpoint_repo "
             f"is shared, saw max_in_flight={max_in_flight}"
+        )
+
+    def test_bare_repo_lock_not_held_across_fetch_retry(self, monkeypatch):
+        """Cross-process flock is released around the fetch-retry window.
+
+        Regression for #2332. Holding ``bare_repo_lock`` across the
+        fetch's 3 × 45s retry window blocks every state-store commit
+        and other gateway worktree op against the same bare repo.
+        Fetch doesn't write ``.git/config``, so it doesn't need
+        cross-process serialization — the flock should only wrap the
+        ops that touch the bare repo's ``.git/`` (worktree add,
+        worktree remove/prune).
+        """
+        import checkpoint_handler
+
+        checkpoint_handler._store_locks.clear()
+
+        flock_depth = [0]
+        # Per-call list of (git_args, depth_at_entry).
+        observations: list[tuple[list[str], int]] = []
+
+        @contextlib.contextmanager
+        def recording_flock(_repo_path):
+            flock_depth[0] += 1
+            try:
+                yield
+            finally:
+                flock_depth[0] -= 1
+
+        monkeypatch.setattr(checkpoint_handler, "bare_repo_lock", recording_flock)
+        monkeypatch.setattr(checkpoint_handler.time, "sleep", lambda _s: None)
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        fetch_attempts = [0]
+
+        def track_run_git(cwd, args, **kwargs):
+            observations.append((list(args), flock_depth[0]))
+            if args[:1] == ["fetch"]:
+                fetch_attempts[0] += 1
+                # Fail the first two fetches to drive the retry loop;
+                # let the third succeed so the rest of the op runs.
+                if fetch_attempts[0] < 3:
+                    raise checkpoint_handler.CheckpointError("simulated fetch failure")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+        assert result is True
+
+        fetch_observations = [depth for args, depth in observations if args[:1] == ["fetch"]]
+        assert len(fetch_observations) == 3, (
+            f"Expected 3 fetch attempts, observed {len(fetch_observations)}"
+        )
+        assert all(d == 0 for d in fetch_observations), (
+            f"bare_repo_lock must not be held during fetch retry, saw depths {fetch_observations}"
+        )
+
+        # Sanity: `worktree add` and the cleanup `worktree remove` /
+        # `worktree prune` must run *under* the flock — that's the
+        # whole point of keeping the flock at all.
+        worktree_observations = [
+            (args[:2], depth)
+            for args, depth in observations
+            if args[:2] in (["worktree", "add"], ["worktree", "remove"], ["worktree", "prune"])
+        ]
+        assert worktree_observations, "Expected worktree git ops to be observed"
+        assert all(depth >= 1 for _args, depth in worktree_observations), (
+            f"Worktree ops must run under bare_repo_lock, saw {worktree_observations}"
         )
 
 
