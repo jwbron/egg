@@ -319,10 +319,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Routes registration when splitting routes/pipelines.py: how should @app.route(...) be handled?",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "Keep @app.route(...) decorations in routes/pipelines/__init__.py with thin wrappers delegating to submodule implementations (recommended) — minimal behavior change; routes still register on `app` exactly as today.",
+        "Refactor to a Flask Blueprint — each submodule registers handlers on a shared Blueprint, __init__.py registers the Blueprint on the app. Cleaner long-term but introduces Blueprint URL/error-handler scoping changes (behavior-adjacent).",
+        "Hybrid — keep decorators in __init__.py, but expose the implementation submodules without wrappers (`@app.route(...) (handler := _impl.handler)`). Saves a wrapper layer; less idiomatic Python.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-30T03:56:36.506413Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T03:56:36.471936Z",
+  "updated_at": "2026-04-30T03:56:36.527026Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -336,6 +355,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null
 }
