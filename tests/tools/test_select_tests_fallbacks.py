@@ -237,7 +237,10 @@ def test_static_path_triggers(path: str, expected: str) -> None:
 
 
 # ----------------------------------------------------------------------
-# R1 — gateway importlib test-loader mapping.
+# Gateway production edits no longer widen — the AST resolver bridges
+# the importlib test-loader pattern via `gateway.` in
+# `BARE_NAME_STRIP_PREFIXES`, so a `gateway/<file>.py` edit must
+# resolve to None here and be handled by narrow analysis.
 # ----------------------------------------------------------------------
 
 
@@ -245,53 +248,24 @@ def test_static_path_triggers(path: str, expected: str) -> None:
     "path",
     [
         "gateway/policy.py",
-        "gateway/server.py",
         "gateway/auth.py",
-        "gateway/credentials.py",
+        "gateway/checkpoint_handler.py",
+        "gateway/worktree_manager.py",
     ],
 )
-def test_gateway_source_change_widens_to_full_suite(path: str) -> None:
+def test_gateway_source_change_does_not_widen(path: str) -> None:
+    """`gateway/<file>.py` edits used to short-circuit to the full
+    suite via the dedicated importlib-test-loader trigger.  The AST
+    resolver now records the test→production edges grimp cannot see,
+    so these edits must fall through to narrow analysis."""
+    bundle = _StubBundle(all_modules={"gateway." + Path(path).stem})
     trigger = selector.evaluate_fallback_triggers(
         paths=[path],
-        bundle=_StubBundle(all_modules={"gateway." + Path(path).stem}),
-        baseline_source="LKG",
-        lkg_was_stale=False,
-    )
-    assert trigger == "gateway source change (importlib test-loader)"
-
-
-def test_gateway_test_change_does_not_fire_gateway_rule() -> None:
-    """A change under ``gateway/tests/`` (not a production file
-    directly under ``gateway/``) must NOT fire the gateway rule —
-    those edits are tester-side and use the standard graph closure.
-    """
-    bundle = _StubBundle(
-        all_modules={"gateway.tests.test_policy"},
-        dynamic_import_modules=set(),
-        upstream_map={},
-    )
-    trigger = selector.evaluate_fallback_triggers(
-        paths=["gateway/tests/test_policy.py"],
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
     )
-    assert trigger != "gateway source change (importlib test-loader)"
-
-
-def test_nested_gateway_path_does_not_fire_gateway_rule() -> None:
-    """Files under a sub-directory of gateway (e.g. ``gateway/sub/x.py``)
-    are not directly under gateway/, so they don't trigger the
-    importlib rule (the rule's pattern is ``gateway/<file>.py`` only).
-    """
-    bundle = _StubBundle(all_modules={"gateway.sub.x"})
-    trigger = selector.evaluate_fallback_triggers(
-        paths=["gateway/sub/x.py"],
-        bundle=bundle,
-        baseline_source="LKG",
-        lkg_was_stale=False,
-    )
-    assert trigger != "gateway source change (importlib test-loader)"
+    assert trigger is None
 
 
 # ----------------------------------------------------------------------
@@ -371,18 +345,16 @@ def test_dynamic_import_reachability_changed_module_in_seed_set() -> None:
     """A changed module that IS in the dynamic-import seed set fires
     the trigger directly."""
     bundle = _StubBundle(
-        all_modules={"gateway.gateway", "gateway.policy"},
-        dynamic_import_modules={"gateway.gateway"},
+        all_modules={"sandbox.plugin_loader"},
+        dynamic_import_modules={"sandbox.plugin_loader"},
     )
     trigger = selector.evaluate_fallback_triggers(
-        paths=["gateway/policy.py"],  # gateway/*.py — fires R1 first
+        paths=["sandbox/plugin_loader.py"],
         bundle=bundle,
         baseline_source="LKG",
         lkg_was_stale=False,
     )
-    # gateway/*.py rule fires before the dynamic-import rule, so we get
-    # the more-specific R1 string.  This is intentional priority order.
-    assert trigger == "gateway source change (importlib test-loader)"
+    assert trigger == "dynamic-import reachability"
 
 
 def test_dynamic_import_reachability_via_upstream() -> None:
