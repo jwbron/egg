@@ -1,0 +1,527 @@
+{
+  "issue": 2261,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: Decompose 15 oversize Python source files to clear the file-size allowlist",
+  "summary": "Technical risk assessment for the 16-slice decomposition program (one parent pattern-adoption slice + 15 file-decomposition siblings) selected by HITL decisions D1-D10. Overall risk is HIGH, driven by the test patch surface (1,200+ unittest.mock.patch calls into routes.pipelines.* across the orchestrator test suite), the in-band per-phase refactor of _run_pipeline (a 2,362-line state machine), and a factual gap between the refine analysis and the actual code: pipelines.py already uses Flask Blueprints (pipelines_bp), not @app.route. None of the risks are blockers, but several change the implementation strategy materially and need to be reflected in slice-1's pattern document and slice-16's design.",
+
+  "overall_risk_level": "HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+
+  "sources_consulted": {
+    "issue_text": "https://github.com/jwbron/egg/issues/2261",
+    "refine_analysis": ".egg-state/drafts/2261-analysis.md @ origin/egg/issue-2261 (d0d53943b)",
+    "hitl_decisions": "decisions D1-D10 + feedback Q1-Q8 (resolved 2026-04-30T04:00:09Z)",
+    "files_inspected": [
+      "scripts/file-size-allowlist.yaml",
+      "scripts/check-file-sizes.py",
+      "orchestrator/routes/pipelines.py",
+      "orchestrator/api.py",
+      "orchestrator/mcp_tools.py",
+      "orchestrator/routes/decisions.py",
+      "orchestrator/routes/phases.py",
+      "orchestrator/unified_sse.py",
+      "gateway/gateway.py"
+    ],
+    "external_research": "Skipped per task instructions — pure internal Python refactor, no third-party dependency changes."
+  },
+
+  "verified_facts": {
+    "current_file_sizes_at_HEAD": {
+      "orchestrator/routes/pipelines.py": 16401,
+      "gateway/gateway.py": 9890,
+      "orchestrator/mcp_tools.py": 2820,
+      "scripts/select_tests.py": 1875
+    },
+    "allowlist_path": "scripts/file-size-allowlist.yaml",
+    "global_caps": "1500 lines / 100,000 bytes (hard); 800 lines / 60,000 bytes (soft)",
+    "test_exemption": "scripts/check-file-sizes.py:105 exempts files starting with 'test_' or ending '_test.py' and dirs named 'tests'/'__pycache__' under SOURCE_ROOTS.",
+    "test_patch_surface": "Approx 1,204 unittest.mock.patch calls reference 'pipelines.' inside orchestrator/tests/, plus 54 distinct test files import patch targets via routes.pipelines.<sym>. The refine analysis listed 43+ representative symbols.",
+    "production_importers_of_routes_pipelines": [
+      "orchestrator/api.py:50 — `from routes.pipelines import pipelines_bp` (Blueprint registration)",
+      "orchestrator/mcp_tools.py:1743 — `_read_phase_draft`",
+      "orchestrator/mcp_tools.py:1814 — `_pipeline_identifier`",
+      "orchestrator/routes/decisions.py:254 — `_pipeline_identifier`",
+      "orchestrator/routes/phases.py:396 — `_persist_phase_brc_history`",
+      "orchestrator/routes/phases.py:421 — multi-symbol import block",
+      "orchestrator/routes/phases.py:460 — `_spawn_pipeline_run_thread`",
+      "orchestrator/routes/phases.py:738 — `_pipeline_identifier`",
+      "orchestrator/routes/phases.py:917 — `_persist_phase_brc_history`",
+      "orchestrator/routes/phases.py:997 — `_populate_contract_from_plan`",
+      "orchestrator/unified_sse.py:50 — `_collect_all_pipelines`"
+    ],
+    "largest_functions_pipelines_py": [
+      {"name": "_run_pipeline", "start_line": 13524, "length": 2362},
+      {"name": "_run_concurrent_phase", "start_line": 11124, "length": 1350},
+      {"name": "_build_agent_prompt", "start_line": 9070, "length": 710},
+      {"name": "create_pipeline", "start_line": 1143, "length": 613},
+      {"name": "_build_phase_prompt", "start_line": 7728, "length": 514},
+      {"name": "_run_implement_phase_slices", "start_line": 10663, "length": 461},
+      {"name": "_build_brc_preamble", "start_line": 8242, "length": 386},
+      {"name": "restart_agent", "start_line": 2183, "length": 318},
+      {"name": "_rebase_pipeline_branch_onto_base", "start_line": 5459, "length": 314},
+      {"name": "start_pipeline", "start_line": 15886, "length": 310}
+    ],
+    "largest_functions_gateway_py": [
+      {"name": "git_push", "start_line": 1106, "length": 968},
+      {"name": "git_execute", "start_line": 2074, "length": 716},
+      {"name": "gh_execute", "start_line": 4092, "length": 651},
+      {"name": "session_create", "start_line": 7944, "length": 398},
+      {"name": "main", "start_line": 9576, "length": 314}
+    ],
+    "mcp_tools_shape": "Single 2,820-line file containing one module-level helper (`_is_timeout_error`) and one large class `PipelineToolHandler` (line 1026 onward). Decomposition shape differs from the route-file pattern.",
+    "routing_mechanisms": {
+      "orchestrator/routes/pipelines.py": "Flask Blueprint `pipelines_bp = Blueprint('pipelines', __name__, url_prefix='/api/v1/pipelines')` declared at line 830; routes registered as `@pipelines_bp.route(...)`. NOT @app.route as decision-8's question text implied.",
+      "gateway/gateway.py": "Direct `@app.route(...)` on `app = Flask(__name__)` (line 516). Decision-8 framing is correct here."
+    }
+  },
+
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Refine analysis & decision-8 misread the routing mechanism in pipelines.py — it already uses Flask Blueprint, not @app.route",
+      "category": "design",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "If the implementer follows decision-8 literally and writes `@app.route(...)` thin wrappers in `routes/pipelines/__init__.py`, every existing route registration will break (no `app` is in scope inside `routes/pipelines/__init__.py`; Blueprint registration on `pipelines_bp` is what `orchestrator/api.py:50` actually consumes). Even if the implementer notices and uses `@pipelines_bp.route(...)`, the 'thin wrapper' framing is unnecessary — submodules can attach routes to the shared `pipelines_bp` directly.",
+      "description": "decision-8 question text reads: 'Routes registration when splitting routes/pipelines.py: how should @app.route(...) be handled?' The selected answer (B1) calls for thin wrappers in __init__.py delegating to submodule implementations. But pipelines.py already uses Flask Blueprints — `pipelines_bp = Blueprint('pipelines', __name__, url_prefix='/api/v1/pipelines')` at line 830, and `orchestrator/api.py:50` does `from routes.pipelines import pipelines_bp; app.register_blueprint(pipelines_bp)`. The intent of decision-8 is clearly 'minimize behavior change at the routing layer'; the literal text needs reinterpretation: the canonical pattern is `routes/pipelines/__init__.py` exports `pipelines_bp` (re-exported from `_run_loop` or wherever the Blueprint is now declared), and submodules import it via `from . import pipelines_bp` and add `@pipelines_bp.route(...)` decorators. No thin wrappers are needed — Flask Blueprints are designed for exactly this.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/api.py",
+        ".egg-state/contracts/issue-2261.json"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan phase MUST surface this in the planning doc and in slice-1's docs/guides/decomposition-pattern.md. The pattern doc should explicitly say: 'When the file already declares a Flask Blueprint, the package-init re-exports the Blueprint and submodules attach @<bp>.route(...) decorators by importing the Blueprint from the package. No thin wrappers.' (b) Plan should also note that gateway.gateway.py uses @app.route (no Blueprint) and so the recommended pattern there is either (i) introduce a Blueprint at decomposition time (behavior-adjacent — likely off-limits per decision-8 scope intent) or (ii) keep @app.route in the package __init__.py with thin wrappers as decision-8 literally describes. Document both shapes in slice-1's pattern doc. (c) Consider opening a HITL clarification on whether decision-8 was intended for both files or only gateway.gateway.py — but the recommendation is to proceed and document the reality: pipelines.py uses Blueprint, gateway.py uses @app.route, the pattern is 'minimize behavior change at the routing layer' regardless of mechanism.",
+        "effort": "LOW",
+        "residual_risk": "LOW once the pattern doc clearly distinguishes the two cases."
+      },
+      "requires_human_review": true,
+      "review_reason": "decision-8 question text vs codebase reality is a factual mismatch. Confirm the reinterpretation above is what the operator intended before slice-16 begins."
+    },
+    {
+      "id": "R2",
+      "title": "_run_pipeline per-phase refactor (B2) is a real state-machine change with concurrent test coverage that may not catch ordering regressions",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "A per-phase handler refactor of a 2,362-line background-thread state machine can break race-condition handling, run_epoch guards, PNFE respawn cascades, overseer teardown ordering, BRC verdict aggregation, and gateway-mode probes in subtle ways that pass `make test-all` but fail in production under concurrency.",
+      "description": "decision-2 selected B2: split _run_pipeline into per-phase handlers (_run_refine_phase, _run_plan_phase, _run_implement_phase_slices, _run_pr_phase) plus a thin orchestration loop. The function body has explicit references to subtle invariants — e.g. lines 437 ('# _run_pipeline that has been superseded. Without this guard'), 2618-2620 ('# Fully reset phase execution state so the new _run_pipeline … RUNNING and bump run_epoch so any lingering old _run_pipeline'), 2747 ('# 7. Launch a new _run_pipeline thread to monitor the restarted phase.'). These are run-epoch / supersession invariants that survive across thread respawns. Per-phase extraction has to thread these through (a) shared mutable state (_PipelineRunContext or similar), (b) the supersession guard at every handler boundary, (c) the spurious-PNFE recovery path which today loops inside _run_pipeline. Tests cover the happy path densely but historically have missed interleaving bugs at this seam (see e.g. test_consensus_polling.py, test_brc_nack_iteration.py, test_concurrent_*.py — they patch internals but don't model multi-thread races exhaustively).",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/tests/test_consensus_polling.py",
+        "orchestrator/tests/test_concurrent_phase.py",
+        "orchestrator/tests/test_advance_phase_*.py",
+        "orchestrator/tests/test_brc_nack_iteration.py"
+      ],
+      "mitigation": {
+        "strategy": "(a) Slice-16 should be the LAST slice in the program, after the 14 sibling slices have proven the re-export pattern. (b) Plan should require slice-16 to land per-phase handler extraction in two stages: stage-1 introduces the dispatch table (PHASE_HANDLERS) with a single body that still calls the inline phase blocks (no behavior change, no size win); stage-2 lifts each phase block into its own per-phase handler function. Each stage is a separate commit / sub-PR so a regression is bisectable. (c) Per Q7 (HITL feedback), per-phase handlers stay private and tested only through _run_pipeline for this refactor — DO NOT add new unit tests in this slice; file a follow-up issue. This keeps the refactor focused. (d) Add a manual smoke-run requirement to slice-16's PR description: run a real pipeline (e.g. `submit_task` against a small issue) and verify it completes end-to-end; do not rely on `make test-all` alone. (e) Mandate that the supersession guard and run_epoch logic be extracted into a single helper called at every handler boundary — not duplicated.",
+        "effort": "HIGH (real design + careful PR sequencing inside slice-16)",
+        "residual_risk": "MEDIUM — even with stage-1/stage-2 split, test coverage cannot fully verify race-condition preservation. A post-merge production regression is plausible."
+      },
+      "requires_human_review": true,
+      "review_reason": "_run_pipeline is the most safety-critical state machine in the orchestrator. The plan-phase reviewer should verify slice-16's two-stage extraction approach and the manual smoke-run requirement, and the implement-phase reviewer should require evidence of the manual smoke-run."
+    },
+    {
+      "id": "R3",
+      "title": "Test patch surface (1,200+ patch calls) makes a single missed re-export a cascading test failure",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "Roughly 1,204 unittest.mock.patch calls reference 'pipelines.' in orchestrator/tests, and the refine analysis sampled ~43 distinct routes.pipelines.<sym> targets. A single missed re-export when extracting a symbol raises AttributeError at test-collection time (mock.patch resolves attribute paths eagerly), failing potentially dozens of tests at once.",
+      "description": "Per Q6 (HITL feedback), the rule is: re-export every symbol that has any external reference (`git grep <symbol>` returns hits in tests/, gateway/, orchestrator/, sandbox/, or shared/ outside the file's own package). The plan procedure should bake this `git grep` check into the per-slice template. But: (a) symbols can be referenced by string literal in test fixtures or mock.patch calls — `git grep` finds these, but only if the symbol name is unique. (b) Some symbols may share names with similarly-named functions in other modules (e.g. `_resolve_pipeline` exists in multiple modules), so `git grep` over-counts. (c) Re-export discipline on a 16-PR program requires every implementer to run the same check — the slice template has to make this mechanical, not a judgment call.",
+      "affected_files": [
+        "scripts/file-size-allowlist.yaml",
+        "orchestrator/routes/pipelines.py",
+        "gateway/gateway.py",
+        "orchestrator/mcp_tools.py",
+        "orchestrator/tests/**"
+      ],
+      "mitigation": {
+        "strategy": "(a) Slice-1's docs/guides/decomposition-pattern.md MUST include a concrete `git grep` recipe that handles name disambiguation — recommend: `git grep -nE \"(routes\\.pipelines\\.|from .* import.*\\b<symbol>\\b)\" -- '*.py'` and require the implementer to inspect each hit. (b) Plan should add a per-slice acceptance criterion: 'PR description lists every symbol re-exported and the count of external references for each.' (c) Implement an opt-in lint helper script (e.g. scripts/check-reexports.py) that, given the new package and the original file's git history, computes the symbol set that moved and fails if any moved symbol is missing from `__init__.py` and is referenced outside the new package. This is out-of-scope as a ship requirement but is a valuable artifact. (d) `make test-all` IS the contract per HITL Q4. The first slice (slice-1, scripts/select_tests.py) is small enough that any missed re-export is caught with low blast radius; subsequent slices benefit from the established pattern.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW once the pattern doc + per-slice template are in place. The main residual risk is a human implementer skipping the check on slice-N. Overseer review should verify the PR description's symbol list against the `git grep` output."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "_run_pipeline alone does not bring pipelines.py under the 1,500-line cap — three more mega-functions block the goal",
+      "category": "design",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "Even if _run_pipeline (2,362 lines) is fully extracted to a submodule, pipelines.py is 16,401 lines and contains four other functions over the soft cap: _run_concurrent_phase (1,350 lines, NEAR the hard cap), _build_agent_prompt (710), create_pipeline (613), _build_phase_prompt (514). Splitting only at function boundaries leaves multiple submodules over or near the hard cap; the work has to either decompose those functions further or aggressively cluster them.",
+      "description": "Plan needs to model not just 'split pipelines.py into N submodules' but also 'each submodule must itself be under the cap'. _run_concurrent_phase at 1,350 lines is the most concerning — if it lands in a `_brc.py` submodule alone with helpers, the submodule will be >1,500 lines without further extraction. Similarly _build_agent_prompt + _build_phase_prompt + _build_brc_preamble (~1,610 lines combined) cluster naturally into a `_prompt_building.py` submodule but together exceed the cap. The plan must explicitly map each of the 8+ logical clusters from the issue ('run loop, prompt building, PR lifecycle, worktree ops, BRC verdicts, plan/contract decisions, status/wait helpers, review criteria') to expected submodule sizes and confirm each is under 1,500 lines.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan slice-16's design doc must include a per-submodule size budget table: estimated lines for `_run_loop.py`, `_brc.py`, `_prompt_building.py`, `_pr_lifecycle.py`, `_worktree_ops.py`, `_decisions.py`, `_status_helpers.py`, `_criteria.py`, `_readers.py`, `__init__.py` (Blueprint + re-exports). Each must be <1,500 lines and <100KB. (b) For clusters that exceed the cap, plan must call out the secondary decomposition needed (e.g. _run_concurrent_phase may need internal helpers extracted into a `_concurrent_phase_helpers.py` submodule). (c) Same exercise required for gateway.gateway.py: git_push (968), git_execute (716), gh_execute (651) cluster into submodules but each is large enough that multiple-per-submodule shapes exceed the cap. (d) If slice-16 size budgeting reveals that the cap can only be met by a behavior-adjacent change (e.g. extracting an inner state class), surface this as a HITL decision before implement begins.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW — the cap is mechanical; either the budget closes or it doesn't, and plan can detect this in advance."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "gateway.gateway.py mega-functions (git_push 968, git_execute 716, gh_execute 651) push the file over the cap on their own",
+      "category": "design",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "git_push is 968 lines — already over the 800-line soft cap and approaching the 1,500-line hard cap as a single function. Splitting gateway.py at function boundaries leaves a `_git_push.py` submodule that is itself over the soft cap, and the function is too coupled to easily decompose without touching gateway behavior (security-critical surface).",
+      "description": "git_push is the most security-critical handler in gateway.py — it enforces file-boundary policy, branch-name policy, and credential injection for agent pushes. Decomposing it carries non-trivial risk in a security-sensitive context. Similar caution applies to git_execute (raw git command dispatch) and gh_execute (gh CLI dispatch). decision-8 (and HITL Q5) framed gateway.py routing as 'thin wrappers in __init__.py' — fine in principle, but decomposing the BODIES of these handlers is the real challenge.",
+      "affected_files": [
+        "gateway/gateway.py"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan slice-15 (gateway.py) should treat each of these mega-functions as its own internal sub-task with explicit reviewer attention. (b) Decompose git_push into named helper functions (e.g. _validate_push_targets, _enforce_file_boundaries, _check_branch_policy, _inject_credentials, _execute_git_push) extracted into a private submodule, each well-named and <200 lines. The handler stays in __init__.py (or a top-level _git_push.py) and orchestrates the helpers. (c) Add a security-review reviewer check on slice-15 — the security implications must be explicit. (d) Run gateway integration tests + manual smoke push (with a real agent worktree) before merging slice-15. (e) Same approach for git_execute and gh_execute. (f) Document the file-boundary check seam in gateway/CLAUDE.md as part of slice-15.",
+        "effort": "MEDIUM-HIGH",
+        "residual_risk": "MEDIUM — security-critical surface; decomposition requires more reviewer eyes than a typical refactor."
+      },
+      "requires_human_review": true,
+      "review_reason": "git_push enforces file-boundary policy which is the gateway's primary security mechanism. Any decomposition of this handler should be reviewed by an engineer familiar with the gateway's security model, not just a plan reviewer."
+    },
+    {
+      "id": "R6",
+      "title": "mcp_tools.py is structurally different (one giant class) — the route-file pattern doesn't apply mechanically",
+      "category": "design",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "mcp_tools.py is a 2,820-line file containing one helper function (`_is_timeout_error`) and one class `PipelineToolHandler` (line 1026 onward). The class has many methods and is the bulk of the file. Decomposing it means either (a) splitting the class via mixins (Pythonic but fragile), (b) extracting helper modules called by the class methods (cleanest but doesn't reduce class size), or (c) splitting the class into multiple classes that delegate to each other (largest behavior-adjacent change). None of the three approaches is what 'apply the re-export pattern' implies.",
+      "description": "The decomposition pattern documented in slice-1 should explicitly distinguish: (a) module-level functions (route files, sandbox/entrypoint.py, scripts/select_tests.py) — re-export shim pattern works directly; (b) module-level class with many methods (mcp_tools.py PipelineToolHandler, possibly others) — different shape, requires either method extraction to private helpers or class splitting. Plan needs to call this out for slice-14 (mcp_tools.py) so the implementer doesn't try to apply a mismatched pattern. Tests for mcp_tools likely patch class methods (e.g. `mcp_tools.PipelineToolHandler.foo`) and helper functions (`mcp_tools.<helper>`) — re-export discipline applies to both.",
+      "affected_files": [
+        "orchestrator/mcp_tools.py"
+      ],
+      "mitigation": {
+        "strategy": "(a) Slice-1's pattern doc should include a section 'When the file is a single large class' with the recommended approach: extract method bodies into private helper functions in submodules (e.g. `_handler_helpers/_pipeline_create.py`), and have the class methods delegate to them with single-line bodies. The class stays in __init__.py and remains the import target. (b) Plan slice-14 (mcp_tools.py) should explicitly enumerate the method clusters and helper-module shape. (c) Tests patching `mcp_tools.PipelineToolHandler.<method>` continue to work because the class is unchanged — tests patching `mcp_tools.<helper_function>` need the helper re-exported from __init__.py. (d) The same approach applies to other large-class files in the allowlist (e.g. portions of overseer/monitor.py).",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW with documented pattern."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Allowlist file conflicts under concurrent slice execution (EGG_ORCH_MAX_PARALLEL_SLICES=5)",
+      "category": "operations",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "Per HITL D10, up to 5 sibling slices run concurrently. Each slice's PR removes one entry from `scripts/file-size-allowlist.yaml`. Concurrent merges into main create a YAML merge conflict on every overlapping merge — the file is touched by every slice in the program.",
+      "description": "Today the allowlist is YAML keyed by file path with values like `{ issue: '2248' }`. When slice-2 lands and removes `scripts/select_tests.py:`, the file changes. When slice-3 (running in parallel) lands and removes `shared/egg_contracts/checkpoint_cli.py:`, it also changes the file at a different line. Git can usually merge these mechanically, but the 100% overlap rate means every slice will encounter at least one rebase against another slice's allowlist removal. Failed rebases require a human or the agent to resolve. With 15 slices running in 3 waves of 5, expect at least 10 rebase conflicts on the allowlist file.",
+      "affected_files": [
+        "scripts/file-size-allowlist.yaml"
+      ],
+      "mitigation": {
+        "strategy": "(a) Slice-1's pattern doc must include a section 'Allowlist updates': pre-rebase against origin/main before each push, and re-resolve the allowlist if needed (the yaml is keyed by path, so resolution is mechanical — keep both removals). (b) The PR template for each slice should include a checklist item: 'Re-checked allowlist removal still applies after rebase.' (c) Consider whether plan should sequence the slices serially (set EGG_ORCH_MAX_PARALLEL_SLICES=1 just for this pipeline) to avoid the conflict — but D10 chose 5 explicitly. Document the trade-off in the plan: 5-wide parallelism saves wall-clock at the cost of N rebase conflicts on a single trivially-resolvable YAML file. (d) The CI lint (scripts/check-file-sizes.py) is the source of truth — if a slice forgets to remove its entry, lint fails. The risk is rebase friction, not silent breakage.",
+        "effort": "LOW",
+        "residual_risk": "LOW — friction, not failure."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "Test patch path drift (Q1) creates an in-scope vs out-of-scope ambiguity that can balloon a slice",
+      "category": "design",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "Per HITL Q1, mechanical test path rewrites are in scope but logic rewrites are not. A slice may legitimately discover that the only way to make a test pass is to rewrite the test logic, blowing past the 'pure refactor' scope. This stalls the slice with an out-of-scope decision.",
+      "description": "Q1's answer establishes the rule: 'A slice may touch tests only if (a) the move strictly requires it AND (b) the diff is mechanical.' But 'mechanical' is a judgment call. Examples of legitimately ambiguous cases: (a) a test patches both `routes.pipelines._foo` and `orchestrator.routes.pipelines._foo` — fixing one is mechanical; finding why the test patches both may reveal a deeper coupling. (b) A test asserts on the exact import path inside a Mock side_effect — mechanical to update, but worth a NACK if the assertion is checking the wrong thing. The slice template needs guardrails so that 'mechanical' is consistently interpreted across 15 slices.",
+      "affected_files": [
+        "orchestrator/tests/**",
+        "gateway/tests/**",
+        "integration_tests/**"
+      ],
+      "mitigation": {
+        "strategy": "(a) Slice-1's pattern doc must define 'mechanical' precisely: 'A test rewrite is mechanical if the diff is a 1:1 string substitution of an import path or patch target, with no test-logic changes (no new asserts, no removed asserts, no logic-flow changes).' (b) Per-slice acceptance criterion: PR description states the count of test-file edits and confirms each is a mechanical substitution. (c) If a slice encounters a test that requires a logic rewrite, the implementer files a follow-up issue and adjusts the slice scope to either re-export-shim around the test or skip the move. (d) Reviewer (reviewer_plan / reviewer_implement) gates on this checklist item.",
+        "effort": "LOW",
+        "residual_risk": "LOW with clear definition + reviewer gate."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "Lazy-import cycle (routes/phases.py → routes.pipelines) may surface latent issues during decomposition",
+      "category": "compatibility",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "routes/phases.py uses 5 distinct in-function lazy imports of routes.pipelines.* to break a circular dependency at module import time. When pipelines.py becomes a sub-package, the import order through `__init__.py` may either (a) re-trigger the cycle (because __init__.py imports from a submodule that imports from phases that imports from routes.pipelines), or (b) silently work because the lazy imports are still inside functions.",
+      "description": "Inspected lazy-import sites: routes/phases.py:396, 421, 460, 738, 917, 997 — all in-function imports of routes.pipelines symbols. If routes/pipelines/__init__.py is structured to import from submodules at module level, the chain becomes: api.py → routes.pipelines (__init__.py) → submodule (e.g. _phase_handlers.py) → may transitively import routes.phases → routes.phases imports back from routes.pipelines (lazy, so deferred). The cycle should still resolve, but eager imports inside __init__.py make it brittle. A submodule that does an eager import of routes.phases at top level would deadlock.",
+      "affected_files": [
+        "orchestrator/routes/pipelines/__init__.py (new)",
+        "orchestrator/routes/phases.py"
+      ],
+      "mitigation": {
+        "strategy": "(a) Slice-1's pattern doc explicitly forbids submodules from importing routes.phases at module level — only in-function imports allowed for any back-reference. (b) Slice-16 should verify the import chain resolves cleanly by running `python -c 'import orchestrator.api'` as a smoke test before push. (c) If the cycle does resurface, the fix is to move the eager-import to in-function — already established pattern in routes/phases.py.",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R10",
+      "title": "Per-slice context resets erase cross-slice learning if slice-1 doesn't capture it explicitly",
+      "category": "operations",
+      "severity": "LOW",
+      "likelihood": "HIGH",
+      "impact": "BRC slices each spawn fresh agent containers with cleared context. If slice-2 discovers that the pattern doc has a gap (e.g. missing guidance for an edge case), slice-3 won't benefit unless the doc is updated and slice-3 re-reads it.",
+      "description": "Per HITL Q8, docs/guides/decomposition-pattern.md is a precondition (slice-1 lands it). But it can evolve mid-program. The risk is that an agent in slice-N discovers an edge case, files a one-line fix to the pattern doc inside their slice, and slice-N+1 misses it because the doc reference was already loaded. The slice-DAG model means each slice is a separate pipeline run and would re-read the doc at agent startup, so this is mostly a non-issue — but only if the doc is referenced by every slice's prompt.",
+      "affected_files": [
+        "docs/guides/decomposition-pattern.md (new in slice-1)",
+        "orchestrator/CLAUDE.md (updated in slice-1)",
+        "gateway/CLAUDE.md (updated in slice-1)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Slice-1 must update orchestrator/CLAUDE.md and gateway/CLAUDE.md to point at docs/guides/decomposition-pattern.md, so any agent (refine/plan/implement) loading the package CLAUDE.md sees the link. (b) Per-slice prompts (in plan-phase task descriptions) should reference the doc explicitly. (c) Reviewers (reviewer_plan, reviewer_implement) should treat divergence from the doc as a NACK reason. (d) If the doc evolves mid-program, the diff PR should be a tiny standalone PR (not bundled into a slice) so its merge doesn't bloat any one slice.",
+        "effort": "LOW",
+        "residual_risk": "LOW with the CLAUDE.md back-references in place."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R11",
+      "title": "Sub-stacking inside slice-16 (decision-9: single slice with multiple commits) creates a large unreviewable PR",
+      "category": "operations",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "decision-9 selected option C1 ('single slice with multiple commits/sub-tasks'). Slice-16 covers the 8+ logical clusters of pipelines.py PLUS the per-phase _run_pipeline refactor. As a single PR, the diff likely exceeds 5,000 lines (extractions + new submodules + Blueprint reorganization + per-phase handlers) — at the upper end of human review capacity.",
+      "description": "Plan needs to decide whether 'single slice with multiple commits' actually means one PR with N commits (decision-9 literal) or a stacked PR chain inside the slice's branch (decision-9 alternative wording: 'a small chain of stacked PRs scoped to this slice's branch'). The former is the riskier choice for review fatigue; the latter is cleaner but more PRs. The decision text is ambiguous and should be clarified in plan.",
+      "affected_files": [
+        ".egg-state/contracts/issue-2261.json"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan should commit to the stacked-PR shape inside slice-16: each cluster (run loop, prompt building, PR lifecycle, etc.) is its own PR landing on slice-16's branch. (b) The order should put the per-phase _run_pipeline refactor LAST in the stack, after all other extractions land — so by the time the riskiest commit is reviewed, every other change is already in main. (c) Per-PR cap: ~1,500 lines diff (matching the file cap for symmetry). If a sub-PR exceeds, split further. (d) Document the stacked-PR shape in slice-1's pattern doc as the recommended approach for any slice that exceeds the per-PR cap.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW with the stacked-PR cap enforced."
+      },
+      "requires_human_review": true,
+      "review_reason": "decision-9 is ambiguous between 'one PR with multiple commits' and 'stacked PR chain'. Plan-phase reviewer should confirm which interpretation the operator intended."
+    },
+    {
+      "id": "R12",
+      "title": "Per-phase handler private status (Q7) leaves no isolation tests for the highest-risk refactor",
+      "category": "design",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "impact": "Per HITL Q7, per-phase handlers (_run_refine_phase, _run_plan_phase, _run_implement_phase_slices, _run_pr_phase) stay private and tested only through _run_pipeline. This is the right call for refactor scope discipline (test additions are out of scope), but it means the highest-risk part of slice-16 lands without dedicated unit tests.",
+      "description": "Existing tests cover _run_pipeline as a whole. After refactoring, those tests still pass through _run_pipeline → handler dispatch, so coverage of the handlers is indirect. If a handler bug only manifests in a specific phase ordering (e.g. plan→implement transition), the test suite may not exercise that exact path. The mitigation is the follow-up issue Q7 mandates, but the gap exists in the meantime.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (slice-16)",
+        "orchestrator/tests/test_run_pipeline_*.py (existing)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan should require slice-16 to file the follow-up issue for per-phase handler unit tests on the same PR that lands slice-16 (so it's not lost). The issue body should enumerate the handlers and the missing test surface. (b) Slice-16's PR description should explicitly call out the test gap and reference the follow-up issue. (c) Mandate the manual smoke-run requirement (R2) — this is the bridge until the follow-up tests land.",
+        "effort": "LOW",
+        "residual_risk": "MEDIUM until the follow-up issue is closed."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R13",
+      "title": "Slice-1's reference file (scripts/select_tests.py) is at 1,875 lines — needs aggressive decomposition to validate the pattern",
+      "category": "design",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "scripts/select_tests.py at 1,875 lines is 25% over the cap. Decomposition needs to land under 1,500 lines AND under 100KB. The file is currently 63,828 bytes per the issue body but per Q2 'use current sizes' — verified at 1,875 lines today; bytes need re-verification. Slice-1 also lands docs and CLAUDE.md updates AND updates orchestrator+gateway docs. If the slice-1 PR sprawls, it stops being a 'small reference' and becomes a real refactor with a doc bundled in.",
+      "description": "Slice-1's value is to validate the pattern on a small file before committing to 14 more slices. If slice-1 itself is large (because select_tests.py needs significant decomposition), the validation is muddled. Conversely, if slice-1 is too small (just docs), the pattern isn't actually proven on a real decomposition. The scope is well-chosen, but plan needs to confirm slice-1 produces a clean reference. Plan should also consider: is select_tests.py the right reference file given mcp_tools.py's class-based structure? Maybe a second tiny reference for the class-pattern is needed.",
+      "affected_files": [
+        "scripts/select_tests.py",
+        "docs/guides/decomposition-pattern.md (new)",
+        "orchestrator/CLAUDE.md",
+        "gateway/CLAUDE.md"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan should set slice-1's success criteria explicitly: select_tests.py drops below 1,500 lines and 100KB, allowlist entry removed, the pattern doc covers BOTH module-function decomposition (select_tests.py) and large-class decomposition (forward-reference for slice-14 mcp_tools.py — possibly a worked example without an actual code change). (b) If select_tests.py turns out to require >800 lines of changes, file a HITL clarification before slice-1 commits — maybe the reference should be a smaller file. (c) The pattern doc should be reviewed independently before the code change inside slice-1 (one commit for docs, one commit for the reference decomposition — both in the same PR).",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R14",
+      "title": "Slice-DAG single-parent forest rule constrains the structure to one wave-leader",
+      "category": "operations",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "impact": "The slice-DAG forest rule (per refine analysis) means each slice has at most one parent. The structure C1 chose (slice-1 parent, slices 2-16 as siblings under slice-1) fits the rule. But if implementation reveals a need for a 'mid-program' slice (e.g. a follow-up pattern doc revision after slice-5 reveals a gap), it cannot be inserted as a child of slices 2-5 simultaneously — only one parent allowed.",
+      "description": "If the pattern doc evolves mid-program (R10), the doc-update PR has to be either (a) a child of slice-1 (sibling to slices 2-16) — fine, but downstream slices that already started won't see it; (b) merged outside the slice-DAG entirely — works because the doc is in main, not in any slice's branch. The forest rule mainly constrains what happens if slice-N's design rework requires changes to slice-N-1's output — that case is unsupported and would require a manual operator intervention.",
+      "affected_files": [
+        ".egg-state/contracts/issue-2261.json"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan should design for single-pass execution: slice-1 lands the most polished pattern doc possible, and slices 2-16 are expected to follow it without revision. (b) If a slice discovers a pattern-doc gap, the fix is a small standalone PR to docs/guides/decomposition-pattern.md merged outside the slice-DAG (operator-driven). (c) The slice-1 reviewer should be especially thorough on the pattern doc — quality there reduces revision pressure later.",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R15",
+      "title": "16-slice program duration may approach the 7-day BRC cycle expiry on long-running coordination",
+      "category": "operations",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "If each slice takes ~6 hours of agent wall-clock and 5 run in parallel, the program completes in ~3 waves × 6 hours = 18 hours best-case. Worst-case (NACKs, re-reviews, coordinator stalls) extends per-slice cycles significantly. If any single coordination loop exceeds the BRC cycle limits (per-slice global=10), the slice is killed.",
+      "description": "Per refine analysis: EGG_ORCH_SLICE_LOCAL_MAX_CYCLES=3, EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES=10. Slice-16's complexity (per-phase refactor of _run_pipeline) plausibly needs more than 10 BRC cycles to converge. Other slices are simpler.",
+      "affected_files": [
+        ".egg-state/contracts/issue-2261.json"
+      ],
+      "mitigation": {
+        "strategy": "(a) Slice-16 should arrive last, after the pattern is well-established and reviewers can ACK quickly. (b) If slice-16 hits the 10-cycle ceiling, the operator should bump EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES for that slice specifically rather than splitting it (since splitting requires another DAG change). (c) Per-slice cycle limits already protect against runaway agents — the residual risk is low-magnitude operator intervention for slice-16 specifically.",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false
+    }
+  ],
+
+  "areas_requiring_human_review": [
+    {
+      "area": "Routing-mechanism mismatch in pipelines.py (R1)",
+      "reason": "decision-8 question text presumed @app.route but the codebase uses @pipelines_bp.route. Plan needs operator confirmation that the reinterpretation (re-export pipelines_bp from __init__.py, attach @pipelines_bp.route in submodules — no thin wrappers needed because Blueprints handle this idiomatically) is what was intended."
+    },
+    {
+      "area": "_run_pipeline per-phase extraction approach for slice-16 (R2)",
+      "reason": "The 2,362-line state machine refactor is the riskiest single change in the program. Plan-phase reviewer should verify the recommended two-stage extraction (stage-1 introduce dispatch table, stage-2 lift bodies into per-phase handlers) and the manual smoke-run requirement. Consider whether a senior engineer should review slice-16's PR specifically."
+    },
+    {
+      "area": "git_push (and related) decomposition in gateway.py (R5)",
+      "reason": "git_push enforces the gateway's primary security mechanism (file-boundary policy). Slice-15 should be reviewed by an engineer familiar with the gateway's security model, not just a plan reviewer."
+    },
+    {
+      "area": "Slice-16 sub-stacking interpretation (R11)",
+      "reason": "decision-9 is ambiguous between 'one PR with multiple commits' (literal) and 'stacked PR chain inside slice-16's branch' (alternative wording). Risk-analysis recommends stacked-PR shape with a per-PR ~1,500-line cap. Plan-phase reviewer should confirm which interpretation."
+    }
+  ],
+
+  "rollback_plan": {
+    "strategy": "Per-slice revert. Each of the 16 slices lands as its own PR (or stacked PR chain inside slice-16). A bad slice can be reverted via GitHub UI with no cascading impact on the other slices, because each slice's PR is self-contained: file decomposition + allowlist removal + tests-pass.",
+    "steps": [
+      "1. Identify the regression to a specific slice (e.g. via git bisect or PR-level revert).",
+      "2. Revert the slice's PR via GitHub UI. The revert restores: (a) the original monolithic file, (b) the allowlist entry, (c) any test patch path tweaks.",
+      "3. Re-add the allowlist entry if removed (revert PR handles this automatically since the allowlist edit is in the same commit).",
+      "4. CI re-runs lint + test-all on main; should be green because the revert restores the original state.",
+      "5. File a follow-up issue describing the regression so the slice can be re-attempted with the fix.",
+      "6. Other slices in the program continue independently — the revert does not block them unless they depend on the reverted slice's submodule paths (only true for slice-1's pattern doc, which downstream slices reference; revert of slice-1 mid-program would block 2-16 until re-landed)."
+    ],
+    "data_loss_risk": "NONE — pure refactor, no persistent data is affected.",
+    "downtime_risk": "NONE for slices 1-15. For slice-16 (per-phase _run_pipeline refactor): if a regression is caught only in production, the orchestrator container needs a rebuild + redeploy, which is the existing deployment path — no special handling.",
+    "behavioral_regression_response": "If a behavioral regression is detected after slice-16 lands and CI was green, revert immediately and file a focused issue describing the failure mode (e.g. 'pipeline stalls on phase X with concurrency Y'). The state-machine refactor risk justifies treating slice-16's first 48 hours in production as an extended observation window."
+  },
+
+  "implementation_recommendations": [
+    {
+      "id": "REC1",
+      "priority": "HIGH",
+      "recommendation": "Plan must reconcile decision-8 with the actual routing mechanism in pipelines.py: it uses Flask Blueprint, not @app.route. Slice-1's pattern doc should document both shapes (Blueprint for pipelines.py, @app.route for gateway.py) and the recommended idiomatic decomposition for each.",
+      "rationale": "Without this reconciliation, slice-16's implementer may follow decision-8 literally and break route registration. R1."
+    },
+    {
+      "id": "REC2",
+      "priority": "HIGH",
+      "recommendation": "Slice-16 (pipelines.py) lands LAST. Inside slice-16, sequence the extractions so the per-phase _run_pipeline refactor is the FINAL sub-PR — after all other clusters (prompt building, PR lifecycle, criteria, etc.) are already in main. Use a stacked-PR shape inside slice-16's branch with each sub-PR capped at ~1,500 lines diff.",
+      "rationale": "Maximizes pattern proof before tackling the riskiest change. R2, R11."
+    },
+    {
+      "id": "REC3",
+      "priority": "HIGH",
+      "recommendation": "Per-phase _run_pipeline refactor should land in two distinct commits/sub-PRs: (a) introduce PHASE_HANDLERS dispatch table calling inline phase blocks (no behavior change, no size win); (b) lift each phase block into its own per-phase handler function. Each commit is independently revertable.",
+      "rationale": "Bisectable regression isolation on the most safety-critical refactor. R2."
+    },
+    {
+      "id": "REC4",
+      "priority": "HIGH",
+      "recommendation": "Slice-1's docs/guides/decomposition-pattern.md MUST include: (i) precise definition of 'mechanical' test rewrite (R8), (ii) git grep recipe for symbol cross-references (R3), (iii) Blueprint vs @app.route routing decomposition shapes (R1), (iv) class-based file decomposition pattern (R6), (v) allowlist update + rebase guidance (R7), (vi) lazy-import discipline (R9).",
+      "rationale": "Single source of truth for 14 downstream slices."
+    },
+    {
+      "id": "REC5",
+      "priority": "HIGH",
+      "recommendation": "Plan slice-16's design with a per-submodule SIZE BUDGET TABLE (estimated lines/bytes for each new submodule). _run_concurrent_phase (1,350 lines) is near the cap on its own — confirm its submodule lands under 1,500 lines or plan secondary helper extraction. _build_agent_prompt + _build_phase_prompt + _build_brc_preamble (~1,610 combined) need similar attention.",
+      "rationale": "Decomposing only at function boundaries is insufficient; multiple sub-1,500-line submodules require careful clustering. R4."
+    },
+    {
+      "id": "REC6",
+      "priority": "HIGH",
+      "recommendation": "Plan slice-15 (gateway.py) with similar SIZE BUDGET attention to git_push (968), git_execute (716), gh_execute (651). These mega-functions need internal helper extraction inside the slice. Treat slice-15 as security-sensitive: require security-review reviewer attention.",
+      "rationale": "git_push enforces file-boundary policy; decomposition is more sensitive than other slices. R5."
+    },
+    {
+      "id": "REC7",
+      "priority": "MEDIUM",
+      "recommendation": "Mandate manual smoke-run for slice-16 PR (run a real pipeline end-to-end, e.g. submit_task on a small issue) — make-test-all alone is insufficient evidence that a state-machine refactor preserved race-condition handling.",
+      "rationale": "Test suite covers happy paths densely but cannot fully verify multi-thread invariants. R2, R12."
+    },
+    {
+      "id": "REC8",
+      "priority": "MEDIUM",
+      "recommendation": "Add a per-slice acceptance criterion to the contract: 'PR description lists each symbol re-exported and the count of external references (`git grep`) for each.' Reviewer (reviewer_plan / reviewer_implement) verifies the list against actual cross-references.",
+      "rationale": "Surfaces missed re-exports before merge. R3."
+    },
+    {
+      "id": "REC9",
+      "priority": "MEDIUM",
+      "recommendation": "Slice-1 (pattern adoption + scripts/select_tests.py reference) should be a single PR with two commits: (1) pattern doc + CLAUDE.md updates, (2) select_tests.py decomposition + allowlist removal. Reviewers can ACK each commit independently.",
+      "rationale": "Clean separation of pattern-establishment work from reference-implementation work. R13."
+    },
+    {
+      "id": "REC10",
+      "priority": "MEDIUM",
+      "recommendation": "File the follow-up issue for per-phase handler unit tests (per HITL Q7) ON THE SAME PR that lands slice-16, with handler enumeration and test-surface description. Don't lose track of the deferred coverage.",
+      "rationale": "Q7's deferral is reasonable but only if the follow-up actually gets created. R12."
+    },
+    {
+      "id": "REC11",
+      "priority": "LOW",
+      "recommendation": "Consider building scripts/check-reexports.py as an opt-in lint helper that, given a new package and the original file's git history, computes the symbol set that moved and fails if any moved symbol is missing from `__init__.py` and is referenced outside the new package. Out of scope for shipping but valuable artifact.",
+      "rationale": "Mechanizes the manual `git grep` step. R3."
+    },
+    {
+      "id": "REC12",
+      "priority": "LOW",
+      "recommendation": "If slice-16 hits the EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES=10 ceiling, bump it for that slice specifically rather than splitting it (which requires DAG mutation).",
+      "rationale": "Slice-16's complexity may legitimately need more cycles. R15."
+    }
+  ],
+
+  "performance_assessment": {
+    "build_time_impact": "Negligible — Python module loading scales with file count, not file size; importing a sub-package vs a single module is comparable. May be marginally faster in production due to lazy submodule loading if Python's cache helps.",
+    "runtime_impact": "Negligible — function dispatch through a Blueprint or re-export is the same as direct call; one extra attribute lookup at most.",
+    "test_runtime_impact": "Slight increase expected in `make test-all` due to additional test-collection time for new submodules, but offset by smaller per-file Read costs in the inner-loop developer workflow. Net positive for the agent SDLC pipeline.",
+    "cognitive_load_savings": "PRIMARY VALUE — per the issue: agent navigation cost paid once per file rather than per BRC cycle. With ~15 oversized files reducing to <1,500 lines, every implement-phase agent saves multiple Read tool turns per session, compounding across the orchestrator's BRC cycles.",
+    "note": "The performance argument is cognitive (token cost in agent context windows), not runtime."
+  },
+
+  "security_assessment": {
+    "threat_model": "Pure internal Python refactor with no introduction of new dependencies, network surfaces, or trust boundaries. Two zones merit attention:",
+    "zones": [
+      {
+        "zone": "Gateway file-boundary enforcement (slice-15)",
+        "current_controls": "git_push enforces file-boundary policy via inline checks; gateway runs as the trusted credential-injection sidecar.",
+        "risk_from_decomposition": "Refactoring git_push into helpers risks subtle reordering of validation steps (e.g. credential injection before file-boundary check, or branch-name policy after credential injection). Each helper must preserve the original ordering invariant.",
+        "mitigation": "Slice-15's PR should preserve the validation sequence verbatim. Add a comment in __init__.py listing the order: 'validate_branch_policy → enforce_file_boundaries → check_remote_state → inject_credentials → execute_push'. Security-review reviewer attention required."
+      },
+      {
+        "zone": "Test patch surface manipulation",
+        "current_controls": "Tests patch internal symbols at well-known paths; missed re-exports cause AttributeError at test time, preventing CI from green-lighting incorrect refactors.",
+        "risk_from_decomposition": "If a slice updates a test patch path silently (out of pattern-doc compliance), the test may pass but no longer cover the intended symbol. This is a test-coverage erosion risk, not a runtime security risk.",
+        "mitigation": "REC8 (per-slice acceptance criterion listing each test edit). Reviewer gate."
+      }
+    ],
+    "residual_risk": "LOW for slices 1-14 and 16. MEDIUM-LOW for slice-15 because of the gateway's security-critical role; mitigated by REC6 + security reviewer attention."
+  },
+
+  "compatibility_assessment": {
+    "breaking_changes_to_public_apis": "None — the issue is explicit that this is a pure refactor.",
+    "backward_compatibility_for_test_patches": "PRESERVED via mandatory re-exports in each new package's __init__.py. Verified pattern: test calls `unittest.mock.patch('routes.pipelines._foo')` — after slice-16, _foo lives in `routes.pipelines._<submodule>` and is re-exported from `routes.pipelines.__init__`, so the patch path resolves unchanged.",
+    "backward_compatibility_for_production_imports": "PRESERVED via the same re-export mechanism. Verified importers: orchestrator/api.py (Blueprint), mcp_tools.py (helpers), unified_sse.py (_collect_all_pipelines), routes/decisions.py + routes/phases.py (lazy imports).",
+    "forward_compatibility": "GOOD — the sub-package shape allows future submodule rearrangement without breaking external callers (via the barrel) and without breaking tests (same).",
+    "affected_systems": [
+      "Orchestrator HTTP API (routes registered on pipelines_bp Blueprint)",
+      "Gateway HTTP API (routes registered on @app.route on Flask app)",
+      "MCP tools (PipelineToolHandler class)",
+      "Sandbox CLI (orch_cli.py, entrypoint.py)",
+      "Shared egg_contracts CLI (checkpoint_cli.py)",
+      "scripts/ helpers (select_tests.py)",
+      "Test suite (~1,200 patch calls into routes.pipelines.* alone)"
+    ],
+    "ci_gates": "make lint (file-size cap) and make test-all (functional regression) at every slice boundary, per HITL Q4 + acceptance criteria."
+  }
+}
