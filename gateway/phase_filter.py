@@ -24,6 +24,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from egg_contracts.models import PipelinePhase as PipelinePhase
+from egg_restrictions.patterns import AGENT_PATTERNS, AgentFilePattern
 
 
 class OperationType(StrEnum):
@@ -100,16 +101,12 @@ class FileRestriction:
             # Paths that escape the repository are always blocked
             return True
 
-        # Late import to avoid pulling shared.egg_restrictions at module
-        # import time (gateway test fixtures stub the shared package).
-        from egg_restrictions.patterns import AgentFilePattern
-
-        if not any(AgentFilePattern._matches_pattern(normalized, p) for p in self.blocked_patterns):
+        if not any(AgentFilePattern.matches_pattern(normalized, p) for p in self.blocked_patterns):
             return False
         # Block-exempt carve-outs (e.g. ``.egg-state/agent-outputs/``
         # under coder's ``.egg-state/`` block).
         if any(
-            AgentFilePattern._matches_pattern(normalized, p) for p in self.block_exempt_patterns
+            AgentFilePattern.matches_pattern(normalized, p) for p in self.block_exempt_patterns
         ):
             return False
         return True
@@ -535,22 +532,33 @@ class PhaseFilter:
         ``AgentFilePattern`` is projected into a ``FileRestriction``
         carrying its blocklist + block-exempt patterns so the gateway's
         early-reject path matches the per-commit attribution path.
-        """
-        from egg_restrictions.patterns import AGENT_PATTERNS
 
+        ``blocked_reason`` is derived from the source ``AgentFilePattern.description``
+        when present so error messages stay role-specific (and don't all
+        collapse to a generic "see patterns.py" hint that misleads
+        downstream callers nudging users toward ``egg-contract`` for
+        non-contract violations).
+        """
         restrictions: list[FileRestriction] = []
         for role, pattern in AGENT_PATTERNS.items():
             if not pattern.blocked_patterns:
                 continue
+            if pattern.description:
+                blocked_reason = (
+                    f"Role '{role}' cannot modify these files. {pattern.description} "
+                    "(see shared/egg_restrictions/patterns.py)."
+                )
+            else:
+                blocked_reason = (
+                    f"Role '{role}' is not permitted to modify these files; "
+                    "see shared/egg_restrictions/patterns.py."
+                )
             restrictions.append(
                 FileRestriction(
                     role=role,
                     blocked_patterns=list(pattern.blocked_patterns),
                     block_exempt_patterns=list(pattern.block_exempt_patterns),
-                    blocked_reason=(
-                        f"Role '{role}' is not permitted to modify these files; "
-                        "see shared/egg_restrictions/patterns.py."
-                    ),
+                    blocked_reason=blocked_reason,
                 )
             )
         return restrictions

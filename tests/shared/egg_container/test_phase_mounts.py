@@ -5,6 +5,7 @@ and the directory creation helper used before container spawn.
 """
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -50,16 +51,20 @@ class TestImplementReadonlyDirs:
         data = json.loads(permissions_path.read_text())
 
         implement_blocks = data["phase_file_restrictions"]["implement"]["blocked_patterns"]
-        # Each entry is ``.egg-state/<dirname>/*`` — extract the dirname.
+        # Each entry must match the exact ``.egg-state/<dirname>/*`` shape.
+        # A regex (rather than rstrip("/*")) catches future shape drift —
+        # e.g. nested forms like ``.egg-state/foo/bar/*`` or stray trailing
+        # slashes — by failing the assertion instead of silently coercing.
+        shape_re = re.compile(r"^\.egg-state/([^/]+)/\*$")
         json_dirs = set()
         for pattern in implement_blocks:
-            assert pattern.startswith(".egg-state/"), (
+            match = shape_re.match(pattern)
+            assert match, (
                 f"unexpected implement-phase block pattern shape: {pattern!r} "
-                "— this drift guard assumes .egg-state/<dir>/* form"
+                "— this drift guard assumes the exact .egg-state/<dir>/* form. "
+                "Update the regex if the JSON shape legitimately changes."
             )
-            tail = pattern[len(".egg-state/") :].rstrip("/*")
-            if tail:
-                json_dirs.add(tail)
+            json_dirs.add(match.group(1))
 
         assert json_dirs == set(_IMPLEMENT_READONLY_DIRS), (
             f"_IMPLEMENT_READONLY_DIRS {set(_IMPLEMENT_READONLY_DIRS)} != "

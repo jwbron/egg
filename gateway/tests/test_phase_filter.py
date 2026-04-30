@@ -381,25 +381,32 @@ class TestPatternEdgeCases:
 
 
 class TestFileRestriction:
-    """Tests for FileRestriction dataclass."""
+    """Tests for FileRestriction dataclass.
+
+    These exercise the dataclass surface itself (constructors, path
+    normalization, pattern matching) — they intentionally do NOT touch
+    the registry / role-derivation path. A fine-grained role label
+    (``coder``) is used so the tests don't suggest the legacy
+    ``implementer`` coarse role is still wired up post-#1903.
+    """
 
     def test_from_dict_basic(self):
         """Create FileRestriction from dictionary."""
         data = {
-            "role": "implementer",
+            "role": "coder",
             "blocked_patterns": [".egg-state/contracts/"],
             "blocked_reason": "Contract files are protected",
         }
         restriction = FileRestriction.from_dict(data)
 
-        assert restriction.role == "implementer"
+        assert restriction.role == "coder"
         assert restriction.blocked_patterns == [".egg-state/contracts/"]
         assert restriction.blocked_reason == "Contract files are protected"
 
     def test_is_file_blocked_matching_pattern(self):
         """Files matching blocked pattern should be detected."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/"],
             blocked_reason="Protected",
         )
@@ -410,7 +417,7 @@ class TestFileRestriction:
     def test_is_file_blocked_non_matching(self):
         """Files not matching pattern should not be blocked."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/"],
             blocked_reason="Protected",
         )
@@ -422,7 +429,7 @@ class TestFileRestriction:
     def test_path_normalization_leading_dot_slash(self):
         """Leading ./ should be normalized."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/"],
             blocked_reason="Protected",
         )
@@ -433,7 +440,7 @@ class TestFileRestriction:
     def test_path_normalization_double_slash(self):
         """Double slashes should be normalized."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/"],
             blocked_reason="Protected",
         )
@@ -444,7 +451,7 @@ class TestFileRestriction:
     def test_multiple_patterns(self):
         """Multiple blocked patterns should all be checked."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/", "secrets/"],
             blocked_reason="Protected",
         )
@@ -469,14 +476,14 @@ class TestFileRestrictionResult:
         """FileRestrictionResult.block creates blocked result."""
         result = FileRestrictionResult.block(
             message="Files blocked",
-            role="implementer",
+            role="coder",
             blocked_files=[".egg-state/contracts/123.json"],
             blocked_reason="Contract files protected",
         )
 
         assert result.allowed is False
         assert result.message == "Files blocked"
-        assert result.role == "implementer"
+        assert result.role == "coder"
         assert result.blocked_files == [".egg-state/contracts/123.json"]
         assert result.blocked_reason == "Contract files protected"
 

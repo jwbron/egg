@@ -65,15 +65,15 @@ class AgentFilePattern:
 
         # Check blocked patterns FIRST - security takes precedence
         # BUT skip the block if the path matches a block-exemption pattern.
-        if any(self._matches_pattern(normalized, p) for p in self.blocked_patterns):
-            if not any(self._matches_pattern(normalized, p) for p in self.block_exempt_patterns):
+        if any(self.matches_pattern(normalized, p) for p in self.blocked_patterns):
+            if not any(self.matches_pattern(normalized, p) for p in self.block_exempt_patterns):
                 return False
 
         # If no allowed patterns, nothing is allowed
         if not self.allowed_patterns:
             return False
 
-        return any(self._matches_pattern(normalized, p) for p in self.allowed_patterns)
+        return any(self.matches_pattern(normalized, p) for p in self.allowed_patterns)
 
     @staticmethod
     def _normalize_path(file_path: str) -> str:
@@ -98,8 +98,13 @@ class AgentFilePattern:
         return normalized
 
     @staticmethod
-    def _matches_pattern(file_path: str, pattern: str) -> bool:
+    def matches_pattern(file_path: str, pattern: str) -> bool:
         """Check if a file path matches a glob-like pattern.
+
+        This is the canonical pattern-matcher used both inside this
+        module (for ``can_write`` decisions) and by external consumers
+        such as ``gateway/phase_filter.py``'s ``FileRestriction.is_file_blocked``
+        — keeping the two layers in sync (#1903).
 
         Supports:
         - Exact match: "foo/bar.py"

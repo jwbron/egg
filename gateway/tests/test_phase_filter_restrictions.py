@@ -549,20 +549,18 @@ class TestPhaseFilterFormatBlockedMessage:
 
 
 class TestThreeRoleFileRestrictions:
-    """TASK-5-3 (#1901): coverage for the three new file_restrictions
-    entries (coder/tester/documenter) added to .egg/phase-permissions.json
-    in TASK-3-1.
+    """TASK-5-3 (#1901): coverage for the three role file_restrictions
+    entries (coder/tester/documenter) derived from ``AGENT_PATTERNS``.
 
     These tests exercise ``check_file_restrictions("<role>", [...])``
     against representative allowed/blocked paths.  They guard against
     silent regressions where a role's blocklist entry gets dropped or
     an unintended allow-through.
 
-    Note: ``FileRestriction.is_file_blocked`` uses ``startswith``
-    semantics, so glob patterns in the JSON are dead entries at this
-    layer — only the prefix-shaped patterns (e.g. ``.egg-state/contracts/``)
-    actually block here.  The glob-shaped patterns are enforced at the
-    higher patterns.py layer (covered by other test files).
+    As of #1903, ``FileRestriction.is_file_blocked`` delegates to
+    ``AgentFilePattern.matches_pattern`` (the same matcher used by
+    ``patterns.py``), so glob entries (``**/*.md``, ``**/tests/``, …)
+    are real blocks at this layer rather than dead prefix-only checks.
     """
 
     @pytest.fixture(autouse=True)
@@ -579,9 +577,8 @@ class TestThreeRoleFileRestrictions:
         assert ".egg-state/contracts/foo.json" in result.blocked_files
 
     def test_coder_allowed_for_source(self):
-        """Source files are not blocked by the coder file_restrictions
-        entry (only the glob entries would catch them, and those are
-        no-ops at this layer)."""
+        """Source files outside the coder blocklist (.egg-state/, docs/,
+        tests/, .github/) are allowed."""
         result = check_file_restrictions("coder", ["gateway/server.py"])
         assert result.allowed is True
 
