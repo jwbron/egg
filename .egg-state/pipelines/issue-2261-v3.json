@@ -306,10 +306,40 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Pre-existing growth: orchestrator/routes/pipelines.py is now 16,976 lines (v1 contract Q2 used 16,401 as the baseline). v1 feedback Q2 said 'use current sizes'. Confirming this still holds for v3 — plan should baseline on current HEAD sizes (16,976 / 9,870 / 3,759 / etc.), not the issue body's snapshot or v1's snapshot. Yes/no/with caveats?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "sandbox/egg_lib/contract_cli.py is currently 1,494 lines — six lines under the 1,500-line cap. It is NOT allowlisted, so any growth fails the lint immediately. Should plan (a) leave it alone until it actually crosses, (b) file a follow-up issue to decompose preemptively, (c) absorb a preemptive decomposition into this issue's scope, or (d) something else?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Slice-1 (#2335) is already merged; v3's 14 slices stand as a flat fan-out at runtime even if their PR bodies reference #2335 as prior art. Confirm whether v3 should treat #2335 as a DAG predecessor for documentation/audit purposes, or whether v3 is best modeled as a fully independent fan-out at the DAG level.",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-30T18:02:47.871964Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T17:27:52.618820Z",
-  "updated_at": "2026-04-30T18:02:47.843400Z",
+  "updated_at": "2026-04-30T18:02:47.878125Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -323,6 +353,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18,
+  "version": 19,
   "jira_ticket": null
 }
