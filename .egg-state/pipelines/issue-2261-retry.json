@@ -5,7 +5,7 @@
   "branch": "egg/issue-2261-retry",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -172,7 +172,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-30T02:00:04.777556Z",
-  "updated_at": "2026-04-30T02:01:30.864898Z",
+  "updated_at": "2026-04-30T03:07:16.550879Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -186,6 +186,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 10,
+  "version": 11,
   "jira_ticket": null
 }
