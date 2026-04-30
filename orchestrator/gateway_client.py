@@ -1211,37 +1211,88 @@ class GatewayClient:
         agent_role: str | None = None,
         mode: Literal["public", "private"] = "public",
         draft: bool = False,
+        program_title: str | None = None,
+        program_description: str | None = None,
+        program_test_plan: str | None = None,
+        program_manual_steps: str | None = None,
+        terminal_slice_id: str | None = None,
     ) -> str | None:
         """Open a PR for one slice in a stacked-PR chain.
 
-        Title is deterministic: ``slice {slice_id}: {slice_name}``
-        truncated to 70 chars (matches the existing PR-title
-        guidance). Body lists the slice's tasks as bullets, each
-        truncated to 300 chars per #2137 plan TASK-5-1. The
-        human-authored ``pr.title`` / ``pr.description`` /
-        ``pr.test_plan`` block from the plan's yaml-tasks remains
-        the source of truth for the *terminal* slice (the chain's
-        tip) — the implement phase aggregates it there. Sibling
-        roots and intermediate slices ship with the auto-generated
-        copy this helper produces.
+        Two body shapes:
+
+        * **Terminal slice** (caller passes ``program_title`` from the
+          contract's ``pr`` block): the PR carries the human-authored
+          title / description / test plan / manual steps the planner
+          authored, plus a banner marking it as the program-level
+          umbrella for the chain. This is the reviewer-facing
+          narrative for the whole pipeline.
+        * **Non-terminal slice** (no ``program_title``): deterministic
+          ``slice {slice_id}: {slice_name}`` title, bulleted task list
+          body. When ``terminal_slice_id`` is supplied, the body also
+          carries a pointer to the terminal slice so reviewers can
+          jump to the umbrella PR.
+
+        Both shapes always end with a footer naming the slice and the
+        branch it stacks onto, so the slice's role in the chain stays
+        legible in the PR view.
         """
-        title = f"slice {slice_id}: {slice_name}".strip()
+        has_program_block = bool(program_title and program_title.strip())
+
+        if has_program_block:
+            assert program_title is not None  # narrowed for the type checker
+            title = program_title.strip()
+        else:
+            title = f"slice {slice_id}: {slice_name}".strip()
         if len(title) > 70:
             title = title[:67] + "..."
 
-        body_lines: list[str] = [slice_name]
-        if slice_tasks:
+        body_lines: list[str] = []
+
+        if has_program_block:
+            body_lines.append(
+                f"> **Program-level umbrella PR — terminal slice of pipeline `{pipeline_id}`.**"
+            )
+            body_lines.append(
+                "> Roll-up of the slice-PR chain; the planner's narrative below covers "
+                "the whole program, not just this slice."
+            )
             body_lines.append("")
-            body_lines.append("Tasks in this slice:")
-            for task in slice_tasks:
-                desc = task.get("description") or task.get("id") or ""
-                desc = " ".join(desc.split())  # collapse whitespace
-                if len(desc) > 300:
-                    desc = desc[:297] + "..."
-                task_id = task.get("id") or ""
-                bullet_prefix = f"- {task_id}: " if task_id else "- "
-                body_lines.append(f"{bullet_prefix}{desc}")
-        body_lines.append("")
+            if program_description and program_description.strip():
+                body_lines.append(program_description.strip())
+                body_lines.append("")
+            if program_test_plan and program_test_plan.strip():
+                body_lines.append("## Test Plan")
+                body_lines.append("")
+                body_lines.append(program_test_plan.strip())
+                body_lines.append("")
+            if program_manual_steps and program_manual_steps.strip():
+                body_lines.append("## Manual Steps")
+                body_lines.append("")
+                body_lines.append(program_manual_steps.strip())
+                body_lines.append("")
+        else:
+            body_lines.append(slice_name)
+            if slice_tasks:
+                body_lines.append("")
+                body_lines.append("Tasks in this slice:")
+                for task in slice_tasks:
+                    desc = task.get("description") or task.get("id") or ""
+                    desc = " ".join(desc.split())  # collapse whitespace
+                    if len(desc) > 300:
+                        desc = desc[:297] + "..."
+                    task_id = task.get("id") or ""
+                    bullet_prefix = f"- {task_id}: " if task_id else "- "
+                    body_lines.append(f"{bullet_prefix}{desc}")
+            if terminal_slice_id:
+                body_lines.append("")
+                body_lines.append(
+                    f"Part of pipeline `{pipeline_id}`; the terminal slice "
+                    f"`{terminal_slice_id}`'s PR carries the program-level "
+                    "narrative (description, test plan, manual steps)."
+                )
+            body_lines.append("")
+
         body_lines.append(
             f"Slice {slice_id} of pipeline {pipeline_id}. Stacked on top of `{base}`."
         )
