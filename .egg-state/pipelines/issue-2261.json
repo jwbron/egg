@@ -357,10 +357,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Concurrency budget for the 15 sibling slices: how many should run in parallel at peak?",
+      "context": "Open contract question decision-10, registered by an agent during the refine phase.",
+      "options": [
+        "EGG_ORCH_MAX_PARALLEL_SLICES=5 (default, recommended) — use the existing default; 3 waves of 5 fan out the bulk of the work.",
+        "Cap at 3 — lower concurrency to keep reviewer/overseer review queue manageable; ~5 waves total.",
+        "Cap at 1 — strictly serial; no parallelism. Slowest but lowest reviewer load.",
+        "Run hot — raise the budget (e.g. 8) to fan out faster; risks oversubscribing reviewers.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-30T03:56:36.624499Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T03:56:36.582232Z",
+  "updated_at": "2026-04-30T03:56:36.644048Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -374,6 +394,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null
 }
