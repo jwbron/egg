@@ -105,9 +105,7 @@ class FileRestriction:
             return False
         # Block-exempt carve-outs (e.g. ``.egg-state/agent-outputs/``
         # under coder's ``.egg-state/`` block).
-        if any(
-            AgentFilePattern.matches_pattern(normalized, p) for p in self.block_exempt_patterns
-        ):
+        if any(AgentFilePattern.matches_pattern(normalized, p) for p in self.block_exempt_patterns):
             return False
         return True
 
