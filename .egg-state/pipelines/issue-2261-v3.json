@@ -300,10 +300,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-30T18:02:47.836473Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-30T18:06:30.966673Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Copy resolved v1 decisions into v3 contract verbatim for self-containment\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -339,7 +339,7 @@
     }
   ],
   "created_at": "2026-04-30T17:27:52.618820Z",
-  "updated_at": "2026-04-30T18:06:30.566099Z",
+  "updated_at": "2026-04-30T18:06:30.972565Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -353,6 +353,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
