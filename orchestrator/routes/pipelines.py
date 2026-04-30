@@ -5348,12 +5348,21 @@ def _sync_worktree_with_remote(
             timeout=10,
             check=False,
         )
-        if result.returncode == 0:
-            parts = result.stdout.strip().split()
-            if len(parts) == 2:
-                local_ahead = int(parts[0])
-                remote_ahead = int(parts[1])
-                rev_list_ok = True
+        parts = result.stdout.strip().split()
+        if result.returncode == 0 and len(parts) == 2:
+            local_ahead = int(parts[0])
+            remote_ahead = int(parts[1])
+            rev_list_ok = True
+        else:
+            logger.info(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                case="rev_list_failed",
+                rc=result.returncode,
+                stdout=result.stdout.strip()[:200],
+            )
+            # Fall through to reset (best-effort) — step 4 will emit its own outcome.
     except Exception as rev_list_err:
         logger.info(
             "worktree_sync_outcome",
@@ -5383,14 +5392,14 @@ def _sync_worktree_with_remote(
         if prior_phase_succeeded:
             # Prior phase completed successfully — push local work to remote
             # before resetting, so it's not lost.
-            push_ok = spawner.gateway.push_worktree_branch(
+            push_result = spawner.gateway.push_worktree_branch(
                 pipeline_id=pipeline_id,
                 repo_path=str(worktree_repo_path),
                 branch=branch,
                 mode=gateway_mode,
                 base_branch=base_branch_for_reconcile,
             )
-            if push_ok:
+            if push_result:
                 # Push succeeded — local and remote are now in sync.
                 # Re-fetch to update the remote tracking ref so that
                 # origin/{branch} reflects the pushed commits.
@@ -5416,7 +5425,22 @@ def _sync_worktree_with_remote(
                     case="local_ahead_push_failed",
                     local_ahead=local_ahead,
                     remote_ahead=remote_ahead,
+                    category=push_result.category,
+                    error=push_result.detail,
                 )
+        else:
+            # Prior phase failed — incomplete local work will be discarded by
+            # the step-4 reset. Emit a distinct case so operators can grep
+            # this branch of the taxonomy without inferring it from
+            # reset_succeeded with local_ahead > 0.
+            logger.info(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                case="local_ahead_discarded",
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
+            )
         # Fall through to reset (Step 4) — discards local work when prior phase
         # failed, or recovers via reset after a push failure.
 

@@ -461,6 +461,49 @@ class TestSyncWorktreeOutcomeTaxonomy:
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
         assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
 
+    def test_case_rev_list_failed_returncode_falls_through_to_reset(self):
+        """rev-list non-zero returncode emits rev_list_failed (no exception path)."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                # rev-list exits non-zero — must still emit rev_list_failed
+                _make_subprocess_result(returncode=128, stderr="bad ref"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
+        # The rev_list_failed log carries the rc field for non-exception failures.
+        rev_list_call = next(
+            c
+            for c in mock_logger.info.call_args_list
+            if c.args
+            and c.args[0] == "worktree_sync_outcome"
+            and c.kwargs.get("case") == "rev_list_failed"
+        )
+        assert rev_list_call.kwargs.get("rc") == 128
+
+    def test_case_rev_list_failed_unparseable_output(self):
+        """rev-list returncode=0 but malformed output emits rev_list_failed."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                # rev-list rc=0 but only one token — len(parts) != 2
+                _make_subprocess_result(stdout="42\n"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
+
     def test_case_already_in_sync(self):
         spawner = _make_spawner()
         with (
@@ -509,6 +552,42 @@ class TestSyncWorktreeOutcomeTaxonomy:
             )
         assert _outcome_cases(mock_logger) == [
             "local_ahead_push_failed",
+            "reset_succeeded",
+        ]
+        # PushResult diagnostics are propagated into the structured log so
+        # operators don't need to pull gateway-side logs for the failure mode.
+        push_failed_call = next(
+            c
+            for c in mock_logger.warning.call_args_list
+            if c.args
+            and c.args[0] == "worktree_sync_outcome"
+            and c.kwargs.get("case") == "local_ahead_push_failed"
+        )
+        assert push_failed_call.kwargs.get("category") == "test"
+        assert push_failed_call.kwargs.get("error") == "mock failure"
+
+    def test_case_local_ahead_discarded(self):
+        """Prior phase failed + local-ahead → emit local_ahead_discarded then reset."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="2\t0\n"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                prior_phase_succeeded=False,
+            )
+            spawner.gateway.push_worktree_branch.assert_not_called()
+        assert _outcome_cases(mock_logger) == [
+            "local_ahead_discarded",
             "reset_succeeded",
         ]
 
