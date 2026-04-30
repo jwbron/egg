@@ -301,10 +301,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-04-30T04:46:19.738305Z",
       "work_started_at": "2026-04-30T04:46:20.502340Z",
-      "completed_at": null,
+      "completed_at": "2026-04-30T05:47:22.134098Z",
       "containers": [
         {
           "container_id": "e83b05a4-8c11-4922-8e58-4b259d0fd978",
@@ -816,7 +816,7 @@
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T05:47:20.606165Z",
+  "updated_at": "2026-04-30T05:47:22.134627Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -830,6 +830,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-30T04:46:17.622786Z",
-  "version": 50,
+  "version": 51,
   "jira_ticket": null
 }
