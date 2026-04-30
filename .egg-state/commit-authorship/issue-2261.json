@@ -1,5 +1,12 @@
 {
   "entries": {
+    "1200afd5c3093591ddc1b72ce0847a95108ef501": {
+      "branch": "egg/issue-2261",
+      "pipeline_id": "issue-2261",
+      "registered_at": "2026-04-30T04:07:16.005549+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "task_planner"
+    },
     "56eee39d07cb0f348f99b85d3a923a941d40d450": {
       "branch": "egg/issue-2261",
       "pipeline_id": "issue-2261",
