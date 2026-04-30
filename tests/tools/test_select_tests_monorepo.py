@@ -1,4 +1,4 @@
-"""TASK-5-4 — Monorepo staleness-guard tests for scripts/select_tests.py.
+"""TASK-5-4 — Monorepo staleness-guard tests for scripts/select_tests/.
 
 The exhaustive guard against ``PACKAGES`` drifting out of sync with
 the repo layout: assert that EVERY ``test_*.py`` file under the four
@@ -74,7 +74,7 @@ def real_repo_graph():  # noqa: ANN201 — grimp graph type isn't public
     selector's ``build_graph`` helper.  Returns the GraphBundle.
 
     Reproduces the script-invocation ``sys.path`` shape the Makefile
-    actually uses (``python scripts/select_tests.py`` puts
+    actually uses (``python scripts/select_tests/__main__.py`` puts
     ``<root>/scripts`` at ``sys.path[0]``).  Without this, pytest's
     own ``sys.path`` keeps ``scripts/`` invisible, the ``scripts/tests/``
     shadow never fires, and ``test_every_test_file_is_a_graph_node``
@@ -242,8 +242,8 @@ def test_gateway_modules_marked_as_dynamic_imports(real_repo_graph) -> None:
 
 
 def test_scripts_dir_does_not_shadow_top_level_tests() -> None:
-    """When invoked as ``python scripts/select_tests.py`` (the form
-    the Makefile uses), Python prepends ``<root>/scripts`` to
+    """When invoked as ``python scripts/select_tests/__main__.py`` (the
+    form the Makefile uses), Python prepends ``<root>/scripts`` to
     ``sys.path[0]``.  ``scripts/tests/`` (which has only 3 leaf
     modules) then satisfies grimp's search for the ``tests`` package
     and shadows the real ``<root>/tests/`` (133 files at the time of

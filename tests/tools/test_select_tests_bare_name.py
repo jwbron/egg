@@ -1,4 +1,4 @@
-"""Tests for the bare-name AST resolver in ``scripts/select_tests.py``.
+"""Tests for the bare-name AST resolver in ``scripts/select_tests/``.
 
 The codebase imports in-repo modules by bare name almost universally
 (verified 406/407 test files and 33/33 sampled production files).

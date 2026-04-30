@@ -52,8 +52,9 @@ inner-loop optimization only.**
 
 ## 2. How changeset-aware selection works
 
-The selector is `scripts/select_tests.py`, a standalone CLI invoked
-by the `make test` recipe. The algorithm is:
+The selector is `scripts/select_tests/`, a standalone CLI package
+invoked by the `make test` recipe via `python scripts/select_tests/__main__.py`.
+The algorithm is:
 
 1. **Resolve the baseline.** In order:
    1. **Read-only role override.** If `EGG_AGENT_ROLE` starts with
@@ -232,7 +233,7 @@ Every invocation also persists a structured record. The schema:
 | `selected_count` | integer | Number of test files emitted. |
 | `total_count` | integer | Total number of test files in the four roots. |
 | `compute_ms` | integer | Selector wall-clock in milliseconds. |
-| `pytest_ms` | integer | Pytest wall-clock in milliseconds; written by the Makefile after pytest returns (`select_tests.py --patch-selection-json --head <sha> --pytest-ms <int>`). |
+| `pytest_ms` | integer | Pytest wall-clock in milliseconds; written by the Makefile after pytest returns (`select_tests/__main__.py --patch-selection-json --head <sha> --pytest-ms <int>`). |
 | `timestamp` | string | ISO-8601 UTC timestamp. |
 | `changed_files` | list[string] | Paths from `git diff` + `git status`. |
 | `changed_modules` | list[string] | Resolved module paths for the changed files. |
@@ -243,7 +244,7 @@ The file is gitignored. It accumulates over time — see §9.
 ### `--why <test>` — "why did this test (not) run?"
 
 ```bash
-.venv/bin/python scripts/select_tests.py --why tests/action/test_foo.py
+.venv/bin/python scripts/select_tests/__main__.py --why tests/action/test_foo.py
 ```
 
 Prints the shortest import chain from any changed module to the
@@ -433,7 +434,7 @@ non-`.py`-change fallback. Tracked test fixtures in that directory
    was not in the closure.
 2. Run `--why` against the test in question:
    ```bash
-   .venv/bin/python scripts/select_tests.py --why tests/path/to/test_file.py
+   .venv/bin/python scripts/select_tests/__main__.py --why tests/path/to/test_file.py
    ```
    - Chain printed → the test was selected; check pytest's own
      filtering (e.g. `-k`, `-m`).
@@ -492,6 +493,6 @@ suite anyway, use `make test-all`.
   paths, and the dev-dependency pin for grimp.
 - [`Makefile`](../../Makefile) — the canonical test-target
   definitions (`test`, `test-all`, `test-record-good`).
-- [`scripts/select_tests.py`](../../scripts/select_tests.py) — the
-  selector script, with `--why` and `--record-good` available as
-  CLI flags.
+- [`scripts/select_tests/`](../../scripts/select_tests/__init__.py) — the
+  selector package (entry point at `scripts/select_tests/__main__.py`),
+  with `--why` and `--record-good` available as CLI flags.

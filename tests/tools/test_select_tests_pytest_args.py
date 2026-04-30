@@ -1,4 +1,4 @@
-"""TASK-5-4 — PYTEST_ARGS classifier tests for scripts/select_tests.py.
+"""TASK-5-4 — PYTEST_ARGS classifier tests for scripts/select_tests/.
 
 The classifier (``selector.pytest_args_have_explicit_path``) decides
 whether the user-supplied PYTEST_ARGS contains a positional path

@@ -1,4 +1,4 @@
-"""TASK-5-4 — Structured-logging tests for scripts/select_tests.py.
+"""TASK-5-4 — Structured-logging tests for scripts/select_tests/.
 
 Two surfaces:
   * Per-invocation stderr line.  Format:

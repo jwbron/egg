@@ -1,4 +1,4 @@
-"""TASK-5-3 — LKG sidecar I/O tests for scripts/select_tests.py.
+"""TASK-5-3 — LKG sidecar I/O tests for scripts/select_tests/.
 
 Covers:
   * Atomic write semantics (tempfile + os.replace; concurrent reader

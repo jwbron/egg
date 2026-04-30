@@ -1,4 +1,4 @@
-"""TASK-5-5 — End-to-end subprocess test for scripts/select_tests.py.
+"""TASK-5-5 — End-to-end subprocess test for scripts/select_tests/.
 
 Drives the selector via ``subprocess.run`` against the synthetic
 mini-monorepo + tmp_path git repo, exercising the same code path the

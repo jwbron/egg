@@ -1,4 +1,4 @@
-"""TASK-5-3 — Baseline-resolution tests for scripts/select_tests.py.
+"""TASK-5-3 — Baseline-resolution tests for scripts/select_tests/.
 
 Covers:
   * sidecar present-and-ancestor → returns the LKG sha.

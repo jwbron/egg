@@ -1,4 +1,4 @@
-"""TASK-5-1 — Graph-construction tests for scripts/select_tests.py.
+"""TASK-5-1 — Graph-construction tests for scripts/select_tests/.
 
 Synthetic-monorepo fixtures with known import edges; assert that
 grimp's reverse-closure primitive returns the expected module sets

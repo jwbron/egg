@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 
 import pytest
 
@@ -248,10 +247,3 @@ def test_allowlist_no_longer_lists_select_tests() -> None:
         "slice-1's ratchet step requires removing this entry once "
         "every submodule is under the hard cap."
     )
-
-
-# Defensive: keep ``sys`` import alive even if a future refactor
-# stops referencing it directly above.  This prevents an over-eager
-# ruff autofix from removing the import and breaking the tests when
-# someone re-introduces a ``sys.executable`` or ``sys.path`` check.
-assert sys is not None

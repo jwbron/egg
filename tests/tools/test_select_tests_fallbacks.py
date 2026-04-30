@@ -1,4 +1,4 @@
-"""TASK-5-2 — Fallback-trigger tests for scripts/select_tests.py.
+"""TASK-5-2 — Fallback-trigger tests for scripts/select_tests/.
 
 Each fallback trigger from algorithm §5 has at least one parametrized
 case below.  The tests drive ``selector.evaluate_fallback_triggers``
