@@ -36,6 +36,7 @@ This document focuses on the specific challenge of **multi-agent git isolation**
 | Agent pushes to unauthorized branches | Gateway enforces branch ownership policy |
 | Agent pushes malicious code directly to main | Gateway blocks direct pushes to protected branches; PRs require human review |
 | Agent bypasses BRC consensus in pipeline session | Gateway blocks direct `git push` for pipeline sessions; requires `consensus_push` marker from `mcp__brc__propose` (or fallback `egg-orch consensus propose --push`) |
+| Agent uses `git rebase origin/main` to contaminate pipeline branch | Gateway blocks any `git rebase` where the bare-form upstream or the `--onto` target is a protected base ref (`origin/main`, `main`, `origin/HEAD`, `FETCH_HEAD`) in pipeline sessions (#2224); base-branch rebase runs only via orchestrator-controlled `_rebase_pipeline_branch_onto_base` |
 | Agent discovers or exfiltrates credentials | Credentials only exist in gateway; container never sees them |
 | Agent modifies git config to bypass security | Container has no access to git metadata; config is gateway-controlled |
 | Agent escapes via git hooks or filters | Hooks universally disabled via `core.hooksPath=/dev/null` in gateway and orchestrator; filters mitigated in containers by metadata isolation (no `.gitattributes` processing); gateway protected by branch ownership policy (agents cannot push to main) and required human review of all commits |
