@@ -345,6 +345,14 @@ egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.
   --reason "Reviewed src/feature.py lines 10-85: token validation is correct. One rename is required before merge." \
   --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway"
 
+# Reviewer: re-ACK after the obligation was satisfied within the same PR's diff (#2336)
+# Pass --pre-merge-condition-resolved-in-diff <sha> to demote the obligation from the
+# merge-blocking section to a "Resolved within this PR" subsection. Requires --pre-merge-condition.
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason "Rename completed in commit abc1234; obligation satisfied." \
+  --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway" \
+  --pre-merge-condition-resolved-in-diff abc1234
+
 # Reviewer: NACK a producer's proposal
 egg-orch consensus nack coder --reason "Missing error handling in edge case on line 42 of src/feature.py" --files-reviewed src/feature.py
 
