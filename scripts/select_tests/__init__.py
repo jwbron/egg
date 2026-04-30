@@ -12,7 +12,7 @@ to the base branch when no LKG exists, and falling back to the FULL
 SUITE whenever static analysis cannot be trusted (conftest /
 lockfile / workflow changes, non-`.py` changes, dynamic-import
 reachability, `shared/tests/` fixture edits, unresolvable baseline,
-LKG-not-an-ancestor, gateway/*.py changes, source-file staleness).
+LKG-not-an-ancestor, source-file staleness).
 
 Correctness posture: the gate is "never skip a test that exercises a
 changed code path".  Any sign of static-analysis fog widens to the
