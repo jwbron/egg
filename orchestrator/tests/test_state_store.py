@@ -1229,7 +1229,10 @@ class TestRunGitLocking:
                 time.sleep(0.01)
             if not sentinel.exists():
                 stderr_text = ""
-                if proc.poll() is not None and proc.stderr is not None:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                if proc.stderr is not None:
                     stderr_text = proc.stderr.read().decode("utf-8", errors="replace")
                 raise AssertionError(
                     "child never signalled lock acquisition"
