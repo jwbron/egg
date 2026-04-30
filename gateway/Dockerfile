@@ -66,12 +66,13 @@ WORKDIR /app
 # Copy gateway code
 COPY gateway/*.py ./
 
-# Copy shared modules (egg_logging for logging, egg_config for config parsing, egg_contracts for contract API, egg_restrictions for agent role enforcement, egg_health for health tracking)
+# Copy shared modules (egg_logging for logging, egg_config for config parsing, egg_contracts for contract API, egg_restrictions for agent role enforcement, egg_health for health tracking, egg_git for cross-process git locking)
 COPY shared/egg_logging/ ./egg_logging/
 COPY shared/egg_config/ ./egg_config/
 COPY shared/egg_contracts/ ./egg_contracts/
 COPY shared/egg_restrictions/ ./egg_restrictions/
 COPY shared/egg_health/ ./egg_health/
+COPY shared/egg_git/ ./egg_git/
 
 # Copy config module (repo_config needed by github_client for user mode)
 # Copy to both /config/ (for package-style imports) and /app/ (for PYTHONPATH)
