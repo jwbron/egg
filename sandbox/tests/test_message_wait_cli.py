@@ -563,6 +563,25 @@ class TestWaitCursorPath:
         assert path.startswith(str(tmp_path))
         assert "egg-wait-cursor-issue-42-reviewer_plan-" in path
 
+    def test_unsafe_role_returns_none(self, monkeypatch, tmp_path):
+        """``role`` flows in directly from ``EGG_AGENT_ROLE`` without
+        ``validate_id``; if the env contains ``/`` or ``..`` it would
+        otherwise interpolate literally into the path. ``_wait_cursor_path``
+        must reject these via the same safe-ID alphabet ``pipeline_id``
+        already passes through."""
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+        assert _wait_cursor_path("issue-42", "../../etc/passwd", ["X"]) is None
+        assert _wait_cursor_path("issue-42", "role/with/slash", ["X"]) is None
+        assert _wait_cursor_path("issue-42", "role with space", ["X"]) is None
+
+    def test_unsafe_pipeline_id_returns_none(self, monkeypatch, tmp_path):
+        """Defense-in-depth — even though ``cmd_message_wait`` calls
+        ``validate_id`` upstream, ``_wait_cursor_path`` rejects an
+        unsafe ``pipeline_id`` rather than interpolate it."""
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+        assert _wait_cursor_path("../escape", "reviewer_plan", ["X"]) is None
+        assert _wait_cursor_path("pid/with/slash", "reviewer_plan", ["X"]) is None
+
 
 class TestAutoCursorWait:
     """``cmd_message_wait`` auto-threads a per-(role, for_types) cursor."""
@@ -1013,8 +1032,20 @@ class TestCursorPathPipelineAndFromIsolation:
                 "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-B-tip"},
             }
             cmd_message_wait(_make_wait_args(pipeline_id="issue-99", for_=for_types))
-            endpoint = mock_req.call_args.args[0]
-        assert "since_id=01-A-tip" not in endpoint
+            endpoint_b = mock_req.call_args.args[0]
+        assert "since_id=01-A-tip" not in endpoint_b
+        # Pipeline A's second call must still see ITS own cursor — the
+        # negative-only assertion above does not pin this; without a
+        # positive check, a regression that wiped both cursors would
+        # silently pass.
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "02-A-tip"},
+            }
+            cmd_message_wait(_make_wait_args(pipeline_id="issue-42", for_=for_types))
+            endpoint_a = mock_req.call_args.args[0]
+        assert "since_id=01-A-tip" in endpoint_a
 
     def test_from_role_isolation(self, monkeypatch, tmp_path):
         """A wait with ``--from architect`` advancing past a message
@@ -1042,3 +1073,71 @@ class TestCursorPathPipelineAndFromIsolation:
             cmd_message_wait(args_coder)
             endpoint = mock_req.call_args.args[0]
         assert "since_id=01-A-tip" not in endpoint
+
+
+class TestCursorWriteDefenses:
+    """``_write_cursor_file`` defenses against pathological inputs and
+    filesystem state — symlink redirection at the tmp path, and
+    non-string cursor values from a hypothetical contract weakening."""
+
+    def _setenv(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan"
+    ) -> None:
+        monkeypatch.setenv("EGG_AGENT_ROLE", role)
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+
+    def test_symlink_at_tmp_path_is_refused_and_wait_still_completes(self, monkeypatch, tmp_path):
+        """A pre-existing symlink at the tmp-write path (e.g., a
+        stale dangling link from a prior crashed run) must be
+        rejected by ``O_NOFOLLOW`` — the cursor write best-efforts
+        a warning and the wait still returns its result. The cursor
+        file itself remains absent (no follow-through to the symlink
+        target)."""
+        import os
+
+        self._setenv(monkeypatch, tmp_path)
+        for_types = ["CONSENSUS_PROPOSE"]
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", for_types)
+        assert cursor_path is not None
+        # Place a dangling symlink at the exact tmp-write path the
+        # writer will choose (``<cursor_path>.tmp.<pid>``).
+        tmp_write_path = f"{cursor_path}.tmp.{os.getpid()}"
+        os.symlink(str(tmp_path / "does-not-exist"), tmp_write_path)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-tip"},
+            }
+            rc = cmd_message_wait(_make_wait_args(for_=for_types))
+        # Wait still returned the timeout exit code — the symlink
+        # at the tmp path did not crash the process.
+        assert rc == 1
+        # Cursor file was NOT materialised — O_NOFOLLOW + O_EXCL
+        # refused the open, the except branch logged a warning, and
+        # the symlink redirection did not take effect.
+        assert not os.path.exists(cursor_path) or os.path.islink(cursor_path)
+
+    def test_non_string_cursor_response_does_not_crash(self, monkeypatch, tmp_path):
+        """A response with a non-string ``cursor`` (e.g., a future
+        contract weakening to integer message IDs) must NOT raise
+        ``AttributeError`` from ``cursor.strip()`` mid-write — the
+        ``isinstance(cursor, str)`` guard preserves any prior cursor
+        and the wait returns normally."""
+        self._setenv(monkeypatch, tmp_path)
+        for_types = ["CONSENSUS_PROPOSE"]
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", for_types)
+        assert cursor_path is not None
+        with open(cursor_path, "w") as fh:
+            fh.write("01-prior-tip")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            # Non-string cursor — int, list, dict.
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": 42},
+            }
+            rc = cmd_message_wait(_make_wait_args(for_=for_types))
+        assert rc == 1
+        # Prior cursor preserved — the non-string response did not
+        # clobber it (write was skipped at the isinstance guard).
+        with open(cursor_path) as fh:
+            assert fh.read().strip() == "01-prior-tip"

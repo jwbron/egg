@@ -469,6 +469,19 @@ behavior with no file-system side effects.
 `cat` it to see what position the next wait will resume from; `rm`
 it to force a fresh from-tip start.
 
+If you only know the role (e.g., the pipeline id contains hyphens
+that make a hand-typed glob error-prone), use:
+
+```bash
+ls /tmp/egg-wait-cursor-*-${EGG_AGENT_ROLE}-*
+```
+
+If you only know the pipeline id, use:
+
+```bash
+ls /tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-*
+```
+
 **Concurrency caveat.** Two processes writing the same cursor file
 race (last writer wins). For the LLM-agent use case this is not an
 issue — agents run waits sequentially per role.

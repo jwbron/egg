@@ -1305,10 +1305,21 @@ def _wait_cursor_path(
     Returns ``None`` when no role is available — debug shells without
     ``EGG_AGENT_ROLE`` set get the legacy from-tip behavior with no
     file-system side effects, since there's no obvious agent identity
-    to scope a cursor to. Tests override ``EGG_WAIT_CURSOR_DIR`` to
+    to scope a cursor to. Also returns ``None`` when ``role`` or
+    ``pipeline_id`` contain characters outside the safe-ID alphabet
+    (``[a-zA-Z0-9_\\-.]``); a stray ``/`` or ``..`` would otherwise
+    interpolate literally into the path. ``cmd_message_wait`` /
+    ``cmd_message_wait_loop`` already pass ``pipeline_id`` through
+    ``validate_id`` before reaching here, so this check is symmetric
+    defense-in-depth for ``role`` (which is taken straight from
+    ``EGG_AGENT_ROLE``). Tests override ``EGG_WAIT_CURSOR_DIR`` to
     redirect cursor writes off ``/tmp``.
     """
     if not role or not for_types:
+        return None
+    if not _SAFE_ID_PATTERN.match(role):
+        return None
+    if pipeline_id is not None and not _SAFE_ID_PATTERN.match(pipeline_id):
         return None
     import hashlib
 
@@ -1367,10 +1378,13 @@ def _write_cursor_file(path: str | None, cursor: str | None) -> None:
     """
     if not path:
         return
-    if not cursor or not cursor.strip():
-        # Empty cursor → leave any prior cursor on disk alone. Writing
-        # an empty string would clear the file, undoing the threading
-        # we just paid to install.
+    if not isinstance(cursor, str) or not cursor.strip():
+        # Empty / non-string cursor → leave any prior cursor on disk
+        # alone. The wire contract says ``cursor`` is ``str | None``,
+        # but a future contract weakening (e.g., int message ID) would
+        # otherwise raise ``AttributeError`` on ``.strip()`` mid-write
+        # and surface as a stack trace after the wait already returned
+        # results to the caller.
         return
     parent = os.path.dirname(path) or "."
     tmp_path = f"{path}.tmp.{os.getpid()}"
