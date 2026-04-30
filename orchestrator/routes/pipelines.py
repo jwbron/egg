@@ -13164,9 +13164,8 @@ def _populate_contract_from_plan(
 
 def _sync_pipeline_decisions_to_contract(
     repo_path: Path,
+    worktree_repo_path: Path,
     pipeline_id: str,
-    pipeline_mode: str = "issue",
-    issue_number: int | None = None,
 ) -> None:
     """Sync resolved non-phase-gate pipeline decisions to the contract.
 
@@ -13178,6 +13177,12 @@ def _sync_pipeline_decisions_to_contract(
     choices, not process-control gates).  Skips decisions already present
     in the contract (matched by question text) to avoid duplicates on
     re-runs after HITL revision cycles.
+
+    Args:
+        repo_path: Orchestrator's main repo path — root for the state
+            store that owns pipeline records.
+        worktree_repo_path: Pipeline's per-run worktree path — root for
+            the contract under ``<worktree>/.egg-state/contracts/``.
     """
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -13186,14 +13191,20 @@ def _sync_pipeline_decisions_to_contract(
         logger.warning("egg_contracts not available, skipping decision sync")
         return
 
-    # Load pipeline to get its decisions
+    # Load pipeline from the orchestrator's state store, NOT the per-run
+    # worktree.  Pipeline records live under ``repo_path``'s persistent
+    # state-store worktree; the per-run worktree has none.  Conflating
+    # the two silently no-op'd this helper for every issue-mode pipeline
+    # since #950 (#2345).
     store = get_state_store(repo_path)
     try:
         pipeline = store.load_pipeline(pipeline_id)
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "Pipeline not found, skipping decision sync",
+            "decision_sync_pipeline_load_failed",
             pipeline_id=pipeline_id,
+            state_store_repo_path=str(repo_path),
+            error=str(exc),
         )
         return
 
@@ -13209,7 +13220,7 @@ def _sync_pipeline_decisions_to_contract(
         return
 
     try:
-        contract = load_contract(pipeline_id, repo_path)
+        contract = load_contract(pipeline_id, worktree_repo_path)
     except Exception:
         logger.warning(
             "Contract not found, skipping decision sync",
@@ -13259,7 +13270,7 @@ def _sync_pipeline_decisions_to_contract(
         synced_count += 1
 
     if synced_count > 0:
-        save_contract(contract, repo_path)
+        save_contract(contract, worktree_repo_path)
         logger.info(
             "Synced pipeline decisions to contract",
             pipeline_id=pipeline_id,
@@ -15091,7 +15102,9 @@ def _run_pipeline(
             if current_phase.value in _HITL_GATE_PHASES:
                 try:
                     _sync_pipeline_decisions_to_contract(
-                        worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                        repo_path,
+                        worktree_repo_path,
+                        pipeline_id,
                     )
                 except Exception as sync_err:
                     logger.warning(
