@@ -206,10 +206,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Where should seam tables for sandbox-side and shared-side decompositions live?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "S1: Per-component CLAUDE.md — add a seam-table section to sandbox/CLAUDE.md and create shared/CLAUDE.md (recommended; symmetric with orchestrator/gateway)",
+        "S2: Inline in docs/guides/decomposition-pattern.md — keep all seam tables in the global pattern doc",
+        "S3: Skip seam tables for sandbox/shared files; the acceptance criterion only mandates orchestrator/CLAUDE.md and gateway/CLAUDE.md",
+        "Other (explain in reply)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-30T18:02:47.693439Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T17:27:52.618820Z",
-  "updated_at": "2026-04-30T18:02:47.636768Z",
+  "updated_at": "2026-04-30T18:02:47.699520Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -223,6 +243,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null
 }
