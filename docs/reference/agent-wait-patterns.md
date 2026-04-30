@@ -345,13 +345,20 @@ forced agents to either spin in foreground or manually construct a
 **Race: send → wait.** There is a small window between the agent
 sending its own CONSENSUS_CONFIRMED and entering `wait-loop` during
 which a peer event could arrive — with the default new-events-only
-behaviour, that event would not unblock the wait. In practice this
-window is milliseconds and the peer event case is rare at that
-instant, but if you need zero-drop semantics capture an anchor
-message ID before your send and pass it explicitly:
+behaviour, that event would not unblock the wait. **For standard
+`wait-loop` callers with `EGG_AGENT_ROLE` set, this race is closed
+automatically by the auto cursor threading introduced in #2323**
+(see "Auto cursor threading" below): the CLI persists the response
+cursor between successive `wait-loop` invocations, so an event that
+lands in the gap is caught on re-entry. No manual `--since`
+anchoring is needed in that path.
+
+For callers that need explicit cursor control (e.g. shell scripts
+running outside an agent role, or composing custom flows), the
+manual anchor pattern remains available:
 
 ```bash
-# zero-drop pattern — anchor BEFORE the send, wait from the anchor
+# manual zero-drop pattern — for callers that need explicit cursor control
 anchor=$(egg-orch message poll --limit 1 --json | jq -r '.messages[0].id // empty')
 egg-orch consensus confirmed
 egg-orch message wait-loop \
