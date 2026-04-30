@@ -5276,6 +5276,11 @@ def _sync_worktree_with_remote(
         mode=gateway_mode,
     )
     if not fetch_ok:
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            case="fetch_failed",
+        )
         return
 
     # Step 2: Determine current branch
@@ -5289,8 +5294,19 @@ def _sync_worktree_with_remote(
         )
         branch = result.stdout.strip()
         if not branch:
-            return  # Detached HEAD — nothing to sync
-    except Exception:
+            logger.info(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                case="detached_head",
+            )
+            return
+    except Exception as branch_err:
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            case="branch_detect_failed",
+            error=str(branch_err),
+        )
         return
 
     # Step 3: Verify remote tracking branch exists
@@ -5303,13 +5319,27 @@ def _sync_worktree_with_remote(
             check=False,
         )
         if result.returncode != 0:
-            return  # Remote branch not yet published (first pipeline run)
-    except Exception:
+            logger.info(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                case="no_remote_tracking",
+            )
+            return
+    except Exception as rev_parse_err:
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            case="rev_parse_failed",
+            error=str(rev_parse_err),
+        )
         return
 
     # Step 3b: Check divergence between local and remote.
     local_ahead = 0
     remote_ahead = 0
+    rev_list_ok = False
     try:
         result = subprocess.run(
             [*git_base, "rev-list", "--left-right", "--count", f"HEAD...origin/{branch}"],
@@ -5318,34 +5348,58 @@ def _sync_worktree_with_remote(
             timeout=10,
             check=False,
         )
-        if result.returncode == 0:
-            parts = result.stdout.strip().split()
-            if len(parts) == 2:
-                local_ahead = int(parts[0])
-                remote_ahead = int(parts[1])
-    except Exception:
-        pass  # If check fails, proceed with reset (best-effort)
+        parts = result.stdout.strip().split()
+        if result.returncode == 0 and len(parts) == 2:
+            local_ahead = int(parts[0])
+            remote_ahead = int(parts[1])
+            rev_list_ok = True
+        else:
+            logger.info(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                case="rev_list_failed",
+                rc=result.returncode,
+                stdout=result.stdout.strip()[:200],
+            )
+            # Fall through to reset (best-effort) — step 4 will emit its own outcome.
+    except Exception as rev_list_err:
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            case="rev_list_failed",
+            error=str(rev_list_err),
+        )
+        # Fall through to reset (best-effort) — step 4 will emit its own outcome.
 
     # Step 3c: Handle local-ahead commits.
+    if local_ahead == 0 and remote_ahead == 0 and rev_list_ok:
+        # Local and remote are already in sync — skip the no-op reset entirely
+        # so the outcome is distinguishable from a true behind-remote sync.
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            case="already_in_sync",
+            local_ahead=0,
+            remote_ahead=0,
+        )
+        return
+
     if local_ahead > 0 and remote_ahead == 0:
         # Local is strictly ahead of remote (no divergence).
         if prior_phase_succeeded:
             # Prior phase completed successfully — push local work to remote
             # before resetting, so it's not lost.
-            logger.info(
-                "Prior phase succeeded — pushing local-ahead commits to remote",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                local_ahead=local_ahead,
-            )
-            push_ok = spawner.gateway.push_worktree_branch(
+            push_result = spawner.gateway.push_worktree_branch(
                 pipeline_id=pipeline_id,
                 repo_path=str(worktree_repo_path),
                 branch=branch,
                 mode=gateway_mode,
                 base_branch=base_branch_for_reconcile,
             )
-            if push_ok:
+            if push_result:
                 # Push succeeded — local and remote are now in sync.
                 # Re-fetch to update the remote tracking ref so that
                 # origin/{branch} reflects the pushed commits.
@@ -5354,33 +5408,45 @@ def _sync_worktree_with_remote(
                     repo_path=str(worktree_repo_path),
                     mode=gateway_mode,
                 )
-                return  # Already in sync — no reset needed
-            else:
-                logger.warning(
-                    "Failed to push local-ahead commits (continuing with reset)",
+                logger.info(
+                    "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    case="local_ahead_pushed",
+                    local_ahead=local_ahead,
+                    remote_ahead=remote_ahead,
+                )
+                return
+            else:
+                logger.warning(
+                    "worktree_sync_outcome",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    case="local_ahead_push_failed",
+                    local_ahead=local_ahead,
+                    remote_ahead=remote_ahead,
+                    category=push_result.category,
+                    error=push_result.detail,
                 )
         else:
-            # Prior phase failed — discard incomplete local work.
+            # Prior phase failed — incomplete local work will be discarded by
+            # the step-4 reset. Emit a distinct case so operators can grep
+            # this branch of the taxonomy without inferring it from
+            # reset_succeeded with local_ahead > 0.
             logger.info(
-                "Prior phase failed — discarding local-ahead commits",
+                "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                case="local_ahead_discarded",
                 local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
             )
-        # Fall through to reset (Step 4)
+        # Fall through to reset (Step 4) — discards local work when prior phase
+        # failed, or recovers via reset after a push failure.
 
     elif local_ahead > 0 and remote_ahead > 0:
         # Divergence: local and remote both have unique commits.
         # Attempt fast-forward merge to reconcile.
-        logger.info(
-            "Local and remote have diverged — attempting merge",
-            pipeline_id=pipeline_id,
-            branch=branch,
-            local_ahead=local_ahead,
-            remote_ahead=remote_ahead,
-        )
         try:
             merge_result = subprocess.run(
                 [*git_base, "merge", "--ff-only", f"origin/{branch}"],
@@ -5391,32 +5457,40 @@ def _sync_worktree_with_remote(
             )
             if merge_result.returncode == 0:
                 logger.info(
-                    "Fast-forward merge succeeded",
+                    "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    case="diverged_ff_succeeded",
+                    local_ahead=local_ahead,
+                    remote_ahead=remote_ahead,
                 )
-                return  # Merge succeeded — worktree is now in sync
+                return
             else:
                 logger.error(
-                    "Cannot fast-forward merge diverged branches — "
-                    "pipeline may need manual intervention",
+                    "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    case="diverged_ff_failed",
                     local_ahead=local_ahead,
                     remote_ahead=remote_ahead,
                     error=merge_result.stderr.strip(),
                 )
-                return  # Don't force-reset on divergence — signal the problem
+                return
         except Exception as merge_err:
             logger.error(
-                "Merge attempt failed",
+                "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
+                branch=branch,
+                case="diverged_ff_failed",
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
                 error=str(merge_err),
             )
             return
 
     # Step 4: Reset local branch to remote.
-    # This handles: local behind remote, local in-sync, and post-push reset.
+    # This handles: local behind remote, post-push reset, and rev-list-failed
+    # fall-through. (The already-in-sync case returns early above.)
     try:
         result = subprocess.run(
             [*git_base, "reset", "--hard", f"origin/{branch}"],
@@ -5427,20 +5501,31 @@ def _sync_worktree_with_remote(
         )
         if result.returncode != 0:
             logger.warning(
-                "Failed to reset worktree to remote (continuing with local state)",
+                "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
+                branch=branch,
+                case="reset_failed",
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
                 error=result.stderr.strip(),
             )
         else:
             logger.info(
-                "Synced worktree with remote branch",
+                "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                case="reset_succeeded",
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
             )
     except Exception as sync_err:
         logger.warning(
-            "Failed to reset worktree to remote (continuing with local state)",
+            "worktree_sync_outcome",
             pipeline_id=pipeline_id,
+            branch=branch,
+            case="reset_failed",
+            local_ahead=local_ahead,
+            remote_ahead=remote_ahead,
             error=str(sync_err),
         )
 
