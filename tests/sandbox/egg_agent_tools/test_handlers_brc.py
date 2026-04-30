@@ -369,6 +369,45 @@ class TestPreFlightMirrorsOrchestrator:
             },
             # String "true" without reason — both reject.
             {"tests_execution_blocked": "true"},
+            # --- Pydantic parse-step type checks (PR #2344 re-review) ---
+            # Bad tests_run type (unparseable string) — Pydantic rejects in
+            # both modes; pre-flight now mirrors via _coerce_attestation_int.
+            {"tests_run": "abc", "checks_passed": ["test"]},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "tests_run": "abc",
+            },
+            # Bad tests_run type (list) — same.
+            {"tests_run": ["t1", "t2"], "checks_passed": ["test"]},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "tests_run": ["t1", "t2"],
+            },
+            # Non-integer-valued float — Pydantic rejects (only int-like
+            # floats coerce to int); pre-flight mirrors.
+            {"tests_run": 0.5, "checks_passed": ["test"]},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "tests_run": 0.5,
+            },
+            # Integer-valued float — Pydantic accepts (2.0 → 2); pre-flight
+            # mirrors via float.is_integer() in the coercion helper.
+            {"tests_run": 2.0, "checks_passed": ["test"]},
+            # Parseable integer string — Pydantic accepts; pre-flight mirrors.
+            {"tests_run": "42", "checks_passed": ["test"]},
+            # Non-list checks_passed — Pydantic rejects (list[str] field) in
+            # both blocked and non-blocked modes; pre-flight mirrors with
+            # an unconditional isinstance(..., list) check above the
+            # branch split.
+            {"tests_run": 5, "checks_passed": "lint"},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "checks_passed": "lint",
+            },
         ],
     )
     def test_pre_flight_matches_orchestrator(self, attestation: dict):

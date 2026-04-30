@@ -122,22 +122,86 @@ def _coerce_attestation_bool(value: Any, *, field: str) -> bool:
     )
 
 
+def _coerce_attestation_int(value: Any, *, field: str) -> int:
+    """Coerce a JSON-ish value to int, matching Pydantic v2's lax rules.
+
+    Used for ``tests_run`` so pre-flight's verdict matches the
+    orchestrator's Pydantic parse step. The strict-mode rule logic only
+    runs *after* Pydantic has parsed the payload into a typed model;
+    payloads that fail parsing (lists, unparseable strings,
+    non-integer-valued floats) raise ``ValidationError`` and never
+    reach ``_validate_strict``. Without this helper, pre-flight's
+    blocked branch would silently swallow a bad ``tests_run`` and let
+    the request go on the wire — which is exactly what the orchestrator
+    rejects at parse time.
+
+    Accepts: ``int`` (incl. ``bool``, since ``bool`` is an ``int``
+    subclass and Pydantic v2 lax-mode accepts it), ``float`` only when
+    ``is_integer()`` is true, and ``str`` only when stripping yields a
+    parseable integer. Rejects everything else with ``HandlerError``.
+    """
+    if isinstance(value, bool):
+        # bool is an int subclass; Pydantic v2 lax mode accepts True/False
+        # for an int field (coerces to 1/0).
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise HandlerError(
+                f"Tester attestation: '{field}' must be an integer count "
+                f"of tests executed (e.g. 42). Got {value!r}, a "
+                "non-integer float — Pydantic only accepts integer-valued "
+                "floats here."
+            )
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError as exc:
+            raise HandlerError(
+                f"Tester attestation: '{field}' must be an integer count "
+                f"of tests executed (e.g. 42). Got {value!r}, an "
+                "unparseable string. Note: this is the attestation field, "
+                "distinct from the propose tool's top-level tests_run "
+                "argument (which carries test *identifiers* as a list of "
+                "strings)."
+            ) from exc
+    raise HandlerError(
+        f"Tester attestation: '{field}' must be an integer count of "
+        f"tests executed (e.g. 42). Got {value!r}. Note: this is the "
+        "attestation field, distinct from the propose tool's top-level "
+        "tests_run argument (which carries test *identifiers* as a "
+        "list of strings)."
+    )
+
+
 def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None:
-    """Catch missing tester attestation fields at the handler boundary (#2338).
+    """Catch missing / malformed tester attestation at the handler boundary (#2338).
 
-    Mirrors the orchestrator's strict-mode tester checks
-    (``orchestrator/attestation_schemas.py:_validate_strict``) so a
-    misconfigured proposal fails locally with an actionable HandlerError
-    instead of going on the wire and bouncing back as a 400 on the next
-    retry. The orchestrator's check stays — this is pre-flight validation,
-    not a replacement.
+    Pre-flight has two layers, both mirroring the orchestrator:
 
-    The attestation's ``tests_run`` is the *count* of tests run (an
-    ``int``), not the propose-tool's top-level ``tests_run`` (a
-    ``list[str]`` of test identifiers). When tests genuinely cannot run
-    (e.g. private-network mode blocking module downloads), set
-    ``tests_execution_blocked=True`` with a non-empty
-    ``tests_execution_blocked_reason``.
+    1. **Type checks** that mirror Pydantic v2's parse step on
+       ``TesterAttestation`` (``orchestrator/attestation_schemas.py``).
+       Runs unconditionally — a payload that would fail
+       ``model_cls(**attestation_data)`` (e.g. ``tests_run="abc"``,
+       ``tests_run=["t1"]``, ``tests_run=0.5``, ``checks_passed="lint"``)
+       fails pre-flight with the same verdict, regardless of whether
+       ``tests_execution_blocked`` is true. This catches divergence #1
+       from PR #2344's re-review: the orchestrator's Pydantic parse
+       rejects bad types in both branches, so pre-flight must too.
+    2. **Strict-mode rule logic** that mirrors ``_validate_strict``
+       (the post-Pydantic checks). Branches on the parsed
+       ``tests_execution_blocked`` value to enforce the
+       ``tests_run > 0 + checks_passed populated`` requirement (or the
+       blocked-with-reason alternative).
+
+    Failures raise ``HandlerError`` with an actionable message
+    naming the field, the common cause, and the expected format —
+    including a callout disambiguating the attestation's ``tests_run``
+    (integer count) from the propose tool's top-level ``tests_run``
+    (list of test identifiers). The orchestrator's check stays — this
+    is defense-in-depth, not a replacement.
 
     Pre-flight enforces strict-mode rules unconditionally, regardless of
     the pipeline's ``attestation_strictness`` setting. The handler has no
@@ -149,15 +213,38 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
     the canonical "tester forgot to populate attestation.tests_run" case
     from #2338 is the same misconfiguration in both modes, so failing
     fast with an actionable error is better UX than letting an empty
-    payload silently slip past in relaxed mode. Raises ``HandlerError``
-    on any divergence; passes silently when the orchestrator's strict
-    validator would also accept the payload.
+    payload silently slip past in relaxed mode.
+
+    Invariant: pre-flight verdict (accept / raise) must match
+    ``validate_attestation(role="tester", strictness=STRICT)`` for every
+    payload. Enforced by
+    ``test_handlers_brc.py::TestPreFlightMirrorsOrchestrator``; if you
+    tighten one side, tighten both.
     """
+    # Layer 1 — type checks that mirror Pydantic's parse step. Runs
+    # unconditionally. A payload that would bounce off
+    # ``model_cls(**attestation_data)`` bounces off pre-flight first
+    # with a friendlier message.
     blocked = _coerce_attestation_bool(
         attestation.get("tests_execution_blocked", False),
         field="tests_execution_blocked",
     )
+    tests_run_int = _coerce_attestation_int(
+        attestation.get("tests_run", 0),
+        field="tests_run",
+    )
+    checks_passed = attestation.get("checks_passed", [])
+    if not isinstance(checks_passed, list):
+        # Pydantic rejects ``checks_passed`` if it isn't a list of
+        # strings. Mirror the type check unconditionally; the
+        # populated-ness check below only runs in non-blocked mode
+        # (Pydantic-parsed empty list is fine when blocked).
+        raise HandlerError(
+            "Tester attestation: 'checks_passed' must be a list of strings "
+            f"(e.g. ['lint', 'test']). Got {checks_passed!r}."
+        )
 
+    # Layer 2 — strict-mode rule logic that mirrors _validate_strict.
     if blocked:
         reason = (attestation.get("tests_execution_blocked_reason") or "").strip()
         if not reason:
@@ -170,10 +257,6 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
             )
         # Mutual-exclusion guard: blocked pipelines must not also report
         # tests_run > 0 — pick one and stick with it.
-        try:
-            tests_run_int = int(attestation.get("tests_run", 0) or 0)
-        except TypeError, ValueError:
-            tests_run_int = 0
         if tests_run_int > 0:
             raise HandlerError(
                 "Tester attestation: tests_execution_blocked=true conflicts "
@@ -184,23 +267,12 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
         return
 
     # Non-blocked path — strict mode requires tests_run > 0 and
-    # checks_passed populated.
-    try:
-        tests_run_int = int(attestation.get("tests_run", 0) or 0)
-    except (TypeError, ValueError) as exc:
-        raise HandlerError(
-            "Tester attestation: 'tests_run' must be an integer count of "
-            "tests executed (e.g. 42). Got "
-            f"{attestation.get('tests_run')!r}. Note: this is the "
-            "attestation field, distinct from the propose tool's top-level "
-            "tests_run argument (which carries test *identifiers* as a "
-            "list of strings)."
-        ) from exc
-    # Mirror the orchestrator: only ``tests_run == 0`` is rejected.
-    # Negative counts slip past Pydantic (no constraint on the int field)
-    # and the strict validator's ``elif instance.tests_run == 0`` check,
-    # so pre-flight intentionally lets them pass too. If we tighten one
-    # side, tighten both — see the cross-check tests in
+    # checks_passed populated. Mirror the orchestrator: only
+    # ``tests_run == 0`` is rejected. Negative counts slip past
+    # Pydantic (no constraint on the int field) and the strict
+    # validator's ``elif instance.tests_run == 0`` check, so pre-flight
+    # intentionally lets them pass too. If we tighten one side, tighten
+    # both — see the cross-check tests in
     # ``test_handlers_brc.py::TestPreFlightMirrorsOrchestrator``.
     if tests_run_int == 0:
         raise HandlerError(
@@ -213,8 +285,7 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
             "['lint', 'test']}."
         )
 
-    checks_passed = attestation.get("checks_passed") or []
-    if not isinstance(checks_passed, list) or not checks_passed:
+    if not checks_passed:
         raise HandlerError(
             "Tester attestation requires checks_passed to list the "
             "configured checks that actually passed (e.g. "
