@@ -1,0 +1,478 @@
+{
+  "issue": 2261,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Decompose 15 oversize Python source files to clear the file-size allowlist",
+  "summary": "Architecture analysis for the 15-file decomposition program. Confirms the refine-phase recommendation (A1+B2+C1) survives implementation-level scrutiny, locks the per-file submodule cluster boundaries, identifies the production importers and 34 distinct test patch targets that the re-export barrel must preserve, and resolves the routes-registration question (existing Blueprint, not @app.route — decision-8's wrappers stay in __init__.py). Output drives the task_planner and risk_analyst.",
+
+  "problem_statement": {
+    "description": "The lint added by #2250 caps Python source files at 1,500 lines / 100 KB. Fifteen files are grandfathered in scripts/file-size-allowlist.yaml. This issue tracks the program that drives those baselines to zero so every file is under the global cap, the allowlist is empty, and agent navigation cost is paid once instead of per BRC cycle. Pure refactor — no behavior change.",
+    "goals": [
+      "All 15 files under 1,500 lines AND 100 KB",
+      "scripts/file-size-allowlist.yaml empty (or only contains entries unrelated to this issue)",
+      "Zero behavior change; make lint and make test-all green at every slice boundary",
+      "No production importer breaks; no test patch target moves out from under existing tests",
+      "Decomposition seams documented in orchestrator/CLAUDE.md and gateway/CLAUDE.md so the next contributor knows where pieces live"
+    ],
+    "non_negotiables": [
+      "Test back-compat via re-exports — 34 distinct symbols are patched at routes.pipelines.<sym>; gateway.gateway and mcp_tools have similar surfaces.",
+      "External importers preserved — mcp_tools, unified_sse, routes/decisions, routes/phases, api.py all reach into routes.pipelines today.",
+      "Dual-import convention preserved at boundary; submodules use one consistent style internally.",
+      "Allowlist ratchet — each PR drops the affected file's entry; lint enforces.",
+      "_run_pipeline (line 13524, ~2,362 lines) decomposed in-band, not punted.",
+      "Branch prefix egg/."
+    ]
+  },
+
+  "approach_alignment_with_hitl": {
+    "module_layout": "decision-1 selected A1 (sub-package + __init__.py re-export barrel). Confirmed.",
+    "run_pipeline_strategy": "decision-2 selected B2 (per-phase handler refactor). Confirmed.",
+    "slice_dag_shape": "decision-3 selected C1 (16 slices: 1 parent + 15 children, one per file). Confirmed.",
+    "parent_slice_scope": "decision-4 selected docs + scripts/select_tests.py as the worked reference. Confirmed.",
+    "re_export_style": "decision-5 selected explicit per-symbol re-exports. Confirmed; barrel uses 'from ._mod import sym1, sym2' lines.",
+    "submodule_naming": "decision-6 selected underscore-prefixed (_run_loop.py, _criteria.py, ...). Confirmed.",
+    "external_import_style": "decision-7 selected keep importing via barrel. Confirmed; mcp_tools.py / unified_sse.py / routes/phases.py / routes/decisions.py keep their existing 'from routes.pipelines import _foo' shape.",
+    "routes_registration": "decision-8 selected thin wrappers in __init__.py. CRITICAL OBSERVATION (not blocking): pipelines.py, signals.py, deployment.py ALREADY use Flask Blueprints (`@pipelines_bp.route(...)`), not `@app.route(...)`. The decision still applies as written — keep `@pipelines_bp.route(...)` on the barrel `__init__.py`, with each route body delegating to the implementing submodule. gateway.py uses `@app.route(...)` on the singleton `app = Flask(__name__)` (gateway/gateway.py:516); same convention applies — wrappers stay in `gateway/__init__.py`. No Blueprint-conversion debt incurred by this decision; both files keep their existing decorator dialect.",
+    "slice_16_substacking": "decision-9 selected single slice with multiple commits/sub-tasks. Confirmed; pipelines.py decomposes within slice-16's branch as a small chain of internal commits.",
+    "concurrency_budget": "decision-10 selected EGG_ORCH_MAX_PARALLEL_SLICES=5. Confirmed. Wave shape with 15 sibling children: ~3 waves (5/5/5) under one parent.",
+    "feedback_q1_test_patch_drift": "Mechanical patch-path rewrites allowed in same slice; test-logic rewrites file follow-up. Default = re-export shim, leave tests alone.",
+    "feedback_q2_baselines": "Use current sizes (16,401 / 1,875 / 9,890) as authoritative.",
+    "feedback_q3_sequencing": "Strict size-ordered fan-out, smallest first.",
+    "feedback_q4_test_gates": "make test-all is the contract — no extra gates.",
+    "feedback_q5_gateway_routes": "Same convention as decision-8 — thin wrappers in `__init__.py`.",
+    "feedback_q6_re_export_scope": "Re-export every symbol with any external `git grep` hit outside its own submodule. Skip only when symbol is underscore-prefixed AND referenced exclusively inside its new submodule.",
+    "feedback_q7_run_pipeline_handler_tests": "Per-phase handlers stay private; new unit tests for them are out of scope for slice-16 (file follow-up).",
+    "feedback_q8_pattern_doc_timing": "docs/guides/decomposition-pattern.md is a precondition — slice-1 lands it."
+  },
+
+  "current_architecture": {
+    "verified_file_sizes": {
+      "orchestrator/routes/pipelines.py": {"lines": 16401, "kb": 654, "over_cap_factor": 10.9},
+      "gateway/gateway.py": {"lines": 9890, "kb": 364, "over_cap_factor": 6.6},
+      "sandbox/egg_lib/orch_cli.py": {"lines": 3537, "kb": 125, "over_cap_factor": 2.4},
+      "orchestrator/mcp_tools.py": {"lines": 2820, "kb": 116, "over_cap_factor": 1.9},
+      "orchestrator/gateway_client.py": {"lines": 2357, "kb": 87, "over_cap_factor": 1.6},
+      "shared/egg_contracts/checkpoint_cli.py": {"lines": 2233, "kb": 80, "over_cap_factor": 1.5},
+      "gateway/worktree_manager.py": {"lines": 2117, "kb": 82, "over_cap_factor": 1.4},
+      "sandbox/entrypoint.py": {"lines": 2109, "kb": 83, "over_cap_factor": 1.4},
+      "orchestrator/overseer/monitor.py": {"lines": 2050, "kb": 82, "over_cap_factor": 1.4},
+      "gateway/git_client.py": {"lines": 2032, "kb": 65, "over_cap_factor": 1.4},
+      "orchestrator/peer_consensus.py": {"lines": 2013, "kb": 83, "over_cap_factor": 1.3},
+      "orchestrator/routes/signals.py": {"lines": 1986, "kb": 72, "over_cap_factor": 1.3},
+      "scripts/select_tests.py": {"lines": 1875, "kb": 62, "over_cap_factor": 1.3},
+      "gateway/checkpoint_handler.py": {"lines": 1655, "kb": 60, "over_cap_factor": 1.1},
+      "orchestrator/routes/deployment.py": {"lines": 1604, "kb": 55, "over_cap_factor": 1.1}
+    },
+    "production_importers_into_pipelines_py": [
+      {"importer": "orchestrator/api.py:50", "imports": "pipelines_bp"},
+      {"importer": "orchestrator/mcp_tools.py:1743,1814", "imports": "_read_phase_draft, _pipeline_identifier"},
+      {"importer": "orchestrator/routes/decisions.py:254", "imports": "_pipeline_identifier"},
+      {"importer": "orchestrator/routes/phases.py:396,421,460,738,917,997", "imports": "_persist_phase_brc_history, _pipeline_identifier, _spawn_pipeline_run_thread, _populate_contract_from_plan, plus a multi-symbol import block"},
+      {"importer": "orchestrator/unified_sse.py:50", "imports": "_collect_all_pipelines"},
+      {"importer": "orchestrator/concurrent_executor.py:83 (comment only)", "imports": "duplicates a definition rather than importing — no runtime coupling"}
+    ],
+    "test_patch_surface_pipelines": {
+      "distinct_symbols_patched": 34,
+      "examples": [
+        "_auto_create_pr", "_build_agent_prompt", "_build_phase_prompt", "_build_pr_body",
+        "_check_branch_divergence_for_alert", "_clear_pipeline_runtime_state",
+        "_commit_statefiles_to_worktree", "_compute_gateway_mode", "_detect_default_branch",
+        "_emit_event", "_emit_pipeline_event", "_fetch_pr_state", "_get_draft_path",
+        "_get_message_store", "_git_show_draft", "_handle_pr_creation_failure",
+        "_inflight_host_waits", "_persist_phase_brc_history", "_pipeline_identifier",
+        "_populate_contract_from_plan", "_populate_contract_from_plan_safe",
+        "_publish_branch_divergence_alert", "_read_phase_draft", "_read_shared_criteria",
+        "_rebase_pipeline_branch_onto_base", "_refresh_pipeline_branch_against_current_base",
+        "_resolve_pipeline", "_run_concurrent_phase", "_run_pipeline", "_spawn_and_wait",
+        "_spawn_pipeline_run_thread", "_start_stacked_pr_reconciler",
+        "_sync_worktree_with_remote", "_write_brc_history"
+      ],
+      "patch_call_count": 1203
+    },
+    "test_patch_surface_gateway_and_mcp_tools": {
+      "gateway_gateway": ["get_anthropic_client", "get_credentials_manager"],
+      "mcp_tools": ["_make_request"],
+      "note": "Smaller than pipelines but the gateway file has 45 @app.route handlers that are themselves the public surface — every handler is a 'symbol' in the routing sense."
+    },
+    "claude_md_state": {
+      "orchestrator_CLAUDE_md_lines": 13,
+      "gateway_CLAUDE_md_lines": 11,
+      "internal_seams_documented": "zero in either file"
+    },
+    "blueprint_dialect_observation": {
+      "uses_blueprint": ["orchestrator/routes/pipelines.py (`pipelines_bp = Blueprint(...)` at line 830)", "orchestrator/routes/signals.py (signals blueprint)", "orchestrator/routes/deployment.py (deployment blueprint)"],
+      "uses_app_route": ["gateway/gateway.py (`app = Flask(__name__)` at line 516)"],
+      "implication": "decision-8 (thin wrappers in __init__.py) works for BOTH dialects. The route decorator stays exactly where it is today — `@pipelines_bp.route(...)` for routes/* and `@app.route(...)` for gateway/. The wrapper body changes from `do_work_inline()` to `_impl.do_work()`. No Blueprint conversion debt."
+    }
+  },
+
+  "recommended_approach": {
+    "name": "Sub-package + barrel + per-phase _run_pipeline + 1+15 slice forest",
+    "summary": "Per refine and HITL: each oversize file becomes a sub-package <name>/ with an __init__.py barrel that explicitly re-exports every symbol the test suite or production code currently reaches at the original module path. Submodules are underscore-prefixed (`_run_loop.py`, `_criteria.py`, `_pr_lifecycle.py`, ...). _run_pipeline is decomposed into per-phase handlers (refine/plan/implement/pr) plus a thin orchestration loop in slice-16. Slices land as one parent (slice-1: docs + scripts/select_tests.py reference) plus 15 sibling children, fanned out smallest-first under EGG_ORCH_MAX_PARALLEL_SLICES=5 (3 waves of 5).",
+    "rationale": [
+      "Sub-package + explicit re-export barrel (A1 + decision-5) is the only layout that keeps unittest.mock.patch('routes.pipelines._foo') resolving without rewriting tests.",
+      "Per-phase handler refactor (B2) is the only _run_pipeline strategy that satisfies 'every file under 1,500 lines AND allowlist empty AND _run_pipeline in scope'.",
+      "16-slice forest (C1) gives one PR per file — maximum reviewability and revertibility, and the forest rule (one parent each) is satisfied by 15 siblings under one shared parent.",
+      "Smallest-first ordering validates the pattern on scripts/select_tests.py before committing to gateway.py and pipelines.py at the end.",
+      "Underscore-prefixed submodules match existing codebase convention (e.g. orchestrator/routes/_helpers.py-style internal modules) and signal 'package-private API'.",
+      "Existing Blueprint usage in routes/* and `app = Flask(...)` in gateway/ both compose cleanly with the 'thin wrappers in __init__.py' shape; no behavior-adjacent Blueprint refactor is needed."
+    ],
+    "constraints": [
+      "Re-export barrel MUST list every test-patched and production-imported symbol explicitly. Drift is detectable by `git grep <symbol>` returning hits outside the new submodule that don't go through the barrel.",
+      "Each slice's PR must independently pass `make lint` (size cap, allowlist ratchet, ruff/mypy) and `make test-all` (full suite). No 'land them together' carve-outs.",
+      "Slice integration branches: `egg/issue-2261/slice-<n>-<file-tag>`, e.g. `egg/issue-2261/slice-2-select-tests`.",
+      "scripts/file-size-allowlist.yaml entry for the affected file MUST be removed (not just lowered) on the same PR that drops the file under cap. The entry has no per-file baseline today (cap-only), so removal is a one-line yaml change.",
+      "If the new submodules accidentally exceed the cap individually, the slice's task list MUST further split that submodule rather than re-introducing an allowlist entry.",
+      "Test patch path drift (Q1): only mechanical rewrites are in-scope. Test-logic rewrites are filed as follow-up issues; the same slice does NOT bundle them."
+    ],
+    "alternatives_considered": [
+      {"name": "Sibling-file façade (refine A2)", "rejected_because": "Naming gets ugly across 15 files (`_pipelines_run.py`, `_pipelines_pr.py`); discoverability worse than a sub-package; doesn't generalise to non-route files."},
+      {"name": "Flask Blueprint refactor for routes (refine A3)", "rejected_because": "Behavior-adjacent change in a pure-refactor issue; routes/* already uses Blueprints via `pipelines_bp` so there's nothing to gain, and gateway.py would have to convert from `@app.route` to a Blueprint which is exactly the scope creep the operator rejected."},
+      {"name": "Mechanical _run_pipeline extraction only (refine B1)", "rejected_because": "Leaves the new file over the cap on day one; contradicts the 'allowlist empty' acceptance criterion; refine HITL rejected."},
+      {"name": "Permanent allowlist exception for _run_pipeline (refine B3)", "rejected_because": "Issue text explicitly says punting is off the table; refine HITL rejected."},
+      {"name": "Per-package cohort slices (refine C2)", "rejected_because": "Cohort PRs are larger and harder to revert; a NACK on one file blocks the whole cohort; less parallelism. Refine HITL rejected."},
+      {"name": "Single mega-PR (refine C3)", "rejected_because": "Unreviewable; violates slice-DAG; refine HITL rejected."},
+      {"name": "__all__-driven wildcard re-exports (decision-5 opt-2)", "rejected_because": "HITL selected explicit per-symbol; wildcard imports fight ruff/F401 and are hard to audit for drift."}
+    ]
+  },
+
+  "submodule_seam_proposals": {
+    "intent": "Per-file cluster boundaries for the task_planner to consume. These are PROPOSED — task_planner can split further if a submodule lands over the cap. The clusters were derived from grep'd top-level def boundaries, line-range surveys, and the symbol cohorts the test suite already patches together.",
+    "files": {
+      "orchestrator/routes/pipelines.py": {
+        "current_lines": 16401,
+        "submodule_proposal": [
+          {"file": "_route_handlers.py", "scope": "Thin wrappers for the 13 @pipelines_bp.route handlers (list_pipelines, get_pipeline, create_pipeline, update_pipeline, delete_pipeline, restart_agent, restart_phase, get_pipeline_status, wait_pipeline_status, start_pipeline, get_pipeline_visualization, stream_all_pipelines, stream_pipeline). Wrappers delegate to other submodules.", "estimated_lines": "300-500"},
+          {"file": "_pipeline_lookup.py", "scope": "_pipeline_identifier, _resolve_pipeline, _collect_all_pipelines, _uses_per_role_staging, _brc_history_identifier", "estimated_lines": "200-300"},
+          {"file": "_run_loop.py", "scope": "_run_pipeline, _spawn_pipeline_run_thread, _check_and_respawn_overseer, _send_brc_confirmation_nudge, _teardown_phase_overseer, plus the per-phase handlers extracted out of _run_pipeline (see _phase_handlers.py)", "estimated_lines": "600-1000"},
+          {"file": "_phase_handlers.py", "scope": "_run_refine_phase, _run_plan_phase, _run_implement_phase_slices (already extracted), _run_pr_phase. Each <500 lines. Shared state via _PipelineRunContext dataclass.", "estimated_lines": "1000-1400 split across 4 handlers — possibly further split into _phase_refine.py / _phase_plan.py / _phase_implement.py / _phase_pr.py if cluster runs over cap"},
+          {"file": "_concurrent_phase.py", "scope": "_run_concurrent_phase, _spawn_and_wait", "estimated_lines": "1300-1500 — STILL OVER CAP, MUST SPLIT FURTHER (split into _spawn.py + _consensus_wait.py)"},
+          {"file": "_brc_verdicts.py", "scope": "_aggregate_review_verdicts, _read_review_verdict, _read_tester_gaps, _check_brc_progress_gate, _publish_consensus_timeout_alert, _handle_brc_consensus_timeout, _format_nack_summary, _incomplete_consensus_decision_text, _persist_hitl_decision, _latest_active_role_heartbeat, _verdict_path_for_type", "estimated_lines": "600-900"},
+          {"file": "_brc_history.py", "scope": "_get_message_store, _write_brc_history, _persist_phase_brc_history, _rewrite_brc_history_for_pr, _resolve_pipeline_worktree_path", "estimated_lines": "300-500"},
+          {"file": "_criteria.py", "scope": "_read_shared_criteria, _get_agent_design_criteria, _get_code_review_criteria, _get_contract_review_criteria, _get_refine_review_criteria, _get_plan_review_criteria, _get_security_review_criteria, _get_code_review_holistic_criteria, _get_concurrency_review_criteria, _get_review_criteria_for_type, _get_reviewer_scope_preamble", "estimated_lines": "500-700"},
+          {"file": "_drafts.py", "scope": "_get_draft_path, _draft_filename, _git_show_draft, _read_phase_draft, _read_source_branch_artifacts, _pull_contract_from_source_branch, _cleanup_stale_generic_drafts, _get_generic_draft_path, _summarize_issue, _extract_plan_overview", "estimated_lines": "700-1000"},
+          {"file": "_prompt_building.py", "scope": "_build_phase_prompt, _build_agent_prompt, _build_review_prompt, _build_brc_preamble, _build_agent_roster, _build_reviewer_preparation, _build_producer_orientation, _build_file_boundary_section, _build_role_context, _build_role_restrictions_section, _render_contract_tasks", "estimated_lines": "1400-1500 — RIGHT AT CAP, MAY NEED SPLIT into _prompt_phase.py + _prompt_agent.py + _prompt_review.py"},
+          {"file": "_pr_lifecycle.py", "scope": "_auto_create_pr, _handle_pr_creation_failure, _format_rescue_hint, _finalize_pr_phase_failed, _build_pr_body, _build_pre_merge_obligations_section, _build_brc_history_link_line, _pr_metadata_from_plan_draft, _start_stacked_pr_reconciler, _fetch_pr_state, _verify_pr_head_unchanged, get_pr_base_branch, _resolve_origin_ref, _detect_default_branch", "estimated_lines": "1300-1500 — RIGHT AT CAP, may split into _pr_create.py + _pr_state.py"},
+          {"file": "_worktree_ops.py", "scope": "_sync_worktree_with_remote, _rebase_pipeline_branch_onto_base, StalePipelineBranchError, _refresh_pipeline_branch_against_current_base, _commit_statefiles_to_worktree, _cleanup_agent_outputs_for_pr, _ensure_statefiles_on_branch", "estimated_lines": "1500-1700 — OVER CAP, MUST SPLIT (e.g. _worktree_sync.py + _worktree_rebase.py + _worktree_statefiles.py)"},
+          {"file": "_gateway_mode.py", "scope": "_compute_gateway_mode, _cleanup_remote_branches", "estimated_lines": "100-200"},
+          {"file": "_runtime_state.py", "scope": "_clear_pipeline_runtime_state, _mark_pipeline_records_terminated, _track_host_wait_start, _track_host_wait_end, _inflight_host_waits, _parse_status_wait_cursor, _build_status_wait_cursor, _message_store_tip_id, _build_minimal_status_envelope", "estimated_lines": "300-500"},
+          {"file": "_branch_divergence.py", "scope": "_check_branch_divergence_for_alert, _publish_branch_divergence_alert, _branch_divergence_tick", "estimated_lines": "200-300"},
+          {"file": "_decisions.py", "scope": "_parse_resolution, _synthesize_plan_draft, _populate_contract_from_plan_safe, _populate_contract_from_plan, _sync_pipeline_decisions_to_contract, _queue_and_await_contract_decisions, _persist_phase_gate_resolution", "estimated_lines": "700-1000"},
+          {"file": "_status.py", "scope": "_get_pr_info, _get_concurrent_status, _emit_pipeline_event, _get_spawner, ForestValidationError, make_error_response, make_success_response", "estimated_lines": "200-400"},
+          {"file": "_streams.py", "scope": "stream_all_pipelines, stream_pipeline (and any helpers if extracted from inside the routes); kept separate so SSE concerns don't cross-pollute", "estimated_lines": "200-300"}
+        ],
+        "barrel_init_responsibilities": [
+          "Define `pipelines_bp = Blueprint(...)` (this is the public symbol the api.py registers).",
+          "Define each `@pipelines_bp.route(...)`-decorated handler as a thin wrapper delegating to `_route_handlers.<name>`.",
+          "Explicit per-symbol re-exports for every test-patched symbol AND every production-imported symbol (full list = the 34 patched symbols above + production import targets).",
+          "Module-level constants and global state (e.g. `_inflight_host_waits` if it stays at module scope) re-exported as references so `unittest.mock.patch('routes.pipelines._inflight_host_waits', ...)` continues to work."
+        ],
+        "notes": "The estimates assume helper-function bodies stay roughly the same size. Several proposed clusters are AT or OVER the cap and will need further sub-splitting in implement; the task_planner should make that explicit. _run_pipeline (2,362 lines today) requires the per-phase extraction; mechanical move alone is forbidden by decision-2."
+      },
+      "gateway/gateway.py": {
+        "current_lines": 9890,
+        "submodule_proposal": [
+          {"file": "_route_handlers.py", "scope": "Thin wrappers for the 45 @app.route handlers", "estimated_lines": "500-700"},
+          {"file": "_health.py", "scope": "health_check, _check_orchestrator_connectivity, _check_squid_health, config_reload, _reload_all_config", "estimated_lines": "300-400"},
+          {"file": "_git_routes.py", "scope": "git_push, git_execute, git_fetch + helpers", "estimated_lines": "1500-1700 — OVER CAP, must split into _git_push.py + _git_execute.py + _git_fetch.py"},
+          {"file": "_checkpoint_routes.py", "scope": "checkpoint_list, checkpoint_cost, checkpoint_show + resolution helpers", "estimated_lines": "500-700"},
+          {"file": "_pr_routes.py", "scope": "gh_pr_create, gh_pr_comment, gh_pr_edit, gh_pr_close, gh_execute, _apply_pr_labels", "estimated_lines": "1300-1500 — at cap, may split"},
+          {"file": "_jira_routes.py", "scope": "jira_ticket_get, jira_search, jira_ticket_comments, jira_execute, jira_ticket_create, jira_ticket_edit, jira_ticket_comment_add, jira_issue_link_create + jira validators (_validate_jira_*, _jira_*)", "estimated_lines": "1500-1700 — OVER CAP, split into _jira_routes.py + _jira_writes.py + _jira_validators.py"},
+          {"file": "_confluence_routes.py", "scope": "All confluence_* handlers and helpers", "estimated_lines": "1100-1300"},
+          {"file": "_worktree_routes.py", "scope": "worktree_create, worktree_delete, worktree_list, worktrees_prune + helpers", "estimated_lines": "700-900"},
+          {"file": "_session_routes.py", "scope": "session_create, session_delete, session_delete_by_container, session_heartbeat_by_container, session_get, session_heartbeat, session_update, session_update_phase, sessions_list, repos_visibility", "estimated_lines": "1000-1200"},
+          {"file": "_anthropic_proxy.py", "scope": "proxy_anthropic_messages, proxy_count_tokens, _SSEAccumulator, _capture_streaming_response, _capture_non_streaming_response, _parse_sse_response, get_anthropic_client, _get_forwarded_headers, _filter_response_headers, _inject_anthropic_credentials, _filter_blocked_tools, _is_streaming_request", "estimated_lines": "1200-1500 — at cap"},
+          {"file": "_auth.py", "scope": "LauncherSecretNotConfiguredError, get_launcher_secret, check_launcher_auth, require_launcher_auth, require_session_or_launcher_auth", "estimated_lines": "100-200"},
+          {"file": "_responses.py", "scope": "make_response, make_error, make_success, make_worktree_not_found_error, audit_log, handle_unhandled_exception", "estimated_lines": "150-250"},
+          {"file": "_mounts.py", "scope": "_mountinfo_disabled, _load_mount_mapping, translate_to_host_path, _detached_head_hint, _is_checkpoint_repo_for_request, _load_sibling_gateway_module, _lookup_commit_observer_fn", "estimated_lines": "300-400"},
+          {"file": "_runtime.py", "scope": "_run_health_server, main, top-level Flask app/CSRF/CORS setup", "estimated_lines": "200-300"}
+        ],
+        "barrel_init_responsibilities": [
+          "Define `app = Flask(__name__)` and any global decorators (CSRF, CORS, error handlers).",
+          "Define each `@app.route(...)`-decorated handler as a thin wrapper delegating to the implementing submodule.",
+          "Re-export `get_anthropic_client`, `get_credentials_manager`, `get_worktree_manager`, `get_checkpoint_handler` (the 4 production patch targets visible in test grep)."
+        ]
+      },
+      "sandbox/egg_lib/orch_cli.py": {
+        "current_lines": 3537,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "argparse builder + main() + dispatch", "estimated_lines": "200-300"},
+          {"file": "_http.py", "scope": "ApiError, _proposal_version_type, validate_id, get_orchestrator_url, get_gateway_url, get_pipeline_id_from_env, get_agent_role_from_env, get_issue_number, get_session_token, api_request, api_request_or_exit, orch_request, gateway_request, print_json, require_pipeline_id", "estimated_lines": "300-400"},
+          {"file": "_cmd_health.py", "scope": "cmd_health, cmd_gateway_health, cmd_gateway_phase, cmd_gateway_permissions", "estimated_lines": "200-300"},
+          {"file": "_cmd_pipeline.py", "scope": "cmd_pipeline_list, cmd_pipeline_get, cmd_pipeline_create, cmd_pipeline_status, cmd_pipeline_delete, cmd_pipeline_wait_status", "estimated_lines": "400-500"},
+          {"file": "_cmd_signal.py", "scope": "_require_role, _render_handler_error, cmd_signal_complete, cmd_signal_progress, cmd_signal_error, cmd_signal_heartbeat, cmd_signal_readiness", "estimated_lines": "300-400"},
+          {"file": "_cmd_phase.py", "scope": "cmd_phase_get, cmd_phase_advance, cmd_phase_start, cmd_phase_complete", "estimated_lines": "150-200"},
+          {"file": "_cmd_decision.py", "scope": "cmd_decision_list, cmd_decision_create, cmd_decision_resolve, cmd_decision_status", "estimated_lines": "200-250"},
+          {"file": "_cmd_container.py", "scope": "cmd_container_list, cmd_container_spawn, cmd_container_get, cmd_container_stop, cmd_container_logs", "estimated_lines": "200-300"},
+          {"file": "_cmd_message.py", "scope": "cmd_message_send, cmd_message_poll, cmd_message_wait, cmd_message_wait_loop, cmd_message_heartbeat, cmd_message_status, _classify_gateway_error_rc", "estimated_lines": "400-500"},
+          {"file": "_cmd_overseer.py", "scope": "cmd_overseer_alert, cmd_overseer_file_issue, cmd_overseer_consult_advisor", "estimated_lines": "700-900 — likely over cap, may further split"},
+          {"file": "_cmd_consensus.py", "scope": "_consensus_push, _render_stale_version_rejection, cmd_consensus_propose, cmd_consensus_ack, cmd_consensus_nack, cmd_consensus_withdraw, cmd_consensus_confirmed, cmd_consensus_status", "estimated_lines": "400-500"},
+          {"file": "_cmd_progress.py", "scope": "cmd_progress_emit, cmd_progress_query, cmd_env", "estimated_lines": "150-200"}
+        ]
+      },
+      "orchestrator/mcp_tools.py": {
+        "current_lines": 2820,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "Top-level helpers, _is_timeout_error, the PipelineToolHandler class glue (defines class skeleton, registers handlers from submodules, re-exports symbols)", "estimated_lines": "150-250"},
+          {"file": "_dispatch.py", "scope": "PipelineToolHandler.__init__, handle_tool_call, _make_request, _get_gateway_client, _ensure_gateway_session, _make_gateway_request", "estimated_lines": "200-300"},
+          {"file": "_tasks.py", "scope": "_handle_submit_task, _handle_run_agent_task, _handle_babysit_pr, _handle_validate_config", "estimated_lines": "600-800"},
+          {"file": "_status.py", "scope": "_handle_get_status, _build_status_snapshot, _enrich_pending_decisions, _read_reviewer_feedback", "estimated_lines": "300-400"},
+          {"file": "_lifecycle.py", "scope": "_handle_provide_input, _handle_list_tasks, _handle_cancel_task, _handle_restart_agent, _handle_restart_phase, _handle_advance_phase, _handle_start_phase, _handle_complete_phase", "estimated_lines": "500-600"},
+          {"file": "_health.py", "scope": "_handle_check_health, _handle_list_containers, _handle_get_container_logs, _handle_send_message, _handle_get_consensus_status, _infer_consensus_from_messages", "estimated_lines": "400-500"},
+          {"file": "_query.py", "scope": "_handle_get_phase, _handle_get_pipeline_snapshot, _handle_list_checkpoints, _handle_search_checkpoints, _handle_get_contract", "estimated_lines": "300-400"},
+          {"file": "_deployment.py", "scope": "_handle_populate_contract, _handle_get_deployment_context, _handle_validate_deployment_manifests, _handle_prune_stale_worktrees, _handle_validate_network_isolation, _handle_get_service_logs, _handle_rebuild_and_rollout", "estimated_lines": "300-400"}
+        ],
+        "barrel_init_responsibilities": [
+          "Re-export PipelineToolHandler class itself (the test patches reach into instances, but module-level patches like 'mcp_tools._make_request' must continue to resolve)",
+          "Re-export _make_request, any module-level helpers that are patch targets"
+        ]
+      },
+      "orchestrator/gateway_client.py": {
+        "current_lines": 2357,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "GatewayClient class skeleton, GatewayError, get_gateway_client, validate_security_boundary; re-exports of all dataclasses and helpers", "estimated_lines": "200-300"},
+          {"file": "_models.py", "scope": "SessionInfo, WorktreeResult, GatewayHealth, PushResult", "estimated_lines": "100-150"},
+          {"file": "_push.py", "scope": "GatewayClient.push and helpers, _classify_push_stderr", "estimated_lines": "400-500"},
+          {"file": "_rebase.py", "scope": "_rebase_with_agent_output_autoresolve, _list_unmerged_paths, _build_rebase_cmd, _abort_rebase_best_effort and the rebase methods on GatewayClient", "estimated_lines": "500-700"},
+          {"file": "_session.py", "scope": "Session lifecycle methods on GatewayClient", "estimated_lines": "300-400"},
+          {"file": "_worktree.py", "scope": "Worktree-related methods on GatewayClient", "estimated_lines": "300-400"},
+          {"file": "_misc.py", "scope": "Health check, list_remote_branches, list_open_prs, etc. — anything left over", "estimated_lines": "200-400"}
+        ]
+      },
+      "shared/egg_contracts/checkpoint_cli.py": {
+        "current_lines": 2233,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "argparse builder + main + dispatch", "estimated_lines": "200-300"},
+          {"file": "_http.py", "scope": "_http_get, _get_gateway_url, _validate_checkpoint_repo, _resolve_git_repo, get_repo_path, run_git, _resolve_checkpoint_target, ensure_checkpoint_ref, read_git_file, load_index_from_ref, load_checkpoint_from_ref, _get_source_repo, _get_checkpoint_repo_from_args, _print_repo_hint, _add_checkpoint_resolution_params", "estimated_lines": "500-700"},
+          {"file": "_format.py", "scope": "format_timestamp, format_tokens, _format_trigger, _format_status, print_checkpoint_summary, print_checkpoint_details, _print_empty_result", "estimated_lines": "400-500"},
+          {"file": "_collect.py", "scope": "_decompose_composite_role, _http_filter_composite_role, _build_list_params, collect_checkpoints, load_checkpoint, search_checkpoints", "estimated_lines": "400-500"},
+          {"file": "_cmd.py", "scope": "_cmd_list_http, cmd_list, _cmd_show_http, cmd_show, _cmd_browse_http, cmd_browse", "estimated_lines": "500-700"}
+        ]
+      },
+      "sandbox/entrypoint.py": {
+        "current_lines": 2109,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "main, top-level argparse, signal handling, run_exec; re-exports of every setup_* function (test grep shows they're patched at module path)", "estimated_lines": "150-250"},
+          {"file": "_models.py", "scope": "StartupTimer, Config, Logger", "estimated_lines": "200-300"},
+          {"file": "_user.py", "scope": "setup_user, _resolve_gid_conflict, _resolve_uid_conflict, _find_free_uid, chown_recursive, setup_repo_permissions", "estimated_lines": "300-400"},
+          {"file": "_environment.py", "scope": "setup_environment, setup_git, setup_gateway_ca, setup_anthropic_api, setup_command_timeout, setup_bashrc, setup_egg_symlink", "estimated_lines": "400-500"},
+          {"file": "_worktrees.py", "scope": "setup_worktrees, restore_prebuilt_deps, _chdir_to_single_repo, _exclude_from_git", "estimated_lines": "300-400"},
+          {"file": "_rules.py", "scope": "setup_agent_rules, setup_claude", "estimated_lines": "300-400"},
+          {"file": "_runtime.py", "scope": "timed_phase, run_cmd, check_gateway_health, signal_orchestrator_completion, cleanup_on_exit, _tee_stderr_to_file, _run_with_stderr_capture, _read_subprocess_stderr_tail", "estimated_lines": "400-500"}
+        ]
+      },
+      "gateway/worktree_manager.py": {
+        "current_lines": 2117,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "WorktreeManager class skeleton (composed via mixins or method delegation), WorktreeInfo, WorktreeRemovalResult, get_active_docker_containers, startup_cleanup, validate_identifier, validate_branch_ref, _format_bytes", "estimated_lines": "300-400"},
+          {"file": "_create.py", "scope": "create_worktree, _run_git_worktree_add, _configure_push_upstream, _reset_reused_worktree_to_safe_ref, create_phase_worktree", "estimated_lines": "500-600"},
+          {"file": "_cleanup.py", "scope": "remove_worktree, cleanup_phase_worktrees, _delete_worktree_branch, cleanup_orphaned_worktrees, prune_stale_worktrees, git_worktree_prune_all, list_orphan_worktree_dirs, cleanup_orphaned_pack_files, cleanup_clean_worktree, cleanup_stale_pipeline_worktrees", "estimated_lines": "700-900"},
+          {"file": "_lookup.py", "scope": "lookup_worktree, list_worktrees, list_worktrees_for_pipeline, get_worktree_paths, _find_worktree_git_dir, resolve_default_branch", "estimated_lines": "400-500"},
+          {"file": "_chown.py", "scope": "_chown_single, _chown_recursive, _get_repo_lock", "estimated_lines": "100-200"}
+        ]
+      },
+      "gateway/git_client.py": {
+        "current_lines": 2032,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "git_cmd, ssh_url_to_https, is_ssh_url, is_url_remote, resolve_remote_url, get_authenticated_remote_target, is_repos_parent_directory, validate_repo_path, plus re-exports", "estimated_lines": "200-300"},
+          {"file": "_validate.py", "scope": "normalize_flag, validate_git_args, is_branch_switching_checkout, is_branch_switching_operation, is_branch_switch, extract_reset_target_ref", "estimated_lines": "500-700"},
+          {"file": "_credentials.py", "scope": "create_credential_helper, cleanup_credential_helper, get_token_for_repo", "estimated_lines": "200-300"},
+          {"file": "_attribution.py", "scope": "AttributedFile, AttributedPushRange, _enumerate_push_commits, _files_for_commit, get_changed_files_in_push, get_attributed_changed_files_in_push", "estimated_lines": "400-500"},
+          {"file": "_rebase.py", "scope": "build_rebase_onto_args + any rebase helpers", "estimated_lines": "200-300"}
+        ]
+      },
+      "orchestrator/overseer/monitor.py": {
+        "current_lines": 2050,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "OverseerMonitor class skeleton, _DefaultConfig, _accepts_kwarg + re-exports", "estimated_lines": "200-300"},
+          {"file": "_anomalies.py", "scope": "Anomaly detector helpers (each anomaly type's detection logic)", "estimated_lines": "700-900"},
+          {"file": "_thresholds.py", "scope": "Threshold logic, configurable knobs, defaults", "estimated_lines": "200-300"},
+          {"file": "_alerts.py", "scope": "Alert formatting and emission helpers", "estimated_lines": "300-400"},
+          {"file": "_loop.py", "scope": "OverseerMonitor.run_loop, scheduling, run-once entrypoint", "estimated_lines": "300-400"}
+        ]
+      },
+      "orchestrator/peer_consensus.py": {
+        "current_lines": 2013,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "PeerConsensusTracker class skeleton, get/create/remove tracker, reconstruct_tracker_from_messages + re-exports", "estimated_lines": "200-300"},
+          {"file": "_state.py", "scope": "Internal state primitives, _tracker_key", "estimated_lines": "200-300"},
+          {"file": "_propose_ack.py", "scope": "Propose/ACK handling on PeerConsensusTracker", "estimated_lines": "500-700"},
+          {"file": "_nack.py", "scope": "NACK aggregation logic (the #2142 stale-version barrier)", "estimated_lines": "400-500"},
+          {"file": "_history.py", "scope": "BRC history serialization", "estimated_lines": "300-400"}
+        ]
+      },
+      "orchestrator/routes/signals.py": {
+        "current_lines": 1986,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "signals_bp Blueprint, route registrations as thin wrappers, _is_sigterm_after_completion, make_error_response, make_success_response + re-exports", "estimated_lines": "200-300"},
+          {"file": "_basic.py", "scope": "handle_signal, handle_complete_signal, handle_progress_signal, handle_error_signal, handle_heartbeat_signal, handle_readiness_signal, _verify_commit_on_branch, _check_branch_progress, _validate_tester_check_coverage, _resolve_pipeline_phase", "estimated_lines": "700-900"},
+          {"file": "_consensus.py", "scope": "handle_consensus_propose_signal, handle_consensus_ack_signal, handle_consensus_nack_signal, handle_consensus_withdraw_signal, handle_consensus_confirmed_signal, handle_consensus_excuse_producer_signal, handle_consensus_producer_push_signal, _validate_brc_content, _emit_ready_to_confirm_nudges, _stale_version_rejection, _write_consensus_confirmed_marker, _existing_confirmed_for_role", "estimated_lines": "900-1100"}
+        ]
+      },
+      "scripts/select_tests.py": {
+        "current_lines": 1875,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "main, _build_arg_parser, _main_inner, _strip_pythonpath_from_sys_path", "estimated_lines": "200-300"},
+          {"file": "_git.py", "scope": "_log, _run_git, _is_valid_sha, _git_object_exists, _git_is_ancestor, _git_current_branch, _git_repo_root, is_role_readonly, _atomic_write_text, _resolve_root", "estimated_lines": "200-300"},
+          {"file": "_lkg.py", "scope": "_sidecar_path, read_sidecar_lkg, write_sidecar_lkg, RecordGoodValidationError, record_good, resolve_baseline, lkg_is_stale", "estimated_lines": "300-400"},
+          {"file": "_graph.py", "scope": "GraphBundle, build_graph, _enumerate_source_paths, _scan_dynamic_imports, _module_to_filesystem_path, _extract_imports, build_bare_name_index, build_bare_name_upstream_edges, _walk_upstream_combined, reverse_closure, is_dynamic_import_touched, path_to_module, changed_files", "estimated_lines": "600-700"},
+          {"file": "_select.py", "scope": "map_modules_to_test_files, pytest_args_have_explicit_path, _run_narrow_or_fallback, evaluate_fallback_triggers, _split_pytest_args_env", "estimated_lines": "400-500"},
+          {"file": "_record.py", "scope": "_now_iso, _short_sha, write_selection_record, patch_selection_record, _fnmatch, _format_chain, explain_why, emit_full_suite", "estimated_lines": "300-400"}
+        ],
+        "rationale": "select_tests.py is the slice-1 reference. Smallest of the 15. Pure helper module with no Flask routes, no test patch surface other than CLI subcommands, easy to unit-test the new submodules."
+      },
+      "gateway/checkpoint_handler.py": {
+        "current_lines": 1655,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "CheckpointError, CheckpointHandler class skeleton, get_checkpoint_handler, _get_repo_lock + re-exports", "estimated_lines": "200-300"},
+          {"file": "_resolve.py", "scope": "_validate_checkpoint_repo, _resolve_checkpoint_target, _extract_repo_from_remote, _resolve_agent_type, _resolve_github_token, _get_checkpoint_repo_for_path", "estimated_lines": "300-400"},
+          {"file": "_capture.py", "scope": "capture_and_store_checkpoint, capture_and_store_checkpoints_for_push, capture_session_end_checkpoint", "estimated_lines": "400-500"},
+          {"file": "_messages.py", "scope": "_fetch_inter_agent_messages", "estimated_lines": "100-200"}
+        ]
+      },
+      "orchestrator/routes/deployment.py": {
+        "current_lines": 1604,
+        "submodule_proposal": [
+          {"file": "__init__.py barrel", "scope": "deployment_bp Blueprint, route registrations as thin wrappers (get_deployment_context, get_service_logs, validate_deployment_manifests, prune_worktrees_proxy, validate_network_isolation, rebuild_and_rollout, rebuild_stream_read) + re-exports", "estimated_lines": "200-300"},
+          {"file": "_runtime_probe.py", "scope": "_resolve_runtime, _current_runtime, _not_available_on_runtime, _runtime_detection_failed, _probe_kubernetes_reachable, _detect_k3s, _detect_cni, _collect_egg_image_tags, _build_deployment_context_payload", "estimated_lines": "300-400"},
+          {"file": "_manifests.py", "scope": "_run_kustomize, _warn, _deployment_containers, _deployment_volumes, _validate_deployment_docs", "estimated_lines": "300-400"},
+          {"file": "_network_probe.py", "scope": "_build_probe_env, _build_probe_job_manifest, _submit_probe_job, _wait_for_probe_pod, _read_probe_log, _delete_probe_job, _parse_probe_output", "estimated_lines": "200-300"},
+          {"file": "_redeploy.py", "scope": "_stream_append, _stream_mark_done, _reap_stale_streams_locked, _stream_is_done, _stream_snapshot, _run_redeploy_subprocess + service-logs helpers", "estimated_lines": "300-400"}
+        ]
+      }
+    }
+  },
+
+  "implementation_plan_outline": {
+    "intent": "High-level outline. The detailed task list and acceptance criteria are the task_planner's deliverable; risk mitigations are the risk_analyst's. This section is the architect's view of WHAT each slice does, not HOW.",
+    "slices": [
+      {"id": "slice-1", "title": "Establish decomposition pattern + decompose scripts/select_tests.py as worked reference", "files": ["docs/guides/decomposition-pattern.md (NEW)", "orchestrator/CLAUDE.md (MODIFY: add seam table template)", "gateway/CLAUDE.md (MODIFY: add seam table template)", "scripts/select_tests.py → scripts/select_tests/__init__.py + 5 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry for scripts/select_tests.py)"], "parent": null, "rationale": "Decision-4: docs + reference file. select_tests.py is the smallest at 1,875 lines and has no Flask/test-patch coupling, making it the safest place to validate the pattern.", "size_target": "Each new submodule <1,000 lines; barrel <300 lines"},
+      {"id": "slice-2", "title": "Decompose gateway/checkpoint_handler.py", "files": ["gateway/checkpoint_handler.py → gateway/checkpoint_handler/__init__.py + 3 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "Smallest of the gateway files at 1,655 lines.", "size_target": "All submodules <600 lines"},
+      {"id": "slice-3", "title": "Decompose orchestrator/routes/deployment.py", "files": ["orchestrator/routes/deployment.py → orchestrator/routes/deployment/__init__.py + 4 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "Smallest routes/* file at 1,604 lines; uses Blueprint dialect already.", "size_target": "All submodules <500 lines"},
+      {"id": "slice-4", "title": "Decompose orchestrator/routes/signals.py", "files": ["orchestrator/routes/signals.py → orchestrator/routes/signals/__init__.py + 2 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "Routes/* file at 1,986 lines; same Blueprint pattern as deployment.", "size_target": "All submodules <1,200 lines (consensus handlers cluster is big; may need further split)"},
+      {"id": "slice-5", "title": "Decompose orchestrator/peer_consensus.py", "files": ["orchestrator/peer_consensus.py → orchestrator/peer_consensus/__init__.py + 4 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "Pure-class module at 2,013 lines. PeerConsensusTracker is one large class; split via method cohorts.", "size_target": "All submodules <800 lines"},
+      {"id": "slice-6", "title": "Decompose orchestrator/overseer/monitor.py", "files": ["orchestrator/overseer/monitor.py → orchestrator/overseer/monitor/__init__.py + 4 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "Anomaly detector at 2,050 lines; split by anomaly category.", "size_target": "All submodules <900 lines"},
+      {"id": "slice-7", "title": "Decompose gateway/git_client.py", "files": ["gateway/git_client.py → gateway/git_client/__init__.py + 4 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "2,032-line module with validators + credential helpers + attribution.", "size_target": "All submodules <700 lines"},
+      {"id": "slice-8", "title": "Decompose sandbox/entrypoint.py", "files": ["sandbox/entrypoint.py → sandbox/entrypoint/__init__.py + 6 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "2,109-line setup orchestrator; submodules along setup-phase boundaries.", "size_target": "All submodules <500 lines"},
+      {"id": "slice-9", "title": "Decompose gateway/worktree_manager.py", "files": ["gateway/worktree_manager.py → gateway/worktree_manager/__init__.py + 4 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "2,117-line manager with create/cleanup/lookup cohorts.", "size_target": "All submodules <900 lines (cleanup cluster is big)"},
+      {"id": "slice-10", "title": "Decompose shared/egg_contracts/checkpoint_cli.py", "files": ["shared/egg_contracts/checkpoint_cli.py → shared/egg_contracts/checkpoint_cli/__init__.py + 4 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "2,233-line CLI; HTTP/format/collect/cmd cohorts.", "size_target": "All submodules <700 lines"},
+      {"id": "slice-11", "title": "Decompose orchestrator/gateway_client.py", "files": ["orchestrator/gateway_client.py → orchestrator/gateway_client/__init__.py + 6 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "2,357-line client; split by GatewayClient method cohorts. May need composition pattern (mixins or method modules).", "size_target": "All submodules <700 lines"},
+      {"id": "slice-12", "title": "Decompose orchestrator/mcp_tools.py", "files": ["orchestrator/mcp_tools.py → orchestrator/mcp_tools/__init__.py + 7 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "2,820-line PipelineToolHandler. Same composition challenge as gateway_client. Test patches `mcp_tools._make_request` so barrel must re-export it.", "size_target": "All submodules <800 lines"},
+      {"id": "slice-13", "title": "Decompose sandbox/egg_lib/orch_cli.py", "files": ["sandbox/egg_lib/orch_cli.py → sandbox/egg_lib/orch_cli/__init__.py + 11 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "3,537-line CLI. The largest non-monster file. Submodules along subcommand cohorts.", "size_target": "All submodules <900 lines (overseer cluster is big)"},
+      {"id": "slice-14", "title": "Decompose gateway/gateway.py", "files": ["gateway/gateway.py → gateway/gateway/__init__.py + ~13 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "9,890 lines. Routes are decorated with @app.route directly on the Flask singleton — wrappers stay in __init__.py per decision-8 (and Q5). Several proposed clusters land at or over the cap; task_planner must call those out.", "size_target": "All submodules <1,500 lines; cap-at-risk clusters: jira routes, anthropic proxy, git execute"},
+      {"id": "slice-15", "title": "Decompose orchestrator/routes/pipelines.py + per-phase _run_pipeline refactor", "files": ["orchestrator/routes/pipelines.py → orchestrator/routes/pipelines/__init__.py + ~18 submodules", "scripts/file-size-allowlist.yaml (REMOVE entry)"], "parent": "slice-1", "rationale": "16,401 lines + 2,362-line _run_pipeline. Decision-9: single slice with multiple commits/sub-tasks (NOT a chain of sub-slices). The slice's task list will include the per-phase handler extraction (decision-2 B2). Several proposed clusters land at or over the cap; task_planner must enumerate them as explicit further-split tasks.", "size_target": "All submodules <1,500 lines; multiple clusters at risk: _phase_handlers, _concurrent_phase, _prompt_building, _pr_lifecycle, _worktree_ops"}
+    ],
+    "wave_shape_estimate": "With EGG_ORCH_MAX_PARALLEL_SLICES=5 and slice-1 as gating parent: Wave 1 = slice-1 (alone). Wave 2 = slices 2-6 (5 in parallel). Wave 3 = slices 7-11 (5 in parallel). Wave 4 = slices 12-15 (4 in parallel; slice-15 takes longest). Total: 4 waves.",
+    "key_files_touched": [
+      "docs/guides/decomposition-pattern.md (NEW, slice-1)",
+      "orchestrator/CLAUDE.md (MODIFY, slice-1; further updates per slice)",
+      "gateway/CLAUDE.md (MODIFY, slice-1; further updates in gateway-touching slices)",
+      "scripts/file-size-allowlist.yaml (MODIFY in every slice — entry removal)",
+      "Each of the 15 oversize files becomes a sub-package directory."
+    ]
+  },
+
+  "open_questions": [
+    {
+      "id": "AQ1",
+      "question": "Should mcp_tools.py and gateway_client.py — which are dominated by ONE big class — use composition (delegate to handler classes per submodule) or method modules (define methods at module level, attach to class via assignment)?",
+      "context": "mcp_tools.py has PipelineToolHandler with ~25 _handle_* methods spanning lines 1029-2820. gateway_client.py has GatewayClient with similar shape. The barrel option is (a) keep one class, define methods in submodules and assign at class load time, or (b) split into multiple handler classes that PipelineToolHandler composes. Option (a) preserves the existing public class shape and keeps test patches like `mcp_tools.PipelineToolHandler` resolving; option (b) is more idiomatic but changes the class hierarchy.",
+      "recommendation": "Option (a) — method modules attached to the existing class. Preserves tests; minimum behavior risk; the test surface here is tighter than in pipelines.py so we can be more aggressive. Document the pattern in docs/guides/decomposition-pattern.md.",
+      "owner": "task_planner / implementer"
+    },
+    {
+      "id": "AQ2",
+      "question": "Should the per-phase handlers extracted from _run_pipeline (slice-15, decision-2 B2) live as private functions in `_phase_handlers.py`, or as four separate submodules (`_phase_refine.py`, `_phase_plan.py`, `_phase_implement.py`, `_phase_pr.py`)?",
+      "context": "Each per-phase handler is estimated at 200-500 lines. A single `_phase_handlers.py` would land at 1,000-1,400 lines (under cap). Four separate submodules would each be 200-500 lines (well under cap) but adds 3 more files to the diff.",
+      "recommendation": "Start with four separate submodules. Each phase handler has independent state, error handling, and logging seams; cross-phase coupling is via the shared _PipelineRunContext. Keeps each new file small and easy to review independently. Submodules: orchestrator/routes/pipelines/_phase_refine.py, _phase_plan.py, _phase_implement.py, _phase_pr.py.",
+      "owner": "task_planner / implementer"
+    },
+    {
+      "id": "AQ3",
+      "question": "When a proposed submodule lands AT or OVER the 1,500-line cap, should slice-15 (pipelines.py) further split it as a sub-task in the same slice, or should slice-15 declare a sub-slice (slice-15a, slice-15b)?",
+      "context": "decision-9 selected 'single slice with multiple commits/sub-tasks' over a chain of sub-slices. So further splitting stays inside slice-15's branch as additional commits. The risk_analyst should weigh the size of slice-15's PR against revertibility.",
+      "recommendation": "Further splits stay as sub-tasks within slice-15 (per decision-9). If slice-15's PR becomes too large to review (~5,000+ lines diff), the implementer can stack PRs along slice-15's branch (slice-15a → slice-15b → slice-15c → main of stack), all targeting the slice-15 integration branch which itself targets main. This keeps the slice-DAG forest rule intact (one parent: slice-1) while letting reviewers see internally-stacked PRs.",
+      "owner": "task_planner / implementer"
+    },
+    {
+      "id": "AQ4",
+      "question": "Should the barrel __init__.py also re-export Pipeline-private constants like PHASE_TRANSITIONS, _PIPELINE_RUNTIME_STATE module globals, etc.?",
+      "context": "Tests reach module-level attributes like `routes.pipelines._inflight_host_waits` — these are dicts/sets, not functions. A re-export of `from ._mod import _inflight_host_waits` will re-bind the name to the same object, but if the submodule rebinds it (e.g. `_inflight_host_waits = {}`), the barrel's reference becomes stale. This is a test-fragility risk.",
+      "recommendation": "For mutable module-level state used by tests (counter dicts, in-flight tracking, etc.), keep the canonical instance defined in the submodule and have the barrel re-export it. NEVER reassign the name in either place after module load. Document this rule in docs/guides/decomposition-pattern.md. risk_analyst should verify that no submodule rebinds a re-exported name.",
+      "owner": "risk_analyst / implementer"
+    },
+    {
+      "id": "AQ5",
+      "question": "Where should slice-1 commit the slice-DAG plan itself? The plan-phase contract emits slices into the contract YAML, not into a markdown file. Does the contract need any special ordering metadata for the 15 sibling children to fan out smallest-first?",
+      "context": "Per Q3 feedback, slices fan out smallest-first. The slice-DAG document describes 'Wave' as 'a set of slices whose dependencies are all satisfied'. With one parent and 15 siblings, the scheduler will naturally pull all 15 into wave 2 with concurrency 5. Smallest-first is achieved by listing them in size order in the contract; the scheduler picks them up in declaration order.",
+      "recommendation": "task_planner emits slices in the contract in size-ascending order (smallest first). No new metadata needed — the existing FIFO scheduling under EGG_ORCH_MAX_PARALLEL_SLICES is sufficient.",
+      "owner": "task_planner"
+    }
+  ],
+
+  "risk_assessment_seeds": [
+    {
+      "risk": "Test patch path drift — a moved symbol's re-export shim is forgotten, causing AttributeError in unittest.mock.patch resolution.",
+      "severity": "HIGH",
+      "mitigation_seed": "Each slice's task list MUST include a `git grep <symbol>` audit before merging to ensure every patch target still resolves through the barrel. Add a CI check that errors on missing barrel re-exports if feasible (e.g. compare barrel __all__ to submodule symbols)."
+    },
+    {
+      "risk": "_run_pipeline per-phase refactor introduces a subtle ordering bug (race condition, missed respawn, mis-ordered teardown).",
+      "severity": "HIGH",
+      "mitigation_seed": "Slice-15 lands LAST after pattern is proven on 14 simpler files. The PR runs `make test-all` and the integration test suite. Pre-extract per-phase handlers as private callables that retain identical control flow in step 1, then introduce the dispatch table in step 2 — never combine the structural and logical refactor."
+    },
+    {
+      "risk": "A submodule lands over the cap, requiring a fresh allowlist entry on the same PR meant to remove one.",
+      "severity": "MEDIUM",
+      "mitigation_seed": "task_planner pre-flags clusters AT or OVER the cap (called out in submodule_seam_proposals). Implementer further splits before opening the PR. allowlist YAML changes are inspected in PR review."
+    },
+    {
+      "risk": "Production importer path silently breaks because a function moved without re-export AND grep missed an indirect importer (e.g. dynamic getattr).",
+      "severity": "MEDIUM",
+      "mitigation_seed": "Every slice's task list includes `git grep -F '<symbol>'` for the symbol's bare name across the entire repo, not just the test directories. risk_analyst should call out `getattr(module, '<sym>')` patterns specifically."
+    },
+    {
+      "risk": "Circular import surfaces — today routes/phases.py uses lazy in-function imports to break a cycle with routes/pipelines.py. After decomposition, the cycle topology changes.",
+      "severity": "MEDIUM",
+      "mitigation_seed": "Keep the lazy in-function imports verbatim — `from routes.pipelines import _foo` continues to resolve through the barrel. Don't migrate phases.py to direct submodule imports (decision-7)."
+    },
+    {
+      "risk": "Slice-1 picks the wrong cluster boundaries or the wrong barrel re-export style, forcing rework on 14 downstream slices.",
+      "severity": "MEDIUM",
+      "mitigation_seed": "Slice-1 includes BOTH the docs and the worked reference (decision-4). The reviewer of slice-1's PR will catch pattern divergence before downstream slices fork from main. Downstream slices reference docs/guides/decomposition-pattern.md."
+    },
+    {
+      "risk": "Concurrent slices touch a shared file (scripts/file-size-allowlist.yaml) and conflict on every merge.",
+      "severity": "LOW",
+      "mitigation_seed": "Each entry removal is an isolated YAML line. Conflicts are mechanical and resolvable by the rebase that already runs at PR-open time. Per #2224 the gateway rebases pipeline branches before opening PRs, so the conflict surface is small."
+    },
+    {
+      "risk": "Reviewers oversubscribed by 4 waves of stacked-PR reviews.",
+      "severity": "LOW",
+      "mitigation_seed": "decision-10 capped concurrency at EGG_ORCH_MAX_PARALLEL_SLICES=5 specifically to address this. If reviewers actually saturate, the operator can dial it down via env without re-planning."
+    },
+    {
+      "risk": "Fast-moving main introduces churn on the 15 source files between plan and slice landing, invalidating cluster boundaries.",
+      "severity": "LOW",
+      "mitigation_seed": "The submodule_seam_proposals are seam-cluster proposals, not byte-exact line counts. Each slice's task list re-validates cluster boundaries against the file at slice-start time. The dual-import dual-shim convention also tolerates symbol additions in main."
+    }
+  ],
+
+  "downstream_handoffs": {
+    "to_task_planner": [
+      "Use submodule_seam_proposals as the per-slice task list seed.",
+      "For each slice, generate tasks that: (1) create the new sub-package directory; (2) extract specific functions per cluster; (3) add explicit re-exports to __init__.py; (4) add allowlist entry removal in the same commit; (5) audit `git grep <symbol>` for missed importers; (6) update orchestrator/CLAUDE.md or gateway/CLAUDE.md seam table.",
+      "For slice-1, add tasks for (a) writing docs/guides/decomposition-pattern.md, (b) updating both CLAUDE.md files with seam-table templates, (c) decomposing scripts/select_tests.py per the proposed seams.",
+      "For slice-15, add tasks for the per-phase handler extraction (decision-2 B2): identify _PipelineRunContext shape, extract _phase_refine/_phase_plan/_phase_implement/_phase_pr, replace _run_pipeline body with dispatch table.",
+      "Sequence slices smallest-first per Q3 feedback: slice-1, slice-2 (1,655 lines), slice-3 (1,604), slice-4 (1,986), slice-5 (2,013), slice-6 (2,050), slice-7 (2,032), slice-8 (2,109), slice-9 (2,117), slice-10 (2,233), slice-11 (2,357), slice-12 (2,820), slice-13 (3,537), slice-14 (9,890), slice-15 (16,401)."
+    ],
+    "to_risk_analyst": [
+      "Validate each cluster boundary in submodule_seam_proposals doesn't break a hot-path import.",
+      "Specifically scrutinize slice-15's _run_pipeline B2 refactor — list every state-machine invariant the per-phase handlers must preserve.",
+      "Enumerate the dynamic-import surface (`getattr`, `__import__`, `importlib`) to identify any indirect references that grep won't catch.",
+      "Validate that the AQ4 'no rebinding re-exported names' rule is enforceable (e.g. by lint or by review)."
+    ]
+  },
+
+  "complexity_assessment": "high — 15-file program, 16 PRs, 2 monster files (pipelines.py, gateway.py), one in-band 2,362-line state-machine refactor. The forest shape and HITL decisions de-risk by ordering smallest-first and proving the pattern in slice-1 before committing to the climactic slices."
+}
