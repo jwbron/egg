@@ -79,6 +79,17 @@ calls together into a "block forever server-side" behaviour so the agent
 can issue one command and **do nothing else** until the orchestrator
 SIGTERMs it or a terminal event arrives.
 
+### `--cursor-file` is recommended for re-entered waits
+
+Reviewer `POLL` (waiting for proposals from each producer in turn) and
+post-ACK `STAY ALIVE` (waiting for the next BRC event after handling
+one) both re-enter `wait-loop` multiple times in a row. Pass
+`--cursor-file PATH` so the response cursor is persisted across
+invocations — without it, each new call starts at the stream tip and
+silently misses any event that landed in the gap between calls
+(issue #2323). See the "`--cursor-file`" subsection below for the
+contract.
+
 A transient inner-call error (exit 2 — HTTP 5xx, ECONNRESET, etc.) makes
 the wrapper back off (≤ 2 s in test mode, exponential in production) and
 retry. A permanent error (exit 3 — 4xx, bad pipeline id, argparse misuse)
@@ -371,10 +382,23 @@ The `cursor` is opaque from the caller's perspective:
 iterations, so a cursor-less call that rides through several timeouts
 before matching does not reopen the race. However, `wait-loop` does
 **not** expose `--json` (its human-readable stdout has no cursor field),
-so an outer shell loop that wants strict cursor threading across
-successive invocations should use `wait --json` instead — the outer
-`while` loop covers the same multi-ACK consumption shape that
-`wait-loop` plays in the single-call case.
+so cursor threading across successive `wait-loop` invocations needs a
+side-channel. Use `--cursor-file` (issue #2323) — it reads/writes the
+cursor to a file on disk, transparently to the caller:
+
+```bash
+# Multi-producer reviewer POLL — re-enter the same command after each
+# ACK/NACK; --cursor-file means a proposal that lands in the gap
+# between calls is still delivered on the next call.
+egg-orch message wait-loop \
+  --for CONSENSUS_PROPOSE \
+  --cursor-file /tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-poll
+```
+
+For shell pipelines that need to inspect the messages themselves,
+`wait --json` with `--since`-threaded `.data.cursor` remains the
+lower-level alternative — it gives you the cursor in-band and lets
+you branch on `$rc` per §3.
 
 **Recommended pattern (BRC producer loop):**
 
@@ -408,6 +432,54 @@ done
 Callers that omit `--since` keep their pre-#1995 behaviour — still
 correct for the common "wait once, exit" shape, still vulnerable to
 the wait→wait race for multi-ACK loops.
+
+### `--cursor-file` (issue #2323)
+
+`--cursor-file PATH` is a file-system back-channel for cursor
+threading on `wait` and `wait-loop`. The CLI:
+
+1. Reads the file at entry. If non-empty, its contents become the
+   default for `--since`. An explicit `--since` on the command line
+   still wins.
+2. Writes the response cursor back to the file on every successful
+   round-trip — including timeouts, where the cursor advances to the
+   current stream tip so the next call resumes strictly after what
+   this one would have seen.
+3. Leaves the file untouched on transient (rc=2) or permanent (rc=3)
+   errors — the wait did not advance, so the cursor must not move.
+
+This collapses the "send→wait" and "wait→process→wait" race classes
+into a single mechanism. The reviewer POLL step uses it to handle
+multi-producer phases without missing proposals that land between
+ACKs:
+
+```bash
+# Reviewer POLL — re-enter after each ACK/NACK; the cursor file
+# means proposals that landed in the gap are still delivered.
+egg-orch message wait-loop \
+  --for CONSENSUS_PROPOSE \
+  --cursor-file /tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-poll
+```
+
+**File path conventions.** Use distinct files for distinct wait
+purposes — typically one per `(role, lifecycle-step)` pair so a POLL
+cursor doesn't bleed into a STAY ALIVE cursor. The standard pattern
+in the BRC reviewer/producer prompts is
+`/tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-{poll,stay-alive}`. `/tmp`
+is per-container and per-agent-instance, which is exactly the
+scoping the cursor needs.
+
+**Concurrency caveat.** Two processes writing the same cursor file
+race (last writer wins). For the LLM-agent use case this is not an
+issue — agents run waits sequentially per role. Sharing one cursor
+file across multiple parallel writers is unsupported.
+
+**Cross-type drift caveat.** A `wait-loop --for X` whose response
+cursor advances past an event of type `Y` (because the inner read
+saw `Y` but the type filter dropped it) means a follow-up call
+restarting from that cursor will not see the dropped `Y`. Mitigate
+by including all relevant types in the `--for` list, or by using
+distinct cursor files per `--for` set.
 
 ## 4. `HEARTBEAT` Message Type
 

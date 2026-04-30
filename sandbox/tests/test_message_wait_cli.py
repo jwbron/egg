@@ -146,16 +146,19 @@ def _make_wait_args(
     for_: list[str] | None = None,
     timeout: int = 5,
     json_: bool = False,
+    cursor_file: str | None = None,
+    since: str | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         pipeline_id=pipeline_id,
         for_=for_ or ["CONSENSUS_CONFIRMED"],
         role=None,
         from_=None,
-        since=None,
+        since=since,
         limit=None,
         timeout=timeout,
         json=json_,
+        cursor_file=cursor_file,
     )
 
 
@@ -262,17 +265,20 @@ class TestWaitLoop:
         self,
         max_iter: int = 3,
         timeout: int = 1,
+        cursor_file: str | None = None,
+        since: str | None = None,
     ) -> argparse.Namespace:
         return argparse.Namespace(
             pipeline_id="issue-42",
             for_=["CONSENSUS_CONFIRMED"],
             role=None,
             from_=None,
-            since=None,
+            since=since,
             limit=None,
             timeout=timeout,
             max_iterations=max_iter,
             json=False,
+            cursor_file=cursor_file,
         )
 
     def test_exits_zero_on_match(self):
@@ -471,3 +477,351 @@ class TestHeartbeat:
             )
             rc = cmd_message_heartbeat(_make_hb_args(state="WORKING"))
         assert rc == 3
+
+
+# ---------------------------------------------------------------------------
+# --cursor-file (issue #2323): close the wait→process→wait race that
+# stalls multi-producer reviewer phases. The cursor file is a file-system
+# back-channel for threading the response cursor across successive CLI
+# invocations, since wait-loop's stdout doesn't expose it.
+# ---------------------------------------------------------------------------
+
+
+class TestCursorFileWait:
+    """``message wait --cursor-file`` reads/writes the response cursor."""
+
+    def test_missing_file_means_no_since(self, tmp_path):
+        """A nonexistent cursor file is treated as 'no cursor known';
+        the request omits since_id and the server applies its default
+        from-tip semantics on the first call."""
+        cursor_path = tmp_path / "missing.cursor"
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {
+                    "messages": [],
+                    "matched": False,
+                    "count": 0,
+                    "cursor": "01-aaa",
+                },
+            }
+            rc = cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path)))
+        assert rc == 1
+        endpoint = mock_req.call_args.args[0]
+        assert "since_id" not in endpoint, (
+            "Missing cursor file must not surface as --since; otherwise "
+            "the first call's from_tip semantics are lost"
+        )
+
+    def test_empty_file_means_no_since(self, tmp_path):
+        """Empty / whitespace-only cursor files behave like missing."""
+        cursor_path = tmp_path / "empty.cursor"
+        cursor_path.write_text("   \n")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": None},
+            }
+            cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path)))
+        endpoint = mock_req.call_args.args[0]
+        assert "since_id" not in endpoint
+
+    def test_populated_file_threads_into_since(self, tmp_path):
+        """A cursor file with a stored ID is forwarded as since_id."""
+        cursor_path = tmp_path / "populated.cursor"
+        cursor_path.write_text("01-stored")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-newer"},
+            }
+            cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path)))
+        endpoint = mock_req.call_args.args[0]
+        assert "since_id=01-stored" in endpoint
+
+    def test_explicit_since_overrides_cursor_file(self, tmp_path):
+        """An explicit --since wins over the cursor file: callers being
+        deliberate about resume position should not be silently
+        overridden by a stale file."""
+        cursor_path = tmp_path / "stale.cursor"
+        cursor_path.write_text("01-stale")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-tip"},
+            }
+            cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path), since="01-explicit"))
+        endpoint = mock_req.call_args.args[0]
+        assert "since_id=01-explicit" in endpoint
+        assert "since_id=01-stale" not in endpoint
+
+    def test_writes_cursor_on_match(self, tmp_path):
+        """A successful match persists the response cursor (the ID of
+        the last delivered message)."""
+        cursor_path = tmp_path / "match.cursor"
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {
+                    "messages": [
+                        {
+                            "id": "01-msg-id",
+                            "timestamp": "2026-04-30T05:00:00",
+                            "from_role": "task_planner",
+                            "to_role": "reviewer_plan",
+                            "message_type": "CONSENSUS_PROPOSE",
+                            "subject": "plan v1",
+                            "body": "",
+                        }
+                    ],
+                    "matched": True,
+                    "count": 1,
+                    "cursor": "01-msg-id",
+                },
+            }
+            rc = cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path)))
+        assert rc == 0
+        assert cursor_path.read_text() == "01-msg-id"
+
+    def test_writes_cursor_on_timeout(self, tmp_path):
+        """On timeout the server returns the current stream tip; the
+        next call resumes strictly after what this one would have
+        seen, closing the wait→wait race that motivated #2323."""
+        cursor_path = tmp_path / "timeout.cursor"
+        cursor_path.write_text("01-old")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {
+                    "messages": [],
+                    "matched": False,
+                    "count": 0,
+                    "cursor": "01-tip-at-timeout",
+                },
+            }
+            rc = cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path)))
+        assert rc == 1
+        assert cursor_path.read_text() == "01-tip-at-timeout"
+
+    def test_does_not_write_on_permanent_error(self, tmp_path):
+        """A 4xx leaves the cursor file untouched: no successful round-
+        trip means no new cursor to persist, and we must not clobber
+        the prior cursor with garbage."""
+        cursor_path = tmp_path / "preserved.cursor"
+        cursor_path.write_text("01-keep-me")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError("bad request", status_code=400)
+            rc = cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path)))
+        assert rc == 3
+        assert cursor_path.read_text() == "01-keep-me"
+
+    def test_does_not_write_on_transient_error(self, tmp_path):
+        """5xx also leaves the cursor file untouched."""
+        cursor_path = tmp_path / "preserved.cursor"
+        cursor_path.write_text("01-keep-me")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError("server error", status_code=500)
+            rc = cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path)))
+        assert rc == 2
+        assert cursor_path.read_text() == "01-keep-me"
+
+    def test_creates_parent_directories(self, tmp_path):
+        """A cursor file under a not-yet-created subdir must be
+        creatable; agents shouldn't have to ``mkdir -p`` themselves."""
+        cursor_path = tmp_path / "nested" / "dir" / "wait.cursor"
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-x"},
+            }
+            cmd_message_wait(_make_wait_args(cursor_file=str(cursor_path)))
+        assert cursor_path.read_text() == "01-x"
+
+    def test_no_cursor_file_argument_is_a_noop(self, tmp_path):
+        """Existing callers (no --cursor-file) must see zero behavior
+        change. This regression-guards the legacy contract."""
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-x"},
+            }
+            rc = cmd_message_wait(_make_wait_args(cursor_file=None))
+        assert rc == 1
+        # No file should be created anywhere under tmp_path either.
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestCursorFileWaitLoop:
+    """``message wait-loop --cursor-file`` mirrors the wait semantics."""
+
+    def _make_loop_args(
+        self,
+        max_iter: int = 3,
+        cursor_file: str | None = None,
+        since: str | None = None,
+    ) -> argparse.Namespace:
+        return argparse.Namespace(
+            pipeline_id="issue-42",
+            for_=["CONSENSUS_PROPOSE"],
+            role=None,
+            from_=None,
+            since=since,
+            limit=None,
+            timeout=1,
+            max_iterations=max_iter,
+            json=False,
+            cursor_file=cursor_file,
+        )
+
+    def test_threads_stored_cursor_to_handler(self, tmp_path):
+        """A populated cursor file becomes the handler's ``since`` arg
+        on the first inner wait, so events that landed in the gap
+        between this and the previous wait-loop are still delivered."""
+        cursor_path = tmp_path / "loop.cursor"
+        cursor_path.write_text("01-prior-tip")
+        captured: dict = {}
+
+        def _capture_handler(req):
+            captured.update(req)
+            return {"ok": True, "matched": True, "messages": [], "cursor": "01-new"}
+
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            side_effect=_capture_handler,
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args(cursor_file=str(cursor_path)))
+        assert rc == 0
+        assert captured.get("since") == "01-prior-tip"
+
+    def test_writes_cursor_on_match(self, tmp_path):
+        """Match → write the response cursor (handler-supplied)."""
+        cursor_path = tmp_path / "match.cursor"
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            return_value={
+                "ok": True,
+                "matched": True,
+                "messages": [
+                    {
+                        "timestamp": "2026-04-30T05:00:00",
+                        "from_role": "architect",
+                        "to_role": "reviewer_plan",
+                        "message_type": "CONSENSUS_PROPOSE",
+                        "subject": "arch v1",
+                        "body": "",
+                    }
+                ],
+                "cursor": "01-architect-id",
+                "iterations": 1,
+            },
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args(cursor_file=str(cursor_path)))
+        assert rc == 0
+        assert cursor_path.read_text() == "01-architect-id"
+
+    def test_writes_cursor_on_safety_cap(self, tmp_path):
+        """Safety cap → write whatever cursor the handler advanced to,
+        so the next invocation skips events the loop already
+        filtered past rather than rescanning from the original tip."""
+        cursor_path = tmp_path / "cap.cursor"
+        cursor_path.write_text("01-old")
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            return_value={
+                "ok": True,
+                "matched": False,
+                "messages": [],
+                "cursor": "01-advanced",
+                "iterations": 3,
+            },
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args(cursor_file=str(cursor_path)))
+        assert rc == 1
+        assert cursor_path.read_text() == "01-advanced"
+
+    def test_does_not_write_on_permanent_error(self, tmp_path):
+        """Handler-raised GatewayError leaves the cursor file alone."""
+        cursor_path = tmp_path / "preserved.cursor"
+        cursor_path.write_text("01-keep-me")
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            side_effect=GatewayError("forbidden", status_code=403),
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args(cursor_file=str(cursor_path)))
+        assert rc == 1
+        assert cursor_path.read_text() == "01-keep-me"
+
+    def test_does_not_write_on_handler_error(self, tmp_path):
+        """HandlerError (bad args) also leaves the cursor file alone."""
+        cursor_path = tmp_path / "preserved.cursor"
+        cursor_path.write_text("01-keep-me")
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            side_effect=HandlerError("missing for_types"),
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args(cursor_file=str(cursor_path)))
+        assert rc == 1
+        assert cursor_path.read_text() == "01-keep-me"
+
+    def test_explicit_since_overrides_cursor_file(self, tmp_path):
+        """Same precedence as ``message wait``: explicit --since wins."""
+        cursor_path = tmp_path / "stale.cursor"
+        cursor_path.write_text("01-stale")
+        captured: dict = {}
+
+        def _capture_handler(req):
+            captured.update(req)
+            return {"ok": True, "matched": True, "messages": [], "cursor": "01-tip"}
+
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            side_effect=_capture_handler,
+        ):
+            cmd_message_wait_loop(
+                self._make_loop_args(cursor_file=str(cursor_path), since="01-explicit")
+            )
+        assert captured.get("since") == "01-explicit"
+
+
+class TestCursorFileParser:
+    """Argparse surface for --cursor-file on both subcommands."""
+
+    def test_wait_accepts_cursor_file(self):
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "message",
+                "wait",
+                "issue-42",
+                "--for",
+                "CONSENSUS_PROPOSE",
+                "--cursor-file",
+                "/tmp/test.cursor",
+            ]
+        )
+        assert args.cursor_file == "/tmp/test.cursor"
+
+    def test_wait_loop_accepts_cursor_file(self):
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "message",
+                "wait-loop",
+                "issue-42",
+                "--for",
+                "CONSENSUS_PROPOSE",
+                "--cursor-file",
+                "/tmp/test.cursor",
+            ]
+        )
+        assert args.cursor_file == "/tmp/test.cursor"
+
+    def test_wait_cursor_file_defaults_to_none(self):
+        parser = create_parser()
+        args = parser.parse_args(["message", "wait", "issue-42", "--for", "CONSENSUS_PROPOSE"])
+        assert args.cursor_file is None
+
+    def test_wait_loop_cursor_file_defaults_to_none(self):
+        parser = create_parser()
+        args = parser.parse_args(["message", "wait-loop", "issue-42", "--for", "CONSENSUS_PROPOSE"])
+        assert args.cursor_file is None

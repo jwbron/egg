@@ -1276,6 +1276,60 @@ def _classify_gateway_error_rc(status: int | None) -> int:
     return 2
 
 
+def _read_cursor_file(path: str | None) -> str | None:
+    """Read a wait cursor from *path*.
+
+    Used by ``--cursor-file`` on ``message wait`` / ``wait-loop`` to
+    thread the response cursor across successive CLI invocations
+    (issue #2323). Returns ``None`` if the path is unset, the file is
+    missing, or the file is empty — all three behave identically to
+    "no ``--since`` supplied", so the server's default from-tip
+    semantics apply on the very first call.
+
+    Read failures are logged to stderr but never raised: a wonky
+    filesystem on the cursor path must not turn a recoverable wait
+    into a hard failure.
+    """
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            value = fh.read().strip()
+    except FileNotFoundError:
+        return None
+    except OSError as err:
+        print(f"Warning: could not read cursor file {path}: {err}", file=sys.stderr)
+        return None
+    return value or None
+
+
+def _write_cursor_file(path: str | None, cursor: str | None) -> None:
+    """Atomically persist *cursor* under *path*.
+
+    Companion to :func:`_read_cursor_file`. Writes via tmp-in-same-dir
+    + ``os.replace`` so a partially-written cursor file is never
+    observable. A ``None`` / empty cursor clears the file so the next
+    call resumes from the stream tip — this matters when the server
+    returns ``cursor=null`` for an empty stream.
+
+    Best-effort: write failures log a warning but do not affect the
+    caller's exit code. The wait already succeeded; a missed cursor
+    persist just reopens the same race the file was added to close,
+    which the caller will notice on the next missed event.
+    """
+    if not path:
+        return
+    parent = os.path.dirname(path) or "."
+    try:
+        os.makedirs(parent, exist_ok=True)
+        tmp_path = f"{path}.tmp.{os.getpid()}"
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write((cursor or "").strip())
+        os.replace(tmp_path, path)
+    except OSError as err:
+        print(f"Warning: could not write cursor file {path}: {err}", file=sys.stderr)
+
+
 def cmd_message_wait(args: argparse.Namespace) -> int:
     """Event-driven wait for a message of one or more types.
 
@@ -1303,6 +1357,11 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     # require_pipeline_id validates but exits(1) — wrap semantics into 3.
 
     role = args.role or get_agent_role_from_env()
+    cursor_file = getattr(args, "cursor_file", None)
+    # Explicit --since wins over a stored cursor file: the caller is
+    # being deliberate about resume position. The cursor file is just
+    # a default for "thread me automatically" — issue #2323.
+    effective_since = args.since or _read_cursor_file(cursor_file)
     req: dict[str, Any] = {
         "pipeline_id": pid,
         "role": role,
@@ -1311,8 +1370,8 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     }
     if getattr(args, "from_", None):
         req["from_role"] = args.from_
-    if args.since:
-        req["since"] = args.since
+    if effective_since:
+        req["since"] = effective_since
     if args.limit:
         req["limit"] = args.limit
 
@@ -1334,6 +1393,14 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
 
     messages = list(resp.get("messages") or [])
     matched = bool(resp.get("matched"))
+
+    # Persist the response cursor on every successful round-trip
+    # (match OR timeout). The server returns the latest stream tip on
+    # timeout so the next call resumes strictly after what this one
+    # would have seen; on match it returns the ID of the last
+    # delivered message. Either way, threading closes the wait→wait
+    # race that motivated #2323.
+    _write_cursor_file(cursor_file, resp.get("cursor"))
 
     if args.json:
         print_json(resp.get("raw", {}))
@@ -1398,6 +1465,10 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
         return 1
 
     role = args.role or get_agent_role_from_env()
+    cursor_file = getattr(args, "cursor_file", None)
+    # Explicit --since wins over a stored cursor file (see
+    # cmd_message_wait for rationale; issue #2323).
+    effective_since = args.since or _read_cursor_file(cursor_file)
     req: dict[str, Any] = {
         "pipeline_id": pid,
         "role": role,
@@ -1406,8 +1477,8 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
     }
     if getattr(args, "from_", None):
         req["from_role"] = args.from_
-    if args.since:
-        req["since"] = args.since
+    if effective_since:
+        req["since"] = effective_since
     if args.limit:
         req["limit"] = args.limit
     if args.max_iterations is not None and args.max_iterations > 0:
@@ -1420,12 +1491,22 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
         # handler reclassifies 4xx (non-408) as permanent and re-raises;
         # the wait-loop contract collapses both GatewayError and
         # HandlerError to rc=1 so callers can't confuse them with
-        # transient misses.
+        # transient misses. Cursor file is left alone — the wait did
+        # not advance, so the next call should resume from the same
+        # place.
         print(f"Error: {err.message}", file=sys.stderr)
         return 1
     except HandlerError as err:
         print(f"Error: {err.message}", file=sys.stderr)
         return 1
+
+    # Persist the response cursor whenever we have one (match OR
+    # safety-cap exit). The handler threads cursors internally between
+    # inner iterations, so ``resp["cursor"]`` is the latest tip the
+    # loop observed. Writing it on safety-cap means a follow-up
+    # invocation skips events the loop has already filtered past
+    # rather than rescanning from the original tip.
+    _write_cursor_file(cursor_file, resp.get("cursor"))
 
     messages = list(resp.get("messages") or [])
     matched = bool(resp.get("matched"))
@@ -2907,6 +2988,20 @@ def create_parser() -> argparse.ArgumentParser:
         help="Server-side block timeout in seconds (clamped by "
         "EGG_MESSAGE_POLL_MAX_WAIT, default 60)",
     )
+    msg_wait.add_argument(
+        "--cursor-file",
+        dest="cursor_file",
+        help=(
+            "Path to a file used to thread the response cursor across "
+            "successive invocations (issue #2323). Read on entry as "
+            "the default for --since; rewritten on every successful "
+            "round-trip (match or timeout) with the latest cursor. An "
+            "explicit --since overrides the file's contents. Best-"
+            "effort: read/write failures log a warning but never fail "
+            "the wait. Sequential single-process use is safe; "
+            "concurrent writers race (last writer wins)."
+        ),
+    )
     _add_json_flag(msg_wait)
     msg_wait.set_defaults(func=cmd_message_wait)
 
@@ -2949,6 +3044,22 @@ def create_parser() -> argparse.ArgumentParser:
             "normal BRC consensus never trips it.  Set to a positive "
             "integer only for test harnesses or deterministic "
             "reproductions."
+        ),
+    )
+    msg_wait_loop.add_argument(
+        "--cursor-file",
+        dest="cursor_file",
+        help=(
+            "Path to a file used to thread the response cursor across "
+            "successive invocations (issue #2323). Read on entry as "
+            "the default for --since; rewritten on match or safety-cap "
+            "exit with the latest cursor. An explicit --since "
+            "overrides the file's contents. This is the recommended "
+            "way to close the wait→process→wait race for reviewers "
+            "that loop wait-loop calls per producer; without it, "
+            "each new wait-loop starts at the stream tip and skips "
+            "events that landed in the gap (issue #1925). Best-"
+            "effort writes; sequential single-process use is safe."
         ),
     )
     # --json is intentionally NOT supported on wait-loop: the loop calls
