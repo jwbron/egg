@@ -4,6 +4,8 @@ Validates the readonly mount generation for phase-protected directories
 and the directory creation helper used before container spawn.
 """
 
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -30,6 +32,39 @@ class TestImplementReadonlyDirs:
 
     def test_is_tuple(self):
         assert isinstance(_IMPLEMENT_READONLY_DIRS, tuple)
+
+    def test_matches_phase_permissions_json(self):
+        """#1903 drift guard: the readonly-mount tuple must match the
+        ``phase_file_restrictions.implement.blocked_patterns`` directory
+        names in ``.egg/phase-permissions.json``.
+
+        These two surfaces describe the same phase-level invariant from
+        different angles (one is a Docker mount, the other is a gateway
+        push check) — when they diverge an agent can write a file at
+        push time that the implement-phase mount said was readonly, or
+        vice versa. The TODO sync-comments that previously guarded this
+        are gone (#1903); this test takes their place.
+        """
+        repo_root = Path(__file__).resolve().parents[3]
+        permissions_path = repo_root / ".egg" / "phase-permissions.json"
+        data = json.loads(permissions_path.read_text())
+
+        implement_blocks = data["phase_file_restrictions"]["implement"]["blocked_patterns"]
+        # Each entry is ``.egg-state/<dirname>/*`` — extract the dirname.
+        json_dirs = set()
+        for pattern in implement_blocks:
+            assert pattern.startswith(".egg-state/"), (
+                f"unexpected implement-phase block pattern shape: {pattern!r} "
+                "— this drift guard assumes .egg-state/<dir>/* form"
+            )
+            tail = pattern[len(".egg-state/") :].rstrip("/*")
+            if tail:
+                json_dirs.add(tail)
+
+        assert json_dirs == set(_IMPLEMENT_READONLY_DIRS), (
+            f"_IMPLEMENT_READONLY_DIRS {set(_IMPLEMENT_READONLY_DIRS)} != "
+            f"phase-permissions.json implement blocks {json_dirs}"
+        )
 
 
 class TestEnsureEggStateDirs:

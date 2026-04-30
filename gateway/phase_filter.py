@@ -62,10 +62,16 @@ class FileRestriction:
     File restrictions prevent certain roles from modifying specific files
     via git push. This is used to protect sensitive files like SDLC contracts
     that should only be modified through dedicated APIs.
+
+    Glob patterns (``**/*.md``, ``**/tests/``) are matched via the same
+    matcher used by ``AgentFilePattern`` so the gateway's early-reject
+    layer behaves consistently with the per-commit attribution layer
+    (#1903).
     """
 
     role: str
     blocked_patterns: list[str] = field(default_factory=list)
+    block_exempt_patterns: list[str] = field(default_factory=list)
     blocked_reason: str = ""
 
     @classmethod
@@ -74,6 +80,7 @@ class FileRestriction:
         return cls(
             role=data["role"],
             blocked_patterns=data.get("blocked_patterns", []),
+            block_exempt_patterns=data.get("block_exempt_patterns", []),
             blocked_reason=data.get("blocked_reason", ""),
         )
 
@@ -84,14 +91,28 @@ class FileRestriction:
             file_path: The file path to check (relative to repo root)
 
         Returns:
-            True if the file matches any blocked pattern, or if the path escapes the repo
+            True if the file matches any blocked pattern (and no exempt
+            pattern), or if the path escapes the repo.
         """
         try:
             normalized = self._normalize_path(file_path)
         except ValueError:
             # Paths that escape the repository are always blocked
             return True
-        return any(normalized.startswith(pattern) for pattern in self.blocked_patterns)
+
+        # Late import to avoid pulling shared.egg_restrictions at module
+        # import time (gateway test fixtures stub the shared package).
+        from egg_restrictions.patterns import AgentFilePattern
+
+        if not any(AgentFilePattern._matches_pattern(normalized, p) for p in self.blocked_patterns):
+            return False
+        # Block-exempt carve-outs (e.g. ``.egg-state/agent-outputs/``
+        # under coder's ``.egg-state/`` block).
+        if any(
+            AgentFilePattern._matches_pattern(normalized, p) for p in self.block_exempt_patterns
+        ):
+            return False
+        return True
 
     @staticmethod
     def _normalize_path(file_path: str) -> str:
@@ -375,17 +396,23 @@ class PhaseFilter:
                 # Skip unknown phases
                 pass
 
-        # Load file restrictions
-        # SECURITY: When file_restrictions key is missing from config, use defaults
-        # to ensure protection even for legacy configs that predate this feature.
-        file_restrictions_data = data.get("file_restrictions", [])
-        if file_restrictions_data:
-            self._file_restrictions = [
-                FileRestriction.from_dict(fr) for fr in file_restrictions_data
-            ]
-        else:
-            # Use defaults when file_restrictions not configured (backwards compatibility)
-            self._file_restrictions = self._get_default_file_restrictions()
+        # Per-role file restrictions are now derived from
+        # ``shared/egg_restrictions/patterns.py`` (#1903 — patterns.py is
+        # the single source of truth). The legacy JSON ``file_restrictions``
+        # key is ignored; a stale config that still carries it is logged
+        # so operators see it during the transition.
+        if "file_restrictions" in data:
+            import warnings
+
+            warnings.warn(
+                "phase-permissions.json 'file_restrictions' key is ignored as of "
+                "#1903 — per-role file boundaries are derived from "
+                "shared/egg_restrictions/patterns.py. Remove the key from your "
+                "config to silence this warning.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self._file_restrictions = self._get_default_file_restrictions()
 
         # Load phase-based file restrictions
         phase_file_restrictions_data = data.get("phase_file_restrictions", {})
@@ -501,18 +528,32 @@ class PhaseFilter:
         }
 
     def _get_default_file_restrictions(self) -> list[FileRestriction]:
-        """Get default file restrictions when no file is available.
+        """Get the per-role file restrictions derived from ``AGENT_PATTERNS``.
 
-        These defaults protect contract files from being modified directly
-        via git push by implementer agents.
+        ``shared/egg_restrictions/patterns.py`` is the single source of
+        truth for per-role file boundaries (#1903). Each
+        ``AgentFilePattern`` is projected into a ``FileRestriction``
+        carrying its blocklist + block-exempt patterns so the gateway's
+        early-reject path matches the per-commit attribution path.
         """
-        return [
-            FileRestriction(
-                role="implementer",
-                blocked_patterns=[".egg-state/contracts/"],
-                blocked_reason="Contract files can only be modified through the contract API",
-            ),
-        ]
+        from egg_restrictions.patterns import AGENT_PATTERNS
+
+        restrictions: list[FileRestriction] = []
+        for role, pattern in AGENT_PATTERNS.items():
+            if not pattern.blocked_patterns:
+                continue
+            restrictions.append(
+                FileRestriction(
+                    role=role,
+                    blocked_patterns=list(pattern.blocked_patterns),
+                    block_exempt_patterns=list(pattern.block_exempt_patterns),
+                    blocked_reason=(
+                        f"Role '{role}' is not permitted to modify these files; "
+                        "see shared/egg_restrictions/patterns.py."
+                    ),
+                )
+            )
+        return restrictions
 
     def _get_default_phase_file_restrictions(
         self,

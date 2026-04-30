@@ -127,12 +127,11 @@ def git_shadow_mounts(
 
 
 # Directories under .egg-state/ that are readonly during the implement phase.
-# These contain plan/contract artifacts that must not be modified by code agents.
-# Must stay in sync with .egg/phase-permissions.json blocked_patterns for "implement".
-# TODO(#1903): keep in sync with CODER_PATTERNS.blocked_patterns in
-# shared/egg_restrictions/patterns.py and the file_restrictions section of
-# .egg/phase-permissions.json until #1903 makes patterns.py the single
-# source of truth.
+# These contain plan/contract artifacts that must not be modified by code
+# agents.  This is a phase-level (not role-level) restriction and mirrors
+# ``.egg/phase-permissions.json`` ``phase_file_restrictions.implement.blocked_patterns``.
+# A drift guard test in ``tests/shared/egg_container/test_phase_mounts.py``
+# fails if the two surfaces diverge (#1903).
 _IMPLEMENT_READONLY_DIRS = ("drafts", "contracts", "pipelines", "reviews")
 
 

@@ -182,11 +182,11 @@ class AgentFilePattern:
 
 
 # Default agent file patterns
-# These define what each agent role can and cannot modify
-
-# TODO(#1903): keep blocked_patterns in sync with
-# shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS and
-# .egg/phase-permissions.json until #1903 unifies these surfaces.
+# These define what each agent role can and cannot modify.
+#
+# This module is the single source of truth for per-role file boundaries
+# (#1903). The gateway's PhaseFilter and the sandbox container's readonly
+# mounts derive from here; do not duplicate these patterns elsewhere.
 CODER_PATTERNS = AgentFilePattern(
     role=AgentRole.CODER,
     description=(
