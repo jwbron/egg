@@ -538,12 +538,14 @@ class TestWaitCursorPath:
 class TestAutoCursorWait:
     """``cmd_message_wait`` auto-threads a per-(role, for_types) cursor."""
 
-    def _setenv(self, monkeypatch, tmp_path, role="reviewer_plan"):
+    def _setenv(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan") -> None:
         monkeypatch.setenv("EGG_AGENT_ROLE", role)
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
 
-    def _expected_path(self, tmp_path, for_types, role="reviewer_plan") -> str:
-        return _wait_cursor_path(role, for_types)
+    def _expected_path(self, tmp_path: Path, for_types: list[str], role: str = "reviewer_plan") -> str:
+        path = _wait_cursor_path(role, for_types)
+        assert path is not None
+        return path
 
     def test_no_role_skips_cursor_handling(self, monkeypatch, tmp_path):
         """Debug shells without ``EGG_AGENT_ROLE`` get the legacy
@@ -689,7 +691,7 @@ class TestAutoCursorWait:
 class TestAutoCursorWaitLoop:
     """``cmd_message_wait_loop`` mirrors the auto-cursor semantics."""
 
-    def _setenv(self, monkeypatch, tmp_path, role="reviewer_plan"):
+    def _setenv(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan") -> None:
         monkeypatch.setenv("EGG_AGENT_ROLE", role)
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
 
@@ -727,6 +729,7 @@ class TestAutoCursorWaitLoop:
         self._setenv(monkeypatch, tmp_path)
         for_types = ["CONSENSUS_PROPOSE"]
         cursor_path = _wait_cursor_path("reviewer_plan", for_types)
+        assert cursor_path is not None
         with open(cursor_path, "w") as fh:
             fh.write("01-prior-tip")
         captured: dict[str, Any] = {}
@@ -767,12 +770,14 @@ class TestAutoCursorWaitLoop:
             rc = cmd_message_wait_loop(self._make_loop_args())
         assert rc == 0
         cursor_path = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        assert cursor_path is not None
         with open(cursor_path) as fh:
             assert fh.read().strip() == "01-architect-id"
 
     def test_writes_cursor_on_safety_cap(self, monkeypatch, tmp_path):
         self._setenv(monkeypatch, tmp_path)
         cursor_path = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        assert cursor_path is not None
         with open(cursor_path, "w") as fh:
             fh.write("01-old")
         with patch(
@@ -793,6 +798,7 @@ class TestAutoCursorWaitLoop:
     def test_does_not_write_on_permanent_error(self, monkeypatch, tmp_path):
         self._setenv(monkeypatch, tmp_path)
         cursor_path = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        assert cursor_path is not None
         with open(cursor_path, "w") as fh:
             fh.write("01-keep-me")
         with patch(
@@ -807,6 +813,7 @@ class TestAutoCursorWaitLoop:
     def test_explicit_since_overrides_cursor(self, monkeypatch, tmp_path):
         self._setenv(monkeypatch, tmp_path)
         cursor_path = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        assert cursor_path is not None
         with open(cursor_path, "w") as fh:
             fh.write("01-stale")
         captured: dict[str, Any] = {}
