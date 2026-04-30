@@ -1,8 +1,11 @@
 """Tests for checkpoint_handler module - checkpoint creation and session-end."""
 
+import contextlib
 import subprocess
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Import from conftest-loaded modules
 from checkpoint_handler import (
@@ -12,6 +15,27 @@ from checkpoint_handler import (
     capture_session_end_checkpoint,
 )
 from session_manager import Session, _hash_token
+
+
+@pytest.fixture(autouse=True)
+def _stub_bare_repo_lock(monkeypatch):
+    """Replace ``bare_repo_lock`` with a no-op for these unit tests.
+
+    The cross-process flock primitive (#2311) requires a real
+    ``<repo>/.git/`` to exist so it can ``mkdir`` the sentinel and
+    ``os.open`` an fd.  These tests pass sentinel paths like
+    ``/fake/repo`` which would fail the mkdir.  Cross-process behaviour
+    is covered by ``shared/tests/test_cross_process_lock.py`` and the
+    worktree integration test — here we only need ``_get_repo_lock``'s
+    in-process serialization to work.
+    """
+    import checkpoint_handler
+
+    @contextlib.contextmanager
+    def _noop(repo_path):
+        yield
+
+    monkeypatch.setattr(checkpoint_handler, "bare_repo_lock", _noop)
 
 
 class TestCaptureAndStoreCheckpointsForPush:
