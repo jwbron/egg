@@ -5236,6 +5236,8 @@ def _sync_worktree_with_remote(
     prior_phase_succeeded: bool = True,
     gateway_mode: Literal["public", "private"] = "public",
     base_branch: str | None = None,
+    *,
+    pipeline_branch: str | None = None,
 ) -> None:
     """Sync a worktree with its remote branch (best-effort).
 
@@ -5246,6 +5248,18 @@ def _sync_worktree_with_remote(
     worktree so that all downstream code (contract loading, draft reading,
     populator, etc.) sees the full pipeline state.
 
+    ``pipeline_branch`` is the **remote** branch name to reconcile against
+    (e.g. ``egg/<pid>``).  The orchestrator-side worktree is checked out
+    on a ``/work``-suffixed local branch (``egg/<pid>/work``) that does
+    not exist on origin — agents push to ``egg/<pid>``.  Without an
+    explicit ``pipeline_branch``, the function reads
+    ``git branch --show-current`` and looks up ``origin/<that-name>``,
+    which always misses on real pipelines and exits at
+    ``case=no_remote_tracking`` (#2367).  Callers with a pipeline in
+    scope MUST pass ``pipeline_branch=pipeline.branch``.  When omitted,
+    the function falls back to the local branch name for backward
+    compatibility with non-pipeline scripts.
+
     When local is ahead of remote:
     - If the prior phase succeeded, push local commits to remote first,
       then reset to origin (preserves completed work).
@@ -5253,11 +5267,11 @@ def _sync_worktree_with_remote(
       reset to remote (discards incomplete work).
 
     When local has diverged (ahead AND behind), rebase local commits onto
-    ``origin/{branch}`` via the same helper used by the gateway-side
-    push-reject reconcile path.  ``--ff-only`` cannot reconcile real
-    divergence by definition, so the pre-#2337 implementation silently
-    left the worktree stale and downstream populator/decision-sync paths
-    consumed the stale state.
+    ``origin/{pipeline_branch}`` via the same helper used by the
+    gateway-side push-reject reconcile path.  ``--ff-only`` cannot
+    reconcile real divergence by definition, so the pre-#2337
+    implementation silently left the worktree stale and downstream
+    populator/decision-sync paths consumed the stale state.
 
     Every return path emits at least one ``worktree_sync_outcome`` log
     line with a ``case`` discriminator so production logs name which
@@ -5321,10 +5335,18 @@ def _sync_worktree_with_remote(
         )
         return
 
+    # ``branch`` is the **local** branch name (e.g. ``egg/<pid>/work`` on
+    # orchestrator worktrees).  ``remote_branch`` is the remote-side name
+    # we look up on origin and push/reset against.  When the caller
+    # passes ``pipeline_branch`` (the canonical, agent-facing branch),
+    # use it for every remote-side ref so the ``/work`` suffix mismatch
+    # in #2367 cannot strand a pipeline in ``no_remote_tracking``.
+    remote_branch = pipeline_branch or branch
+
     # Step 3: Verify remote tracking branch exists
     try:
         result = subprocess.run(
-            [*git_base, "rev-parse", "--verify", f"origin/{branch}"],
+            [*git_base, "rev-parse", "--verify", f"origin/{remote_branch}"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -5335,6 +5357,7 @@ def _sync_worktree_with_remote(
                 "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                remote_branch=remote_branch,
                 case="no_remote_tracking",
             )
             return
@@ -5343,6 +5366,7 @@ def _sync_worktree_with_remote(
             "worktree_sync_outcome",
             pipeline_id=pipeline_id,
             branch=branch,
+            remote_branch=remote_branch,
             case="rev_parse_failed",
             error=str(rev_parse_err),
         )
@@ -5354,7 +5378,13 @@ def _sync_worktree_with_remote(
     rev_list_ok = False
     try:
         result = subprocess.run(
-            [*git_base, "rev-list", "--left-right", "--count", f"HEAD...origin/{branch}"],
+            [
+                *git_base,
+                "rev-list",
+                "--left-right",
+                "--count",
+                f"HEAD...origin/{remote_branch}",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
@@ -5370,6 +5400,7 @@ def _sync_worktree_with_remote(
                 "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                remote_branch=remote_branch,
                 case="rev_list_failed",
                 rc=result.returncode,
                 stdout=result.stdout.strip()[:200],
@@ -5380,6 +5411,7 @@ def _sync_worktree_with_remote(
             "worktree_sync_outcome",
             pipeline_id=pipeline_id,
             branch=branch,
+            remote_branch=remote_branch,
             case="rev_list_failed",
             error=str(rev_list_err),
         )
@@ -5393,6 +5425,7 @@ def _sync_worktree_with_remote(
             "worktree_sync_outcome",
             pipeline_id=pipeline_id,
             branch=branch,
+            remote_branch=remote_branch,
             case="already_in_sync",
             local_ahead=0,
             remote_ahead=0,
@@ -5403,18 +5436,21 @@ def _sync_worktree_with_remote(
         # Local is strictly ahead of remote (no divergence).
         if prior_phase_succeeded:
             # Prior phase completed successfully — push local work to remote
-            # before resetting, so it's not lost.
+            # before resetting, so it's not lost.  Pushing to ``remote_branch``
+            # (not the local ``/work`` name) so the agent-facing branch
+            # receives the commits — the gateway builds
+            # ``HEAD:refs/heads/{branch}`` from this argument.
             push_result = spawner.gateway.push_worktree_branch(
                 pipeline_id=pipeline_id,
                 repo_path=str(worktree_repo_path),
-                branch=branch,
+                branch=remote_branch,
                 mode=gateway_mode,
                 base_branch=base_branch_for_reconcile,
             )
             if push_result:
                 # Push succeeded — local and remote are now in sync.
                 # Re-fetch to update the remote tracking ref so that
-                # origin/{branch} reflects the pushed commits.
+                # origin/{remote_branch} reflects the pushed commits.
                 spawner.gateway.fetch_worktree_branch(
                     pipeline_id=pipeline_id,
                     repo_path=str(worktree_repo_path),
@@ -5424,6 +5460,7 @@ def _sync_worktree_with_remote(
                     "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    remote_branch=remote_branch,
                     case="local_ahead_pushed",
                     local_ahead=local_ahead,
                     remote_ahead=remote_ahead,
@@ -5434,6 +5471,7 @@ def _sync_worktree_with_remote(
                     "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    remote_branch=remote_branch,
                     case="local_ahead_push_failed",
                     local_ahead=local_ahead,
                     remote_ahead=remote_ahead,
@@ -5449,6 +5487,7 @@ def _sync_worktree_with_remote(
                 "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                remote_branch=remote_branch,
                 case="local_ahead_discarded",
                 local_ahead=local_ahead,
                 remote_ahead=remote_ahead,
@@ -5482,18 +5521,20 @@ def _sync_worktree_with_remote(
                 "falling back to bare-rebase form (#2222 contamination risk)",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                remote_branch=remote_branch,
             )
         logger.info(
             "Local and remote have diverged — rebasing local onto origin",
             pipeline_id=pipeline_id,
             branch=branch,
+            remote_branch=remote_branch,
             local_ahead=local_ahead,
             remote_ahead=remote_ahead,
         )
         rebase_outcome = _rebase_with_agent_output_autoresolve(
             git_base=git_base,
             pipeline_id=pipeline_id,
-            branch=branch,
+            branch=remote_branch,
             base_branch=base_branch_for_reconcile,
         )
         if rebase_outcome.ok:
@@ -5501,6 +5542,7 @@ def _sync_worktree_with_remote(
                 "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                remote_branch=remote_branch,
                 case="divergence_rebased",
                 local_ahead=local_ahead,
                 remote_ahead=remote_ahead,
@@ -5510,6 +5552,7 @@ def _sync_worktree_with_remote(
             "worktree_sync_outcome",
             pipeline_id=pipeline_id,
             branch=branch,
+            remote_branch=remote_branch,
             case="divergence_rebase_failed",
             local_ahead=local_ahead,
             remote_ahead=remote_ahead,
@@ -5523,7 +5566,7 @@ def _sync_worktree_with_remote(
     # fall-through. (The already-in-sync case returns early above.)
     try:
         result = subprocess.run(
-            [*git_base, "reset", "--hard", f"origin/{branch}"],
+            [*git_base, "reset", "--hard", f"origin/{remote_branch}"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -5534,6 +5577,7 @@ def _sync_worktree_with_remote(
                 "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                remote_branch=remote_branch,
                 case="reset_failed",
                 local_ahead=local_ahead,
                 remote_ahead=remote_ahead,
@@ -5544,6 +5588,7 @@ def _sync_worktree_with_remote(
                 "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                remote_branch=remote_branch,
                 case="reset_succeeded",
                 local_ahead=local_ahead,
                 remote_ahead=remote_ahead,
@@ -5553,6 +5598,7 @@ def _sync_worktree_with_remote(
             "worktree_sync_outcome",
             pipeline_id=pipeline_id,
             branch=branch,
+            remote_branch=remote_branch,
             case="reset_failed",
             local_ahead=local_ahead,
             remote_ahead=remote_ahead,
@@ -14233,6 +14279,7 @@ def _run_pipeline(
                 prior_phase_succeeded=prior_phase_succeeded,
                 gateway_mode=gateway_mode,
                 base_branch=pipeline.base_branch,
+                pipeline_branch=pipeline.branch,
             )
 
             # When resuming a stale pipeline branch (cancelled run from
@@ -15459,6 +15506,7 @@ def _run_pipeline(
                         worktree_repo_path,
                         gateway_mode=gateway_mode,
                         base_branch=pipeline.base_branch,
+                        pipeline_branch=pipeline.branch,
                     )
                 except Exception as sync_err:
                     logger.warning(
