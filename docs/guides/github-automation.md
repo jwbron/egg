@@ -186,7 +186,7 @@ Without it, the system falls back to posting reviews as comments (self-review mo
    - Runs tests and linters before pushing
    - Commits and pushes all fixes together
    - Posts a top-level summary comment with a per-item disposition for every actionable
-     feedback item (see [Feedback Contract](#feedback-contract) above); may also reply
+     feedback item (see [Feedback Contract](#feedback-contract) below); may also reply
      inline on specific threads
 
 8. **Contract verification** — Scans the agent's response comments (posted since run
@@ -226,16 +226,19 @@ a follow-up. Phantom follow-ups — promises to file an issue after posting the 
 `deferred-to` references to non-existent or pre-existing issues — are forbidden and
 detected by a post-run guard that fails the workflow.
 
-**Skip** is only for pure style suggestions handled by linters or subjective preferences
-without technical justification. Skipped items still appear in the response with a
+**Posting a response is mandatory.** Failing to post any top-level response comment is
+itself a contract violation; the verifier flags `count == 0` and fails the run. There
+is no "silent skip" path — pure style suggestions handled by linters or subjective
+preferences without technical justification still appear in the response with a
 `disagree (style preference, no technical impact)` tag or similar.
 
 **Post-run contract verification:** After the agent runs, the workflow automatically
 scans the agent's response comments for forbidden phrases and verifies every
-`deferred-to #NNNN` reference points to a real issue created during this run (with a
-60s clock-skew grace window). Quoted reviewer text and code blocks are excluded from
-the phrase scan to avoid false positives. If violations are found, a flag comment is
-posted naming the offenses and the workflow run fails.
+`deferred-to #NNNN` reference points to a real GitHub issue (not a PR) created during
+this run (with a 60s clock-skew grace window). Quoted reviewer text, fenced code
+blocks, and inline `` `code` `` spans are excluded from the phrase scan to avoid
+false positives. If violations are found, a flag comment is posted naming the
+offenses and the workflow run fails.
 
 **Note:** Reviewers can include non-blocking suggestions in approval reviews by adding `<!-- has-suggestions -->` anywhere in the review body. This marker signals that the approval includes suggestions the agent should address, triggering the feedback workflow even though the review state is "approved".
 
