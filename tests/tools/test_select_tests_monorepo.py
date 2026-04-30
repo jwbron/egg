@@ -235,6 +235,33 @@ def test_gateway_modules_marked_as_dynamic_imports(real_repo_graph) -> None:
     )
 
 
+def test_gateway_gateway_is_not_a_dynamic_import_seed(real_repo_graph) -> None:
+    """``gateway.gateway`` must remain leaf-shaped wrt dynamic-import seeds.
+
+    The dynamic-import primitives (``__import__``, ``importlib.util.spec_*``)
+    live in ``gateway/_module_loader.py`` — a stdlib-only leaf bootstrap.
+    If a future change reintroduces one of those primitives into
+    ``gateway/gateway.py``, ``_scan_dynamic_imports`` will flag
+    ``gateway.gateway`` as a seed; ``is_dynamic_import_touched`` then
+    widens whenever any module in ``find_upstream_modules('gateway.gateway')``
+    is edited.  Because ``gateway.gateway`` transitively imports ~32 of
+    41 gateway production modules, that regression silently reverts ~80%
+    of gateway production .py files to the full-suite fallback (R6) —
+    the exact regression issue #2320 was filed to prevent.
+
+    This is a real-bundle pin against the production source shape; it
+    fails the moment the regression lands, not after the empirical-
+    narrowing claim is contradicted in a downstream PR.
+    """
+    assert "gateway.gateway" not in real_repo_graph.dynamic_import_modules, (
+        "gateway.gateway is back in dynamic_import_modules — an importlib "
+        "primitive was reintroduced. Move it to gateway/_module_loader.py "
+        "(or another stdlib-only leaf) to keep gateway production narrowing "
+        "intact. See gateway/_module_loader.py for the bootstrap pattern "
+        "and docs/guides/testing.md §7 for the seed-shape invariant."
+    )
+
+
 # ----------------------------------------------------------------------
 # Issue #2259 regression — `<root>/scripts` on sys.path must not shadow
 # the top-level `tests/` package during graph construction.
