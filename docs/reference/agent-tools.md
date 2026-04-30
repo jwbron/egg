@@ -177,11 +177,12 @@ waits go through `egg-orch message wait` / `wait-loop` via Bash), then
 HITL (decisions + feedback + answers), phase context + completion,
 progress signals + overseer alerts + status queries, task completion
 + commits + notes + coverage-gaps, and checkpoint browsing — every
-verb a pipeline agent issues on the hot path. Both the count (`29`)
+verb a pipeline agent issues on the hot path. The count (`29`) is
+asserted by
+`tests/sandbox/egg_agent_tools/test_server.py::TestToolRegistry::test_tool_count_registered`
 and the namespace set (`{sdlc, brc, phase, progress, task,
-checkpoint}`) are asserted by
-`tests/sandbox/egg_agent_tools/test_server.py::test_prompt_nudge_drift`
-so the prose numbers in this doc cannot drift silently.
+checkpoint}`) by `TestToolRegistry::test_namespace_set_is_six` so the
+prose numbers in this doc cannot drift silently.
 
 ## Conventions
 
@@ -278,12 +279,16 @@ When the flag is on (the default), `run_agent_async` appends a short bootstrap
 paragraph (`≤200` words) to `options.system_prompt`. The paragraph is
 **generated programmatically** at module import from `TOOL_NAMESPACES`
 — it is not a hand-authored string literal — so adding or renaming a
-namespace updates the nudge automatically. A unit test
-(`tests/sandbox/egg_agent_tools/test_server.py::test_prompt_nudge_drift`)
-asserts every `mcp__<namespace>__` substring in the nudge corresponds
-to a registered namespace in `TOOL_NAMESPACES` and vice versa
-(symmetric match — extras in either direction fail CI), AND asserts
-`len(TOOL_REGISTRY) == 29` plus
+namespace updates the nudge automatically. Two paired unit tests in
+`tests/sandbox/egg_agent_tools/test_server.py::TestSystemPromptNudge`
+enforce a symmetric match between the nudge and `TOOL_NAMESPACES`:
+`test_each_namespace_appears_in_nudge` asserts every registered
+namespace appears as `mcp__<ns>__` in the nudge, and
+`test_nudge_substrings_back_to_registered_namespaces` asserts every
+`mcp__<ns>__` substring in the nudge corresponds to a registered
+namespace (extras in either direction fail CI). The companion
+`TestToolRegistry::test_tool_count_registered` and
+`test_namespace_set_is_six` pin `len(TOOL_REGISTRY) == 29` and
 `set(TOOL_NAMESPACES.keys()) == {"sdlc", "brc", "phase", "progress",
 "task", "checkpoint"}` so a future iteration cannot drift the prose
 counts in this file silently.

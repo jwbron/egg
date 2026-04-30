@@ -41,4 +41,4 @@ A new no-CLI tool also lives in the contract surface:
 - `mcp__task__mark_gap` — Tester→coder coverage-gap handoff written to `phases.<p>.tasks.<t>.gaps[]`. No CLI counterpart by design (decision-4); operators don't need it.
 
 See [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)
-for the full 30-verb inventory.
+for the full 29-verb inventory.

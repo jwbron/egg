@@ -42,4 +42,4 @@ default 100) and `cursor` (opaque string). The handler returns
 rejected with `HandlerError`.
 
 See [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)
-for the full 30-verb inventory.
+for the full 29-verb inventory.
