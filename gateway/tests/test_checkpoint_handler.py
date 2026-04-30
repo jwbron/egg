@@ -699,8 +699,15 @@ class TestStoreCheckpointV2Concurrency:
             session_started_at=now,
         )
 
-    def test_worktree_prune_called_in_cleanup(self):
-        """Cleanup runs `git worktree prune` to drop stale worktree entries."""
+    def test_cleanup_does_not_call_worktree_prune(self):
+        """Cleanup must NOT run `git worktree prune` (#2324).
+
+        Prune is broad and removes admin dirs for ANY worktree whose path
+        is not visible from the gateway pod's filesystem — including the
+        orchestrator's state worktree, which lives on a per-pod
+        ``emptyDir`` mount the gateway cannot see.  Cleanup must instead
+        surgically remove only this checkpoint worktree's admin dir.
+        """
         import checkpoint_handler
 
         # Reset the per-repo lock dict so this test is isolated.
@@ -717,18 +724,36 @@ class TestStoreCheckpointV2Concurrency:
         handler._run_git = track_run_git
         handler._branch_exists = MagicMock(return_value=True)
 
-        try:
-            handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
-        except Exception:
-            pass
+        rmtree_calls = []
+
+        def fake_rmtree(path, *args, **kwargs):
+            rmtree_calls.append((str(path), kwargs))
+
+        with patch("checkpoint_handler.shutil.rmtree", side_effect=fake_rmtree):
+            try:
+                handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+            except Exception:
+                pass
 
         prune_calls = [c for c in git_calls if c[1][:2] == ["worktree", "prune"]]
-        assert len(prune_calls) == 1, "Expected exactly one `worktree prune` call"
-        assert prune_calls[0][0] == "/fake/repo"
-        assert prune_calls[0][2].get("check") is False
+        assert prune_calls == [], "`git worktree prune` must not run in cleanup (#2324)"
 
-    def test_worktree_prune_runs_when_worktree_add_fails(self):
-        """If `worktree add` itself raises, cleanup still runs `worktree prune`."""
+        # Targeted admin-dir removal: a single rmtree against
+        # /fake/repo/.git/worktrees/<temp basename> with ignore_errors.
+        admin_rmtree_calls = [
+            (path, kwargs)
+            for path, kwargs in rmtree_calls
+            if path.startswith("/fake/repo/.git/worktrees/")
+        ]
+        assert len(admin_rmtree_calls) == 1, (
+            f"expected one targeted admin-dir rmtree, got {admin_rmtree_calls}"
+        )
+        assert admin_rmtree_calls[0][1].get("ignore_errors") is True
+
+    def test_cleanup_admin_dir_runs_when_worktree_add_fails(self):
+        """If `worktree add` itself raises, cleanup still removes the
+        admin dir for this checkpoint worktree (and still does NOT
+        call `git worktree prune`)."""
         import checkpoint_handler
 
         checkpoint_handler._repo_locks.clear()
@@ -746,16 +771,28 @@ class TestStoreCheckpointV2Concurrency:
         handler._run_git = track_run_git
         handler._branch_exists = MagicMock(return_value=True)
 
-        # store_checkpoint_v2 swallows exceptions and returns False; we just
-        # need it to complete and run the finally block.
-        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
-        assert result is False
+        rmtree_calls = []
+
+        def fake_rmtree(path, *args, **kwargs):
+            rmtree_calls.append((str(path), kwargs))
+
+        with patch("checkpoint_handler.shutil.rmtree", side_effect=fake_rmtree):
+            # store_checkpoint_v2 swallows exceptions and returns False; we just
+            # need it to complete and run the finally block.
+            result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+            assert result is False
 
         prune_calls = [c for c in git_calls if c[1][:2] == ["worktree", "prune"]]
-        assert len(prune_calls) == 1, (
-            "Expected `worktree prune` to run even when `worktree add` fails"
+        assert prune_calls == [], "`git worktree prune` must not run on add failure (#2324)"
+
+        admin_rmtree_calls = [
+            (path, kwargs)
+            for path, kwargs in rmtree_calls
+            if path.startswith("/fake/repo/.git/worktrees/")
+        ]
+        assert len(admin_rmtree_calls) == 1, (
+            "Expected admin-dir rmtree to run even when `worktree add` fails"
         )
-        assert prune_calls[0][0] == "/fake/repo"
 
     def test_concurrent_stores_on_same_repo_serialized(self):
         """Two threads storing into the same repo_path run sequentially."""

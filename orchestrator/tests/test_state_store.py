@@ -2109,3 +2109,160 @@ class TestEnsureWorktreeRepoPathGuard:
         # Should not raise — guard passes, fast path returns the
         # healthy worktree.
         assert store._ensure_worktree() == wt
+
+
+class TestStateWorktreeLocked:
+    """Regression tests for #2324 — the state worktree must be marked
+    ``git worktree lock``ed so a ``git worktree prune`` invoked from a
+    different pod (with a different ``emptyDir`` view of the state mount)
+    does not delete its admin dir from the shared bare repo."""
+
+    def _make_store(self, tmp_path):
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        worktree_dir = tmp_path / "wt"
+        store = StateStore(repo_path, worktree_dir=worktree_dir)
+        return store, worktree_dir
+
+    def _make_router(self, *, rev_parse_returncodes, branch_exists):
+        rev_parse_iter = iter(rev_parse_returncodes)
+
+        def run_git(*args, check=True, cwd=None):
+            if args[:2] == ("rev-parse", "--is-inside-work-tree"):
+                return MagicMock(stdout="", returncode=next(rev_parse_iter))
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=0 if branch_exists else 1)
+            return MagicMock(stdout="", returncode=0)
+
+        return run_git
+
+    def test_lock_called_after_existing_branch_recreate(self, tmp_path):
+        """When the existing-branch path recreates the worktree,
+        ``git worktree lock`` must run on the new worktree."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /broken\n")
+
+        with patch.object(
+            StateStore,
+            "_run_git",
+            side_effect=self._make_router(rev_parse_returncodes=[1, 1], branch_exists=True),
+        ) as mock_git:
+            with patch("state_store.time.sleep"):
+                store._ensure_worktree()
+
+        lock_calls = [c for c in mock_git.call_args_list if c.args[:2] == ("worktree", "lock")]
+        assert len(lock_calls) == 1
+        assert lock_calls[0].args[2] == str(wt)
+
+    def test_lock_called_after_orphan_branch_create(self, tmp_path):
+        """When the orphan-branch path creates the worktree on first
+        run, ``git worktree lock`` must run on the new worktree."""
+        store, wt = self._make_store(tmp_path)
+        # First run: no existing worktree, no branch — orphan path.
+
+        # `git worktree add` creates the directory in real life; mirror
+        # that side effect so the post-add cleanup loop has something
+        # to iterate.
+        def run_git(*args, check=True, cwd=None):
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=1)  # branch missing
+            if args[:3] == ("worktree", "add", "--detach"):
+                wt.mkdir(parents=True, exist_ok=True)
+            return MagicMock(stdout="", returncode=0)
+
+        with (
+            patch.object(StateStore, "_run_git", side_effect=run_git) as mock_git,
+            patch.object(StateStore, "_restore_from_remote", return_value=False),
+        ):
+            store._ensure_worktree()
+
+        lock_calls = [c for c in mock_git.call_args_list if c.args[:2] == ("worktree", "lock")]
+        assert len(lock_calls) == 1
+        assert lock_calls[0].args[2] == str(wt)
+
+    def test_lock_called_on_healthy_existing_worktree(self, tmp_path):
+        """Existing worktrees that pre-date this fix must self-heal:
+        on the healthy fast path we still call ``worktree lock`` so
+        the next gateway prune cannot remove the admin dir."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /fake\n")
+
+        with patch.object(
+            StateStore,
+            "_run_git",
+            side_effect=self._make_router(rev_parse_returncodes=[0], branch_exists=True),
+        ) as mock_git:
+            store._ensure_worktree()
+
+        lock_calls = [c for c in mock_git.call_args_list if c.args[:2] == ("worktree", "lock")]
+        assert len(lock_calls) == 1
+        assert lock_calls[0].args[2] == str(wt)
+
+    def test_lock_already_locked_is_not_warned(self, tmp_path, caplog):
+        """A re-entry on an already-locked worktree must not warn —
+        ``git worktree lock`` exits non-zero with 'already locked' and
+        we treat that as success."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /fake\n")
+
+        def run_git(*args, check=True, cwd=None):
+            if args[:2] == ("rev-parse", "--is-inside-work-tree"):
+                return MagicMock(stdout="", returncode=0)
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=0)
+            if args[:2] == ("worktree", "lock"):
+                return MagicMock(
+                    stdout="",
+                    stderr="fatal: '/path' is already locked",
+                    returncode=128,
+                )
+            return MagicMock(stdout="", returncode=0)
+
+        with patch.object(StateStore, "_run_git", side_effect=run_git):
+            import logging
+
+            with caplog.at_level(logging.WARNING, logger="orchestrator.state_store"):
+                store._ensure_worktree()
+
+        warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert not any("Failed to lock state worktree" in m for m in warning_msgs)
+
+    def test_lock_failure_does_not_raise(self, tmp_path, caplog):
+        """Other lock failures must be logged but not propagated —
+        locking is best-effort; a missing lock is preferable to a
+        wedged state store.  Symmetric counterpart to
+        ``test_lock_already_locked_is_not_warned``: here a warning
+        SHOULD fire because the failure isn't the benign already-locked
+        case."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /fake\n")
+
+        def run_git(*args, check=True, cwd=None):
+            if args[:2] == ("rev-parse", "--is-inside-work-tree"):
+                return MagicMock(stdout="", returncode=0)
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=0)
+            if args[:2] == ("worktree", "lock"):
+                return MagicMock(
+                    stdout="",
+                    stderr="fatal: some other failure",
+                    returncode=128,
+                )
+            return MagicMock(stdout="", returncode=0)
+
+        with patch.object(StateStore, "_run_git", side_effect=run_git):
+            import logging
+
+            with caplog.at_level(logging.WARNING, logger="orchestrator.state_store"):
+                # Must not raise.
+                store._ensure_worktree()
+
+        warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Failed to lock state worktree" in m for m in warning_msgs), (
+            f"expected a 'Failed to lock state worktree' warning, got {warning_msgs}"
+        )
