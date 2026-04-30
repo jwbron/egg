@@ -1075,6 +1075,7 @@ class TestSyncPipelineDecisionsToContract:
         ):
             _sync_pipeline_decisions_to_contract(
                 repo_path=Path("/fake/repo"),
+                worktree_repo_path=Path("/fake/worktree"),
                 pipeline_id="test-pipeline",
                 pipeline_mode="issue",
             )
@@ -1142,6 +1143,7 @@ class TestSyncPipelineDecisionsToContract:
         ):
             _sync_pipeline_decisions_to_contract(
                 repo_path=Path("/fake/repo"),
+                worktree_repo_path=Path("/fake/worktree"),
                 pipeline_id="test-pipeline",
             )
 
@@ -1193,11 +1195,68 @@ class TestSyncPipelineDecisionsToContract:
         ):
             _sync_pipeline_decisions_to_contract(
                 repo_path=Path("/fake/repo"),
+                worktree_repo_path=Path("/fake/worktree"),
                 pipeline_id="test-pipeline",
             )
 
         # All decisions deduplicated — save should not be called
         mock_save.assert_not_called()
+
+    def test_sync_routes_paths_to_state_store_and_contract_separately(self):
+        """Regression for #2345.
+
+        Pipeline records live under the orchestrator's main repo path; the
+        contract lives under the per-pipeline worktree.  Verify the helper
+        routes ``repo_path`` to ``get_state_store`` and
+        ``worktree_repo_path`` to ``load_contract`` / ``save_contract``.
+        """
+        from datetime import datetime
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from egg_contracts.models import Contract
+        from models import Pipeline
+        from routes.pipelines import _sync_pipeline_decisions_to_contract
+
+        pipeline = Pipeline(
+            id="test-pipeline",
+            repo="owner/repo",
+            decisions=[
+                self._make_pipeline_decision(
+                    question="Which database?",
+                    options=["PostgreSQL", "MongoDB"],
+                    decision_type="choice",
+                    status="resolved",
+                    resolution="PostgreSQL",
+                ),
+            ],
+        )
+        pipeline.decisions[0].resolved_at = datetime(2026, 4, 30, 4, 41, 11)
+
+        contract = Contract(pipeline_id="test-pipeline", decisions=[])
+
+        repo_path = Path("/home/egg/repos/egg")
+        worktree_repo_path = Path("/home/egg/.egg-worktrees/test-pipeline/egg")
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        with (
+            patch("routes.pipelines.get_state_store", return_value=mock_store) as mock_get_store,
+            patch("egg_contracts.loader.load_contract", return_value=contract) as mock_load,
+            patch("egg_contracts.loader.save_contract") as mock_save,
+        ):
+            _sync_pipeline_decisions_to_contract(
+                repo_path=repo_path,
+                worktree_repo_path=worktree_repo_path,
+                pipeline_id="test-pipeline",
+            )
+
+        mock_get_store.assert_called_once_with(repo_path)
+        load_args, _ = mock_load.call_args
+        assert load_args[1] == worktree_repo_path
+        save_args, _ = mock_save.call_args
+        assert save_args[1] == worktree_repo_path
 
 
 class TestInlineRequestChangesStateReset:
