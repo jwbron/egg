@@ -4476,9 +4476,7 @@ class TestSessionCreateWithPhase:
             data = json.loads(response.data)
             assert "repos" in data["message"].lower()
 
-    def test_session_create_rejects_non_bool_synthetic(
-        self, client, launcher_auth_headers
-    ):
+    def test_session_create_rejects_non_bool_synthetic(self, client, launcher_auth_headers):
         """``synthetic`` must be a boolean — non-bool truthy values are rejected.
 
         Matches the validation style of the surrounding optional fields
