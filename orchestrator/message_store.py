@@ -48,6 +48,12 @@ class MessageType:
     CONSENSUS_WITHDRAW = "CONSENSUS_WITHDRAW"
     CONSENSUS_CONFIRMED = "CONSENSUS_CONFIRMED"
     CONSENSUS_RE_REVIEW = "CONSENSUS_RE_REVIEW"
+    # In-cycle conditional-ACK obligation resolution (#2338). Persisted so
+    # ``reconstruct_tracker_from_messages`` can replay the resolution after
+    # an orchestrator restart — without it, a satisfied obligation
+    # re-emerges from replay and the HITL gate asks the operator about
+    # work that was already done.
+    CONSENSUS_OBLIGATION_RESOLVED = "CONSENSUS_OBLIGATION_RESOLVED"
     # Overseer anomaly broadcasts (issue #1413)
     OVERSEER_ALERT = "OVERSEER_ALERT"
     # Tier 1 health monitor nudge messages (issue #1428)

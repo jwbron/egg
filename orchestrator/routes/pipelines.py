@@ -6911,6 +6911,11 @@ BRC_HISTORY_TYPES = frozenset(
         "CONSENSUS_WITHDRAW",
         "CONSENSUS_CONFIRMED",
         "CONSENSUS_RE_REVIEW",
+        # In-cycle conditional-ACK obligation resolution (#2338). Captured
+        # in the BRC history file so the audit trail survives orchestrator
+        # teardown — closes the gap that resolution was previously only
+        # an in-memory event.
+        "CONSENSUS_OBLIGATION_RESOLVED",
         "STATUS",
         "HANDOFF",
         "AGENT_FAILED",
@@ -8394,7 +8399,16 @@ def _build_brc_preamble(
                 "surfacing it on the PR body and HITL gate. Skip this "
                 "for obligations that genuinely require a human at "
                 "merge time (deploys, cross-repo flips) — those should "
-                "remain visible to the merger.\n",
+                "remain visible to the merger. **Resolve before "
+                "`complete_phase`**: once the HITL gate has fired and "
+                "written the obligation to `contract.pr.deferred_actions`, "
+                "calling `resolve_obligation` afterwards does *not* "
+                "retroactively unpersist the entry — the obligation will "
+                "still appear in the PR body until the next pipeline run. "
+                "Resolve early. Producers cannot self-resolve their own "
+                "obligations (the orchestrator rejects "
+                "`resolver_role == producer_role`), since that would "
+                "single-handedly bypass the reviewer's veto.\n",
             ]
         )
 

@@ -1773,7 +1773,7 @@ def handle_consensus_excuse_producer_signal(
 def handle_consensus_resolve_obligation_signal(
     pipeline_id: str,
     data: dict[str, Any],
-    repo_path: Path,  # noqa: ARG001 — kept for handler-signature uniformity
+    repo_path: Path,
 ) -> tuple[Response, int]:
     """Handle CONSENSUS_RESOLVE_OBLIGATION signal (#2338).
 
@@ -1809,6 +1809,15 @@ def handle_consensus_resolve_obligation_signal(
     commit_sha = (data.get("commit_sha") or "").strip()
     note = (data.get("note") or "").strip()
 
+    # Validate the optional resolution note for parity with summary / reason
+    # validation on other BRC verbs. Notes are short-form imperatives, not
+    # rationale, so they share the relaxed minimum-length bucket with
+    # pre-merge conditions (#2338).
+    if note:
+        note_error = _validate_brc_content(note, "Pre-merge condition")
+        if note_error:
+            return make_error_response(note_error, 400)
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -1826,6 +1835,38 @@ def handle_consensus_resolve_obligation_signal(
             commit_sha=commit_sha,
             note=note,
         )
+
+        # Persist the resolution so ``reconstruct_tracker_from_messages``
+        # can replay it after an orchestrator restart (#2338). Without
+        # this, a satisfied obligation re-emerges from replay and the
+        # HITL gate fires for work that was already done.
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=resolver_role,
+                to_role=producer_role,
+                message_type=MessageType.CONSENSUS_OBLIGATION_RESOLVED,
+                subject=(
+                    f"Obligation resolved: {reviewer_role} -> {producer_role} by {resolver_role}"
+                ),
+                body=note,
+                phase=phase,
+                metadata={
+                    "reviewer_role": reviewer_role,
+                    "producer_role": producer_role,
+                    "resolver_role": resolver_role,
+                    "commit_sha": commit_sha,
+                    "note": note,
+                    "version": result.get("version"),
+                    "condition": result.get("condition", ""),
+                },
+            )
+        )
+
         return make_success_response(
             f"Obligation resolved: {reviewer_role} -> {producer_role} by {resolver_role}",
             data=result,

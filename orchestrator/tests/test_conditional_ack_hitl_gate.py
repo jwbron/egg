@@ -563,8 +563,10 @@ class TestResolvedObligationsSkipGate:
 
     def test_resolved_obligation_omitted_from_pr_body(self, graph):
         """The PR body's Pre-merge Obligations section must drop resolved
-        entries when reading from the live tracker (the contract path
-        already filters before persisting via the gate dispatcher)."""
+        entries when reading from the live tracker. The filter lives in
+        ``ApprovalMatrix.get_pre_merge_conditions`` upstream of both this
+        renderer and the HITL gate — so a resolved obligation never makes
+        it into the live-tracker fallback path."""
         from routes import pipelines as p
 
         tracker = _make_tracker(graph, condition="tester must commit X")

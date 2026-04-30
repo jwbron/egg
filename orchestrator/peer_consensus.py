@@ -1927,6 +1927,11 @@ def reconstruct_tracker_from_messages(
         "CONSENSUS_NACK",
         "CONSENSUS_WITHDRAW",
         "CONSENSUS_CONFIRMED",
+        # In-cycle conditional-ACK obligation resolution (#2338). Replayed
+        # so the resolved flag survives orchestrator restarts — without
+        # this, a satisfied obligation re-emerges and the HITL gate
+        # asks the operator about work that was already done.
+        "CONSENSUS_OBLIGATION_RESOLVED",
     }
     consensus_msgs = [m for m in messages if m.message_type in consensus_types]
 
@@ -2034,6 +2039,31 @@ def reconstruct_tracker_from_messages(
 
             elif msg.message_type == "CONSENSUS_CONFIRMED":
                 tracker.handle_confirmed(msg.from_role)
+
+            elif msg.message_type == "CONSENSUS_OBLIGATION_RESOLVED":
+                # Metadata carries the participant roles plus optional
+                # commit_sha / note for audit. The tracker raises
+                # ValueError when the edge is missing or has no active
+                # obligation; the outer try/except logs and skips so a
+                # stale resolution message can't blow up reconstruction.
+                metadata = msg.metadata or {}
+                resolver_role = metadata.get("resolver_role") or msg.from_role
+                reviewer_role = metadata.get("reviewer_role")
+                producer_role = metadata.get("producer_role") or msg.to_role
+                if not reviewer_role or not producer_role:
+                    logger.debug(
+                        "Skipping resolution message with missing roles",
+                        pipeline_id=pipeline_id,
+                        message_id=msg.id,
+                    )
+                    continue
+                tracker.handle_resolve_obligation(
+                    resolver_role=resolver_role,
+                    reviewer_role=reviewer_role,
+                    producer_role=producer_role,
+                    commit_sha=metadata.get("commit_sha", ""),
+                    note=metadata.get("note", ""),
+                )
 
         except Exception as e:
             # Best-effort reconstruction: log and skip messages that fail

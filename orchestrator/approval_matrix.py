@@ -45,10 +45,13 @@ class ApprovalEntry:
     # obligation on a later proposal version starts un-resolved.
     obligation_resolved: bool = False
     # Audit fields populated by ``mark_obligation_resolved``: who claimed
-    # satisfaction, the commit they pointed at, and an optional human note.
+    # satisfaction, the commit they pointed at, an optional human note,
+    # and when the resolution was recorded (so audit logs can sequence
+    # a resolution against any later re-ACK that resets the flag).
     obligation_resolved_by: str = ""
     obligation_resolved_commit: str = ""
     obligation_resolved_note: str = ""
+    obligation_resolved_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +69,9 @@ class ApprovalEntry:
             "obligation_resolved_by": self.obligation_resolved_by,
             "obligation_resolved_commit": self.obligation_resolved_commit,
             "obligation_resolved_note": self.obligation_resolved_note,
+            "obligation_resolved_at": (
+                self.obligation_resolved_at.isoformat() if self.obligation_resolved_at else None
+            ),
         }
 
 
@@ -143,6 +149,7 @@ class ApprovalMatrix:
         entry.obligation_resolved_by = ""
         entry.obligation_resolved_commit = ""
         entry.obligation_resolved_note = ""
+        entry.obligation_resolved_at = None
         return entry
 
     def record_nack(
@@ -172,6 +179,7 @@ class ApprovalMatrix:
         entry.obligation_resolved_by = ""
         entry.obligation_resolved_commit = ""
         entry.obligation_resolved_note = ""
+        entry.obligation_resolved_at = None
 
         # Increment revision count for this edge
         self._revision_counts[key] = self._revision_counts.get(key, 0) + 1
@@ -267,6 +275,7 @@ class ApprovalMatrix:
             entry.obligation_resolved_by = ""
             entry.obligation_resolved_commit = ""
             entry.obligation_resolved_note = ""
+            entry.obligation_resolved_at = None
             return True
         return False
 
@@ -401,7 +410,12 @@ class ApprovalMatrix:
         flag, so a re-attached obligation on a later version starts fresh.
 
         Raises ``ValueError`` when the edge does not exist, is not in ACKED
-        state, or has no obligation attached.
+        state, has no obligation attached, or the resolver is the producer
+        themselves. The producer cannot self-resolve their own obligation —
+        that would let them single-handedly bypass the reviewer's veto, and
+        the second pair of eyes is the whole point of ``pre_merge_condition``.
+        If the reviewer wants to drop their own obligation, the existing path
+        is to re-ACK without ``pre_merge_condition``.
         """
         key = (reviewer, producer)
         entry = self._entries.get(key)
@@ -418,10 +432,18 @@ class ApprovalMatrix:
                 "(reviewer has not attached pre_merge_condition on the "
                 "current ACK)"
             )
+        resolver = (resolved_by or "").strip()
+        if resolver and resolver == producer:
+            raise ValueError(
+                f"Producer {producer!r} cannot self-resolve their own "
+                "conditional-ACK obligation; the reviewer must drop the "
+                "condition on re-ACK or another role must resolve."
+            )
         entry.obligation_resolved = True
-        entry.obligation_resolved_by = (resolved_by or "").strip()
+        entry.obligation_resolved_by = resolver
         entry.obligation_resolved_commit = (commit_sha or "").strip()
         entry.obligation_resolved_note = (note or "").strip()
+        entry.obligation_resolved_at = datetime.now(UTC)
         return entry
 
     def get_latest_entry_timestamp(self) -> datetime | None:
@@ -493,6 +515,11 @@ class ApprovalMatrix:
                     obligation_resolved_by=entry_data.get("obligation_resolved_by", ""),
                     obligation_resolved_commit=entry_data.get("obligation_resolved_commit", ""),
                     obligation_resolved_note=entry_data.get("obligation_resolved_note", ""),
+                    obligation_resolved_at=(
+                        datetime.fromisoformat(entry_data["obligation_resolved_at"])
+                        if entry_data.get("obligation_resolved_at")
+                        else None
+                    ),
                 )
 
         for key_str, count in data.get("revision_counts", {}).items():
