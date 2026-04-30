@@ -381,25 +381,32 @@ class TestPatternEdgeCases:
 
 
 class TestFileRestriction:
-    """Tests for FileRestriction dataclass."""
+    """Tests for FileRestriction dataclass.
+
+    These exercise the dataclass surface itself (constructors, path
+    normalization, pattern matching) — they intentionally do NOT touch
+    the registry / role-derivation path. A fine-grained role label
+    (``coder``) is used so the tests don't suggest the legacy
+    ``implementer`` coarse role is still wired up post-#1903.
+    """
 
     def test_from_dict_basic(self):
         """Create FileRestriction from dictionary."""
         data = {
-            "role": "implementer",
+            "role": "coder",
             "blocked_patterns": [".egg-state/contracts/"],
             "blocked_reason": "Contract files are protected",
         }
         restriction = FileRestriction.from_dict(data)
 
-        assert restriction.role == "implementer"
+        assert restriction.role == "coder"
         assert restriction.blocked_patterns == [".egg-state/contracts/"]
         assert restriction.blocked_reason == "Contract files are protected"
 
     def test_is_file_blocked_matching_pattern(self):
         """Files matching blocked pattern should be detected."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/"],
             blocked_reason="Protected",
         )
@@ -410,7 +417,7 @@ class TestFileRestriction:
     def test_is_file_blocked_non_matching(self):
         """Files not matching pattern should not be blocked."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/"],
             blocked_reason="Protected",
         )
@@ -422,7 +429,7 @@ class TestFileRestriction:
     def test_path_normalization_leading_dot_slash(self):
         """Leading ./ should be normalized."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/"],
             blocked_reason="Protected",
         )
@@ -433,7 +440,7 @@ class TestFileRestriction:
     def test_path_normalization_double_slash(self):
         """Double slashes should be normalized."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/"],
             blocked_reason="Protected",
         )
@@ -444,7 +451,7 @@ class TestFileRestriction:
     def test_multiple_patterns(self):
         """Multiple blocked patterns should all be checked."""
         restriction = FileRestriction(
-            role="implementer",
+            role="coder",
             blocked_patterns=[".egg-state/contracts/", "secrets/"],
             blocked_reason="Protected",
         )
@@ -469,24 +476,36 @@ class TestFileRestrictionResult:
         """FileRestrictionResult.block creates blocked result."""
         result = FileRestrictionResult.block(
             message="Files blocked",
-            role="implementer",
+            role="coder",
             blocked_files=[".egg-state/contracts/123.json"],
             blocked_reason="Contract files protected",
         )
 
         assert result.allowed is False
         assert result.message == "Files blocked"
-        assert result.role == "implementer"
+        assert result.role == "coder"
         assert result.blocked_files == [".egg-state/contracts/123.json"]
         assert result.blocked_reason == "Contract files protected"
 
 
 class TestPhaseFilterFileRestrictions:
-    """Tests for PhaseFilter file restriction methods."""
+    """Tests for PhaseFilter file restriction methods.
+
+    Per #1903, per-role file restrictions are derived from
+    ``shared/egg_restrictions/patterns.py``; the JSON
+    ``file_restrictions`` key is ignored at load time. These tests
+    exercise the derived restrictions using fine-grained roles
+    (``coder``/``tester``/``documenter``) that replaced the legacy
+    coarse ``implementer`` role.
+    """
 
     @pytest.fixture
-    def permissions_file_with_restrictions(self) -> Path:
-        """Create a temporary permissions file with file restrictions."""
+    def permissions_file_phases_only(self) -> Path:
+        """Create a temporary permissions file with phases only.
+
+        The ``file_restrictions`` key is intentionally absent — derived
+        restrictions come from ``AGENT_PATTERNS`` regardless.
+        """
         permissions = {
             "schemaVersion": "1.0",
             "phases": {
@@ -498,107 +517,124 @@ class TestPhaseFilterFileRestrictions:
                     "exit_requires": "reviewer",
                 },
             },
-            "file_restrictions": [
-                {
-                    "role": "implementer",
-                    "blocked_patterns": [".egg-state/contracts/"],
-                    "blocked_reason": "Contract files can only be modified through the contract API",
-                },
-            ],
         }
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(permissions, f)
             return Path(f.name)
 
-    def test_load_file_restrictions_from_file(self, permissions_file_with_restrictions: Path):
-        """File restrictions should be loaded from JSON file."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+    def test_derived_restrictions_include_coder(self, permissions_file_phases_only: Path):
+        """Derived restrictions should include the canonical agent roles."""
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
         restrictions = pf.get_file_restrictions()
 
-        assert len(restrictions) == 1
-        assert restrictions[0].role == "implementer"
-        assert ".egg-state/contracts/" in restrictions[0].blocked_patterns
+        # AGENT_PATTERNS is the single source of truth — every role with
+        # blocked_patterns shows up here.
+        roles = {r.role for r in restrictions}
+        assert "coder" in roles
+        assert "tester" in roles
+        assert "documenter" in roles
 
-    def test_get_file_restrictions_for_role(self, permissions_file_with_restrictions: Path):
+        coder = next(r for r in restrictions if r.role == "coder")
+        assert ".egg-state/" in coder.blocked_patterns
+        assert ".egg-state/agent-outputs/" in coder.block_exempt_patterns
+
+    def test_legacy_file_restrictions_key_emits_deprecation(self, tmp_path: Path):
+        """A stale config carrying ``file_restrictions`` warns but does not
+        change derived behavior (#1903)."""
+        permissions = {
+            "schemaVersion": "1.0",
+            "phases": {},
+            "file_restrictions": [
+                {"role": "implementer", "blocked_patterns": [".egg-state/contracts/"]},
+            ],
+        }
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(permissions))
+
+        pf = PhaseFilter(permissions_path=path)
+        with pytest.warns(DeprecationWarning, match="file_restrictions"):
+            pf.get_file_restrictions()
+
+    def test_get_file_restrictions_for_role(self, permissions_file_phases_only: Path):
         """Should return restrictions for specific role."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
 
-        implementer_restrictions = pf.get_file_restrictions_for_role("implementer")
-        assert len(implementer_restrictions) == 1
+        coder_restrictions = pf.get_file_restrictions_for_role("coder")
+        assert len(coder_restrictions) == 1
 
-        reviewer_restrictions = pf.get_file_restrictions_for_role("reviewer")
-        assert len(reviewer_restrictions) == 0
+        # Unknown roles have no restrictions (fail-open; the patterns.py
+        # layer at gateway.py:1648 fails closed for unknown roles).
+        unknown_restrictions = pf.get_file_restrictions_for_role("not_a_role")
+        assert len(unknown_restrictions) == 0
 
     def test_get_file_restrictions_for_role_case_insensitive(
-        self, permissions_file_with_restrictions: Path
+        self, permissions_file_phases_only: Path
     ):
         """Role matching should be case-insensitive."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
 
-        restrictions = pf.get_file_restrictions_for_role("IMPLEMENTER")
+        restrictions = pf.get_file_restrictions_for_role("CODER")
         assert len(restrictions) == 1
 
-        restrictions = pf.get_file_restrictions_for_role("Implementer")
+        restrictions = pf.get_file_restrictions_for_role("Coder")
         assert len(restrictions) == 1
 
-    def test_check_file_restrictions_blocked(self, permissions_file_with_restrictions: Path):
+    def test_check_file_restrictions_blocked(self, permissions_file_phases_only: Path):
         """Should block files matching restriction patterns."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
 
         result = pf.check_file_restrictions(
-            "implementer",
-            ["src/main.py", ".egg-state/contracts/123.json", "README.md"],
+            "coder",
+            ["src/main.py", ".egg-state/contracts/123.json", "gateway/app.py"],
         )
 
         assert result.allowed is False
         assert ".egg-state/contracts/123.json" in result.blocked_files
         assert len(result.blocked_files) == 1
-        assert result.role == "implementer"
+        assert result.role == "coder"
 
-    def test_check_file_restrictions_allowed(self, permissions_file_with_restrictions: Path):
+    def test_check_file_restrictions_allowed(self, permissions_file_phases_only: Path):
         """Should allow files not matching restriction patterns."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
 
         result = pf.check_file_restrictions(
-            "implementer",
-            ["src/main.py", "tests/test_main.py", "README.md"],
+            "coder",
+            ["src/main.py", "gateway/app.py", ".egg-state/agent-outputs/out.json"],
         )
 
         assert result.allowed is True
         assert result.blocked_files == []
 
-    def test_check_file_restrictions_multiple_blocked(
-        self, permissions_file_with_restrictions: Path
-    ):
+    def test_check_file_restrictions_multiple_blocked(self, permissions_file_phases_only: Path):
         """Should detect multiple blocked files."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
 
         result = pf.check_file_restrictions(
-            "implementer",
-            [".egg-state/contracts/123.json", ".egg-state/contracts/456.json", "src/code.py"],
+            "coder",
+            [".egg-state/contracts/123.json", ".egg-state/drafts/plan.md", "src/code.py"],
         )
 
         assert result.allowed is False
         assert len(result.blocked_files) == 2
         assert ".egg-state/contracts/123.json" in result.blocked_files
-        assert ".egg-state/contracts/456.json" in result.blocked_files
+        assert ".egg-state/drafts/plan.md" in result.blocked_files
 
     def test_check_file_restrictions_no_restrictions_for_role(
-        self, permissions_file_with_restrictions: Path
+        self, permissions_file_phases_only: Path
     ):
-        """Roles without restrictions should be allowed."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+        """Unknown roles have no restrictions at this layer (fail-open)."""
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
 
         result = pf.check_file_restrictions(
-            "reviewer",
-            [".egg-state/contracts/123.json"],  # Would be blocked for implementer
+            "unknown_role",
+            [".egg-state/contracts/123.json"],
         )
 
         assert result.allowed is True
 
-    def test_check_file_restrictions_empty_role(self, permissions_file_with_restrictions: Path):
+    def test_check_file_restrictions_empty_role(self, permissions_file_phases_only: Path):
         """Empty role should be allowed."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
 
         result = pf.check_file_restrictions(
             "",
@@ -607,11 +643,11 @@ class TestPhaseFilterFileRestrictions:
 
         assert result.allowed is True
 
-    def test_check_file_restrictions_empty_files(self, permissions_file_with_restrictions: Path):
+    def test_check_file_restrictions_empty_files(self, permissions_file_phases_only: Path):
         """Empty file list should be allowed."""
-        pf = PhaseFilter(permissions_path=permissions_file_with_restrictions)
+        pf = PhaseFilter(permissions_path=permissions_file_phases_only)
 
-        result = pf.check_file_restrictions("implementer", [])
+        result = pf.check_file_restrictions("coder", [])
 
         assert result.allowed is True
 
@@ -626,37 +662,37 @@ class TestDefaultFileRestrictions:
         yield
         phase_filter._filter = None
 
-    def test_default_restrictions_block_implementer_contracts(self):
-        """Default restrictions should block implementer from modifying contracts."""
+    def test_default_restrictions_block_coder_contracts(self):
+        """Derived restrictions should block coder from modifying contracts.
+
+        Pre-#1903 a coarse "implementer" role guarded contracts. After
+        #1903 the fine-grained role (coder) blocks the broader
+        ``.egg-state/`` prefix, which still covers contracts.
+        """
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
 
         result = pf.check_file_restrictions(
-            "implementer",
+            "coder",
             [".egg-state/contracts/123.json"],
         )
 
         assert result.allowed is False
         assert ".egg-state/contracts/123.json" in result.blocked_files
 
-    def test_default_restrictions_allow_reviewer_contracts(self):
-        """Default restrictions should allow reviewer to modify contracts."""
+    def test_default_restrictions_allow_reviewer_contract_role(self):
+        """Reviewer-contract role can write into ``.egg-state/contracts/``."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
 
         result = pf.check_file_restrictions(
-            "reviewer",
+            "reviewer_contract",
             [".egg-state/contracts/123.json"],
         )
 
         assert result.allowed is True
 
     def test_defaults_applied_when_config_lacks_file_restrictions_key(self):
-        """Default restrictions should be applied when config exists but lacks file_restrictions.
-
-        SECURITY: This ensures protection for legacy configs that predate the
-        file_restrictions feature. Without this, a config file missing the
-        file_restrictions key would silently disable all file restrictions.
-        """
-        # Create a config file WITHOUT the file_restrictions key
+        """Derived restrictions apply regardless of whether the JSON config
+        had a (now-ignored) ``file_restrictions`` key (#1903)."""
         permissions = {
             "schemaVersion": "1.0",
             "phases": {
@@ -668,7 +704,6 @@ class TestDefaultFileRestrictions:
                     "exit_requires": "reviewer",
                 },
             },
-            # Intentionally NO file_restrictions key
         }
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(permissions, f)
@@ -677,13 +712,11 @@ class TestDefaultFileRestrictions:
         try:
             pf = PhaseFilter(permissions_path=temp_path)
 
-            # Should use default restrictions when key is missing
             result = pf.check_file_restrictions(
-                "implementer",
+                "coder",
                 [".egg-state/contracts/123.json"],
             )
 
-            # Default restrictions should block implementer from contracts
             assert result.allowed is False
             assert ".egg-state/contracts/123.json" in result.blocked_files
         finally:
@@ -700,10 +733,10 @@ class TestCheckFileRestrictionsFunction:
         yield
         phase_filter._filter = None
 
-    def test_convenience_function_blocks_implementer(self):
-        """Module-level function should block implementer from contracts."""
+    def test_convenience_function_blocks_coder_from_contracts(self):
+        """Module-level function should block coder from contracts."""
         result = check_file_restrictions(
-            "implementer",
+            "coder",
             [".egg-state/contracts/123.json"],
         )
 
@@ -719,10 +752,10 @@ class TestCheckFileRestrictionsFunction:
         assert result.allowed is True
 
     def test_convenience_function_allows_normal_files(self):
-        """Module-level function should allow normal files for implementer."""
+        """Module-level function should allow normal files for coder."""
         result = check_file_restrictions(
-            "implementer",
-            ["src/main.py", "README.md"],
+            "coder",
+            ["src/main.py", "gateway/app.py"],
         )
 
         assert result.allowed is True
