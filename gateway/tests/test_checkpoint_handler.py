@@ -998,6 +998,141 @@ class TestStoreCheckpointV2Concurrency:
             f"Worktree ops must run under bare_repo_lock, saw {worktree_observations}"
         )
 
+    def test_bare_repo_lock_not_held_across_regenerate_fetch(self, monkeypatch):
+        """Cross-process flock is also released around the regenerate-path fetch.
+
+        Companion to ``test_bare_repo_lock_not_held_across_fetch_retry``: the
+        non-FF push retry runs a second ``fetch +CHECKPOINT_BRANCH:CHECKPOINT_BRANCH``
+        from a separate code path (``checkpoint_handler.py:1079-1084``). It has
+        the same fetch-timeout pathology — holding the flock across it would
+        block every state-store commit and worktree op against the same bare
+        repo for up to ~60s. A regression that wrapped the regenerate fetch
+        in ``bare_repo_lock`` would not be caught by the initial-fetch test.
+        """
+        import checkpoint_handler
+
+        checkpoint_handler._store_locks.clear()
+
+        flock_depth = [0]
+        observations: list[tuple[list[str], int]] = []
+
+        @contextlib.contextmanager
+        def recording_flock(_repo_path):
+            flock_depth[0] += 1
+            try:
+                yield
+            finally:
+                flock_depth[0] -= 1
+
+        monkeypatch.setattr(checkpoint_handler, "bare_repo_lock", recording_flock)
+        monkeypatch.setattr(checkpoint_handler.time, "sleep", lambda _s: None)
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        push_count = [0]
+
+        def track_run_git(cwd, args, **kwargs):
+            observations.append((list(args), flock_depth[0]))
+            if "push" in args:
+                push_count[0] += 1
+                if push_count[0] == 1:
+                    raise checkpoint_handler.CheckpointError(
+                        "Git command failed: ! [rejected] non-fast-forward"
+                    )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+        assert result is True
+
+        push_calls = [args for args, _ in observations if "push" in args]
+        assert len(push_calls) == 2, (
+            f"Expected 2 push attempts (initial + regenerate retry), got {len(push_calls)}"
+        )
+
+        # Both the initial fetch and the regenerate-path fetch must run
+        # outside the flock. Assert there are at least 2 fetches and all
+        # of them are at depth 0.
+        fetch_observations = [depth for args, depth in observations if args[:1] == ["fetch"]]
+        assert len(fetch_observations) >= 2, (
+            f"Expected initial + regenerate fetches, observed {len(fetch_observations)}"
+        )
+        assert all(d == 0 for d in fetch_observations), (
+            "bare_repo_lock must not be held during any fetch (including the "
+            f"regenerate-path retry), saw depths {fetch_observations}"
+        )
+
+    def test_bare_repo_lock_wraps_branch_d_in_orphan_path(self, monkeypatch):
+        """``branch -D`` and the orphan-path ``worktree add`` run under the flock.
+
+        Companion to ``test_bare_repo_lock_not_held_across_fetch_retry``: that
+        test mocks ``_branch_exists=True`` so the orphan path's ``branch -D``
+        is never executed. A regression that moved ``branch -D`` outside the
+        flock window (``checkpoint_handler.py:978-987``) — or moved
+        ``checkout --orphan`` *inside* it — would not be caught. This test
+        drives the orphan path explicitly.
+        """
+        import checkpoint_handler
+
+        checkpoint_handler._store_locks.clear()
+
+        flock_depth = [0]
+        observations: list[tuple[list[str], int]] = []
+
+        @contextlib.contextmanager
+        def recording_flock(_repo_path):
+            flock_depth[0] += 1
+            try:
+                yield
+            finally:
+                flock_depth[0] -= 1
+
+        monkeypatch.setattr(checkpoint_handler, "bare_repo_lock", recording_flock)
+        monkeypatch.setattr(checkpoint_handler.time, "sleep", lambda _s: None)
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        def track_run_git(cwd, args, **kwargs):
+            observations.append((list(args), flock_depth[0]))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=False)
+
+        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+        assert result is True
+
+        # Both bare-repo writers in the orphan path must run under the flock.
+        branch_d_observations = [
+            depth for args, depth in observations if args[:2] == ["branch", "-D"]
+        ]
+        assert branch_d_observations, "Expected `branch -D` to run in the orphan path"
+        assert all(d >= 1 for d in branch_d_observations), (
+            f"`branch -D` must run under bare_repo_lock, saw depths {branch_d_observations}"
+        )
+
+        worktree_add_observations = [
+            depth for args, depth in observations if args[:2] == ["worktree", "add"]
+        ]
+        assert worktree_add_observations, "Expected `worktree add` to run in the orphan path"
+        assert all(d >= 1 for d in worktree_add_observations), (
+            f"`worktree add` must run under bare_repo_lock, saw depths {worktree_add_observations}"
+        )
+
+        # ``checkout --orphan`` runs inside the temp worktree, not the bare
+        # repo, so it must run *outside* the flock. A regression that nested
+        # it inside the flock window would inflate the cross-process critical
+        # section unnecessarily.
+        orphan_observations = [
+            depth for args, depth in observations if args[:2] == ["checkout", "--orphan"]
+        ]
+        assert orphan_observations, "Expected `checkout --orphan` to run in the orphan path"
+        assert all(d == 0 for d in orphan_observations), (
+            f"`checkout --orphan` must run outside bare_repo_lock, saw depths {orphan_observations}"
+        )
+
 
 class TestStoreCheckpointV2RemoteTarget:
     """Tests for store_checkpoint_v2 remote URL resolution (issue #1767).
