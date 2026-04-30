@@ -258,7 +258,11 @@ def build_bare_name_upstream_edges(all_modules: set[str], repo_root: Path) -> di
             source = source_path.read_text(encoding="utf-8", errors="replace")
             tree = ast.parse(source, filename=str(source_path))
         except SyntaxError, OSError, ValueError:
-            # ValueError covers null-byte source etc.
+            # ValueError covers null-byte source etc.  Parenthesised
+            # tuple form for clarity — Python 3.14's PEP 758 also accepts
+            # ``except A, B, C`` without parens, but the visual collision
+            # with the Python-2 ``except E, e`` form is a known migration
+            # hazard, so we keep the canonical tuple shape.
             continue
         for imported in _extract_imports(tree):
             for fq in leaf_index.get(imported, ()):

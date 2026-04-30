@@ -620,7 +620,7 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="select_tests.py",
+        prog="python scripts/select_tests/__main__.py",
         description="Changeset-aware test selection (issue #1973)",
     )
     parser.add_argument(

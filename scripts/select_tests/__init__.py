@@ -261,10 +261,9 @@ __all__ = (
 )
 
 
-if __name__ == "__main__":
-    # Allow ``python scripts/select_tests/__init__.py`` to keep working
-    # for muscle-memory invocations even though ``__main__.py`` is the
-    # canonical path-style entry point now (Makefile + tests use it).
-    import sys
-
-    sys.exit(main())
+# NOTE: there is intentionally no ``if __name__ == "__main__":`` block
+# here.  ``__init__.py`` is loaded as a module under the package's
+# import name, never as a script — Python's ``-m`` flag would still
+# resolve ``__main__.py`` as the entry point.  Path-style invocations
+# go through ``scripts/select_tests/__main__.py``, which knows how to
+# manipulate ``sys.path`` so the package import resolves correctly.

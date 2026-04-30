@@ -1,11 +1,15 @@
 """Module-level constants for the changeset-aware test selector.
 
-Kept in a dedicated submodule so importing the package's
-re-export barrel doesn't pull in the I/O / graph / CLI code paths
-just to access ``PACKAGES`` or one of the path-pattern tuples.
-Everything here is data — no side effects, no functions — and
-both production code and the test suite read from this module
-through the package's ``__init__.py`` re-export barrel.
+Everything here is data — no side effects, no functions — so this
+file remains parse-cheap and ruff/mypy-friendly even on cold cache.
+
+The package's ``__init__.py`` eagerly imports every submodule so
+test code can reach the ``selector._io._run_git`` / ``selector._cli._main_inner``
+attribute paths needed for monkeypatching internal helpers; that
+means ``import select_tests`` does pull in the I/O / graph / CLI
+code paths regardless of which symbols the consumer actually
+references.  Both production code and the test suite read from
+this module through the package's re-export barrel.
 """
 
 from __future__ import annotations
