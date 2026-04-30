@@ -199,6 +199,7 @@ Without it, the system falls back to posting reviews as comments (self-review mo
    - *Feedback contract violated* — agent ran but the contract guard detected a violation (see flag comment)
    - *Cancelled* — agent was cancelled mid-run
    - *Failed* — agent failed to address feedback
+   - *Workflow failed before running egg* — an earlier step failed (e.g. trusted-prompt build), so `steps.egg.outcome` was `skipped` or unset
 
 ### Iteration Limiting
 
