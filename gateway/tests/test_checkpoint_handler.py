@@ -1053,11 +1053,12 @@ class TestStoreCheckpointV2Concurrency:
         )
 
         # Both the initial fetch and the regenerate-path fetch must run
-        # outside the flock. Assert there are at least 2 fetches and all
-        # of them are at depth 0.
+        # outside the flock. Pin the count to exactly 2 (initial + regenerate)
+        # so a regression that adds a redundant fetch *inside* the flock
+        # — masked by an at-depth-0 fetch elsewhere — is caught.
         fetch_observations = [depth for args, depth in observations if args[:1] == ["fetch"]]
-        assert len(fetch_observations) >= 2, (
-            f"Expected initial + regenerate fetches, observed {len(fetch_observations)}"
+        assert len(fetch_observations) == 2, (
+            f"Expected exactly 2 fetches (initial + regenerate), observed {len(fetch_observations)}"
         )
         assert all(d == 0 for d in fetch_observations), (
             "bare_repo_lock must not be held during any fetch (including the "
@@ -1119,6 +1120,24 @@ class TestStoreCheckpointV2Concurrency:
         assert worktree_add_observations, "Expected `worktree add` to run in the orphan path"
         assert all(d >= 1 for d in worktree_add_observations), (
             f"`worktree add` must run under bare_repo_lock, saw depths {worktree_add_observations}"
+        )
+
+        # ``branch -D`` must run *before* ``worktree add`` in the orphan path.
+        # Running ``worktree add`` against a still-existing branch would fail
+        # at the git layer in production. The two calls share the same flock
+        # window, so the only way to keep them safe is the explicit ordering
+        # at ``checkpoint_handler.py:978-987``. A regression that swapped them
+        # would still pass the depth check above; this assertion catches that.
+        observed_args = [args for args, _ in observations]
+        first_branch_d = next(
+            i for i, args in enumerate(observed_args) if args[:2] == ["branch", "-D"]
+        )
+        first_worktree_add = next(
+            i for i, args in enumerate(observed_args) if args[:2] == ["worktree", "add"]
+        )
+        assert first_branch_d < first_worktree_add, (
+            "`branch -D` must run before `worktree add` in the orphan path "
+            f"(saw branch -D at index {first_branch_d}, worktree add at index {first_worktree_add})"
         )
 
         # ``checkout --orphan`` runs inside the temp worktree, not the bare
