@@ -1338,6 +1338,119 @@ class TestWorktreeManagerConcurrency:
             assert git_file.is_file(), f"{cid}: .git should be a file"
             assert git_file.read_text().strip().startswith("gitdir:")
 
+    def test_concurrent_create_worktree_with_sibling_state_writes(self, git_repo):
+        """Concurrent worktree creates do not lose ``.git/config`` lock races to
+        a sibling process running state-store-style git operations on the
+        same bare repo (#2311).
+
+        The pre-#2311 gateway only serialised worktree creates inside its
+        own process; a separate process (the orchestrator's state-store)
+        could write to ``.git/config`` between the gateway's claim and
+        commit of ``.git/config.lock``, and ``git worktree add`` would
+        fail with ``could not lock config file .git/config: File exists``.
+        With the cross-process flock, both sides cooperatively serialise
+        on a shared sentinel inside ``.git/`` — ``git worktree add`` no
+        longer races.
+        """
+        import os as _os
+        import subprocess as _sp
+        import sys as _sys
+        import textwrap
+        import threading
+
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        # Sibling subprocess: bursts of ``git config`` writes guarded by
+        # ``bare_repo_lock`` — i.e. the same lock the gateway acquires.
+        # Each write goes through ``.git/config.lock``, the same file that
+        # ``git worktree add`` claims when it sets ``branch.<x>.remote``.
+        ready_sentinel = repo_dir / ".contender-ready"
+        contender_script = textwrap.dedent(
+            f"""
+            import subprocess, sys, time
+            sys.path.insert(0, {str(Path(__file__).resolve().parent.parent.parent / "shared")!r})
+            from egg_git.cross_process_lock import bare_repo_lock
+
+            repo = {str(repo_dir)!r}
+            open({str(ready_sentinel)!r}, "w").close()
+            deadline = time.monotonic() + 8
+            i = 0
+            while time.monotonic() < deadline:
+                with bare_repo_lock(repo):
+                    subprocess.run(
+                        ["git", "-C", repo, "config",
+                         f"egg.statetest{{i}}", str(i)],
+                        check=False, capture_output=True,
+                    )
+                i += 1
+            """
+        )
+        contender = _sp.Popen(
+            [_sys.executable, "-c", contender_script],
+            env={**_os.environ, "PYTHONUNBUFFERED": "1"},
+            stdout=_sp.PIPE,
+            stderr=_sp.PIPE,
+        )
+
+        try:
+            # Wait for the contender to start running before launching
+            # threads so the race window actually overlaps.
+            import time as _time
+
+            deadline = _time.monotonic() + 5
+            while not ready_sentinel.exists() and _time.monotonic() < deadline:
+                if contender.poll() is not None:
+                    out, err = contender.communicate(timeout=1)
+                    pytest.fail(
+                        f"contender exited early rc={contender.returncode}: "
+                        f"stdout={out!r} stderr={err!r}"
+                    )
+                _time.sleep(0.01)
+            assert ready_sentinel.exists(), "contender did not signal readiness"
+
+            results: dict[str, object] = {}
+            container_ids = [f"container-{i}" for i in range(6)]
+            barrier = threading.Barrier(len(container_ids))
+
+            def create(cid: str) -> None:
+                try:
+                    barrier.wait(timeout=10)
+                    # ``assigned_branch`` triggers ``_configure_push_upstream``,
+                    # which writes ``branch.<x>.remote`` / ``branch.<x>.merge``
+                    # into ``.git/config``.  That is the same write that races
+                    # ``.git/config.lock`` in #2311.
+                    results[cid] = manager.create_worktree(
+                        "test-repo",
+                        cid,
+                        assigned_branch="egg/issue-2311-target",
+                    )
+                except Exception as exc:
+                    results[cid] = exc
+
+            threads = [threading.Thread(target=create, args=(cid,)) for cid in container_ids]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=60)
+        finally:
+            contender.terminate()
+            try:
+                contender.wait(timeout=5)
+            except _sp.TimeoutExpired:
+                contender.kill()
+                contender.wait(timeout=2)
+
+        for cid in container_ids:
+            assert cid in results, f"Thread for {cid} did not finish"
+            info = results[cid]
+            if isinstance(info, Exception):
+                # Surface the exact error message — the regression
+                # signature is ``could not lock config file .git/config``.
+                pytest.fail(f"{cid} failed: {info!r}")
+            assert isinstance(info, WorktreeInfo)
+            assert info.worktree_path.exists()
+
 
 class TestRunGitWorktreeAddRetry:
     """Tests for _run_git_worktree_add retry logic on index.lock contention."""

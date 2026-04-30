@@ -1109,7 +1109,10 @@ class TestRunGitLocking:
         store = StateStore(tmp_path, worktree_dir=worktree_dir)
         store._worktree = worktree_dir
 
-        lock_file = tmp_path / ".git-ops.lock"
+        # Lock file lives inside the bare repo's .git/ so the gateway pod
+        # (which mounts /home/egg/repos/ from the same hostPath) sees the
+        # same inode and flock serialises both processes (#2311).
+        lock_file = tmp_path / ".git" / ".egg-cross-process.lock"
         assert not lock_file.exists()
 
         with store._git_op():

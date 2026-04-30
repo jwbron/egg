@@ -29,7 +29,9 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists():
     sys.path.insert(0, str(_shared_path))
 import contextlib
+from collections.abc import Generator
 
+from egg_git.cross_process_lock import bare_repo_lock
 from egg_logging import get_logger
 
 # Import git_cmd helper
@@ -319,23 +321,26 @@ class WorktreeManager:
             # Ensure ownership is correct (may have been created with different uid/gid)
             self._chown_recursive(worktree_path, uid, gid)
             self._chown_single(worktree_path.parent, uid, gid)
-            # Re-apply push upstream config in case the assigned branch
-            # changed across calls (idempotent when unchanged).
-            self._configure_push_upstream(main_repo, branch_name, assigned_branch)
-            # Reset HEAD to a known-good ref so we don't inherit a stale
-            # left-over HEAD from a prior pipeline that collided on
-            # ``container_id`` (deterministic pipeline_id can collide when
-            # the same issue is resubmitted — see #2222).  Without this,
-            # the new pipeline's first push hits non-fast-forward and
-            # the reconcile path can absorb upstream main commits onto
-            # the pipeline branch.
-            self._reset_reused_worktree_to_safe_ref(
-                worktree_path=worktree_path,
-                main_repo=main_repo,
-                container_id=container_id,
-                assigned_branch=assigned_branch,
-                base_branch=base_branch,
-            )
+            # Re-apply push upstream config and reset to a safe ref under
+            # the per-repo lock — both write to ``.git/config`` (and the
+            # latter to ``.git/index``), and concurrent callers without
+            # the lock race on ``.git/config.lock`` (#2311).
+            with self._get_repo_lock(repo_name):
+                self._configure_push_upstream(main_repo, branch_name, assigned_branch)
+                # Reset HEAD to a known-good ref so we don't inherit a stale
+                # left-over HEAD from a prior pipeline that collided on
+                # ``container_id`` (deterministic pipeline_id can collide when
+                # the same issue is resubmitted — see #2222).  Without this,
+                # the new pipeline's first push hits non-fast-forward and
+                # the reconcile path can absorb upstream main commits onto
+                # the pipeline branch.
+                self._reset_reused_worktree_to_safe_ref(
+                    worktree_path=worktree_path,
+                    main_repo=main_repo,
+                    container_id=container_id,
+                    assigned_branch=assigned_branch,
+                    base_branch=base_branch,
+                )
             # Return info about existing worktree
             return WorktreeInfo(
                 container_id=container_id,
@@ -496,8 +501,11 @@ class WorktreeManager:
         # Point the per-worktree local branch at the assigned remote branch
         # so `git push` resolves to a refspec the gateway will accept
         # (#1809).  Must happen before returning so the sandbox's push
-        # client sees the config on its first push.
-        self._configure_push_upstream(main_repo, branch_name, assigned_branch)
+        # client sees the config on its first push.  Held under the
+        # per-repo lock so the ``.git/config`` write does not race the
+        # state-store's commits in the orchestrator pod (#2311).
+        with self._get_repo_lock(repo_name):
+            self._configure_push_upstream(main_repo, branch_name, assigned_branch)
 
         # Find the actual git dir (git names it based on worktree basename)
         git_dir = self._find_worktree_git_dir(main_repo, worktree_path)
@@ -584,12 +592,27 @@ class WorktreeManager:
             git_dir=self._find_worktree_git_dir(main_repo, worktree_path),
         )
 
-    def _get_repo_lock(self, repo_name: str) -> threading.Lock:
-        """Get or create a per-repo lock for serializing git operations."""
+    @contextlib.contextmanager
+    def _get_repo_lock(self, repo_name: str) -> Generator[None]:
+        """Hold the per-repo lock for serializing git operations.
+
+        Combines two layers:
+
+        * A per-repo ``threading.Lock`` for in-process serialization (the
+          original #1857 / #1863 fix).
+        * ``bare_repo_lock`` for cross-process serialization against the
+          orchestrator's state-store, which runs git from a different pod
+          but shares the same hostPath-mounted bare repo (#2311).  Without
+          this, parallel ``git worktree add`` calls race the state-store's
+          commits on ``.git/config.lock`` and fail with ``could not lock
+          config file .git/config: File exists``.
+        """
         with self._repo_locks_guard:
             if repo_name not in self._repo_locks:
                 self._repo_locks[repo_name] = threading.Lock()
-            return self._repo_locks[repo_name]
+            thread_lock = self._repo_locks[repo_name]
+        with thread_lock, bare_repo_lock(self.repos_base / repo_name):
+            yield
 
     def _configure_push_upstream(
         self,
