@@ -88,10 +88,10 @@
         {
           "container_id": "26644bde-e049-429c-9d6e-c37dec0713c4",
           "container_name": "egg-sandbox-egg-agent-issue-2261-retry-reviewer-agent-design",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-30T02:00:14.585536Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-30T02:01:30.724569Z",
+          "exit_code": -1,
           "agent_role": "reviewer_agent_design",
           "session_token": null,
           "pod_name": null,
@@ -128,14 +128,14 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "container_id": "26644bde-e049-429c-9d6e-c37dec0713c4",
           "container_info": null,
           "started_at": "2026-04-30T02:00:14.585543Z",
-          "completed_at": null,
+          "completed_at": "2026-04-30T02:01:30.827615Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pod exited with code unknown — detected by Kubernetes runtime monitor",
           "retry_count": 0,
           "conflicts": []
         },
@@ -172,7 +172,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-30T02:00:04.777556Z",
-  "updated_at": "2026-04-30T02:01:30.786037Z",
+  "updated_at": "2026-04-30T02:01:30.827787Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -186,6 +186,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8,
+  "version": 9,
   "jira_ticket": null
 }
