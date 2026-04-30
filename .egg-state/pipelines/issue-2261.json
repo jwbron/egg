@@ -219,10 +219,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-30T03:56:36.135392Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-30T03:59:08.008357Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"B2: Per-phase handler refactor (recommended) — split into per-phase handlers (refine/plan/implement/pr) plus a thin orchestration loop. Solves the cap; carries real behavioral risk on a state machine with subtle ordering.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -435,7 +435,7 @@
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T03:58:59.202986Z",
+  "updated_at": "2026-04-30T03:59:08.038599Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -449,6 +449,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
