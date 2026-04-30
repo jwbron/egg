@@ -49,6 +49,7 @@ Integration points:
 - Uses checkpoint_loader for atomic writes to checkpoint branch
 """
 
+import contextlib
 import os
 import re
 import subprocess
@@ -56,6 +57,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -95,6 +97,7 @@ from egg_contracts.usage_loader import (
     UsageSaveError,
     update_usage_from_checkpoint,
 )
+from egg_git.cross_process_lock import bare_repo_lock
 from egg_logging import get_logger
 
 try:
@@ -879,14 +882,10 @@ class CheckpointHandler:
             return False
 
         target = _resolve_checkpoint_target(checkpoint_repo, remote, repo_path)
-        # Lock key: prefer checkpoint_repo so cross-source-repo writers
-        # targeting the same shared checkpoint branch serialize (#2316).
-        # Fall back to repo_path for the same-source-repo case (#2069).
-        store_lock = _get_store_lock(checkpoint_repo or repo_path)
 
         try:
             with (
-                store_lock,
+                _get_store_lock(checkpoint_repo or repo_path, repo_path),
                 tempfile.TemporaryDirectory(
                     prefix="checkpoint_", ignore_cleanup_errors=True
                 ) as temp_dir,
@@ -1370,13 +1369,33 @@ _store_locks: dict[str, threading.Lock] = {}
 _store_locks_guard = threading.Lock()
 
 
-def _get_store_lock(key: str) -> threading.Lock:
+@contextlib.contextmanager
+def _get_store_lock(key: str, repo_path: str) -> Generator[None]:
+    """Hold the per-destination lock plus cross-process flock.
+
+    Combines two layers, mirroring ``WorktreeManager._get_repo_lock``:
+
+    * Per-destination ``threading.Lock`` keyed on ``key`` for in-process
+      serialization.  When ``checkpoint_repo`` is set, callers pass it as
+      ``key`` so cross-source-repo writers contending on the same shared
+      ``egg/checkpoints/v2`` branch serialize their fetch + commit + push
+      sequence (#2316).  When unset, callers fall back to ``repo_path``
+      so same-source-repo writers still serialize on local
+      ``.git/worktrees`` state (#2069).
+    * ``bare_repo_lock(repo_path)`` for cross-process serialization
+      against the orchestrator's state-store, which runs git from a
+      different pod but shares the same hostPath-mounted bare repo
+      (#2311).  Without this, a checkpoint store's ``git worktree add``
+      can race a state-store commit on ``.git/config.lock`` and fail
+      with ``could not lock config file .git/config: File exists``.
+    """
     with _store_locks_guard:
-        lock = _store_locks.get(key)
-        if lock is None:
-            lock = threading.Lock()
-            _store_locks[key] = lock
-        return lock
+        thread_lock = _store_locks.get(key)
+        if thread_lock is None:
+            thread_lock = threading.Lock()
+            _store_locks[key] = thread_lock
+    with thread_lock, bare_repo_lock(repo_path):
+        yield
 
 
 def get_checkpoint_handler(github_token: str | None = None) -> CheckpointHandler:
