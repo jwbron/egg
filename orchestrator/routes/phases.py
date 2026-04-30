@@ -431,6 +431,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     pipeline_id,
                     pipeline_mode,
                     pipeline.issue_number,
+                    source="advance_phase_force",
                 )
                 try:
                     _commit_statefiles_to_worktree(

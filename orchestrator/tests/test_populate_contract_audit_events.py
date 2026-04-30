@@ -338,6 +338,97 @@ class TestSafeWrapper:
             _populate_contract_from_plan_safe(tmp_path, "pipeline-quiet", "local")
 
 
+class TestNaturalSourceLoudFail:
+    """#2337: source="plan_complete" raises when local-missing + origin-has draft."""
+
+    def test_plan_complete_raises_when_origin_has_draft(self, tmp_path):
+        """Local missing the draft, origin has it → PlanDraftMissingOnLocalError."""
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalError,
+            _populate_contract_from_plan_safe,
+        )
+
+        # No local draft file in tmp_path/.egg-state/drafts/
+        with (
+            patch("routes.pipelines._origin_has_plan_draft", return_value=True) as mock_origin,
+            patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+            pytest.raises(PlanDraftMissingOnLocalError),
+        ):
+            _populate_contract_from_plan_safe(
+                tmp_path,
+                "pipeline-2337",
+                "issue",
+                issue_number=2261,
+                source="plan_complete",
+                branch="egg/issue-2261",
+            )
+        # Origin probe ran with the right args
+        mock_origin.assert_called_once()
+        # Inner populator never ran — we short-circuited
+        mock_inner.assert_not_called()
+
+    def test_plan_complete_swallows_when_origin_does_not_have_draft(self, tmp_path):
+        """Local missing AND origin missing → fall through to inner (warn-and-return)."""
+        from routes.pipelines import _populate_contract_from_plan_safe
+
+        with (
+            patch("routes.pipelines._origin_has_plan_draft", return_value=False),
+            patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+        ):
+            # Should not raise.
+            _populate_contract_from_plan_safe(
+                tmp_path,
+                "pipeline-2337-no-origin",
+                "issue",
+                issue_number=999,
+                source="plan_complete",
+                branch="egg/issue-999",
+            )
+            # Inner ran (which itself logs plan_draft_missing and returns).
+            mock_inner.assert_called_once()
+
+    def test_advance_phase_force_swallows_even_when_origin_has_draft(self, tmp_path):
+        """Force-advance source keeps the swallow-everything contract from #1941."""
+        from routes.pipelines import _populate_contract_from_plan_safe
+
+        with (
+            patch("routes.pipelines._origin_has_plan_draft", return_value=True) as mock_origin,
+            patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+        ):
+            # Must not raise even though origin has the draft — force-advance
+            # is the recovery hammer, blocking it would defeat the purpose.
+            _populate_contract_from_plan_safe(
+                tmp_path,
+                "pipeline-2337-force",
+                "issue",
+                issue_number=2261,
+                source="advance_phase_force",
+                branch="egg/issue-2261",
+            )
+            # Origin probe is skipped entirely under force-advance.
+            mock_origin.assert_not_called()
+            mock_inner.assert_called_once()
+
+    def test_plan_complete_without_branch_skips_origin_probe(self, tmp_path):
+        """source="plan_complete" but branch=None → skip probe, fall through."""
+        from routes.pipelines import _populate_contract_from_plan_safe
+
+        with (
+            patch("routes.pipelines._origin_has_plan_draft", return_value=True) as mock_origin,
+            patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+        ):
+            _populate_contract_from_plan_safe(
+                tmp_path,
+                "pipeline-2337-nobranch",
+                "issue",
+                issue_number=42,
+                source="plan_complete",
+                branch=None,
+            )
+            mock_origin.assert_not_called()
+            mock_inner.assert_called_once()
+
+
 class TestRegressionEmptyPhases:
     """Direct regression for the #1931 incident referenced by #2134.
 

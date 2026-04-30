@@ -85,7 +85,7 @@ try:
     from ..container_spawner import ContainerSpawnError, SpawnFailureError, get_container_spawner
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
-    from ..gateway_client import GatewayError
+    from ..gateway_client import GatewayError, _rebase_with_agent_output_autoresolve
     from ..kubernetes_client import (
         JobOperationError,
         KubernetesClientError,
@@ -128,7 +128,7 @@ except ImportError:
         ContainerOperationError,
         DockerClientError,
     )
-    from gateway_client import GatewayError  # type: ignore
+    from gateway_client import GatewayError, _rebase_with_agent_output_autoresolve  # type: ignore
     from kubernetes_client import (  # type: ignore
         JobOperationError,
         KubernetesClientError,
@@ -5239,11 +5239,12 @@ def _sync_worktree_with_remote(
 ) -> None:
     """Sync a worktree with its remote branch (best-effort).
 
-    After an orchestrator restart, the local worktree branch may be behind
-    the remote: commits pushed during previous phases (contracts, drafts,
-    statefiles) exist on origin but not in the local checkout.  This function
-    fetches those commits and resets the worktree so that all downstream code
-    (contract loading, draft reading, etc.) sees the full pipeline state.
+    After an orchestrator restart or a phase boundary, the local worktree
+    branch may be behind the remote: commits pushed during previous phases
+    (contracts, drafts, statefiles) exist on origin but not in the local
+    checkout.  This function fetches those commits and reconciles the
+    worktree so that all downstream code (contract loading, draft reading,
+    populator, etc.) sees the full pipeline state.
 
     When local is ahead of remote:
     - If the prior phase succeeded, push local commits to remote first,
@@ -5251,9 +5252,16 @@ def _sync_worktree_with_remote(
     - If the prior phase failed or was killed, discard local commits and
       reset to remote (discards incomplete work).
 
-    When local has diverged (ahead AND behind), attempt a fast-forward
-    merge.  If the merge fails, log an error (pipeline may need manual
-    intervention).
+    When local has diverged (ahead AND behind), rebase local commits onto
+    ``origin/{branch}`` via the same helper used by the gateway-side
+    push-reject reconcile path.  ``--ff-only`` cannot reconcile real
+    divergence by definition, so the pre-#2337 implementation silently
+    left the worktree stale and downstream populator/decision-sync paths
+    consumed the stale state.
+
+    Every return path emits a single ``worktree_sync_outcome`` log line
+    with a ``case`` discriminator so production logs name which path
+    fired.
 
     Safe to call on every pipeline start because it is idempotent when the
     local branch is already up to date.
@@ -5276,6 +5284,11 @@ def _sync_worktree_with_remote(
         mode=gateway_mode,
     )
     if not fetch_ok:
+        logger.warning(
+            "worktree_sync_outcome",
+            case="fetch_failed",
+            pipeline_id=pipeline_id,
+        )
         return
 
     # Step 2: Determine current branch
@@ -5289,8 +5302,19 @@ def _sync_worktree_with_remote(
         )
         branch = result.stdout.strip()
         if not branch:
-            return  # Detached HEAD — nothing to sync
-    except Exception:
+            logger.info(
+                "worktree_sync_outcome",
+                case="detached_head",
+                pipeline_id=pipeline_id,
+            )
+            return
+    except Exception as branch_err:
+        logger.warning(
+            "worktree_sync_outcome",
+            case="branch_detect_failed",
+            pipeline_id=pipeline_id,
+            error=str(branch_err),
+        )
         return
 
     # Step 3: Verify remote tracking branch exists
@@ -5303,13 +5327,27 @@ def _sync_worktree_with_remote(
             check=False,
         )
         if result.returncode != 0:
-            return  # Remote branch not yet published (first pipeline run)
-    except Exception:
+            logger.info(
+                "worktree_sync_outcome",
+                case="no_remote_tracking",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
+            return
+    except Exception as rev_parse_err:
+        logger.warning(
+            "worktree_sync_outcome",
+            case="remote_verify_failed",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            error=str(rev_parse_err),
+        )
         return
 
     # Step 3b: Check divergence between local and remote.
     local_ahead = 0
     remote_ahead = 0
+    rev_list_ok = False
     try:
         result = subprocess.run(
             [*git_base, "rev-list", "--left-right", "--count", f"HEAD...origin/{branch}"],
@@ -5323,8 +5361,17 @@ def _sync_worktree_with_remote(
             if len(parts) == 2:
                 local_ahead = int(parts[0])
                 remote_ahead = int(parts[1])
-    except Exception:
-        pass  # If check fails, proceed with reset (best-effort)
+                rev_list_ok = True
+    except Exception as rev_list_err:
+        logger.warning(
+            "worktree_sync_outcome",
+            case="divergence_check_failed",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            error=str(rev_list_err),
+        )
+        # Fall through to reset (best-effort).  rev_list_ok stays False so
+        # the outcome log below records the unknown counters.
 
     # Step 3c: Handle local-ahead commits.
     if local_ahead > 0 and remote_ahead == 0:
@@ -5332,12 +5379,6 @@ def _sync_worktree_with_remote(
         if prior_phase_succeeded:
             # Prior phase completed successfully — push local work to remote
             # before resetting, so it's not lost.
-            logger.info(
-                "Prior phase succeeded — pushing local-ahead commits to remote",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                local_ahead=local_ahead,
-            )
             push_ok = spawner.gateway.push_worktree_branch(
                 pipeline_id=pipeline_id,
                 repo_path=str(worktree_repo_path),
@@ -5354,15 +5395,23 @@ def _sync_worktree_with_remote(
                     repo_path=str(worktree_repo_path),
                     mode=gateway_mode,
                 )
-                return  # Already in sync — no reset needed
-            else:
-                logger.warning(
-                    "Failed to push local-ahead commits (continuing with reset)",
+                logger.info(
+                    "worktree_sync_outcome",
+                    case="local_ahead_pushed",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    local_ahead=local_ahead,
+                )
+                return
+            else:
+                logger.warning(
+                    "worktree_sync_outcome",
+                    case="local_ahead_push_failed_falling_through_to_reset",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    local_ahead=local_ahead,
                 )
         else:
-            # Prior phase failed — discard incomplete local work.
             logger.info(
                 "Prior phase failed — discarding local-ahead commits",
                 pipeline_id=pipeline_id,
@@ -5372,51 +5421,49 @@ def _sync_worktree_with_remote(
         # Fall through to reset (Step 4)
 
     elif local_ahead > 0 and remote_ahead > 0:
-        # Divergence: local and remote both have unique commits.
-        # Attempt fast-forward merge to reconcile.
+        # True divergence.  Reconcile by rebasing local commits onto
+        # origin/{branch} via the same helper used by the gateway-side
+        # push-reject reconcile path (#2337).  --ff-only would always
+        # fail here by definition, leaving the worktree stale for
+        # downstream populator/decision-sync paths.
         logger.info(
-            "Local and remote have diverged — attempting merge",
+            "Local and remote have diverged — rebasing local onto origin",
             pipeline_id=pipeline_id,
             branch=branch,
             local_ahead=local_ahead,
             remote_ahead=remote_ahead,
         )
-        try:
-            merge_result = subprocess.run(
-                [*git_base, "merge", "--ff-only", f"origin/{branch}"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            if merge_result.returncode == 0:
-                logger.info(
-                    "Fast-forward merge succeeded",
-                    pipeline_id=pipeline_id,
-                    branch=branch,
-                )
-                return  # Merge succeeded — worktree is now in sync
-            else:
-                logger.error(
-                    "Cannot fast-forward merge diverged branches — "
-                    "pipeline may need manual intervention",
-                    pipeline_id=pipeline_id,
-                    branch=branch,
-                    local_ahead=local_ahead,
-                    remote_ahead=remote_ahead,
-                    error=merge_result.stderr.strip(),
-                )
-                return  # Don't force-reset on divergence — signal the problem
-        except Exception as merge_err:
-            logger.error(
-                "Merge attempt failed",
+        rebase_outcome = _rebase_with_agent_output_autoresolve(
+            git_base=git_base,
+            pipeline_id=pipeline_id,
+            branch=branch,
+            base_branch=base_branch_for_reconcile,
+        )
+        if rebase_outcome.ok:
+            logger.info(
+                "worktree_sync_outcome",
+                case="divergence_rebased",
                 pipeline_id=pipeline_id,
-                error=str(merge_err),
+                branch=branch,
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
             )
             return
+        logger.error(
+            "worktree_sync_outcome",
+            case="divergence_rebase_failed",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            local_ahead=local_ahead,
+            remote_ahead=remote_ahead,
+            category=rebase_outcome.category,
+            detail=rebase_outcome.detail,
+        )
+        return
 
     # Step 4: Reset local branch to remote.
-    # This handles: local behind remote, local in-sync, and post-push reset.
+    # This handles: local behind remote, local in-sync, post-push reset,
+    # and the rev-list-failed best-effort fallback.
     try:
         result = subprocess.run(
             [*git_base, "reset", "--hard", f"origin/{branch}"],
@@ -5431,16 +5478,35 @@ def _sync_worktree_with_remote(
                 pipeline_id=pipeline_id,
                 error=result.stderr.strip(),
             )
-        else:
-            logger.info(
-                "Synced worktree with remote branch",
+            logger.warning(
+                "worktree_sync_outcome",
+                case="reset_failed",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                local_ahead=local_ahead if rev_list_ok else None,
+                remote_ahead=remote_ahead if rev_list_ok else None,
+                error=result.stderr.strip(),
+            )
+        else:
+            logger.info(
+                "worktree_sync_outcome",
+                case="reset_succeeded",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                local_ahead=local_ahead if rev_list_ok else None,
+                remote_ahead=remote_ahead if rev_list_ok else None,
             )
     except Exception as sync_err:
         logger.warning(
             "Failed to reset worktree to remote (continuing with local state)",
             pipeline_id=pipeline_id,
+            error=str(sync_err),
+        )
+        logger.warning(
+            "worktree_sync_outcome",
+            case="reset_exception",
+            pipeline_id=pipeline_id,
+            branch=branch,
             error=str(sync_err),
         )
 
@@ -12837,21 +12903,157 @@ def _synthesize_plan_draft(
     )
 
 
+def _slice_gate_block_monolithic_demotion(
+    worktree_repo_path: Path,
+    pipeline_id: str,
+    issue_number: int | None,
+) -> str | None:
+    """#2337 defensive recheck for the slice-loop gate.
+
+    Called only when ``contract.slices`` is empty at implement-phase entry.
+    Returns a non-None failure message when the on-disk plan draft parses
+    to N>1 slices — the exact contract+plan mismatch that demoted
+    issue-2261's 15-slice plan to a monolithic slice-1 PR (#2337).  When
+    this fires the implement phase should be marked FAILED rather than
+    silently routed through ``_run_concurrent_phase``.
+
+    Returns ``None`` when:
+    * The plan draft is missing on local — there's nothing to parse, and
+      the populator's own ``plan_draft_missing`` warning already covers
+      that case (with ``source="plan_complete"`` it raises so we wouldn't
+      reach this gate at all).
+    * The plan parses to 0 or 1 slice — single-slice/no-slice contracts
+      legitimately use the monolithic path.
+    * Plan parsing fails — defensive: don't block on a parser regression,
+      just log and let the gate fall through to monolithic.
+    """
+    draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
+    if not draft_rel:
+        return None
+    draft_path = worktree_repo_path / draft_rel
+    if not draft_path.exists():
+        return None
+    try:
+        from egg_contracts.plan_parser import parse_plan as _parse_plan_for_gate
+
+        plan_text = draft_path.read_text()
+        parsed = _parse_plan_for_gate(plan_text)
+        if not parsed.success:
+            return None
+        draft_slice_count = len(parsed.to_contract_slices())
+    except Exception as parse_err:  # noqa: BLE001
+        logger.debug(
+            "Slice-loop gate: draft re-parse failed",
+            pipeline_id=pipeline_id,
+            error=str(parse_err),
+        )
+        return None
+    if draft_slice_count <= 1:
+        return None
+    return (
+        f"plan draft parses to {draft_slice_count} slices but contract.slices "
+        f"is empty — populator silently failed earlier (#2337); refusing to "
+        f"demote to monolithic implement"
+    )
+
+
+class PlanDraftMissingOnLocalError(RuntimeError):
+    """Raised by the natural plan-completion populator path when the plan
+    draft is missing from the local worktree but present on origin.
+
+    This is the silent-failure mode behind #2337: a multi-slice plan-phase
+    pipeline whose populator returned without slices because
+    ``_sync_worktree_with_remote`` left agents' plan-phase commits on
+    origin.  Surfacing as an exception lets the natural call site mark
+    the pipeline FAILED instead of silently demoting to monolithic
+    implement.  The force-advance call site (#1941) keeps swallowing.
+    """
+
+
+def _origin_has_plan_draft(repo_path: Path, branch: str, draft_rel: str) -> bool:
+    """Return True if ``origin/{branch}:{draft_rel}`` resolves locally.
+
+    Uses ``git cat-file -e`` against the local refs to origin (the
+    immediately preceding ``_sync_worktree_with_remote`` call has already
+    fetched), so this is a cheap on-disk check, not a network round-trip.
+    A False return means either origin really doesn't have the draft, or
+    the rev-parse query itself failed — caller should treat both as
+    "couldn't confirm origin has it" and fall through to the warn-and-
+    continue path.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                f"safe.directory={repo_path}",
+                "-C",
+                str(repo_path),
+                "cat-file",
+                "-e",
+                f"origin/{branch}:{draft_rel}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def _populate_contract_from_plan_safe(
     repo_path: Path,
     pipeline_id: str,
     pipeline_mode: str = "issue",
     issue_number: int | None = None,
+    *,
+    source: Literal["plan_complete", "advance_phase_force"] = "advance_phase_force",
+    branch: str | None = None,
 ) -> None:
     """Run :func:`_populate_contract_from_plan` without propagating failures.
 
     Shared call path for the two code sites that run the populate step when a
     pipeline leaves the ``plan`` phase: ``_run_pipeline``'s post-complete
-    block (happy path) and ``advance_phase`` (used by the MCP ``advance_phase``
-    tool, especially with ``force=true``).  Blocking the phase transition on
+    block (``source="plan_complete"``) and ``advance_phase`` (used by the
+    MCP ``advance_phase`` tool, especially with ``force=true`` —
+    ``source="advance_phase_force"``).  Blocking the phase transition on
     a populate failure would defeat the purpose of the advance hammer — see
-    #1941.
+    #1941 — so the force-advance call site keeps the swallow-everything
+    behaviour.
+
+    The natural plan-completion call site (``source="plan_complete"``)
+    additionally raises :class:`PlanDraftMissingOnLocalError` when the
+    draft is missing from local but present on origin — the exact
+    silent-failure mode behind #2337.  Caller is expected to mark the
+    pipeline FAILED so the operator can intervene rather than implement
+    silently demoting to monolithic.
     """
+    if source == "plan_complete" and branch is not None:
+        draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
+        if draft_rel is not None:
+            local_path = repo_path / draft_rel
+            if not local_path.exists() and _origin_has_plan_draft(repo_path, branch, draft_rel):
+                logger.error(
+                    "OVERSEER_ALERT plan_draft_missing_on_local_but_present_on_origin",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    draft_rel=draft_rel,
+                    note=(
+                        "_sync_worktree_with_remote returned without bringing "
+                        "agents' plan-phase commits into the local worktree; "
+                        "blocking phase advance to avoid silent demotion to "
+                        "monolithic implement (#2337)"
+                    ),
+                )
+                raise PlanDraftMissingOnLocalError(
+                    f"plan draft {draft_rel} missing on local but present on "
+                    f"origin/{branch} — refusing to advance plan phase"
+                )
+
     try:
         _populate_contract_from_plan(repo_path, pipeline_id, pipeline_mode, issue_number)
     except ForestValidationError as forest_err:
@@ -14745,6 +14947,7 @@ def _run_pipeline(
                     # to use the legacy monolithic path so existing
                     # pipelines are unaffected.
                     _use_slice_loop = False
+                    _slice_gate_failure: str | None = None
                     if current_phase.value == "implement":
                         try:
                             from egg_contracts.loader import (
@@ -14756,12 +14959,43 @@ def _run_pipeline(
                             )
                             _slice_count = len(getattr(_check_contract, "slices", []) or [])
                             _use_slice_loop = _slice_count > 1
+
+                            # #2337 defensive recheck: if the contract has no
+                            # slices but the on-disk plan draft parses to N>1
+                            # slices, the populator silently failed earlier.
+                            # Refuse to demote to monolithic.
+                            if _slice_count == 0:
+                                _slice_gate_failure = _slice_gate_block_monolithic_demotion(
+                                    worktree_repo_path,
+                                    pipeline_id,
+                                    pipeline.issue_number,
+                                )
                         except Exception as _slice_check_err:  # noqa: BLE001
                             logger.debug(
                                 "Slice-loop gate: contract load failed, falling back to monolithic",
                                 pipeline_id=pipeline_id,
                                 error=str(_slice_check_err),
                             )
+
+                    if _slice_gate_failure is not None:
+                        with get_pipeline_state_lock(pipeline_id):
+                            pipeline = store.load_pipeline(pipeline_id)
+                            phase_execution = pipeline.get_phase_execution(current_phase)
+                            if phase_execution.cycle_timings:
+                                phase_execution.cycle_timings[-1].completed_at = datetime.now(UTC)
+                            phase_execution.status = PipelineStatus.FAILED
+                            phase_execution.error = _slice_gate_failure
+                            phase_execution.completed_at = datetime.now(UTC)
+                            pipeline.status = PipelineStatus.FAILED
+                            pipeline.error = _slice_gate_failure
+                            store.save_pipeline(pipeline)
+                        logger.error(
+                            "OVERSEER_ALERT slice_gate_blocked_monolithic_demotion",
+                            pipeline_id=pipeline_id,
+                            error=_slice_gate_failure,
+                        )
+                        phase_failed = True
+                        break
 
                     try:
                         if _use_slice_loop:
@@ -14980,10 +15214,40 @@ def _run_pipeline(
             # exception here cannot skip the HITL gate below (#1890).  The
             # same helper is invoked from advance_phase so force-advances
             # out of plan see the same populate step (#1941).
+            #
+            # ``source="plan_complete"`` makes the wrapper raise
+            # PlanDraftMissingOnLocalError when the draft is missing locally
+            # but present on origin — the silent demotion-to-monolithic
+            # failure mode behind #2337.  We catch it below and mark the
+            # pipeline FAILED so the operator can intervene rather than
+            # implement silently shipping slice-1 alone.
             if current_phase.value == "plan":
-                _populate_contract_from_plan_safe(
-                    worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
-                )
+                try:
+                    _populate_contract_from_plan_safe(
+                        worktree_repo_path,
+                        pipeline_id,
+                        pipeline_mode,
+                        pipeline.issue_number,
+                        source="plan_complete",
+                        branch=pipeline.branch,
+                    )
+                except PlanDraftMissingOnLocalError as missing_err:
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.FAILED
+                        phase_execution.error = str(missing_err)
+                        phase_execution.completed_at = datetime.now(UTC)
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = str(missing_err)
+                        store.save_pipeline(pipeline)
+                    logger.error(
+                        "Pipeline FAILED: plan draft missing on local but present on origin",
+                        pipeline_id=pipeline_id,
+                        error=str(missing_err),
+                    )
+                    _emit_pipeline_event(pipeline, "pipeline.failed")
+                    break
 
             # After refine and plan phases: sync substantive HITL decisions
             # (non-phase-gate) to the contract so implement-phase agents
