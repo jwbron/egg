@@ -137,11 +137,14 @@ documenter, or the pipeline itself (`.egg-state/`). Tester and documenter
 scopes are defined positively (the files each role owns). If tester's or
 documenter's owned scope grows in a later change, the coder's blocklist in
 `shared/egg_restrictions/patterns.py` **must be updated in parallel** to
-preserve the complement invariant. The same blocklist is mirrored in
-`.egg/phase-permissions.json` and `shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS`;
-[#1903][issue-1903] tracks unifying those three surfaces behind a single
-source of truth. Until that follow-up lands, a `TODO(#1903)` comment marks
-each surface so reviewers know to keep them in sync.
+preserve the complement invariant. `shared/egg_restrictions/patterns.py` is
+the single source of truth for per-role file boundaries ([#1903][issue-1903]):
+the gateway's `PhaseFilter` derives `FileRestriction` objects directly from
+`AGENT_PATTERNS`, and the `phase-permissions.json` `file_restrictions` key is
+deprecated (ignored with a warning if present). The phase-level
+`_IMPLEMENT_READONLY_DIRS` in `shared/egg_container/__init__.py` remains a
+separate surface (phase mounts, not role restrictions) and is kept in sync with
+`.egg/phase-permissions.json` via a drift-guard test.
 
 [issue-1901]: https://github.com/jwbron/egg/issues/1901
 [issue-1903]: https://github.com/jwbron/egg/issues/1903
