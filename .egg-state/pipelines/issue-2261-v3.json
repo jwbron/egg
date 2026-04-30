@@ -330,16 +330,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-30T18:02:47.871964Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-30T18:06:31.213466Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Yes — plan should baseline on current HEAD sizes (16,976 / 9,870 / 3,759 / etc.). Confirms v1 feedback Q2.\", \"Q2\": \"(c) Absorb preemptive decomposition into this issue's scope. sandbox/egg_lib/contract_cli.py (1,494 lines, NOT allowlisted) gets a 15th decomposition slice. Plan must add this as an additional slice and number it accordingly. Operator-confirmed scope expansion.\", \"Q3\": \"Independent fan-out at the DAG level. Reference #2335 as prior art in PR bodies only — not as a DAG predecessor. Operator additionally confirmed soft-order-only intra-v3 sequencing (no hard DAG edges between v3 slices); slice-14/15 land last by size ordering.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-30T17:27:52.618820Z",
-  "updated_at": "2026-04-30T18:06:30.972565Z",
+  "updated_at": "2026-04-30T18:06:31.218552Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -353,6 +353,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null
 }
