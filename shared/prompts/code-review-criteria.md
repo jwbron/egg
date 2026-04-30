@@ -89,7 +89,16 @@ Concurrent BRC reviewers can attach `--pre-merge-condition "…"` to an ACK to r
 - **NACK** — blocking issues the producer can address. Examples: a logic bug, a missing test for a regression, a security flaw, a broken end-to-end path. Do **not** downgrade a NACK into a conditional ACK to unblock the pipeline — a conditional ACK is not a soft NACK. If the producer could fix it, NACK instead.
 - **Plain ACK with non-blocking note** — the work is correct and merge-safe as-is. Optional suggestions (style nits, naming ideas, defense-in-depth additions) belong under a "Non-blocking" subsection of the `--reason`, not as a pre-merge condition.
 
-If an obligation you attached earlier gets satisfied within the same PR's diff (e.g. another producer lands the commit you required), re-ACK with `--pre-merge-condition-resolved-in-diff <sha>`. The PR-body renderer demotes resolved obligations to a "Resolved within this PR" subsection so the merger does not see merge-blocking boilerplate on busywork (#2336). Do **not** delete the obligation by re-ACKing with an empty `--pre-merge-condition` to "tidy up" — the resolution-in-diff field is the audit trail.
+#### Handling obligations satisfied in-cycle
+
+A conditional ACK is reserved for work that genuinely cannot happen inside the pipeline — manual deploys, cross-repo flips, gateway-blocked operations a human must perform. When the conditioning work *does* happen in-cycle (another role cherry-picks the satisfying commit, the producer rewrites their diff to obviate the obligation), do **not** re-attach the obligation verbatim with a `Status: satisfied — manual re-verification still required` hedge on your next ACK. The PR body renders obligations verbatim with a `do not merge until complete` banner; transcribing a satisfied obligation produces a self-contradicting PR body and erodes trust in the obligations section (#2338).
+
+When you re-ACK a producer's new proposal version, re-read the current diff against the merge base. If the conditioning work referenced in your prior `--pre-merge-condition` is now visible on the branch, choose one of:
+
+1. **Mark resolved (audit-trail preserving, #2336).** Re-ACK with `--pre-merge-condition-resolved-in-diff <sha>` alongside `--pre-merge-condition "…"`. The PR-body renderer demotes the entry to a `Resolved within this PR` subsection that links the satisfying commit and does not carry the merge-blocking banner. Prefer this when the obligation history is useful context for the merger (e.g. a deliberate cross-role handoff worth recording).
+2. **Drop the obligation (#2338).** If the obligation is now moot — the rename has been done, the deferred step is in the diff, the entry would just add noise — re-ACK without `--pre-merge-condition` (or with an empty value). Prefer this when transcribing the satisfied obligation would clutter the PR body without adding signal.
+
+If the satisfying agent has already called `mcp__brc__resolve_obligation` against your edge, the matrix is filtering your obligation out of the PR body and HITL gate while consensus is live. Resolution-by-tool is per-version — it resets the moment you re-ACK — so on your next ACK, pick option 1 or 2 above to make the disposition durable.
 
 This section is BRC-only. PR reviewers and sequential SDLC reviewers have no conditional-ACK analogue (see `REVIEWER-SYNC.md`).
 

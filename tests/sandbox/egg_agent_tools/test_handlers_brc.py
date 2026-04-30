@@ -644,3 +644,106 @@ class TestBrcPipelineIdValidation:
                 }
             )
         assert resp["ok"] is True
+
+
+class TestBrcResolveObligation:
+    """Handler smoke tests for ``mcp__brc__resolve_obligation`` (#2338).
+
+    The handler is a thin wrapper around the orchestrator's signal endpoint
+    — these tests cover request shaping, validation, and response shape.
+    """
+
+    def test_happy_path_threads_args_into_signal(self):
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {"status": "resolved"}},
+        ) as req:
+            resp = brc.brc_resolve_obligation(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "tester",
+                    "reviewer_role": "reviewer_contract",
+                    "producer_role": "coder",
+                    "commit_sha": "abc1234",
+                    "note": "cherry-picked",
+                }
+            )
+        assert resp["ok"] is True
+        assert resp["role"] == "tester"
+        assert resp["reviewer_role"] == "reviewer_contract"
+        assert resp["producer_role"] == "coder"
+        assert req.call_count == 1
+        data = req.call_args.kwargs["data"]
+        assert data["signal_type"] == "consensus_resolve_obligation"
+        assert data["agent_role"] == "tester"
+        assert data["reviewer_role"] == "reviewer_contract"
+        assert data["producer_role"] == "coder"
+        assert data["commit_sha"] == "abc1234"
+        assert data["note"] == "cherry-picked"
+
+    def test_omits_optional_fields_when_blank(self):
+        """commit_sha and note are not threaded through when blank — keeps
+        the wire payload tidy and lets the handler default to its own
+        fallback values."""
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {"status": "resolved"}},
+        ) as req:
+            brc.brc_resolve_obligation(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "tester",
+                    "reviewer_role": "reviewer_contract",
+                    "producer_role": "coder",
+                }
+            )
+        data = req.call_args.kwargs["data"]
+        assert "commit_sha" not in data
+        assert "note" not in data
+
+    def test_missing_reviewer_role(self):
+        with pytest.raises(HandlerError, match="reviewer_role"):
+            brc.brc_resolve_obligation(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "tester",
+                    "producer_role": "coder",
+                }
+            )
+
+    def test_missing_producer_role(self):
+        with pytest.raises(HandlerError, match="producer_role"):
+            brc.brc_resolve_obligation(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "tester",
+                    "reviewer_role": "reviewer_contract",
+                }
+            )
+
+    def test_invalid_commit_sha_rejected(self):
+        with pytest.raises(HandlerError, match="Invalid commit SHA"):
+            brc.brc_resolve_obligation(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "tester",
+                    "reviewer_role": "reviewer_contract",
+                    "producer_role": "coder",
+                    "commit_sha": "not-a-sha",
+                }
+            )
+
+    def test_orchestrator_failure_surfaces(self):
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": False, "message": "no tracker"},
+        ):
+            with pytest.raises(GatewayError, match="no tracker"):
+                brc.brc_resolve_obligation(
+                    {
+                        "pipeline_id": "pipe-1",
+                        "role": "tester",
+                        "reviewer_role": "reviewer_contract",
+                        "producer_role": "coder",
+                    }
+                )

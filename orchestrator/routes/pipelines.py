@@ -6996,6 +6996,11 @@ BRC_HISTORY_TYPES = frozenset(
         "CONSENSUS_WITHDRAW",
         "CONSENSUS_CONFIRMED",
         "CONSENSUS_RE_REVIEW",
+        # In-cycle conditional-ACK obligation resolution (#2338). Captured
+        # in the BRC history file so the audit trail survives orchestrator
+        # teardown — closes the gap that resolution was previously only
+        # an in-memory event.
+        "CONSENSUS_OBLIGATION_RESOLVED",
         "STATUS",
         "HANDOFF",
         "AGENT_FAILED",
@@ -8549,7 +8554,29 @@ def _build_brc_preamble(
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. If you are a reviewer of the re-proposing producer, "
                 "re-review and ACK/NACK the new proposal. Otherwise, re-confirm via "
-                "`egg-orch consensus confirmed`. Do NOT ignore these messages.\n",
+                "`egg-orch consensus confirmed`. Do NOT ignore these messages.",
+                "8. **RESOLVE OBLIGATIONS YOU SATISFY (#2338)**: If you "
+                "land a commit that satisfies a *different* producer's "
+                "conditional-ACK obligation in-cycle — typical pattern: "
+                "the coder is gateway-blocked from a path under `tests/`, "
+                "you (as tester) cherry-pick the satisfying commit onto "
+                "the branch — call `mcp__brc__resolve_obligation "
+                'reviewer_role="<reviewer>" producer_role="<other_producer>" '
+                "commit_sha=$(git rev-parse HEAD)` after pushing. The "
+                "matrix keeps the obligation text for audit but stops "
+                "surfacing it on the PR body and HITL gate. Skip this "
+                "for obligations that genuinely require a human at "
+                "merge time (deploys, cross-repo flips) — those should "
+                "remain visible to the merger. **Resolve before "
+                "`complete_phase`**: once the HITL gate has fired and "
+                "written the obligation to `contract.pr.deferred_actions`, "
+                "calling `resolve_obligation` afterwards does *not* "
+                "retroactively unpersist the entry — the obligation will "
+                "still appear in the PR body until the next pipeline run. "
+                "Resolve early. Producers cannot self-resolve their own "
+                "obligations (the orchestrator rejects "
+                "`resolver_role == producer_role`), since that would "
+                "single-handedly bypass the reviewer's veto.\n",
             ]
         )
 
@@ -8643,12 +8670,32 @@ def _build_brc_preamble(
                 'new/x` before merging — agents cannot push renames through"\n'
                 "   ```\n"
                 "\n"
-                "   If an obligation you attached earlier was satisfied "
-                "within the same PR's diff (e.g. another producer landed the "
-                "commit you required), re-ACK with "
-                "`--pre-merge-condition-resolved-in-diff <sha>` so the "
-                "PR-body renderer demotes it to a 'Resolved within this PR' "
-                "subsection instead of a merge-blocker (#2336).\n"
+                "   **Drop satisfied obligations on re-ACK (#2338).** When "
+                "you re-ACK at a new proposal version and the conditioning "
+                "work has landed in-cycle (another role cherry-picked the "
+                "satisfying commit, the rename is now in the diff, the "
+                "obligation is moot), drop the obligation: re-ACK without "
+                "`--pre-merge-condition`. Do NOT re-attach the same "
+                'obligation with a "Status: satisfied — manual '
+                're-verification required" hedge — the PR body renders '
+                "obligations verbatim under a `do not merge until "
+                "complete` banner, and transcribing a satisfied obligation "
+                "produces a self-contradicting PR body. If the satisfier "
+                "has called `mcp__brc__resolve_obligation`, the matrix is "
+                "already filtering it out, but the resolution resets when "
+                "you re-ACK — dropping the obligation is the durable "
+                "fix.\n"
+                "\n"
+                "   **Alternative — keep the obligation but mark it resolved "
+                "(#2336).** If you want to preserve the audit trail of the "
+                "obligation in the PR body (under a 'Resolved within this "
+                "PR' subsection rather than the merge-blocking section), "
+                "re-ACK with `--pre-merge-condition-resolved-in-diff <sha>` "
+                "in addition to `--pre-merge-condition`. The renderer demotes "
+                "the entry instead of dropping it. Prefer this when the "
+                "obligation history is useful context for the merger; prefer "
+                "the drop path above when the obligation is moot and "
+                "transcribing it just adds noise.\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
                 "Boilerplate like 'lgtm' or 'no issues' will be rejected.\n"

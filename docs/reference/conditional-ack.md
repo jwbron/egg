@@ -60,8 +60,9 @@ The PR-body renderer demotes resolved obligations from the merge-blocking `## �
 
 - **Live tracker.** `record_ack` stores the condition on the approval-matrix edge for the current proposal version ([`orchestrator/approval_matrix.py`](../../orchestrator/approval_matrix.py)).
 - **Version scoping.** `get_pre_merge_conditions()` returns only conditions attached to each producer's *current* proposal version. If a producer re-proposes, the reviewer's prior conditional ACK is dropped until they re-attach the obligation to the new version.
-- **NACK clears it.** A NACK or `invalidate_ack` clears any condition (and any resolution SHA) on that edge — there is no such thing as a lingering conditional NACK.
+- **NACK clears it.** A NACK or `invalidate_ack` clears any condition (and any resolution SHA or in-cycle resolution flag) on that edge — there is no such thing as a lingering conditional NACK.
 - **Resolution scoping.** A `--pre-merge-condition-resolved-in-diff` SHA travels with the obligation: it is cleared on NACK / re-propose / invalidate, and a re-ACK without the flag explicitly returns the obligation to the open list.
+- **In-cycle resolution (#2338).** When the conditioning work lands on the producer's branch within the same pipeline run — e.g. the tester cherry-picks a commit the coder is gateway-blocked from — the satisfier calls `mcp__brc__resolve_obligation` to mark the obligation satisfied. `get_pre_merge_conditions()` filters out resolved entries so the PR body and HITL gate stop surfacing them. Resolution is per-version: any later `record_ack` / `record_nack` / `invalidate_ack` resets the resolved flag, so a re-attached obligation on a later proposal starts un-resolved.
 - **Contract persistence.** When the human approves obligations via the HITL gate, they are written to `contract.pr.deferred_actions` (`PRMetadata.deferred_actions`, a `list[DeferredAction]`), so they survive tracker teardown between phase close and PR creation. Each entry carries `reviewer`, `condition`, and an optional `resolved_in_diff` SHA. Legacy `list[str]` entries from pre-#2336 contracts still load — they are coerced to `DeferredAction` with the reviewer parsed from the `<reviewer>: <condition>` prefix. The PR body renderer prefers this field over the live tracker.
 
 ## Where obligations surface
@@ -92,13 +93,36 @@ The gate is skipped when `force=true` is passed to `complete_phase`, so operator
 5. Once consensus is reached, `complete_phase` detects the live condition and queues the 3-way HITL gate.
 6. The human selects an option. If they approve, the obligation is persisted to `contract.pr.deferred_actions` and appears in the PR body for the merger.
 
+## In-cycle resolution: satisfying agent path (#2338)
+
+The HITL gate plus PR-body transcription assume the obligation can only be satisfied at merge time. When the conditioning work *can* — and *does* — happen in-cycle, that escalation path becomes busywork. The flow:
+
+1. `reviewer_contract` issues a conditional ACK to the coder: *"Before merging slice-1, the tester must commit mechanical patch-path rewrites in `tests/tools/...`."* The coder role is gateway-blocked from `tests/`.
+2. The tester cherry-picks the satisfying commit (`<sha>`) onto the producer branch and pushes.
+3. The tester calls:
+
+   ```
+   mcp__brc__resolve_obligation \
+     reviewer_role="reviewer_contract" \
+     producer_role="coder" \
+     commit_sha="<sha>" \
+     note="Mechanical patch-path rewrites cherry-picked from coder's prior commit"
+   ```
+
+4. The matrix marks `obligation_resolved=True` on the `(reviewer_contract, coder)` edge. `get_pre_merge_conditions()` skips it; the HITL gate at `complete_phase` no longer fires for this obligation; the PR body's "Pre-merge Obligations" section omits it.
+5. When the coder re-proposes a new version, the matrix's `record_ack` resets the resolved flag — if `reviewer_contract` re-attaches the same obligation, the satisfier must call `resolve_obligation` again. The cleaner path is for `reviewer_contract` to drop the obligation on re-ACK once the satisfying commit is on the branch (see [`code-review-criteria.md`](../../shared/prompts/code-review-criteria.md) §"Drop obligations satisfied in-cycle").
+
+Resolution does not retroactively un-persist a `contract.pr.deferred_actions` entry that the HITL gate already wrote. Resolve before `complete_phase` triggers the gate, or accept that the obligation will appear in the PR body until the next pipeline run.
+
 ## Pointers
 
 - Schema: [`orchestrator/attestation_schemas.py`](../../orchestrator/attestation_schemas.py) — `ReviewPayload.pre_merge_condition`, `ReviewPayload.pre_merge_condition_resolved_in_diff`.
-- Matrix: [`orchestrator/approval_matrix.py`](../../orchestrator/approval_matrix.py) — `ApprovalEntry.pre_merge_condition`, `ApprovalEntry.pre_merge_condition_resolved_in_diff`, `get_pre_merge_conditions()`.
-- Tracker: [`orchestrator/peer_consensus.py`](../../orchestrator/peer_consensus.py) — `handle_ack`, `get_pre_merge_conditions()`, `evaluate()`.
+- Matrix: [`orchestrator/approval_matrix.py`](../../orchestrator/approval_matrix.py) — `ApprovalEntry.pre_merge_condition`, `ApprovalEntry.pre_merge_condition_resolved_in_diff`, `ApprovalEntry.obligation_resolved`, `get_pre_merge_conditions()`, `mark_obligation_resolved()`.
+- Tracker: [`orchestrator/peer_consensus.py`](../../orchestrator/peer_consensus.py) — `handle_ack`, `handle_resolve_obligation`, `get_pre_merge_conditions()`, `evaluate()`.
 - HITL gate: [`orchestrator/routes/phases.py`](../../orchestrator/routes/phases.py) — `_ensure_conditional_ack_gate`, `CONDITIONAL_ACK_OPTIONS`.
 - Gate dispatch: [`orchestrator/routes/decisions.py`](../../orchestrator/routes/decisions.py) — `_handle_conditional_ack_gate`.
+- Resolve signal: [`orchestrator/routes/signals.py`](../../orchestrator/routes/signals.py) — `handle_consensus_resolve_obligation_signal`.
+- MCP tool: [`sandbox/egg_agent_tools/tools/brc.py`](../../sandbox/egg_agent_tools/tools/brc.py) — `mcp__brc__resolve_obligation`.
 - PR body: [`orchestrator/routes/pipelines.py`](../../orchestrator/routes/pipelines.py) — `_build_pre_merge_obligations_section`.
 - Contract: [`shared/egg_contracts/models.py`](../../shared/egg_contracts/models.py) — `PRMetadata.deferred_actions`, `DeferredAction`.
 - CLI: [`sandbox/egg_lib/orch_cli.py`](../../sandbox/egg_lib/orch_cli.py) — `cmd_consensus_ack`, `cmd_consensus_status`.

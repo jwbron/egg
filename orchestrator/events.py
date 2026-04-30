@@ -74,6 +74,7 @@ class EventType(StrEnum):
     CONSENSUS_CONFIRMED_RECEIVED = "consensus.confirmed_received"
     CONSENSUS_WITHDRAW_RECEIVED = "consensus.withdraw_received"
     CONSENSUS_FAILURE = "consensus.failure"
+    CONSENSUS_OBLIGATION_RESOLVED = "consensus.obligation_resolved"
 
     # HITL events
     DECISION_CREATED = "decision.created"

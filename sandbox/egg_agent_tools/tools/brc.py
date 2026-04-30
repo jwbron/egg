@@ -175,6 +175,46 @@ _LIST_BLOCKING_SCHEMA: dict[str, Any] = {
     },
 }
 
+_RESOLVE_OBLIGATION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "reviewer_role": {
+            "type": "string",
+            "description": (
+                "Reviewer whose conditional-ACK obligation you are marking "
+                "resolved (e.g. 'reviewer_contract')."
+            ),
+        },
+        "producer_role": {
+            "type": "string",
+            "description": (
+                "Producer the conditional-ACK was attached to (the role on "
+                "the other side of the review edge — e.g. 'coder')."
+            ),
+        },
+        "commit_sha": {
+            "type": "string",
+            "description": (
+                "Optional commit SHA that satisfies the obligation. Recorded "
+                "for audit; the orchestrator does not currently re-verify "
+                "the commit's contents against the obligation text."
+            ),
+        },
+        "note": {
+            "type": "string",
+            "description": (
+                "Optional free-form note explaining how the obligation was "
+                "satisfied. Surfaces in the audit log alongside the resolver "
+                "role and commit SHA."
+            ),
+        },
+        "pipeline_id": {"type": "string"},
+        "role": {"type": "string"},
+    },
+    "required": ["reviewer_role", "producer_role"],
+    "additionalProperties": False,
+}
+
 _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -299,6 +339,21 @@ async def brc_list_blocking(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
+    "resolve_obligation",
+    "Mark a reviewer's conditional-ACK obligation as satisfied in-cycle "
+    "(#2338). Call this after committing the conditioning work referenced "
+    "by a `pre_merge_condition` — typically the tester picking up a rename "
+    "or test-path rewrite that the coder is gateway-blocked from. The "
+    "matrix keeps the obligation text for audit, but the PR body and HITL "
+    "gate stop surfacing it. Resolution is per-version: any later ACK / "
+    "NACK / invalidate on the same edge resets the resolved flag.",
+    _RESOLVE_OBLIGATION_SCHEMA,
+)
+async def brc_resolve_obligation(args: dict[str, Any]) -> dict[str, Any]:
+    return await invoke_handler(handlers.brc_resolve_obligation, args)
+
+
+@tool(
     "read_peer_artifact",
     "Read BRC consensus history for a peer from the local "
     "`.egg-state/brc-history/<identifier>-<phase>.json` log. Paginated via "
@@ -352,6 +407,13 @@ REGISTRATIONS: list[ToolRegistration] = [
         namespace=NAMESPACE,
         handler=handlers.brc_list_blocking,
         sdk_tool=brc_list_blocking,
+        cli_command=None,
+    ),
+    ToolRegistration(
+        name="mcp__brc__resolve_obligation",
+        namespace=NAMESPACE,
+        handler=handlers.brc_resolve_obligation,
+        sdk_tool=brc_resolve_obligation,
         cli_command=None,
     ),
     ToolRegistration(

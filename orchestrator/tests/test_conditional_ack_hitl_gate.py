@@ -646,6 +646,75 @@ class TestPrRenderResolvedObligations:
         assert "Pre-merge Obligations" not in section
 
 
+# --- In-cycle resolution interactions with the gate (#2338) ----------------
+
+
+class TestResolvedObligationsSkipGate:
+    """An obligation that has been resolved in-cycle by another agent (e.g.
+    the tester cherry-picking the satisfying commit) must not fire the
+    HITL gate at complete_phase, and must not appear in the auto-created
+    PR body — its presence in either is busywork, since the conditioning
+    work is already on the branch (#2338)."""
+
+    @patch("routes.phases._clear_concurrent_state")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    @patch("routes.phases.get_peer_consensus_tracker")
+    def test_resolved_obligation_does_not_queue_gate(
+        self,
+        mock_get_tracker,
+        mock_get_store,
+        _mock_clear,
+        client,
+        graph,
+        tmp_path,
+    ):
+        pipeline = _make_pipeline()
+        mock_store = MagicMock()
+        mock_store.repo_path = tmp_path
+        mock_get_store.return_value = (mock_store, pipeline)
+        tracker = _make_tracker(graph, condition="tester must commit X")
+        # Resolve the only live obligation before complete_phase fires.
+        tracker.handle_resolve_obligation(
+            resolver_role="tester",
+            reviewer_role="reviewer_code",
+            producer_role="coder",
+            commit_sha="abc1234",
+        )
+        mock_get_tracker.return_value = tracker
+
+        with patch("routes.phases.get_decision_queue") as mock_get_queue:
+            resp = client.post("/api/v1/pipelines/pipeline-x/phase/complete")
+
+        # No gate queued — phase proceeds normally.
+        assert resp.status_code == 200
+        mock_get_queue.return_value.queue_decision.assert_not_called()
+        assert pipeline.decisions == []
+
+    def test_resolved_obligation_omitted_from_pr_body(self, graph):
+        """The PR body's Pre-merge Obligations section must drop resolved
+        entries when reading from the live tracker. The filter lives in
+        ``ApprovalMatrix.get_pre_merge_conditions`` upstream of both this
+        renderer and the HITL gate — so a resolved obligation never makes
+        it into the live-tracker fallback path."""
+        from routes import pipelines as p
+
+        tracker = _make_tracker(graph, condition="tester must commit X")
+        tracker.handle_resolve_obligation(
+            resolver_role="tester",
+            reviewer_role="reviewer_code",
+            producer_role="coder",
+            commit_sha="abc1234",
+        )
+
+        with patch(
+            "peer_consensus.get_peer_consensus_tracker",
+            return_value=tracker,
+        ):
+            section = p._build_pre_merge_obligations_section("pipeline-x")
+
+        assert section == ""
+
+
 class TestApprovalMatrixResolvedField:
     """ApprovalEntry round-trips ``pre_merge_condition_resolved_in_diff`` (#2336)."""
 
