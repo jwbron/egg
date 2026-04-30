@@ -89,6 +89,39 @@ def _resolve_head_sha() -> str:
         raise HandlerError("'commit_sha' not provided and could not resolve HEAD") from exc
 
 
+# Pydantic v2's lax bool coercion accepts these string forms (case-insensitive).
+# Mirrored here so pre-flight matches the orchestrator's parse step on
+# tests_execution_blocked — see _coerce_attestation_bool below.
+_BOOL_TRUE_STRINGS = frozenset({"true", "yes", "on", "1", "t", "y"})
+_BOOL_FALSE_STRINGS = frozenset({"false", "no", "off", "0", "f", "n"})
+
+
+def _coerce_attestation_bool(value: Any, *, field: str) -> bool:
+    """Coerce a JSON-ish value to bool, matching Pydantic v2's lax rules.
+
+    Used for ``tests_execution_blocked`` so pre-flight's verdict matches
+    the orchestrator's Pydantic parse step. Without this, a string like
+    ``"false"`` is truthy under Python's ``bool()`` (non-empty string)
+    but parses to ``False`` in Pydantic — pre-flight would reject a
+    payload the orchestrator would accept.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _BOOL_TRUE_STRINGS:
+            return True
+        if normalized in _BOOL_FALSE_STRINGS:
+            return False
+    raise HandlerError(
+        f"Tester attestation: '{field}' must be a bool (got {value!r}). "
+        "Pass true/false, or one of the string forms 'true'/'false'/"
+        "'yes'/'no'/'on'/'off'/'1'/'0'."
+    )
+
+
 def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None:
     """Catch missing tester attestation fields at the handler boundary (#2338).
 
@@ -106,13 +139,24 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
     ``tests_execution_blocked=True`` with a non-empty
     ``tests_execution_blocked_reason``.
 
-    Raises ``HandlerError`` when the attestation would fail strict-mode
-    validation; passes silently otherwise. Relaxed-mode pipelines accept
-    an empty payload — this validator is a no-op for them, since the
-    orchestrator's strict-mode check is the only gate that fires.
+    Pre-flight enforces strict-mode rules unconditionally, regardless of
+    the pipeline's ``attestation_strictness`` setting. The handler has no
+    cheap way to read tracker strictness from the sandbox, and a relaxed
+    pipeline that has been reconstructed post-restart
+    (``orchestrator/peer_consensus.py`` keeps reconstructed trackers in
+    ``RELAXED`` for the rest of their lifetime) will see pre-flight reject
+    proposals the orchestrator would have accepted. That is acceptable:
+    the canonical "tester forgot to populate attestation.tests_run" case
+    from #2338 is the same misconfiguration in both modes, so failing
+    fast with an actionable error is better UX than letting an empty
+    payload silently slip past in relaxed mode. Raises ``HandlerError``
+    on any divergence; passes silently when the orchestrator's strict
+    validator would also accept the payload.
     """
-    blocked_raw = attestation.get("tests_execution_blocked", False)
-    blocked = bool(blocked_raw) if blocked_raw is not False else False
+    blocked = _coerce_attestation_bool(
+        attestation.get("tests_execution_blocked", False),
+        field="tests_execution_blocked",
+    )
 
     if blocked:
         reason = (attestation.get("tests_execution_blocked_reason") or "").strip()
@@ -152,7 +196,13 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
             "tests_run argument (which carries test *identifiers* as a "
             "list of strings)."
         ) from exc
-    if tests_run_int <= 0:
+    # Mirror the orchestrator: only ``tests_run == 0`` is rejected.
+    # Negative counts slip past Pydantic (no constraint on the int field)
+    # and the strict validator's ``elif instance.tests_run == 0`` check,
+    # so pre-flight intentionally lets them pass too. If we tighten one
+    # side, tighten both — see the cross-check tests in
+    # ``test_handlers_brc.py::TestPreFlightMirrorsOrchestrator``.
+    if tests_run_int == 0:
         raise HandlerError(
             "Tester attestation requires tests_run > 0 (the integer count "
             "of tests executed). If tests genuinely could not run, set "

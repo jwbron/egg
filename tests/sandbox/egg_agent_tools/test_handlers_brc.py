@@ -15,6 +15,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "sandbox"))
 sys.path.insert(0, str(ROOT / "shared"))
+# Orchestrator path is needed for the cross-check tests that import
+# ``attestation_schemas.validate_attestation`` and assert pre-flight
+# verdicts agree with the strict-mode orchestrator validator.
+sys.path.insert(0, str(ROOT / "orchestrator"))
 
 from egg_agent_tools.handlers import brc  # noqa: E402
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError  # noqa: E402
@@ -234,6 +238,148 @@ class TestBrcProposeTesterAttestationPreFlight:
                         # No attestation — defaults to {} and fails pre-flight.
                     }
                 )
+
+    # --- Coverage-gap cases flagged in the PR review --------------------
+
+    def test_non_list_checks_passed_rejected(self):
+        """``checks_passed`` as a non-list (string) trips the
+        ``isinstance(..., list)`` guard. The orchestrator's Pydantic
+        parse step also rejects this, so pre-flight catches it first
+        with a friendlier message."""
+        with pytest.raises(HandlerError, match="checks_passed"):
+            self._propose_tester({"tests_run": 5, "checks_passed": "lint"})
+
+    def test_negative_tests_run_passes_pre_flight(self):
+        """The orchestrator's ``_validate_strict`` only rejects
+        ``tests_run == 0`` (negative ints slip past Pydantic's plain
+        ``int`` field). Pre-flight intentionally mirrors that — see the
+        cross-check test below."""
+        resp = self._propose_tester({"tests_run": -1, "checks_passed": ["test"]})
+        assert resp["ok"] is True
+
+    def test_string_false_tests_execution_blocked_passes_through(self):
+        """Pydantic v2 coerces the string ``"false"`` to ``False``, so
+        the orchestrator routes a payload like
+        ``{"tests_execution_blocked": "false", "tests_run": 5,
+        "checks_passed": ["t"]}`` into the non-blocked branch and
+        accepts it. Pre-flight uses ``_coerce_attestation_bool`` to
+        match — without it, ``bool("false")`` is truthy and pre-flight
+        would wrongly demand a reason."""
+        resp = self._propose_tester(
+            {
+                "tests_execution_blocked": "false",
+                "tests_run": 5,
+                "checks_passed": ["test"],
+            }
+        )
+        assert resp["ok"] is True
+
+    def test_string_true_tests_execution_blocked_requires_reason(self):
+        """Symmetric to the previous: string ``"true"`` is coerced to
+        ``True``, so pre-flight enters the blocked branch and demands
+        a reason — same verdict the orchestrator would reach."""
+        with pytest.raises(HandlerError, match="tests_execution_blocked_reason"):
+            self._propose_tester({"tests_execution_blocked": "true"})
+
+    def test_unparseable_tests_execution_blocked_rejected(self):
+        """Values neither bool-like nor recognized strings (e.g. a
+        list) are rejected pre-flight with a coercion error. Pydantic
+        would also reject these — pre-flight just surfaces the message
+        before the request hits the wire."""
+        with pytest.raises(HandlerError, match="must be a bool"):
+            self._propose_tester({"tests_execution_blocked": ["maybe"]})
+
+
+class TestPreFlightMirrorsOrchestrator:
+    """Cross-check: pre-flight and orchestrator's strict validator agree.
+
+    The pre-flight docstring claims it "mirrors the orchestrator's
+    strict-mode tester checks." This class enforces that as an
+    invariant rather than a docstring claim — every payload runs
+    through both validators, and the verdicts (accept / reject) must
+    match. If someone tightens one side and not the other, one of these
+    parametrized cases fails. See PR #2344 review feedback.
+    """
+
+    @staticmethod
+    def _orchestrator_verdict(attestation: dict) -> bool:
+        """Return True if the orchestrator's strict validator would
+        accept the payload, False if it raises. Catches ``ValueError``
+        — pydantic.ValidationError inherits from ValueError in v2, and
+        ``_validate_strict`` raises ``ValueError`` directly."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        try:
+            validate_attestation(
+                "tester",
+                attestation,
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _pre_flight_verdict(attestation: dict) -> bool:
+        """Return True if pre-flight accepts (passes silently), False
+        if it raises ``HandlerError``."""
+        try:
+            brc._validate_tester_attestation_pre_flight(attestation)
+        except HandlerError:
+            return False
+        return True
+
+    @pytest.mark.parametrize(
+        "attestation",
+        [
+            # Empty payload — both reject.
+            {},
+            # Missing checks_passed — both reject.
+            {"tests_run": 5},
+            # Missing tests_run — both reject.
+            {"checks_passed": ["test"]},
+            # Zero tests_run — both reject.
+            {"tests_run": 0, "checks_passed": ["test"]},
+            # Empty checks_passed list — both reject.
+            {"tests_run": 5, "checks_passed": []},
+            # Blocked without reason — both reject.
+            {"tests_execution_blocked": True},
+            # Blocked + tests_run > 0 — both reject (mutual exclusion).
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "tests_run": 5,
+            },
+            # Happy path — both accept.
+            {"tests_run": 42, "checks_passed": ["lint", "test"]},
+            # Blocked with reason — both accept.
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "private-network mode",
+            },
+            # Negative tests_run — both accept (Pydantic has no constraint,
+            # _validate_strict only rejects == 0; pre-flight mirrors).
+            {"tests_run": -3, "checks_passed": ["test"]},
+            # String "false" for tests_execution_blocked — both accept.
+            {
+                "tests_execution_blocked": "false",
+                "tests_run": 1,
+                "checks_passed": ["test"],
+            },
+            # String "true" without reason — both reject.
+            {"tests_execution_blocked": "true"},
+        ],
+    )
+    def test_pre_flight_matches_orchestrator(self, attestation: dict):
+        pre_flight = self._pre_flight_verdict(attestation)
+        orchestrator = self._orchestrator_verdict(attestation)
+        assert pre_flight == orchestrator, (
+            f"Verdict divergence for {attestation!r}: "
+            f"pre-flight={'accept' if pre_flight else 'reject'}, "
+            f"orchestrator={'accept' if orchestrator else 'reject'}. "
+            "Pre-flight must mirror the orchestrator's strict validator."
+        )
 
 
 class TestBrcAck:
