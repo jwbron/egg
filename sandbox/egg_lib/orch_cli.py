@@ -1307,8 +1307,11 @@ def _wait_cursor_path(
     file-system side effects, since there's no obvious agent identity
     to scope a cursor to. Also returns ``None`` when ``role`` or
     ``pipeline_id`` contain characters outside the safe-ID alphabet
-    (``[a-zA-Z0-9_\\-.]``); a stray ``/`` or ``..`` would otherwise
-    interpolate literally into the path. ``cmd_message_wait`` /
+    (``[a-zA-Z0-9_\\-.]``). The load-bearing rejection is path
+    separators (``/``); ``.`` and ``-`` are inside the alphabet, so
+    a literal ``..`` or ``.`` substring is *permitted* within a single
+    filename component — which is harmless because the path is one
+    component and there's no traversal target. ``cmd_message_wait`` /
     ``cmd_message_wait_loop`` already pass ``pipeline_id`` through
     ``validate_id`` before reaching here, so this check is symmetric
     defense-in-depth for ``role`` (which is taken straight from

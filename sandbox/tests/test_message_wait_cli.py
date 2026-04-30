@@ -1115,7 +1115,7 @@ class TestCursorWriteDefenses:
         # Cursor file was NOT materialised — O_NOFOLLOW + O_EXCL
         # refused the open, the except branch logged a warning, and
         # the symlink redirection did not take effect.
-        assert not os.path.exists(cursor_path) or os.path.islink(cursor_path)
+        assert not os.path.exists(cursor_path)
 
     def test_non_string_cursor_response_does_not_crash(self, monkeypatch, tmp_path):
         """A response with a non-string ``cursor`` (e.g., a future
@@ -1130,7 +1130,9 @@ class TestCursorWriteDefenses:
         with open(cursor_path, "w") as fh:
             fh.write("01-prior-tip")
         with patch(_ORCH_MOCK_PATH) as mock_req:
-            # Non-string cursor — int, list, dict.
+            # Non-string cursor — one int suffices because the
+            # ``isinstance(cursor, str)`` guard rejects all non-strings
+            # identically; a list/dict would take the same branch.
             mock_req.return_value = {
                 "success": True,
                 "data": {"messages": [], "matched": False, "count": 0, "cursor": 42},
