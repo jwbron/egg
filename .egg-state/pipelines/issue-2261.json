@@ -377,10 +377,65 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Test patch surface drift: some test modules patch with both `routes.pipelines._foo` and `orchestrator.routes.pipelines._foo` forms. Is it acceptable to fix any drifted patch paths inside the same slice that owns the moved symbol, or should those test rewrites stay strictly out of scope (i.e. tests are only updated when a re-export shim is impossible)?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Pre-existing growth in the allowlisted files: `orchestrator/routes/pipelines.py` is now 16,401 lines (issue body listed 15,356) and `scripts/select_tests.py` is 1,875 (listed 1,650). Should plan use the higher current numbers as the baselines, or treat the issue body's numbers as the contract?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Sequencing: the issue suggests cheap files first to validate the pattern. Are there integration windows (release cuts, scheduled deploys, on-call coverage) we should align with when ordering the 15 slices, or is a strict size-ordered fan-out fine?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Are integration / E2E / smoke tests outside `make test-all` that should also gate each slice's PR (e.g. release-channel smoke runs, post-deploy verifications)?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "`gateway/gateway.py` Flask routes: the same routes-registration question as decision-8 applies here. Confirm whether the same convention (thin wrappers in __init__.py vs Blueprint vs hybrid) should be used, or whether the larger gateway file warrants a different approach (e.g. Blueprint here even if not in routes/pipelines.py)?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Are there any non-public-API symbols inside the 15 files that we DON'T need to re-export because no test or production code patches/imports them? If so, can plan rely on `git grep` of the symbol name to determine re-export necessity, or does the issue mandate re-exporting everything for safety?",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "When `_run_pipeline` is decomposed (option B2), should the per-phase handlers (`_run_refine_phase`, `_run_plan_phase`, `_run_implement_phase_slices`, `_run_pr_phase`) be testable in isolation (i.e. plan adds new unit tests for them) or kept as private helpers tested only through `_run_pipeline`?",
+          "answer": ""
+        },
+        {
+          "id": "Q8",
+          "question": "Should `docs/guides/decomposition-pattern.md` be a precondition (slice-1 lands it) or a postcondition (slice-16's PR adds it after the pattern is proven)? Decision-4's recommended option assumes precondition, but a postcondition path lets the pattern evolve with the code.",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-30T03:56:36.687064Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T03:56:36.644048Z",
+  "updated_at": "2026-04-30T03:56:36.708027Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -394,6 +449,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
