@@ -5259,9 +5259,13 @@ def _sync_worktree_with_remote(
     left the worktree stale and downstream populator/decision-sync paths
     consumed the stale state.
 
-    Every return path emits a single ``worktree_sync_outcome`` log line
-    with a ``case`` discriminator so production logs name which path
-    fired.
+    Every return path emits at least one ``worktree_sync_outcome`` log
+    line with a ``case`` discriminator so production logs name which
+    path fired.  Paths that fall through to the step-4 reset
+    (``local_ahead_push_failed``, ``local_ahead_discarded``,
+    ``rev_list_failed``) emit a sequence — first a discriminator naming
+    WHY we fell through, then the terminal ``reset_succeeded`` /
+    ``reset_failed`` event.
 
     Safe to call on every pipeline start because it is idempotent when the
     local branch is already up to date.
@@ -13169,7 +13173,7 @@ def _origin_has_plan_draft(repo_path: Path, branch: str, draft_rel: str) -> bool
     immediately preceding ``_sync_worktree_with_remote`` call has already
     fetched), so this is a cheap on-disk check, not a network round-trip.
     A False return means either origin really doesn't have the draft, or
-    the rev-parse query itself failed — caller should treat both as
+    the cat-file query itself failed — caller should treat both as
     "couldn't confirm origin has it" and fall through to the warn-and-
     continue path.
     """
@@ -15456,7 +15460,6 @@ def _run_pipeline(
                         pipeline_id=pipeline_id,
                         error=str(missing_err),
                     )
-                    phase_failed = True
                     # Stop the phase-scoped overseer on failure.
                     # Hold the lock to prevent the poll thread from seeing
                     # the container as EXITED and respawning it.
