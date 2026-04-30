@@ -46,6 +46,7 @@ The gateway sidecar holds credentials and enforces policies:
 ```
 gateway/
 ├── gateway.py              # Main HTTP server
+├── _module_loader.py       # Sibling-module bootstrap loader (isolated to keep gateway.py out of the dynamic-import seed set; do not add gateway imports here)
 ├── git_client.py           # Git operation handler
 ├── github_client.py        # GitHub API handler (supports bot/user/reviewer modes)
 ├── policy.py               # Branch ownership, push policies, reviewer identity management

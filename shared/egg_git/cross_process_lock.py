@@ -76,7 +76,15 @@ def _get_state(repo_path: Path) -> _RepoLockState:
         if state is None:
             lock_path = lock_path_for_repo(repo_path)
             lock_path.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+            # O_CLOEXEC: prevent inheritance into child git subprocesses.
+            # flock(2) locks are tied to the open file description and are
+            # inherited across fork+exec; without close-on-exec, a stuck
+            # git child would keep the parent's flock held until it exits.
+            fd = os.open(
+                str(lock_path),
+                os.O_CREAT | os.O_RDWR | os.O_CLOEXEC,
+                0o644,
+            )
             state = _RepoLockState(fd=fd)
             _per_repo_state[key] = state
         return state

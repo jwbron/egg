@@ -1876,14 +1876,8 @@ class TestPruneStaleWorktrees:
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
-            # Each repo gets a list call (no locks) then a prune call
-            no_locked = MagicMock(
-                returncode=0,
-                stdout="worktree /main\nHEAD abc\nbranch refs/heads/main\n\n",
-                stderr="",
-            )
             prune_ok = MagicMock(returncode=0, stdout="", stderr="")
-            mock_run.side_effect = [no_locked, prune_ok, no_locked, prune_ok]
+            mock_run.side_effect = [prune_ok, prune_ok]
             pruned = manager.prune_stale_worktrees()
 
         assert pruned == 2
@@ -1909,13 +1903,8 @@ class TestPruneStaleWorktrees:
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
-            no_locked = MagicMock(
-                returncode=0,
-                stdout="worktree /main\nHEAD abc\nbranch refs/heads/main\n\n",
-                stderr="",
-            )
             prune_ok = MagicMock(returncode=0, stdout="", stderr="")
-            mock_run.side_effect = [no_locked, prune_ok]
+            mock_run.side_effect = [prune_ok]
             pruned = manager.prune_stale_worktrees()
 
         # Only the real repo should be pruned
@@ -1941,13 +1930,8 @@ class TestPruneStaleWorktrees:
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
-            no_locked = MagicMock(
-                returncode=0,
-                stdout="worktree /main\nHEAD abc\nbranch refs/heads/main\n\n",
-                stderr="",
-            )
             prune_fail = MagicMock(returncode=1, stdout="", stderr="error: prune failed")
-            mock_run.side_effect = [no_locked, prune_fail]
+            mock_run.side_effect = [prune_fail]
             pruned = manager.prune_stale_worktrees()
 
         # Should not count failed pruning
@@ -1968,17 +1952,12 @@ class TestPruneStaleWorktrees:
 
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
-        no_locked = MagicMock(
-            returncode=0, stdout="worktree /main\nHEAD abc\nbranch refs/heads/main\n\n", stderr=""
-        )
         prune_ok = MagicMock(returncode=0, stdout="", stderr="")
 
         with patch("subprocess.run") as mock_run:
-            # First repo: list ok, prune times out. Second repo: list ok, prune ok.
+            # First repo: prune times out. Second repo: prune ok.
             mock_run.side_effect = [
-                no_locked,
                 subprocess.TimeoutExpired(cmd="git worktree prune", timeout=30),
-                no_locked,
                 prune_ok,
             ]
             pruned = manager.prune_stale_worktrees()
@@ -1986,8 +1965,16 @@ class TestPruneStaleWorktrees:
         # Only the second repo should be counted
         assert pruned == 1
 
-    def test_skips_prune_when_locked_worktrees_found(self, tmp_path):
-        """Should skip pruning when git worktree list shows locked worktrees."""
+    def test_runs_prune_unconditionally(self, tmp_path):
+        """Should call git worktree prune without a pre-check for locked entries.
+
+        Regression test for #2331: an earlier defense-in-depth guard inspected
+        ``git worktree list --porcelain`` and skipped the entire repo if any
+        locked worktree was present, which made the gateway-startup prune a
+        no-op once #2327 made the orchestrator's state worktree permanently
+        locked. ``git worktree prune`` already respects locks, so we trust
+        git's native handling rather than reimplementing it.
+        """
         repos_base = tmp_path / "repos"
         repos_base.mkdir()
 
@@ -1998,45 +1985,14 @@ class TestPruneStaleWorktrees:
         manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
-            # git worktree list --porcelain returns output with "locked" keyword
-            list_result = MagicMock(
-                returncode=0,
-                stdout="worktree /path/to/worktree\nHEAD abc123\nbranch refs/heads/egg/work\nlocked\n\n",
-                stderr="",
-            )
-            mock_run.return_value = list_result
-            pruned = manager.prune_stale_worktrees()
-
-        # Should not prune because locked worktrees exist
-        assert pruned == 0
-        # Only the list call should have been made, not the prune call
-        prune_calls = [c for c in mock_run.call_args_list if "prune" in c[0][0]]
-        assert len(prune_calls) == 0
-
-    def test_prunes_when_no_locked_worktrees(self, tmp_path):
-        """Should proceed with pruning when no locked worktrees found."""
-        repos_base = tmp_path / "repos"
-        repos_base.mkdir()
-
-        repo = repos_base / "test-repo"
-        repo.mkdir()
-        (repo / ".git").mkdir()
-
-        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
-
-        with patch("subprocess.run") as mock_run:
-            # First call: git worktree list (no locked)
-            list_result = MagicMock(
-                returncode=0,
-                stdout="worktree /path/to/main\nHEAD abc123\nbranch refs/heads/main\n\n",
-                stderr="",
-            )
-            # Second call: git worktree prune succeeds
-            prune_result = MagicMock(returncode=0, stdout="", stderr="")
-            mock_run.side_effect = [list_result, prune_result]
+            prune_ok = MagicMock(returncode=0, stdout="", stderr="")
+            mock_run.side_effect = [prune_ok]
             pruned = manager.prune_stale_worktrees()
 
         assert pruned == 1
+        # Exactly one subprocess call: the prune itself, with no preceding list.
+        assert len(mock_run.call_args_list) == 1
+        assert "prune" in mock_run.call_args_list[0][0][0]
 
 
 class TestCleanupOrphanedPackFiles:

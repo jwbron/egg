@@ -5276,6 +5276,11 @@ def _sync_worktree_with_remote(
         mode=gateway_mode,
     )
     if not fetch_ok:
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            case="fetch_failed",
+        )
         return
 
     # Step 2: Determine current branch
@@ -5289,8 +5294,19 @@ def _sync_worktree_with_remote(
         )
         branch = result.stdout.strip()
         if not branch:
-            return  # Detached HEAD — nothing to sync
-    except Exception:
+            logger.info(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                case="detached_head",
+            )
+            return
+    except Exception as branch_err:
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            case="branch_detect_failed",
+            error=str(branch_err),
+        )
         return
 
     # Step 3: Verify remote tracking branch exists
@@ -5303,13 +5319,27 @@ def _sync_worktree_with_remote(
             check=False,
         )
         if result.returncode != 0:
-            return  # Remote branch not yet published (first pipeline run)
-    except Exception:
+            logger.info(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                case="no_remote_tracking",
+            )
+            return
+    except Exception as rev_parse_err:
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            case="rev_parse_failed",
+            error=str(rev_parse_err),
+        )
         return
 
     # Step 3b: Check divergence between local and remote.
     local_ahead = 0
     remote_ahead = 0
+    rev_list_ok = False
     try:
         result = subprocess.run(
             [*git_base, "rev-list", "--left-right", "--count", f"HEAD...origin/{branch}"],
@@ -5318,34 +5348,58 @@ def _sync_worktree_with_remote(
             timeout=10,
             check=False,
         )
-        if result.returncode == 0:
-            parts = result.stdout.strip().split()
-            if len(parts) == 2:
-                local_ahead = int(parts[0])
-                remote_ahead = int(parts[1])
-    except Exception:
-        pass  # If check fails, proceed with reset (best-effort)
+        parts = result.stdout.strip().split()
+        if result.returncode == 0 and len(parts) == 2:
+            local_ahead = int(parts[0])
+            remote_ahead = int(parts[1])
+            rev_list_ok = True
+        else:
+            logger.info(
+                "worktree_sync_outcome",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                case="rev_list_failed",
+                rc=result.returncode,
+                stdout=result.stdout.strip()[:200],
+            )
+            # Fall through to reset (best-effort) — step 4 will emit its own outcome.
+    except Exception as rev_list_err:
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            case="rev_list_failed",
+            error=str(rev_list_err),
+        )
+        # Fall through to reset (best-effort) — step 4 will emit its own outcome.
 
     # Step 3c: Handle local-ahead commits.
+    if local_ahead == 0 and remote_ahead == 0 and rev_list_ok:
+        # Local and remote are already in sync — skip the no-op reset entirely
+        # so the outcome is distinguishable from a true behind-remote sync.
+        logger.info(
+            "worktree_sync_outcome",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            case="already_in_sync",
+            local_ahead=0,
+            remote_ahead=0,
+        )
+        return
+
     if local_ahead > 0 and remote_ahead == 0:
         # Local is strictly ahead of remote (no divergence).
         if prior_phase_succeeded:
             # Prior phase completed successfully — push local work to remote
             # before resetting, so it's not lost.
-            logger.info(
-                "Prior phase succeeded — pushing local-ahead commits to remote",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                local_ahead=local_ahead,
-            )
-            push_ok = spawner.gateway.push_worktree_branch(
+            push_result = spawner.gateway.push_worktree_branch(
                 pipeline_id=pipeline_id,
                 repo_path=str(worktree_repo_path),
                 branch=branch,
                 mode=gateway_mode,
                 base_branch=base_branch_for_reconcile,
             )
-            if push_ok:
+            if push_result:
                 # Push succeeded — local and remote are now in sync.
                 # Re-fetch to update the remote tracking ref so that
                 # origin/{branch} reflects the pushed commits.
@@ -5354,33 +5408,45 @@ def _sync_worktree_with_remote(
                     repo_path=str(worktree_repo_path),
                     mode=gateway_mode,
                 )
-                return  # Already in sync — no reset needed
-            else:
-                logger.warning(
-                    "Failed to push local-ahead commits (continuing with reset)",
+                logger.info(
+                    "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    case="local_ahead_pushed",
+                    local_ahead=local_ahead,
+                    remote_ahead=remote_ahead,
+                )
+                return
+            else:
+                logger.warning(
+                    "worktree_sync_outcome",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    case="local_ahead_push_failed",
+                    local_ahead=local_ahead,
+                    remote_ahead=remote_ahead,
+                    category=push_result.category,
+                    error=push_result.detail,
                 )
         else:
-            # Prior phase failed — discard incomplete local work.
+            # Prior phase failed — incomplete local work will be discarded by
+            # the step-4 reset. Emit a distinct case so operators can grep
+            # this branch of the taxonomy without inferring it from
+            # reset_succeeded with local_ahead > 0.
             logger.info(
-                "Prior phase failed — discarding local-ahead commits",
+                "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                case="local_ahead_discarded",
                 local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
             )
-        # Fall through to reset (Step 4)
+        # Fall through to reset (Step 4) — discards local work when prior phase
+        # failed, or recovers via reset after a push failure.
 
     elif local_ahead > 0 and remote_ahead > 0:
         # Divergence: local and remote both have unique commits.
         # Attempt fast-forward merge to reconcile.
-        logger.info(
-            "Local and remote have diverged — attempting merge",
-            pipeline_id=pipeline_id,
-            branch=branch,
-            local_ahead=local_ahead,
-            remote_ahead=remote_ahead,
-        )
         try:
             merge_result = subprocess.run(
                 [*git_base, "merge", "--ff-only", f"origin/{branch}"],
@@ -5391,32 +5457,40 @@ def _sync_worktree_with_remote(
             )
             if merge_result.returncode == 0:
                 logger.info(
-                    "Fast-forward merge succeeded",
+                    "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    case="diverged_ff_succeeded",
+                    local_ahead=local_ahead,
+                    remote_ahead=remote_ahead,
                 )
-                return  # Merge succeeded — worktree is now in sync
+                return
             else:
                 logger.error(
-                    "Cannot fast-forward merge diverged branches — "
-                    "pipeline may need manual intervention",
+                    "worktree_sync_outcome",
                     pipeline_id=pipeline_id,
                     branch=branch,
+                    case="diverged_ff_failed",
                     local_ahead=local_ahead,
                     remote_ahead=remote_ahead,
                     error=merge_result.stderr.strip(),
                 )
-                return  # Don't force-reset on divergence — signal the problem
+                return
         except Exception as merge_err:
             logger.error(
-                "Merge attempt failed",
+                "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
+                branch=branch,
+                case="diverged_ff_failed",
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
                 error=str(merge_err),
             )
             return
 
     # Step 4: Reset local branch to remote.
-    # This handles: local behind remote, local in-sync, and post-push reset.
+    # This handles: local behind remote, post-push reset, and rev-list-failed
+    # fall-through. (The already-in-sync case returns early above.)
     try:
         result = subprocess.run(
             [*git_base, "reset", "--hard", f"origin/{branch}"],
@@ -5427,20 +5501,31 @@ def _sync_worktree_with_remote(
         )
         if result.returncode != 0:
             logger.warning(
-                "Failed to reset worktree to remote (continuing with local state)",
+                "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
+                branch=branch,
+                case="reset_failed",
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
                 error=result.stderr.strip(),
             )
         else:
             logger.info(
-                "Synced worktree with remote branch",
+                "worktree_sync_outcome",
                 pipeline_id=pipeline_id,
                 branch=branch,
+                case="reset_succeeded",
+                local_ahead=local_ahead,
+                remote_ahead=remote_ahead,
             )
     except Exception as sync_err:
         logger.warning(
-            "Failed to reset worktree to remote (continuing with local state)",
+            "worktree_sync_outcome",
             pipeline_id=pipeline_id,
+            branch=branch,
+            case="reset_failed",
+            local_ahead=local_ahead,
+            remote_ahead=remote_ahead,
             error=str(sync_err),
         )
 
@@ -7241,47 +7326,117 @@ def _persist_phase_brc_history(
 
 def _build_pre_merge_obligations_section(
     pipeline_id: str,
-    contract_deferred_actions: list[str] | None = None,
+    contract_deferred_actions: list[Any] | None = None,
 ) -> str:
     """Render the "Pre-merge Obligations" section from active conditional ACKs.
 
     Two sources, in order of preference:
 
-    1. ``contract_deferred_actions`` — strings previously persisted to
-       ``contract.pr.deferred_actions`` when a human approved the
-       conditional-ACK HITL gate (#2004). This is the durable path:
-       the tracker may have been torn down by the time PR creation
-       runs, and the contract survives.
+    1. ``contract_deferred_actions`` — ``DeferredAction`` objects (or legacy
+       strings) previously persisted to ``contract.pr.deferred_actions`` when
+       a human approved the conditional-ACK HITL gate (#2004). This is the
+       durable path: the tracker may have been torn down by the time PR
+       creation runs, and the contract survives.
     2. The live consensus tracker (#1998). Used when the contract has
        no deferred_actions — either because the gate landed before
        tracker teardown, or the gate was never required.
 
-    Returns an empty string if neither source yields conditions, so
-    callers can unconditionally append the result to the PR body.
+    Each obligation is classified as **open** or **resolved** (#2336):
+
+    * Open obligations (no ``resolved_in_diff``) render under a merge-blocking
+      "Pre-merge Obligations" banner — a human must act before merging.
+    * Resolved obligations (the reviewer marked them satisfied within the same
+      PR's diff) render under a "Resolved within this PR" subsection with a
+      pointer to the satisfying commit. They do not block merge.
+
+    Returns an empty string if neither source yields obligations, so callers
+    can unconditionally append the result to the PR body.
     """
-    # Tier 1 — contract.pr.deferred_actions (persisted across teardown).
+    obligations = _collect_pre_merge_obligations(pipeline_id, contract_deferred_actions)
+    if not obligations:
+        return ""
+
+    open_obligations = [o for o in obligations if not o["resolved_in_diff"]]
+    resolved_obligations = [o for o in obligations if o["resolved_in_diff"]]
+
+    sections: list[str] = []
+
+    if open_obligations:
+        lines: list[str] = [
+            "## ⚠️ Pre-merge Obligations",
+            "",
+            "The reviewers below issued a **conditional ACK** — the work is "
+            "approved, but a human must perform the listed action before "
+            "merging. Do **not** merge this PR until every obligation is "
+            "complete.",
+            "",
+        ]
+        for o in open_obligations:
+            lines.extend(_format_obligation_bullet(o, resolved=False))
+        sections.append("\n".join(lines))
+
+    if resolved_obligations:
+        # When the only obligations on the PR are already-satisfied ones, this
+        # subsection stands on its own — there's no "do not merge" banner to
+        # contradict (#2336). Reviewers still get a record of what was
+        # promised and what diff resolved it.
+        lines = [
+            "## ✅ Resolved within this PR",
+            "",
+            "The reviewers below issued a **conditional ACK** and later "
+            "marked the obligation satisfied within this PR's diff. Listed "
+            "for the audit trail; no merge action required.",
+            "",
+        ]
+        for o in resolved_obligations:
+            lines.extend(_format_obligation_bullet(o, resolved=True))
+        sections.append("\n".join(lines))
+
+    return "\n\n".join(sections)
+
+
+def _collect_pre_merge_obligations(
+    pipeline_id: str,
+    contract_deferred_actions: list[Any] | None,
+) -> list[dict[str, str]]:
+    """Normalize obligations from contract or live tracker into a uniform shape.
+
+    Returns a list of ``{reviewer, condition, resolved_in_diff}`` dicts. The
+    contract source takes precedence over the live tracker when present.
+    """
     if contract_deferred_actions:
-        bullets = []
+        normalized: list[dict[str, str]] = []
         for entry in contract_deferred_actions:
-            text = entry.strip()
-            if not text:
+            # ``DeferredAction`` (Pydantic) — the post-#2336 shape.
+            reviewer = getattr(entry, "reviewer", None)
+            condition = getattr(entry, "condition", None)
+            resolved = getattr(entry, "resolved_in_diff", None)
+            if condition is None and isinstance(entry, str):
+                # Defensive: a caller passed a legacy string list directly
+                # without going through the field validator (e.g. a unit test
+                # that constructs the input by hand). Parse it the same way
+                # the validator would.
+                text = entry.strip()
+                if not text:
+                    continue
+                head, sep, tail = text.partition(": ")
+                if sep and tail.strip():
+                    reviewer, condition = head.strip(), tail.strip()
+                else:
+                    reviewer, condition = "", text
+                resolved = ""
+            condition_text = (condition or "").strip()
+            if not condition_text:
                 continue
-            first, *rest = text.splitlines()
-            bullets.append(f"- {first}")
-            bullets.extend(f"  {line}" for line in rest)
-        if bullets:
-            return "\n".join(
-                [
-                    "## ⚠️ Pre-merge Obligations",
-                    "",
-                    "The reviewers below issued a **conditional ACK** — the "
-                    "work is approved, but a human must perform the listed "
-                    "action before merging. Do **not** merge this PR until "
-                    "every obligation is complete.",
-                    "",
-                    *bullets,
-                ]
+            normalized.append(
+                {
+                    "reviewer": (reviewer or "").strip(),
+                    "condition": condition_text,
+                    "resolved_in_diff": (resolved or "").strip(),
+                }
             )
+        if normalized:
+            return normalized
 
     # Tier 2 — live tracker (pre-#2004 path; kept so conditions still
     # render if the HITL gate hasn't resolved yet, e.g. under force=true).
@@ -7291,7 +7446,7 @@ def _build_pre_merge_obligations_section(
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
     tracker = get_peer_consensus_tracker(pipeline_id)
     if tracker is None:
-        return ""
+        return []
     try:
         conditions = tracker.get_pre_merge_conditions()
     except Exception as e:  # defensive — never block PR creation on this
@@ -7300,35 +7455,45 @@ def _build_pre_merge_obligations_section(
             pipeline_id=pipeline_id,
             error=str(e),
         )
-        return ""
-    if not conditions:
-        return ""
+        return []
 
-    lines = [
-        "## ⚠️ Pre-merge Obligations",
-        "",
-        "The reviewers below issued a **conditional ACK** — the work is "
-        "approved, but a human must perform the listed action before "
-        "merging. Do **not** merge this PR until every obligation is "
-        "complete.",
-        "",
-    ]
+    normalized = []
     for c in conditions:
-        reviewer = c.get("reviewer", "unknown")
         condition = str(c.get("condition", "")).strip()
         if not condition:
             continue
-        # Indent multi-line conditions under the bullet so they stay
-        # visually grouped in rendered markdown.
-        first, *rest = condition.splitlines()
-        lines.append(f"- **{reviewer}** — {first}")
-        for extra in rest:
-            lines.append(f"  {extra}")
-    # If every condition was whitespace-only, no bullets were added — return
-    # empty to avoid rendering a header with zero items (#1998 review).
-    if len(lines) == 4:
-        return ""
-    return "\n".join(lines)
+        normalized.append(
+            {
+                "reviewer": str(c.get("reviewer", "") or "").strip(),
+                "condition": condition,
+                "resolved_in_diff": str(c.get("resolved_in_diff", "") or "").strip(),
+            }
+        )
+    return normalized
+
+
+def _format_obligation_bullet(
+    obligation: dict[str, str],
+    resolved: bool,
+) -> list[str]:
+    """Format a single obligation as a markdown bullet (multi-line aware)."""
+    reviewer = obligation["reviewer"] or "unknown"
+    # ``strip()`` before splitlines so a leading/trailing newline doesn't
+    # produce an empty first line ("- **reviewer** — " with nothing after the
+    # em-dash). The collector filters whitespace-only conditions but a
+    # ``"\nreal text"`` value would otherwise slip through with an empty
+    # first line (#2336 review).
+    condition = obligation["condition"].strip()
+    first, *rest = condition.splitlines()
+    bullet = f"- **{reviewer}** — {first}"
+    lines = [bullet]
+    for extra in rest:
+        lines.append(f"  {extra}")
+    if resolved and obligation["resolved_in_diff"]:
+        # Bare SHA (no backticks) so GitHub auto-links it to the commit page
+        # in the rendered PR body — code-span text is not auto-linked.
+        lines.append(f"  - Resolved in {obligation['resolved_in_diff']}")
+    return lines
 
 
 def _build_brc_history_link_line(
@@ -7458,7 +7623,7 @@ def _build_pr_body(
     pr_description: str | None = None
     pr_test_plan: str = ""
     pr_manual_steps: str = ""
-    pr_deferred_actions: list[str] = []
+    pr_deferred_actions: list[Any] = []
     issue_title: str | None = None
     plan_draft_warnings: list[str] = []
     plan_draft_path: str | None = None
@@ -8375,12 +8540,15 @@ def _build_brc_preamble(
                 "**Don't** wrap this in a shell `for i in 1..N` loop; "
                 "**don't** prefix it with `sleep N`.  The wait-loop "
                 "blocks server-side and returns the moment a NEW BRC "
-                "event arrives — events that predate the call (including "
-                "your own just-sent CONSENSUS_CONFIRMED) are skipped "
-                "(issue #1925).  Exit code 0 means act on the returned "
-                "message, 1 means the wrapper exhausted retries (surface "
-                "it).  If you need zero-drop semantics across a send→wait "
-                "boundary, capture your send's ID and pass `--since <id>`. "
+                "event arrives.  Exit code 0 means act on the returned "
+                "message, 1 means the wrapper exhausted retries "
+                "(surface it).  Cursor threading across re-entries is "
+                "automatic (issue #2323): the CLI persists the response "
+                "cursor under "
+                "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* so "
+                "events that land between your call returning and the next "
+                "call entering are still delivered, and the send→wait "
+                "race is closed without manual `--since` anchoring.  "
                 "See docs/reference/agent-wait-patterns.md.",
                 "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
@@ -8430,13 +8598,21 @@ def _build_brc_preamble(
                 "`wait-loop` blocks server-side and returns exit 0 the moment "
                 "a proposal arrives (stdout has it); exit 1 means a permanent "
                 "error (surface it — do NOT retry).  It re-issues the inner "
-                "long-poll internally so timeouts never surface to you.  Do "
-                "NOT wrap this in a shell `for` loop, do NOT `sleep N`, and "
-                "do NOT use bare `egg-orch message wait` here — a bare `wait` "
-                "exits 1 on each timeout which the tool surface renders as an "
-                "error and invites a tight retry loop (issue #1943).  Finish "
-                "your preparation work from step 1 before entering the "
-                "wait-loop.",
+                "long-poll internally so timeouts never surface to you.  "
+                "**Re-enter the same command** after each ACK/NACK to wait "
+                "for the next producer's proposal — cursor threading across "
+                "these re-entries is automatic (issue #2323): the CLI "
+                "persists the response cursor under "
+                "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* "
+                "so a proposal "
+                "that lands in the gap between your previous wait returning "
+                "and the next one entering is still delivered.  Do NOT "
+                "wrap this in a shell `for` loop, do NOT `sleep N`, and "
+                "do NOT use bare `egg-orch message wait` here — a bare "
+                "`wait` exits 1 on each timeout which the tool surface "
+                "renders as an error and invites a tight retry loop "
+                "(issue #1943).  Finish your preparation work from "
+                "step 1 before entering the wait-loop.",
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge "
                 + _resolve_origin_ref(branch or base_branch)
@@ -8510,6 +8686,17 @@ def _build_brc_preamble(
                 "you re-ACK — dropping the obligation is the durable "
                 "fix.\n"
                 "\n"
+                "   **Alternative — keep the obligation but mark it resolved "
+                "(#2336).** If you want to preserve the audit trail of the "
+                "obligation in the PR body (under a 'Resolved within this "
+                "PR' subsection rather than the merge-blocking section), "
+                "re-ACK with `--pre-merge-condition-resolved-in-diff <sha>` "
+                "in addition to `--pre-merge-condition`. The renderer demotes "
+                "the entry instead of dropping it. Prefer this when the "
+                "obligation history is useful context for the merger; prefer "
+                "the drop path above when the obligation is moot and "
+                "transcribing it just adds noise.\n"
+                "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
                 "Boilerplate like 'lgtm' or 'no issues' will be rejected.\n"
                 "\n"
@@ -8532,14 +8719,16 @@ def _build_brc_preamble(
                 "orchestrator stops you. **Don't** wrap this in a "
                 "shell `for i in 1..N` loop; **don't** prefix it with "
                 "`sleep N`.  The wait-loop blocks server-side and "
-                "returns the moment a NEW BRC event arrives — events "
-                "that predate the call are skipped (issue #1925).  "
-                "Exit 0 means act on the returned event; exit 1 means "
-                "the wrapper exhausted retries (surface it).  If "
-                "you need zero-drop semantics across a send→wait "
-                "boundary, capture the ID of your most recent send and "
-                "pass `--since <id>`.  See "
-                "docs/reference/agent-wait-patterns.md.",
+                "returns the moment a NEW BRC event arrives.  Exit 0 "
+                "means act on the returned event; exit 1 means the "
+                "wrapper exhausted retries (surface it).  Cursor "
+                "threading across re-entries is automatic (issue "
+                "#2323): the CLI persists the response cursor under "
+                "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* so "
+                "events that land between your call returning and the next "
+                "call entering are still delivered, and the send→wait "
+                "race is closed without manual `--since` anchoring.  "
+                "See docs/reference/agent-wait-patterns.md.",
                 "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. Re-review the re-proposing producer's new proposal "
@@ -13109,9 +13298,8 @@ def _populate_contract_from_plan(
 
 def _sync_pipeline_decisions_to_contract(
     repo_path: Path,
+    worktree_repo_path: Path,
     pipeline_id: str,
-    pipeline_mode: str = "issue",
-    issue_number: int | None = None,
 ) -> None:
     """Sync resolved non-phase-gate pipeline decisions to the contract.
 
@@ -13123,6 +13311,12 @@ def _sync_pipeline_decisions_to_contract(
     choices, not process-control gates).  Skips decisions already present
     in the contract (matched by question text) to avoid duplicates on
     re-runs after HITL revision cycles.
+
+    Args:
+        repo_path: Orchestrator's main repo path — root for the state
+            store that owns pipeline records.
+        worktree_repo_path: Pipeline's per-run worktree path — root for
+            the contract under ``<worktree>/.egg-state/contracts/``.
     """
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -13131,14 +13325,20 @@ def _sync_pipeline_decisions_to_contract(
         logger.warning("egg_contracts not available, skipping decision sync")
         return
 
-    # Load pipeline to get its decisions
+    # Load pipeline from the orchestrator's state store, NOT the per-run
+    # worktree.  Pipeline records live under ``repo_path``'s persistent
+    # state-store worktree; the per-run worktree has none.  Conflating
+    # the two silently no-op'd this helper for every issue-mode pipeline
+    # since #950 (#2345).
     store = get_state_store(repo_path)
     try:
         pipeline = store.load_pipeline(pipeline_id)
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "Pipeline not found, skipping decision sync",
+            "decision_sync_pipeline_load_failed",
             pipeline_id=pipeline_id,
+            state_store_repo_path=str(repo_path),
+            error=str(exc),
         )
         return
 
@@ -13154,7 +13354,7 @@ def _sync_pipeline_decisions_to_contract(
         return
 
     try:
-        contract = load_contract(pipeline_id, repo_path)
+        contract = load_contract(pipeline_id, worktree_repo_path)
     except Exception:
         logger.warning(
             "Contract not found, skipping decision sync",
@@ -13204,7 +13404,7 @@ def _sync_pipeline_decisions_to_contract(
         synced_count += 1
 
     if synced_count > 0:
-        save_contract(contract, repo_path)
+        save_contract(contract, worktree_repo_path)
         logger.info(
             "Synced pipeline decisions to contract",
             pipeline_id=pipeline_id,
@@ -15036,7 +15236,9 @@ def _run_pipeline(
             if current_phase.value in _HITL_GATE_PHASES:
                 try:
                     _sync_pipeline_decisions_to_contract(
-                        worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                        repo_path,
+                        worktree_repo_path,
+                        pipeline_id,
                     )
                 except Exception as sync_err:
                     logger.warning(

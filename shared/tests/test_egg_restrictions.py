@@ -313,7 +313,7 @@ class TestCoderBlocklistComplement:
 
     def test_blocks_path_traversal_via_can_write(self):
         # Path-traversal regression — this assertion MUST go through
-        # CODER_PATTERNS.can_write (NOT _matches_pattern) because the
+        # CODER_PATTERNS.can_write (NOT matches_pattern) because the
         # traversal guard lives in _normalize_path and is only invoked
         # by can_write.
         assert not CODER_PATTERNS.can_write("../../etc/passwd")

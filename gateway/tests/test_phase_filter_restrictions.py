@@ -354,15 +354,20 @@ class TestPhaseFilterCheckFileRestrictions:
         yield
         reset_phase_filter()
 
-    def test_implementer_blocked_from_contracts(self):
-        result = check_file_restrictions("implementer", [".egg-state/contracts/123.json"])
+    def test_coder_blocked_from_contracts(self):
+        # Pre-#1903 a coarse "implementer" role guarded contracts; after
+        # #1903 the fine-grained coder role does so via its broader
+        # ``.egg-state/`` block.
+        result = check_file_restrictions("coder", [".egg-state/contracts/123.json"])
         assert result.allowed is False
 
-    def test_implementer_allowed_for_code(self):
-        result = check_file_restrictions("implementer", ["src/app.py"])
+    def test_coder_allowed_for_code(self):
+        result = check_file_restrictions("coder", ["src/app.py"])
         assert result.allowed is True
 
     def test_unknown_role_allowed(self):
+        # Unknown roles are fail-open at this layer; the patterns.py
+        # check at gateway.py:1648 fails closed via partition_files_by_role.
         result = check_file_restrictions("unknown_role", ["src/app.py"])
         assert result.allowed is True
 
@@ -371,7 +376,7 @@ class TestPhaseFilterCheckFileRestrictions:
         assert result.allowed is True
 
     def test_empty_files_allowed(self):
-        result = check_file_restrictions("implementer", [])
+        result = check_file_restrictions("coder", [])
         assert result.allowed is True
 
 
@@ -544,20 +549,18 @@ class TestPhaseFilterFormatBlockedMessage:
 
 
 class TestThreeRoleFileRestrictions:
-    """TASK-5-3 (#1901): coverage for the three new file_restrictions
-    entries (coder/tester/documenter) added to .egg/phase-permissions.json
-    in TASK-3-1.
+    """TASK-5-3 (#1901): coverage for the three role file_restrictions
+    entries (coder/tester/documenter) derived from ``AGENT_PATTERNS``.
 
     These tests exercise ``check_file_restrictions("<role>", [...])``
     against representative allowed/blocked paths.  They guard against
     silent regressions where a role's blocklist entry gets dropped or
     an unintended allow-through.
 
-    Note: ``FileRestriction.is_file_blocked`` uses ``startswith``
-    semantics, so glob patterns in the JSON are dead entries at this
-    layer — only the prefix-shaped patterns (e.g. ``.egg-state/contracts/``)
-    actually block here.  The glob-shaped patterns are enforced at the
-    higher patterns.py layer (covered by other test files).
+    As of #1903, ``FileRestriction.is_file_blocked`` delegates to
+    ``AgentFilePattern.matches_pattern`` (the same matcher used by
+    ``patterns.py``), so glob entries (``**/*.md``, ``**/tests/``, …)
+    are real blocks at this layer rather than dead prefix-only checks.
     """
 
     @pytest.fixture(autouse=True)
@@ -574,9 +577,8 @@ class TestThreeRoleFileRestrictions:
         assert ".egg-state/contracts/foo.json" in result.blocked_files
 
     def test_coder_allowed_for_source(self):
-        """Source files are not blocked by the coder file_restrictions
-        entry (only the glob entries would catch them, and those are
-        no-ops at this layer)."""
+        """Source files outside the coder blocklist (.egg-state/, docs/,
+        tests/, .github/) are allowed."""
         result = check_file_restrictions("coder", ["gateway/server.py"])
         assert result.allowed is True
 
@@ -630,12 +632,11 @@ class TestThreeRoleFileRestrictions:
         result = check_file_restrictions("documenter", ["README.md"])
         assert result.allowed is True
 
-    # --- legacy implementer entry preserved ---
-
-    def test_legacy_implementer_still_blocks_contracts(self):
-        """The legacy ``implementer`` entry is retained as back-compat per
-        TASK-3-1 — verify it still works alongside the new three-role
-        entries."""
-        result = check_file_restrictions("implementer", [".egg-state/contracts/x.json"])
-        assert result.allowed is False
-        assert ".egg-state/contracts/x.json" in result.blocked_files
+    # The legacy ``implementer`` coarse-role entry was removed in #1903.
+    # Per-role boundaries now derive from
+    # ``shared/egg_restrictions/patterns.py``, which keys only on
+    # fine-grained roles. The orchestrator passes ``agent_role.value``
+    # (always a fine-grained role like ``coder``/``tester``/...) to the
+    # gateway, so the coarse entry never matched a real session_role in
+    # production. The block on ``.egg-state/contracts/`` is preserved
+    # transitively via the fine-grained role tests above.

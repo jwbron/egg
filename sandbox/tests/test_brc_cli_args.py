@@ -153,6 +153,73 @@ class TestAckConditionalFlag:
         assert args.pre_merge_condition == "A human must `git mv legacy/x new/x` before merge"
 
 
+class TestAckResolvedInDiffFlag:
+    """--pre-merge-condition-resolved-in-diff marks an obligation resolved (#2336)."""
+
+    def test_resolved_in_diff_defaults_to_empty(self):
+        """Omitting the flag yields an empty resolution (still open)."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "ack",
+                "coder",
+                "issue-42",
+                "--files-reviewed",
+                "src/a.py",
+                "--reason",
+                "All looks good, reviewed a.py and confirmed auth flow is correct",
+                "--ack-version",
+                "1",
+            ]
+        )
+        assert getattr(args, "pre_merge_condition_resolved_in_diff", "") == ""
+
+    def test_resolved_in_diff_parses(self):
+        """--pre-merge-condition-resolved-in-diff captures the resolving SHA."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "ack",
+                "coder",
+                "issue-42",
+                "--files-reviewed",
+                "src/a.py",
+                "--reason",
+                "Re-ACK after the tester landed the patch-path commit",
+                "--pre-merge-condition",
+                "Verify tester landed patch-path rewrite before merge",
+                "--pre-merge-condition-resolved-in-diff",
+                "2c319626a",
+                "--ack-version",
+                "2",
+            ]
+        )
+        assert args.pre_merge_condition_resolved_in_diff == "2c319626a"
+
+    def test_resolved_without_condition_exits_2(self, capsys):
+        """A resolution SHA on a plain ACK is rejected with exit code 2 (#2336)."""
+        from egg_lib.orch_cli import cmd_consensus_ack
+
+        args = argparse.Namespace(
+            pipeline_id="issue-42",
+            role="reviewer_code",
+            producer_role="coder",
+            reason="Reviewed src/a.py: logic is correct, tests cover all branches",
+            files_reviewed=["src/a.py"],
+            ack_version=1,
+            pre_merge_condition="",
+            pre_merge_condition_resolved_in_diff="abc1234",
+            json=False,
+        )
+        rc = cmd_consensus_ack(args)
+        captured = capsys.readouterr()
+        assert rc == 2
+        assert "--pre-merge-condition-resolved-in-diff" in captured.err
+        assert "requires" in captured.err
+
+
 # ---------------------------------------------------------------------------
 # ACK/NACK: --ack-version / --nack-version are required (#2142)
 # ---------------------------------------------------------------------------

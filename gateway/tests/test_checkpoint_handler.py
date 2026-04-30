@@ -1,8 +1,19 @@
-"""Tests for checkpoint_handler module - checkpoint creation and session-end."""
+"""Tests for checkpoint_handler module - checkpoint creation and session-end.
 
+Note: the module-level ``_stub_bare_repo_lock`` autouse fixture below replaces
+the cross-process flock primitive with a no-op for every test in this file.
+Tests added here that need to exercise the real ``bare_repo_lock`` path
+(rather than just ``_get_repo_lock``'s in-process serialization) must opt out
+explicitly or live in ``shared/tests/test_cross_process_lock.py`` /
+``orchestrator/tests/test_state_store.py`` instead.
+"""
+
+import contextlib
 import subprocess
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Import from conftest-loaded modules
 from checkpoint_handler import (
@@ -12,6 +23,31 @@ from checkpoint_handler import (
     capture_session_end_checkpoint,
 )
 from session_manager import Session, _hash_token
+
+
+@pytest.fixture(autouse=True)
+def _stub_bare_repo_lock(monkeypatch):
+    """Replace ``bare_repo_lock`` with a no-op for these unit tests.
+
+    The cross-process flock primitive (#2311) requires a real
+    ``<repo>/.git/`` to exist so it can ``mkdir`` the sentinel and
+    ``os.open`` an fd.  These tests pass sentinel paths like
+    ``/fake/repo`` which would fail the mkdir.  Cross-process behaviour
+    is covered by ``shared/tests/test_cross_process_lock.py`` and the
+    worktree integration test — here we only need ``_get_repo_lock``'s
+    in-process serialization to work.
+
+    Tests that need to observe ``bare_repo_lock`` acquire/release order
+    (e.g. #2332's regression that the flock is *not* held across the
+    fetch-retry window) override this with their own recording stand-in.
+    """
+    import checkpoint_handler
+
+    @contextlib.contextmanager
+    def _noop(repo_path):
+        yield
+
+    monkeypatch.setattr(checkpoint_handler, "bare_repo_lock", _noop)
 
 
 class TestCaptureAndStoreCheckpointsForPush:
@@ -663,8 +699,15 @@ class TestStoreCheckpointV2Concurrency:
             session_started_at=now,
         )
 
-    def test_worktree_prune_called_in_cleanup(self):
-        """Cleanup runs `git worktree prune` to drop stale worktree entries."""
+    def test_cleanup_does_not_call_worktree_prune(self):
+        """Cleanup must NOT run `git worktree prune` (#2324).
+
+        Prune is broad and removes admin dirs for ANY worktree whose path
+        is not visible from the gateway pod's filesystem — including the
+        orchestrator's state worktree, which lives on a per-pod
+        ``emptyDir`` mount the gateway cannot see.  Cleanup must instead
+        surgically remove only this checkpoint worktree's admin dir.
+        """
         import checkpoint_handler
 
         # Reset the per-repo lock dict so this test is isolated.
@@ -681,18 +724,36 @@ class TestStoreCheckpointV2Concurrency:
         handler._run_git = track_run_git
         handler._branch_exists = MagicMock(return_value=True)
 
-        try:
-            handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
-        except Exception:
-            pass
+        rmtree_calls = []
+
+        def fake_rmtree(path, *args, **kwargs):
+            rmtree_calls.append((str(path), kwargs))
+
+        with patch("checkpoint_handler.shutil.rmtree", side_effect=fake_rmtree):
+            try:
+                handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+            except Exception:
+                pass
 
         prune_calls = [c for c in git_calls if c[1][:2] == ["worktree", "prune"]]
-        assert len(prune_calls) == 1, "Expected exactly one `worktree prune` call"
-        assert prune_calls[0][0] == "/fake/repo"
-        assert prune_calls[0][2].get("check") is False
+        assert prune_calls == [], "`git worktree prune` must not run in cleanup (#2324)"
 
-    def test_worktree_prune_runs_when_worktree_add_fails(self):
-        """If `worktree add` itself raises, cleanup still runs `worktree prune`."""
+        # Targeted admin-dir removal: a single rmtree against
+        # /fake/repo/.git/worktrees/<temp basename> with ignore_errors.
+        admin_rmtree_calls = [
+            (path, kwargs)
+            for path, kwargs in rmtree_calls
+            if path.startswith("/fake/repo/.git/worktrees/")
+        ]
+        assert len(admin_rmtree_calls) == 1, (
+            f"expected one targeted admin-dir rmtree, got {admin_rmtree_calls}"
+        )
+        assert admin_rmtree_calls[0][1].get("ignore_errors") is True
+
+    def test_cleanup_admin_dir_runs_when_worktree_add_fails(self):
+        """If `worktree add` itself raises, cleanup still removes the
+        admin dir for this checkpoint worktree (and still does NOT
+        call `git worktree prune`)."""
         import checkpoint_handler
 
         checkpoint_handler._repo_locks.clear()
@@ -710,16 +771,28 @@ class TestStoreCheckpointV2Concurrency:
         handler._run_git = track_run_git
         handler._branch_exists = MagicMock(return_value=True)
 
-        # store_checkpoint_v2 swallows exceptions and returns False; we just
-        # need it to complete and run the finally block.
-        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
-        assert result is False
+        rmtree_calls = []
+
+        def fake_rmtree(path, *args, **kwargs):
+            rmtree_calls.append((str(path), kwargs))
+
+        with patch("checkpoint_handler.shutil.rmtree", side_effect=fake_rmtree):
+            # store_checkpoint_v2 swallows exceptions and returns False; we just
+            # need it to complete and run the finally block.
+            result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+            assert result is False
 
         prune_calls = [c for c in git_calls if c[1][:2] == ["worktree", "prune"]]
-        assert len(prune_calls) == 1, (
-            "Expected `worktree prune` to run even when `worktree add` fails"
+        assert prune_calls == [], "`git worktree prune` must not run on add failure (#2324)"
+
+        admin_rmtree_calls = [
+            (path, kwargs)
+            for path, kwargs in rmtree_calls
+            if path.startswith("/fake/repo/.git/worktrees/")
+        ]
+        assert len(admin_rmtree_calls) == 1, (
+            "Expected admin-dir rmtree to run even when `worktree add` fails"
         )
-        assert prune_calls[0][0] == "/fake/repo"
 
     def test_concurrent_stores_on_same_repo_serialized(self):
         """Two threads storing into the same repo_path run sequentially."""
@@ -821,6 +894,77 @@ class TestStoreCheckpointV2Concurrency:
         assert max_in_flight >= 2, (
             "Expected concurrent execution across different repos, "
             f"saw max_in_flight={max_in_flight}"
+        )
+
+    def test_bare_repo_lock_not_held_across_fetch_retry(self, monkeypatch):
+        """Cross-process flock is released around the fetch-retry window.
+
+        Regression for #2332. Holding ``bare_repo_lock`` across the
+        fetch's 3 × 45s retry window blocks every state-store commit
+        and other gateway worktree op against the same bare repo.
+        Fetch doesn't write ``.git/config``, so it doesn't need
+        cross-process serialization — the flock should only wrap the
+        ops that touch the bare repo's ``.git/`` (worktree add,
+        worktree remove/prune).
+        """
+        import checkpoint_handler
+
+        checkpoint_handler._repo_locks.clear()
+
+        flock_depth = [0]
+        # Per-call list of (git_args, depth_at_entry).
+        observations: list[tuple[list[str], int]] = []
+
+        @contextlib.contextmanager
+        def recording_flock(_repo_path):
+            flock_depth[0] += 1
+            try:
+                yield
+            finally:
+                flock_depth[0] -= 1
+
+        monkeypatch.setattr(checkpoint_handler, "bare_repo_lock", recording_flock)
+        monkeypatch.setattr(checkpoint_handler.time, "sleep", lambda _s: None)
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        fetch_attempts = [0]
+
+        def track_run_git(cwd, args, **kwargs):
+            observations.append((list(args), flock_depth[0]))
+            if args[:1] == ["fetch"]:
+                fetch_attempts[0] += 1
+                # Fail the first two fetches to drive the retry loop;
+                # let the third succeed so the rest of the op runs.
+                if fetch_attempts[0] < 3:
+                    raise checkpoint_handler.CheckpointError("simulated fetch failure")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+        assert result is True
+
+        fetch_observations = [depth for args, depth in observations if args[:1] == ["fetch"]]
+        assert len(fetch_observations) == 3, (
+            f"Expected 3 fetch attempts, observed {len(fetch_observations)}"
+        )
+        assert all(d == 0 for d in fetch_observations), (
+            f"bare_repo_lock must not be held during fetch retry, saw depths {fetch_observations}"
+        )
+
+        # Sanity: `worktree add` and the cleanup `worktree remove` /
+        # `worktree prune` must run *under* the flock — that's the
+        # whole point of keeping the flock at all.
+        worktree_observations = [
+            (args[:2], depth)
+            for args, depth in observations
+            if args[:2] in (["worktree", "add"], ["worktree", "remove"], ["worktree", "prune"])
+        ]
+        assert worktree_observations, "Expected worktree git ops to be observed"
+        assert all(depth >= 1 for _args, depth in worktree_observations), (
+            f"Worktree ops must run under bare_repo_lock, saw {worktree_observations}"
         )
 
 

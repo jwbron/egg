@@ -61,6 +61,35 @@ class TestReviewPayloadCondition:
                 pre_merge_condition="do something",
             )
 
+    def test_resolution_without_condition_rejected(self):
+        """A resolution SHA on a plain ACK has nothing to attach to (#2336)."""
+        with pytest.raises(ValueError, match="requires a non-empty"):
+            ReviewPayload(
+                verdict="ACK",
+                artifact_references=["src/a.py"],
+                pre_merge_condition_resolved_in_diff="abc1234",
+            )
+
+    def test_resolution_with_condition_accepted(self):
+        """A resolution SHA alongside an obligation is the supported shape (#2336)."""
+        payload = ReviewPayload(
+            verdict="ACK",
+            artifact_references=["src/a.py"],
+            pre_merge_condition="verify migration in prod",
+            pre_merge_condition_resolved_in_diff="abc1234",
+        )
+        assert payload.pre_merge_condition_resolved_in_diff == "abc1234"
+
+    def test_resolution_rejects_non_hex_characters(self):
+        """SHA shape validation prevents newline injection bending PR markdown (#2336)."""
+        with pytest.raises(ValueError):
+            ReviewPayload(
+                verdict="ACK",
+                artifact_references=["src/a.py"],
+                pre_merge_condition="verify migration in prod",
+                pre_merge_condition_resolved_in_diff="abc1234\n## Injected heading",
+            )
+
 
 # --- Matrix ----------------------------------------------------------------
 

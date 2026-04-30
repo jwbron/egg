@@ -101,6 +101,18 @@ _ACK_SCHEMA: dict[str, Any] = {
                 "auto-created PR. Leave empty for an unconditional ACK."
             ),
         },
+        "pre_merge_condition_resolved_in_diff": {
+            "type": "string",
+            "description": (
+                "Optional commit SHA (issue #2336). Set this on a re-ACK "
+                "when the obligation in `pre_merge_condition` has been "
+                "satisfied within the same PR's diff since your initial "
+                "conditional ACK — the PR-body renderer demotes resolved "
+                "obligations from the merge-blocking section to a "
+                "'Resolved within this PR' subsection. Only meaningful "
+                "alongside a non-empty `pre_merge_condition`."
+            ),
+        },
         "pipeline_id": {"type": "string"},
         "role": {"type": "string"},
     },
