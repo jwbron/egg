@@ -107,6 +107,8 @@ If commits lost: `git reflog` → `git cherry-pick <hash>`
 
 **Branch sync**: Always try `git merge` first. Only `git rebase` if explicitly requested. Never use cherry-pick reconstruction.
 
+**REBASE BLOCK (Pipeline mode)**: `git rebase origin/main` (or `main` / `origin/HEAD` / `FETCH_HEAD`, and `--onto origin/main …`) is **blocked by the gateway** in pipeline sessions. The pipeline branch is rebased onto the base branch only via the orchestrator's controlled rebase (`_rebase_pipeline_branch_onto_base`). If you need to bring in new commits from the base, ask the operator to resume the pipeline so the orchestrator-side rebase runs.
+
 ## Decision Framework
 
 **Proceed independently**: Clear requirements, code with tests, bug fixes, docs.

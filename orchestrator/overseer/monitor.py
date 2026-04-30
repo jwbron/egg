@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -45,6 +46,26 @@ logger = logging.getLogger(__name__)
 # indicating human intervention is needed.
 _HUMAN_WORDS = ("human", "manual", "operator")
 _ACTION_WORDS = ("intervention", "attention", "review", "required", "needed", "escalat")
+
+
+def _accepts_kwarg(func: Any, name: str) -> bool:
+    """Return True if *func* accepts a keyword argument named *name*.
+
+    Uses :func:`inspect.signature` to inspect the callable. ``True`` is
+    returned when the parameter is declared explicitly or absorbed by a
+    ``**kwargs`` catch-all. Callables whose signature can't be
+    introspected (e.g. some C-implemented builtins) default to ``True``
+    on the assumption that they accept arbitrary kwargs — matching how
+    :class:`unittest.mock.AsyncMock` and friends behave at the call site.
+    """
+    try:
+        sig = inspect.signature(func)
+    except TypeError, ValueError:
+        return True
+    params = sig.parameters
+    if name in params:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
 class _DefaultConfig:
@@ -228,13 +249,35 @@ class OverseerMonitor:
             return await self._classifier.check_decision_consistency(phase_output, prior_decisions)
         return await check_decision_consistency(phase_output, prior_decisions)
 
-    async def _decide_corrective_action(self, classification: dict, context: dict) -> dict:
+    async def _decide_corrective_action(
+        self,
+        classification: dict,
+        context: dict,
+        *,
+        redirect_history: list[dict] | None = None,
+    ) -> dict:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
         if self._decision_maker and hasattr(self._decision_maker, "decide_corrective_action"):
-            return await self._decision_maker.decide_corrective_action(
-                classification, context, model=model
-            )
-        return await decide_corrective_action(classification, context, model=model)
+            method = self._decision_maker.decide_corrective_action
+            if _accepts_kwarg(method, "redirect_history"):
+                return await method(
+                    classification,
+                    context,
+                    model=model,
+                    redirect_history=redirect_history,
+                )
+            # Test doubles with explicit signatures that pre-date the
+            # redirect_history kwarg fall through here; the guard
+            # downstream (_enforce_no_first_stall_restart) is bypassed
+            # in that path, which is fine for tests that don't exercise
+            # it.
+            return await method(classification, context, model=model)
+        return await decide_corrective_action(
+            classification,
+            context,
+            model=model,
+            redirect_history=redirect_history,
+        )
 
     async def _compose_redirect_message(self, agent_role: str, issue: str, context: dict) -> str:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
@@ -417,6 +460,7 @@ class OverseerMonitor:
                 decision = await self._decide_corrective_action(
                     classification,
                     action_context,
+                    redirect_history=list(self._escalation_history.get(agent_role, [])),
                 )
                 await self._execute_action(decision, agent_role, container_logs=container_logs)
                 await self._resolve_alert(
@@ -529,6 +573,7 @@ class OverseerMonitor:
             decision = await self._decide_corrective_action(
                 classification,
                 action_context,
+                redirect_history=history,
             )
 
         await self._execute_action(decision, agent_role, container_logs=container_logs)

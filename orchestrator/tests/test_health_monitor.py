@@ -196,6 +196,199 @@ class TestHeartbeatTimeout:
 
 
 # ---------------------------------------------------------------------------
+# Tests: Container-activity suppression (issue #2190)
+# ---------------------------------------------------------------------------
+
+
+def _emit_container_activity(
+    event_bus: EventBus,
+    agent_id: str = AGENT_ID,
+    pipeline_id: str = PIPELINE_ID,
+    kind: str = "git_commit",
+) -> Event:
+    """Emit a CONTAINER_ACTIVITY event for an agent."""
+    return event_bus.emit(
+        EventType.CONTAINER_ACTIVITY,
+        pipeline_id=pipeline_id,
+        data={"agent_role": agent_id, "kind": kind},
+    )
+
+
+class TestContainerActivitySuppression:
+    """Issue #2190: a fresh CONTAINER_ACTIVITY event suppresses heartbeat
+    and progress stall alerts even when bus-level HEARTBEATs are absent.
+
+    Repro from the issue: a coder mid-pytest is making commits but not
+    emitting heartbeats during a 10-minute blocking ``TaskOutput`` call;
+    the detector previously fired ``agent-heartbeat-stall`` and
+    recommended container restart, which would destroy in-flight work.
+    """
+
+    def test_recent_activity_suppresses_heartbeat_alert(self):
+        """Activity within the quiet window defers the heartbeat alert."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_activity_quiet_seconds=120,
+        )
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # Heartbeat is stale (61s old) but a fresh activity event arrives.
+        with patch("health_monitor.time") as mock_time:
+            base = time.time()
+            mock_time.time.return_value = base + 61
+            _emit_container_activity(bus, agent_id=AGENT_ID)
+
+            actions = monitor.check_heartbeats()
+
+        assert actions == []
+
+        # And the agent is not flagged escalated, so a later poll
+        # (after activity has gone stale) still escalates.
+        with patch("health_monitor.time") as mock_time:
+            base = time.time()
+            mock_time.time.return_value = base + 1000
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == AGENT_ID
+
+    def test_recent_activity_suppresses_progress_alert(self):
+        """Same suppression applies to the progress stall detector."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_activity_quiet_seconds=120,
+        )
+        monitor = _make_monitor(bus, config)
+
+        _emit_progress(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            base = time.time()
+            mock_time.time.return_value = base + 61
+            _emit_container_activity(bus, agent_id=AGENT_ID)
+
+            actions = monitor.check_progress()
+
+        assert actions == []
+
+    def test_stale_activity_does_not_suppress(self):
+        """An activity event older than the quiet window does not suppress."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_activity_quiet_seconds=120,
+        )
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+        _emit_container_activity(bus, agent_id=AGENT_ID)
+
+        # Both heartbeat and activity are now > heartbeat threshold (60s)
+        # AND > activity quiet window (120s).
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 200
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+
+    def test_no_activity_event_does_not_suppress(self):
+        """An agent that has never emitted CONTAINER_ACTIVITY still escalates
+        on the heartbeat anchor — last_activity defaults to 0.0."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_activity_quiet_seconds=120,
+        )
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+
+    def test_disabled_gate_no_suppression(self):
+        """``orchestrator_activity_quiet_seconds=0`` disables the gate.
+
+        Even a CONTAINER_ACTIVITY event one second old must NOT suppress
+        a heartbeat alert — operators set the threshold to 0 as an
+        escape hatch when the gate is producing false negatives.
+        """
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_activity_quiet_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            base = time.time()
+            # Heartbeat is stale (61s old) and a brand-new activity event
+            # arrives — but the gate is disabled, so the alert still fires.
+            mock_time.time.return_value = base + 61
+            _emit_container_activity(bus, agent_id=AGENT_ID)
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == AGENT_ID
+
+    def test_activity_event_for_other_pipeline_ignored(self):
+        """CONTAINER_ACTIVITY for a different pipeline does not suppress."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_activity_quiet_seconds=120,
+        )
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+        _emit_container_activity(bus, agent_id=AGENT_ID, pipeline_id="some-other-pipeline")
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+
+    def test_activity_event_for_other_agent_does_not_suppress_focal(self):
+        """Activity from a peer agent does not suppress an agent's own alert
+        via the focal-agent gate (per-agent isolation property of #2190).
+
+        The peer-progress gate (#2242) is OR'd in at the alert sites and
+        WILL defer on a peer's recent heartbeat, so we disable it here
+        (``orchestrator_alert_progress_gate_seconds=0``) to isolate the
+        focal-agent gate's behavior under test.
+        """
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_activity_quiet_seconds=120,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+        _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+        _emit_container_activity(bus, agent_id=AGENT_ID_2)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            actions = monitor.check_heartbeats()
+
+        # AGENT_ID has no activity of its own → escalates.
+        agent_ids = {a["agent_id"] for a in actions}
+        assert AGENT_ID in agent_ids
+
+
+# ---------------------------------------------------------------------------
 # Tests: reset_agent (issue #2084)
 # ---------------------------------------------------------------------------
 

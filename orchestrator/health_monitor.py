@@ -67,6 +67,11 @@ INFRA_ERROR_PATTERNS = [
 EscalationCallback = Callable[[dict[str, Any]], None]
 ThrottleCallback = Callable[[dict[str, Any]], None]
 
+# Sentinel for AgentState.last_activity meaning "no CONTAINER_ACTIVITY event
+# has ever arrived for this agent." Compared with `<=` so any non-positive
+# float counts as never-seen. See `_has_recent_activity` (#2190).
+_NEVER_SEEN_ACTIVITY: float = 0.0
+
 
 @dataclass
 class AgentState:
@@ -75,6 +80,14 @@ class AgentState:
     agent_id: str
     last_heartbeat: float = field(default_factory=time.time)
     last_progress: float = field(default_factory=time.time)
+    # Wall-clock timestamp of the most recent CONTAINER_ACTIVITY event for
+    # this agent (e.g. successful git commit registration).  Used to
+    # suppress heartbeat/progress stall alerts against agents that are
+    # legitimately blocked in long tool calls but still making real
+    # progress (issue #2190).  Defaults to ``_NEVER_SEEN_ACTIVITY`` so a
+    # freshly spawned agent's silence is governed by the heartbeat anchor
+    # alone.
+    last_activity: float = _NEVER_SEEN_ACTIVITY
     error_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     message_timestamps: list[float] = field(default_factory=list)
     heartbeat_escalated: bool = False
@@ -131,6 +144,7 @@ class HealthMonitor:
         self._event_bus.subscribe(EventType.ERROR, self._on_error)
         self._event_bus.subscribe(EventType.CONTAINER_STOPPED, self._on_container_stopped)
         self._event_bus.subscribe(EventType.MESSAGE_SENT, self._on_message_sent)
+        self._event_bus.subscribe(EventType.CONTAINER_ACTIVITY, self._on_container_activity)
 
     # -----------------------------------------------------------------
     # Callback registration
@@ -226,6 +240,48 @@ class HealthMonitor:
         if phase == "plan":
             return self._config.orchestrator_plan_post_ack_confirmation_timeout_seconds
         return self._config.orchestrator_post_ack_confirmation_timeout_seconds
+
+    def _has_recent_activity(self, agent_id: str, now: float) -> tuple[bool, str | None]:
+        """Return (defer, reason) for the focal-agent activity gate (#2190).
+
+        Suppresses ``heartbeat_timeout`` / ``progress_stall`` alerts against
+        an agent that is demonstrably alive — i.e. has emitted a
+        :class:`EventType.CONTAINER_ACTIVITY` event within
+        ``orchestrator_activity_quiet_seconds`` — even if no
+        bus-level ``HEARTBEAT`` has arrived. The repro from #2190 was a
+        coder mid-pytest with multi-minute blocking ``TaskOutput`` calls,
+        committing along the way; the bus saw silence but the agent was
+        making real progress.
+
+        Returns ``(False, None)`` when the agent has never emitted an
+        activity event (``last_activity == _NEVER_SEEN_ACTIVITY``) so a
+        freshly spawned but truly silent agent still escalates on the
+        heartbeat anchor.
+
+        Setting ``orchestrator_activity_quiet_seconds=0`` disables the
+        gate entirely — operator escape hatch if the gate produces
+        false negatives in production.
+
+        OR'd with :func:`_has_recent_peer_progress` (#2242) at the
+        per-agent alert sites: focal-agent activity OR peer progress
+        defers. The escalated flag is intentionally not set on defer so
+        the next poll re-checks once activity goes stale.
+        """
+        threshold = self._config.orchestrator_activity_quiet_seconds
+        if threshold <= 0:
+            return False, None
+
+        with self._lock:
+            agent = self._agents.get(agent_id)
+            last_activity = agent.last_activity if agent is not None else _NEVER_SEEN_ACTIVITY
+
+        if last_activity <= _NEVER_SEEN_ACTIVITY:
+            return False, None
+
+        age = now - last_activity
+        if 0 <= age < threshold:
+            return True, f"container activity {int(age)}s ago"
+        return False, None
 
     def _has_recent_peer_progress(
         self, exclude_agent_id: str, now: float
@@ -443,6 +499,26 @@ class HealthMonitor:
                 if new_state != "blocked" or new_blocker != old_blocker:
                     agent.infra_error_escalated = False
 
+    def _on_container_activity(self, event: Event) -> None:
+        """Handle CONTAINER_ACTIVITY event — record focal-agent activity (#2190).
+
+        Activity events fire on demonstrable signs of life that don't go
+        through the bus-level HEARTBEAT path: today, successful commit
+        registrations from the gateway commit observer. Used by
+        :func:`_has_recent_activity` to suppress heartbeat/progress
+        alerts against agents legitimately blocked in long tool calls.
+        """
+        if event.pipeline_id != self._pipeline_id:
+            return
+
+        agent_id = event.data.get("agent_id") or event.data.get("agent_role")
+        if not agent_id:
+            return
+
+        with self._lock:
+            agent = self._get_or_create_agent(agent_id)
+            agent.last_activity = time.time()
+
     def _on_error(self, event: Event) -> None:
         """Handle ERROR event — track repeated identical errors."""
         if event.pipeline_id != self._pipeline_id:
@@ -617,12 +693,20 @@ class HealthMonitor:
             if self._is_brc_idle(agent_id):
                 continue
 
-            # Alive-signal gate (#2242): defer if peers are still moving.
-            # Don't set heartbeat_escalated — the next poll re-checks.
-            defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
+            # Focal-agent activity gate (#2190) OR alive-signal peer-progress
+            # gate (#2242): defer if either fires. The activity gate catches
+            # an agent legitimately blocked in a long tool call (e.g. a
+            # multi-minute background pytest) that is still committing but
+            # not emitting bus-level HEARTBEAT. The peer-progress gate
+            # catches the case where the broader pipeline is clearly alive
+            # via BRC bus signals or peer heartbeats. Don't set
+            # heartbeat_escalated on defer — the next poll re-checks.
+            defer, gate_reason = self._has_recent_activity(agent_id, now)
+            if not defer:
+                defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
             if defer:
                 logger.info(
-                    "Heartbeat alert deferred by progress gate",
+                    "Heartbeat alert deferred by alive-signal gate",
                     pipeline_id=self._pipeline_id,
                     agent_id=agent_id,
                     elapsed_seconds=int(elapsed),
@@ -713,11 +797,15 @@ class HealthMonitor:
             if self._is_brc_idle(agent_id):
                 continue
 
-            # Alive-signal gate (#2242): defer if peers are still moving.
-            defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
+            # Focal-agent activity gate (#2190) OR alive-signal peer-progress
+            # gate (#2242): same OR pattern as check_heartbeats — defer when
+            # either fires.
+            defer, gate_reason = self._has_recent_activity(agent_id, now)
+            if not defer:
+                defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
             if defer:
                 logger.info(
-                    "Progress alert deferred by progress gate",
+                    "Progress alert deferred by alive-signal gate",
                     pipeline_id=self._pipeline_id,
                     agent_id=agent_id,
                     elapsed_seconds=int(elapsed),
@@ -845,6 +933,7 @@ class HealthMonitor:
         self._event_bus.unsubscribe(EventType.ERROR, self._on_error)
         self._event_bus.unsubscribe(EventType.CONTAINER_STOPPED, self._on_container_stopped)
         self._event_bus.unsubscribe(EventType.MESSAGE_SENT, self._on_message_sent)
+        self._event_bus.unsubscribe(EventType.CONTAINER_ACTIVITY, self._on_container_activity)
 
     def _check_infra_errors(self) -> list[dict[str, Any]]:
         """Detect blocked progress events with infrastructure error keywords.

@@ -81,6 +81,12 @@ class EventType(StrEnum):
 
     # Progress monitoring
     PROGRESS_EMITTED = "progress.emitted"
+    # Container-side activity (e.g. successful mcp__task__add_commit) that
+    # demonstrates an agent is alive even when no HEARTBEAT message-bus
+    # traffic exists. Consumed by HealthMonitor to suppress
+    # heartbeat/progress stall alerts against agents legitimately blocked
+    # in long tool calls. See issue #2190.
+    CONTAINER_ACTIVITY = "container.activity"
 
     # System events — health check framework (see health_checks/runner.py)
     HEALTH_CHECK = "system.health_check"

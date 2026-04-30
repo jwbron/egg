@@ -60,6 +60,13 @@ _NON_RESTARTABLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Spans every action in the decision-maker's vocabulary so any prior
+# corrective intervention (destructive or not) bypasses the
+# first-stall restart guard. See ``_enforce_no_first_stall_restart``.
+_PRIOR_INTERVENTIONS: frozenset[str] = frozenset(
+    {"nudge", "redirect", "issue", "slack", "restart_agent", "restart_phase", "hitl"}
+)
+
 
 def _is_restartable(error_text: str) -> bool:
     """Return True if *error_text* describes a transient, auto-restartable error.
@@ -97,7 +104,11 @@ async def _call_decision_maker(prompt: str, context: str, *, model: str | None =
 
 
 async def decide_corrective_action(
-    classification: dict, context: dict, *, model: str | None = None
+    classification: dict,
+    context: dict,
+    *,
+    model: str | None = None,
+    redirect_history: list[dict] | None = None,
 ) -> dict:
     """Decide what corrective action to take based on a classification.
 
@@ -105,6 +116,11 @@ async def decide_corrective_action(
         classification: Output from a classifier function (e.g. classify_stall).
         context: Additional context (pipeline state, agent history, etc.).
         model: Override the default decision model.
+        redirect_history: Prior corrective actions sent to this agent.
+            Used by the deterministic post-hoc guard (#2190) to downgrade
+            ``restart_agent`` recommendations on first-occurrence
+            ``stuck`` classifications when the model disregards the
+            prompt's no-restart-on-first-stall guidance.
 
     Returns:
         A dict with keys:
@@ -141,6 +157,22 @@ async def decide_corrective_action(
         '  "restart_phase" - Restart all agents in the current phase (requires HITL approval)\n'
         '  "issue" - File a diagnostic GitHub issue\n'
         '  "slack" - Send urgent Slack notification\n\n'
+        "Recommendation ladder for stall / silent-agent classifications "
+        "(issue #2190): inspecting agent state must come before any "
+        "container-restart recommendation. An apparently-silent agent is "
+        "often mid-tool-call (e.g. a multi-minute pytest). Restarting "
+        "would destroy in-flight commits.\n"
+        "  - First response: `nudge` or `redirect` whose message body "
+        'leads with "Inspect container logs via '
+        "`mcp__egg__get_container_logs(task_id=…, agent_role=…)` before "
+        'taking destructive action."\n'
+        "  - Do NOT recommend `restart_agent` for a first stall alert. "
+        "Reserve `restart_agent` for follow-up alerts that fire after a "
+        "log inspection has confirmed the agent is genuinely inactive "
+        "(no recent commits, no pushes, no tool-call results), or for "
+        "infrastructure errors classified separately.\n"
+        "  - Never embed `egg-orch container restart <id>` as a first-line "
+        "operator action in the message body.\n\n"
         "Respond with ONLY a JSON object (no markdown fences) with these keys:\n"
         '  "action": one of the actions above\n'
         '  "message": string describing the action or message to send\n'
@@ -149,10 +181,69 @@ async def decide_corrective_action(
     ctx = json.dumps({"classification": classification, "context": context}, default=str)
 
     raw = await _call_decision_maker(prompt, ctx, model=model)
-    return _parse_json_or_fallback(
+    decision = _parse_json_or_fallback(
         raw,
         {"action": "nudge", "message": raw, "priority": "medium"},
     )
+
+    return _enforce_no_first_stall_restart(decision, classification, redirect_history)
+
+
+def _enforce_no_first_stall_restart(
+    decision: dict,
+    classification: dict,
+    redirect_history: list[dict] | None,
+) -> dict:
+    """Deterministically downgrade ``restart_agent`` on first-stall alerts.
+
+    The decision-maker prompt instructs the model not to recommend
+    ``restart_agent`` for a first-occurrence stall classification (issue
+    #2190 — restarting destroys in-flight commits from agents mid-pytest).
+    Prompts are advisory; this guard is the load-bearing enforcement.
+
+    Trigger: ``action == "restart_agent"`` AND classification is
+    ``stuck``/``needs_help`` AND no prior intervention of any kind appears
+    in ``redirect_history``. In that state we rewrite the decision to a
+    ``hitl`` so the operator gets a real decision surface (the original
+    recommendation and the model's reasoning are preserved in the
+    question text).
+
+    The "no prior intervention" check spans every action in the
+    decision-maker's vocabulary — ``nudge``, ``redirect``, ``issue``,
+    ``slack``, ``restart_agent``, ``restart_phase``, and ``hitl``. The
+    intent is "ensure at least one corrective action of any kind has
+    fired before destruction": if the operator (or the overseer) has
+    already had a chance to respond to the agent's state via any
+    intervention type, the guard yields and the model's recommendation
+    stands. A previous ``restart_agent`` (which may itself have been
+    the wrong call) likewise bypasses the guard rather than fast-track
+    the next restart through it.
+    """
+    if decision.get("action") != "restart_agent":
+        return decision
+
+    cls = classification.get("classification")
+    if cls not in {"stuck", "needs_help"}:
+        return decision
+
+    history = redirect_history or []
+    if any(h.get("action") in _PRIOR_INTERVENTIONS for h in history):
+        return decision
+
+    original_msg = decision.get("message", "")
+    original_suffix = f" Model's recommendation: {original_msg}" if original_msg else ""
+    return {
+        "action": "hitl",
+        "message": (
+            "Overseer overrode a `restart_agent` recommendation on a "
+            "first-occurrence stall. The agent may be mid-tool-call (e.g. "
+            "a multi-minute pytest) rather than genuinely stuck; restart "
+            "would destroy in-flight commits. Inspect container logs via "
+            "`mcp__egg__get_container_logs(task_id=…, agent_role=…)` "
+            "before approving a restart." + original_suffix
+        ).strip(),
+        "priority": decision.get("priority", "medium"),
+    }
 
 
 async def compose_redirect_message(

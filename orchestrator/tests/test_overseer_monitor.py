@@ -2836,3 +2836,46 @@ class TestQueryContainerLogs:
         assert len(classify_calls) == 2
         for call in classify_calls:
             assert call.kwargs.get("container_logs") == "some logs"
+
+
+# ===================================================================
+# _accepts_kwarg
+# ===================================================================
+
+
+class TestAcceptsKwarg:
+    """Tests for ``_accepts_kwarg`` signature-introspection helper."""
+
+    def test_explicit_kwarg(self) -> None:
+        from overseer.monitor import _accepts_kwarg
+
+        def f(a, redirect_history=None):
+            pass
+
+        assert _accepts_kwarg(f, "redirect_history") is True
+
+    def test_var_keyword(self) -> None:
+        from overseer.monitor import _accepts_kwarg
+
+        def f(*args, **kwargs):
+            pass
+
+        assert _accepts_kwarg(f, "redirect_history") is True
+
+    def test_legacy_signature_rejects_kwarg(self) -> None:
+        from overseer.monitor import _accepts_kwarg
+
+        def f(a, b):
+            pass
+
+        assert _accepts_kwarg(f, "redirect_history") is False
+
+    def test_uninspectable_builtin_falls_through_to_true(self) -> None:
+        # ``inspect.signature(int)`` raises ``ValueError`` on CPython
+        # because the C-implemented type does not expose a Python-level
+        # signature. The fallback should assume kwargs are accepted so a
+        # genuinely callable target isn't excluded just because its
+        # signature can't be introspected.
+        from overseer.monitor import _accepts_kwarg
+
+        assert _accepts_kwarg(int, "redirect_history") is True
