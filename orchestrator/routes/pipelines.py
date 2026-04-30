@@ -10960,9 +10960,15 @@ def _run_implement_phase_slices(
                             # lands on exactly one PR.  When the
                             # forest has multiple terminal slices we
                             # take the last one in declared order —
-                            # arbitrary but stable.
+                            # arbitrary but stable. For multi-tree
+                            # forests this means non-terminal slices
+                            # in non-chosen trees point at a leaf
+                            # outside their own subtree; see the
+                            # "Stacked-PR creation" section of
+                            # ``docs/architecture/slice-dag.md`` for
+                            # the rationale.
                             depended_on: set[str] = {
-                                dep for s in contract_post.slices for dep in (s.dependencies or [])
+                                dep for s in contract_post.slices for dep in s.dependencies
                             }
                             terminal_ids = [
                                 s.id for s in contract_post.slices if s.id not in depended_on
@@ -10970,6 +10976,26 @@ def _run_implement_phase_slices(
                             chosen_terminal = terminal_ids[-1] if terminal_ids else None
                             is_terminal = slice_id == chosen_terminal
                             program_pr = contract_post.pr if is_terminal else None
+                            # Only point non-terminal slices at the
+                            # terminal when the umbrella will actually
+                            # carry a program-level narrative.
+                            # ``create_slice_pr`` upgrades to the
+                            # human-authored shape only when
+                            # ``program_title`` is non-empty, so a
+                            # ``contract.pr`` with a missing/empty
+                            # title yields the auto-generated body on
+                            # the terminal — and the pointer would
+                            # mislead reviewers who follow it.
+                            umbrella_has_program_block = bool(
+                                contract_post.pr
+                                and contract_post.pr.title
+                                and contract_post.pr.title.strip()
+                            )
+                            terminal_pointer = (
+                                None
+                                if is_terminal or not umbrella_has_program_block
+                                else chosen_terminal
+                            )
                             slice_pr_data = {
                                 "slice_name": slice_obj.name or slice_id,
                                 "slice_tasks": [
@@ -10984,7 +11010,7 @@ def _run_implement_phase_slices(
                                 "program_manual_steps": (
                                     program_pr.manual_steps if program_pr else None
                                 ),
-                                "terminal_slice_id": (None if is_terminal else chosen_terminal),
+                                "terminal_slice_id": terminal_pointer,
                             }
                 except Exception as load_err:  # noqa: BLE001
                     logger.warning(

@@ -426,16 +426,59 @@ on the correct tracker.
 ## Stacked-PR creation
 
 `GatewayClient.create_slice_pr(pipeline_id, repo, *, slice_id, slice_name,
-slice_tasks, head, base, ...)` opens one PR per slice with:
+slice_tasks, head, base, program_title=None, program_description=None,
+program_test_plan=None, program_manual_steps=None,
+terminal_slice_id=None, ...)` opens one PR per slice with two body
+shapes:
 
-- **Title**: `"slice {slice_id}: {slice_name}"` truncated to 70 chars.
-- **Body**: the slice name, a bulleted list of tasks (each truncated to
-  300 chars), and a footer naming the slice ID, pipeline, and base.
+- **Non-terminal slices** (no `program_title`) — title is
+  `"slice {slice_id}: {slice_name}"` truncated to 70 chars; body lists
+  the slice's tasks (each truncated to 300 chars), optionally followed
+  by a one-line pointer to `terminal_slice_id` so reviewers can jump
+  to the umbrella PR; footer names the slice ID, pipeline, and base.
+- **Terminal slice** (`program_title` set, sourced from the planner's
+  `# yaml-tasks` `pr` block) — title is the human-authored
+  `contract.pr.title` (still capped to 70 chars); body opens with a
+  `> Program-level umbrella PR — terminal slice of pipeline …`
+  banner and renders `contract.pr.description` /
+  `pr.test_plan` (under `## Test Plan`) / `pr.manual_steps` (under
+  `## Manual Steps`) so the umbrella PR carries the program-level
+  reviewer narrative; the slice-context footer survives so the chain
+  position stays legible.
 
-The human-authored `pr.title` / `pr.description` / `pr.test_plan` block
-from the plan's `# yaml-tasks` remains the source of truth for the
-**terminal slice** (the chain's tip). Sibling roots and intermediate
-slices ship with the auto-generated copy.
+The implement-phase run loop (`_run_implement_phase_slices` in
+`orchestrator/routes/pipelines.py`) selects the terminal slice and
+threads the kwargs:
+
+1. Compute `depended_on = {dep for slice in contract.slices for dep in slice.dependencies}`.
+2. `terminal_ids = [s.id for s in contract.slices if s.id not in depended_on]`.
+3. `chosen_terminal = terminal_ids[-1]` (last in declared order — see
+   the multi-terminal forest note below).
+4. For the terminal slice: pass `program_*` from `contract.pr`,
+   `terminal_slice_id=None`.
+5. For every non-terminal slice: pass `program_*=None`,
+   `terminal_slice_id=chosen_terminal` **only if** `contract.pr.title`
+   is non-empty. When the contract has no program block (older
+   contracts, or `_populate_contract_from_plan` did not run), the
+   pointer is suppressed so reviewers are not directed to a PR with
+   no umbrella content.
+
+### Multi-terminal-forest pointer caveat
+
+The slice DAG is a forest (≤1 DAG parent per slice — see
+[Forest Validation](#plan-parser--forest-validation)) and a
+multi-tree forest can have multiple terminal slices, one per tree.
+The current behaviour picks `terminal_ids[-1]` (last declared) as
+`chosen_terminal` and points **every** non-terminal across **every**
+tree at it. This means non-terminal leaves in non-chosen trees carry
+a pointer to a PR that lives in a different subtree of the chain. The
+choice is deliberate (arbitrary but stable, deterministic across
+parallel slice runs) and matches the simplification the issue asks
+for, but operators reviewing a multi-tree pipeline should not be
+surprised by the cross-tree pointer. A future refinement could
+choose per-tree terminals and emit `terminal_slice_id` only within
+the slice's own tree; until then the umbrella PR remains a single
+roll-up at `chosen_terminal`.
 
 ## Stacked-PR rebase reconciler
 

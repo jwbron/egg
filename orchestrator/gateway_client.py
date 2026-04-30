@@ -1240,7 +1240,7 @@ class GatewayClient:
         has_program_block = bool(program_title and program_title.strip())
 
         if has_program_block:
-            assert program_title is not None  # narrowed for the type checker
+            assert program_title is not None  # implied by has_program_block
             title = program_title.strip()
         else:
             title = f"slice {slice_id}: {slice_name}".strip()

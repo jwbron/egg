@@ -759,6 +759,60 @@ class TestRunImplementPhaseSlices:
             assert kwargs["program_manual_steps"] is None
             assert kwargs["terminal_slice_id"] == "slice-3"
 
+    def test_non_terminal_pointer_suppressed_when_contract_pr_missing(
+        self,
+    ) -> None:
+        """When ``contract.pr`` is missing (older contracts, or
+        ``_populate_contract_from_plan`` did not run), the umbrella PR
+        won't carry a program-level narrative — so non-terminal slices
+        must not point at it. Otherwise the pointer line "the terminal
+        slice <id>'s PR carries the program-level narrative" would
+        direct reviewers to a PR with the auto-generated body and no
+        narrative.
+        """
+        pipeline = _make_pipeline()
+        root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        middle = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
+        terminal = _make_slice("slice-3", deps=["slice-2"], tasks=[_make_task("task-3-1")])
+        contract = _make_contract(slices=[root, middle, terminal])
+        contract.pr = None
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        pr_calls_by_slice = {
+            c.kwargs["slice_id"]: c.kwargs for c in spawner.gateway.create_slice_pr.call_args_list
+        }
+        assert set(pr_calls_by_slice) == {"slice-1", "slice-2", "slice-3"}
+        # Every slice — terminal and non-terminal — gets None for the
+        # pointer when the umbrella has no program-level content.
+        for slice_id in ("slice-1", "slice-2", "slice-3"):
+            kwargs = pr_calls_by_slice[slice_id]
+            assert kwargs["program_title"] is None
+            assert kwargs["program_description"] is None
+            assert kwargs["program_test_plan"] is None
+            assert kwargs["program_manual_steps"] is None
+            assert kwargs["terminal_slice_id"] is None
+
     def test_single_slice_path_skips_pr_when_repo_unset(self) -> None:
         """If pipeline.repo is empty the loop must not attempt create_slice_pr."""
         pipeline = _make_pipeline()
