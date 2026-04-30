@@ -415,6 +415,11 @@ def brc_resolve_obligation(req: dict[str, Any]) -> dict[str, Any]:
     drop the obligation when the conditioning work has landed in-cycle
     (see ``code-review-criteria.md``).
 
+    No CLI counterpart: this is a net-new capability added in #2338
+    (decision-13 rationale). Operators don't need a Bash entrypoint —
+    the in-cycle obligation-resolution flow is producer/tester-driven
+    via the MCP tool surface.
+
     Request:
         reviewer_role (str): required. The reviewer whose conditional-ACK
             you are marking resolved.

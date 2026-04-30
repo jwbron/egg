@@ -271,6 +271,9 @@ def test_cli_less_tools_are_documented_gaps():
         # Iter-2
         "mcp__brc__read_peer_artifact",
         "mcp__task__mark_gap",
+        # Post-iter-2 (#2338): in-cycle conditional-ACK obligation
+        # resolution — net-new capability with no CLI counterpart.
+        "mcp__brc__resolve_obligation",
     }
     actual_gaps = {name for name, reg in TOOL_REGISTRY.items() if reg.cli_command is None}
     assert actual_gaps == expected_gaps, (
