@@ -195,7 +195,7 @@ class AgentFilePattern:
 CODER_PATTERNS = AgentFilePattern(
     role=AgentRole.CODER,
     description=(
-        "Coder: everything except tester's test scope, documenter's "
+        "everything except tester's test scope, documenter's "
         "docs/markdown scope, and the pipeline-state .egg-state/ "
         "directory (agent-outputs/ carved back)"
     ),
@@ -264,7 +264,7 @@ CODER_PATTERNS = AgentFilePattern(
 
 TESTER_PATTERNS = AgentFilePattern(
     role=AgentRole.TESTER,
-    description="Tester agent: test files and pytest infrastructure only",
+    description="test files and pytest infrastructure only",
     allowed_patterns=[
         # Test directories
         "tests/",
@@ -306,7 +306,7 @@ TESTER_PATTERNS = AgentFilePattern(
 
 DOCUMENTER_PATTERNS = AgentFilePattern(
     role=AgentRole.DOCUMENTER,
-    description="Documenter agent: documentation and markdown files",
+    description="documentation and markdown files",
     allowed_patterns=[
         # Documentation directories
         "docs/",
@@ -357,7 +357,7 @@ _PLAN_AGENT_BLOCKED = [
 
 ARCHITECT_PATTERNS = AgentFilePattern(
     role=AgentRole.ARCHITECT,
-    description="Architect agent: drafts and agent-outputs only",
+    description="drafts and agent-outputs only",
     allowed_patterns=[
         ".egg-state/drafts/",
         ".egg-state/agent-outputs/",
@@ -367,7 +367,7 @@ ARCHITECT_PATTERNS = AgentFilePattern(
 
 TASK_PLANNER_PATTERNS = AgentFilePattern(
     role=AgentRole.TASK_PLANNER,
-    description="Task planner agent: drafts and agent-outputs only",
+    description="drafts and agent-outputs only",
     allowed_patterns=[
         ".egg-state/drafts/",
         ".egg-state/agent-outputs/",
@@ -377,7 +377,7 @@ TASK_PLANNER_PATTERNS = AgentFilePattern(
 
 RISK_ANALYST_PATTERNS = AgentFilePattern(
     role=AgentRole.RISK_ANALYST,
-    description="Risk analyst agent: drafts and agent-outputs only",
+    description="drafts and agent-outputs only",
     allowed_patterns=[
         ".egg-state/drafts/",
         ".egg-state/agent-outputs/",
@@ -410,14 +410,14 @@ _REVIEWER_BLOCKED = [
 
 REVIEWER_CODE_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_CODE,
-    description="Code reviewer agent: reviews and agent-outputs only",
+    description="reviews and agent-outputs only",
     allowed_patterns=_REVIEWER_ALLOWED,
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
 REVIEWER_CODE_HOLISTIC_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_CODE_HOLISTIC,
-    description="Holistic code reviewer agent: reviews and agent-outputs only",
+    description="reviews and agent-outputs only",
     allowed_patterns=_REVIEWER_ALLOWED,
     blocked_patterns=_REVIEWER_BLOCKED,
 )
@@ -446,14 +446,14 @@ _REVIEWER_CONTRACT_BLOCKED = [
 
 REVIEWER_CONTRACT_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_CONTRACT,
-    description="Contract reviewer agent: reviews, agent-outputs, and contracts",
+    description="reviews, agent-outputs, and contracts",
     allowed_patterns=_REVIEWER_CONTRACT_ALLOWED,
     blocked_patterns=_REVIEWER_CONTRACT_BLOCKED,
 )
 
 REVIEWER_AGENT_DESIGN_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_AGENT_DESIGN,
-    description="Agent design reviewer: reviews and agent-outputs only",
+    description="reviews and agent-outputs only",
     allowed_patterns=_REVIEWER_ALLOWED,
     blocked_patterns=_REVIEWER_BLOCKED,
 )
@@ -462,7 +462,7 @@ REVIEWER_AGENT_DESIGN_PATTERNS = AgentFilePattern(
 
 REFINER_PATTERNS = AgentFilePattern(
     role=AgentRole.REFINER,
-    description="Refiner agent: drafts and agent-outputs only",
+    description="drafts and agent-outputs only",
     allowed_patterns=[
         ".egg-state/drafts/",
         ".egg-state/agent-outputs/",
@@ -483,28 +483,28 @@ REFINER_PATTERNS = AgentFilePattern(
 
 REVIEWER_REFINE_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_REFINE,
-    description="Refine reviewer agent: reviews and agent-outputs only",
+    description="reviews and agent-outputs only",
     allowed_patterns=_REVIEWER_ALLOWED,
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
 REVIEWER_PLAN_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_PLAN,
-    description="Plan reviewer agent: reviews and agent-outputs only",
+    description="reviews and agent-outputs only",
     allowed_patterns=_REVIEWER_ALLOWED,
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
 REVIEWER_SECURITY_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_SECURITY,
-    description="Security lens reviewer agent: reviews and agent-outputs only",
+    description="reviews and agent-outputs only",
     allowed_patterns=_REVIEWER_ALLOWED,
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
 REVIEWER_CONCURRENCY_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_CONCURRENCY,
-    description="Concurrency lens reviewer agent: reviews and agent-outputs only",
+    description="reviews and agent-outputs only",
     allowed_patterns=_REVIEWER_ALLOWED,
     blocked_patterns=_REVIEWER_BLOCKED,
 )
@@ -515,7 +515,7 @@ REVIEWER_CONCURRENCY_PATTERNS = AgentFilePattern(
 
 OVERSEER_PATTERNS = AgentFilePattern(
     role=AgentRole.OVERSEER,
-    description="Overseer agent: oversight logs only, no source/test/doc/config access",
+    description="oversight logs only, no source/test/doc/config access",
     allowed_patterns=[
         ".egg-state/oversight/",
         ".egg-state/agent-outputs/",
@@ -545,7 +545,7 @@ OVERSEER_PATTERNS = AgentFilePattern(
 
 AUTOFIXER_PATTERNS = AgentFilePattern(
     role=AgentRole.AUTOFIXER,
-    description="Autofixer agent: source code and config files for automated fixes",
+    description="source code and config files for automated fixes",
     allowed_patterns=[
         # Source code
         "**/*.py",
@@ -595,7 +595,7 @@ AUTOFIXER_PATTERNS = AgentFilePattern(
 
 CONFLICT_RESOLVER_PATTERNS = AgentFilePattern(
     role=AgentRole.CONFLICT_RESOLVER,
-    description="Conflict resolver agent: source, test, docs, and config files",
+    description="source, test, docs, and config files",
     allowed_patterns=[
         # Source code
         "**/*.py",
@@ -664,7 +664,7 @@ CONFLICT_RESOLVER_PATTERNS = AgentFilePattern(
 
 INSPECTOR_PATTERNS = AgentFilePattern(
     role=AgentRole.INSPECTOR,
-    description="Inspector agent: agent-outputs only, no source/test/doc/config access",
+    description="agent-outputs only, no source/test/doc/config access",
     allowed_patterns=[
         ".egg-state/agent-outputs/",
     ],
