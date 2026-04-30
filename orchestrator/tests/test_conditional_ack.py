@@ -1155,11 +1155,18 @@ class TestResolveObligationSignalHandler:
             _trackers.pop("test-pid-signal", None)
 
     def test_resolves_active_obligation(self, app, matrix_graph):
+        from message_store import MessageStore
+
         tracker = self._set_tracker(matrix_graph)
+        live_store = MessageStore()
         try:
             from routes.signals import handle_consensus_resolve_obligation_signal
 
-            with app.app_context():
+            with (
+                app.app_context(),
+                patch("message_store.get_message_store", return_value=live_store),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
                 response, status = handle_consensus_resolve_obligation_signal(
                     "test-pid-signal",
                     {
@@ -1179,6 +1186,69 @@ class TestResolveObligationSignalHandler:
             assert body["data"]["resolver"] == "tester"
             assert body["data"]["remaining_pre_merge_conditions"] == []
             assert tracker.get_pre_merge_conditions() == []
+
+            # The signal handler must persist a CONSENSUS_OBLIGATION_RESOLVED
+            # message so reconstruct_tracker_from_messages can replay the
+            # resolution after an orchestrator restart. Without persistence the
+            # matrix re-emerges with obligation_resolved=False and the HITL
+            # gate fires for work that was already done (#2338 blocking-1).
+            stored = live_store.get_messages("test-pid-signal", limit=10)
+            resolved_msgs = [m for m in stored if m.message_type == "CONSENSUS_OBLIGATION_RESOLVED"]
+            assert len(resolved_msgs) == 1
+            msg = resolved_msgs[0]
+            assert msg.from_role == "tester"
+            assert msg.to_role == "coder"
+            assert msg.metadata["reviewer_role"] == "reviewer_contract"
+            assert msg.metadata["producer_role"] == "coder"
+            assert msg.metadata["resolver_role"] == "tester"
+            assert msg.metadata["commit_sha"] == "abc1234"
+            assert msg.metadata["note"] == "cherry-picked"
+        finally:
+            self._clear_tracker()
+
+    def test_producer_self_resolve_returns_400(self, app, matrix_graph):
+        """The matrix rejects ``resolved_by == producer`` to prevent a
+        producer from erasing a reviewer's veto on their own commit. The
+        signal handler translates the matrix ``ValueError`` into a 400 and
+        does not persist a CONSENSUS_OBLIGATION_RESOLVED message — both
+        properties matter, the latter so a stale rejection cannot leak into
+        replay (#2338 blocking-2)."""
+        from message_store import MessageStore
+
+        tracker = self._set_tracker(matrix_graph)
+        live_store = MessageStore()
+        try:
+            from routes.signals import handle_consensus_resolve_obligation_signal
+
+            with (
+                app.app_context(),
+                patch("message_store.get_message_store", return_value=live_store),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status = handle_consensus_resolve_obligation_signal(
+                    "test-pid-signal",
+                    {
+                        "agent_role": "coder",
+                        "reviewer_role": "reviewer_contract",
+                        "producer_role": "coder",
+                        "commit_sha": "abc1234",
+                        "note": "trying to self-resolve",
+                    },
+                    Path("/tmp/repo"),
+                )
+
+            assert status == 400
+            body = response.get_json()
+            assert body["success"] is False
+            assert "self-resolve" in body.get("message", "")
+
+            # Tracker state was not mutated.
+            assert len(tracker.get_pre_merge_conditions()) == 1
+
+            # No CONSENSUS_OBLIGATION_RESOLVED message was persisted — the
+            # rejection happens before add_message in the signal handler.
+            stored = live_store.get_messages("test-pid-signal", limit=10)
+            assert not [m for m in stored if m.message_type == "CONSENSUS_OBLIGATION_RESOLVED"]
         finally:
             self._clear_tracker()
 
