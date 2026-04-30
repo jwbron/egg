@@ -5,7 +5,7 @@
   "branch": "egg/issue-2261-v3",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -171,10 +171,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "complete",
+      "status": "failed",
       "started_at": "2026-04-30T18:07:01.613171Z",
       "work_started_at": "2026-04-30T18:07:26.029815Z",
-      "completed_at": "2026-04-30T18:42:50.975472Z",
+      "completed_at": "2026-04-30T18:42:52.268049Z",
       "containers": [
         {
           "container_id": "1382ec54-25be-409e-b95f-b7a92c98970a",
@@ -294,7 +294,7 @@
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "plan draft .egg-state/drafts/issue-2261-v3-plan.md missing on local but present on origin/egg/issue-2261-v3 — refusing to advance plan phase",
       "hitl_feedback": null,
       "phase_start_sha": "3aef4e138168580d5edb93e04124ea6a08dcec7a",
       "agent_exits": []
@@ -469,7 +469,7 @@
     }
   ],
   "created_at": "2026-04-30T17:27:52.618820Z",
-  "updated_at": "2026-04-30T18:42:50.975538Z",
+  "updated_at": "2026-04-30T18:42:52.268211Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -477,12 +477,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "plan draft .egg-state/drafts/issue-2261-v3-plan.md missing on local but present on origin/egg/issue-2261-v3 — refusing to advance plan phase",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-30T18:07:00.350563Z",
-  "version": 33,
+  "version": 34,
   "jira_ticket": null
 }
