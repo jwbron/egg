@@ -8381,7 +8381,20 @@ def _build_brc_preamble(
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. If you are a reviewer of the re-proposing producer, "
                 "re-review and ACK/NACK the new proposal. Otherwise, re-confirm via "
-                "`egg-orch consensus confirmed`. Do NOT ignore these messages.\n",
+                "`egg-orch consensus confirmed`. Do NOT ignore these messages.",
+                "8. **RESOLVE OBLIGATIONS YOU SATISFY (#2338)**: If you "
+                "land a commit that satisfies a *different* producer's "
+                "conditional-ACK obligation in-cycle — typical pattern: "
+                "the coder is gateway-blocked from a path under `tests/`, "
+                "you (as tester) cherry-pick the satisfying commit onto "
+                "the branch — call `mcp__brc__resolve_obligation "
+                'reviewer_role="<reviewer>" producer_role="<other_producer>" '
+                "commit_sha=$(git rev-parse HEAD)` after pushing. The "
+                "matrix keeps the obligation text for audit but stops "
+                "surfacing it on the PR body and HITL gate. Skip this "
+                "for obligations that genuinely require a human at "
+                "merge time (deploys, cross-repo flips) — those should "
+                "remain visible to the merger.\n",
             ]
         )
 
@@ -8466,6 +8479,22 @@ def _build_brc_preamble(
                 '--pre-merge-condition "A human must `git mv legacy/x '
                 'new/x` before merging — agents cannot push renames through"\n'
                 "   ```\n"
+                "\n"
+                "   **Drop satisfied obligations on re-ACK (#2338).** When "
+                "you re-ACK at a new proposal version and the conditioning "
+                "work has landed in-cycle (another role cherry-picked the "
+                "satisfying commit, the rename is now in the diff, the "
+                "obligation is moot), drop the obligation: re-ACK without "
+                "`--pre-merge-condition`. Do NOT re-attach the same "
+                'obligation with a "Status: satisfied — manual '
+                're-verification required" hedge — the PR body renders '
+                "obligations verbatim under a `do not merge until "
+                "complete` banner, and transcribing a satisfied obligation "
+                "produces a self-contradicting PR body. If the satisfier "
+                "has called `mcp__brc__resolve_obligation`, the matrix is "
+                "already filtering it out, but the resolution resets when "
+                "you re-ACK — dropping the obligation is the durable "
+                "fix.\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
                 "Boilerplate like 'lgtm' or 'no issues' will be rejected.\n"

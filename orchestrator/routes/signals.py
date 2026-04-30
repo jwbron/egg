@@ -205,6 +205,7 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
         "consensus_confirmed": handle_consensus_confirmed_signal,
         "consensus_producer_push": handle_consensus_producer_push_signal,
         "consensus_excuse_producer": handle_consensus_excuse_producer_signal,
+        "consensus_resolve_obligation": handle_consensus_resolve_obligation_signal,
     }
 
     handler = handlers.get(signal_type)
@@ -1769,6 +1770,80 @@ def handle_consensus_excuse_producer_signal(
         return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
 
 
+def handle_consensus_resolve_obligation_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,  # noqa: ARG001 — kept for handler-signature uniformity
+) -> tuple[Response, int]:
+    """Handle CONSENSUS_RESOLVE_OBLIGATION signal (#2338).
+
+    The caller (typically the tester after cherry-picking the conditioning
+    commit) marks a reviewer's conditional-ACK obligation as satisfied
+    in-cycle. The matrix keeps the obligation text for audit but
+    ``get_pre_merge_conditions`` filters out resolved entries, so the PR
+    body and HITL gate stop surfacing the obligation.
+
+    Resolution is per-version: any later ``record_ack`` / ``record_nack`` /
+    ``invalidate_ack`` resets the resolved flag. If the same obligation
+    re-appears on a later proposal, the satisfier must call this signal
+    again (or the reviewer should drop it on re-ACK per the prompt
+    guidance in ``code-review-criteria.md``).
+
+    Request data:
+        agent_role: Caller's role (the resolver — recorded for audit).
+        reviewer_role: Reviewer whose conditional-ACK is being resolved.
+        producer_role: Producer the conditional-ACK was attached to.
+        commit_sha: Optional commit SHA that satisfies the obligation.
+        note: Optional free-form note for the audit log.
+    """
+    resolver_role = data.get("agent_role")
+    reviewer_role = data.get("reviewer_role")
+    producer_role = data.get("producer_role")
+    if not resolver_role:
+        return make_error_response("Missing agent_role")
+    if not reviewer_role:
+        return make_error_response("Missing reviewer_role")
+    if not producer_role:
+        return make_error_response("Missing producer_role")
+
+    commit_sha = (data.get("commit_sha") or "").strip()
+    note = (data.get("note") or "").strip()
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.handle_resolve_obligation(
+            resolver_role=resolver_role,
+            reviewer_role=reviewer_role,
+            producer_role=producer_role,
+            commit_sha=commit_sha,
+            note=note,
+        )
+        return make_success_response(
+            f"Obligation resolved: {reviewer_role} -> {producer_role} by {resolver_role}",
+            data=result,
+        )
+    except ValueError as e:
+        return make_error_response(str(e), 400)
+    except Exception as e:
+        logger.error(
+            "Failed to resolve obligation",
+            pipeline_id=pipeline_id,
+            resolver=resolver_role,
+            reviewer=reviewer_role,
+            producer=producer_role,
+            error=str(e),
+        )
+        return make_error_response(str(e), 500)
+
+
 def handle_consensus_producer_push_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -1946,6 +2021,7 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
                 "consensus_confirmed": handle_consensus_confirmed_signal,
                 "consensus_producer_push": handle_consensus_producer_push_signal,
                 "consensus_excuse_producer": handle_consensus_excuse_producer_signal,
+                "consensus_resolve_obligation": handle_consensus_resolve_obligation_signal,
             }
 
             handler = handlers.get(signal_type)

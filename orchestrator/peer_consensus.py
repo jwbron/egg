@@ -617,6 +617,65 @@ class PeerConsensusTracker:
 
             return {"status": "withdrawn", "reason": reason}
 
+    def handle_resolve_obligation(
+        self,
+        resolver_role: str,
+        reviewer_role: str,
+        producer_role: str,
+        commit_sha: str = "",
+        note: str = "",
+    ) -> dict[str, Any]:
+        """Mark a conditional-ACK obligation as satisfied in-cycle (#2338).
+
+        Called by the agent that landed the conditioning commit (typically the
+        tester picking up work the coder is gateway-blocked from). The matrix
+        keeps the original ``pre_merge_condition`` text for audit but
+        ``get_pre_merge_conditions`` filters out resolved entries, so the
+        PR-body builder and HITL gate stop surfacing the obligation.
+
+        ``resolver_role`` is the caller's role; it is recorded for audit and
+        included on the emitted ``CONSENSUS_OBLIGATION_RESOLVED`` event so
+        downstream consumers can attribute the resolution. The matrix raises
+        ``ValueError`` when the edge is missing, not in ACKED state, or has no
+        active obligation.
+        """
+        with self._lock:
+            entry = self.matrix.mark_obligation_resolved(
+                reviewer_role,
+                producer_role,
+                resolved_by=resolver_role,
+                commit_sha=commit_sha,
+                note=note,
+            )
+
+            event_data: dict[str, Any] = {
+                "reviewer": reviewer_role,
+                "producer": producer_role,
+                "resolver": resolver_role,
+                "version": entry.version,
+                "condition": entry.pre_merge_condition,
+            }
+            if commit_sha:
+                event_data["commit_sha"] = commit_sha
+            if note:
+                event_data["note"] = note
+
+            emit_event(
+                EventType.CONSENSUS_OBLIGATION_RESOLVED,
+                self.pipeline_id,
+                data=event_data,
+            )
+
+            return {
+                "status": "resolved",
+                "reviewer": reviewer_role,
+                "producer": producer_role,
+                "resolver": resolver_role,
+                "version": entry.version,
+                "condition": entry.pre_merge_condition,
+                "remaining_pre_merge_conditions": self.matrix.get_pre_merge_conditions(),
+            }
+
     def handle_confirmed(self, agent_role: str) -> dict[str, Any]:
         """Handle a CONSENSUS_CONFIRMED from an agent.
 

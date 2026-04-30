@@ -89,6 +89,18 @@ Concurrent BRC reviewers can attach `--pre-merge-condition "…"` to an ACK to r
 - **NACK** — blocking issues the producer can address. Examples: a logic bug, a missing test for a regression, a security flaw, a broken end-to-end path. Do **not** downgrade a NACK into a conditional ACK to unblock the pipeline — a conditional ACK is not a soft NACK. If the producer could fix it, NACK instead.
 - **Plain ACK with non-blocking note** — the work is correct and merge-safe as-is. Optional suggestions (style nits, naming ideas, defense-in-depth additions) belong under a "Non-blocking" subsection of the `--reason`, not as a pre-merge condition.
 
+#### Drop obligations satisfied in-cycle
+
+A conditional ACK is reserved for work that genuinely cannot happen inside the pipeline — manual deploys, cross-repo flips, gateway-blocked operations a human must perform. When the conditioning work *does* happen in-cycle (another role cherry-picks the satisfying commit, the producer rewrites their diff to obviate the obligation), the obligation has been satisfied. Do **not** carry it forward on the next ACK.
+
+When you re-ACK a producer's new proposal version:
+
+1. Re-read the current diff against the merge base.
+2. If the conditioning work referenced in your prior `--pre-merge-condition` is now visible on the branch (the satisfying commit is in the diff, the rename has been done, the obligation is moot), drop the obligation: re-ACK with an empty `pre_merge_condition` (or omit the flag entirely).
+3. Do not re-attach the same obligation with a `Status: satisfied — manual re-verification still required` hedge. The PR body renders the obligation verbatim with a `do not merge until complete` banner; transcribing a satisfied obligation produces a self-contradicting PR body and erodes trust in the obligations section (#2338).
+
+If the satisfying agent has already called `mcp__brc__resolve_obligation` against your edge, the matrix is filtering your obligation out of the PR body and HITL gate. Resolution is per-version — it resets the moment you re-ACK — so dropping the obligation on your next ACK is the durable fix.
+
 This section is BRC-only. PR reviewers and sequential SDLC reviewers have no conditional-ACK analogue (see `REVIEWER-SYNC.md`).
 
 ### Skip

@@ -699,3 +699,411 @@ class TestBrcHistoryExposesCondition:
         assert len(data) == 1
         payload = data[0]["metadata"]["payload"]
         assert payload["pre_merge_condition"] == "git mv legacy/x new/x before merge"
+
+
+# --- In-cycle obligation resolution (#2338) --------------------------------
+
+
+class TestObligationResolutionMatrix:
+    """``ApprovalMatrix.mark_obligation_resolved`` filters resolved
+    obligations out of ``get_pre_merge_conditions`` so the PR body builder
+    and HITL gate stop surfacing them. The flag is per-version and resets
+    on every fresh ACK / NACK / invalidate (#2338)."""
+
+    def test_mark_obligation_resolved_filters_from_conditions(self, matrix_graph):
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_contract",
+            "coder",
+            version=1,
+            artifact_refs=["src/a.py"],
+            pre_merge_condition="tester must commit X",
+        )
+        # Sanity: obligation present before resolution.
+        assert len(matrix.get_pre_merge_conditions()) == 1
+
+        entry = matrix.mark_obligation_resolved(
+            "reviewer_contract",
+            "coder",
+            resolved_by="tester",
+            commit_sha="abc1234",
+            note="cherry-picked from coder branch",
+        )
+        # The obligation text is preserved on the entry for audit.
+        assert entry.pre_merge_condition == "tester must commit X"
+        assert entry.obligation_resolved is True
+        assert entry.obligation_resolved_by == "tester"
+        assert entry.obligation_resolved_commit == "abc1234"
+        assert entry.obligation_resolved_note == "cherry-picked from coder branch"
+        # …but it no longer surfaces as an active condition.
+        assert matrix.get_pre_merge_conditions() == []
+
+    def test_mark_obligation_resolved_strips_audit_fields(self, matrix_graph):
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_contract",
+            "coder",
+            version=1,
+            pre_merge_condition="X",
+        )
+        entry = matrix.mark_obligation_resolved(
+            "reviewer_contract",
+            "coder",
+            resolved_by="  tester  ",
+            commit_sha="  abc  ",
+            note="  picked it up  ",
+        )
+        assert entry.obligation_resolved_by == "tester"
+        assert entry.obligation_resolved_commit == "abc"
+        assert entry.obligation_resolved_note == "picked it up"
+
+    def test_mark_obligation_resolved_unknown_edge(self, matrix_graph):
+        matrix = ApprovalMatrix(matrix_graph)
+        with pytest.raises(ValueError, match="No review edge"):
+            matrix.mark_obligation_resolved("reviewer_unknown", "coder")
+
+    def test_mark_obligation_resolved_non_acked_edge(self, matrix_graph):
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")
+        # Edge is PENDING — never ACKed.
+        with pytest.raises(ValueError, match="not ACKED"):
+            matrix.mark_obligation_resolved("reviewer_contract", "coder")
+
+    def test_mark_obligation_resolved_no_active_obligation(self, matrix_graph):
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_contract",
+            "coder",
+            version=1,
+            # No pre_merge_condition — unconditional ACK.
+        )
+        with pytest.raises(ValueError, match="No active obligation"):
+            matrix.mark_obligation_resolved("reviewer_contract", "coder")
+
+    def test_record_ack_resets_resolved_flag(self, matrix_graph):
+        """A fresh ACK at a new version starts un-resolved — the satisfier
+        must re-call resolve_obligation if the reviewer re-attaches the
+        same obligation. (Per-version resolution, by design.)"""
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")  # v1
+        matrix.record_ack(
+            "reviewer_contract",
+            "coder",
+            version=1,
+            pre_merge_condition="X",
+        )
+        matrix.mark_obligation_resolved("reviewer_contract", "coder")
+        assert matrix.get_pre_merge_conditions() == []
+
+        # Producer re-proposes; reviewer re-ACKs with the same obligation.
+        matrix.record_proposal("coder")  # v2
+        matrix.record_ack(
+            "reviewer_contract",
+            "coder",
+            version=2,
+            pre_merge_condition="X",
+        )
+        # Resolution did not carry forward — the obligation is live again.
+        entry = matrix.get_entry("reviewer_contract", "coder")
+        assert entry is not None
+        assert entry.obligation_resolved is False
+        assert entry.obligation_resolved_by == ""
+        assert len(matrix.get_pre_merge_conditions()) == 1
+
+    def test_record_nack_resets_resolved_flag(self, matrix_graph):
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_contract",
+            "coder",
+            version=1,
+            pre_merge_condition="X",
+        )
+        matrix.mark_obligation_resolved("reviewer_contract", "coder")
+        matrix.record_nack(
+            "reviewer_contract",
+            "coder",
+            version=1,
+            reason="changed my mind",
+            artifact_refs=["src/a.py"],
+        )
+        entry = matrix.get_entry("reviewer_contract", "coder")
+        assert entry is not None
+        assert entry.obligation_resolved is False
+        assert entry.obligation_resolved_by == ""
+
+    def test_invalidate_ack_resets_resolved_flag(self, matrix_graph):
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_contract",
+            "coder",
+            version=1,
+            pre_merge_condition="X",
+        )
+        matrix.mark_obligation_resolved("reviewer_contract", "coder")
+        matrix.invalidate_ack("reviewer_contract", "coder")
+        entry = matrix.get_entry("reviewer_contract", "coder")
+        assert entry is not None
+        assert entry.obligation_resolved is False
+        assert entry.obligation_resolved_by == ""
+
+    def test_round_trip_persists_resolution_state(self, matrix_graph):
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_contract",
+            "coder",
+            version=1,
+            pre_merge_condition="X",
+        )
+        matrix.mark_obligation_resolved(
+            "reviewer_contract",
+            "coder",
+            resolved_by="tester",
+            commit_sha="abc1234",
+            note="picked up",
+        )
+        data = matrix.to_dict()
+        restored = ApprovalMatrix.from_dict(data, matrix_graph)
+        entry = restored.get_entry("reviewer_contract", "coder")
+        assert entry is not None
+        assert entry.obligation_resolved is True
+        assert entry.obligation_resolved_by == "tester"
+        assert entry.obligation_resolved_commit == "abc1234"
+        assert entry.obligation_resolved_note == "picked up"
+        assert restored.get_pre_merge_conditions() == []
+
+
+class TestObligationResolutionTracker:
+    def test_handle_resolve_obligation_filters_conditions(self, matrix_graph):
+        tracker = PeerConsensusTracker("pid-resolve-1", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_contract",
+            "coder",
+            {
+                "artifact_references": ["src/a.py"],
+                "pre_merge_condition": "tester must commit patch-path rewrites",
+            },
+        )
+        assert len(tracker.get_pre_merge_conditions()) == 1
+
+        result = tracker.handle_resolve_obligation(
+            resolver_role="tester",
+            reviewer_role="reviewer_contract",
+            producer_role="coder",
+            commit_sha="abc1234",
+            note="cherry-picked from coder branch",
+        )
+        assert result["status"] == "resolved"
+        assert result["reviewer"] == "reviewer_contract"
+        assert result["producer"] == "coder"
+        assert result["resolver"] == "tester"
+        assert result["condition"] == "tester must commit patch-path rewrites"
+        assert result["remaining_pre_merge_conditions"] == []
+        assert tracker.get_pre_merge_conditions() == []
+
+    def test_handle_resolve_obligation_unknown_edge_raises(self, matrix_graph):
+        tracker = PeerConsensusTracker("pid-resolve-2", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_contract")
+        with pytest.raises(ValueError, match="No review edge"):
+            tracker.handle_resolve_obligation(
+                resolver_role="tester",
+                reviewer_role="reviewer_unknown",
+                producer_role="coder",
+            )
+
+    def test_handle_resolve_obligation_no_active_obligation(self, matrix_graph):
+        tracker = PeerConsensusTracker("pid-resolve-3", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        # Unconditional ACK — no obligation to resolve.
+        tracker.handle_ack(
+            "reviewer_contract",
+            "coder",
+            {"artifact_references": ["src/a.py"]},
+        )
+        with pytest.raises(ValueError, match="No active obligation"):
+            tracker.handle_resolve_obligation(
+                resolver_role="tester",
+                reviewer_role="reviewer_contract",
+                producer_role="coder",
+            )
+
+
+class TestResolveObligationSignalHandler:
+    """``handle_consensus_resolve_obligation_signal`` dispatches to the
+    tracker and returns a structured response. The signal handler is a
+    thin wrapper around ``tracker.handle_resolve_obligation`` — these
+    tests cover the routing layer specifically (#2338)."""
+
+    @pytest.fixture
+    def app(self):
+        from flask import Flask
+        from routes.signals import signals_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(signals_bp)
+        app.config["TESTING"] = True
+        return app
+
+    def _set_tracker(self, matrix_graph):
+        """Build a tracker with one live conditional ACK and register it
+        in the global tracker map under ``test-pid-signal``."""
+        tracker = PeerConsensusTracker("test-pid-signal", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_contract",
+            "coder",
+            {
+                "artifact_references": ["src/a.py"],
+                "pre_merge_condition": "tester must commit X",
+            },
+        )
+        with _trackers_lock:
+            _trackers["test-pid-signal"] = tracker
+        return tracker
+
+    def _clear_tracker(self):
+        with _trackers_lock:
+            _trackers.pop("test-pid-signal", None)
+
+    def test_resolves_active_obligation(self, app, matrix_graph):
+        tracker = self._set_tracker(matrix_graph)
+        try:
+            from routes.signals import handle_consensus_resolve_obligation_signal
+
+            with app.app_context():
+                response, status = handle_consensus_resolve_obligation_signal(
+                    "test-pid-signal",
+                    {
+                        "agent_role": "tester",
+                        "reviewer_role": "reviewer_contract",
+                        "producer_role": "coder",
+                        "commit_sha": "abc1234",
+                        "note": "cherry-picked",
+                    },
+                    Path("/tmp/repo"),
+                )
+
+            assert status == 200
+            body = response.get_json()
+            assert body["success"] is True
+            assert body["data"]["status"] == "resolved"
+            assert body["data"]["resolver"] == "tester"
+            assert body["data"]["remaining_pre_merge_conditions"] == []
+            assert tracker.get_pre_merge_conditions() == []
+        finally:
+            self._clear_tracker()
+
+    def test_missing_fields_return_400(self, app, matrix_graph):
+        self._set_tracker(matrix_graph)
+        try:
+            from routes.signals import handle_consensus_resolve_obligation_signal
+
+            with app.app_context():
+                # Missing reviewer_role.
+                _, status = handle_consensus_resolve_obligation_signal(
+                    "test-pid-signal",
+                    {"agent_role": "tester", "producer_role": "coder"},
+                    Path("/tmp/repo"),
+                )
+                assert status == 400
+
+                # Missing producer_role.
+                _, status = handle_consensus_resolve_obligation_signal(
+                    "test-pid-signal",
+                    {"agent_role": "tester", "reviewer_role": "reviewer_contract"},
+                    Path("/tmp/repo"),
+                )
+                assert status == 400
+
+                # Missing agent_role.
+                _, status = handle_consensus_resolve_obligation_signal(
+                    "test-pid-signal",
+                    {
+                        "reviewer_role": "reviewer_contract",
+                        "producer_role": "coder",
+                    },
+                    Path("/tmp/repo"),
+                )
+                assert status == 400
+        finally:
+            self._clear_tracker()
+
+    def test_no_active_obligation_returns_400(self, app, matrix_graph):
+        # Build a tracker with an unconditional ACK only.
+        tracker = PeerConsensusTracker("test-pid-signal-empty", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_contract",
+            "coder",
+            {"artifact_references": ["src/a.py"]},
+        )
+        with _trackers_lock:
+            _trackers["test-pid-signal-empty"] = tracker
+        try:
+            from routes.signals import handle_consensus_resolve_obligation_signal
+
+            with app.app_context():
+                response, status = handle_consensus_resolve_obligation_signal(
+                    "test-pid-signal-empty",
+                    {
+                        "agent_role": "tester",
+                        "reviewer_role": "reviewer_contract",
+                        "producer_role": "coder",
+                    },
+                    Path("/tmp/repo"),
+                )
+                assert status == 400
+                body = response.get_json()
+                assert body["success"] is False
+                assert "No active obligation" in body.get("message", "")
+        finally:
+            with _trackers_lock:
+                _trackers.pop("test-pid-signal-empty", None)
+
+    def test_missing_tracker_returns_404(self, app):
+        from routes.signals import handle_consensus_resolve_obligation_signal
+
+        with app.app_context():
+            response, status = handle_consensus_resolve_obligation_signal(
+                "no-such-pipeline",
+                {
+                    "agent_role": "tester",
+                    "reviewer_role": "reviewer_contract",
+                    "producer_role": "coder",
+                },
+                Path("/tmp/repo"),
+            )
+            assert status == 404
+            body = response.get_json()
+            assert body["success"] is False
