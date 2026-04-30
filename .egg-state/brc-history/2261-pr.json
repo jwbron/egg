@@ -1,0 +1,17 @@
+[
+  {
+    "id": "19271aef-0cd0-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T05:47:32.228189+00:00"
+    },
+    "timestamp": "2026-04-30T05:47:32.998979+00:00",
+    "phase": "pr"
+  }
+]
