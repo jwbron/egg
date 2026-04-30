@@ -1220,13 +1220,21 @@ class TestRunGitLocking:
         proc = subprocess.Popen(
             [sys.executable, "-c", holder_script],
             env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            stderr=subprocess.PIPE,
         )
 
         try:
             deadline = time.monotonic() + 5
             while not sentinel.exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
-            assert sentinel.exists(), "child never signalled lock acquisition"
+            if not sentinel.exists():
+                stderr_text = ""
+                if proc.poll() is not None and proc.stderr is not None:
+                    stderr_text = proc.stderr.read().decode("utf-8", errors="replace")
+                raise AssertionError(
+                    "child never signalled lock acquisition"
+                    + (f"; child stderr:\n{stderr_text}" if stderr_text else "")
+                )
 
             start = time.monotonic()
             with bare_repo_lock(tmp_path):

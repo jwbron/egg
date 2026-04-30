@@ -1,4 +1,12 @@
-"""Tests for checkpoint_handler module - checkpoint creation and session-end."""
+"""Tests for checkpoint_handler module - checkpoint creation and session-end.
+
+Note: the module-level ``_stub_bare_repo_lock`` autouse fixture below replaces
+the cross-process flock primitive with a no-op for every test in this file.
+Tests added here that need to exercise the real ``bare_repo_lock`` path
+(rather than just ``_get_repo_lock``'s in-process serialization) must opt out
+explicitly or live in ``shared/tests/test_cross_process_lock.py`` /
+``orchestrator/tests/test_state_store.py`` instead.
+"""
 
 import contextlib
 import subprocess
