@@ -11028,7 +11028,11 @@ def _run_implement_phase_slices(
         else f"egg/{pipeline_id}/work"
     )
     issue_number = pipeline.issue_number
-    issue_branch = f"egg/issue-{issue_number}" if issue_number is not None else pipeline_branch
+    # Slice integration branches stack under ``pipeline_branch`` directly
+    # so any qualifier suffix (``-v3``, ``-backend``) is preserved — two
+    # qualified pipelines for the same issue would otherwise collide in
+    # the ``egg/issue-N/slice-M`` namespace (#2368).
+    issue_branch = pipeline_branch
 
     # Wrap scheduler construction so the run loop doesn't crash if the
     # contract bypassed plan-ingestion validation and reaches the

@@ -65,9 +65,10 @@ def _slice(
     )
 
 
-def _contract(*slices: Slice) -> Contract:
+def _contract(*slices: Slice, pipeline_id: str | None = None) -> Contract:
     return Contract(
         issue=IssueInfo(number=2137, title="t", url="u"),
+        pipeline_id=pipeline_id,
         slices=list(slices),
     )
 
@@ -352,6 +353,74 @@ class TestFindOrphans:
         )
         prs = [_pr(number=0, head="egg/issue-2137/slice-2", base="egg/issue-2137/slice-1")]
         assert find_orphaned_child_prs(contract, prs, set()) == []
+
+    def test_qualified_pipeline_id_preserves_qualifier_in_issue_branch(self) -> None:
+        # Regression for #2370 review: when a contract's pipeline_id
+        # carries a qualifier suffix (e.g. ``issue-2137-v3``,
+        # ``issue-2137-backend``), the orchestrator's slice-loop
+        # creates branches as ``egg/issue-2137-v3/slice-N`` (qualifier
+        # preserved). A pre-fix bug derived ``issue_branch`` from the
+        # raw issue number, producing the unqualified
+        # ``egg/issue-2137/slice-N`` lookup key — orphan detection
+        # silently no-op'd for every qualified pipeline. Lock the
+        # producer/consumer shape here.
+        contract = _contract(
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137-v3/slice-1",
+            ),
+            pipeline_id="issue-2137-v3",
+        )
+        prs = [
+            _pr(
+                number=11,
+                head="egg/issue-2137-v3/slice-2",
+                base="egg/issue-2137-v3/slice-1",
+            )
+        ]
+        # Parent base no longer on origin → must surface as orphan.
+        orphans = find_orphaned_child_prs(contract, prs, set())
+        assert len(orphans) == 1
+        orphan = orphans[0]
+        assert orphan.slice_id == "slice-2"
+        assert orphan.pr_number == 11
+        assert orphan.branch == "egg/issue-2137-v3/slice-2"
+        assert orphan.deleted_base == "egg/issue-2137-v3/slice-1"
+        # Walk-up fallback: parent slice missing from contract, so the
+        # qualified pipeline branch is the safe target — and crucially
+        # is NOT the unqualified ``egg/issue-2137``.
+        assert orphan.intended_new_base == "egg/issue-2137-v3"
+
+    def test_qualified_pipeline_id_walks_up_to_qualified_ancestor(self) -> None:
+        # The walk-up resolver must also use the qualified branch
+        # when looking for an extant ancestor.
+        contract = _contract(
+            _slice("slice-1"),
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137-v3/slice-1",
+            ),
+            _slice(
+                "slice-3",
+                deps=["slice-2"],
+                parent_branch="egg/issue-2137-v3/slice-2",
+            ),
+            pipeline_id="issue-2137-v3",
+        )
+        prs = [
+            _pr(
+                number=12,
+                head="egg/issue-2137-v3/slice-3",
+                base="egg/issue-2137-v3/slice-2",
+            )
+        ]
+        # slice-2's branch deleted; slice-1's qualified branch alive.
+        extant: set[str] = {"egg/issue-2137-v3/slice-1"}
+        orphans = find_orphaned_child_prs(contract, prs, extant)
+        assert len(orphans) == 1
+        assert orphans[0].intended_new_base == "egg/issue-2137-v3/slice-1"
 
 
 # ---------- reconcile_once ----------

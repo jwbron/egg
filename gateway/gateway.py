@@ -1075,6 +1075,17 @@ def config_reload() -> Response:
     return jsonify({"status": "ok", "message": "Configuration reloaded"})
 
 
+# Slice integration-branch shape for the synthetic-session exemption (#2368).
+# Matches ``egg/<base>/(slice|phase)-<digits>`` where ``<base>`` is a single
+# segment naming the parent pipeline branch (issue-driven, JIRA-driven, or
+# qualifier-suffixed) — multi-segment bases are never produced by the
+# orchestrator, so the second character class excludes ``/``.  Only
+# orchestrator-issued sessions can ever set ``synthetic=True`` (the launcher
+# secret gates ``/api/v1/sessions/create``), so this exemption is not reachable
+# from a sandboxed agent's session token.
+_SLICE_INTEGRATION_BRANCH_RE = re.compile(r"^egg/[A-Za-z0-9][A-Za-z0-9_-]*/(?:slice|phase)-\d+$")
+
+
 @app.route("/api/v1/git/push", methods=["POST"])
 @require_session_or_launcher_auth
 def git_push() -> tuple[Response, int] | Response:
@@ -1285,6 +1296,42 @@ def git_push() -> tuple[Response, int] | Response:
     INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH}
     is_infrastructure_push = branch in INFRASTRUCTURE_BRANCHES
 
+    # Slice integration-branch creation (#2368): the orchestrator pre-creates
+    # ``egg/<base>/(slice|phase)-N`` on origin from the parent branch via a
+    # synthetic, launcher-authenticated session before any agent runs.  That
+    # push is orchestrator infrastructure — not an agent BRC propose — so it
+    # must bypass the pipeline-session push block introduced in #2028.  The
+    # ``synthetic=True`` flag can only be set by the launcher (the
+    # ``/api/v1/sessions/create`` endpoint is gated by ``require_launcher_auth``),
+    # so a sandboxed agent's session token cannot reach this branch.
+    is_slice_integration_push = False
+    if not is_infrastructure_push and _SLICE_INTEGRATION_BRANCH_RE.match(branch):
+        # ``Session.synthetic`` is a ``bool`` (default ``False``); only an
+        # orchestrator-issued session can carry ``synthetic=True`` because
+        # ``/api/v1/sessions/create`` is gated on the launcher secret.  Use
+        # an identity check rather than a truthiness test so a future
+        # surface that ever stores something other than ``True`` (and any
+        # MagicMock fake whose default attr is truthy) cannot accidentally
+        # opt into the exemption.
+        if hasattr(g, "session") and getattr(g.session, "synthetic", False) is True:
+            is_slice_integration_push = True
+            is_infrastructure_push = True
+            audit_log(
+                "push_slice_integration_exempt",
+                "git_push",
+                success=True,
+                details={
+                    "repo_path": repo_path,
+                    "remote": remote,
+                    "refspec": refspec,
+                    "branch": branch,
+                    "reason": (
+                        "Synthetic-session slice integration branch push — "
+                        "orchestrator infrastructure (#2368)"
+                    ),
+                },
+            )
+
     repo_info = parse_owner_repo(repo)
     if repo_info:
         # Infrastructure operations — always accessible regardless of
@@ -1292,6 +1339,21 @@ def git_push() -> tuple[Response, int] | Response:
         # infrastructure branch pushes (checkpoints, pipeline state).
         is_ckpt_repo = _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo)
         if is_infrastructure_push or is_ckpt_repo:
+            if is_ckpt_repo:
+                exempt_type = "checkpoint_repo"
+            elif is_slice_integration_push:
+                exempt_type = "slice_integration_branch"
+            else:
+                exempt_type = "infrastructure_branch"
+            # A successful slice-integration push intentionally emits BOTH
+            # ``push_slice_integration_exempt`` (above, the orchestrator-
+            # specific event) AND ``push_infrastructure_exempt`` with
+            # ``exempt_type="slice_integration_branch"`` (here, the generic
+            # exemption event).  Operators grepping ``push_infrastructure_exempt``
+            # for "infra pushes" should filter out the slice variant via
+            # ``exempt_type``; the dual emission is intentional so the
+            # orchestrator-specific path is also visible to operators
+            # filtering on the slice-integration event name (#2370 review).
             audit_log(
                 "push_infrastructure_exempt",
                 "git_push",
@@ -1300,7 +1362,7 @@ def git_push() -> tuple[Response, int] | Response:
                     "repo": repo,
                     "branch": branch,
                     "reason": "Infrastructure operation exempt from private mode policy",
-                    "exempt_type": "checkpoint_repo" if is_ckpt_repo else "infrastructure_branch",
+                    "exempt_type": exempt_type,
                 },
             )
         else:

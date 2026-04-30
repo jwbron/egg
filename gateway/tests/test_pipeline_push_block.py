@@ -49,6 +49,7 @@ def _make_session(
     role: str = "coder",
     pipeline_id: str | None = "issue-1669",
     assigned_branch: str | None = "egg/issue-1669",
+    synthetic: bool = False,
 ) -> MagicMock:
     """Create a mock session with the given agent role and pipeline context."""
     mock_session = MagicMock()
@@ -59,6 +60,7 @@ def _make_session(
     mock_session.phase = "implement"
     mock_session.pipeline_id = pipeline_id
     mock_session.assigned_branch = assigned_branch
+    mock_session.synthetic = synthetic
     return mock_session
 
 
@@ -689,3 +691,219 @@ class TestOrchestratorLauncherAuthPush:
             assert response.status_code == 200, (
                 f"Expected 200 with no mode, got {response.status_code}: {response.data!r}"
             )
+
+
+class TestSliceIntegrationBranchExemption:
+    """Slice integration-branch creation exemption (#2368).
+
+    The orchestrator's ``create_slice_integration_branch`` registers a
+    synthetic, launcher-authed session and pushes
+    ``parent:refs/heads/egg/<base>/slice-N`` so the slice PR's diff is
+    non-empty before agents spawn.  That push is orchestrator
+    infrastructure and must bypass the #2028 pipeline-session block.
+    The exemption is keyed on the session's ``synthetic`` flag — only
+    the launcher can set it — and the slice integration-branch shape.
+    """
+
+    def test_synthetic_session_slice_branch_push_allowed(self, client):
+        """Synthetic-session push to ``egg/issue-N/slice-M`` is allowed."""
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2261/slice-7")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/issue-2261:refs/heads/egg/issue-2261/slice-7",
+            )
+            assert response.status_code == 200, (
+                f"Expected 200 for synthetic slice integration push, "
+                f"got {response.status_code}: {response.data!r}"
+            )
+
+    def test_synthetic_session_qualified_slice_branch_push_allowed(self, client):
+        """Qualifier-suffixed branches (#2368 bonus) — ``egg/issue-N-v3/slice-M`` — pass."""
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2261-v3/slice-7")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/issue-2261-v3:refs/heads/egg/issue-2261-v3/slice-7",
+            )
+            assert response.status_code == 200
+
+    def test_synthetic_session_jira_slice_branch_push_allowed(self, client):
+        """JIRA-driven branches — ``egg/KORE-1234/slice-M`` — pass."""
+        session = _make_session(synthetic=True, assigned_branch="egg/KORE-1234/slice-3")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/KORE-1234:refs/heads/egg/KORE-1234/slice-3",
+            )
+            assert response.status_code == 200
+
+    def test_synthetic_session_legacy_phase_branch_push_allowed(self, client):
+        """Legacy ``phase-N`` slice IDs (pre-#2137) still flow through the loader,
+        so the integration-branch exemption must accept them too."""
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2261/phase-1")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/issue-2261:refs/heads/egg/issue-2261/phase-1",
+            )
+            assert response.status_code == 200
+
+    def test_non_synthetic_session_slice_branch_push_blocked(self, client):
+        """Agent (non-synthetic) push to a slice integration branch is still blocked.
+
+        Agents reach a slice's integration branch via ``mcp__brc__propose``
+        (``consensus_push=true``); a direct push is the very pattern #2028 is
+        designed to catch.  The exemption MUST gate on ``synthetic=True`` —
+        if the regex alone is enough, agents can use slice-shaped branch
+        names to bypass enforcement.
+        """
+        session = _make_session(synthetic=False, assigned_branch="egg/issue-2261/slice-7")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/issue-2261:refs/heads/egg/issue-2261/slice-7",
+            )
+            assert response.status_code == 403, (
+                "Non-synthetic session push to slice integration branch must still "
+                "be blocked by pipeline-session enforcement"
+            )
+            data = json.loads(response.data)
+            assert "pipeline sessions" in data["message"].lower()
+
+    def test_synthetic_session_non_slice_branch_still_blocked(self, client):
+        """Synthetic flag alone is not enough — branch must match the slice shape.
+
+        Defends against future code paths that mark a session synthetic for
+        unrelated reasons but would bypass the agent-push block if the
+        branch-shape gate were missing.
+        """
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2261")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(client, refspec="egg/issue-2261")
+            assert response.status_code == 403
+
+    def test_synthetic_session_multi_segment_base_blocked(self, client):
+        """Multi-segment base shapes (``egg/foo/bar/slice-N``) are not produced
+        by the orchestrator and the regex MUST reject them.
+
+        The documented branch shape is ``egg/<single-segment>/(slice|phase)-N``;
+        accepting multi-segment bases would widen the exemption surface beyond
+        what the orchestrator actually emits.
+        """
+        session = _make_session(synthetic=True, assigned_branch="egg/foo/bar/slice-1")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/foo:refs/heads/egg/foo/bar/slice-1",
+            )
+            assert response.status_code == 403
+
+    def test_audit_event_records_slice_integration_exempt_type(self, client):
+        """Exemption emits a distinct audit event so operators can trace
+        synthetic-session pushes separately from checkpoint/state writes."""
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2261/slice-7")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.object(gateway, "audit_log") as mock_audit:
+                response = _do_push(
+                    client,
+                    refspec="egg/issue-2261:refs/heads/egg/issue-2261/slice-7",
+                )
+                assert response.status_code == 200
+                events = [
+                    (call.args[0] if call.args else None, call.kwargs.get("details") or {})
+                    for call in mock_audit.call_args_list
+                ]
+                slice_events = [e for e in events if e[0] == "push_slice_integration_exempt"]
+                assert slice_events, (
+                    f"Expected push_slice_integration_exempt event, got: {[e[0] for e in events]}"
+                )
+                infra_events = [
+                    e
+                    for e in events
+                    if e[0] == "push_infrastructure_exempt"
+                    and e[1].get("exempt_type") == "slice_integration_branch"
+                ]
+                assert infra_events, (
+                    "Expected push_infrastructure_exempt with exempt_type=slice_integration_branch"
+                )
