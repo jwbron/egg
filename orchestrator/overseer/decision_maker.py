@@ -60,6 +60,13 @@ _NON_RESTARTABLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Spans every action in the decision-maker's vocabulary so any prior
+# corrective intervention (destructive or not) bypasses the
+# first-stall restart guard. See ``_enforce_no_first_stall_restart``.
+_PRIOR_INTERVENTIONS: frozenset[str] = frozenset(
+    {"nudge", "redirect", "issue", "slack", "restart_agent", "restart_phase", "hitl"}
+)
+
 
 def _is_restartable(error_text: str) -> bool:
     """Return True if *error_text* describes a transient, auto-restartable error.
@@ -201,13 +208,16 @@ def _enforce_no_first_stall_restart(
     recommendation and the model's reasoning are preserved in the
     question text).
 
-    The "no prior intervention" check spans ``nudge``, ``redirect``,
-    ``restart_agent``, and ``hitl`` so a previous restart (which may
-    itself have been the wrong call) doesn't fast-track the next one
-    past the guard. The intent is "ensure at least one non-destructive
-    intervention before destruction" — if any kind of corrective action
-    has already fired, the guard yields and the model's recommendation
-    stands.
+    The "no prior intervention" check spans every action in the
+    decision-maker's vocabulary — ``nudge``, ``redirect``, ``issue``,
+    ``slack``, ``restart_agent``, ``restart_phase``, and ``hitl``. The
+    intent is "ensure at least one corrective action of any kind has
+    fired before destruction": if the operator (or the overseer) has
+    already had a chance to respond to the agent's state via any
+    intervention type, the guard yields and the model's recommendation
+    stands. A previous ``restart_agent`` (which may itself have been
+    the wrong call) likewise bypasses the guard rather than fast-track
+    the next restart through it.
     """
     if decision.get("action") != "restart_agent":
         return decision
@@ -217,7 +227,6 @@ def _enforce_no_first_stall_restart(
         return decision
 
     history = redirect_history or []
-    _PRIOR_INTERVENTIONS = {"nudge", "redirect", "restart_agent", "hitl"}
     if any(h.get("action") in _PRIOR_INTERVENTIONS for h in history):
         return decision
 

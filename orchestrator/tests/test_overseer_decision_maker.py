@@ -238,6 +238,33 @@ class TestDecideCorrectiveActionFirstStallDowngrade:
 
         assert result["action"] == "restart_agent"
 
+    @pytest.mark.parametrize(
+        "prior_action",
+        ["issue", "slack", "restart_phase"],
+    )
+    @patch(_AGENT_PATCH, new_callable=AsyncMock)
+    def test_restart_allowed_after_other_intervention_types(
+        self, mock_agent: AsyncMock, prior_action: str
+    ) -> None:
+        # Any prior intervention bypasses the guard — the docstring
+        # promises every action in the decision-maker vocabulary counts,
+        # not just nudge/redirect/restart_agent/hitl.
+        mock_agent.return_value = _make_result(
+            json.dumps(
+                {
+                    "action": "restart_agent",
+                    "message": f"Restart after {prior_action} didn't help.",
+                    "priority": "high",
+                }
+            )
+        )
+        classification = {"classification": "stuck", "confidence": 0.95, "reasoning": ""}
+        history = [{"action": prior_action, "timestamp": 1000}]
+
+        result = _run(decide_corrective_action(classification, {}, redirect_history=history))
+
+        assert result["action"] == "restart_agent"
+
     @patch(_AGENT_PATCH, new_callable=AsyncMock)
     def test_restart_allowed_after_prior_restart(self, mock_agent: AsyncMock) -> None:
         # Prior `restart_agent` history also bypasses the guard — the
