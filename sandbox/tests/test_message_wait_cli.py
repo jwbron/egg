@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -679,7 +680,7 @@ class TestCursorFileWaitLoop:
         between this and the previous wait-loop are still delivered."""
         cursor_path = tmp_path / "loop.cursor"
         cursor_path.write_text("01-prior-tip")
-        captured: dict = {}
+        captured: dict[str, Any] = {}
 
         def _capture_handler(req):
             captured.update(req)
@@ -767,7 +768,7 @@ class TestCursorFileWaitLoop:
         """Same precedence as ``message wait``: explicit --since wins."""
         cursor_path = tmp_path / "stale.cursor"
         cursor_path.write_text("01-stale")
-        captured: dict = {}
+        captured: dict[str, Any] = {}
 
         def _capture_handler(req):
             captured.update(req)
