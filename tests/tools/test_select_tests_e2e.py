@@ -5,13 +5,13 @@ mini-monorepo + tmp_path git repo, exercising the same code path the
 Makefile would.  Closes the gap between per-unit tests and the manual
 verification steps by confirming:
 
-  (a) ``select_tests.py`` (default mode) on a single-file change exits 0.
-  (b) ``select_tests.py --full-suite`` emits the four test-root paths
+  (a) ``select_tests/__main__.py`` (default mode) on a single-file change exits 0.
+  (b) ``select_tests/__main__.py --full-suite`` emits the four test-root paths
       on stdout.
-  (c) ``select_tests.py --record-good`` writes the LKG sidecar.
-  (d) ``select_tests.py --patch-selection-json --head <sha> --pytest-ms <ms>``
+  (c) ``select_tests/__main__.py --record-good`` writes the LKG sidecar.
+  (d) ``select_tests/__main__.py --patch-selection-json --head <sha> --pytest-ms <ms>``
       patches an existing selection record.
-  (e) ``select_tests.py --record-good --sha <bad>`` exits non-zero on
+  (e) ``select_tests/__main__.py --record-good --sha <bad>`` exits non-zero on
       validation failure.
 
 The full module finishes in ~1 second on a warm cache so we don't

@@ -648,7 +648,7 @@ def test_fail_open_subprocess_grimp_unavailable(
 
 # ----------------------------------------------------------------------
 # PYTHONPATH leak — the Makefile exports `PYTHONPATH=shared:gateway:orchestrator`
-# for pytest, which previously also reached `select_tests.py`.  With
+# for pytest, which previously also reached `select_tests/__main__.py`.  With
 # `shared/` on sys.path, grimp's `build_graph` aborts with
 # `NotATopLevelModule: shared.egg_agent` and the selector silently
 # fell back to the full suite.  The two regression cases below pin

@@ -107,8 +107,8 @@ def real_repo_graph():  # noqa: ANN201 — grimp graph type isn't public
 
 
 def test_every_test_file_is_a_graph_node(real_repo_graph) -> None:
-    """The PACKAGES constant in select_tests.py must register every
-    test root such that grimp sees every ``test_*.py`` as a node.
+    """The PACKAGES constant in scripts/select_tests/_constants.py must
+    register every test root such that grimp sees every ``test_*.py`` as a node.
     If this test fails, a new test directory was added without
     updating PACKAGES — narrowing would silently drop that
     directory's tests."""
