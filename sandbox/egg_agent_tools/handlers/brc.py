@@ -230,11 +230,14 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
         "ack_version": ack_version,
     }
     pre_merge_condition = req.get("pre_merge_condition") or ""
+    resolved_in_diff = req.get("pre_merge_condition_resolved_in_diff") or ""
+    # Thread both fields through unconditionally so the signal-layer
+    # validator can reject a resolution-without-condition request rather
+    # than silently dropping the SHA at the MCP boundary (#2336 review).
     if pre_merge_condition:
         payload["pre_merge_condition"] = pre_merge_condition
-        resolved_in_diff = req.get("pre_merge_condition_resolved_in_diff") or ""
-        if resolved_in_diff:
-            payload["pre_merge_condition_resolved_in_diff"] = resolved_in_diff
+    if resolved_in_diff:
+        payload["pre_merge_condition_resolved_in_diff"] = resolved_in_diff
 
     data = {
         "signal_type": "consensus_ack",

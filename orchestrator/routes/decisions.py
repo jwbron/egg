@@ -295,6 +295,18 @@ def _persist_deferred_actions(
     # Dedupe by (reviewer, condition) so re-resolving the same gate doesn't
     # double-list. A later call that adds a ``resolved_in_diff`` for an
     # already-persisted obligation upgrades the existing entry in place.
+    #
+    # Dedup is intentionally one-way (#2336 review):
+    #   - SHA-replaces-SHA: an existing resolution is *not* overwritten
+    #     by a later resolution for the same ``(reviewer, condition)``.
+    #     Once a reviewer marks an obligation resolved, the recorded SHA
+    #     is sticky.
+    #   - Resolved → open downgrade: a later open-only entry does *not*
+    #     clear ``resolved_in_diff``. This matches the pre-existing
+    #     append-only design of contract-persisted obligations (#2004).
+    # Both cases are edge cases driven by NACK / re-propose / reviewer
+    # re-ACK cycles; the live tracker remains the source of truth for
+    # in-flight state and is preferred by the renderer at Tier 2.
     merged: list[DeferredAction] = list(contract.pr.deferred_actions)
     by_key: dict[tuple[str, str], DeferredAction] = {(a.reviewer, a.condition): a for a in merged}
     for action in new_actions:

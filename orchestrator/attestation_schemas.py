@@ -173,6 +173,7 @@ class ReviewPayload(BaseModel):
     pre_merge_condition_resolved_in_diff: str = Field(
         default="",
         max_length=200,
+        pattern=r"^[A-Fa-f0-9]{0,200}$",
         description=(
             "Optional commit SHA that satisfied ``pre_merge_condition`` within "
             "the same PR's diff (issue #2336). Set this on a re-ACK when the "
@@ -180,7 +181,8 @@ class ReviewPayload(BaseModel):
             "ACK — the PR-body renderer demotes resolved obligations out of "
             "the merge-blocking section so reviewers don't see boilerplate "
             "'do not merge' text on busywork. Only meaningful when "
-            "``pre_merge_condition`` is also non-empty."
+            "``pre_merge_condition`` is also non-empty. Hex-only to prevent "
+            "newline injection bending the rendered PR-body markdown."
         ),
     )
 

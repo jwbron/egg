@@ -7388,14 +7388,21 @@ def _format_obligation_bullet(
 ) -> list[str]:
     """Format a single obligation as a markdown bullet (multi-line aware)."""
     reviewer = obligation["reviewer"] or "unknown"
-    condition = obligation["condition"]
+    # ``strip()`` before splitlines so a leading/trailing newline doesn't
+    # produce an empty first line ("- **reviewer** — " with nothing after the
+    # em-dash). The collector filters whitespace-only conditions but a
+    # ``"\nreal text"`` value would otherwise slip through with an empty
+    # first line (#2336 review).
+    condition = obligation["condition"].strip()
     first, *rest = condition.splitlines()
     bullet = f"- **{reviewer}** — {first}"
     lines = [bullet]
     for extra in rest:
         lines.append(f"  {extra}")
     if resolved and obligation["resolved_in_diff"]:
-        lines.append(f"  - Resolved in `{obligation['resolved_in_diff']}`")
+        # Bare SHA (no backticks) so GitHub auto-links it to the commit page
+        # in the rendered PR body — code-span text is not auto-linked.
+        lines.append(f"  - Resolved in {obligation['resolved_in_diff']}")
     return lines
 
 

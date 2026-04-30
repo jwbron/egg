@@ -872,6 +872,39 @@ class TestAckPreMergeConditionValidation:
         assert status_code == 200
         tracker.handle_ack.assert_called_once()
 
+    def test_resolution_without_condition_returns_400(self, app):
+        """A resolution SHA on a plain ACK is rejected at the boundary (#2336).
+
+        ``handle_consensus_ack_signal`` rejects the request with HTTP 400
+        before reaching the tracker so the invariant downstream code relies
+        on (resolution implies obligation) is enforced at the perimeter.
+        """
+        response, status_code, tracker = self._ack_with_payload(
+            app,
+            {
+                "reason": _SUBSTANTIVE_REASON,
+                "pre_merge_condition_resolved_in_diff": "abc1234",
+            },
+        )
+        assert status_code == 400
+        data = json.loads(response.data)
+        assert "pre_merge_condition_resolved_in_diff" in data["message"]
+        assert "requires" in data["message"]
+        tracker.handle_ack.assert_not_called()
+
+    def test_resolution_with_condition_passes(self, app):
+        """Resolution SHA alongside an obligation passes through to the tracker (#2336)."""
+        _, status_code, tracker = self._ack_with_payload(
+            app,
+            {
+                "reason": _SUBSTANTIVE_REASON,
+                "pre_merge_condition": _SUBSTANTIVE_CONDITION,
+                "pre_merge_condition_resolved_in_diff": "abc1234",
+            },
+        )
+        assert status_code == 200
+        tracker.handle_ack.assert_called_once()
+
 
 # ============================================================================
 # Handler integration tests — NACK

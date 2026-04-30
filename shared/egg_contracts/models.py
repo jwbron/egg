@@ -340,12 +340,14 @@ class DeferredAction(BaseModel):
     resolved_in_diff: str = Field(
         default="",
         max_length=200,
+        pattern=r"^[A-Fa-f0-9]{0,200}$",
         description=(
             "Commit SHA that satisfied the obligation within the same PR's "
             "diff. Empty string means the obligation is still open and will "
             "render under the merge-blocking 'Pre-merge Obligations' section. "
             "When non-empty, the obligation moves to a 'Resolved within this "
-            "PR' subsection (#2336)."
+            "PR' subsection (#2336). Hex-only to prevent newline injection "
+            "bending the rendered PR-body markdown."
         ),
     )
 
