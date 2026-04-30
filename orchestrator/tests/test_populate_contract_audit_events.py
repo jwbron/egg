@@ -338,6 +338,223 @@ class TestSafeWrapper:
             _populate_contract_from_plan_safe(tmp_path, "pipeline-quiet", "local")
 
 
+class TestNaturalSourceLoudFail:
+    """#2337: source="plan_complete" raises when local-missing + origin-has draft."""
+
+    def test_plan_complete_raises_when_origin_has_draft(self, tmp_path):
+        """Local missing the draft, origin has it → PlanDraftMissingOnLocalError."""
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalError,
+            _populate_contract_from_plan_safe,
+        )
+
+        # No local draft file in tmp_path/.egg-state/drafts/
+        with (
+            patch("routes.pipelines._origin_has_plan_draft", return_value=True) as mock_origin,
+            patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+            pytest.raises(PlanDraftMissingOnLocalError),
+        ):
+            _populate_contract_from_plan_safe(
+                tmp_path,
+                "pipeline-2337",
+                "issue",
+                issue_number=2261,
+                source="plan_complete",
+                branch="egg/issue-2261",
+            )
+        # Origin probe ran with the right args
+        mock_origin.assert_called_once()
+        # Inner populator never ran — we short-circuited
+        mock_inner.assert_not_called()
+
+    def test_plan_complete_swallows_when_origin_does_not_have_draft(self, tmp_path):
+        """Local missing AND origin missing → fall through to inner (warn-and-return)."""
+        from routes.pipelines import _populate_contract_from_plan_safe
+
+        with (
+            patch("routes.pipelines._origin_has_plan_draft", return_value=False),
+            patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+        ):
+            # Should not raise.
+            _populate_contract_from_plan_safe(
+                tmp_path,
+                "pipeline-2337-no-origin",
+                "issue",
+                issue_number=999,
+                source="plan_complete",
+                branch="egg/issue-999",
+            )
+            # Inner ran (which itself logs plan_draft_missing and returns).
+            mock_inner.assert_called_once()
+
+    def test_advance_phase_force_swallows_even_when_origin_has_draft(self, tmp_path):
+        """Force-advance source keeps the swallow-everything contract from #1941."""
+        from routes.pipelines import _populate_contract_from_plan_safe
+
+        with (
+            patch("routes.pipelines._origin_has_plan_draft", return_value=True) as mock_origin,
+            patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+        ):
+            # Must not raise even though origin has the draft — force-advance
+            # is the recovery hammer, blocking it would defeat the purpose.
+            _populate_contract_from_plan_safe(
+                tmp_path,
+                "pipeline-2337-force",
+                "issue",
+                issue_number=2261,
+                source="advance_phase_force",
+                branch="egg/issue-2261",
+            )
+            # Origin probe is skipped entirely under force-advance.
+            mock_origin.assert_not_called()
+            mock_inner.assert_called_once()
+
+    def test_plan_complete_without_branch_skips_origin_probe(self, tmp_path):
+        """source="plan_complete" but branch=None → skip probe, fall through."""
+        from routes.pipelines import _populate_contract_from_plan_safe
+
+        with (
+            patch("routes.pipelines._origin_has_plan_draft", return_value=True) as mock_origin,
+            patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+        ):
+            _populate_contract_from_plan_safe(
+                tmp_path,
+                "pipeline-2337-nobranch",
+                "issue",
+                issue_number=42,
+                source="plan_complete",
+                branch=None,
+            )
+            mock_origin.assert_not_called()
+            mock_inner.assert_called_once()
+
+
+class TestOriginHasPlanDraft:
+    """#2337: ``_origin_has_plan_draft`` probes ``origin/{branch}:{path}``
+    via ``git cat-file -e`` to decide whether the silent-failure mode
+    (local missing the draft, origin has it) is in play.  All other
+    callers mock the helper; a subprocess-arg regression — swapping
+    ``cat-file -e`` for ``rev-parse``, dropping ``origin/``, mis-quoting
+    the path — would slip past unit tests entirely.
+
+    These tests directly exercise the helper and assert on the exact
+    argv passed to ``subprocess.run`` so any of those regressions trip a
+    test failure even though the sandbox blocks ``git init`` (preventing
+    a real local-clone fixture).
+    """
+
+    @staticmethod
+    def _make_subprocess_result(returncode: int = 0):
+        import subprocess as _sp
+
+        return _sp.CompletedProcess(args=[], returncode=returncode, stdout="", stderr="")
+
+    def test_uses_cat_file_e_with_origin_branch_path(self, tmp_path):
+        """argv MUST contain ``cat-file -e origin/{branch}:{draft_rel}``.
+
+        Catches: swapping ``cat-file`` for ``rev-parse`` (different
+        semantics), dropping ``-e`` (would print blob contents instead
+        of just exit 0/1), dropping the ``origin/`` prefix (would
+        resolve against local refs), or mis-quoting the path.
+        """
+        from routes.pipelines import _origin_has_plan_draft
+
+        captured: list[list[str]] = []
+
+        def _record(argv, *args, **kwargs):
+            captured.append(list(argv))
+            return self._make_subprocess_result(returncode=0)
+
+        with patch("routes.pipelines.subprocess.run", side_effect=_record):
+            assert (
+                _origin_has_plan_draft(
+                    tmp_path,
+                    "egg/issue-2337",
+                    ".egg-state/drafts/pipeline-2337-plan.md",
+                )
+                is True
+            )
+
+        assert len(captured) == 1, f"expected one subprocess call, got {captured}"
+        argv = captured[0]
+        # Ordered structural assertions — each catches a distinct regression.
+        assert "cat-file" in argv, "must use cat-file (not rev-parse) — see helper docstring"
+        assert "-e" in argv, "must use -e flag (existence-check, not blob-dump)"
+        assert "origin/egg/issue-2337:.egg-state/drafts/pipeline-2337-plan.md" in argv, (
+            "object spec must be exactly origin/{branch}:{path} (no leading-slash, no escapes)"
+        )
+        # cat-file must come before -e which must come before the object spec
+        assert (
+            argv.index("cat-file")
+            < argv.index("-e")
+            < argv.index("origin/egg/issue-2337:.egg-state/drafts/pipeline-2337-plan.md")
+        ), "argv order regressed"
+        # -C {repo_path} threads the working directory through.
+        assert "-C" in argv
+        assert str(tmp_path) in argv
+
+    def test_returns_true_on_zero_exit(self, tmp_path):
+        """returncode 0 from cat-file -e → helper returns True."""
+        from routes.pipelines import _origin_has_plan_draft
+
+        with patch(
+            "routes.pipelines.subprocess.run",
+            return_value=self._make_subprocess_result(returncode=0),
+        ):
+            assert _origin_has_plan_draft(tmp_path, "egg/x", "draft.md") is True
+
+    def test_returns_false_on_nonzero_exit(self, tmp_path):
+        """returncode non-zero (object missing) → helper returns False."""
+        from routes.pipelines import _origin_has_plan_draft
+
+        with patch(
+            "routes.pipelines.subprocess.run",
+            return_value=self._make_subprocess_result(returncode=1),
+        ):
+            assert _origin_has_plan_draft(tmp_path, "egg/x", "draft.md") is False
+
+    def test_swallows_subprocess_exception(self, tmp_path):
+        """Subprocess exception → helper returns False rather than raising.
+
+        The contract is that callers can treat False as "couldn't
+        confirm origin has it" without distinguishing exception from
+        non-zero exit.
+        """
+        import subprocess as _sp
+
+        from routes.pipelines import _origin_has_plan_draft
+
+        with patch(
+            "routes.pipelines.subprocess.run",
+            side_effect=_sp.TimeoutExpired(cmd="git", timeout=10),
+        ):
+            assert _origin_has_plan_draft(tmp_path, "egg/x", "draft.md") is False
+
+    def test_passes_repo_path_via_minus_C(self, tmp_path):
+        """The repo path threads through as ``git -C {repo_path}``.
+
+        Catches accidentally running cat-file in cwd or the orchestrator
+        repo instead of the worktree.
+        """
+        from routes.pipelines import _origin_has_plan_draft
+
+        captured: list[list[str]] = []
+
+        def _record(argv, *args, **kwargs):
+            captured.append(list(argv))
+            return self._make_subprocess_result(returncode=0)
+
+        repo = tmp_path / "some" / "nested" / "worktree"
+        repo.mkdir(parents=True)
+        with patch("routes.pipelines.subprocess.run", side_effect=_record):
+            _origin_has_plan_draft(repo, "egg/x", "draft.md")
+
+        assert "-C" in captured[0]
+        c_idx = captured[0].index("-C")
+        # The argument right after -C must be the repo path
+        assert captured[0][c_idx + 1] == str(repo), "git -C must point at the worktree, not cwd"
+
+
 class TestRegressionEmptyPhases:
     """Direct regression for the #1931 incident referenced by #2134.
 

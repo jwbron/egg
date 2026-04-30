@@ -194,33 +194,12 @@ class TestSyncWorktreeWithRemote:
             # Reset still happened
             assert mock_run.call_count == 4
 
-    def test_diverged_attempts_merge(self):
-        """(f) diverged → attempts fast-forward merge."""
-        spawner = _make_spawner()
-        with patch("routes.pipelines.subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                # Step 2: branch name
-                _make_subprocess_result(stdout="egg/issue-42\n"),
-                # Step 3: rev-parse succeeds
-                _make_subprocess_result(returncode=0),
-                # Step 3b: local is 2 ahead, 3 behind (diverged)
-                _make_subprocess_result(stdout="2\t3\n"),
-                # Merge succeeds
-                _make_subprocess_result(returncode=0),
-            ]
-            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            # Should have attempted merge
-            assert mock_run.call_count == 4
-            merge_call = mock_run.call_args_list[3]
-            assert "merge" in merge_call[0][0]
-            assert "--ff-only" in merge_call[0][0]
-
-    def test_diverged_merge_fails_signals_error(self):
-        """(g) diverged + merge fails → signals error."""
+    def test_diverged_attempts_rebase(self):
+        """(f) diverged → calls the rebase helper (#2337)."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
-            patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
         ):
             mock_run.side_effect = [
                 # Step 2: branch name
@@ -229,14 +208,47 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
                 # Step 3b: local is 2 ahead, 3 behind (diverged)
                 _make_subprocess_result(stdout="2\t3\n"),
-                # Merge fails (non-fast-forward)
-                _make_subprocess_result(returncode=1, stderr="fatal: Not possible to fast-forward"),
             ]
+            mock_rebase.return_value = PushResult(ok=True, category="", detail="")
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                base_branch="main",
+            )
+            # Rebase helper called with the divergence-resolving form
+            mock_rebase.assert_called_once()
+            kwargs = mock_rebase.call_args.kwargs
+            assert kwargs["branch"] == "egg/issue-42"
+            assert kwargs["base_branch"] == "main"
+            # No reset was attempted (rebase succeeded → early return)
+            assert mock_run.call_count == 3
+
+    def test_diverged_rebase_fails_signals_error(self):
+        """(g) diverged + rebase fails → ERROR log with worktree_sync_outcome."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="2\t3\n"),
+            ]
+            mock_rebase.return_value = PushResult(
+                ok=False,
+                category="reconcile_rebase_conflict",
+                detail="conflicts outside agent-outputs",
+            )
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            # Error should be logged with the diverged_ff_failed case label.
             mock_logger.error.assert_called()
-            error_kwargs = mock_logger.error.call_args.kwargs
-            assert error_kwargs.get("case") == "diverged_ff_failed"
+            err_kwargs = mock_logger.error.call_args.kwargs
+            assert err_kwargs.get("case") == "divergence_rebase_failed"
+            assert err_kwargs.get("category") == "reconcile_rebase_conflict"
+            # No reset was attempted (rebase failure short-circuits)
+            assert mock_run.call_count == 3
 
     def test_successful_reset(self):
         """Happy path: fetch, detect branch, verify remote, reset."""
@@ -289,28 +301,28 @@ class TestSyncWorktreeWithRemote:
             # Should not raise
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
 
-    def test_diverged_merge_exception_returns_without_reset(self):
-        """Diverged + merge raises exception → returns without reset."""
+    def test_diverged_rebase_returns_failure_result(self):
+        """Diverged + rebase helper returns failure → no reset, ERROR logged."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
             patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
         ):
             mock_run.side_effect = [
-                # Step 2: branch name
                 _make_subprocess_result(stdout="egg/issue-42\n"),
-                # Step 3: rev-parse succeeds
                 _make_subprocess_result(returncode=0),
-                # Step 3b: local is 2 ahead, 3 behind (diverged)
                 _make_subprocess_result(stdout="2\t3\n"),
-                # Merge attempt raises timeout
-                subprocess.TimeoutExpired(cmd="git merge", timeout=30),
             ]
+            mock_rebase.return_value = PushResult(
+                ok=False,
+                category="reconcile_rebase_timeout",
+                detail="timed out",
+            )
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            # Error logged about merge attempt failure
             mock_logger.error.assert_called()
-            # Should not have attempted reset (only 4 subprocess.run calls)
-            assert mock_run.call_count == 4
+            # No reset attempt — failed rebase short-circuits the function
+            assert mock_run.call_count == 3
 
     def test_rev_list_non_numeric_output_defaults_to_reset(self):
         """Non-numeric rev-list output falls through to reset."""
@@ -591,51 +603,96 @@ class TestSyncWorktreeOutcomeTaxonomy:
             "reset_succeeded",
         ]
 
-    def test_case_diverged_ff_succeeded(self):
+    def test_case_diverged_rebased(self):
+        """Real divergence triggers _rebase_with_agent_output_autoresolve; success emits divergence_rebased."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
             patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
         ):
             mock_run.side_effect = [
                 _make_subprocess_result(stdout="egg/issue-42\n"),
                 _make_subprocess_result(returncode=0),
                 _make_subprocess_result(stdout="2\t3\n"),
-                _make_subprocess_result(returncode=0),
             ]
+            mock_rebase.return_value = PushResult(ok=True, category="", detail="")
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-        assert _outcome_cases(mock_logger) == ["diverged_ff_succeeded"]
+        assert _outcome_cases(mock_logger) == ["divergence_rebased"]
 
-    def test_case_diverged_ff_failed_returncode(self):
+    def test_case_diverged_rebase_failed(self):
+        """Rebase failure emits divergence_rebase_failed; the function returns without falling through to reset."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
             patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
         ):
             mock_run.side_effect = [
                 _make_subprocess_result(stdout="egg/issue-42\n"),
                 _make_subprocess_result(returncode=0),
                 _make_subprocess_result(stdout="2\t3\n"),
-                _make_subprocess_result(returncode=1, stderr="not possible to fast-forward"),
             ]
+            mock_rebase.return_value = PushResult(
+                ok=False,
+                category="reconcile_rebase_conflict",
+                detail="conflict",
+            )
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-        assert _outcome_cases(mock_logger) == ["diverged_ff_failed"]
+        assert _outcome_cases(mock_logger) == ["divergence_rebase_failed"]
 
-    def test_case_diverged_ff_failed_exception(self):
-        """Subprocess crash during ff-merge collapses into diverged_ff_failed."""
+    def test_divergence_with_base_branch_none_logs_contamination_warning(self):
+        """#2337 review S7: divergence rebase with ``base_branch=None``
+        falls back to the bare-rebase form (the #2222 contamination
+        vector); log a warning so the next person debugging
+        contamination has a breadcrumb at the call site.
+        """
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
             patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
         ):
             mock_run.side_effect = [
                 _make_subprocess_result(stdout="egg/issue-42\n"),
                 _make_subprocess_result(returncode=0),
                 _make_subprocess_result(stdout="2\t3\n"),
-                subprocess.TimeoutExpired(cmd="git merge", timeout=30),
             ]
-            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-        assert _outcome_cases(mock_logger) == ["diverged_ff_failed"]
+            mock_rebase.return_value = PushResult(ok=True, category="", detail="")
+            # base_branch=None — the contamination-prone fallback path.
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                base_branch=None,
+            )
+        warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
+        assert any("base_branch=None" in m and "#2222" in m for m in warning_msgs)
+
+    def test_divergence_with_base_branch_set_does_not_log_contamination_warning(self):
+        """#2337 review S7: with ``base_branch`` threaded the safer
+        ``--onto`` form is used; no contamination breadcrumb required.
+        """
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="2\t3\n"),
+            ]
+            mock_rebase.return_value = PushResult(ok=True, category="", detail="")
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                base_branch="main",
+            )
+        warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
+        assert not any("base_branch=None" in m for m in warning_msgs)
 
     def test_case_reset_succeeded(self):
         spawner = _make_spawner()
