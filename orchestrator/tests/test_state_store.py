@@ -1213,7 +1213,7 @@ class TestRunGitLocking:
             store = StateStore(Path({str(tmp_path)!r}))
             with store._git_op():
                 open({str(sentinel)!r}, "w").close()
-                time.sleep(1.0)
+                time.sleep(1.5)
             """
         )
 
@@ -1248,7 +1248,7 @@ class TestRunGitLocking:
                 proc.kill()
                 proc.wait(timeout=2)
 
-        assert wait > 0.5, (
+        assert wait > 0.8, (
             f"parent acquired lock too quickly ({wait:.3f}s) — "
             "_git_op and bare_repo_lock did not serialise on the same inode"
         )

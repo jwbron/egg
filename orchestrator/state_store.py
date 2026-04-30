@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from egg_git.cross_process_lock import bare_repo_lock, lock_path_for_repo
+from egg_git.cross_process_lock import bare_repo_lock
 from models import Pipeline, PipelineMode, PipelinePhase, PipelineStatus
 from pydantic import ValidationError
 
@@ -141,20 +141,6 @@ class StateStore:
         self._worktree: Path | None = None  # lazily initialised
 
     # -- cross-process locking ---------------------------------------------
-
-    @property
-    def _lock_path(self) -> Path:
-        """Lock file for cross-process git serialization.
-
-        Located inside the bare repo's ``.git/`` directory so the same
-        sentinel inode is visible to the gateway pod, which mounts the
-        repo from the same hostPath.  Until #2311, the lock lived under
-        ``self._worktree_dir.parent`` — a pod-local ``emptyDir`` — so the
-        gateway and orchestrator never actually synchronised, and a
-        ``git worktree add`` could race a state-store commit on
-        ``.git/config.lock`` and fail.
-        """
-        return lock_path_for_repo(self.repo_path)
 
     @contextmanager
     def _git_op(self) -> Generator[None]:
