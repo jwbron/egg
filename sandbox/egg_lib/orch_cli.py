@@ -1276,15 +1276,46 @@ def _classify_gateway_error_rc(status: int | None) -> int:
     return 2
 
 
+def _wait_cursor_path(role: str | None, for_types: list[str]) -> str | None:
+    """Derive the cursor file path for a wait call (issue #2323).
+
+    The cursor file is the file-system back-channel that threads the
+    response cursor across successive ``wait`` / ``wait-loop`` CLI
+    invocations. Without it, every re-entered wait restarts at the
+    stream tip and silently misses any event that landed in the gap
+    between calls — the multi-producer reviewer stall #2323 documents.
+
+    Path scheme: ``{EGG_WAIT_CURSOR_DIR}/egg-wait-cursor-{role}-{hash}``
+    where ``hash`` is an MD5 of the **sorted** ``for_types`` so callers
+    that pass the same type set in different orders share a cursor.
+    Distinct ``--for`` sets get distinct files automatically — POLL
+    (``--for CONSENSUS_PROPOSE``) and STAY ALIVE
+    (``--for ... --for ... --for ... --for ...``) hash differently and
+    do not interfere.
+
+    Returns ``None`` when no role is available — debug shells without
+    ``EGG_AGENT_ROLE`` set get the legacy from-tip behavior with no
+    file-system side effects, since there's no obvious agent identity
+    to scope a cursor to. Tests override ``EGG_WAIT_CURSOR_DIR`` to
+    redirect cursor writes off ``/tmp``.
+    """
+    if not role or not for_types:
+        return None
+    import hashlib
+
+    base = os.environ.get("EGG_WAIT_CURSOR_DIR", "/tmp")
+    types_key = ",".join(sorted(for_types))
+    digest = hashlib.md5(types_key.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+    return os.path.join(base, f"egg-wait-cursor-{role}-{digest}")
+
+
 def _read_cursor_file(path: str | None) -> str | None:
     """Read a wait cursor from *path*.
 
-    Used by ``--cursor-file`` on ``message wait`` / ``wait-loop`` to
-    thread the response cursor across successive CLI invocations
-    (issue #2323). Returns ``None`` if the path is unset, the file is
-    missing, or the file is empty — all three behave identically to
-    "no ``--since`` supplied", so the server's default from-tip
-    semantics apply on the very first call.
+    Companion to :func:`_wait_cursor_path`. Returns ``None`` if the
+    path is unset, the file is missing, or the file is empty — all
+    three behave identically to "no ``--since`` supplied", so the
+    server's default from-tip semantics apply on the very first call.
 
     Read failures are logged to stderr but never raised: a wonky
     filesystem on the cursor path must not turn a recoverable wait
@@ -1306,11 +1337,11 @@ def _read_cursor_file(path: str | None) -> str | None:
 def _write_cursor_file(path: str | None, cursor: str | None) -> None:
     """Atomically persist *cursor* under *path*.
 
-    Companion to :func:`_read_cursor_file`. Writes via tmp-in-same-dir
-    + ``os.replace`` so a partially-written cursor file is never
-    observable. A ``None`` / empty cursor clears the file so the next
-    call resumes from the stream tip — this matters when the server
-    returns ``cursor=null`` for an empty stream.
+    Writes via tmp-in-same-dir + ``os.replace`` so a partially-written
+    cursor file is never observable. A ``None`` / empty cursor clears
+    the file so the next call resumes from the stream tip — this
+    matters when the server returns ``cursor=null`` for an empty
+    stream.
 
     Best-effort: write failures log a warning but do not affect the
     caller's exit code. The wait already succeeded; a missed cursor
@@ -1357,15 +1388,18 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     # require_pipeline_id validates but exits(1) — wrap semantics into 3.
 
     role = args.role or get_agent_role_from_env()
-    cursor_file = getattr(args, "cursor_file", None)
-    # Explicit --since wins over a stored cursor file: the caller is
-    # being deliberate about resume position. The cursor file is just
-    # a default for "thread me automatically" — issue #2323.
+    for_types_list = list(args.for_ or [])
+    # Cursor file is auto-derived per (role, for_types) so every wait
+    # re-entry threads its cursor without callers having to opt in
+    # (issue #2323). Explicit --since still wins, for callers that
+    # want to resume from a specific anchor; ``role`` unset (debug
+    # shells) skips cursor handling entirely.
+    cursor_file = _wait_cursor_path(role, for_types_list)
     effective_since = args.since or _read_cursor_file(cursor_file)
     req: dict[str, Any] = {
         "pipeline_id": pid,
         "role": role,
-        "for_types": list(args.for_ or []),
+        "for_types": for_types_list,
         "timeout": args.timeout if args.timeout is not None else 60,
     }
     if getattr(args, "from_", None):
@@ -1465,14 +1499,15 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
         return 1
 
     role = args.role or get_agent_role_from_env()
-    cursor_file = getattr(args, "cursor_file", None)
-    # Explicit --since wins over a stored cursor file (see
-    # cmd_message_wait for rationale; issue #2323).
+    for_types_list = list(args.for_ or [])
+    # Cursor file is auto-derived per (role, for_types) — see
+    # cmd_message_wait for the rationale (issue #2323).
+    cursor_file = _wait_cursor_path(role, for_types_list)
     effective_since = args.since or _read_cursor_file(cursor_file)
     req: dict[str, Any] = {
         "pipeline_id": pid,
         "role": role,
-        "for_types": list(args.for_ or []),
+        "for_types": for_types_list,
         "timeout": args.timeout if args.timeout is not None else 60,
     }
     if getattr(args, "from_", None):
@@ -2988,20 +3023,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Server-side block timeout in seconds (clamped by "
         "EGG_MESSAGE_POLL_MAX_WAIT, default 60)",
     )
-    msg_wait.add_argument(
-        "--cursor-file",
-        dest="cursor_file",
-        help=(
-            "Path to a file used to thread the response cursor across "
-            "successive invocations (issue #2323). Read on entry as "
-            "the default for --since; rewritten on every successful "
-            "round-trip (match or timeout) with the latest cursor. An "
-            "explicit --since overrides the file's contents. Best-"
-            "effort: read/write failures log a warning but never fail "
-            "the wait. Sequential single-process use is safe; "
-            "concurrent writers race (last writer wins)."
-        ),
-    )
     _add_json_flag(msg_wait)
     msg_wait.set_defaults(func=cmd_message_wait)
 
@@ -3044,22 +3065,6 @@ def create_parser() -> argparse.ArgumentParser:
             "normal BRC consensus never trips it.  Set to a positive "
             "integer only for test harnesses or deterministic "
             "reproductions."
-        ),
-    )
-    msg_wait_loop.add_argument(
-        "--cursor-file",
-        dest="cursor_file",
-        help=(
-            "Path to a file used to thread the response cursor across "
-            "successive invocations (issue #2323). Read on entry as "
-            "the default for --since; rewritten on match or safety-cap "
-            "exit with the latest cursor. An explicit --since "
-            "overrides the file's contents. This is the recommended "
-            "way to close the wait→process→wait race for reviewers "
-            "that loop wait-loop calls per producer; without it, "
-            "each new wait-loop starts at the stream tip and skips "
-            "events that landed in the gap (issue #1925). Best-"
-            "effort writes; sequential single-process use is safe."
         ),
     )
     # --json is intentionally NOT supported on wait-loop: the loop calls
