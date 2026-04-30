@@ -764,3 +764,200 @@ class TestSyncWorktreeOutcomeTaxonomy:
         )
         assert reset_call.kwargs["local_ahead"] == 0
         assert reset_call.kwargs["remote_ahead"] == 3
+
+
+def _git_args(call) -> list[str]:
+    """Extract the git argv list from a ``subprocess.run`` mock call."""
+    return list(call.args[0])
+
+
+class TestSyncWorktreePipelineBranch:
+    """#2367 — pipeline_branch overrides local branch for remote-side refs.
+
+    Orchestrator worktrees check out ``egg/<pid>/work``; the agent-facing
+    branch on origin is ``egg/<pid>``.  Without an explicit
+    ``pipeline_branch``, the function looked up
+    ``origin/egg/<pid>/work``, missed, and exited at
+    ``no_remote_tracking`` — stranding the pipeline with full BRC plan
+    output sitting on origin and no recovery path.
+    """
+
+    def test_pipeline_branch_used_for_remote_lookup_not_local(self):
+        """rev-parse must target ``origin/<pipeline_branch>``, not
+        ``origin/<local_branch>`` — the bug-trigger condition.
+        """
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                # Step 2: local branch is /work-suffixed
+                _make_subprocess_result(stdout="egg/issue-42/work\n"),
+                # Step 3: rev-parse succeeds for the canonical name
+                _make_subprocess_result(returncode=0),
+                # Step 3b: already in sync — early return
+                _make_subprocess_result(stdout="0\t0\n"),
+            ]
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                pipeline_branch="egg/issue-42",
+            )
+            rev_parse_call = mock_run.call_args_list[1]
+            argv = _git_args(rev_parse_call)
+            assert "origin/egg/issue-42" in argv
+            assert "origin/egg/issue-42/work" not in argv
+
+    def test_pipeline_branch_used_for_rev_list(self):
+        """rev-list (divergence detection) must compare against
+        ``origin/<pipeline_branch>``.
+        """
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42/work\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="0\t0\n"),
+            ]
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                pipeline_branch="egg/issue-42",
+            )
+            rev_list_argv = _git_args(mock_run.call_args_list[2])
+            assert "HEAD...origin/egg/issue-42" in rev_list_argv
+
+    def test_pipeline_branch_used_for_reset_target(self):
+        """``git reset --hard`` must target ``origin/<pipeline_branch>``
+        so the local ``/work`` branch is brought up to the agent-facing
+        remote tip — the recovery path #2367 was missing.
+        """
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42/work\n"),
+                _make_subprocess_result(returncode=0),
+                # Local 0 ahead, 3 behind — fall through to reset
+                _make_subprocess_result(stdout="0\t3\n"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                pipeline_branch="egg/issue-42",
+            )
+            reset_argv = _git_args(mock_run.call_args_list[3])
+            assert "origin/egg/issue-42" in reset_argv
+            assert "origin/egg/issue-42/work" not in reset_argv
+
+    def test_pipeline_branch_used_for_push_target(self):
+        """Latent companion bug: when local is ahead, the gateway push
+        must target ``pipeline_branch`` (the agent-facing remote ref),
+        not the ``/work``-suffixed local branch.  The gateway builds
+        ``HEAD:refs/heads/{branch}`` from this argument.
+        """
+        spawner = _make_spawner(push_ok=True)
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42/work\n"),
+                _make_subprocess_result(returncode=0),
+                # Local 2 ahead, 0 behind → push path
+                _make_subprocess_result(stdout="2\t0\n"),
+            ]
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                prior_phase_succeeded=True,
+                pipeline_branch="egg/issue-42",
+            )
+            push_kwargs = spawner.gateway.push_worktree_branch.call_args.kwargs
+            assert push_kwargs["branch"] == "egg/issue-42"
+
+    def test_pipeline_branch_used_for_divergence_rebase(self):
+        """The divergence-rebase helper must rebase onto
+        ``origin/<pipeline_branch>``.
+        """
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines._rebase_with_agent_output_autoresolve") as mock_rebase,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42/work\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="2\t3\n"),
+            ]
+            mock_rebase.return_value = PushResult(ok=True, category="", detail="")
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                pipeline_branch="egg/issue-42",
+                base_branch="main",
+            )
+            assert mock_rebase.call_args.kwargs["branch"] == "egg/issue-42"
+
+    def test_no_remote_tracking_does_not_fire_when_pipeline_branch_resolves(self):
+        """The bug signature: ``case=no_remote_tracking`` must NOT be
+        emitted when ``origin/<pipeline_branch>`` resolves, even though
+        ``origin/<local_branch>`` would not.  This is the regression
+        guard for #2367.
+
+        The rev-parse mock differentiates by argv: it succeeds only for
+        ``origin/egg/issue-42`` and fails (rc=128) for
+        ``origin/egg/issue-42/work``.  Under the buggy pre-#2367 code
+        (which queried ``origin/<local_branch>``), rev-parse would
+        return 128, the function would emit ``case=no_remote_tracking``,
+        and this test would fail.
+        """
+        spawner = _make_spawner()
+
+        def _run(argv, *args, **kwargs):  # type: ignore[no-untyped-def]
+            argv_list = list(argv)
+            if "branch" in argv_list and "--show-current" in argv_list:
+                return _make_subprocess_result(stdout="egg/issue-42/work\n")
+            if "rev-parse" in argv_list:
+                if "origin/egg/issue-42" in argv_list:
+                    return _make_subprocess_result(returncode=0)
+                return _make_subprocess_result(returncode=128, stderr="not a ref")
+            if "rev-list" in argv_list:
+                return _make_subprocess_result(stdout="0\t3\n")
+            if "reset" in argv_list:
+                return _make_subprocess_result(returncode=0)
+            return _make_subprocess_result(returncode=0)
+
+        with (
+            patch("routes.pipelines.subprocess.run", side_effect=_run),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                pipeline_branch="egg/issue-42",
+            )
+        cases = [
+            c.kwargs.get("case")
+            for c in mock_logger.info.call_args_list
+            if c.args and c.args[0] == "worktree_sync_outcome"
+        ]
+        assert "no_remote_tracking" not in cases
+        assert "reset_succeeded" in cases
+
+    def test_falls_back_to_local_branch_when_pipeline_branch_omitted(self):
+        """Backward compatibility: callers without a pipeline (e.g.
+        scripts) keep the pre-#2367 behavior of looking up
+        ``origin/<local_branch>``.
+        """
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="some-branch\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="0\t0\n"),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            rev_parse_argv = _git_args(mock_run.call_args_list[1])
+            assert "origin/some-branch" in rev_parse_argv
