@@ -156,6 +156,8 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 
 > **Tester `checks_passed` requirement:** The Tester's attestation must include a `checks_passed` list naming every configured check that **passed** (e.g. `["lint", "test"]`). Only include checks with a clean exit — do not include checks that failed. The server validates that all checks listed in `repositories.yaml` appear in this list and rejects the proposal if any are missing. Running tests alone is not sufficient — all configured checks must pass and be reported.
 
+> **Tester `attestation.tests_run` vs propose `tests_run`:** The `attestation.tests_run` field is an **integer count** of tests executed (e.g. `42`). This is distinct from the propose call's top-level `tests_run` argument, which is a **list of test identifiers** (e.g. `["tests/test_foo.py::test_bar"]`). Passing a list for `attestation.tests_run` (or leaving it at the default `0`) causes a validation error. The `mcp__brc__propose` handler validates tester attestation locally before sending to the orchestrator, so misconfigured payloads fail with an actionable error rather than a 400 from the server (#2338).
+
 **Reviewer evaluations (`CONSENSUS_ACK/NACK`):**
 
 | Role | Required attestation |
