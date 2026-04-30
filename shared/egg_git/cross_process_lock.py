@@ -62,7 +62,15 @@ _per_repo_state: dict[str, _RepoLockState] = {}
 
 
 def _get_state(repo_path: Path) -> _RepoLockState:
-    key = str(repo_path)
+    # Resolve so two equivalent path forms (abs vs rel, with/without
+    # trailing slash, symlinks) hit the same cache entry.  flock keys
+    # on the inode regardless, but a single fd avoids redundant state
+    # and a self-deadlock risk if a future caller relies on RLock
+    # reentrancy across forms.
+    try:
+        key = str(repo_path.resolve())
+    except OSError:
+        key = str(repo_path)
     with _state_lock:
         state = _per_repo_state.get(key)
         if state is None:

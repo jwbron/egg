@@ -1377,10 +1377,12 @@ class TestWorktreeManagerConcurrency:
             deadline = time.monotonic() + 8
             i = 0
             while time.monotonic() < deadline:
+                # Reuse a single key — same race surface on
+                # ``.git/config.lock`` without bloating ``.git/config``
+                # with thousands of distinct keys over the test window.
                 with bare_repo_lock(repo):
                     subprocess.run(
-                        ["git", "-C", repo, "config",
-                         f"egg.statetest{{i}}", str(i)],
+                        ["git", "-C", repo, "config", "egg.statetest", str(i)],
                         check=False, capture_output=True,
                     )
                 i += 1

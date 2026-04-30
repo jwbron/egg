@@ -96,7 +96,7 @@ def test_serialises_across_processes(tmp_path: Path) -> None:
         with bare_repo_lock({str(tmp_path)!r}):
             # Signal "lock held" by writing to a sentinel file.
             open({str(tmp_path / "held")!r}, "w").close()
-            time.sleep(0.5)
+            time.sleep(1.0)
         """
     )
 
@@ -121,7 +121,8 @@ def test_serialises_across_processes(tmp_path: Path) -> None:
             proc.kill()
             proc.wait(timeout=2)
 
-    # The child held the lock for ~0.5s after writing the sentinel; the
-    # parent should have waited at least most of that time.  Allow a
-    # generous slack for scheduler jitter on busy CI hosts.
-    assert wait > 0.2, f"parent acquired lock too quickly ({wait:.3f}s) — flock did not block"
+    # The child held the lock for ~1.0s after writing the sentinel; the
+    # parent should have waited at least half that time.  The 0.5s slack
+    # absorbs the parent's sentinel-detection latency (the polling loop
+    # ticks every 10ms) plus scheduler jitter on busy CI hosts.
+    assert wait > 0.5, f"parent acquired lock too quickly ({wait:.3f}s) — flock did not block"

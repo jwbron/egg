@@ -693,7 +693,11 @@ class WorktreeManager:
         """
         # Best-effort fetch so the remote-tracking refs are current; if
         # this fails we still attempt the reset against whatever local
-        # state we have.
+        # state we have.  This runs inside the cross-process lock (the
+        # caller holds it across this whole method) so the timeout
+        # caps how long every other state-store commit / worktree
+        # create on this repo can be blocked by a slow remote — keep
+        # it tight.
         try:
             subprocess.run(
                 git_cmd("fetch", "origin"),
@@ -701,7 +705,7 @@ class WorktreeManager:
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=120,
+                timeout=30,
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
             logger.warning(
