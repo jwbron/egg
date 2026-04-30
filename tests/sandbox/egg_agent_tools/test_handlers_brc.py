@@ -289,6 +289,15 @@ class TestBrcProposeTesterAttestationPreFlight:
         with pytest.raises(HandlerError, match="must be a bool"):
             self._propose_tester({"tests_execution_blocked": ["maybe"]})
 
+    def test_non_string_checks_passed_items_rejected(self):
+        """``checks_passed=[1, 2, 3]`` is the same #2338 footgun shape
+        as the canonical empty-attestation case — the agent forgot to
+        stringify check identifiers. Pydantic's ``list[str]`` field
+        rejects this; pre-flight catches it first with a message that
+        names the bad items."""
+        with pytest.raises(HandlerError, match="must be strings"):
+            self._propose_tester({"tests_run": 5, "checks_passed": [1, 2, 3]})
+
 
 class TestPreFlightMirrorsOrchestrator:
     """Cross-check: pre-flight and orchestrator's strict validator agree.
@@ -408,6 +417,19 @@ class TestPreFlightMirrorsOrchestrator:
                 "tests_execution_blocked_reason": "x",
                 "checks_passed": "lint",
             },
+            # Non-string items in checks_passed — Pydantic's list[str] field
+            # rejects this (the operationally-relevant #2338 footgun shape
+            # flagged in the second re-review). Pre-flight now mirrors with
+            # an explicit item-type check.
+            {"tests_run": 5, "checks_passed": [1, 2, 3]},
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": "x",
+                "checks_passed": [1, 2, 3],
+            },
+            # Mixed string + non-string items — pre-flight should still
+            # reject (Pydantic does too).
+            {"tests_run": 5, "checks_passed": ["lint", 42, "test"]},
         ],
     )
     def test_pre_flight_matches_orchestrator(self, attestation: dict):

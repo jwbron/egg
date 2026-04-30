@@ -215,11 +215,36 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
     fast with an actionable error is better UX than letting an empty
     payload silently slip past in relaxed mode.
 
-    Invariant: pre-flight verdict (accept / raise) must match
-    ``validate_attestation(role="tester", strictness=STRICT)`` for every
-    payload. Enforced by
+    Invariant: pre-flight verdict (accept / raise) mirrors
+    ``validate_attestation(role="tester", strictness=STRICT)`` for the
+    canonical #2338 footguns — empty payload, missing/zero/non-int
+    ``tests_run``, missing/empty/non-list/non-string-item
+    ``checks_passed``, and the lax bool/int string forms Pydantic v2
+    accepts. Enforced by
     ``test_handlers_brc.py::TestPreFlightMirrorsOrchestrator``; if you
-    tighten one side, tighten both.
+    tighten one side on a covered rule, tighten both.
+
+    Known inverse-direction divergences (pre-flight is stricter than
+    the orchestrator on these — agents see a friendlier HandlerError
+    locally instead of the orchestrator accepting an obscure type):
+
+    - ``checks_passed`` as a tuple (Pydantic coerces to list).
+    - ``tests_execution_blocked`` as ``0.0``/``1.0`` float, ``b"true"``
+      bytes, or other Pydantic-lax bool inputs not in
+      ``_BOOL_TRUE_STRINGS`` / ``_BOOL_FALSE_STRINGS``.
+    - ``tests_run`` as a stringified non-integer float (e.g. ``"1.0"``)
+      — Pydantic v2 accepts via float-then-int; pre-flight requires
+      the string to parse straight to int.
+
+    JSON-deserialised payloads from the wire don't produce these types
+    in practice (no tuples, no bytes), so the worst case is a clearer
+    error on the producer side. The orchestrator's strict validator
+    stays as defense-in-depth for any payload that does slip through.
+
+    Known same-direction divergence (academic, both reject in
+    practice): ``tests_run = 1e20`` — Pydantic v2's int field has
+    overflow protection, ``int(1e20)`` does not. Producers don't
+    construct counts this large.
     """
     # Layer 1 — type checks that mirror Pydantic's parse step. Runs
     # unconditionally. A payload that would bounce off
@@ -242,6 +267,17 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
         raise HandlerError(
             "Tester attestation: 'checks_passed' must be a list of strings "
             f"(e.g. ['lint', 'test']). Got {checks_passed!r}."
+        )
+    # Item-type check: Pydantic's ``list[str]`` field rejects payloads
+    # like ``checks_passed=[1, 2, 3]`` — exactly the #2338 footgun
+    # shape (agent forgets to stringify). Without this, pre-flight
+    # accepts and the request bounces off the orchestrator as a 400.
+    bad_items = [item for item in checks_passed if not isinstance(item, str)]
+    if bad_items:
+        raise HandlerError(
+            "Tester attestation: 'checks_passed' items must be strings "
+            f"(e.g. ['lint', 'test']). Got non-string items: {bad_items!r}. "
+            "Stringify check identifiers before passing them in."
         )
 
     # Layer 2 — strict-mode rule logic that mirrors _validate_strict.
