@@ -1276,7 +1276,12 @@ def _classify_gateway_error_rc(status: int | None) -> int:
     return 2
 
 
-def _wait_cursor_path(role: str | None, for_types: list[str]) -> str | None:
+def _wait_cursor_path(
+    pipeline_id: str | None,
+    role: str | None,
+    for_types: list[str],
+    from_role: str | None = None,
+) -> str | None:
     """Derive the cursor file path for a wait call (issue #2323).
 
     The cursor file is the file-system back-channel that threads the
@@ -1285,13 +1290,17 @@ def _wait_cursor_path(role: str | None, for_types: list[str]) -> str | None:
     stream tip and silently misses any event that landed in the gap
     between calls — the multi-producer reviewer stall #2323 documents.
 
-    Path scheme: ``{EGG_WAIT_CURSOR_DIR}/egg-wait-cursor-{role}-{hash}``
-    where ``hash`` is an MD5 of the **sorted** ``for_types`` so callers
-    that pass the same type set in different orders share a cursor.
-    Distinct ``--for`` sets get distinct files automatically — POLL
-    (``--for CONSENSUS_PROPOSE``) and STAY ALIVE
-    (``--for ... --for ... --for ... --for ...``) hash differently and
-    do not interfere.
+    Path scheme:
+    ``{EGG_WAIT_CURSOR_DIR}/egg-wait-cursor-{pipeline_id}-{role}-{hash}``
+    where ``hash`` is an MD5 of the **sorted** ``for_types`` together
+    with the ``from_role`` filter (if any). Sorting makes order-permuted
+    callers share a file; including ``from_role`` keeps two waits with
+    the same ``for`` set but different sender filters from sharing a
+    cursor — a wait advancing past a message its ``--from`` filter
+    dropped would otherwise cause a sibling wait with a different
+    filter to miss it. Including ``pipeline_id`` keeps cursors from
+    bleeding across pipelines that happen to reuse the same container
+    or ``/tmp`` mount (debug shells, integration test reuse).
 
     Returns ``None`` when no role is available — debug shells without
     ``EGG_AGENT_ROLE`` set get the legacy from-tip behavior with no
@@ -1305,8 +1314,10 @@ def _wait_cursor_path(role: str | None, for_types: list[str]) -> str | None:
 
     base = os.environ.get("EGG_WAIT_CURSOR_DIR", "/tmp")
     types_key = ",".join(sorted(for_types))
-    digest = hashlib.md5(types_key.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
-    return os.path.join(base, f"egg-wait-cursor-{role}-{digest}")
+    hash_input = f"{types_key}|from={from_role or ''}"
+    digest = hashlib.md5(hash_input.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+    pid_segment = pipeline_id or "no-pipeline"
+    return os.path.join(base, f"egg-wait-cursor-{pid_segment}-{role}-{digest}")
 
 
 def _read_cursor_file(path: str | None) -> str | None:
@@ -1328,7 +1339,11 @@ def _read_cursor_file(path: str | None) -> str | None:
             value = fh.read().strip()
     except FileNotFoundError:
         return None
-    except OSError as err:
+    except (OSError, ValueError) as err:
+        # ``ValueError`` covers ``UnicodeDecodeError`` (its subclass) — a
+        # non-UTF-8 cursor file (corrupted, manually edited with bad
+        # bytes, bind-mount confusion) must not crash a wait that
+        # otherwise would have succeeded.
         print(f"Warning: could not read cursor file {path}: {err}", file=sys.stderr)
         return None
     return value or None
@@ -1338,10 +1353,12 @@ def _write_cursor_file(path: str | None, cursor: str | None) -> None:
     """Atomically persist *cursor* under *path*.
 
     Writes via tmp-in-same-dir + ``os.replace`` so a partially-written
-    cursor file is never observable. A ``None`` / empty cursor clears
-    the file so the next call resumes from the stream tip — this
-    matters when the server returns ``cursor=null`` for an empty
-    stream.
+    cursor file is never observable. A ``None`` / empty cursor is a
+    no-op — preserving any prior cursor on disk. This is reachable
+    when the message route returns ``cursor=null`` (an empty stream
+    on the very first wait of a fresh pipeline) and when a pathological
+    safety-cap exit produces an empty response: the invariant
+    "the cursor file never moves backward" holds unconditionally.
 
     Best-effort: write failures log a warning but do not affect the
     caller's exit code. The wait already succeeded; a missed cursor
@@ -1350,14 +1367,41 @@ def _write_cursor_file(path: str | None, cursor: str | None) -> None:
     """
     if not path:
         return
+    if not cursor or not cursor.strip():
+        # Empty cursor → leave any prior cursor on disk alone. Writing
+        # an empty string would clear the file, undoing the threading
+        # we just paid to install.
+        return
     parent = os.path.dirname(path) or "."
+    tmp_path = f"{path}.tmp.{os.getpid()}"
+    fd: int | None = None
     try:
         os.makedirs(parent, exist_ok=True)
-        tmp_path = f"{path}.tmp.{os.getpid()}"
-        with open(tmp_path, "w", encoding="utf-8") as fh:
-            fh.write((cursor or "").strip())
+        # ``O_NOFOLLOW`` rejects a symlink at ``tmp_path``: a stale
+        # dangling symlink left behind by an interrupted prior write
+        # must not redirect this one. ``O_EXCL`` makes the create
+        # atomic; ``0o600`` keeps the cursor private to the agent.
+        fd = os.open(
+            tmp_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fd = None  # ownership transferred to fh
+            fh.write(cursor.strip())
         os.replace(tmp_path, path)
     except OSError as err:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        # Tidy up a half-written tmp file so a later O_EXCL retry can
+        # succeed; ignore failures here too — best-effort hygiene.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
         print(f"Warning: could not write cursor file {path}: {err}", file=sys.stderr)
 
 
@@ -1389,12 +1433,13 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
 
     role = args.role or get_agent_role_from_env()
     for_types_list = list(args.for_ or [])
-    # Cursor file is auto-derived per (role, for_types) so every wait
-    # re-entry threads its cursor without callers having to opt in
-    # (issue #2323). Explicit --since still wins, for callers that
-    # want to resume from a specific anchor; ``role`` unset (debug
-    # shells) skips cursor handling entirely.
-    cursor_file = _wait_cursor_path(role, for_types_list)
+    from_role = getattr(args, "from_", None)
+    # Cursor file is auto-derived per (pipeline_id, role, for_types,
+    # from_role) so every wait re-entry threads its cursor without
+    # callers having to opt in (issue #2323). Explicit --since still
+    # wins, for callers that want to resume from a specific anchor;
+    # ``role`` unset (debug shells) skips cursor handling entirely.
+    cursor_file = _wait_cursor_path(pid, role, for_types_list, from_role)
     effective_since = args.since or _read_cursor_file(cursor_file)
     req: dict[str, Any] = {
         "pipeline_id": pid,
@@ -1402,8 +1447,8 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
         "for_types": for_types_list,
         "timeout": args.timeout if args.timeout is not None else 60,
     }
-    if getattr(args, "from_", None):
-        req["from_role"] = args.from_
+    if from_role:
+        req["from_role"] = from_role
     if effective_since:
         req["since"] = effective_since
     if args.limit:
@@ -1500,9 +1545,11 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
 
     role = args.role or get_agent_role_from_env()
     for_types_list = list(args.for_ or [])
-    # Cursor file is auto-derived per (role, for_types) — see
-    # cmd_message_wait for the rationale (issue #2323).
-    cursor_file = _wait_cursor_path(role, for_types_list)
+    from_role = getattr(args, "from_", None)
+    # Cursor file is auto-derived per (pipeline_id, role, for_types,
+    # from_role) — see cmd_message_wait for the rationale (issue
+    # #2323).
+    cursor_file = _wait_cursor_path(pid, role, for_types_list, from_role)
     effective_since = args.since or _read_cursor_file(cursor_file)
     req: dict[str, Any] = {
         "pipeline_id": pid,
@@ -1510,8 +1557,8 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
         "for_types": for_types_list,
         "timeout": args.timeout if args.timeout is not None else 60,
     }
-    if getattr(args, "from_", None):
-        req["from_role"] = args.from_
+    if from_role:
+        req["from_role"] = from_role
     if effective_since:
         req["since"] = effective_since
     if args.limit:

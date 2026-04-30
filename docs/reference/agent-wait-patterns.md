@@ -85,10 +85,11 @@ Reviewer `POLL` (waiting for proposals from each producer in turn) and
 post-ACK `STAY ALIVE` (waiting for the next BRC event after handling
 one) both re-enter `wait-loop` multiple times in a row. The CLI
 auto-persists the response cursor under
-`/tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-<hash>` between invocations,
-so any event that lands in the gap between calls is still delivered
-on the next call (issue #2323). No flag needed — see the
-"Auto cursor threading" subsection below for the contract.
+`/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-<hash>`
+between invocations, so any event that lands in the gap between
+calls is still delivered on the next call (issue #2323). No flag
+needed — see the "Auto cursor threading" subsection below for the
+contract.
 
 A transient inner-call error (exit 2 — HTTP 5xx, ECONNRESET, etc.) makes
 the wrapper back off (≤ 2 s in test mode, exponential in production) and
@@ -429,25 +430,33 @@ the wait→wait race for multi-ACK loops.
 ### Auto cursor threading (issue #2323)
 
 `egg-orch message wait` and `wait-loop` automatically persist the
-response cursor to a per-(role, for-types) file under `/tmp` so
-successive CLI invocations thread their position without callers
-having to opt in. The mechanism:
+response cursor to a per-(pipeline, role, for-types, from-role) file
+under `/tmp` so successive CLI invocations thread their position
+without callers having to opt in. The mechanism:
 
 1. **Path derivation.** When `EGG_AGENT_ROLE` is set, the CLI uses
-   `${EGG_WAIT_CURSOR_DIR:-/tmp}/egg-wait-cursor-<role>-<hash>`,
-   where `<hash>` is an MD5 of the **sorted** `--for` types. Same
-   type set → same file (regardless of arg order); different type
-   sets → different files. POLL (`--for CONSENSUS_PROPOSE`) and
-   STAY ALIVE (`--for ... 4 types ...`) hash to distinct files
-   automatically.
+   `${EGG_WAIT_CURSOR_DIR:-/tmp}/egg-wait-cursor-<pipeline_id>-<role>-<hash>`,
+   where `<hash>` is an MD5 of the **sorted** `--for` types together
+   with the `--from` filter (if any). Same type set + same `--from` →
+   same file (regardless of `--for` arg order); different type sets,
+   different `--from` filters, or different pipelines → different
+   files. POLL (`--for CONSENSUS_PROPOSE`) and STAY ALIVE
+   (`--for ... 4 types ...`) hash to distinct files automatically;
+   two pipelines sharing a `/tmp` mount (debug shells, integration
+   test reuse) cannot leak cursors into each other.
 2. **Read on entry.** If the file exists and is non-empty, its
    contents become the default for `--since`. An explicit `--since`
-   still wins.
+   still wins. A corrupt file (non-UTF-8, unreadable) is treated as
+   empty rather than failing the wait.
 3. **Write on success.** Every successful round-trip (match OR
-   timeout) atomically writes the response cursor back. Match → ID
-   of the last delivered message. Timeout → current stream tip, so
-   the next call resumes strictly after what this one would have
-   seen. Safety cap → handler-advanced cursor.
+   timeout) atomically writes the response cursor back, but only
+   when the response carries a non-empty cursor. Match → ID of the
+   last delivered message. Timeout → current stream tip, so the
+   next call resumes strictly after what this one would have seen.
+   Safety cap → handler-advanced cursor. A `cursor=null` response
+   (empty stream, pathological safety cap with no observed events)
+   is preserved as a no-op so a previously-stored cursor never
+   moves backward.
 4. **Untouched on errors.** rc=2 (transient) and rc=3 (permanent)
    leave the file alone — the wait did not advance, so the cursor
    must not move.
@@ -456,9 +465,9 @@ Debug shells without `EGG_AGENT_ROLE` set get the legacy from-tip
 behavior with no file-system side effects.
 
 **Operator debugging.** A stuck reviewer's cursor lives at
-`/tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-*`. `cat` it to see what
-position the next wait will resume from; `rm` it to force a fresh
-from-tip start.
+`/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-*`.
+`cat` it to see what position the next wait will resume from; `rm`
+it to force a fresh from-tip start.
 
 **Concurrency caveat.** Two processes writing the same cursor file
 race (last writer wins). For the LLM-agent use case this is not an
@@ -470,7 +479,10 @@ saw `Y` but the type filter dropped it) means a follow-up call
 restarting from that cursor will not see the dropped `Y`. Mitigate
 by including all relevant types in the `--for` list — different
 type sets get different cursor files automatically, so a drifted
-POLL cursor can never affect a STAY ALIVE wait.
+POLL cursor can never affect a STAY ALIVE wait. The same isolation
+holds for `--from` filters: a wait scoped to one sender can drop
+messages its filter rejected, but a sibling wait with a different
+`--from` keeps its own cursor and sees them.
 
 ## 4. `HEARTBEAT` Message Type
 

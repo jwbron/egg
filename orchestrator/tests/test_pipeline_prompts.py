@@ -3591,7 +3591,8 @@ class TestReviewerWaitLoopMentionsAutoCursor:
     multi-producer phases (plan: 3 producers) this stalled the phase
     by 20-30 minutes per missed event. The fix is in the CLI itself:
     ``wait`` and ``wait-loop`` auto-derive a per-(role, for_types)
-    cursor file under ``/tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-*``
+    cursor file under
+    ``/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-*``
     with no flag needed. The prompts point at that path so operators
     debugging a stuck reviewer know where to look.
     """
@@ -3605,7 +3606,7 @@ class TestReviewerWaitLoopMentionsAutoCursor:
             "POLL must tell the reviewer that cursor threading "
             "across re-entries is automatic (issue #2323)."
         )
-        assert "/tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-" in poll_block, (
+        assert "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-" in poll_block, (
             "POLL must surface the cursor file path so operators "
             "debugging a stuck reviewer can `cat` it."
         )
@@ -3617,7 +3618,7 @@ class TestReviewerWaitLoopMentionsAutoCursor:
         sa_end = preamble.index("**HANDLE RE-REVIEW**", sa_start)
         sa_block = preamble[sa_start:sa_end]
         assert "automatic" in sa_block.lower()
-        assert "/tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-" in sa_block
+        assert "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-" in sa_block
         assert "#2323" in sa_block
 
     def test_producer_stay_alive_mentions_auto_cursor(self):
@@ -3626,7 +3627,7 @@ class TestReviewerWaitLoopMentionsAutoCursor:
         sa_end = preamble.index("**HANDLE RE-REVIEW**", sa_start)
         sa_block = preamble[sa_start:sa_end]
         assert "automatic" in sa_block.lower()
-        assert "/tmp/egg-wait-cursor-${EGG_AGENT_ROLE}-" in sa_block
+        assert "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-" in sa_block
         assert "#2323" in sa_block
 
 

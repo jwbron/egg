@@ -489,22 +489,26 @@ from egg_lib.orch_cli import _wait_cursor_path  # noqa: E402
 
 
 class TestWaitCursorPath:
-    """``_wait_cursor_path`` derives a per-(role, for_types) file path."""
+    """``_wait_cursor_path`` derives a per-(pipeline_id, role,
+    for_types, from_role) file path."""
 
     def test_returns_none_without_role(self):
-        assert _wait_cursor_path(None, ["X"]) is None
-        assert _wait_cursor_path("", ["X"]) is None
+        assert _wait_cursor_path("issue-42", None, ["X"]) is None
+        assert _wait_cursor_path("issue-42", "", ["X"]) is None
 
     def test_returns_none_without_for_types(self):
-        assert _wait_cursor_path("reviewer_plan", []) is None
-        assert _wait_cursor_path("reviewer_plan", None) is None  # type: ignore[arg-type]
+        assert _wait_cursor_path("issue-42", "reviewer_plan", []) is None
+        assert (
+            _wait_cursor_path("issue-42", "reviewer_plan", None)  # type: ignore[arg-type]
+            is None
+        )
 
     def test_path_is_stable_across_for_types_order(self, monkeypatch, tmp_path):
         """``--for X --for Y`` and ``--for Y --for X`` must share a
         cursor — the type set is what matters, not the order."""
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
-        a = _wait_cursor_path("reviewer_plan", ["X", "Y"])
-        b = _wait_cursor_path("reviewer_plan", ["Y", "X"])
+        a = _wait_cursor_path("issue-42", "reviewer_plan", ["X", "Y"])
+        b = _wait_cursor_path("issue-42", "reviewer_plan", ["Y", "X"])
         assert a == b
 
     def test_distinct_for_types_yield_distinct_paths(self, monkeypatch, tmp_path):
@@ -512,8 +516,9 @@ class TestWaitCursorPath:
         (``--for ... 4 types ...``) must hash to different files so
         cross-purpose cursor leakage is impossible."""
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
-        poll = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        poll = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
         stay = _wait_cursor_path(
+            "issue-42",
             "reviewer_plan",
             ["CONSENSUS_PROPOSE", "CONSENSUS_RE_REVIEW", "CONSENSUS_CONFIRMED", "OVERSEER_ALERT"],
         )
@@ -523,16 +528,40 @@ class TestWaitCursorPath:
         """Two roles in the same container (unusual but possible)
         must not stomp on each other's cursors."""
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
-        a = _wait_cursor_path("reviewer_plan", ["X"])
-        b = _wait_cursor_path("reviewer_code", ["X"])
+        a = _wait_cursor_path("issue-42", "reviewer_plan", ["X"])
+        b = _wait_cursor_path("issue-42", "reviewer_code", ["X"])
         assert a != b
+
+    def test_distinct_pipelines_yield_distinct_paths(self, monkeypatch, tmp_path):
+        """Two pipelines sharing a ``/tmp`` mount (debug shells,
+        integration test reuse) must NOT share a cursor — pipeline B's
+        first wait would otherwise read pipeline A's cursor and either
+        re-receive A's stream from time zero (when B's stream is
+        unrelated) or skip part of B's stream."""
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+        a = _wait_cursor_path("issue-42", "reviewer_plan", ["X"])
+        b = _wait_cursor_path("issue-99", "reviewer_plan", ["X"])
+        assert a != b
+
+    def test_distinct_from_roles_yield_distinct_paths(self, monkeypatch, tmp_path):
+        """Two waits with the same ``--for`` set but different
+        ``--from`` filters must NOT share a cursor — a wait advancing
+        past a message its filter dropped would cause a sibling wait
+        with a different filter to miss it."""
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+        a = _wait_cursor_path("issue-42", "reviewer_plan", ["X"], from_role="architect")
+        b = _wait_cursor_path("issue-42", "reviewer_plan", ["X"], from_role="coder")
+        no_filter = _wait_cursor_path("issue-42", "reviewer_plan", ["X"])
+        assert a != b
+        assert a != no_filter
+        assert b != no_filter
 
     def test_path_lives_under_egg_wait_cursor_dir(self, monkeypatch, tmp_path):
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
-        path = _wait_cursor_path("reviewer_plan", ["X"])
+        path = _wait_cursor_path("issue-42", "reviewer_plan", ["X"])
         assert path is not None
         assert path.startswith(str(tmp_path))
-        assert "egg-wait-cursor-reviewer_plan-" in path
+        assert "egg-wait-cursor-issue-42-reviewer_plan-" in path
 
 
 class TestAutoCursorWait:
@@ -545,9 +574,14 @@ class TestAutoCursorWait:
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
 
     def _expected_path(
-        self, tmp_path: Path, for_types: list[str], role: str = "reviewer_plan"
+        self,
+        tmp_path: Path,
+        for_types: list[str],
+        role: str = "reviewer_plan",
+        pipeline_id: str = "issue-42",
+        from_role: str | None = None,
     ) -> str:
-        path = _wait_cursor_path(role, for_types)
+        path = _wait_cursor_path(pipeline_id, role, for_types, from_role)
         assert path is not None
         return path
 
@@ -734,7 +768,7 @@ class TestAutoCursorWaitLoop:
     def test_threads_stored_cursor_to_handler(self, monkeypatch, tmp_path):
         self._setenv(monkeypatch, tmp_path)
         for_types = ["CONSENSUS_PROPOSE"]
-        cursor_path = _wait_cursor_path("reviewer_plan", for_types)
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", for_types)
         assert cursor_path is not None
         with open(cursor_path, "w") as fh:
             fh.write("01-prior-tip")
@@ -775,14 +809,14 @@ class TestAutoCursorWaitLoop:
         ):
             rc = cmd_message_wait_loop(self._make_loop_args())
         assert rc == 0
-        cursor_path = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
         assert cursor_path is not None
         with open(cursor_path) as fh:
             assert fh.read().strip() == "01-architect-id"
 
     def test_writes_cursor_on_safety_cap(self, monkeypatch, tmp_path):
         self._setenv(monkeypatch, tmp_path)
-        cursor_path = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
         assert cursor_path is not None
         with open(cursor_path, "w") as fh:
             fh.write("01-old")
@@ -803,7 +837,7 @@ class TestAutoCursorWaitLoop:
 
     def test_does_not_write_on_permanent_error(self, monkeypatch, tmp_path):
         self._setenv(monkeypatch, tmp_path)
-        cursor_path = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
         assert cursor_path is not None
         with open(cursor_path, "w") as fh:
             fh.write("01-keep-me")
@@ -818,7 +852,7 @@ class TestAutoCursorWaitLoop:
 
     def test_explicit_since_overrides_cursor(self, monkeypatch, tmp_path):
         self._setenv(monkeypatch, tmp_path)
-        cursor_path = _wait_cursor_path("reviewer_plan", ["CONSENSUS_PROPOSE"])
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
         assert cursor_path is not None
         with open(cursor_path, "w") as fh:
             fh.write("01-stale")
@@ -834,3 +868,177 @@ class TestAutoCursorWaitLoop:
         ):
             cmd_message_wait_loop(self._make_loop_args(since="01-explicit"))
         assert captured.get("since") == "01-explicit"
+
+
+class TestCursorNullResponsePreservesPriorCursor:
+    """A ``cursor=None`` response (empty stream, pathological safety
+    cap with no observed events) must NOT clear a previously-stored
+    cursor — the invariant "the cursor file never moves backward"
+    holds unconditionally. Pinned per the previous review's finding #5.
+    """
+
+    def _setenv(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan"
+    ) -> None:
+        monkeypatch.setenv("EGG_AGENT_ROLE", role)
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+
+    def test_wait_preserves_prior_cursor_when_response_cursor_is_none(self, monkeypatch, tmp_path):
+        self._setenv(monkeypatch, tmp_path)
+        for_types = ["CONSENSUS_PROPOSE"]
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", for_types)
+        assert cursor_path is not None
+        with open(cursor_path, "w") as fh:
+            fh.write("01-prior-tip")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": None},
+            }
+            cmd_message_wait(_make_wait_args(for_=for_types))
+        with open(cursor_path) as fh:
+            assert fh.read().strip() == "01-prior-tip"
+
+    def test_wait_loop_preserves_prior_cursor_when_response_cursor_is_none(
+        self, monkeypatch, tmp_path
+    ):
+        self._setenv(monkeypatch, tmp_path)
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
+        assert cursor_path is not None
+        with open(cursor_path, "w") as fh:
+            fh.write("01-prior-tip")
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            return_value={
+                "ok": True,
+                "matched": False,
+                "messages": [],
+                "cursor": None,
+                "iterations": 3,
+            },
+        ):
+            args = argparse.Namespace(
+                pipeline_id="issue-42",
+                for_=["CONSENSUS_PROPOSE"],
+                role=None,
+                from_=None,
+                since=None,
+                limit=None,
+                timeout=1,
+                max_iterations=3,
+                json=False,
+            )
+            cmd_message_wait_loop(args)
+        with open(cursor_path) as fh:
+            assert fh.read().strip() == "01-prior-tip"
+
+    def test_wait_preserves_prior_cursor_when_response_cursor_is_empty(self, monkeypatch, tmp_path):
+        """Whitespace-only and empty-string cursor responses must
+        also preserve."""
+        self._setenv(monkeypatch, tmp_path)
+        for_types = ["CONSENSUS_PROPOSE"]
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", for_types)
+        assert cursor_path is not None
+        with open(cursor_path, "w") as fh:
+            fh.write("01-prior-tip")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "   "},
+            }
+            cmd_message_wait(_make_wait_args(for_=for_types))
+        with open(cursor_path) as fh:
+            assert fh.read().strip() == "01-prior-tip"
+
+
+class TestCursorReadDefenses:
+    """``_read_cursor_file`` must not crash on malformed file
+    contents — a corrupt cursor file is best-effort I/O, not a hard
+    failure. Pinned per the previous review's finding #3.
+    """
+
+    def test_non_utf8_cursor_file_is_treated_as_empty(self, monkeypatch, tmp_path):
+        """``UnicodeDecodeError`` (a ``ValueError`` subclass) must be
+        caught — a wait that hits a corrupted cursor file should fall
+        back to from-tip semantics, not abort with a traceback."""
+        monkeypatch.setenv("EGG_AGENT_ROLE", "reviewer_plan")
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+        for_types = ["CONSENSUS_PROPOSE"]
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", for_types)
+        assert cursor_path is not None
+        # Write raw non-UTF-8 bytes (0xff is invalid as the lead byte
+        # of any UTF-8 sequence).
+        with open(cursor_path, "wb") as fh:
+            fh.write(b"\xff\xfe\xfd")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-tip"},
+            }
+            rc = cmd_message_wait(_make_wait_args(for_=for_types))
+        # No traceback: returns the timeout exit code (1).
+        assert rc == 1
+        endpoint = mock_req.call_args.args[0]
+        # No since_id propagated — corrupt cursor was ignored.
+        assert "since_id" not in endpoint
+
+
+class TestCursorPathPipelineAndFromIsolation:
+    """End-to-end checks that two waits with the same role + for-set
+    but different ``pipeline_id`` or ``--from`` filters do NOT share
+    a cursor file. Pinned per the previous review's findings #1 and
+    #2.
+    """
+
+    def _setenv(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan"
+    ) -> None:
+        monkeypatch.setenv("EGG_AGENT_ROLE", role)
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+
+    def test_pipeline_isolation(self, monkeypatch, tmp_path):
+        self._setenv(monkeypatch, tmp_path)
+        for_types = ["CONSENSUS_PROPOSE"]
+        # Pipeline A advances the cursor.
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-A-tip"},
+            }
+            cmd_message_wait(_make_wait_args(pipeline_id="issue-42", for_=for_types))
+        # Pipeline B's first call must NOT pick up A's cursor.
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-B-tip"},
+            }
+            cmd_message_wait(_make_wait_args(pipeline_id="issue-99", for_=for_types))
+            endpoint = mock_req.call_args.args[0]
+        assert "since_id=01-A-tip" not in endpoint
+
+    def test_from_role_isolation(self, monkeypatch, tmp_path):
+        """A wait with ``--from architect`` advancing past a message
+        its filter dropped must not cause a sibling wait with
+        ``--from coder`` to skip a smaller message ID from coder."""
+        self._setenv(monkeypatch, tmp_path)
+        for_types = ["CONSENSUS_PROPOSE"]
+        # Wait scoped to architect — advances cursor to 01-A-tip.
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-A-tip"},
+            }
+            args_arch = _make_wait_args(for_=for_types)
+            args_arch.from_ = "architect"
+            cmd_message_wait(args_arch)
+        # Wait scoped to coder must NOT see 01-A-tip on its first call.
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0, "cursor": "01-C-tip"},
+            }
+            args_coder = _make_wait_args(for_=for_types)
+            args_coder.from_ = "coder"
+            cmd_message_wait(args_coder)
+            endpoint = mock_req.call_args.args[0]
+        assert "since_id=01-A-tip" not in endpoint
