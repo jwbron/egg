@@ -1222,11 +1222,11 @@ class GatewayClient:
         Two body shapes:
 
         * **Terminal slice** (caller passes ``program_title`` from the
-          contract's ``pr`` block): the PR carries the human-authored
-          title / description / test plan / manual steps the planner
-          authored, plus a banner marking it as the program-level
-          umbrella for the chain. This is the reviewer-facing
-          narrative for the whole pipeline.
+          contract's ``pr`` block): the PR carries the planner-authored
+          title / description / test plan / manual steps, plus a
+          banner marking it as the program-level umbrella for the
+          chain. This is the reviewer-facing narrative for the whole
+          pipeline.
         * **Non-terminal slice** (no ``program_title``): deterministic
           ``slice {slice_id}: {slice_name}`` title, bulleted task list
           body. When ``terminal_slice_id`` is supplied, the body also

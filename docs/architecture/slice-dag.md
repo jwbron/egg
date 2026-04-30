@@ -437,7 +437,7 @@ shapes:
   by a one-line pointer to `terminal_slice_id` so reviewers can jump
   to the umbrella PR; footer names the slice ID, pipeline, and base.
 - **Terminal slice** (`program_title` set, sourced from the planner's
-  `# yaml-tasks` `pr` block) — title is the human-authored
+  `# yaml-tasks` `pr` block) — title is the planner-authored
   `contract.pr.title` (still capped to 70 chars); body opens with a
   `> Program-level umbrella PR — terminal slice of pipeline …`
   banner and renders `contract.pr.description` /

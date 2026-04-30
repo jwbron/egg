@@ -10956,7 +10956,7 @@ def _run_implement_phase_slices(
                             # so non-terminal slices can point at it
                             # ("see <terminal-slice-id>'s PR for the
                             # umbrella narrative") and so the
-                            # human-authored ``contract.pr`` block
+                            # planner-authored ``contract.pr`` block
                             # lands on exactly one PR.  When the
                             # forest has multiple terminal slices we
                             # take the last one in declared order —
@@ -10980,7 +10980,7 @@ def _run_implement_phase_slices(
                             # terminal when the umbrella will actually
                             # carry a program-level narrative.
                             # ``create_slice_pr`` upgrades to the
-                            # human-authored shape only when
+                            # planner-authored shape only when
                             # ``program_title`` is non-empty, so a
                             # ``contract.pr`` with a missing/empty
                             # title yields the auto-generated body on

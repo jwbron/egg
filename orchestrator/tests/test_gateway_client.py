@@ -1381,7 +1381,7 @@ class TestCreateSlicePR:
     def test_non_terminal_slice_with_terminal_pointer_includes_pointer_line(self, gateway_client):
         """When ``terminal_slice_id`` is supplied (and program_title is not)
         the body adds a pointer to the umbrella PR's slice without
-        upgrading to the human-authored shape."""
+        upgrading to the planner-authored shape."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
             gateway_client.create_slice_pr(
@@ -1399,8 +1399,8 @@ class TestCreateSlicePR:
         assert "program-level narrative" in captured["body"]
         assert "Program-level umbrella PR" not in captured["body"]
 
-    def test_terminal_slice_uses_program_title_and_human_authored_body(self, gateway_client):
-        """When ``program_title`` is set the helper emits the human-authored
+    def test_terminal_slice_uses_program_title_and_planner_authored_body(self, gateway_client):
+        """When ``program_title`` is set the helper emits the planner-authored
         title + description / test plan / manual steps body, prefixed with
         the umbrella banner so reviewers can tell the PR is program-level."""
         captured, ctx = self._capture(gateway_client)
@@ -1433,7 +1433,7 @@ class TestCreateSlicePR:
         assert "program-level narrative" not in body
 
     def test_terminal_slice_truncates_long_program_title_to_70_chars(self, gateway_client):
-        """Title-length cap is symmetric for human-authored titles so the
+        """Title-length cap is symmetric for planner-authored titles so the
         existing PR-title guidance still holds."""
         captured, ctx = self._capture(gateway_client)
         long_title = "A" * 90
