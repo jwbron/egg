@@ -653,5 +653,50 @@
     },
     "timestamp": "2026-04-30T03:53:26.992280+00:00",
     "phase": "refine"
+  },
+  {
+    "id": "e5b0f16e-274d-4b",
+    "pipeline_id": "issue-2261",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container eadd4c22-7fd exited with code 0. New container e26c78c6-66c is now running.",
+    "metadata": {
+      "exit_code": 0,
+      "old_container_id": "eadd4c22-7fd5-4eb9-9eae-ea2f8e609a8c",
+      "new_container_id": "e26c78c6-66c2-43ba-990f-3ccf31a25b18",
+      "log_tail": "- `routes/pipelines.py` measured at **16,401 lines** (drifted from issue baseline)\n- `_run_pipeline` at line 13,524 with **2,362-line body** \u2014 structural outlier\n- **43+ unique mock-patch symbols** across `routes.pipelines.*`, `gateway.gateway.*`, `mcp_tools.*` \u2014 re-export shims non-negotiable\n- Recommended: **A1** (sub-package + `__init__.py` re-export barrel) + **B2** (per-phase handler refactor) + **C1** (one slice per file under pattern adoption parent)\n- Registered: **10 HITL decisions** (decision-1 through decision-10) + **1 feedback bundle** (feedback-1, 8 questions)\n\n---\n\n### Current Pipeline State\n\n| Field | Value |\n|---|---|\n| `status` | `awaiting_human` |\n| `terminal` | `false` |\n| `running_agents` | `[]` |\n| `heartbeat_ok` | `true` |\n| `phase` | refine (BRC complete, HITL gate active) |\n\n2026-04-30 03:55:31 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=c5da43cf-0aac-46e9-8ddf-4195feabb268 cost_usd=3.5927545499999987 num_turns=93 duration_ms=883159 success=True [/opt/egg-runtime/shared/egg_agent/client.py:482]\n**Blocker:** The pipeline is paused at the human gate. The 10 HITL decisions and feedback-1 bundle must be resolved by a human via the contract interface before the plan phase can begin. No agent-side action is pending or possible until those decisions are answered.",
+      "respawn_attempt": 1,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-30T03:55:50.921788+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5b4f51b3-f7ce-45",
+    "pipeline_id": "issue-2261",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [medium]",
+    "body": "Pipeline issue-2261 is paused at a HITL gate after successful refine-phase BRC consensus. Human decisions required before plan phase can start.\n\nDetail:\nThe refine phase completed successfully. All three agents (refiner, reviewer_refine, reviewer_agent_design) reached BRC consensus. The pipeline is now blocked on 10 unresolved HITL decisions (decision-1 through decision-10) plus 1 feedback bundle (feedback-1, 8 questions).\n\nGate question: \"The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.\"\n\nKey decisions awaiting resolution:\n- decision-1: Module layout pattern (A1 sub-package barrel / A2 sibling fa\u00e7ade / A3 Blueprint)\n- decision-2: _run_pipeline strategy (B1 mechanical extract / B2 per-phase refactor / B3 permanent exception)\n- decision-3: Slice DAG shape (C1 one-per-file 16 slices / C2 per-package cohorts ~9 slices)\n- decision-4: Pattern-adoption parent slice scope\n- decision-5 through decision-10: Re-export style, submodule naming, import paths, Flask routes, sub-stacking, concurrency budget\n\nThe refiner recommends: A1 + B2 + C1 (sub-package barrel + per-phase handler refactor + one slice per file). All recommendations are captured in the refine-phase analysis document.\n\nNo agent-side action is pending. Pipeline resumes automatically once the HITL decisions and feedback-1 bundle are submitted.\n\nRecommended action:\nReview the refine analysis (visible in decision-1 context) and resolve decision-1 through decision-10 plus feedback-1 via the contract interface. The recommended options are pre-selected; approve or adjust as needed. Once all decisions are resolved, the pipeline will automatically advance to the plan phase.",
+    "metadata": {},
+    "timestamp": "2026-04-30T03:56:46.775773+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "82ccc462-42f8-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Monitoring pipeline issue-2261. Refine phase BRC complete; pipeline paused at HITL gate (decision-1 through decision-10 + feedback-1 unresolved). No agent-side action available. Polling for human resolution.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-30T03:57:11.436486+00:00",
+    "phase": "refine"
   }
 ]

@@ -8126,5 +8126,110 @@
     },
     "timestamp": "2026-04-30T05:47:17.852238+00:00",
     "phase": "implement"
+  },
+  {
+    "id": "6907e7ae-3b3e-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T05:47:25.109680+00:00"
+    },
+    "timestamp": "2026-04-30T05:47:26.847975+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a3b2b85c-221b-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T05:47:25.152993+00:00"
+    },
+    "timestamp": "2026-04-30T05:47:26.874879+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "72e4c212-ea89-45",
+    "pipeline_id": "issue-2261",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T05:47:25.213099+00:00"
+    },
+    "timestamp": "2026-04-30T05:47:26.913436+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "dbc0e7f7-d193-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T05:47:25.446957+00:00"
+    },
+    "timestamp": "2026-04-30T05:47:26.936259+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1ba924e1-1033-44",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T05:47:26.380344+00:00"
+    },
+    "timestamp": "2026-04-30T05:47:26.964068+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d3209455-babf-4d",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T05:47:25.694875+00:00"
+    },
+    "timestamp": "2026-04-30T05:47:27.097195+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "43954010-8ead-43",
+    "pipeline_id": "issue-2261",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T05:47:27.824387+00:00"
+    },
+    "timestamp": "2026-04-30T05:47:27.854860+00:00",
+    "phase": "implement"
   }
 ]

@@ -1,6 +1,6 @@
 # BRC Consensus History — implement phase
 
-Generated: 2026-04-30T05:47:17Z
+Generated: 2026-04-30T05:47:27Z
 Pipeline: issue-2261
 
 ### [2026-04-30T04:46:50Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
@@ -8946,4 +8946,88 @@ id: 8375da38-dcc3-4b
 phase: implement
 metadata:
   state: WORKING
+````
+
+### [2026-04-30T05:47:26Z] reviewer_code (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6907e7ae-3b3e-44
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-30T05:47:25.109680+00:00'
+````
+
+### [2026-04-30T05:47:26Z] reviewer_concurrency (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: a3b2b85c-221b-4c
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-30T05:47:25.152993+00:00'
+````
+
+### [2026-04-30T05:47:26Z] tester (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 72e4c212-ea89-45
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-30T05:47:25.213099+00:00'
+````
+
+### [2026-04-30T05:47:26Z] documenter (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT
+
+````yaml
+id: dbc0e7f7-d193-44
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-30T05:47:25.446957+00:00'
+````
+
+### [2026-04-30T05:47:26Z] reviewer_security (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 1ba924e1-1033-44
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-30T05:47:26.380344+00:00'
+````
+
+### [2026-04-30T05:47:27Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: d3209455-babf-4d
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-30T05:47:25.694875+00:00'
+````
+
+### [2026-04-30T05:47:27Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 43954010-8ead-43
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-30T05:47:27.824387+00:00'
 ````

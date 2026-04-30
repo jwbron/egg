@@ -2577,5 +2577,77 @@
     },
     "timestamp": "2026-04-30T04:41:07.043372+00:00",
     "phase": "plan"
+  },
+  {
+    "id": "d960e140-c413-4f",
+    "pipeline_id": "issue-2261",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:41:14.764845+00:00"
+    },
+    "timestamp": "2026-04-30T04:41:16.870624+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "644ea30e-34ad-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:41:15.439713+00:00"
+    },
+    "timestamp": "2026-04-30T04:41:16.939374+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ddcac81e-988f-47",
+    "pipeline_id": "issue-2261",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:41:15.758073+00:00"
+    },
+    "timestamp": "2026-04-30T04:41:16.962500+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d5ad03a5-95dc-41",
+    "pipeline_id": "issue-2261",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-30T04:41:15.142024+00:00"
+    },
+    "timestamp": "2026-04-30T04:41:17.001112+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "721dc7a5-bf72-4c",
+    "pipeline_id": "issue-2261",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [low]",
+    "body": "Plan phase BRC complete \u2014 pipeline now at plan HITL gate awaiting human review\n\nDetail:\nPlan phase BRC consensus reached at 04:41:06 (all 4 agents confirmed: task_planner v2, architect v2, risk_analyst v1, reviewer_plan). Pipeline status is now awaiting_human. All containers exited cleanly. The plan phase produced: 15-slice forest DAG, sub-package + re-export barrel layout, per-phase _run_pipeline refactor (B2), one file per slice (C1), all 10 HITL decisions implemented. The BRC deadlock detected at ~04:25 was resolved by overseer intervention at 04:28:40 (OVERSEER_ALERT woke architect which re-proposed v2; reviewer_plan then processed all outstanding proposals and issued a NACK to task_planner; task_planner revised and re-proposed v2 at 04:39:28; reviewer ACKed and BRC completed).\n\nRecommended action:\nHuman should review the plan document (.egg-state/drafts/2261-plan.md) and resolve any plan-phase HITL decisions to advance the pipeline to the implement phase.",
+    "metadata": {},
+    "timestamp": "2026-04-30T04:44:19.530835+00:00",
+    "phase": "plan"
   }
 ]
