@@ -538,11 +538,15 @@ class TestWaitCursorPath:
 class TestAutoCursorWait:
     """``cmd_message_wait`` auto-threads a per-(role, for_types) cursor."""
 
-    def _setenv(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan") -> None:
+    def _setenv(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan"
+    ) -> None:
         monkeypatch.setenv("EGG_AGENT_ROLE", role)
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
 
-    def _expected_path(self, tmp_path: Path, for_types: list[str], role: str = "reviewer_plan") -> str:
+    def _expected_path(
+        self, tmp_path: Path, for_types: list[str], role: str = "reviewer_plan"
+    ) -> str:
         path = _wait_cursor_path(role, for_types)
         assert path is not None
         return path
@@ -691,7 +695,9 @@ class TestAutoCursorWait:
 class TestAutoCursorWaitLoop:
     """``cmd_message_wait_loop`` mirrors the auto-cursor semantics."""
 
-    def _setenv(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan") -> None:
+    def _setenv(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, role: str = "reviewer_plan"
+    ) -> None:
         monkeypatch.setenv("EGG_AGENT_ROLE", role)
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
 
