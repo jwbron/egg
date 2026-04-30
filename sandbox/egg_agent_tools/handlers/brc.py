@@ -89,6 +89,91 @@ def _resolve_head_sha() -> str:
         raise HandlerError("'commit_sha' not provided and could not resolve HEAD") from exc
 
 
+def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None:
+    """Catch missing tester attestation fields at the handler boundary (#2338).
+
+    Mirrors the orchestrator's strict-mode tester checks
+    (``orchestrator/attestation_schemas.py:_validate_strict``) so a
+    misconfigured proposal fails locally with an actionable HandlerError
+    instead of going on the wire and bouncing back as a 400 on the next
+    retry. The orchestrator's check stays — this is pre-flight validation,
+    not a replacement.
+
+    The attestation's ``tests_run`` is the *count* of tests run (an
+    ``int``), not the propose-tool's top-level ``tests_run`` (a
+    ``list[str]`` of test identifiers). When tests genuinely cannot run
+    (e.g. private-network mode blocking module downloads), set
+    ``tests_execution_blocked=True`` with a non-empty
+    ``tests_execution_blocked_reason``.
+
+    Raises ``HandlerError`` when the attestation would fail strict-mode
+    validation; passes silently otherwise. Relaxed-mode pipelines accept
+    an empty payload — this validator is a no-op for them, since the
+    orchestrator's strict-mode check is the only gate that fires.
+    """
+    blocked_raw = attestation.get("tests_execution_blocked", False)
+    blocked = bool(blocked_raw) if blocked_raw is not False else False
+
+    if blocked:
+        reason = (attestation.get("tests_execution_blocked_reason") or "").strip()
+        if not reason:
+            raise HandlerError(
+                "Tester attestation: 'tests_execution_blocked' is true but "
+                "'tests_execution_blocked_reason' is empty. Populate "
+                "attestation.tests_execution_blocked_reason with why tests "
+                "could not run (e.g. 'private-network mode blocked package "
+                "downloads'), then retry."
+            )
+        # Mutual-exclusion guard: blocked pipelines must not also report
+        # tests_run > 0 — pick one and stick with it.
+        try:
+            tests_run_int = int(attestation.get("tests_run", 0) or 0)
+        except TypeError, ValueError:
+            tests_run_int = 0
+        if tests_run_int > 0:
+            raise HandlerError(
+                "Tester attestation: tests_execution_blocked=true conflicts "
+                "with tests_run > 0. If some tests ran, set "
+                "tests_execution_blocked=false and report the count and "
+                "checks_passed normally."
+            )
+        return
+
+    # Non-blocked path — strict mode requires tests_run > 0 and
+    # checks_passed populated.
+    try:
+        tests_run_int = int(attestation.get("tests_run", 0) or 0)
+    except (TypeError, ValueError) as exc:
+        raise HandlerError(
+            "Tester attestation: 'tests_run' must be an integer count of "
+            "tests executed (e.g. 42). Got "
+            f"{attestation.get('tests_run')!r}. Note: this is the "
+            "attestation field, distinct from the propose tool's top-level "
+            "tests_run argument (which carries test *identifiers* as a "
+            "list of strings)."
+        ) from exc
+    if tests_run_int <= 0:
+        raise HandlerError(
+            "Tester attestation requires tests_run > 0 (the integer count "
+            "of tests executed). If tests genuinely could not run, set "
+            "tests_execution_blocked=true with a non-empty "
+            "tests_execution_blocked_reason instead. Pass these as fields "
+            "on the propose tool's `attestation` dict — e.g. "
+            "attestation={'tests_run': 42, 'checks_passed': "
+            "['lint', 'test']}."
+        )
+
+    checks_passed = attestation.get("checks_passed") or []
+    if not isinstance(checks_passed, list) or not checks_passed:
+        raise HandlerError(
+            "Tester attestation requires checks_passed to list the "
+            "configured checks that actually passed (e.g. "
+            "['lint', 'test']). Only include checks that passed — do NOT "
+            "include checks that failed. Empty list is rejected when "
+            "tests_execution_blocked is false."
+        )
+
+
 def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     """Send a CONSENSUS_PROPOSE signal.
 
@@ -99,9 +184,18 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
         risk_considered (str): risk summary.
         commit_sha (str): commit SHA; defaults to ``git rev-parse HEAD``.
         files_changed (list[str])
-        tests_run (list[str])
+        tests_run (list[str]): test *identifiers* executed (e.g. test
+            node IDs). Distinct from the attestation's ``tests_run``
+            field, which is an integer count of tests executed (see
+            ``attestation`` below).
         tasks (list[str]): tasks_satisfied
-        attestation (dict): attestation payload.
+        attestation (dict): role-specific attestation payload. For the
+            ``tester`` role under strict mode, requires either
+            ``tests_run > 0`` (integer) and a non-empty ``checks_passed``
+            list, or ``tests_execution_blocked=true`` with a non-empty
+            ``tests_execution_blocked_reason``. Pre-flight validated by
+            this handler so misconfigurations fail locally rather than
+            bouncing off the orchestrator as 400 (#2338).
         changed_artifacts (list[str]): optional re-proposal delta.
         raw_payload (dict): pre-built payload dict — every key is
             forwarded verbatim to the orchestrator.  Structured
@@ -154,6 +248,15 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
             ),
         }
     )
+    # Pre-flight role-specific attestation validation (#2338). Mirrors
+    # the orchestrator's strict-mode checks so misconfigurations fail
+    # at the handler boundary with an actionable HandlerError instead
+    # of going on the wire and bouncing back as a 400. Strict-mode-only
+    # — the orchestrator gates this; relaxed-mode pipelines won't reach
+    # the strict validator and aren't disrupted by pre-flight here.
+    if role == "tester" and isinstance(payload.get("attestation"), dict):
+        _validate_tester_attestation_pre_flight(payload["attestation"])
+
     data: dict[str, Any] = {
         "signal_type": "consensus_propose",
         "agent_role": role,

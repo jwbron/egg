@@ -37,7 +37,12 @@ _PROPOSE_SCHEMA: dict[str, Any] = {
         "tests_run": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Test identifiers executed",
+            "description": (
+                "Test *identifiers* executed (e.g. pytest node IDs). "
+                "Distinct from `attestation.tests_run`, which is an "
+                "integer count of tests run for strict-mode "
+                "validation."
+            ),
         },
         "tasks": {
             "type": "array",
@@ -46,7 +51,17 @@ _PROPOSE_SCHEMA: dict[str, Any] = {
         },
         "attestation": {
             "type": "object",
-            "description": "Optional attestation payload forwarded to the orchestrator",
+            "description": (
+                "Role-specific attestation payload forwarded to the "
+                "orchestrator. For the `tester` role under strict mode, "
+                "must include either (a) `tests_run` > 0 (integer count) "
+                "and a non-empty `checks_passed` list (e.g. "
+                "['lint', 'test']), or (b) `tests_execution_blocked`=true "
+                "with a non-empty `tests_execution_blocked_reason`. The "
+                "handler validates these pre-flight (#2338) so a "
+                "misconfigured payload fails locally with an actionable "
+                "error rather than as a 400 from the orchestrator."
+            ),
         },
         "changed_artifacts": {
             "type": "array",

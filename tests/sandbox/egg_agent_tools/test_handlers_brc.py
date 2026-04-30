@@ -105,6 +105,137 @@ class TestBrcPropose:
                 brc.brc_propose({"pipeline_id": "p", "role": "coder", "summary": "x" * 60})
 
 
+class TestBrcProposeTesterAttestationPreFlight:
+    """Pre-flight tester-attestation validation in ``brc_propose`` (#2338).
+
+    Mirrors the orchestrator's strict-mode tester checks but runs at the
+    handler boundary so misconfigurations fail locally with an actionable
+    HandlerError rather than as a 400 bouncing off the orchestrator.
+    """
+
+    def _propose_tester(self, attestation: dict):
+        with (
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=_ok_response(),
+            ),
+            patch(
+                "egg_agent_tools.handlers.brc._resolve_head_sha",
+                return_value="abc1234",
+            ),
+        ):
+            return brc.brc_propose(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "tester",
+                    "summary": "x" * 60,
+                    "attestation": attestation,
+                }
+            )
+
+    def test_missing_tests_run_rejected_pre_flight(self):
+        """Empty / missing tests_run is rejected at handler boundary."""
+        with pytest.raises(HandlerError, match="tests_run > 0"):
+            self._propose_tester({})
+
+    def test_zero_tests_run_rejected(self):
+        with pytest.raises(HandlerError, match="tests_run > 0"):
+            self._propose_tester({"tests_run": 0, "checks_passed": ["test"]})
+
+    def test_non_integer_tests_run_rejected(self):
+        with pytest.raises(HandlerError, match="must be an integer"):
+            self._propose_tester({"tests_run": "many", "checks_passed": ["test"]})
+
+    def test_missing_checks_passed_rejected(self):
+        with pytest.raises(HandlerError, match="checks_passed"):
+            self._propose_tester({"tests_run": 5})
+
+    def test_empty_checks_passed_rejected(self):
+        with pytest.raises(HandlerError, match="checks_passed"):
+            self._propose_tester({"tests_run": 5, "checks_passed": []})
+
+    def test_happy_path_passes_pre_flight(self):
+        resp = self._propose_tester({"tests_run": 42, "checks_passed": ["lint", "test"]})
+        assert resp["ok"] is True
+
+    def test_blocked_with_reason_passes(self):
+        """tests_execution_blocked=true with a reason is accepted —
+        no tests_run / checks_passed required for blocked pipelines."""
+        resp = self._propose_tester(
+            {
+                "tests_execution_blocked": True,
+                "tests_execution_blocked_reason": (
+                    "private-network mode blocked package downloads"
+                ),
+            }
+        )
+        assert resp["ok"] is True
+
+    def test_blocked_without_reason_rejected(self):
+        with pytest.raises(HandlerError, match="tests_execution_blocked_reason"):
+            self._propose_tester({"tests_execution_blocked": True})
+
+    def test_blocked_with_tests_run_conflict(self):
+        """blocked=true + tests_run > 0 is contradictory."""
+        with pytest.raises(HandlerError, match="conflicts with tests_run"):
+            self._propose_tester(
+                {
+                    "tests_execution_blocked": True,
+                    "tests_execution_blocked_reason": "x",
+                    "tests_run": 5,
+                }
+            )
+
+    def test_other_roles_skip_validator(self):
+        """Coder / documenter etc. should not be subject to tester
+        attestation requirements — pre-flight only fires on role=tester."""
+        with (
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=_ok_response(),
+            ),
+            patch(
+                "egg_agent_tools.handlers.brc._resolve_head_sha",
+                return_value="abc",
+            ),
+        ):
+            resp = brc.brc_propose(
+                {
+                    "pipeline_id": "pipe-1",
+                    "role": "coder",
+                    "summary": "x" * 60,
+                    "attestation": {},  # empty — would fail tester pre-flight
+                }
+            )
+        assert resp["ok"] is True
+
+    def test_omitted_attestation_treated_as_empty_and_rejected(self):
+        """Caller that omits ``attestation`` entirely defaults to ``{}``,
+        which fails strict-mode pre-flight — the canonical "tester
+        forgot to populate" scenario from #2338. The handler surfaces
+        the same actionable error the orchestrator would have returned
+        as a 400."""
+        with (
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=_ok_response(),
+            ),
+            patch(
+                "egg_agent_tools.handlers.brc._resolve_head_sha",
+                return_value="abc",
+            ),
+        ):
+            with pytest.raises(HandlerError, match="tests_run > 0"):
+                brc.brc_propose(
+                    {
+                        "pipeline_id": "pipe-1",
+                        "role": "tester",
+                        "summary": "x" * 60,
+                        # No attestation — defaults to {} and fails pre-flight.
+                    }
+                )
+
+
 class TestBrcAck:
     def test_happy_path(self):
         with patch(
