@@ -246,10 +246,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Slice-14 (gateway/gateway.py) git_push decomposition: should the security-critical git_push mega-handler split into named helpers be inside slice-14, or filed as a separate follow-up?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Inside slice-14 (recommended; matches the seam-table note 'R5 mitigation' and avoids leaving gateway.py partially decomposed)",
+        "Separate follow-up — keep slice-14 strictly mechanical; security-review the git_push split in its own PR",
+        "Other (explain in reply)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-30T18:02:47.762471Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T17:27:52.618820Z",
-  "updated_at": "2026-04-30T18:02:47.732629Z",
+  "updated_at": "2026-04-30T18:02:47.769038Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -263,6 +282,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null
 }
