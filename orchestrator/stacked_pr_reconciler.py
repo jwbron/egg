@@ -183,10 +183,10 @@ def find_orphaned_child_prs(
     # qualifier (see ``routes/pipelines.py`` ``pipeline.branch``
     # propagation), so deriving the issue branch from ``contract_key``
     # keeps the reconciler's lookup shape aligned with the producer's
-    # branch shape. A pre-#2137 split here that hard-coded
-    # ``egg/issue-N`` for any contract with a populated ``issue``
-    # field silently no-op'd orphan detection on every qualified
-    # pipeline.
+    # branch shape. A prior ``f"egg/issue-{issue_number}"`` ternary
+    # here hard-coded the unqualified shape for any contract with a
+    # populated ``issue`` field, silently no-op'ing orphan detection
+    # on every qualified pipeline.
     issue_branch = f"egg/{contract.contract_key}"
     slices_by_id = {s.id: s for s in contract.slices}
 
