@@ -7,10 +7,14 @@ Note: Git operations are mocked since git init is not available in the sandbox.
 import os
 import shutil
 import subprocess
+import sys
 import threading
+import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from egg_git import cross_process_lock
 from gateway_client import PushResult
 from models import Pipeline, PipelinePhase, PipelineStatus
 from state_store import (
@@ -25,6 +29,21 @@ from state_store import (
     get_pipeline_state_lock,
     get_state_store,
 )
+
+
+def _flock_depth_for(repo_path) -> int:
+    """Return the cross-process lock nesting depth for ``repo_path``.
+
+    Reaches into the ``bare_repo_lock`` per-repo state (keyed on the
+    resolved path) so tests can assert reentrant nesting.  Returns 0 if
+    the repo has no active state.
+    """
+    try:
+        key = str(repo_path.resolve())
+    except OSError:
+        key = str(repo_path)
+    state = cross_process_lock._per_repo_state.get(key)
+    return state.depth if state is not None else 0
 
 
 @pytest.fixture
@@ -1015,10 +1034,7 @@ class TestRunGitLocking:
     @pytest.fixture(autouse=True)
     def reset_flock_state(self):
         yield
-        StateStore._flock_depth = 0
-        for fd in StateStore._flock_fds.values():
-            os.close(fd)
-        StateStore._flock_fds.clear()
+        cross_process_lock.reset_for_tests()
 
     def test_retry_succeeds_after_index_lock_error(self, tmp_path):
         """Test that _run_git retries on index.lock contention and succeeds."""
@@ -1155,7 +1171,7 @@ class TestRunGitLocking:
             # Record the flock nesting depth during each subprocess call.
             # If compound locking works, depth should be >= 2 (outer _commit_state
             # + inner _run_git).
-            depth_during_calls.append(StateStore._flock_depth)
+            depth_during_calls.append(_flock_depth_for(tmp_path))
             return MagicMock(stdout="abc1234\n", returncode=0)
 
         with patch("subprocess.run", side_effect=tracking_run):
@@ -1164,6 +1180,78 @@ class TestRunGitLocking:
         # All git calls should have happened at depth >= 2 (compound + inner)
         assert len(depth_during_calls) >= 2  # at least add + diff (or add + diff + commit)
         assert all(d >= 2 for d in depth_during_calls)
+
+    def test_git_op_serialises_against_gateway_bare_repo_lock(self, tmp_path):
+        """``StateStore._git_op`` and ``bare_repo_lock`` lock the same inode.
+
+        Regression for #2311: in production the gateway holds
+        ``bare_repo_lock`` and the orchestrator holds ``_git_op`` from
+        different pods.  Before #2312 they used independent flock
+        implementations; after the unification in this PR, ``_git_op``
+        delegates to ``bare_repo_lock`` directly.  This test exercises
+        both wrappers across a process boundary against the same
+        ``<repo>/.git/.egg-cross-process.lock`` inode and asserts that
+        the parent's ``bare_repo_lock`` blocks while a child holds
+        ``StateStore._git_op``.
+        """
+        import textwrap
+
+        from egg_git.cross_process_lock import bare_repo_lock
+
+        (tmp_path / ".git").mkdir()
+        sentinel = tmp_path / "held"
+
+        project_root = Path(__file__).resolve().parent.parent.parent
+        holder_script = textwrap.dedent(
+            f"""
+            import sys, time
+            sys.path.insert(0, {str(project_root / "orchestrator")!r})
+            sys.path.insert(0, {str(project_root / "shared")!r})
+            from pathlib import Path
+            from state_store import StateStore
+
+            store = StateStore(Path({str(tmp_path)!r}))
+            with store._git_op():
+                open({str(sentinel)!r}, "w").close()
+                time.sleep(1.5)
+            """
+        )
+
+        proc = subprocess.Popen(
+            [sys.executable, "-c", holder_script],
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            stderr=subprocess.PIPE,
+        )
+
+        try:
+            deadline = time.monotonic() + 5
+            while not sentinel.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            if not sentinel.exists():
+                stderr_text = ""
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                if proc.stderr is not None:
+                    stderr_text = proc.stderr.read().decode("utf-8", errors="replace")
+                raise AssertionError(
+                    "child never signalled lock acquisition"
+                    + (f"; child stderr:\n{stderr_text}" if stderr_text else "")
+                )
+
+            start = time.monotonic()
+            with bare_repo_lock(tmp_path):
+                wait = time.monotonic() - start
+            proc.wait(timeout=5)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=2)
+
+        assert wait > 0.8, (
+            f"parent acquired lock too quickly ({wait:.3f}s) — "
+            "_git_op and bare_repo_lock did not serialise on the same inode"
+        )
 
 
 class TestRemoteSync:
@@ -1924,13 +2012,13 @@ class TestBranchHeldByPrunableWorktree:
         original_remove = StateStore._remove_admin_dir_for_path
 
         def tracked_remove(self, target_path):
-            # _flock_depth >= 2 proves *both* wraps are in place: the
-            # outer one in _ensure_worktree (depth 1) and the inner one
-            # in _add_worktree_with_branch_recovery (depth 2).  A weaker
+            # depth >= 2 proves *both* wraps are in place: the outer one
+            # in _ensure_worktree (depth 1) and the inner one in
+            # _add_worktree_with_branch_recovery (depth 2).  A weaker
             # ``> 0`` assertion would still pass if a future refactor
             # dropped the outer wrap and left only the inner one — and
             # that would re-open the #2177 race.
-            depth_when_removing_admin.append(StateStore._flock_depth)
+            depth_when_removing_admin.append(_flock_depth_for(store_seed.repo_path))
             return original_remove(self, target_path)
 
         def caller():

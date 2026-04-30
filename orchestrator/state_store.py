@@ -13,7 +13,6 @@ exist, it is restored from the remote — mirroring the ``egg/checkpoints/v2``
 pattern for cross-host recovery.
 """
 
-import fcntl
 import json
 import logging
 import os
@@ -29,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from egg_git.cross_process_lock import lock_path_for_repo
+from egg_git.cross_process_lock import bare_repo_lock
 from models import Pipeline, PipelineMode, PipelinePhase, PipelineStatus
 from pydantic import ValidationError
 
@@ -120,15 +119,6 @@ class StateStore:
 
     PIPELINES_DIR = ".egg-state/pipelines"
 
-    # -- cross-process git serialization ------------------------------------
-    # RLock allows compound operations (_commit_state, delete_pipeline) to
-    # hold the lock while inner _run_git calls re-enter without deadlocking.
-    # fcntl.flock provides cross-process serialization via the shared
-    # filesystem — threading locks only protect within a single process.
-    _thread_lock: ClassVar[threading.RLock] = threading.RLock()
-    _flock_fds: ClassVar[dict[str, int]] = {}
-    _flock_depth: ClassVar[int] = 0  # nesting depth, protected by _thread_lock
-
     # -- remote sync state -------------------------------------------------
     _push_in_flight: ClassVar[bool] = False
     _push_pending: ClassVar[bool] = False
@@ -152,55 +142,27 @@ class StateStore:
 
     # -- cross-process locking ---------------------------------------------
 
-    @property
-    def _lock_path(self) -> Path:
-        """Lock file for cross-process git serialization.
-
-        Located inside the bare repo's ``.git/`` directory so the same
-        sentinel inode is visible to the gateway pod, which mounts the
-        repo from the same hostPath.  Until #2311, the lock lived under
-        ``self._worktree_dir.parent`` — a pod-local ``emptyDir`` — so the
-        gateway and orchestrator never actually synchronised, and a
-        ``git worktree add`` could race a state-store commit on
-        ``.git/config.lock`` and fail.
-        """
-        return lock_path_for_repo(self.repo_path)
-
-    @classmethod
-    def _get_flock_fd(cls, lock_path: Path) -> int:
-        """Get or create a file descriptor for cross-process flock."""
-        key = str(lock_path)
-        if key not in cls._flock_fds:
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            cls._flock_fds[key] = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        return cls._flock_fds[key]
-
     @contextmanager
     def _git_op(self) -> Generator[None]:
-        """Acquire thread + process locks for git operations.
+        """Acquire the cross-process lock for git operations.
 
-        Combines a reentrant threading lock (for in-process thread
-        serialization) with an ``fcntl.flock`` file lock (for cross-process
-        serialization via shared filesystem).
+        Delegates to ``egg_git.cross_process_lock.bare_repo_lock``, which
+        provides a reentrant in-process thread lock plus an ``fcntl.flock``
+        file lock keyed on the same inode the gateway uses.  Nested calls
+        re-enter via the shared depth counter inside ``bare_repo_lock``,
+        so compound operations (e.g. ``_commit_state``) can hold the lock
+        across several inner ``_run_git`` calls without self-deadlocking.
 
-        Reentrant: safe to nest.  Compound operations (e.g. ``_commit_state``)
-        hold the lock for their entire duration while inner ``_run_git`` calls
-        re-enter without releasing.
+        Until this delegation, ``StateStore`` maintained a parallel
+        implementation of the same flock protocol.  Both kept the same
+        invariants and ``flock`` keys on the inode regardless of fd, so
+        cross-pod serialisation worked — but two implementations was a
+        drift trap, and would self-deadlock if ever co-located in one
+        process (each owned its own fd, and ``flock(2)`` treats fds on the
+        same file as independent for the calling process).
         """
-        self._thread_lock.acquire()
-        try:
-            fd = self._get_flock_fd(self._lock_path)
-            if StateStore._flock_depth == 0:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-            StateStore._flock_depth += 1
-            try:
-                yield
-            finally:
-                StateStore._flock_depth -= 1
-                if StateStore._flock_depth == 0:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            self._thread_lock.release()
+        with bare_repo_lock(self.repo_path):
+            yield
 
     # -- worktree lifecycle ------------------------------------------------
 
@@ -243,11 +205,12 @@ class StateStore:
         # retry inside ``_add_worktree_with_branch_recovery`` and surface
         # misleading one-shot 500s on whichever arrived second (#2177).
         # The same root cause produced #2234's ENOENT race.  ``_git_op``
-        # is reentrant via ``_flock_depth``, so nested ``_run_git`` calls
-        # compose without deadlock.  Cost: lock window grows from "one
-        # git command" to "the worktree-bring-up sequence" — tens of ms
-        # in steady state; the cold-start ``_restore_from_remote`` fetch
-        # is the longest case, runs at most once per repo per process.
+        # delegates to ``bare_repo_lock``, which is reentrant via a depth
+        # counter, so nested ``_run_git`` calls compose without deadlock.
+        # Cost: lock window grows from "one git command" to "the
+        # worktree-bring-up sequence" — tens of ms in steady state; the
+        # cold-start ``_restore_from_remote`` fetch is the longest case,
+        # runs at most once per repo per process.
         with self._git_op():
             # Clean up stale admin dir for THIS worktree only (e.g., from crashes).
             # IMPORTANT: Do NOT use `git worktree prune` — the orchestrator cannot

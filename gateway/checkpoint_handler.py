@@ -49,6 +49,7 @@ Integration points:
 - Uses checkpoint_loader for atomic writes to checkpoint branch
 """
 
+import contextlib
 import os
 import re
 import shutil
@@ -57,6 +58,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -96,6 +98,7 @@ from egg_contracts.usage_loader import (
     UsageSaveError,
     update_usage_from_checkpoint,
 )
+from egg_git.cross_process_lock import bare_repo_lock
 from egg_logging import get_logger
 
 try:
@@ -880,11 +883,10 @@ class CheckpointHandler:
             return False
 
         target = _resolve_checkpoint_target(checkpoint_repo, remote, repo_path)
-        repo_lock = _get_repo_lock(repo_path)
 
         try:
             with (
-                repo_lock,
+                _get_repo_lock(repo_path),
                 tempfile.TemporaryDirectory(
                     prefix="checkpoint_", ignore_cleanup_errors=True
                 ) as temp_dir,
@@ -948,30 +950,42 @@ class CheckpointHandler:
                                         error=str(exc),
                                     )
                                     raise
-                        self._run_git(
-                            repo_path,
-                            [
-                                "worktree",
-                                "add",
-                                "--detach",
-                                str(temp_path),
-                                CHECKPOINT_BRANCH,
-                            ],
-                        )
+                        # Cross-process flock only around the bare-repo
+                        # `.git/` writer (#2332). State-store races on
+                        # `.git/config.lock` come from `worktree add`,
+                        # not from fetch — so the flock window is just
+                        # this call.
+                        with bare_repo_lock(repo_path):
+                            self._run_git(
+                                repo_path,
+                                [
+                                    "worktree",
+                                    "add",
+                                    "--detach",
+                                    str(temp_path),
+                                    CHECKPOINT_BRANCH,
+                                ],
+                            )
                     else:
                         # Delete any stale local branch before creating orphan.
                         # The branch may exist locally from a different remote
                         # (e.g., checkpoints were previously stored in the source
                         # repo before migrating to an external checkpoint repo).
-                        self._run_git(
-                            repo_path,
-                            ["branch", "-D", CHECKPOINT_BRANCH],
-                            check=False,
-                        )
-                        self._run_git(
-                            repo_path,
-                            ["worktree", "add", "--detach", str(temp_path)],
-                        )
+                        # Both the `branch -D` and `worktree add` write under
+                        # the bare repo's `.git/`, so they share one flock
+                        # window. `checkout --orphan` and `rm -rf .` run
+                        # inside the temp worktree and don't touch the bare
+                        # repo's config, so they stay outside the flock.
+                        with bare_repo_lock(repo_path):
+                            self._run_git(
+                                repo_path,
+                                ["branch", "-D", CHECKPOINT_BRANCH],
+                                check=False,
+                            )
+                            self._run_git(
+                                repo_path,
+                                ["worktree", "add", "--detach", str(temp_path)],
+                            )
                         self._run_git(
                             str(temp_path),
                             ["checkout", "--orphan", CHECKPOINT_BRANCH],
@@ -1076,40 +1090,44 @@ class CheckpointHandler:
                     return True
 
                 finally:
-                    self._run_git(
-                        repo_path,
-                        ["worktree", "remove", "--force", str(temp_path)],
-                        check=False,
-                    )
-                    # Drop any stale .git/worktrees/<basename> entry so a
-                    # failed remove (or a failed worktree add) doesn't
-                    # leak across attempts.
-                    #
-                    # IMPORTANT: surgically remove this worktree's admin
-                    # dir; do NOT call ``git worktree prune``.  The
-                    # gateway pod cannot see other pods' worktree paths
-                    # (orchestrator's state worktree lives on a per-pod
-                    # ``emptyDir`` mount while the bare repo is shared
-                    # via ``hostPath``), so prune treats those entries
-                    # as ``prunable`` and removes their admin dirs —
-                    # taking down the orchestrator's state-store
-                    # operations until they self-heal (#2324).  Same
-                    # rationale documented at
-                    # ``worktree_manager.py``'s manual-cleanup branch.
-                    #
-                    # Building the admin-dir path directly from
-                    # ``temp_path.name`` (rather than verifying the
-                    # admin dir's ``gitdir`` pointer like
-                    # ``worktree_manager._find_worktree_git_dir`` does)
-                    # is safe here because ``temp_path`` comes from
-                    # ``tempfile.TemporaryDirectory(prefix="checkpoint_")``
-                    # — the basename is randomly generated and cannot
-                    # collide with another worktree's admin dir.  Do
-                    # NOT copy this shortcut into a context where the
-                    # worktree basename is predictable (e.g.,
-                    # container worktrees keyed by repo name).
-                    admin_dir = Path(repo_path) / ".git" / "worktrees" / temp_path.name
-                    shutil.rmtree(admin_dir, ignore_errors=True)
+                    # Worktree cleanup writes under the bare repo's
+                    # `.git/worktrees/`, so it shares the cross-process
+                    # flock with `worktree add` (#2332).
+                    with bare_repo_lock(repo_path):
+                        self._run_git(
+                            repo_path,
+                            ["worktree", "remove", "--force", str(temp_path)],
+                            check=False,
+                        )
+                        # Drop any stale .git/worktrees/<basename> entry so a
+                        # failed remove (or a failed worktree add) doesn't
+                        # leak across attempts.
+                        #
+                        # IMPORTANT: surgically remove this worktree's admin
+                        # dir; do NOT call ``git worktree prune``.  The
+                        # gateway pod cannot see other pods' worktree paths
+                        # (orchestrator's state worktree lives on a per-pod
+                        # ``emptyDir`` mount while the bare repo is shared
+                        # via ``hostPath``), so prune treats those entries
+                        # as ``prunable`` and removes their admin dirs —
+                        # taking down the orchestrator's state-store
+                        # operations until they self-heal (#2324).  Same
+                        # rationale documented at
+                        # ``worktree_manager.py``'s manual-cleanup branch.
+                        #
+                        # Building the admin-dir path directly from
+                        # ``temp_path.name`` (rather than verifying the
+                        # admin dir's ``gitdir`` pointer like
+                        # ``worktree_manager._find_worktree_git_dir`` does)
+                        # is safe here because ``temp_path`` comes from
+                        # ``tempfile.TemporaryDirectory(prefix="checkpoint_")``
+                        # — the basename is randomly generated and cannot
+                        # collide with another worktree's admin dir.  Do
+                        # NOT copy this shortcut into a context where the
+                        # worktree basename is predictable (e.g.,
+                        # container worktrees keyed by repo name).
+                        admin_dir = Path(repo_path) / ".git" / "worktrees" / temp_path.name
+                        shutil.rmtree(admin_dir, ignore_errors=True)
 
         except Exception as e:
             logger.error(
@@ -1359,13 +1377,29 @@ _repo_locks: dict[str, threading.Lock] = {}
 _repo_locks_guard = threading.Lock()
 
 
-def _get_repo_lock(repo_path: str) -> threading.Lock:
+@contextlib.contextmanager
+def _get_repo_lock(repo_path: str) -> Generator[None]:
+    """Hold the per-process per-repo lock for the whole checkpoint op.
+
+    In-process serialization only (#2069). Cross-process serialization
+    against the orchestrator's state-store on ``.git/config.lock``
+    (#2311) is handled with narrower ``bare_repo_lock`` windows around
+    the specific git operations that touch the bare repo's ``.git/``
+    (worktree add, worktree remove/prune) — see #2332.
+
+    Holding the cross-process flock for the entire op would block every
+    state-store commit and other gateway worktree op against the same
+    bare repo for up to ~135s under fetch-retry pathology, which is
+    much wider than necessary: fetch, the in-temp-worktree commit, and
+    the push do not race the state-store on ``.git/config.lock``.
+    """
     with _repo_locks_guard:
-        lock = _repo_locks.get(repo_path)
-        if lock is None:
-            lock = threading.Lock()
-            _repo_locks[repo_path] = lock
-        return lock
+        thread_lock = _repo_locks.get(repo_path)
+        if thread_lock is None:
+            thread_lock = threading.Lock()
+            _repo_locks[repo_path] = thread_lock
+    with thread_lock:
+        yield
 
 
 def get_checkpoint_handler(github_token: str | None = None) -> CheckpointHandler:

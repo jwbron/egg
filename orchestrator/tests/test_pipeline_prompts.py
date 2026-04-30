@@ -3580,6 +3580,57 @@ class TestReviewerPollUsesWaitLoop:
         )
 
 
+class TestReviewerWaitLoopMentionsAutoCursor:
+    """Reviewer + producer wait-loop steps must explain auto cursor
+    threading (issue #2323).
+
+    Background: each ``wait-loop`` CLI invocation is a separate process,
+    and without cursor threading each new call starts at the stream
+    tip — skipping any event that arrived in the gap between the
+    previous wait-loop returning and the next one entering. On
+    multi-producer phases (plan: 3 producers) this stalled the phase
+    by 20-30 minutes per missed event. The fix is in the CLI itself:
+    ``wait`` and ``wait-loop`` auto-derive a per-(role, for_types)
+    cursor file under
+    ``/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-*``
+    with no flag needed. The prompts point at that path so operators
+    debugging a stuck reviewer know where to look.
+    """
+
+    def test_reviewer_poll_mentions_auto_cursor(self):
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/issue-123")
+        poll_start = preamble.index("**POLL**")
+        poll_end = preamble.index("**SYNC**")
+        poll_block = preamble[poll_start:poll_end]
+        assert "automatic" in poll_block.lower(), (
+            "POLL must tell the reviewer that cursor threading "
+            "across re-entries is automatic (issue #2323)."
+        )
+        assert "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-" in poll_block, (
+            "POLL must surface the cursor file path so operators "
+            "debugging a stuck reviewer can `cat` it."
+        )
+        assert "#2323" in poll_block
+
+    def test_reviewer_stay_alive_mentions_auto_cursor(self):
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/issue-123")
+        sa_start = preamble.index("**STAY ALIVE**")
+        sa_end = preamble.index("**HANDLE RE-REVIEW**", sa_start)
+        sa_block = preamble[sa_start:sa_end]
+        assert "automatic" in sa_block.lower()
+        assert "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-" in sa_block
+        assert "#2323" in sa_block
+
+    def test_producer_stay_alive_mentions_auto_cursor(self):
+        preamble = _build_brc_preamble("coder", "implement", branch="egg/issue-123")
+        sa_start = preamble.index("**STAY ALIVE**")
+        sa_end = preamble.index("**HANDLE RE-REVIEW**", sa_start)
+        sa_block = preamble[sa_start:sa_end]
+        assert "automatic" in sa_block.lower()
+        assert "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-" in sa_block
+        assert "#2323" in sa_block
+
+
 class TestProducerOrientationSyncNote:
     """Tests for sync note in _build_producer_orientation (issue #1565)."""
 
