@@ -49,7 +49,6 @@ Integration points:
 - Uses checkpoint_loader for atomic writes to checkpoint branch
 """
 
-import contextlib
 import os
 import re
 import subprocess
@@ -57,7 +56,6 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -97,7 +95,6 @@ from egg_contracts.usage_loader import (
     UsageSaveError,
     update_usage_from_checkpoint,
 )
-from egg_git.cross_process_lock import bare_repo_lock
 from egg_logging import get_logger
 
 try:
@@ -882,10 +879,11 @@ class CheckpointHandler:
             return False
 
         target = _resolve_checkpoint_target(checkpoint_repo, remote, repo_path)
+        repo_lock = _get_repo_lock(repo_path)
 
         try:
             with (
-                _get_repo_lock(repo_path),
+                repo_lock,
                 tempfile.TemporaryDirectory(
                     prefix="checkpoint_", ignore_cleanup_errors=True
                 ) as temp_dir,
@@ -1339,27 +1337,13 @@ _repo_locks: dict[str, threading.Lock] = {}
 _repo_locks_guard = threading.Lock()
 
 
-@contextlib.contextmanager
-def _get_repo_lock(repo_path: str) -> Generator[None]:
-    """Hold the per-repo lock for serializing checkpoint git operations.
-
-    Combines two layers, mirroring ``WorktreeManager._get_repo_lock``:
-
-    * A per-repo ``threading.Lock`` for in-process serialization (#2069).
-    * ``bare_repo_lock`` for cross-process serialization against the
-      orchestrator's state-store, which runs git from a different pod
-      but shares the same hostPath-mounted bare repo (#2311).  Without
-      this, a checkpoint store's ``git worktree add`` can race a
-      state-store commit on ``.git/config.lock`` and fail with
-      ``could not lock config file .git/config: File exists``.
-    """
+def _get_repo_lock(repo_path: str) -> threading.Lock:
     with _repo_locks_guard:
-        thread_lock = _repo_locks.get(repo_path)
-        if thread_lock is None:
-            thread_lock = threading.Lock()
-            _repo_locks[repo_path] = thread_lock
-    with thread_lock, bare_repo_lock(repo_path):
-        yield
+        lock = _repo_locks.get(repo_path)
+        if lock is None:
+            lock = threading.Lock()
+            _repo_locks[repo_path] = lock
+        return lock
 
 
 def get_checkpoint_handler(github_token: str | None = None) -> CheckpointHandler:
