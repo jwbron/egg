@@ -1381,3 +1381,211 @@ class TestGlobalSliceAdmit:
             )
         assert global_slice_admit.snapshot()["admitted"] == 0
         global_slice_admit.reset_for_testing()
+
+
+# ---------------------------------------------------------------------------
+# #2368 — slice integration-branch creation must precede agent spawn,
+# and the integration branch must preserve the pipeline's qualifier.
+#
+# These regression guards lock in the ordering and naming invariants that
+# masked the gateway/orchestrator conflict between #2028 (pipeline-session
+# push enforcement) and #2220 (synthetic-session integration push). Without
+# the ordering guard, a future refactor could re-introduce the pattern of
+# spawning agents first and pushing the integration branch lazily — exactly
+# the failure mode that #2337's silent demotion to monolithic implement was
+# masking. Without the qualifier guard, two qualified pipelines for the same
+# issue (e.g. ``-v3`` and ``-v4``) would collide in the ``slice-N`` namespace.
+# ---------------------------------------------------------------------------
+
+
+class TestSliceIntegrationBranchPrecedesAgentSpawn:
+    """Regression guards for #2368."""
+
+    def test_integration_branch_pushed_before_concurrent_phase(self) -> None:
+        """``create_slice_integration_branch`` must precede ``_run_concurrent_phase``.
+
+        Spawning agents first and pushing lazily is the exact ordering bug
+        that #2220 introduced and #2337 was masking — agents would push to
+        a missing parent branch.
+        """
+        pipeline = _make_pipeline()
+        contract = _make_contract(slices=[_make_slice("slice-1", tasks=[_make_task("task-1")])])
+
+        call_order: list[str] = []
+
+        def _track_create_branch(*args: Any, **kwargs: Any) -> bool:
+            call_order.append("create_slice_integration_branch")
+            return True
+
+        def _track_run_phase(*args: Any, **kwargs: Any) -> tuple[int, str]:
+            call_order.append("_run_concurrent_phase")
+            return 0, "ok"
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase",
+                side_effect=_track_run_phase,
+            ),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = MagicMock()
+            spawner.gateway = MagicMock()
+            spawner.gateway.create_slice_integration_branch = MagicMock(
+                side_effect=_track_create_branch
+            )
+            spawner.gateway.create_slice_pr = MagicMock(return_value="https://example/pr/1")
+
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        assert "create_slice_integration_branch" in call_order
+        assert "_run_concurrent_phase" in call_order
+        assert call_order.index("create_slice_integration_branch") < call_order.index(
+            "_run_concurrent_phase"
+        ), (
+            "create_slice_integration_branch must run BEFORE _run_concurrent_phase — "
+            "agents push directly to the slice integration branch, so the parent "
+            "ref must exist on origin first"
+        )
+
+    def test_concurrent_phase_not_invoked_when_integration_branch_creation_fails(
+        self,
+    ) -> None:
+        """When integration-branch push fails, agents must not spawn.
+
+        This is the exact behaviour that surfaced #2368: the gateway 403'd
+        every ``create_slice_integration_branch`` call, the slice loop
+        correctly skipped the spawn, and the operator saw 15 slice failures
+        instead of a wedged pipeline running on missing parents.
+        """
+        from orchestrator import global_slice_admit
+
+        global_slice_admit.reset_for_testing(cap=4)
+
+        pipeline = _make_pipeline()
+        contract = _make_contract(slices=[_make_slice("slice-1")])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase") as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = MagicMock()
+            spawner.gateway = MagicMock()
+            spawner.gateway.create_slice_integration_branch.return_value = False
+
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+            assert mock_run_phase.call_count == 0, (
+                "_run_concurrent_phase must not be invoked when integration-branch "
+                "creation fails — agents would push to a missing parent"
+            )
+
+        global_slice_admit.reset_for_testing()
+
+
+class TestSliceIntegrationBranchQualifierPreserved:
+    """The slice integration branch derives from ``pipeline.branch`` so the
+    qualifier suffix is preserved (#2368 bonus).
+
+    Two qualified pipelines for the same issue (``egg/issue-N-v3`` and
+    ``egg/issue-N-v4``) must not collide in the ``slice-M`` namespace.
+    """
+
+    def test_qualified_pipeline_branch_propagates_to_slice_branches(self) -> None:
+        """``egg/issue-N-v3`` ⇒ slices stack under the qualified prefix."""
+        config = PipelineConfig()
+        for key, val in {
+            "concurrent_execution": True,
+            "max_concurrent_agents": 6,
+            "consensus_timeout_minutes": 30,
+        }.items():
+            try:
+                setattr(config, key, val)
+            except AttributeError, ValueError:
+                config.__dict__[key] = val
+        pipeline = Pipeline(
+            id="issue-2261-v3",
+            issue_number=2261,
+            repo="owner/repo",
+            branch="egg/issue-2261-v3",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            config=config,
+        )
+        contract = _make_contract(
+            pipeline_id="issue-2261-v3",
+            issue_number=2261,
+            slices=[_make_slice("slice-1", tasks=[_make_task("task-1")])],
+        )
+
+        captured: dict[str, Any] = {}
+
+        def _capture(*args: Any, **kwargs: Any) -> bool:
+            captured["parent_branch"] = kwargs.get("parent_branch")
+            captured["integration_branch"] = kwargs.get("integration_branch")
+            return True
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = MagicMock()
+            spawner.gateway = MagicMock()
+            spawner.gateway.create_slice_integration_branch = MagicMock(side_effect=_capture)
+            spawner.gateway.create_slice_pr = MagicMock(return_value="https://example/pr/1")
+
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        assert captured.get("parent_branch") == "egg/issue-2261-v3", (
+            "parent_branch for the root slice must be the qualified pipeline branch, "
+            f"got {captured.get('parent_branch')!r}"
+        )
+        assert captured.get("integration_branch") == "egg/issue-2261-v3/slice-1", (
+            "integration_branch must inherit the qualifier so qualified pipelines "
+            "for the same issue don't collide in the slice namespace; got "
+            f"{captured.get('integration_branch')!r}"
+        )

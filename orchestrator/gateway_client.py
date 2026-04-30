@@ -1529,12 +1529,17 @@ class GatewayClient:
         """Create the slice integration branch on origin from ``parent_branch``.
 
         Sends ``git push origin parent_branch:refs/heads/integration_branch``
-        through the existing per-agent ``/api/v1/git/push`` endpoint so
-        no privileged orchestrator-role surface is introduced
-        (decision-15). The branch ownership check uses the
-        ``integration_branch`` name as the target — naming convention
-        ``egg/issue-N/slice-M`` is owned by the orchestrator role's
-        existing prefix-allowlist.
+        via a synthetic, launcher-authenticated session through
+        ``/api/v1/git/push``.  The gateway treats the push as
+        orchestrator infrastructure: the synthetic flag (only settable
+        by ``/api/v1/sessions/create``, which is gated on the launcher
+        secret) combined with the slice integration-branch name
+        ``egg/<base>/(slice|phase)-N`` short-circuits the
+        pipeline-session push block from #2028 — see the
+        ``_SLICE_INTEGRATION_BRANCH_RE`` exemption in
+        ``gateway/gateway.py``.  The branch itself still passes the
+        normal ``egg/`` prefix branch-ownership check, so no
+        orchestrator-role push surface is introduced.
 
         Returns ``True`` on success, ``False`` on any error (the
         caller logs and surfaces a clear error to the run loop).
