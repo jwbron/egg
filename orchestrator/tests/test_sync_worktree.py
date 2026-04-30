@@ -904,19 +904,34 @@ class TestSyncWorktreePipelineBranch:
         emitted when ``origin/<pipeline_branch>`` resolves, even though
         ``origin/<local_branch>`` would not.  This is the regression
         guard for #2367.
+
+        The rev-parse mock differentiates by argv: it succeeds only for
+        ``origin/egg/issue-42`` and fails (rc=128) for
+        ``origin/egg/issue-42/work``.  Under the buggy pre-#2367 code
+        (which queried ``origin/<local_branch>``), rev-parse would
+        return 128, the function would emit ``case=no_remote_tracking``,
+        and this test would fail.
         """
         spawner = _make_spawner()
+
+        def _run(argv, *args, **kwargs):  # type: ignore[no-untyped-def]
+            argv_list = list(argv)
+            if "branch" in argv_list and "--show-current" in argv_list:
+                return _make_subprocess_result(stdout="egg/issue-42/work\n")
+            if "rev-parse" in argv_list:
+                if "origin/egg/issue-42" in argv_list:
+                    return _make_subprocess_result(returncode=0)
+                return _make_subprocess_result(returncode=128, stderr="not a ref")
+            if "rev-list" in argv_list:
+                return _make_subprocess_result(stdout="0\t3\n")
+            if "reset" in argv_list:
+                return _make_subprocess_result(returncode=0)
+            return _make_subprocess_result(returncode=0)
+
         with (
-            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.subprocess.run", side_effect=_run),
             patch("routes.pipelines.logger") as mock_logger,
         ):
-            mock_run.side_effect = [
-                _make_subprocess_result(stdout="egg/issue-42/work\n"),
-                # rev-parse against pipeline_branch succeeds
-                _make_subprocess_result(returncode=0),
-                _make_subprocess_result(stdout="0\t3\n"),
-                _make_subprocess_result(returncode=0),
-            ]
             _sync_worktree_with_remote(
                 spawner,
                 "pipe-1",
