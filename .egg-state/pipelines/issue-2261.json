@@ -187,10 +187,29 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Module layout pattern for the decomposition: which structure should we use across the 15 files?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "A1: Sub-package with __init__.py re-export barrel (recommended) — orchestrator/routes/pipelines/__init__.py imports from submodules; tests' patch targets keep resolving through the barrel.",
+        "A2: Sibling-file façade — keep pipelines.py as a thin file that re-exports from siblings _pipelines_run.py, _pipelines_criteria.py, ... Less restructuring but uglier naming.",
+        "A3: Mixed — sub-package for non-route files, Flask Blueprint refactor for route files (largest behavior-adjacent change; likely scope creep).",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-30T03:56:36.052751Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T03:56:32.953722Z",
+  "updated_at": "2026-04-30T03:56:36.075111Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -204,6 +223,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
