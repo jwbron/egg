@@ -364,15 +364,18 @@ class StateStore:
 
             # Lock the worktree so `git worktree prune` (run from any pod
             # sharing the bare repo) cannot remove its admin dir.  The
-            # gateway pod runs prune in its checkpoint cleanup path; from
-            # the gateway's filesystem the orchestrator's state-worktree
-            # path resolves to a non-existent location (per-pod emptyDir
-            # mounts), so without a lock the admin dir is treated as
-            # prunable and surgically removed (#2324).  Removal here is
-            # still possible because state_store tears down via
-            # ``shutil.rmtree`` + ``_remove_stale_admin_dir(force=True)``
-            # rather than ``git worktree remove``, neither of which is
-            # blocked by the lock.
+            # remaining cross-pod prune surfaces are the operator-facing
+            # ``/api/v1/worktrees/prune`` endpoint and the gateway's
+            # startup ``prune_stale_worktrees`` defense-in-depth sweep;
+            # from those callers' filesystem the orchestrator's
+            # state-worktree path resolves to a non-existent location
+            # (per-pod emptyDir mounts), so without a lock the admin
+            # dir is treated as prunable and surgically removed
+            # (#2324).  Removal here is still possible because
+            # state_store tears down via ``shutil.rmtree`` +
+            # ``_remove_stale_admin_dir(force=True)`` rather than
+            # ``git worktree remove``, neither of which is blocked by
+            # the lock.
             self._lock_worktree(wt)
             return wt
 

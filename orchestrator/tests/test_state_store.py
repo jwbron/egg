@@ -2143,10 +2143,13 @@ class TestStateWorktreeLocked:
         warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert not any("Failed to lock state worktree" in m for m in warning_msgs)
 
-    def test_lock_failure_does_not_raise(self, tmp_path):
+    def test_lock_failure_does_not_raise(self, tmp_path, caplog):
         """Other lock failures must be logged but not propagated —
         locking is best-effort; a missing lock is preferable to a
-        wedged state store."""
+        wedged state store.  Symmetric counterpart to
+        ``test_lock_already_locked_is_not_warned``: here a warning
+        SHOULD fire because the failure isn't the benign already-locked
+        case."""
         store, wt = self._make_store(tmp_path)
         wt.mkdir()
         (wt / ".git").write_text("gitdir: /fake\n")
@@ -2165,5 +2168,13 @@ class TestStateWorktreeLocked:
             return MagicMock(stdout="", returncode=0)
 
         with patch.object(StateStore, "_run_git", side_effect=run_git):
-            # Must not raise.
-            store._ensure_worktree()
+            import logging
+
+            with caplog.at_level(logging.WARNING, logger="orchestrator.state_store"):
+                # Must not raise.
+                store._ensure_worktree()
+
+        warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Failed to lock state worktree" in m for m in warning_msgs), (
+            f"expected a 'Failed to lock state worktree' warning, got {warning_msgs}"
+        )

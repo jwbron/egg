@@ -1096,6 +1096,18 @@ class CheckpointHandler:
                     # operations until they self-heal (#2324).  Same
                     # rationale documented at
                     # ``worktree_manager.py``'s manual-cleanup branch.
+                    #
+                    # Building the admin-dir path directly from
+                    # ``temp_path.name`` (rather than verifying the
+                    # admin dir's ``gitdir`` pointer like
+                    # ``worktree_manager._find_worktree_git_dir`` does)
+                    # is safe here because ``temp_path`` comes from
+                    # ``tempfile.TemporaryDirectory(prefix="checkpoint_")``
+                    # — the basename is randomly generated and cannot
+                    # collide with another worktree's admin dir.  Do
+                    # NOT copy this shortcut into a context where the
+                    # worktree basename is predictable (e.g.,
+                    # container worktrees keyed by repo name).
                     admin_dir = Path(repo_path) / ".git" / "worktrees" / temp_path.name
                     shutil.rmtree(admin_dir, ignore_errors=True)
 
