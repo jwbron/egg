@@ -426,16 +426,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-30T03:56:36.687064Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-30T04:00:08.306154Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"In scope when the fix is mechanical (one-line patch-path rewrite). Out of scope when it requires test-logic rewrites — file a follow-up issue for those instead. Rule of thumb: a slice may touch tests only if (a) the move strictly requires it AND (b) the diff is mechanical. The default is to use re-export shims and leave tests alone.\", \"Q2\": \"Use current sizes (16,401 / 1,875 / 9,890) as the baselines. The allowlist lint operates on actual file size, so the contract has to match reality. The issue body's numbers were a snapshot; treat them as informational, not authoritative.\", \"Q3\": \"Strict size-ordered fan-out (smallest first) is fine. No special release-window alignment unless an active freeze is in effect. This is a pure refactor with `make test-all` as the contract — there's no behavior change that warrants release-cut coordination.\", \"Q4\": \"`make test-all` is the contract per the issue's acceptance criteria. No additional gates required up front. If plan discovers a release-channel smoke test or post-deploy verification that's a known regression vector for this kind of refactor, file a follow-up issue and gate that one slice.\", \"Q5\": \"Same convention as decision-9 (thin wrappers in `__init__.py`). Consistency across the two largest files outweighs the size delta. If gateway.py's route count is large enough that the wrappers themselves push `__init__.py` over the cap, plan should call that out and we'll revisit per-slice; otherwise stay uniform.\", \"Q6\": \"Re-export everything that has any external reference (`git grep <symbol>` returns hits in tests/, gateway/, orchestrator/, sandbox/, or shared/ outside the file's own package). Only skip re-exports for symbols that are (a) underscore-prefixed AND (b) referenced exclusively inside the same submodule the symbol now lives in. The plan procedure should bake this `git grep` check into the per-slice template.\", \"Q7\": \"Keep the per-phase handlers as private helpers tested through `_run_pipeline` for this refactor. Adding new unit tests for them is out of scope for slice-16 — file a follow-up issue so we don't lose track. Rationale: minimize behavior risk for the refactor; tighten coverage in a separate, focused PR.\", \"Q8\": \"Precondition — slice-1 lands `docs/guides/decomposition-pattern.md` along with the docs + reference-file work decision-5 already approved. Downstream slices reference it. If the pattern needs to evolve mid-program, the doc moves with the code in whichever slice surfaces the change.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-30T03:40:38.274049Z",
-  "updated_at": "2026-04-30T04:00:06.737280Z",
+  "updated_at": "2026-04-30T04:00:08.336270Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -449,6 +449,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 33,
+  "version": 34,
   "jira_ticket": null
 }
