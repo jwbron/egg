@@ -147,8 +147,8 @@ class TestSyncWorktreeWithRemote:
             assert "reset" in reset_call[0][0]
             assert "--hard" in reset_call[0][0]
 
-    def test_local_in_sync_no_push_needed(self):
-        """(d) local in sync → no push, reset is a no-op."""
+    def test_local_in_sync_returns_early_without_reset(self):
+        """(d) local in sync → no push, no reset (early return on already_in_sync)."""
         spawner = _make_spawner()
         with patch("routes.pipelines.subprocess.run") as mock_run:
             mock_run.side_effect = [
@@ -158,12 +158,11 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
                 # Step 3b: local is 0 ahead, 0 behind
                 _make_subprocess_result(stdout="0\t0\n"),
-                # Step 4: reset succeeds (no-op when in sync)
-                _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
             spawner.gateway.push_worktree_branch.assert_not_called()
-            assert mock_run.call_count == 4
+            # Already-in-sync skips the step-4 reset entirely.
+            assert mock_run.call_count == 3
 
     def test_push_fails_continues_with_reset(self):
         """(e) push fails → logs warning, continues with reset."""
@@ -291,8 +290,8 @@ class TestSyncWorktreeWithRemote:
             ]
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
             mock_logger.warning.assert_called()
-            warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
-            assert any("Failed to reset" in m for m in warning_msgs)
+            warning_kwargs = mock_logger.warning.call_args.kwargs
+            assert warning_kwargs.get("case") == "reset_failed"
 
     def test_handles_subprocess_timeout(self):
         """If subprocess raises TimeoutExpired, function handles gracefully."""
@@ -388,28 +387,29 @@ class TestSyncWorktreeWithRemote:
 
 
 def _outcome_cases(mock_logger: MagicMock) -> list[str]:
-    """Collect every ``case=...`` kwarg from worktree_sync_outcome log calls."""
+    """Return the `case=` values from every worktree_sync_outcome log call, in order."""
     cases: list[str] = []
-    for level in ("info", "warning", "error"):
-        method = getattr(mock_logger, level)
-        for call in method.call_args_list:
-            args = call[0]
-            kwargs = call[1]
-            if args and args[0] == "worktree_sync_outcome" and "case" in kwargs:
-                cases.append(kwargs["case"])
+    # method_calls preserves call order across info/warning/error.
+    for call in mock_logger.method_calls:
+        if call[0] not in ("info", "warning", "error"):
+            continue
+        args = call.args
+        kwargs = call.kwargs
+        if args and args[0] == "worktree_sync_outcome" and "case" in kwargs:
+            cases.append(kwargs["case"])
     return cases
 
 
-class TestSyncWorktreeOutcomeLogging:
-    """#2337: every return path emits a single worktree_sync_outcome log line."""
+class TestSyncWorktreeOutcomeTaxonomy:
+    """Each return path emits worktree_sync_outcome with the expected case label."""
 
-    def test_fetch_failed_emits_outcome(self):
+    def test_case_fetch_failed(self):
         spawner = _make_spawner(fetch_ok=False)
         with patch("routes.pipelines.logger") as mock_logger:
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            assert "fetch_failed" in _outcome_cases(mock_logger)
+        assert _outcome_cases(mock_logger) == ["fetch_failed"]
 
-    def test_detached_head_emits_outcome(self):
+    def test_case_detached_head(self):
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -417,9 +417,19 @@ class TestSyncWorktreeOutcomeLogging:
         ):
             mock_run.return_value = _make_subprocess_result(stdout="")
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            assert "detached_head" in _outcome_cases(mock_logger)
+        assert _outcome_cases(mock_logger) == ["detached_head"]
 
-    def test_no_remote_tracking_emits_outcome(self):
+    def test_case_branch_detect_failed(self):
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["branch_detect_failed"]
+
+    def test_case_no_remote_tracking(self):
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -430,9 +440,23 @@ class TestSyncWorktreeOutcomeLogging:
                 _make_subprocess_result(returncode=128),
             ]
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            assert "no_remote_tracking" in _outcome_cases(mock_logger)
+        assert _outcome_cases(mock_logger) == ["no_remote_tracking"]
 
-    def test_reset_succeeded_emits_outcome(self):
+    def test_case_rev_parse_failed(self):
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                subprocess.TimeoutExpired(cmd="git rev-parse", timeout=10),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["rev_parse_failed"]
+
+    def test_case_rev_list_failed_falls_through_to_reset(self):
+        """rev-list exception emits rev_list_failed, then step 4 emits reset_succeeded."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -441,13 +465,16 @@ class TestSyncWorktreeOutcomeLogging:
             mock_run.side_effect = [
                 _make_subprocess_result(stdout="egg/issue-42\n"),
                 _make_subprocess_result(returncode=0),
-                _make_subprocess_result(stdout="0\t3\n"),
+                # rev-list returns two non-numeric tokens → int() raises ValueError
+                _make_subprocess_result(stdout="foo\tbar\n"),
+                # Step 4: reset succeeds
                 _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            assert "reset_succeeded" in _outcome_cases(mock_logger)
+        assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
 
-    def test_reset_failed_emits_outcome(self):
+    def test_case_rev_list_failed_returncode_falls_through_to_reset(self):
+        """rev-list non-zero returncode emits rev_list_failed (no exception path)."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -456,13 +483,54 @@ class TestSyncWorktreeOutcomeLogging:
             mock_run.side_effect = [
                 _make_subprocess_result(stdout="egg/issue-42\n"),
                 _make_subprocess_result(returncode=0),
-                _make_subprocess_result(stdout="0\t1\n"),
-                _make_subprocess_result(returncode=1, stderr="permission denied"),
+                # rev-list exits non-zero — must still emit rev_list_failed
+                _make_subprocess_result(returncode=128, stderr="bad ref"),
+                _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            assert "reset_failed" in _outcome_cases(mock_logger)
+        assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
+        # The rev_list_failed log carries the rc field for non-exception failures.
+        rev_list_call = next(
+            c
+            for c in mock_logger.info.call_args_list
+            if c.args
+            and c.args[0] == "worktree_sync_outcome"
+            and c.kwargs.get("case") == "rev_list_failed"
+        )
+        assert rev_list_call.kwargs.get("rc") == 128
 
-    def test_local_ahead_pushed_emits_outcome(self):
+    def test_case_rev_list_failed_unparseable_output(self):
+        """rev-list returncode=0 but malformed output emits rev_list_failed."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                # rev-list rc=0 but only one token — len(parts) != 2
+                _make_subprocess_result(stdout="42\n"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["rev_list_failed", "reset_succeeded"]
+
+    def test_case_already_in_sync(self):
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="0\t0\n"),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["already_in_sync"]
+
+    def test_case_local_ahead_pushed(self):
         spawner = _make_spawner(push_ok=True)
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -473,10 +541,70 @@ class TestSyncWorktreeOutcomeLogging:
                 _make_subprocess_result(returncode=0),
                 _make_subprocess_result(stdout="2\t0\n"),
             ]
-            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            assert "local_ahead_pushed" in _outcome_cases(mock_logger)
+            _sync_worktree_with_remote(
+                spawner, "pipe-1", Path("/tmp/repo"), prior_phase_succeeded=True
+            )
+        assert _outcome_cases(mock_logger) == ["local_ahead_pushed"]
 
-    def test_divergence_rebased_emits_outcome(self):
+    def test_case_local_ahead_push_failed_falls_through_to_reset(self):
+        """Push failure emits local_ahead_push_failed, then step 4 emits reset_succeeded."""
+        spawner = _make_spawner(push_ok=False)
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="2\t0\n"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(
+                spawner, "pipe-1", Path("/tmp/repo"), prior_phase_succeeded=True
+            )
+        assert _outcome_cases(mock_logger) == [
+            "local_ahead_push_failed",
+            "reset_succeeded",
+        ]
+        # PushResult diagnostics are propagated into the structured log so
+        # operators don't need to pull gateway-side logs for the failure mode.
+        push_failed_call = next(
+            c
+            for c in mock_logger.warning.call_args_list
+            if c.args
+            and c.args[0] == "worktree_sync_outcome"
+            and c.kwargs.get("case") == "local_ahead_push_failed"
+        )
+        assert push_failed_call.kwargs.get("category") == "test"
+        assert push_failed_call.kwargs.get("error") == "mock failure"
+
+    def test_case_local_ahead_discarded(self):
+        """Prior phase failed + local-ahead → emit local_ahead_discarded then reset."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="2\t0\n"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
+                prior_phase_succeeded=False,
+            )
+            spawner.gateway.push_worktree_branch.assert_not_called()
+        assert _outcome_cases(mock_logger) == [
+            "local_ahead_discarded",
+            "reset_succeeded",
+        ]
+
+    def test_case_diverged_rebased(self):
+        """Real divergence triggers _rebase_with_agent_output_autoresolve; success emits divergence_rebased."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -490,9 +618,10 @@ class TestSyncWorktreeOutcomeLogging:
             ]
             mock_rebase.return_value = PushResult(ok=True, category="", detail="")
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            assert "divergence_rebased" in _outcome_cases(mock_logger)
+        assert _outcome_cases(mock_logger) == ["divergence_rebased"]
 
-    def test_divergence_rebase_failed_emits_outcome(self):
+    def test_case_diverged_rebase_failed(self):
+        """Rebase failure emits divergence_rebase_failed; the function returns without falling through to reset."""
         spawner = _make_spawner()
         with (
             patch("routes.pipelines.subprocess.run") as mock_run,
@@ -510,38 +639,7 @@ class TestSyncWorktreeOutcomeLogging:
                 detail="conflict",
             )
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
-            assert "divergence_rebase_failed" in _outcome_cases(mock_logger)
-
-    def test_local_ahead_discarded_emits_outcome(self):
-        """#2337 review S2: prior-phase-failed-discard branch must emit a
-        case-discriminator outcome before falling through to reset, so
-        log-based dashboards see a uniform exit-path event.
-        """
-        spawner = _make_spawner()
-        with (
-            patch("routes.pipelines.subprocess.run") as mock_run,
-            patch("routes.pipelines.logger") as mock_logger,
-        ):
-            mock_run.side_effect = [
-                _make_subprocess_result(stdout="egg/issue-42\n"),
-                _make_subprocess_result(returncode=0),
-                # Local 2 ahead, 0 behind — prior phase failed → discard.
-                _make_subprocess_result(stdout="2\t0\n"),
-                # Reset succeeds.
-                _make_subprocess_result(returncode=0),
-            ]
-            _sync_worktree_with_remote(
-                spawner,
-                "pipe-1",
-                Path("/tmp/repo"),
-                prior_phase_succeeded=False,
-            )
-            cases = _outcome_cases(mock_logger)
-            # The fall-through emits BOTH the discard discriminator and
-            # the reset_succeeded outcome — fall-through paths emit a
-            # sequence so dashboards see every exit-path event.
-            assert "local_ahead_discarded_falling_through_to_reset" in cases
-            assert "reset_succeeded" in cases
+        assert _outcome_cases(mock_logger) == ["divergence_rebase_failed"]
 
     def test_divergence_with_base_branch_none_logs_contamination_warning(self):
         """#2337 review S7: divergence rebase with ``base_branch=None``
@@ -568,8 +666,8 @@ class TestSyncWorktreeOutcomeLogging:
                 Path("/tmp/repo"),
                 base_branch=None,
             )
-            warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
-            assert any("base_branch=None" in m and "#2222" in m for m in warning_msgs)
+        warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
+        assert any("base_branch=None" in m and "#2222" in m for m in warning_msgs)
 
     def test_divergence_with_base_branch_set_does_not_log_contamination_warning(self):
         """#2337 review S7: with ``base_branch`` threaded the safer
@@ -593,5 +691,76 @@ class TestSyncWorktreeOutcomeLogging:
                 Path("/tmp/repo"),
                 base_branch="main",
             )
-            warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
-            assert not any("base_branch=None" in m for m in warning_msgs)
+        warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
+        assert not any("base_branch=None" in m for m in warning_msgs)
+
+    def test_case_reset_succeeded(self):
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="0\t3\n"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["reset_succeeded"]
+
+    def test_case_reset_failed_returncode(self):
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="0\t3\n"),
+                _make_subprocess_result(returncode=1, stderr="permission denied"),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["reset_failed"]
+
+    def test_case_reset_failed_exception(self):
+        """Subprocess crash during reset collapses into reset_failed."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="0\t3\n"),
+                subprocess.TimeoutExpired(cmd="git reset", timeout=30),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        assert _outcome_cases(mock_logger) == ["reset_failed"]
+
+    def test_counters_present_when_known(self):
+        """local_ahead/remote_ahead are included in the structured log when known."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                _make_subprocess_result(returncode=0),
+                _make_subprocess_result(stdout="0\t3\n"),
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+        # Find the reset_succeeded call
+        reset_call = next(
+            c
+            for c in mock_logger.info.call_args_list
+            if c.args
+            and c.args[0] == "worktree_sync_outcome"
+            and c.kwargs.get("case") == "reset_succeeded"
+        )
+        assert reset_call.kwargs["local_ahead"] == 0
+        assert reset_call.kwargs["remote_ahead"] == 3

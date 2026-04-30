@@ -59,6 +59,7 @@ No-CLI BRC introspection (iteration 1 + 2):
 - `mcp__brc__get_state` — Returns the full structured BRC consensus state as JSON.
 - `mcp__brc__list_blocking` — Returns the list of agent roles currently blocking consensus.
 - `mcp__brc__read_peer_artifact` — Reads `.egg-state/brc-history/<pipeline>-<phase>.json` filtered by `peer_role` with `limit`/`cursor` pagination. No CLI by design (reviewer-forensics helper; operators inspect the files directly).
+- `mcp__brc__resolve_obligation` — Mark a reviewer's conditional-ACK obligation as satisfied in-cycle (#2338). Required: `reviewer_role`, `producer_role`. Optional: `commit_sha`, `note`. The orchestrator rejects self-resolution (`resolver_role == producer_role`), so the producer cannot drive their own resolution — typically the tester (or any non-producer satisfier) calls this after cherry-picking the conditioning commit. No CLI by design; in-cycle resolution flows through the MCP surface.
 
 See [`docs/reference/agent-tools.md`](../../../docs/reference/agent-tools.md)
-for the full 30-verb inventory.
+for the full 29-verb inventory.

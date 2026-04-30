@@ -187,6 +187,17 @@ class TestSessionManager:
         assert len(token) > 32  # Should be a substantial token
         assert session.container_id == "test-container"
         assert session.mode == "private"
+        assert session.synthetic is False
+
+    def test_register_synthetic_session(self, manager):
+        """Synthetic flag plumbs through to the Session."""
+        _token, session = manager.register_session(
+            container_id="pipeline-1-state-ls-remote",
+            container_ip=None,
+            mode="public",
+            synthetic=True,
+        )
+        assert session.synthetic is True
 
     def test_validate_valid_session(self, manager):
         """Test validating a valid session."""
@@ -1696,6 +1707,37 @@ class TestSessionEndCheckpointCapture:
             # All calls should use "expired" status
             for c in mock_capture.call_args_list:
                 assert c[0][1] == "expired"
+
+    def test_synthetic_session_skips_checkpoint_capture(self):
+        """Synthetic temp sessions skip the session-end checkpoint path entirely.
+
+        Regression test for #2316: orchestrator-internal helpers (ls-remote,
+        failsafe-fetch) register synthetic sessions that have no proxy buffer
+        and would only produce metadata-only checkpoints whose push fails
+        noisily on read-only source repos.
+        """
+        from unittest.mock import patch
+
+        from session_manager import _capture_and_cleanup_session
+
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="t",
+            session_token_hash=_hash_token("t"),
+            container_id="pipeline-1-state-ls-remote",
+            container_ip=None,
+            mode="public",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=1),
+            synthetic=True,
+        )
+
+        with patch.object(session_manager_module, "_cleanup_transcript_buffer") as cleanup:
+            event = _capture_and_cleanup_session(session, "completed")
+
+        assert event is None
+        cleanup.assert_not_called()
 
     def test_delete_by_token_not_found_skips_capture(self, manager):
         """delete_session with invalid token doesn't capture checkpoint."""

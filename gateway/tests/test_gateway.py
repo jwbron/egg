@@ -4476,6 +4476,32 @@ class TestSessionCreateWithPhase:
             data = json.loads(response.data)
             assert "repos" in data["message"].lower()
 
+    def test_session_create_rejects_non_bool_synthetic(self, client, launcher_auth_headers):
+        """``synthetic`` must be a boolean — non-bool truthy values are rejected.
+
+        Matches the validation style of the surrounding optional fields
+        (``pipeline_id``, ``agent_role``) so callers get a clear 400
+        instead of a silent ``bool("anything-truthy")`` coercion.
+        """
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "synthetic": "yes",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "synthetic" in data["message"].lower()
+
 
 class TestSessionCreateRepoVisibilityFiltering:
     """Tests for session creation repo filtering based on visibility and mode."""

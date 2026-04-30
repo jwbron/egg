@@ -39,6 +39,25 @@ class ApprovalEntry:
     # Optional human-facing obligation attached to a conditional ACK (#1998).
     # Empty string for unconditional ACKs. Cleared on NACK and on re-propose.
     pre_merge_condition: str = ""
+    # SHA that satisfied the obligation within the same PR's diff (#2336). When
+    # non-empty, the renderer demotes this entry from the merge-blocking
+    # "Pre-merge Obligations" section to a "Resolved within this PR"
+    # subsection — the obligation was met in-pipeline and the merger no longer
+    # needs to act. Cleared on NACK and on re-propose alongside the condition.
+    pre_merge_condition_resolved_in_diff: str = ""
+    # Set to True when ``pre_merge_condition`` has been satisfied in-cycle —
+    # e.g. another agent landed the conditioning commit on the branch (#2338).
+    # Reset on every ``record_ack`` / ``record_nack`` so a re-attached
+    # obligation on a later proposal version starts un-resolved.
+    obligation_resolved: bool = False
+    # Audit fields populated by ``mark_obligation_resolved``: who claimed
+    # satisfaction, the commit they pointed at, an optional human note,
+    # and when the resolution was recorded (so audit logs can sequence
+    # a resolution against any later re-ACK that resets the flag).
+    obligation_resolved_by: str = ""
+    obligation_resolved_commit: str = ""
+    obligation_resolved_note: str = ""
+    obligation_resolved_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +71,14 @@ class ApprovalEntry:
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "ack_commit_sha": self.ack_commit_sha,
             "pre_merge_condition": self.pre_merge_condition,
+            "pre_merge_condition_resolved_in_diff": (self.pre_merge_condition_resolved_in_diff),
+            "obligation_resolved": self.obligation_resolved,
+            "obligation_resolved_by": self.obligation_resolved_by,
+            "obligation_resolved_commit": self.obligation_resolved_commit,
+            "obligation_resolved_note": self.obligation_resolved_note,
+            "obligation_resolved_at": (
+                self.obligation_resolved_at.isoformat() if self.obligation_resolved_at else None
+            ),
         }
 
 
@@ -98,6 +125,7 @@ class ApprovalMatrix:
         artifact_refs: list[str] | None = None,
         commit_sha: str = "",
         pre_merge_condition: str = "",
+        pre_merge_condition_resolved_in_diff: str = "",
     ) -> ApprovalEntry:
         """Record an ACK from a reviewer for a producer's proposal.
 
@@ -106,6 +134,14 @@ class ApprovalMatrix:
         old/path new/path`` before merging". Empty string means an
         unconditional ACK. The condition is scoped to this (reviewer, producer,
         version) edge and is cleared on NACK and re-propose.
+
+        ``pre_merge_condition_resolved_in_diff`` (optional, issue #2336) is the
+        commit SHA — typically observed by the reviewer between their initial
+        conditional ACK and a re-ACK on the current proposal — that satisfied
+        the obligation within the same PR's diff. When non-empty, the PR-body
+        renderer moves the obligation out of the merge-blocking section and
+        into a "Resolved within this PR" subsection. Only meaningful when
+        ``pre_merge_condition`` is also non-empty; ignored otherwise.
         """
         key = (reviewer, producer)
         entry = self._entries.get(key)
@@ -121,7 +157,22 @@ class ApprovalMatrix:
         entry.reason = ""
         entry.timestamp = datetime.now(UTC)
         entry.ack_commit_sha = commit_sha
-        entry.pre_merge_condition = (pre_merge_condition or "").strip()
+        normalized_condition = (pre_merge_condition or "").strip()
+        entry.pre_merge_condition = normalized_condition
+        # Resolution is meaningless without an obligation — drop it if the
+        # caller passes a SHA on a plain (non-conditional) ACK.
+        normalized_resolution = (pre_merge_condition_resolved_in_diff or "").strip()
+        entry.pre_merge_condition_resolved_in_diff = (
+            normalized_resolution if normalized_condition else ""
+        )
+        # A fresh ACK supersedes any prior in-cycle resolution: if the
+        # reviewer re-attaches an obligation on a new version, the
+        # satisfying agent must re-resolve it (#2338).
+        entry.obligation_resolved = False
+        entry.obligation_resolved_by = ""
+        entry.obligation_resolved_commit = ""
+        entry.obligation_resolved_note = ""
+        entry.obligation_resolved_at = None
         return entry
 
     def record_nack(
@@ -147,6 +198,12 @@ class ApprovalMatrix:
         # A NACK supersedes any prior conditional ACK on this edge — the
         # producer must re-propose, so any deferred obligation is moot (#1998).
         entry.pre_merge_condition = ""
+        entry.pre_merge_condition_resolved_in_diff = ""
+        entry.obligation_resolved = False
+        entry.obligation_resolved_by = ""
+        entry.obligation_resolved_commit = ""
+        entry.obligation_resolved_note = ""
+        entry.obligation_resolved_at = None
 
         # Increment revision count for this edge
         self._revision_counts[key] = self._revision_counts.get(key, 0) + 1
@@ -238,6 +295,12 @@ class ApprovalMatrix:
             # that ACK goes with it (#1998). The reviewer must re-ACK to
             # re-attach a condition if they still want one.
             entry.pre_merge_condition = ""
+            entry.pre_merge_condition_resolved_in_diff = ""
+            entry.obligation_resolved = False
+            entry.obligation_resolved_by = ""
+            entry.obligation_resolved_commit = ""
+            entry.obligation_resolved_note = ""
+            entry.obligation_resolved_at = None
             return True
         return False
 
@@ -318,16 +381,27 @@ class ApprovalMatrix:
         dropped — the producer has re-proposed and the reviewer hasn't
         re-asserted the obligation on the new version.
 
-        Returns a list of dicts: ``{reviewer, producer, condition, version}``,
-        one per active conditional ACK. Callers (e.g. the PR-body builder,
-        HITL gate) surface these to humans so merge-time obligations aren't
-        silently dropped (#1998).
+        Obligations that have been resolved in-cycle by another agent (via
+        ``mark_obligation_resolved`` / ``mcp__brc__resolve_obligation``) are
+        also dropped (#2338) — the conditioning work is already on the
+        branch, so transcribing the obligation into the PR body or firing
+        the HITL gate would be busywork.
+
+        Returns a list of dicts: ``{reviewer, producer, condition, version,
+        resolved_in_diff}``, one per active conditional ACK. ``resolved_in_diff``
+        is the empty string for open obligations and the satisfying commit SHA
+        when the reviewer marked the obligation resolved within the same PR
+        (#2336). Callers (PR-body builder, HITL gate, live-status renderer)
+        use it to demote resolved obligations out of the merge-blocking
+        section.
         """
         conditions: list[dict[str, Any]] = []
         for (reviewer, producer), entry in self._entries.items():
             if entry.state != ApprovalState.ACKED:
                 continue
             if not entry.pre_merge_condition:
+                continue
+            if entry.obligation_resolved:
                 continue
             latest_version = self._proposal_versions.get(producer, 0)
             if entry.version != latest_version:
@@ -340,9 +414,66 @@ class ApprovalMatrix:
                     "producer": producer,
                     "condition": entry.pre_merge_condition,
                     "version": entry.version,
+                    "resolved_in_diff": entry.pre_merge_condition_resolved_in_diff,
                 }
             )
         return conditions
+
+    def mark_obligation_resolved(
+        self,
+        reviewer: str,
+        producer: str,
+        resolved_by: str = "",
+        commit_sha: str = "",
+        note: str = "",
+    ) -> ApprovalEntry:
+        """Mark a conditional-ACK obligation as satisfied in-cycle (#2338).
+
+        Used when the conditioning work has already landed on the producer's
+        branch — typically because another role (e.g. the tester) cherry-
+        picked the satisfying commit during the same BRC cycle. The matrix
+        keeps the original ``pre_merge_condition`` text for audit, but
+        ``get_pre_merge_conditions`` filters this entry out so the PR-body
+        builder and HITL gate see no obligation. Any subsequent ``record_ack``
+        / ``record_nack`` / ``invalidate_ack`` on the edge resets the resolved
+        flag, so a re-attached obligation on a later version starts fresh.
+
+        Raises ``ValueError`` when the edge does not exist, is not in ACKED
+        state, has no obligation attached, or the resolver is the producer
+        themselves. The producer cannot self-resolve their own obligation —
+        that would let them single-handedly bypass the reviewer's veto, and
+        the second pair of eyes is the whole point of ``pre_merge_condition``.
+        If the reviewer wants to drop their own obligation, the existing path
+        is to re-ACK without ``pre_merge_condition``.
+        """
+        key = (reviewer, producer)
+        entry = self._entries.get(key)
+        if entry is None:
+            raise ValueError(f"No review edge: {reviewer} -> {producer}")
+        if entry.state != ApprovalState.ACKED:
+            raise ValueError(
+                f"Cannot resolve obligation on edge {reviewer} -> {producer}: "
+                f"edge is in state {entry.state.value}, not ACKED"
+            )
+        if not entry.pre_merge_condition:
+            raise ValueError(
+                f"No active obligation on edge {reviewer} -> {producer} "
+                "(reviewer has not attached pre_merge_condition on the "
+                "current ACK)"
+            )
+        resolver = (resolved_by or "").strip()
+        if resolver and resolver == producer:
+            raise ValueError(
+                f"Producer {producer!r} cannot self-resolve their own "
+                "conditional-ACK obligation; the reviewer must drop the "
+                "condition on re-ACK or another role must resolve."
+            )
+        entry.obligation_resolved = True
+        entry.obligation_resolved_by = resolver
+        entry.obligation_resolved_commit = (commit_sha or "").strip()
+        entry.obligation_resolved_note = (note or "").strip()
+        entry.obligation_resolved_at = datetime.now(UTC)
+        return entry
 
     def get_latest_entry_timestamp(self) -> datetime | None:
         """Return the timestamp of the most recent ACK or NACK across all edges.
@@ -409,6 +540,18 @@ class ApprovalMatrix:
                     ),
                     ack_commit_sha=entry_data.get("ack_commit_sha", ""),
                     pre_merge_condition=entry_data.get("pre_merge_condition", ""),
+                    pre_merge_condition_resolved_in_diff=entry_data.get(
+                        "pre_merge_condition_resolved_in_diff", ""
+                    ),
+                    obligation_resolved=entry_data.get("obligation_resolved", False),
+                    obligation_resolved_by=entry_data.get("obligation_resolved_by", ""),
+                    obligation_resolved_commit=entry_data.get("obligation_resolved_commit", ""),
+                    obligation_resolved_note=entry_data.get("obligation_resolved_note", ""),
+                    obligation_resolved_at=(
+                        datetime.fromisoformat(entry_data["obligation_resolved_at"])
+                        if entry_data.get("obligation_resolved_at")
+                        else None
+                    ),
                 )
 
         for key_str, count in data.get("revision_counts", {}).items():

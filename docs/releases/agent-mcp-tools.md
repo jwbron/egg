@@ -91,8 +91,9 @@ test-collection time rather than silently breaking every sandbox.
   must register a `cli_command` attribute (or explicit `None`) or
   drift CI fails**, which is the mechanism keeping MCP tool surface
   and shell-CLI surface from silently diverging.
-- **SYSTEM_PROMPT_NUDGE drift test**
-  (`tests/sandbox/egg_agent_tools/test_server.py::test_prompt_nudge_drift`):
+- **SYSTEM_PROMPT_NUDGE drift tests**
+  (`tests/sandbox/egg_agent_tools/test_server.py::TestSystemPromptNudge::test_each_namespace_appears_in_nudge`
+  and `test_nudge_substrings_back_to_registered_namespaces`):
   symmetric match between `mcp__<namespace>__` substrings in the
   rendered nudge and registered namespaces in `TOOL_NAMESPACES`.
   Extras in either direction fail CI.

@@ -205,6 +205,13 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
             as a dedicated "Pre-merge Obligations" section on the auto-created
             PR so the merger sees it instead of skimming past a prose note in
             the ACK reason (#1998).
+        pre_merge_condition_resolved_in_diff (str): optional commit SHA. Set
+            on a re-ACK when ``pre_merge_condition`` has been satisfied within
+            the same PR's diff since the initial conditional ACK — the PR-body
+            renderer demotes resolved obligations to a "Resolved within this
+            PR" subsection so reviewers don't see merge-blocking boilerplate
+            on busywork (#2336). Only meaningful alongside a non-empty
+            ``pre_merge_condition``.
         pipeline_id, role: overrides.
     """
     pid = _require_pipeline_id(req)
@@ -223,8 +230,14 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
         "ack_version": ack_version,
     }
     pre_merge_condition = req.get("pre_merge_condition") or ""
+    resolved_in_diff = req.get("pre_merge_condition_resolved_in_diff") or ""
+    # Thread both fields through unconditionally so the signal-layer
+    # validator can reject a resolution-without-condition request rather
+    # than silently dropping the SHA at the MCP boundary (#2336 review).
     if pre_merge_condition:
         payload["pre_merge_condition"] = pre_merge_condition
+    if resolved_in_diff:
+        payload["pre_merge_condition_resolved_in_diff"] = resolved_in_diff
 
     data = {
         "signal_type": "consensus_ack",
@@ -397,6 +410,74 @@ def brc_list_blocking(req: dict[str, Any]) -> dict[str, Any]:
     consensus = result.get("data", {}).get("concurrent", {}).get("consensus", {})
     blocking = list(consensus.get("blocking_agents", []) or [])
     return {"ok": True, "blocking_agents": blocking}
+
+
+def brc_resolve_obligation(req: dict[str, Any]) -> dict[str, Any]:
+    """Send a CONSENSUS_RESOLVE_OBLIGATION signal (#2338).
+
+    Mark a reviewer's conditional-ACK obligation as satisfied in-cycle —
+    typically called by the tester after cherry-picking work the coder
+    is gateway-blocked from. The matrix keeps the obligation text for
+    audit but ``get_pre_merge_conditions`` filters out resolved entries,
+    so the PR body and HITL gate stop surfacing the obligation.
+
+    Resolution is per-version: any later ACK / NACK / invalidate on the
+    same edge resets the resolved flag (the new ACK gets a fresh
+    obligation lifecycle). If the same obligation re-appears on a later
+    proposal, call this signal again — or, preferred, have the reviewer
+    drop the obligation when the conditioning work has landed in-cycle
+    (see ``code-review-criteria.md``).
+
+    No CLI counterpart: this is a net-new capability added in #2338
+    (decision-13 rationale). Operators don't need a Bash entrypoint —
+    the in-cycle obligation-resolution flow is producer/tester-driven
+    via the MCP tool surface.
+
+    Request:
+        reviewer_role (str): required. The reviewer whose conditional-ACK
+            you are marking resolved.
+        producer_role (str): required. The producer the conditional-ACK
+            was attached to.
+        commit_sha (str): optional. Commit that satisfies the obligation;
+            recorded for audit.
+        note (str): optional. Free-form note explaining how the obligation
+            was satisfied; surfaces in the audit log.
+        pipeline_id, role: overrides.
+    """
+    pid = _require_pipeline_id(req)
+    role = _require_role(req)
+    reviewer_role = req.get("reviewer_role")
+    if not reviewer_role:
+        raise HandlerError("'reviewer_role' is required")
+    producer_role = req.get("producer_role")
+    if not producer_role:
+        raise HandlerError("'producer_role' is required")
+    commit_sha = (req.get("commit_sha") or "").strip()
+    if commit_sha:
+        _validate_commit_sha(commit_sha)
+    note = (req.get("note") or "").strip()
+
+    data: dict[str, Any] = {
+        "signal_type": "consensus_resolve_obligation",
+        "agent_role": role,
+        "reviewer_role": reviewer_role,
+        "producer_role": producer_role,
+    }
+    if commit_sha:
+        data["commit_sha"] = commit_sha
+    if note:
+        data["note"] = note
+
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    if not result.get("success"):
+        raise GatewayError(result.get("message", "resolve_obligation failed"))
+    return {
+        "ok": True,
+        "role": role,
+        "reviewer_role": reviewer_role,
+        "producer_role": producer_role,
+        "signal": result,
+    }
 
 
 _VALID_PHASES = ("refine", "plan", "implement", "pr")

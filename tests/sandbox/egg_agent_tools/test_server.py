@@ -1,10 +1,11 @@
 """Tests for egg_agent_tools.server (factory + system prompt nudge).
 
 Covers:
-- build_sandbox_mcp_server registers the expected iteration-2 tools (30:
+- build_sandbox_mcp_server registers the expected iteration-2 tools (29:
   the 18 iteration-1 verbs plus the 12 iteration-2 additions landed in
-  #1917 across the sdlc, brc, phase, progress, task, and checkpoint
-  namespaces).
+  #1917, minus 2 wait verbs removed in #2211, plus
+  ``mcp__brc__resolve_obligation`` added in #2338, across the sdlc,
+  brc, phase, progress, task, and checkpoint namespaces).
 - SYSTEM_PROMPT_NUDGE stays <=200 words.
 - Symmetric drift test: every mcp__<namespace>__ substring in the nudge
   corresponds to a registered namespace, and every registered namespace
@@ -72,7 +73,13 @@ _ITER2_TOOL_NAMES = {
     "mcp__checkpoint__search",
 }
 
-EXPECTED_TOOL_NAMES = _ITER1_TOOL_NAMES | _ITER2_TOOL_NAMES
+# Post-#1917 additions tracked separately so the diff stays auditable.
+_POST_ITER2_TOOL_NAMES = {
+    # brc — #2338 in-cycle conditional-ACK obligation resolution.
+    "mcp__brc__resolve_obligation",
+}
+
+EXPECTED_TOOL_NAMES = _ITER1_TOOL_NAMES | _ITER2_TOOL_NAMES | _POST_ITER2_TOOL_NAMES
 
 EXPECTED_NAMESPACES = {
     "sdlc",
@@ -89,11 +96,12 @@ class TestToolRegistry:
         # 18 iter-1 + 12 iter-2 (#1917) = 30, then -2 in #2211
         # (``wait_for_event`` + ``wait_loop`` removed — agents now use
         # the ``egg-orch message wait`` / ``wait-loop`` Bash CLI for
-        # blocking waits per the transport-mismatch carve-out) = 28.
+        # blocking waits per the transport-mismatch carve-out) = 28,
+        # then +1 in #2338 (``mcp__brc__resolve_obligation``) = 29.
         # Derived assertion: trips when a future iteration drifts the
         # count without updating the prose verb-counts in
         # docs/reference/agent-tools.md.
-        assert len(TOOL_LIST) == 28
+        assert len(TOOL_LIST) == 29
 
     def test_expected_names_present(self):
         names = set(TOOL_REGISTRY.keys())

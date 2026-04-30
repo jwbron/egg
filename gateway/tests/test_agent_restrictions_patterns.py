@@ -3,7 +3,7 @@
 Covers:
 - AgentFilePattern.can_write() pattern matching logic
 - _normalize_path() path traversal prevention
-- _matches_pattern() glob-style matching (prefix, wildcard, **)
+- matches_pattern() glob-style matching (prefix, wildcard, **)
 - All 12 agent role permission matrices
 - check_agent_file_access() and validate_agent_push() entry points
 - Blocked patterns taking precedence over allowed patterns (security)
@@ -64,52 +64,52 @@ class TestNormalizePath:
 
 
 class TestMatchesPattern:
-    """Tests for AgentFilePattern._matches_pattern()."""
+    """Tests for AgentFilePattern.matches_pattern()."""
 
     def test_exact_match(self):
-        assert AgentFilePattern._matches_pattern("Makefile", "Makefile") is True
+        assert AgentFilePattern.matches_pattern("Makefile", "Makefile") is True
 
     def test_prefix_directory_match(self):
-        assert AgentFilePattern._matches_pattern("docs/guide.md", "docs/") is True
+        assert AgentFilePattern.matches_pattern("docs/guide.md", "docs/") is True
 
     def test_prefix_no_match(self):
-        assert AgentFilePattern._matches_pattern("src/docs/guide.md", "docs/") is False
+        assert AgentFilePattern.matches_pattern("src/docs/guide.md", "docs/") is False
 
     def test_nested_prefix_match(self):
-        assert AgentFilePattern._matches_pattern("docs/guides/setup.md", "docs/") is True
+        assert AgentFilePattern.matches_pattern("docs/guides/setup.md", "docs/") is True
 
     def test_directory_itself(self):
         """Pattern 'docs/' should match path 'docs' (directory itself)."""
-        assert AgentFilePattern._matches_pattern("docs", "docs/") is True
+        assert AgentFilePattern.matches_pattern("docs", "docs/") is True
 
     def test_wildcard_extension(self):
-        assert AgentFilePattern._matches_pattern("file.py", "*.py") is True
+        assert AgentFilePattern.matches_pattern("file.py", "*.py") is True
 
     def test_wildcard_extension_no_match(self):
-        assert AgentFilePattern._matches_pattern("file.js", "*.py") is False
+        assert AgentFilePattern.matches_pattern("file.js", "*.py") is False
 
     def test_double_wildcard_py(self):
-        assert AgentFilePattern._matches_pattern("src/deep/module.py", "**/*.py") is True
+        assert AgentFilePattern.matches_pattern("src/deep/module.py", "**/*.py") is True
 
     def test_double_wildcard_at_root(self):
-        assert AgentFilePattern._matches_pattern("module.py", "**/*.py") is True
+        assert AgentFilePattern.matches_pattern("module.py", "**/*.py") is True
 
     def test_double_wildcard_with_prefix(self):
-        assert AgentFilePattern._matches_pattern("tests/unit/test_foo.py", "**/test_*.py") is True
+        assert AgentFilePattern.matches_pattern("tests/unit/test_foo.py", "**/test_*.py") is True
 
     def test_fnmatch_in_pattern(self):
-        assert AgentFilePattern._matches_pattern("test_foo.py", "test_*.py") is True
+        assert AgentFilePattern.matches_pattern("test_foo.py", "test_*.py") is True
 
     def test_prefix_match_with_egg_state(self):
         assert (
-            AgentFilePattern._matches_pattern(
+            AgentFilePattern.matches_pattern(
                 ".egg-state/agent-outputs/out.json", ".egg-state/agent-outputs/"
             )
             is True
         )
 
     def test_leading_dot_slash_normalized(self):
-        assert AgentFilePattern._matches_pattern("./src/app.py", "./src/") is True
+        assert AgentFilePattern.matches_pattern("./src/app.py", "./src/") is True
 
 
 class TestCanWrite:
@@ -443,12 +443,12 @@ class TestCoderBlocklistComplement1901:
 
     def test_blocks_traversal_via_can_write(self, pattern):
         # The path-traversal guard lives in _normalize_path via can_write;
-        # asserting at the can_write level (NOT _matches_pattern) per TASK-5-2.
+        # asserting at the can_write level (NOT matches_pattern) per TASK-5-2.
         assert pattern.can_write("../../etc/passwd") is False
 
 
 class TestMatchesPatternFix1901:
-    """TASK-5-2 (#1901): regression coverage for the _matches_pattern fix.
+    """TASK-5-2 (#1901): regression coverage for the matches_pattern fix.
 
     Before #1901 the ** branch fell through to fnmatch-on-basename, which
     incorrectly returned False for nested files under a directory pattern
@@ -457,25 +457,25 @@ class TestMatchesPatternFix1901:
 
     def test_nested_dir_under_double_star(self):
         """gateway/tests/__init__.py matches **/tests/ — the bug fix."""
-        assert AgentFilePattern._matches_pattern("gateway/tests/__init__.py", "**/tests/") is True
+        assert AgentFilePattern.matches_pattern("gateway/tests/__init__.py", "**/tests/") is True
 
     def test_unrelated_file_under_double_star_dir(self):
         """src/foo.py must NOT match **/tests/ — guards against over-match."""
-        assert AgentFilePattern._matches_pattern("src/foo.py", "**/tests/") is False
+        assert AgentFilePattern.matches_pattern("src/foo.py", "**/tests/") is False
 
     def test_top_level_tests_under_double_star(self):
         """tests/conftest.py matches **/tests/ — ** must accept zero segments."""
-        assert AgentFilePattern._matches_pattern("tests/conftest.py", "**/tests/") is True
+        assert AgentFilePattern.matches_pattern("tests/conftest.py", "**/tests/") is True
 
     def test_double_star_extension_pattern_unchanged(self):
         """Regression: **/*.py still matches files anywhere — file-name
         pattern semantics must not be touched by the directory-pattern fix."""
-        assert AgentFilePattern._matches_pattern("pkg/bar.py", "**/*.py") is True
+        assert AgentFilePattern.matches_pattern("pkg/bar.py", "**/*.py") is True
 
     def test_leaf_file_named_like_dir_does_not_match(self):
         """src/tests.py is a Python file named 'tests' — NOT inside a tests/
         directory, so **/tests/ must not match it."""
-        assert AgentFilePattern._matches_pattern("src/tests.py", "**/tests/") is False
+        assert AgentFilePattern.matches_pattern("src/tests.py", "**/tests/") is False
 
 
 class TestNoAllowedPatternsDeniesAll1901:

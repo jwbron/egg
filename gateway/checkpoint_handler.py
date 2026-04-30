@@ -52,6 +52,7 @@ Integration points:
 import contextlib
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -885,7 +886,7 @@ class CheckpointHandler:
 
         try:
             with (
-                _get_repo_lock(repo_path),
+                _get_store_lock(checkpoint_repo or repo_path),
                 tempfile.TemporaryDirectory(
                     prefix="checkpoint_", ignore_cleanup_errors=True
                 ) as temp_dir,
@@ -1024,10 +1025,19 @@ class CheckpointHandler:
                         ["commit", "--no-verify", "-m", commit_msg],
                     )
 
-                    # Retry push with pull-rebase on non-fast-forward rejection.
-                    # Multiple checkpoint stores can race: they fetch the same base,
-                    # commit locally, then the second push fails because the first
-                    # already advanced the remote branch.
+                    # Retry push with regenerate-on-non-fast-forward.
+                    # When two writers race on the shared checkpoint branch,
+                    # the second sees a non-FF rejection because the first
+                    # advanced the remote tip — typically with its own edits
+                    # to ``index.json``. Rebasing this writer's commit cannot
+                    # auto-merge textual diffs to ``index.json`` even though
+                    # the update is structurally an append. Instead we discard
+                    # our local commit, fetch the latest tip, reset the temp
+                    # worktree onto it, and replay this checkpoint's delta:
+                    # the unique-named checkpoint file is re-staged and
+                    # ``add_checkpoint_to_index_v2`` re-derives ``index.json``
+                    # from the freshly fetched index plus this checkpoint.
+                    # See #2316.
                     max_push_attempts = 3
                     for push_attempt in range(1, max_push_attempts + 1):
                         try:
@@ -1044,22 +1054,56 @@ class CheckpointHandler:
                             if push_attempt >= max_push_attempts:
                                 raise
                             logger.warning(
-                                "Checkpoint push rejected (non-fast-forward), rebasing and retrying",
+                                "Checkpoint push rejected (non-fast-forward), regenerating against fresh remote tip",
                                 attempt=push_attempt,
                                 max_attempts=max_push_attempts,
                                 checkpoint_id=checkpoint.id,
                             )
                             time.sleep(1)
-                            # Pull remote changes and rebase our commit on top
+                            # Detach the temp worktree from CHECKPOINT_BRANCH
+                            # so the next ``fetch +CHECKPOINT_BRANCH:CHECKPOINT_BRANCH``
+                            # can update that ref without git refusing because
+                            # the branch is checked out in this worktree. The
+                            # orphan path leaves the worktree on the branch
+                            # (``checkout --orphan`` switches to it), so this
+                            # step matters when a concurrent writer created
+                            # the branch on origin between ``_branch_exists``
+                            # and our push.
                             self._run_git(
                                 str(temp_path),
+                                ["checkout", "--detach"],
+                            )
+                            # Fetch the latest remote state into the local
+                            # branch, then reset the temp worktree to it —
+                            # discards our prior commit and pulls in any
+                            # concurrent writer's index.json updates.
+                            self._run_git(
+                                repo_path,
                                 ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
                                 timeout=60,
                                 github_token=github_token,
                             )
                             self._run_git(
                                 str(temp_path),
-                                ["rebase", CHECKPOINT_BRANCH],
+                                ["reset", "--hard", CHECKPOINT_BRANCH],
+                            )
+                            # Replay this checkpoint's delta against the
+                            # fresh index. Checkpoint path is unique-by-id
+                            # so it never conflicts; the index is rebuilt
+                            # from the new remote state plus this summary.
+                            save_checkpoint_v2(checkpoint, checkpoint_path)
+                            add_checkpoint_to_index_v2(checkpoint, index_path)
+                            self._run_git(
+                                str(temp_path),
+                                [
+                                    "add",
+                                    str(checkpoint_path.relative_to(temp_path)),
+                                    INDEX_FILE,
+                                ],
+                            )
+                            self._run_git(
+                                str(temp_path),
+                                ["commit", "--no-verify", "-m", commit_msg],
                             )
 
                     logger.info(
@@ -1101,11 +1145,32 @@ class CheckpointHandler:
                         # Drop any stale .git/worktrees/<basename> entry so a
                         # failed remove (or a failed worktree add) doesn't
                         # leak across attempts.
-                        self._run_git(
-                            repo_path,
-                            ["worktree", "prune"],
-                            check=False,
-                        )
+                        #
+                        # IMPORTANT: surgically remove this worktree's admin
+                        # dir; do NOT call ``git worktree prune``.  The
+                        # gateway pod cannot see other pods' worktree paths
+                        # (orchestrator's state worktree lives on a per-pod
+                        # ``emptyDir`` mount while the bare repo is shared
+                        # via ``hostPath``), so prune treats those entries
+                        # as ``prunable`` and removes their admin dirs —
+                        # taking down the orchestrator's state-store
+                        # operations until they self-heal (#2324).  Same
+                        # rationale documented at
+                        # ``worktree_manager.py``'s manual-cleanup branch.
+                        #
+                        # Building the admin-dir path directly from
+                        # ``temp_path.name`` (rather than verifying the
+                        # admin dir's ``gitdir`` pointer like
+                        # ``worktree_manager._find_worktree_git_dir`` does)
+                        # is safe here because ``temp_path`` comes from
+                        # ``tempfile.TemporaryDirectory(prefix="checkpoint_")``
+                        # — the basename is randomly generated and cannot
+                        # collide with another worktree's admin dir.  Do
+                        # NOT copy this shortcut into a context where the
+                        # worktree basename is predictable (e.g.,
+                        # container worktrees keyed by repo name).
+                        admin_dir = Path(repo_path) / ".git" / "worktrees" / temp_path.name
+                        shutil.rmtree(admin_dir, ignore_errors=True)
 
         except Exception as e:
             logger.error(
@@ -1342,40 +1407,51 @@ class CheckpointHandler:
 _checkpoint_handler: CheckpointHandler | None = None
 _handler_lock = threading.Lock()
 
-# Per-repo_path locks serializing concurrent checkpoint stores.
-# Concurrent threads operating on the same source repo race on
-# .git/worktrees state and ref locks under repo_path/.git/, producing
-# 'worktree add' failures and stale worktree directories. The lock is
-# keyed by repo_path only — the target (origin vs. external checkpoint
-# repo) does not affect the local .git state being contended.
-# Not trimmed: the set of distinct repo_paths in a gateway process is
-# small and stable in practice (one entry per source repo seen).
-# See #2069.
-_repo_locks: dict[str, threading.Lock] = {}
-_repo_locks_guard = threading.Lock()
+# Per-destination locks serializing concurrent checkpoint stores.
+# When ``checkpoint_repo`` is set, the lock key is that destination
+# ("owner/repo") so cross-source-repo writers contending on the same
+# shared ``egg/checkpoints/v2`` branch (e.g. multiple agents from
+# different repos all targeting ``jwbron/egg-checkpoints``) serialize
+# their fetch + commit + push sequence. When ``checkpoint_repo`` is
+# unset, fall back to the source ``repo_path`` so same-source-repo
+# writers still serialize on local ``.git/worktrees`` state.
+# See #2069 (per-source-repo origin) and #2316 (target-keyed).
+_store_locks: dict[str, threading.Lock] = {}
+_store_locks_guard = threading.Lock()
 
 
 @contextlib.contextmanager
-def _get_repo_lock(repo_path: str) -> Generator[None]:
-    """Hold the per-process per-repo lock for the whole checkpoint op.
+def _get_store_lock(key: str) -> Generator[None]:
+    """Hold the per-destination in-process lock for the whole checkpoint op.
 
-    In-process serialization only (#2069). Cross-process serialization
-    against the orchestrator's state-store on ``.git/config.lock``
-    (#2311) is handled with narrower ``bare_repo_lock`` windows around
-    the specific git operations that touch the bare repo's ``.git/``
-    (worktree add, worktree remove/prune) — see #2332.
+    Per-destination ``threading.Lock`` keyed on ``key`` for in-process
+    serialization.  When ``checkpoint_repo`` is set, callers pass it as
+    ``key`` so cross-source-repo writers contending on the same shared
+    ``egg/checkpoints/v2`` branch serialize their fetch + commit + push
+    sequence (#2316).  When unset, callers fall back to ``repo_path``
+    so same-source-repo writers still serialize on local
+    ``.git/worktrees`` state (#2069).  The destination key only
+    synchronizes within a *single gateway process* — multiple gateway
+    pods writing to the same ``checkpoint_repo`` race past this lock,
+    and the regenerate-on-non-FF retry in ``store_checkpoint_v2`` is
+    the actual cross-pod protection.
 
-    Holding the cross-process flock for the entire op would block every
-    state-store commit and other gateway worktree op against the same
-    bare repo for up to ~135s under fetch-retry pathology, which is
-    much wider than necessary: fetch, the in-temp-worktree commit, and
-    the push do not race the state-store on ``.git/config.lock``.
+    Cross-process serialization against the orchestrator's state-store
+    on ``.git/config.lock`` (#2311) is handled with narrower
+    ``bare_repo_lock`` windows around the specific git operations that
+    touch the bare repo's ``.git/`` (worktree add, worktree remove/
+    prune) — see #2332.  Holding the cross-process flock for the
+    entire op would block every state-store commit and other gateway
+    worktree op against the same bare repo for up to ~135s under
+    fetch-retry pathology, which is much wider than necessary: fetch,
+    the in-temp-worktree commit, and the push do not race the state-
+    store on ``.git/config.lock``.
     """
-    with _repo_locks_guard:
-        thread_lock = _repo_locks.get(repo_path)
+    with _store_locks_guard:
+        thread_lock = _store_locks.get(key)
         if thread_lock is None:
             thread_lock = threading.Lock()
-            _repo_locks[repo_path] = thread_lock
+            _store_locks[key] = thread_lock
     with thread_lock:
         yield
 

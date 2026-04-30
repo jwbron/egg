@@ -435,6 +435,7 @@ class PeerConsensusTracker:
                 artifact_refs=review.artifact_references,
                 commit_sha=proposal_commit_sha,
                 pre_merge_condition=review.pre_merge_condition,
+                pre_merge_condition_resolved_in_diff=(review.pre_merge_condition_resolved_in_diff),
             )
 
             # Transition reviewer to REVIEWING
@@ -455,8 +456,11 @@ class PeerConsensusTracker:
             # Use the normalized value (record_ack strips whitespace) so the
             # event stream is consistent with persisted matrix state.
             normalized_condition = (review.pre_merge_condition or "").strip()
+            normalized_resolution = (review.pre_merge_condition_resolved_in_diff or "").strip()
             if normalized_condition:
                 event_data["pre_merge_condition"] = normalized_condition
+                if normalized_resolution:
+                    event_data["pre_merge_condition_resolved_in_diff"] = normalized_resolution
 
             emit_event(
                 EventType.CONSENSUS_ACK_RECEIVED,
@@ -474,6 +478,8 @@ class PeerConsensusTracker:
             }
             if normalized_condition:
                 result["pre_merge_condition"] = normalized_condition
+                if normalized_resolution:
+                    result["pre_merge_condition_resolved_in_diff"] = normalized_resolution
             return result
 
     def handle_nack(
@@ -616,6 +622,65 @@ class PeerConsensusTracker:
             self._run_invariant_checks("withdraw")
 
             return {"status": "withdrawn", "reason": reason}
+
+    def handle_resolve_obligation(
+        self,
+        resolver_role: str,
+        reviewer_role: str,
+        producer_role: str,
+        commit_sha: str = "",
+        note: str = "",
+    ) -> dict[str, Any]:
+        """Mark a conditional-ACK obligation as satisfied in-cycle (#2338).
+
+        Called by the agent that landed the conditioning commit (typically the
+        tester picking up work the coder is gateway-blocked from). The matrix
+        keeps the original ``pre_merge_condition`` text for audit but
+        ``get_pre_merge_conditions`` filters out resolved entries, so the
+        PR-body builder and HITL gate stop surfacing the obligation.
+
+        ``resolver_role`` is the caller's role; it is recorded for audit and
+        included on the emitted ``CONSENSUS_OBLIGATION_RESOLVED`` event so
+        downstream consumers can attribute the resolution. The matrix raises
+        ``ValueError`` when the edge is missing, not in ACKED state, or has no
+        active obligation.
+        """
+        with self._lock:
+            entry = self.matrix.mark_obligation_resolved(
+                reviewer_role,
+                producer_role,
+                resolved_by=resolver_role,
+                commit_sha=commit_sha,
+                note=note,
+            )
+
+            event_data: dict[str, Any] = {
+                "reviewer": reviewer_role,
+                "producer": producer_role,
+                "resolver": resolver_role,
+                "version": entry.version,
+                "condition": entry.pre_merge_condition,
+            }
+            if commit_sha:
+                event_data["commit_sha"] = commit_sha
+            if note:
+                event_data["note"] = note
+
+            emit_event(
+                EventType.CONSENSUS_OBLIGATION_RESOLVED,
+                self.pipeline_id,
+                data=event_data,
+            )
+
+            return {
+                "status": "resolved",
+                "reviewer": reviewer_role,
+                "producer": producer_role,
+                "resolver": resolver_role,
+                "version": entry.version,
+                "condition": entry.pre_merge_condition,
+                "remaining_pre_merge_conditions": self.matrix.get_pre_merge_conditions(),
+            }
 
     def handle_confirmed(self, agent_role: str) -> dict[str, Any]:
         """Handle a CONSENSUS_CONFIRMED from an agent.
@@ -1868,6 +1933,11 @@ def reconstruct_tracker_from_messages(
         "CONSENSUS_NACK",
         "CONSENSUS_WITHDRAW",
         "CONSENSUS_CONFIRMED",
+        # In-cycle conditional-ACK obligation resolution (#2338). Replayed
+        # so the resolved flag survives orchestrator restarts — without
+        # this, a satisfied obligation re-emerges and the HITL gate
+        # asks the operator about work that was already done.
+        "CONSENSUS_OBLIGATION_RESOLVED",
     }
     consensus_msgs = [m for m in messages if m.message_type in consensus_types]
 
@@ -1975,6 +2045,31 @@ def reconstruct_tracker_from_messages(
 
             elif msg.message_type == "CONSENSUS_CONFIRMED":
                 tracker.handle_confirmed(msg.from_role)
+
+            elif msg.message_type == "CONSENSUS_OBLIGATION_RESOLVED":
+                # Metadata carries the participant roles plus optional
+                # commit_sha / note for audit. The tracker raises
+                # ValueError when the edge is missing or has no active
+                # obligation; the outer try/except logs and skips so a
+                # stale resolution message can't blow up reconstruction.
+                metadata = msg.metadata or {}
+                resolver_role = metadata.get("resolver_role") or msg.from_role
+                reviewer_role = metadata.get("reviewer_role")
+                producer_role = metadata.get("producer_role") or msg.to_role
+                if not reviewer_role or not producer_role:
+                    logger.debug(
+                        "Skipping resolution message with missing roles",
+                        pipeline_id=pipeline_id,
+                        message_id=msg.id,
+                    )
+                    continue
+                tracker.handle_resolve_obligation(
+                    resolver_role=resolver_role,
+                    reviewer_role=reviewer_role,
+                    producer_role=producer_role,
+                    commit_sha=metadata.get("commit_sha", ""),
+                    note=metadata.get("note", ""),
+                )
 
         except Exception as e:
             # Best-effort reconstruction: log and skip messages that fail

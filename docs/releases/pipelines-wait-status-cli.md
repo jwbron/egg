@@ -69,7 +69,7 @@ to the LLM as the next stdout JSON-line.
 ## Why a single carve-out from "prefer MCP"
 
 [#1917](https://github.com/jwbron/egg/issues/1917) established
-"prefer MCP over Bash CLI" across the 30-verb tool surface. The new
+"prefer MCP over Bash CLI" across the (then-)30-verb tool surface. The new
 rule is **MCP for state queries, Bash CLI for blocking waits** —
 not a wholesale reversal. State queries (`get_status`,
 `get_consensus_status`, `get_pipeline_snapshot`, etc.) fit the MCP
