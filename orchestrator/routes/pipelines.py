@@ -11212,12 +11212,67 @@ def _run_implement_phase_slices(
                             None,
                         )
                         if slice_obj is not None and pipeline.repo:
+                            # Identify the terminal slice(s) of the
+                            # forest: any slice no other slice lists
+                            # as a dependency. Pick a single terminal
+                            # so non-terminal slices can point at it
+                            # ("see <terminal-slice-id>'s PR for the
+                            # umbrella narrative") and so the
+                            # planner-authored ``contract.pr`` block
+                            # lands on exactly one PR.  When the
+                            # forest has multiple terminal slices we
+                            # take the last one in declared order —
+                            # arbitrary but stable. For multi-tree
+                            # forests this means non-terminal slices
+                            # in non-chosen trees point at a leaf
+                            # outside their own subtree; see the
+                            # "Stacked-PR creation" section of
+                            # ``docs/architecture/slice-dag.md`` for
+                            # the rationale.
+                            depended_on: set[str] = {
+                                dep for s in contract_post.slices for dep in s.dependencies
+                            }
+                            terminal_ids = [
+                                s.id for s in contract_post.slices if s.id not in depended_on
+                            ]
+                            chosen_terminal = terminal_ids[-1] if terminal_ids else None
+                            is_terminal = slice_id == chosen_terminal
+                            program_pr = contract_post.pr if is_terminal else None
+                            # Only point non-terminal slices at the
+                            # terminal when the umbrella will actually
+                            # carry a program-level narrative.
+                            # ``create_slice_pr`` upgrades to the
+                            # planner-authored shape only when
+                            # ``program_title`` is non-empty, so a
+                            # ``contract.pr`` with a missing/empty
+                            # title yields the auto-generated body on
+                            # the terminal — and the pointer would
+                            # mislead reviewers who follow it.
+                            umbrella_has_program_block = bool(
+                                contract_post.pr
+                                and contract_post.pr.title
+                                and contract_post.pr.title.strip()
+                            )
+                            terminal_pointer = (
+                                None
+                                if is_terminal or not umbrella_has_program_block
+                                else chosen_terminal
+                            )
                             slice_pr_data = {
                                 "slice_name": slice_obj.name or slice_id,
                                 "slice_tasks": [
                                     {"id": t.id, "description": t.description}
                                     for t in (slice_obj.tasks or [])
                                 ],
+                                "program_title": (program_pr.title if program_pr else None),
+                                "program_description": (
+                                    program_pr.description if program_pr else None
+                                ),
+                                "program_test_plan": (program_pr.test_plan if program_pr else None),
+                                "program_manual_steps": (
+                                    program_pr.manual_steps if program_pr else None
+                                ),
+                                "terminal_slice_id": terminal_pointer,
                             }
                 except Exception as load_err:  # noqa: BLE001
                     logger.warning(
@@ -11241,6 +11296,11 @@ def _run_implement_phase_slices(
                             issue_number=issue_number,
                             agent_role="coder",
                             mode=gateway_mode,  # type: ignore[arg-type]
+                            program_title=slice_pr_data["program_title"],
+                            program_description=slice_pr_data["program_description"],
+                            program_test_plan=slice_pr_data["program_test_plan"],
+                            program_manual_steps=slice_pr_data["program_manual_steps"],
+                            terminal_slice_id=slice_pr_data["terminal_slice_id"],
                         )
                     except Exception as pr_err:  # noqa: BLE001
                         logger.error(

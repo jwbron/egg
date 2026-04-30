@@ -51,6 +51,7 @@ sys.modules.setdefault("docker.types", MagicMock())
 from egg_contracts.models import (  # noqa: E402
     Contract,
     IssueInfo,
+    PRMetadata,
     Slice,
     SliceStatus,
     Task,
@@ -689,6 +690,128 @@ class TestRunImplementPhaseSlices:
         assert fake_event.is_set(), "stop_event must be set on slice-loop exit"
         # Thread.join is invoked with a bounded timeout to avoid blocking.
         fake_thread.join.assert_called_once()
+
+    def test_terminal_slice_pr_carries_program_metadata_non_terminal_does_not(
+        self,
+    ) -> None:
+        """#2340: program-level ``contract.pr`` is threaded only into the
+        terminal slice's PR; non-terminal slices stay deterministic and
+        carry a pointer to the terminal slice's PR.
+
+        Forest: slice-1 (root) → slice-2 (intermediate) → slice-3 (terminal).
+        slice-3 is the unique slice no other slice depends on; it should
+        receive ``program_title`` / ``program_description`` /
+        ``program_test_plan`` / ``program_manual_steps`` from
+        ``contract.pr``. slice-1 and slice-2 should receive ``None`` for
+        each program-* kwarg and ``terminal_slice_id="slice-3"``.
+        """
+        pipeline = _make_pipeline()
+        root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        middle = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
+        terminal = _make_slice("slice-3", deps=["slice-2"], tasks=[_make_task("task-3-1")])
+        contract = _make_contract(slices=[root, middle, terminal])
+        contract.pr = PRMetadata(
+            title="Decompose oversize files; ratchet allowlist",
+            description="The lint added in #2250 caps Python files at 1500 lines...",
+            test_plan="- Automated: make lint and make test-all green on every slice.",
+            manual_steps="Pre-merge (terminal slice only): verify seam tables.",
+        )
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        pr_calls_by_slice = {
+            c.kwargs["slice_id"]: c.kwargs for c in spawner.gateway.create_slice_pr.call_args_list
+        }
+        assert set(pr_calls_by_slice) == {"slice-1", "slice-2", "slice-3"}
+
+        terminal_kwargs = pr_calls_by_slice["slice-3"]
+        assert terminal_kwargs["program_title"] == "Decompose oversize files; ratchet allowlist"
+        assert terminal_kwargs["program_description"].startswith("The lint added in #2250")
+        assert "make lint" in terminal_kwargs["program_test_plan"]
+        assert "seam tables" in terminal_kwargs["program_manual_steps"]
+        assert terminal_kwargs["terminal_slice_id"] is None
+
+        for non_terminal_id in ("slice-1", "slice-2"):
+            kwargs = pr_calls_by_slice[non_terminal_id]
+            assert kwargs["program_title"] is None
+            assert kwargs["program_description"] is None
+            assert kwargs["program_test_plan"] is None
+            assert kwargs["program_manual_steps"] is None
+            assert kwargs["terminal_slice_id"] == "slice-3"
+
+    def test_non_terminal_pointer_suppressed_when_contract_pr_missing(
+        self,
+    ) -> None:
+        """When ``contract.pr`` is missing (older contracts, or
+        ``_populate_contract_from_plan`` did not run), the umbrella PR
+        won't carry a program-level narrative — so non-terminal slices
+        must not point at it. Otherwise the pointer line "the terminal
+        slice <id>'s PR carries the program-level narrative" would
+        direct reviewers to a PR with the auto-generated body and no
+        narrative.
+        """
+        pipeline = _make_pipeline()
+        root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        middle = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
+        terminal = _make_slice("slice-3", deps=["slice-2"], tasks=[_make_task("task-3-1")])
+        contract = _make_contract(slices=[root, middle, terminal])
+        contract.pr = None
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        pr_calls_by_slice = {
+            c.kwargs["slice_id"]: c.kwargs for c in spawner.gateway.create_slice_pr.call_args_list
+        }
+        assert set(pr_calls_by_slice) == {"slice-1", "slice-2", "slice-3"}
+        # Every slice — terminal and non-terminal — gets None for the
+        # pointer when the umbrella has no program-level content.
+        for slice_id in ("slice-1", "slice-2", "slice-3"):
+            kwargs = pr_calls_by_slice[slice_id]
+            assert kwargs["program_title"] is None
+            assert kwargs["program_description"] is None
+            assert kwargs["program_test_plan"] is None
+            assert kwargs["program_manual_steps"] is None
+            assert kwargs["terminal_slice_id"] is None
 
     def test_single_slice_path_skips_pr_when_repo_unset(self) -> None:
         """If pipeline.repo is empty the loop must not attempt create_slice_pr."""

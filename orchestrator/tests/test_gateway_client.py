@@ -1341,6 +1341,117 @@ class TestCreatePR:
             assert call_kwargs.kwargs.get("phase") == "pr" or call_kwargs[1].get("phase") == "pr"
 
 
+class TestCreateSlicePR:
+    """Body / title composition for create_slice_pr (#2340)."""
+
+    def _capture(self, gateway_client):
+        """Patch create_pr to capture (title, body) and return a dummy URL."""
+        captured: dict[str, str] = {}
+
+        def _fake_create_pr(*, title: str, body: str, **_kwargs: object) -> str:
+            captured["title"] = title
+            captured["body"] = body
+            return "https://example/pr/1"
+
+        return captured, patch.object(gateway_client, "create_pr", side_effect=_fake_create_pr)
+
+    def test_non_terminal_slice_uses_auto_generated_title_and_body(self, gateway_client):
+        """Without program_title the helper still emits the deterministic
+        ``slice <id>: <name>`` title and the bulleted task body."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "Add the barrel re-export"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42",
+            )
+        assert captured["title"] == "slice slice-1: Pattern adoption"
+        assert "Pattern adoption" in captured["body"]
+        assert "Tasks in this slice:" in captured["body"]
+        assert "- task-1-1: Add the barrel re-export" in captured["body"]
+        assert "Slice slice-1 of pipeline issue-42" in captured["body"]
+        # No program-umbrella banner / pointer when neither field is set.
+        assert "Program-level umbrella PR" not in captured["body"]
+        assert "terminal slice" not in captured["body"]
+
+    def test_non_terminal_slice_with_terminal_pointer_includes_pointer_line(self, gateway_client):
+        """When ``terminal_slice_id`` is supplied (and program_title is not)
+        the body adds a pointer to the umbrella PR's slice without
+        upgrading to the planner-authored shape."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=None,
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42",
+                terminal_slice_id="slice-3",
+            )
+        assert captured["title"] == "slice slice-1: Pattern adoption"
+        assert "`slice-3`" in captured["body"]
+        assert "program-level narrative" in captured["body"]
+        assert "Program-level umbrella PR" not in captured["body"]
+
+    def test_terminal_slice_uses_program_title_and_planner_authored_body(self, gateway_client):
+        """When ``program_title`` is set the helper emits the planner-authored
+        title + description / test plan / manual steps body, prefixed with
+        the umbrella banner so reviewers can tell the PR is program-level."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-3",
+                slice_name="Apply the ratchet",
+                slice_tasks=[{"id": "task-3-1", "description": "Bump the allowlist"}],
+                head="egg/issue-42/slice-3",
+                base="egg/issue-42/slice-2",
+                program_title="Decompose oversize files; ratchet allowlist",
+                program_description="The lint added in #2250 caps Python files at 1500 lines.",
+                program_test_plan="- Automated: make lint and make test-all green.",
+                program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
+            )
+        assert captured["title"] == "Decompose oversize files; ratchet allowlist"
+        body = captured["body"]
+        assert "Program-level umbrella PR" in body
+        assert "issue-42" in body
+        assert "The lint added in #2250" in body
+        assert "## Test Plan" in body
+        assert "make lint" in body
+        assert "## Manual Steps" in body
+        assert "seam tables" in body
+        # Slice-context footer survives so reviewers still see chain position.
+        assert "Slice slice-3 of pipeline issue-42" in body
+        # No "see <terminal-slice-id>'s PR" pointer on the terminal PR itself.
+        assert "program-level narrative" not in body
+
+    def test_terminal_slice_truncates_long_program_title_to_70_chars(self, gateway_client):
+        """Title-length cap is symmetric for planner-authored titles so the
+        existing PR-title guidance still holds."""
+        captured, ctx = self._capture(gateway_client)
+        long_title = "A" * 90
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-3",
+                slice_name="Tip",
+                slice_tasks=None,
+                head="egg/issue-42/slice-3",
+                base="egg/issue-42/slice-2",
+                program_title=long_title,
+            )
+        assert len(captured["title"]) == 70
+        assert captured["title"].endswith("...")
+
+
 class TestSelfIpResolution:
     """Tests for self_ip property used in temporary session registration."""
 
