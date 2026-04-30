@@ -13068,8 +13068,6 @@ def _sync_pipeline_decisions_to_contract(
     repo_path: Path,
     worktree_repo_path: Path,
     pipeline_id: str,
-    pipeline_mode: str = "issue",
-    issue_number: int | None = None,
 ) -> None:
     """Sync resolved non-phase-gate pipeline decisions to the contract.
 
@@ -15009,8 +15007,6 @@ def _run_pipeline(
                         repo_path,
                         worktree_repo_path,
                         pipeline_id,
-                        pipeline_mode,
-                        pipeline.issue_number,
                     )
                 except Exception as sync_err:
                     logger.warning(
