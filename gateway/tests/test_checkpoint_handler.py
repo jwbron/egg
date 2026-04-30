@@ -3,7 +3,7 @@
 Note: the module-level ``_stub_bare_repo_lock`` autouse fixture below replaces
 the cross-process flock primitive with a no-op for every test in this file.
 Tests added here that need to exercise the real ``bare_repo_lock`` path
-(rather than just ``_get_repo_lock``'s in-process serialization) must opt out
+(rather than just ``_get_store_lock``'s in-process serialization) must opt out
 explicitly or live in ``shared/tests/test_cross_process_lock.py`` /
 ``orchestrator/tests/test_state_store.py`` instead.
 """
@@ -34,7 +34,7 @@ def _stub_bare_repo_lock(monkeypatch):
     ``os.open`` an fd.  These tests pass sentinel paths like
     ``/fake/repo`` which would fail the mkdir.  Cross-process behaviour
     is covered by ``shared/tests/test_cross_process_lock.py`` and the
-    worktree integration test — here we only need ``_get_repo_lock``'s
+    worktree integration test — here we only need ``_get_store_lock``'s
     in-process serialization to work.
 
     Tests that need to observe ``bare_repo_lock`` acquire/release order
@@ -711,7 +711,7 @@ class TestStoreCheckpointV2Concurrency:
         import checkpoint_handler
 
         # Reset the per-repo lock dict so this test is isolated.
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
@@ -756,7 +756,7 @@ class TestStoreCheckpointV2Concurrency:
         call `git worktree prune`)."""
         import checkpoint_handler
 
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
@@ -802,7 +802,7 @@ class TestStoreCheckpointV2Concurrency:
         import checkpoint_handler
 
         # Reset the per-repo lock dict so this test is isolated.
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
@@ -850,7 +850,7 @@ class TestStoreCheckpointV2Concurrency:
 
         import checkpoint_handler
 
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
@@ -896,6 +896,74 @@ class TestStoreCheckpointV2Concurrency:
             f"saw max_in_flight={max_in_flight}"
         )
 
+    def test_concurrent_stores_with_shared_checkpoint_repo_serialized(self):
+        """Different source repos pushing to the same checkpoint_repo serialize.
+
+        Regression test for #2316: before the target-keyed lock, two source
+        repos targeting the shared ``egg/checkpoints/v2`` branch in
+        ``jwbron/egg-checkpoints`` could push concurrently, and the second
+        writer would see a non-FF rejection.
+        """
+        import threading
+        import time
+
+        import checkpoint_handler
+
+        checkpoint_handler._store_locks.clear()
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        in_flight = 0
+        max_in_flight = 0
+        observe_lock = threading.Lock()
+        # Force overlap if the lock disappears: a regression that drops
+        # the destination-keyed lock would let both threads into
+        # ``_run_git`` concurrently, the barrier would release them
+        # together, and ``max_in_flight`` would jump to 2. With the
+        # lock in place only one thread reaches the barrier; the wait
+        # times out, ``BrokenBarrierError`` is caught, and serialization
+        # is still observed.
+        barrier = threading.Barrier(2)
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal in_flight, max_in_flight
+            with observe_lock:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+            try:
+                barrier.wait(timeout=2.0)
+            except threading.BrokenBarrierError:
+                pass
+            time.sleep(0.05)
+            with observe_lock:
+                in_flight -= 1
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        def run_store(repo_path):
+            try:
+                handler.store_checkpoint_v2(
+                    self._make_checkpoint(),
+                    repo_path,
+                    checkpoint_repo="jwbron/egg-checkpoints",
+                )
+            except Exception:
+                pass
+
+        t1 = threading.Thread(target=run_store, args=("/fake/repo-a",))
+        t2 = threading.Thread(target=run_store, args=("/fake/repo-b",))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert max_in_flight == 1, (
+            "Expected serialization across source repos when checkpoint_repo "
+            f"is shared, saw max_in_flight={max_in_flight}"
+        )
+
     def test_bare_repo_lock_not_held_across_fetch_retry(self, monkeypatch):
         """Cross-process flock is released around the fetch-retry window.
 
@@ -909,7 +977,7 @@ class TestStoreCheckpointV2Concurrency:
         """
         import checkpoint_handler
 
-        checkpoint_handler._repo_locks.clear()
+        checkpoint_handler._store_locks.clear()
 
         flock_depth = [0]
         # Per-call list of (git_args, depth_at_entry).
@@ -965,6 +1033,160 @@ class TestStoreCheckpointV2Concurrency:
         assert worktree_observations, "Expected worktree git ops to be observed"
         assert all(depth >= 1 for _args, depth in worktree_observations), (
             f"Worktree ops must run under bare_repo_lock, saw {worktree_observations}"
+        )
+
+    def test_bare_repo_lock_not_held_across_regenerate_fetch(self, monkeypatch):
+        """Cross-process flock is also released around the regenerate-path fetch.
+
+        Companion to ``test_bare_repo_lock_not_held_across_fetch_retry``: the
+        non-FF push retry runs a second ``fetch +CHECKPOINT_BRANCH:CHECKPOINT_BRANCH``
+        from a separate code path (``checkpoint_handler.py:1079-1084``). It has
+        the same fetch-timeout pathology — holding the flock across it would
+        block every state-store commit and worktree op against the same bare
+        repo for up to ~60s. A regression that wrapped the regenerate fetch
+        in ``bare_repo_lock`` would not be caught by the initial-fetch test.
+        """
+        import checkpoint_handler
+
+        checkpoint_handler._store_locks.clear()
+
+        flock_depth = [0]
+        observations: list[tuple[list[str], int]] = []
+
+        @contextlib.contextmanager
+        def recording_flock(_repo_path):
+            flock_depth[0] += 1
+            try:
+                yield
+            finally:
+                flock_depth[0] -= 1
+
+        monkeypatch.setattr(checkpoint_handler, "bare_repo_lock", recording_flock)
+        monkeypatch.setattr(checkpoint_handler.time, "sleep", lambda _s: None)
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        push_count = [0]
+
+        def track_run_git(cwd, args, **kwargs):
+            observations.append((list(args), flock_depth[0]))
+            if "push" in args:
+                push_count[0] += 1
+                if push_count[0] == 1:
+                    raise checkpoint_handler.CheckpointError(
+                        "Git command failed: ! [rejected] non-fast-forward"
+                    )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+        assert result is True
+
+        push_calls = [args for args, _ in observations if "push" in args]
+        assert len(push_calls) == 2, (
+            f"Expected 2 push attempts (initial + regenerate retry), got {len(push_calls)}"
+        )
+
+        # Both the initial fetch and the regenerate-path fetch must run
+        # outside the flock. Pin the count to exactly 2 (initial + regenerate)
+        # so a regression that adds a redundant fetch *inside* the flock
+        # — masked by an at-depth-0 fetch elsewhere — is caught.
+        fetch_observations = [depth for args, depth in observations if args[:1] == ["fetch"]]
+        assert len(fetch_observations) == 2, (
+            f"Expected exactly 2 fetches (initial + regenerate), observed {len(fetch_observations)}"
+        )
+        assert all(d == 0 for d in fetch_observations), (
+            "bare_repo_lock must not be held during any fetch (including the "
+            f"regenerate-path retry), saw depths {fetch_observations}"
+        )
+
+    def test_bare_repo_lock_wraps_branch_d_in_orphan_path(self, monkeypatch):
+        """``branch -D`` and the orphan-path ``worktree add`` run under the flock.
+
+        Companion to ``test_bare_repo_lock_not_held_across_fetch_retry``: that
+        test mocks ``_branch_exists=True`` so the orphan path's ``branch -D``
+        is never executed. A regression that moved ``branch -D`` outside the
+        flock window (``checkpoint_handler.py:978-987``) — or moved
+        ``checkout --orphan`` *inside* it — would not be caught. This test
+        drives the orphan path explicitly.
+        """
+        import checkpoint_handler
+
+        checkpoint_handler._store_locks.clear()
+
+        flock_depth = [0]
+        observations: list[tuple[list[str], int]] = []
+
+        @contextlib.contextmanager
+        def recording_flock(_repo_path):
+            flock_depth[0] += 1
+            try:
+                yield
+            finally:
+                flock_depth[0] -= 1
+
+        monkeypatch.setattr(checkpoint_handler, "bare_repo_lock", recording_flock)
+        monkeypatch.setattr(checkpoint_handler.time, "sleep", lambda _s: None)
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        def track_run_git(cwd, args, **kwargs):
+            observations.append((list(args), flock_depth[0]))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=False)
+
+        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+        assert result is True
+
+        # Both bare-repo writers in the orphan path must run under the flock.
+        branch_d_observations = [
+            depth for args, depth in observations if args[:2] == ["branch", "-D"]
+        ]
+        assert branch_d_observations, "Expected `branch -D` to run in the orphan path"
+        assert all(d >= 1 for d in branch_d_observations), (
+            f"`branch -D` must run under bare_repo_lock, saw depths {branch_d_observations}"
+        )
+
+        worktree_add_observations = [
+            depth for args, depth in observations if args[:2] == ["worktree", "add"]
+        ]
+        assert worktree_add_observations, "Expected `worktree add` to run in the orphan path"
+        assert all(d >= 1 for d in worktree_add_observations), (
+            f"`worktree add` must run under bare_repo_lock, saw depths {worktree_add_observations}"
+        )
+
+        # ``branch -D`` must run *before* ``worktree add`` in the orphan path.
+        # Running ``worktree add`` against a still-existing branch would fail
+        # at the git layer in production. The two calls share the same flock
+        # window, so the only way to keep them safe is the explicit ordering
+        # at ``checkpoint_handler.py:978-987``. A regression that swapped them
+        # would still pass the depth check above; this assertion catches that.
+        observed_args = [args for args, _ in observations]
+        first_branch_d = next(
+            i for i, args in enumerate(observed_args) if args[:2] == ["branch", "-D"]
+        )
+        first_worktree_add = next(
+            i for i, args in enumerate(observed_args) if args[:2] == ["worktree", "add"]
+        )
+        assert first_branch_d < first_worktree_add, (
+            "`branch -D` must run before `worktree add` in the orphan path "
+            f"(saw branch -D at index {first_branch_d}, worktree add at index {first_worktree_add})"
+        )
+
+        # ``checkout --orphan`` runs inside the temp worktree, not the bare
+        # repo, so it must run *outside* the flock. A regression that nested
+        # it inside the flock window would inflate the cross-process critical
+        # section unnecessarily.
+        orphan_observations = [
+            depth for args, depth in observations if args[:2] == ["checkout", "--orphan"]
+        ]
+        assert orphan_observations, "Expected `checkout --orphan` to run in the orphan path"
+        assert all(d == 0 for d in orphan_observations), (
+            f"`checkout --orphan` must run outside bare_repo_lock, saw depths {orphan_observations}"
         )
 
 
@@ -1941,7 +2163,7 @@ class TestPushRetryInStore:
 
     @patch("time.sleep")
     def test_push_retries_on_non_fast_forward(self, mock_sleep):
-        """Push fails with non-fast-forward, fetch+rebase succeeds, second push succeeds."""
+        """Push fails with non-fast-forward, regenerate against fresh tip succeeds."""
         import checkpoint_handler
 
         handler, checkpoint = self._make_handler_and_checkpoint()
@@ -1966,15 +2188,25 @@ class TestPushRetryInStore:
 
         push_calls = [c for c in git_calls if "push" in c[1]]
         assert len(push_calls) == 2, f"Expected 2 push attempts, got {len(push_calls)}"
-        # Verify fetch+rebase happened between pushes
-        fetch_after_push = [
-            c
-            for c in git_calls
-            if "fetch" in c[1] and git_calls.index(c) > git_calls.index(push_calls[0])
-        ]
-        rebase_calls = [c for c in git_calls if "rebase" in c[1]]
+        # Verify regenerate flow ran between pushes:
+        # checkout --detach + fetch + reset --hard + re-add + re-commit
+        first_push_idx = git_calls.index(push_calls[0])
+        post_push = git_calls[first_push_idx + 1 :]
+        detach_after_push = [c for c in post_push if "checkout" in c[1] and "--detach" in c[1]]
+        fetch_after_push = [c for c in post_push if "fetch" in c[1]]
+        reset_after_push = [c for c in post_push if "reset" in c[1]]
+        commit_after_push = [c for c in post_push if "commit" in c[1]]
+        assert len(detach_after_push) >= 1, (
+            "Expected checkout --detach before fetch so the local "
+            "CHECKPOINT_BRANCH ref is updatable from the orphan path"
+        )
         assert len(fetch_after_push) >= 1, "Expected fetch after failed push"
-        assert len(rebase_calls) >= 1, "Expected rebase after failed push"
+        assert len(reset_after_push) >= 1, "Expected reset --hard after failed push"
+        assert len(commit_after_push) >= 1, "Expected re-commit after regenerate"
+        # No rebase under the new strategy
+        assert not [c for c in git_calls if "rebase" in c[1]], (
+            "rebase should not be invoked under the regenerate strategy"
+        )
 
     @patch("time.sleep")
     def test_push_raises_after_max_attempts(self, mock_sleep):
@@ -2062,37 +2294,40 @@ class TestPushRetryInStore:
         )
 
     @patch("time.sleep")
-    def test_push_fails_when_rebase_in_retry_fails(self, mock_sleep):
-        """Rebase within the retry loop fails — returns False."""
+    def test_push_fails_when_regenerate_commit_fails(self, mock_sleep):
+        """Regenerate-step commit failure during retry surfaces as False."""
         import checkpoint_handler
 
         handler, checkpoint = self._make_handler_and_checkpoint()
         git_calls = []
         push_count = 0
+        push_failed = False
 
         def track_run_git(cwd, args, **kwargs):
-            nonlocal push_count
+            nonlocal push_count, push_failed
             git_calls.append((cwd, args, kwargs))
             if "push" in args:
                 push_count += 1
                 if push_count == 1:
+                    push_failed = True
                     raise checkpoint_handler.CheckpointError(
                         "Git command failed: ! [rejected] non-fast-forward"
                     )
-            if "rebase" in args:
+            # Fail the re-commit during the regenerate step.
+            if push_failed and args[:1] == ["commit"]:
                 raise checkpoint_handler.CheckpointError(
-                    "Git command failed: CONFLICT (content): Merge conflict"
+                    "Git command failed: nothing to commit, working tree clean"
                 )
             return MagicMock(returncode=0, stdout="", stderr="")
 
         handler._run_git = track_run_git
 
         result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
-        assert result is False, "Expected store to return False on rebase failure"
+        assert result is False, "Expected store to return False on regenerate-commit failure"
 
         push_calls = [c for c in git_calls if "push" in c[1]]
         assert len(push_calls) == 1, (
-            f"Expected 1 push attempt before rebase failure, got {len(push_calls)}"
+            f"Expected 1 push attempt before regenerate failure, got {len(push_calls)}"
         )
 
 
