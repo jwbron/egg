@@ -1541,6 +1541,21 @@ Tier 1 (orchestrator) escalates directly to the overseer/HITL on heartbeat/progr
 
 Use `git show origin/<branch>:.egg-state/drafts/` to list draft files on the remote branch and verify the expected file exists.
 
+**"No materialised worktree found for phase gate persistence; falling back to main repo path. Contract write may silently no-op."**: The orchestrator entered this warning path during `AWAITING_HUMAN` recovery — the human resolved the phase gate but the pipeline's worktree could not be located. Common causes:
+- The worktree was cleaned up between the pipeline entering `AWAITING_HUMAN` and the human resolving the decision (cleanup race)
+- The orchestrator restarted between those two events and the worktree directory was not preserved
+
+**Impact**: Phase gate context/feedback (e.g., "Use adapter pattern") may not reach the next phase's agents — `_persist_phase_gate_resolution()` writes to `.egg-state/` under the worktree, and without a worktree the write targets the orchestrator's main repo. The contract write typically no-ops there because the contract file is absent; it could in principle land against the orchestrator's tree if a same-id contract happens to exist, but that's against the wrong tree and still won't reach the pipeline branch. The push is also skipped.
+
+**Recovery**: If the context is important, add the resolution manually to the contract before the next phase starts. This applies to phase gates that fire *after* the plan phase has populated contract tasks (e.g., implement→test, test→pr):
+```bash
+egg-contract update-notes --task <id> --notes "[Phase gate: <phase>] <resolution context>"
+```
+
+Note: `update-notes` writes to a task's `notes` field, not `contract.decisions`, so it's a workaround rather than a true mirror of `_persist_phase_gate_resolution()` — there is no CLI command that adds a *resolved* decision (`egg-contract add-decision` only creates unresolved HITL decisions). Next-phase agents will see the context in task notes but not as a structured resolved decision.
+
+For pre-plan phase gates (refine→plan), there are no contract tasks yet to attach notes to. In that case, prepend the resolution context directly to the next phase's draft once it materialises (e.g., `.egg-state/drafts/<issue>-plan.md`) so the planner picks it up.
+
 ### PR-Phase State File Troubleshooting
 
 The PR phase runs three operations before creating the PR: agent-outputs cleanup, BRC history re-write, and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
