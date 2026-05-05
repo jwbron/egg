@@ -169,7 +169,7 @@ class TestRestartAgentContainer:
     def test_restart_limit_exceeded_raises(self, spawner, mock_docker_client, mock_gateway_client):
         """Restart should raise ContainerSpawnError when limit is exceeded."""
         # Pre-set restart count to the limit
-        spawner._restart_counts[("issue-100", "coder")] = 2
+        spawner._restart_counts[("issue-100", "coder", None)] = 2
 
         with pytest.raises(ContainerSpawnError, match="Restart limit"):
             spawner.restart_agent_container(
@@ -182,7 +182,7 @@ class TestRestartAgentContainer:
 
     def test_restart_custom_max_restarts(self, spawner, mock_docker_client, mock_gateway_client):
         """Custom max_restarts should be respected."""
-        spawner._restart_counts[("issue-100", "coder")] = 5
+        spawner._restart_counts[("issue-100", "coder", None)] = 5
 
         with pytest.raises(ContainerSpawnError, match="Restart limit"):
             spawner.restart_agent_container(
@@ -303,14 +303,14 @@ class TestRestartCountManagement:
 
     def test_get_restart_count_after_restart(self, spawner):
         """Count should increment after manual tracking."""
-        spawner._restart_counts[("issue-100", "coder")] = 3
+        spawner._restart_counts[("issue-100", "coder", None)] = 3
         assert spawner.get_restart_count("issue-100", "coder") == 3
 
     def test_reset_restart_counts_clears_pipeline(self, spawner):
         """reset_restart_counts should clear all counts for a pipeline."""
-        spawner._restart_counts[("issue-100", "coder")] = 2
-        spawner._restart_counts[("issue-100", "tester")] = 1
-        spawner._restart_counts[("issue-200", "coder")] = 3
+        spawner._restart_counts[("issue-100", "coder", None)] = 2
+        spawner._restart_counts[("issue-100", "tester", None)] = 1
+        spawner._restart_counts[("issue-200", "coder", None)] = 3
 
         spawner.reset_restart_counts("issue-100")
 
@@ -762,6 +762,159 @@ class TestRestartAgentEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Issue #2410: slice_id forwarding through the operator restart route
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartAgentEndpointSliceScope:
+    """``slice_id`` query / body parameter is validated and forwarded (#2410)."""
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_slice_id_query_param_forwarded_to_spawner(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """``?slice_id=slice-2`` reaches ``restart_agent_container``."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
+            json={"reason": "Slice agent stalled"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["slice_id"] == "slice-2"
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_slice_id_body_field_forwarded_to_spawner(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """``{"slice_id": "slice-2"}`` in the body reaches the spawner."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={"reason": "Slice agent stalled", "slice_id": "slice-2"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["slice_id"] == "slice-2"
+
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_invalid_slice_id_returns_400(self, mock_repo, mock_resolve, client):
+        """Non-canonical slice_id values are rejected with 400 before spawn."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        # Path-separator and shell-metacharacter values must not reach
+        # the spawner — defense-in-depth against a future caller that
+        # forgets the upstream regex.
+        for bad in ("phase-2", "slice-2/etc", "../slice-2", "slice-"):
+            response = client.post(
+                f"/api/v1/pipelines/issue-100/agents/coder/restart?slice_id={bad}",
+                json={},
+            )
+            assert response.status_code == 400, f"slice_id={bad!r} should be rejected"
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_no_slice_id_forwards_none(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Pipeline-level callers (no slice_id) get ``slice_id=None`` forwarded."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={"reason": "Pipeline-level restart"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["slice_id"] is None
+
+
+# ---------------------------------------------------------------------------
 # Issue #1695: mode=None raises ValueError (issue 7)
 # ---------------------------------------------------------------------------
 
@@ -967,7 +1120,7 @@ class TestRestartConcurrencyGuard:
     ):
         """If one thread consumes the last restart, the other should get limit error."""
         # Pre-set count to 1 with max_restarts=2 — only one more slot
-        spawner._restart_counts[("issue-100", "coder")] = 1
+        spawner._restart_counts[("issue-100", "coder", None)] = 1
 
         results = []
         errors = []
@@ -1001,17 +1154,21 @@ class TestRestartConcurrencyGuard:
         assert "Restart limit" in str(errors[0])
 
     def test_restart_lock_created_per_key(self, spawner):
-        """Each (pipeline_id, agent_role) pair should get its own lock."""
-        key1 = ("issue-100", "coder")
-        key2 = ("issue-100", "tester")
-        key3 = ("issue-200", "coder")
+        """Each (pipeline_id, agent_role, slice_id) tuple should get its own lock."""
+        key1 = ("issue-100", "coder", None)
+        key2 = ("issue-100", "tester", None)
+        key3 = ("issue-200", "coder", None)
+        # Slice scope splits the key further (#2410).
+        key4 = ("issue-100", "coder", "slice-2")
 
         lock1 = spawner._get_restart_lock(key1)
         lock2 = spawner._get_restart_lock(key2)
         lock3 = spawner._get_restart_lock(key3)
+        lock4 = spawner._get_restart_lock(key4)
 
         assert lock1 is not lock2, "Different agents should have different locks"
         assert lock1 is not lock3, "Different pipelines should have different locks"
+        assert lock1 is not lock4, "Different slice scopes should have different locks"
 
         # Same key should return the same lock
         assert spawner._get_restart_lock(key1) is lock1
@@ -1034,28 +1191,28 @@ class TestRestartLockCleanup:
         lock for the same key — breaking mutual exclusion.
         """
         # Create some locks by accessing them
-        spawner._get_restart_lock(("issue-100", "coder"))
-        spawner._get_restart_lock(("issue-100", "tester"))
-        spawner._get_restart_lock(("issue-200", "coder"))
+        spawner._get_restart_lock(("issue-100", "coder", None))
+        spawner._get_restart_lock(("issue-100", "tester", None))
+        spawner._get_restart_lock(("issue-200", "coder", None))
 
         # Set some counts
-        spawner._restart_counts[("issue-100", "coder")] = 2
-        spawner._restart_counts[("issue-100", "tester")] = 1
-        spawner._restart_counts[("issue-200", "coder")] = 3
+        spawner._restart_counts[("issue-100", "coder", None)] = 2
+        spawner._restart_counts[("issue-100", "tester", None)] = 1
+        spawner._restart_counts[("issue-200", "coder", None)] = 3
 
         spawner.reset_restart_counts("issue-100")
 
         # Counts for issue-100 should be cleared
-        assert spawner._restart_counts.get(("issue-100", "coder"), 0) == 0
-        assert spawner._restart_counts.get(("issue-100", "tester"), 0) == 0
+        assert spawner._restart_counts.get(("issue-100", "coder", None), 0) == 0
+        assert spawner._restart_counts.get(("issue-100", "tester", None), 0) == 0
 
         # Locks for issue-100 should be retained (not deleted)
-        assert ("issue-100", "coder") in spawner._restart_locks
-        assert ("issue-100", "tester") in spawner._restart_locks
+        assert ("issue-100", "coder", None) in spawner._restart_locks
+        assert ("issue-100", "tester", None) in spawner._restart_locks
 
         # issue-200 should be untouched
-        assert spawner._restart_counts.get(("issue-200", "coder"), 0) == 3
-        assert ("issue-200", "coder") in spawner._restart_locks
+        assert spawner._restart_counts.get(("issue-200", "coder", None), 0) == 3
+        assert ("issue-200", "coder", None) in spawner._restart_locks
 
     def test_restart_lock_initialization(self):
         """Restart lock dicts should be initialised in constructor."""

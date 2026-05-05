@@ -107,6 +107,7 @@ try:
         PipelineStatus,
         ReviewVerdict,
     )
+    from ..slice_id_validation import extract_slice_id
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -153,6 +154,7 @@ except ImportError:
         PipelineStatus,
         ReviewVerdict,
     )
+    from slice_id_validation import extract_slice_id  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -2270,9 +2272,17 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         pipeline_id: Pipeline ID
         agent_role: Agent role to restart (e.g. "coder", "tester")
 
+    Query string (optional):
+        slice_id: Slice scope (``slice-<N>``). When supplied, the
+            slice-scoped Job and worktree are restarted, ``EGG_SLICE_ID``
+            is propagated to the new Job, and consensus reset targets
+            the per-slice tracker. Pipeline-level agents omit it.
+            ``slice_id`` may also be supplied via the JSON body.
+
     Request body (optional):
         {
-            "reason": "Human-readable reason for the restart"
+            "reason": "Human-readable reason for the restart",
+            "slice_id": "slice-2"
         }
 
     Response:
@@ -2316,6 +2326,16 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
 
     body = request.get_json(silent=True) or {}
     reason = body.get("reason", "Manual restart via API")
+
+    # Slice scope (#2410): query param wins over body so the URL
+    # form is unambiguous; both forms validate against the canonical
+    # ``slice-<N>`` shape via ``extract_slice_id``.
+    raw_slice_id = request.args.get("slice_id")
+    slice_payload = {"slice_id": raw_slice_id} if raw_slice_id is not None else body
+    try:
+        slice_id = extract_slice_id(slice_payload)
+    except ValueError as e:
+        return make_error_response(str(e), status_code=400)
 
     # Restart the container via spawner
     spawner = _get_spawner()
@@ -2423,6 +2443,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             reason=reason,
             spawn_max_retries=pipeline.config.spawn_max_retries,
             spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
+            slice_id=slice_id,
         )
     except (ContainerSpawnError, KubernetesSpawnError) as e:
         # Revert early status update — the agent is not actually running.
@@ -2442,6 +2463,8 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # Spawn succeeded — now reset consensus state for this agent.
     # If consensus reset fails, log a warning but don't fail the restart:
     # the restarted agent will re-enter consensus on its own.
+    # Slice-scoped restarts (#2410) target the per-slice tracker; the
+    # pipeline-level tracker has no record of the slice agent.
     try:
         try:
             from peer_consensus import get_peer_consensus_tracker
@@ -2450,13 +2473,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 get_peer_consensus_tracker,  # type: ignore[import-not-found]
             )
 
-        tracker = get_peer_consensus_tracker(pipeline_id)
+        tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
         if tracker:
             tracker.remove_agent(agent_role)
             logger.info(
                 "Reset consensus state for agent",
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
+                slice_id=slice_id,
             )
     except ImportError:
         pass
@@ -2465,6 +2489,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             "Failed to reset consensus state (agent will re-enter consensus)",
             pipeline_id=pipeline_id,
             agent_role=agent_role,
+            slice_id=slice_id,
             error=str(e),
         )
 

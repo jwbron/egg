@@ -902,7 +902,7 @@ class TestRestartAgentJob:
         """Restart raises when limit is exceeded."""
         from kubernetes_spawner import KubernetesSpawnError
 
-        spawner._restart_counts[("pipe-1", "coder")] = 2
+        spawner._restart_counts[("pipe-1", "coder", None)] = 2
         with pytest.raises(KubernetesSpawnError, match="Restart limit.*exceeded"):
             spawner.restart_agent_job(
                 pipeline_id="pipe-1",
@@ -991,9 +991,9 @@ class TestRestartCounts:
 
     def test_reset_restart_counts(self, spawner):
         """reset_restart_counts clears all counts for a pipeline."""
-        spawner._restart_counts[("pipe-1", "coder")] = 3
-        spawner._restart_counts[("pipe-1", "tester")] = 1
-        spawner._restart_counts[("pipe-2", "coder")] = 2
+        spawner._restart_counts[("pipe-1", "coder", None)] = 3
+        spawner._restart_counts[("pipe-1", "tester", None)] = 1
+        spawner._restart_counts[("pipe-2", "coder", None)] = 2
 
         spawner.reset_restart_counts("pipe-1")
 
@@ -1281,6 +1281,156 @@ class TestSpawnAgentJobSliceScope:
         spawn_fn(role=AgentRole.CODER, branch="egg/issue-2261-v7/slice-2")
         cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
         assert cw_kwargs["container_id"] == "issue-2261-v7-slice-2-coder"
+
+
+class TestRestartAgentJobSliceScope:
+    """``restart_agent_job`` threads ``slice_id`` into delete + respawn (#2410)."""
+
+    def test_delete_targets_slice_scoped_job_name(self, spawner, mock_k8s_client, mock_gateway):
+        """A slice-scoped restart must delete the slice-scoped Job, not the pipeline-level one.
+
+        Without the fix, ``delete_job`` was called against ``egg-sandbox-egg-agent-{pid}-{role}``
+        — leaving the actual ``egg-agent-{pid}-slice-{N}-{role}`` Job running while a fresh
+        non-scoped Job was spawned alongside it.
+        """
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        delete_call = mock_k8s_client.delete_job.call_args_list[-1]
+        assert delete_call.args[0] == "egg-sandbox-egg-agent-issue-2261-v7-slice-2-coder"
+
+    def test_gateway_session_cleanup_uses_slice_scoped_container_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """The gateway session is keyed by the slice-scoped unprefixed name."""
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        gw_call = mock_gateway.delete_session_by_container.call_args_list[-1]
+        assert gw_call.args[0] == "egg-agent-issue-2261-v7-slice-2-coder"
+
+    def test_respawn_uses_slice_scoped_worktree_id(self, spawner, mock_k8s_client, mock_gateway):
+        """The respawned Job mounts the slice-scoped worktree.
+
+        Pre-spawn ``create_worktrees`` is keyed by the slice-scoped container_id
+        — failure mode #2 from the issue (worktree wrong / absent) is fixed by
+        threading slice_id into the spawn call.
+        """
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert cw_kwargs["container_id"] == "issue-2261-v7-slice-2-coder"
+
+    def test_restart_count_is_per_slice(self, spawner, mock_k8s_client, mock_gateway):
+        """Concurrent slices each get an independent restart budget."""
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-3",
+        )
+        # Each slice's coder has burned exactly one budget slot.
+        assert spawner.get_restart_count("issue-2261-v7", "coder", slice_id="slice-2") == 1
+        assert spawner.get_restart_count("issue-2261-v7", "coder", slice_id="slice-3") == 1
+        # The pipeline-level bucket is untouched.
+        assert spawner.get_restart_count("issue-2261-v7", "coder") == 0
+
+    def test_reset_restart_counts_clears_slice_buckets(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Per-pipeline reset must sweep every slice bucket too."""
+        spawner._restart_counts[("issue-2261-v7", "coder", "slice-2")] = 3
+        spawner._restart_counts[("issue-2261-v7", "coder", "slice-3")] = 2
+        spawner._restart_counts[("issue-2261-v7", "coder", None)] = 1
+        spawner._restart_counts[("issue-9999", "coder", "slice-2")] = 4
+
+        spawner.reset_restart_counts("issue-2261-v7")
+
+        assert spawner.get_restart_count("issue-2261-v7", "coder", slice_id="slice-2") == 0
+        assert spawner.get_restart_count("issue-2261-v7", "coder", slice_id="slice-3") == 0
+        assert spawner.get_restart_count("issue-2261-v7", "coder") == 0
+        # Sibling pipeline untouched.
+        assert spawner.get_restart_count("issue-9999", "coder", slice_id="slice-2") == 4
+
+
+class TestDetectUncommittedChangesSliceScope:
+    """``detect_uncommitted_changes`` inspects the slice-scoped worktree (#2410)."""
+
+    def test_detects_changes_in_slice_scoped_worktree(self, spawner, tmp_path):
+        worktree_dir = tmp_path / "issue-2261-v7-slice-2-coder" / "owner-repo"
+        worktree_dir.mkdir(parents=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=" M file1.py\n?? file2.py\n",
+            )
+            result = spawner.detect_uncommitted_changes(
+                "issue-2261-v7", "coder", slice_id="slice-2"
+            )
+
+        assert result is not None
+        assert result["worktree_id"] == "issue-2261-v7-slice-2-coder"
+        assert result["slice_id"] == "slice-2"
+        assert result["file_count"] == 2
+
+    def test_pipeline_level_call_does_not_pick_up_slice_worktree(self, spawner, tmp_path):
+        """Without slice_id, only the pipeline-level worktree is inspected.
+
+        A slice agent's uncommitted work must not surface through a
+        pipeline-level call — they're separate worktrees with separate
+        ownership semantics.
+        """
+        # Only the slice-scoped worktree exists on disk.
+        slice_dir = tmp_path / "issue-2261-v7-slice-2-coder" / "owner-repo"
+        slice_dir.mkdir(parents=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=" M file1.py\n")
+            result = spawner.detect_uncommitted_changes("issue-2261-v7", "coder")
+
+        # No pipeline-level worktree → returns None even though the slice worktree
+        # has uncommitted changes.
+        assert result is None
+
+    def test_slice_call_does_not_pick_up_pipeline_worktree(self, spawner, tmp_path):
+        """Symmetric guard: a slice-scoped lookup must not surface pipeline-level work."""
+        # Only the pipeline-level worktree exists on disk.
+        pipeline_dir = tmp_path / "issue-2261-v7-coder" / "owner-repo"
+        pipeline_dir.mkdir(parents=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=" M file1.py\n")
+            result = spawner.detect_uncommitted_changes(
+                "issue-2261-v7", "coder", slice_id="slice-2"
+            )
+
+        assert result is None
 
 
 class TestCleanupPipelineSliceWorktrees:

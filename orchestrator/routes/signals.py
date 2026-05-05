@@ -39,6 +39,19 @@ from egg_contracts.loader import ContractNotFoundError
 from egg_contracts.orchestrator import create_orchestrator
 from handoffs import AgentOutput, save_agent_output
 from models import AgentExecutionStatus, AgentRole, Pipeline, PipelineStatus
+
+# Slice-aware consensus routing (#2403): per-slice agents tag their
+# signals with a ``slice_id`` field on the request body so the
+# orchestrator routes each ``CONSENSUS_*`` to the per-slice tracker
+# (``peer_consensus._tracker_key`` composes ``{pipeline_id}/{slice_id}``).
+# The canonical extractor lives in ``slice_id_validation`` so the
+# operator-triggered restart route (#2410) and the gateway-bound branch
+# builders in ``concurrent_executor`` validate against the same shape.
+# The alias below preserves the existing private name for the many
+# handler call sites in this file.
+from slice_id_validation import (
+    extract_slice_id as _extract_slice_id,
+)
 from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
@@ -64,45 +77,6 @@ _AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, ContractAgentRole] = {
 }
 
 _SIGTERM_PATTERN = re.compile(r"\b143\b")
-
-# Slice-aware consensus routing (#2403): per-slice agents tag their
-# signals with a ``slice_id`` field on the request body so the
-# orchestrator routes each ``CONSENSUS_*`` to the per-slice tracker
-# (``peer_consensus._tracker_key`` composes ``{pipeline_id}/{slice_id}``).
-# Defense-in-depth: validate the shape here even though the spawn-side
-# is already canonical — a future caller that forgets the upstream
-# regex must not be able to smuggle path separators or shell
-# metacharacters into a tracker registry key.
-#
-# Note: the contract-side ``Slice.id`` field accepts the broader
-# pattern ``^(?:slice|phase)-[0-9]+$`` (egg_contracts.models.Slice) for
-# backward compatibility with pre-#2137 contracts. The signal-side
-# pattern below is intentionally narrower — only the canonical
-# ``slice-<N>`` shape — because the model loader's
-# ``_migrate_phases_to_slices`` validator rewrites legacy
-# ``phase-<N>`` ids to ``slice-<N>`` on contract load, so every
-# slice_id reaching the spawn / signal path is already canonical. If
-# a future migration tool ever constructs a ``Slice`` from raw legacy
-# JSON without going through the loader, the resulting ``phase-<N>``
-# id will be rejected here (as it should — the registry key MUST be
-# canonical so the per-slice tracker can be looked up).
-_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
-
-
-def _extract_slice_id(data: dict[str, Any]) -> str | None:
-    """Return the ``slice_id`` from the signal payload, validated.
-
-    Returns ``None`` when no slice scope was supplied (the agent is
-    pipeline-level, not slice-scoped). Raises ``ValueError`` when the
-    caller supplied a non-empty value that does not match the
-    canonical ``slice-<N>`` shape.
-    """
-    raw = data.get("slice_id")
-    if raw is None or raw == "":
-        return None
-    if not isinstance(raw, str) or not _SLICE_ID_PATTERN.fullmatch(raw):
-        raise ValueError(f"Invalid slice_id {raw!r}: must match 'slice-<N>'")
-    return raw
 
 
 def _is_sigterm_after_completion(pipeline: Pipeline, error_message: str) -> bool:
