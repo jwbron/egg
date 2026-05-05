@@ -26,11 +26,12 @@ except ImportError:
 
 logger = get_logger("orchestrator.startup_reconciliation")
 
-# K8s label that scopes a pod to a specific pipeline.  Mirrors
-# ``kubernetes_client.LABEL_PIPELINE_ID`` — duplicated here as a literal so
-# this module stays importable when the kubernetes client modules are not
-# on sys.path (e.g. unit tests that mock the docker client).
-_LABEL_PIPELINE_ID = "egg.pipeline.id"
+# K8s label that scopes a pod to a specific pipeline.  Imported from
+# ``kubernetes_client`` so the literal lives in exactly one place.  Safe at
+# import time because ``kubernetes_client`` only imports the ``kubernetes``
+# pip package inside method bodies, so this module stays importable even
+# in test environments that don't install it.
+from kubernetes_client import LABEL_PIPELINE_ID as _LABEL_PIPELINE_ID
 
 
 def reconcile_stale_containers(store: object, docker_client: object) -> int:
@@ -188,6 +189,16 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
         # treat that drift as a problem the running orchestrator will
         # reconcile naturally instead of terminating the pipeline at
         # startup (#2411).
+        #
+        # On failure we fail-safe (leave the pipeline RUNNING and skip).
+        # In practice both queries route through the same
+        # ``KubernetesClient.list_containers`` → ``list_namespaced_pod`` —
+        # if the global query at line 63 already succeeded, a per-pipeline
+        # failure is rare enough that the safe choice is to defer to the
+        # running orchestrator's reconciliation rather than risk repeating
+        # the #2411 false-positive on misbehaving clusters.  The genuinely
+        # orphaned case (zero live pods) is rare and surfaceable elsewhere
+        # — drift cases are the active concern here.
         try:
             pipeline_live_containers = docker_client.list_containers(  # type: ignore[attr-defined]
                 labels={_LABEL_PIPELINE_ID: pipeline_id},
@@ -196,11 +207,12 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
         except Exception as e:
             logger.warning(
                 "Startup reconciliation: pipeline-scoped container query failed, "
-                "falling back to global live-id check",
+                "leaving pipeline RUNNING (deferring to running orchestrator's "
+                "reconciliation rather than risk a #2411-style false positive)",
                 pipeline_id=pipeline_id,
                 error=str(e),
             )
-            pipeline_live_ids = set()
+            continue
 
         if pipeline_live_ids:
             logger.info(
