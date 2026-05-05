@@ -1507,12 +1507,20 @@ def git_push() -> tuple[Response, int] | Response:
     # Note: Only configured roles are checked. The SYSTEM role is typically NOT
     # blocked because SYSTEM never makes git pushes - it only initializes contracts
     # via the contract API. The gateway itself runs without a role context.
+    #
+    # Infrastructure pushes (checkpoint branches, pipeline-state, and synthetic-
+    # session slice integration-branch creation pushes; see is_infrastructure_push
+    # above) are exempt: the changed-files diff against `main` would otherwise pull
+    # in every file modified on the parent branch's history (drafts, contracts,
+    # brc-history, ...) and falsely block a logical no-op branch-creation push
+    # (#2372).  The downstream anchor/phase/agent-restriction checks already gate
+    # on `not is_infrastructure_push`; this gate makes the role check symmetric.
     session_role = None
     changed_files = None  # May be populated by role check, reused by phase check
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
 
-    if session_role:
+    if session_role and not is_infrastructure_push:
         # Get the list of files being pushed
         changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
 
