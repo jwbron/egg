@@ -543,6 +543,16 @@ _WAIT_STATUS_TERMINAL_STATUSES = frozenset({"complete", "failed", "cancelled"})
 _WAIT_STATUS_TERMINAL_EVENTS = frozenset(
     {"pipeline.completed", "pipeline.failed", "pipeline.cancelled"}
 )
+# Map terminal ``status`` strings to the Path-A ``event_type`` they
+# correspond to.  Used by the Path-B defense-in-depth path (issue #2378)
+# so synthetic-terminal JSON lines carry the same ``event_type`` field
+# Path-A consumers already key off (``failed``/``completed``/
+# ``cancelled``).
+_WAIT_STATUS_TO_EVENT_TYPE = {
+    "complete": "pipeline.completed",
+    "failed": "pipeline.failed",
+    "cancelled": "pipeline.cancelled",
+}
 
 
 def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
@@ -653,6 +663,7 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
                     "cursor": envelope.get("cursor"),
                     "current_phase": envelope.get("current_phase"),
                     "status": status_str,
+                    "event_type": _WAIT_STATUS_TO_EVENT_TYPE[status_str],
                 }
                 print(json.dumps(line), flush=True)
                 return 0

@@ -3020,7 +3020,7 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
     event_bus = get_event_bus()
 
     # Late-subscriber short-circuit (issue #2378): if the pipeline is
-    # already terminal at subscription time, the relevant ``pipeline.*``
+    # already terminal at request time, the relevant ``pipeline.*``
     # event was emitted before this call could subscribe — and the
     # snap-to-tip below would cement that miss.  Synthesize a Path-A
     # envelope so callers don't loop until the 1-hour cap.  This covers

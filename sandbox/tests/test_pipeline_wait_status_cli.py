@@ -354,6 +354,14 @@ class TestPathBTerminalShortCircuit:
         assert line["status"] == status
         assert line["current_phase"] == "implement"
         assert line["cursor"] == "msg:|evt:0"
+        # event_type mirrors the Path-A line shape so downstream
+        # consumers can key off it uniformly (issue #2378 review).
+        expected_event = {
+            "failed": "pipeline.failed",
+            "complete": "pipeline.completed",
+            "cancelled": "pipeline.cancelled",
+        }[status]
+        assert line["event_type"] == expected_event
 
     def test_no_change_running_still_loops(self):
         """Regression guard: only terminal statuses short-circuit Path-B."""

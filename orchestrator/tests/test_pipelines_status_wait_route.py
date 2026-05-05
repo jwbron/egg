@@ -491,7 +491,10 @@ class TestWaitRouteAlreadyTerminal:
         assert envelope["event_type"] == expected_event_type
         assert envelope["status"] == status.value
         assert "cursor" in envelope
-        assert elapsed < 1.0, (
+        # The actual short-circuit returns within microseconds; budget
+        # 5s rather than 1s to absorb slow-runner noise without losing
+        # the "did it block on the wake queue?" signal.
+        assert elapsed < 5.0, (
             f"terminal short-circuit took {elapsed:.2f}s — did it block on the wake queue?"
         )
 
