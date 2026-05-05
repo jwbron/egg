@@ -139,15 +139,18 @@ def health_check() -> tuple[Response, int]:
 @health_bp.route("/ready", methods=["GET"])
 def readiness_check() -> tuple[Response, int]:
     """
-    Readiness check — kubelet ``readinessProbe`` target.
+    Readiness check — in-cluster operator-client target.
+
+    With #2414 the kubelet ``readinessProbe`` is retargeted at the
+    standalone listener on the ``probe`` port; this Flask route stays
+    on the API port for in-cluster clients (dashboards,
+    ``mcp__egg__check_health``, the orchestrator CLI's ``health``
+    command). Both surfaces share the body via
+    :func:`probe_listener.ready_payload`, so the JSON shape stays in
+    sync regardless of which port the caller hits.
 
     Returns 200 when the cached state-store probe is fresh and healthy,
     503 otherwise. No I/O on the request path: this is a dict read.
-
-    ``state_store`` is the per-repo map (#2176), matching ``/api/v1/health``
-    so operators see the same shape regardless of which probe they hit.
-    ``state_store_summary`` carries the aggregate human string for
-    skip/starting/stale cases where the per-repo map is empty.
 
     Response (200)::
 
@@ -163,29 +166,31 @@ def readiness_check() -> tuple[Response, int]:
          "state_store_summary": "<aggregate error or 'starting'>",
          "fresh": false, "age_seconds": null}
     """
-    snap = get_state_store_probe().snapshot()
-    ready = bool(snap["healthy"]) and bool(snap["fresh"])
-    body = {
-        "ready": ready,
-        "state_store": snap["repos"],
-        "state_store_summary": snap["message"],
-        "fresh": snap["fresh"],
-        "age_seconds": snap["age_seconds"],
-    }
-    return jsonify(body), (200 if ready else 503)
+    from probe_listener import ready_payload
+
+    status, body = ready_payload()
+    return jsonify(body), status
 
 
 @health_bp.route("/live", methods=["GET"])
 def liveness_check() -> tuple[Response, int]:
     """
-    Liveness check — kubelet ``livenessProbe`` target.
+    Liveness check — in-cluster operator-client target.
+
+    With #2414 the kubelet ``livenessProbe`` is retargeted at the
+    standalone listener on the ``probe`` port; this Flask route stays
+    on the API port for in-cluster clients. The body is shared with
+    :func:`probe_listener.live_payload` so both surfaces stay in sync.
 
     Pure JSON return: confirms the process is up and the WSGI listener
     can serve requests. Does not consult the state-store cache — a
     state-store wedge takes the pod out of *traffic rotation* via
     ``/ready``, but does not justify a pod *restart* via ``/live``.
     """
-    return jsonify({"alive": True}), 200
+    from probe_listener import live_payload
+
+    status, body = live_payload()
+    return jsonify(body), status
 
 
 @health_bp.route("/pipelines/<pipeline_id>/health", methods=["GET"])

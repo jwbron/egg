@@ -105,22 +105,33 @@ class _ProbeHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - signature
         return
 
-    def do_GET(self) -> None:  # noqa: N802 - stdlib signature
-        path = self.path.split("?", 1)[0]
+    def _resolve(self, path: str) -> tuple[int, dict[str, Any]]:
+        """Compute the (status, body) tuple for a probe request.
+
+        Centralises the GET/HEAD branching so both verbs see the same
+        status, the same defensive 503-on-cache-exception path, and the
+        same logging. Per RFC 7231 §4.3.2 a HEAD response MUST report
+        the same headers (including Content-Length) it would have sent
+        on a GET, which means HEAD has to compute the body too — it just
+        does not write it.
+        """
         if path == LIVE_PATH:
-            status, body = live_payload()
-        elif path == READY_PATH:
+            return live_payload()
+        if path == READY_PATH:
             try:
-                status, body = ready_payload()
+                return ready_payload()
             except Exception as exc:
                 # Defensive: a probe-cache exception must not take the
-                # listener down. Surface as 503 so the kubelet pulls the
-                # pod from rotation but does not restart it.
-                logger.warning("Probe ready handler raised", error=str(exc))
-                status, body = 503, {"ready": False, "error": str(exc)}
-        else:
-            status, body = 404, {"error": "not found", "path": path}
+                # listener down. Log with the full traceback so operators
+                # can debug after the fact, and return 503 so the kubelet
+                # pulls the pod from rotation but does not restart it.
+                logger.exception("Probe ready handler raised")
+                return 503, {"ready": False, "error": str(exc)}
+        return 404, {"error": "not found", "path": path}
 
+    def do_GET(self) -> None:  # noqa: N802 - stdlib signature
+        path = self.path.split("?", 1)[0]
+        status, body = self._resolve(path)
         payload = json.dumps(body).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -129,22 +140,19 @@ class _ProbeHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_HEAD(self) -> None:  # noqa: N802 - stdlib signature
-        # Some probe configurations issue HEAD; respond with the same
-        # status as GET but no body.
+        # Per RFC 7231 §4.3.2 the server SHOULD send the same header
+        # fields in response to a HEAD request as it would have sent
+        # on an equivalent GET — including Content-Length. We compute
+        # the body the same way GET does and emit its byte length
+        # without writing the body itself.
         path = self.path.split("?", 1)[0]
-        if path == LIVE_PATH:
-            status = 200
-        elif path == READY_PATH:
-            try:
-                status, _ = ready_payload()
-            except Exception:
-                status = 503
-        else:
-            status = 404
+        status, body = self._resolve(path)
+        payload = json.dumps(body).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", "0")
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
+        # No body on HEAD.
 
 
 class ProbeListener:
@@ -187,17 +195,27 @@ class ProbeListener:
         )
 
     def stop(self, timeout: float = 5.0) -> None:
-        """Stop the server and join the thread. Used by tests."""
+        """Stop the server and join the thread. Used by tests.
+
+        Holds ``self._lock`` for the entire shutdown so a concurrent
+        ``start()`` cannot observe ``self._server is None`` mid-shutdown
+        and create a fresh server while the old one is still releasing
+        the listening socket — which would race two listeners onto the
+        same port. ``serve_forever()`` runs without the lock (it loops
+        on a separate thread), so blocking ``shutdown()``/``join()``
+        cannot self-deadlock against the lock the request handler
+        thread doesn't take.
+        """
         with self._lock:
             server = self._server
             thread = self._thread
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            if thread is not None:
+                thread.join(timeout=timeout)
             self._server = None
             self._thread = None
-        if server is not None:
-            server.shutdown()
-            server.server_close()
-        if thread is not None:
-            thread.join(timeout=timeout)
 
 
 _LISTENER: ProbeListener | None = None
@@ -210,12 +228,31 @@ def start_probe_listener(port: int, host: str = "0.0.0.0") -> ProbeListener:
     Subsequent calls return the existing instance — useful when the
     serve loop is restarted in-process during tests, but production
     only calls this once from :func:`orchestrator.cli.cmd_serve`.
+
+    If a second call passes ``host``/``port`` arguments that disagree
+    with the existing instance, the mismatch is logged at WARNING but
+    the existing instance is still returned. The caller does NOT get
+    a listener bound to the new port — the singleton is bound to its
+    original address. This usually indicates a misconfiguration where
+    two startup paths are racing to register different ports; the warn
+    surfaces it instead of silently dropping the second config.
     """
     global _LISTENER
     with _LISTENER_LOCK:
         if _LISTENER is None:
             _LISTENER = ProbeListener(host=host, port=port)
             _LISTENER.start()
+        else:
+            existing_host, existing_port = _LISTENER.address
+            if (host, port) != (existing_host, existing_port):
+                logger.warning(
+                    "start_probe_listener called with mismatched address; "
+                    "existing singleton retained",
+                    requested_host=host,
+                    requested_port=port,
+                    existing_host=existing_host,
+                    existing_port=existing_port,
+                )
         return _LISTENER
 
 

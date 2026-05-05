@@ -113,13 +113,82 @@ class TestRootGuard:
             assert "must not run as root" in captured.err
 
     def test_serve_runs_as_non_root(self):
-        """Orchestrator starts normally when not root."""
+        """Orchestrator starts normally when not root.
+
+        Patches ``probe_listener.start_probe_listener`` (added in #2414):
+        otherwise this test runs the unpatched probe-listener startup
+        block in ``cmd_serve``, binds a real ``ThreadingHTTPServer`` on
+        port 9851, and leaves the module-level singleton in place — which
+        leaks into other tests that run later in the same pytest process
+        (notably ``test_probe_listener.TestStartHelper.test_idempotent``,
+        which constructs its own listener on a free port and would
+        otherwise reuse the leaked 9851 binding).
+        """
         with patch("os.getuid", return_value=1000):
             with patch.dict("sys.modules", {"api": MagicMock()}):
                 with patch("waitress.serve"):
                     with patch("cli.logger"):
-                        result = main(["serve"])
-                        assert result == 0
+                        with patch("probe_listener.start_probe_listener"):
+                            result = main(["serve"])
+                            assert result == 0
+
+
+class TestServeProbeListenerStartup:
+    """Issue #2414: ``cmd_serve`` starts the standalone probe listener
+    BEFORE the slow synchronous startup work. Locks two invariants:
+
+    1. Bind failure is non-fatal — startup continues and waitress still
+       runs, so the operator sees the warning rather than a hard crash.
+       (The Flask routes on the API port are NOT reachable to kubelet
+       once the manifest retargets probes at the probe port; the
+       warning comment in cmd_serve documents the operational
+       consequence.)
+    2. The listener is started — i.e., ``start_probe_listener`` is
+       actually called from the serve path, so the bind happens early
+       and not as a side effect of test patching.
+    """
+
+    def test_listener_bind_failure_is_logged_and_serve_continues(self):
+        """Patch ``start_probe_listener`` to raise; assert the warning
+        fires and ``waitress.serve`` is still invoked. Without this
+        guarantee, an OSError on the listener bind would CrashLoopBackOff
+        the pod for an unrelated reason."""
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger") as mock_logger:
+                        with patch(
+                            "probe_listener.start_probe_listener",
+                            side_effect=OSError("Address already in use"),
+                        ):
+                            result = main(["serve"])
+
+        assert result == 0
+        # ``logger.exception`` was called for the listener startup failure;
+        # the message wording is documented in cmd_serve.
+        assert mock_logger.exception.called, (
+            "Probe listener bind failure must be logged via logger.exception "
+            "so the traceback is captured"
+        )
+        # waitress.serve must still run — the listener is best-effort.
+        assert mock_serve.called
+
+    def test_listener_is_started_from_serve_path(self):
+        """``start_probe_listener`` is called once from cmd_serve."""
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve"):
+                    with patch("cli.logger"):
+                        with patch("probe_listener.start_probe_listener") as mock_start:
+                            result = main(["serve"])
+
+        assert result == 0
+        assert mock_start.called, "cmd_serve must invoke start_probe_listener"
+        # The port is supplied positionally via env_config helper.
+        call_kwargs = mock_start.call_args.kwargs
+        assert "port" in call_kwargs, (
+            "start_probe_listener must be called with an explicit port kwarg"
+        )
 
 
 class MockHealthHandler(BaseHTTPRequestHandler):
