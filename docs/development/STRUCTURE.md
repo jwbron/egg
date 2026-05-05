@@ -316,7 +316,8 @@ shared/
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
 │   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
 ├── egg_restrictions/        # Shared agent file restriction patterns and checking logic
-│   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push
+│   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push, match_pattern
+│   ├── matchers.py         # Canonical glob-pattern matcher (match_pattern) shared by all four enforcement layers
 │   ├── patterns.py         # Role-based file access patterns (AgentRole, AgentFilePattern, AGENT_PATTERNS)
 │   └── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
 ├── egg_container/          # Shared container-launch config builder
