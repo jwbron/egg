@@ -24,6 +24,7 @@ if TYPE_CHECKING:
         get_agent_pattern,
         validate_agent_push,
     )
+    from .hints import BLOCKED_HINTS, derive_hint
     from .matchers import match_pattern
     from .patterns import (
         AGENT_PATTERNS,
@@ -36,7 +37,9 @@ __all__ = [
     "AgentRestrictionResult",
     "AgentRole",
     "AGENT_PATTERNS",
+    "BLOCKED_HINTS",
     "check_agent_file_access",
+    "derive_hint",
     "get_agent_pattern",
     "match_pattern",
     "validate_agent_push",
@@ -52,6 +55,7 @@ _CHECKER_NAMES = frozenset(
 )
 _PATTERNS_NAMES = frozenset({"AGENT_PATTERNS", "AgentFilePattern", "AgentRole"})
 _MATCHERS_NAMES = frozenset({"match_pattern"})
+_HINTS_NAMES = frozenset({"BLOCKED_HINTS", "derive_hint"})
 
 
 def __getattr__(name: str) -> Any:
@@ -67,4 +71,8 @@ def __getattr__(name: str) -> Any:
         from . import matchers
 
         return getattr(matchers, name)
+    if name in _HINTS_NAMES:
+        from . import hints
+
+        return getattr(hints, name)
     raise AttributeError(f"module 'egg_restrictions' has no attribute {name!r}")
