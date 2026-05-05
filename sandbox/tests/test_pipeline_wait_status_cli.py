@@ -306,6 +306,76 @@ class TestCursorThreading:
         assert "since=msg%3Aabc%7Cevt%3A5" in second_endpoint
 
 
+def _no_change_terminal(
+    cursor: str = "msg:|evt:0",
+    status: str = "failed",
+    current_phase: str = "implement",
+) -> dict[str, Any]:
+    """Path-B (no_change) envelope carrying a terminal ``status`` field.
+
+    Mirrors the shape that ``_build_minimal_status_envelope`` would
+    produce on a hypothetical late-subscriber path that wasn't caught
+    by the server-side short-circuit (issue #2378). Used to exercise
+    the CLI's defense-in-depth check.
+    """
+    return {
+        "success": True,
+        "data": {
+            "changed": False,
+            "no_change": True,
+            "cursor": cursor,
+            "current_phase": current_phase,
+            "status": status,
+        },
+    }
+
+
+class TestPathBTerminalShortCircuit:
+    """Issue #2378 defense-in-depth: a Path-B no_change envelope whose
+    ``status`` field carries a terminal value (``failed``/``complete``/
+    ``cancelled``) must end the loop with exit 0 and one synthetic
+    JSON line, instead of looping silently.
+    """
+
+    @pytest.mark.parametrize("status", ["failed", "complete", "cancelled"])
+    def test_no_change_with_terminal_status_returns_zero(
+        self, capsys: pytest.CaptureFixture[str], status: str
+    ) -> None:
+        with patch(_API_MOCK_PATH, side_effect=[_no_change_terminal(status=status)]) as mock:
+            rc = cmd_pipeline_wait_status(_ns(max_iterations=5))
+
+        assert rc == 0
+        # Loop exited after one call — no second iteration.
+        assert mock.call_count == 1
+        out = capsys.readouterr().out.strip().splitlines()
+        assert len(out) == 1
+        line = json.loads(out[0])
+        assert line["trigger"] == "synthetic-terminal"
+        assert line["status"] == status
+        assert line["current_phase"] == "implement"
+        assert line["cursor"] == "msg:|evt:0"
+        # event_type mirrors the Path-A line shape so downstream
+        # consumers can key off it uniformly (issue #2378 review).
+        expected_event = {
+            "failed": "pipeline.failed",
+            "complete": "pipeline.completed",
+            "cancelled": "pipeline.cancelled",
+        }[status]
+        assert line["event_type"] == expected_event
+
+    def test_no_change_running_still_loops(self):
+        """Regression guard: only terminal statuses short-circuit Path-B."""
+        running = _no_change_terminal(status="running")
+        with patch(
+            _API_MOCK_PATH,
+            side_effect=[running, running, _terminal_event("msg:|evt:9")],
+        ) as mock:
+            rc = cmd_pipeline_wait_status(_ns(max_iterations=5))
+
+        assert rc == 0
+        assert mock.call_count == 3
+
+
 @pytest.fixture(autouse=True)
 def _set_env(monkeypatch):
     """Ensure the CLI hits a deterministic URL during tests."""

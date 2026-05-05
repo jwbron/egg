@@ -543,6 +543,16 @@ _WAIT_STATUS_TERMINAL_STATUSES = frozenset({"complete", "failed", "cancelled"})
 _WAIT_STATUS_TERMINAL_EVENTS = frozenset(
     {"pipeline.completed", "pipeline.failed", "pipeline.cancelled"}
 )
+# Map terminal ``status`` strings to the Path-A ``event_type`` they
+# correspond to.  Used by the Path-B defense-in-depth path (issue #2378)
+# so synthetic-terminal JSON lines carry the same ``event_type`` field
+# Path-A consumers already key off (``failed``/``completed``/
+# ``cancelled``).
+_WAIT_STATUS_TO_EVENT_TYPE = {
+    "complete": "pipeline.completed",
+    "failed": "pipeline.failed",
+    "cancelled": "pipeline.cancelled",
+}
 
 
 def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
@@ -639,7 +649,24 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
                 isinstance(status_str, str) and status_str in _WAIT_STATUS_TERMINAL_STATUSES
             ) or event_type in _WAIT_STATUS_TERMINAL_EVENTS:
                 return 0
-        # Path B (no_change): silent, loop again.
+        else:
+            # Path B (no_change): defense-in-depth for issue #2378. The
+            # server short-circuits already-terminal pipelines on Path A,
+            # but if any other code path leaves us subscribed past a
+            # terminal state, the envelope's ``status`` field still
+            # carries the truth — emit a synthetic terminal line and
+            # exit 0 instead of looping silently.
+            status_str = envelope.get("status")
+            if isinstance(status_str, str) and status_str in _WAIT_STATUS_TERMINAL_STATUSES:
+                line = {
+                    "trigger": "synthetic-terminal",
+                    "cursor": envelope.get("cursor"),
+                    "current_phase": envelope.get("current_phase"),
+                    "status": status_str,
+                    "event_type": _WAIT_STATUS_TO_EVENT_TYPE[status_str],
+                }
+                print(json.dumps(line), flush=True)
+                return 0
 
     return 1
 
