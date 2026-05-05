@@ -611,6 +611,66 @@ class TestStartAwaitingHumanPipeline:
         mock_remove_tracker.assert_called_once_with("issue-42")
         mock_evaluator.clear.assert_called_once_with("issue-42")
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_routes_phase_gate_persistence_through_worktree(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Regression for #2357.
+
+        The contract and phase draft both live under the per-pipeline
+        worktree (``<worktree>/.egg-state/``), not the orchestrator's
+        main repo. When the AWAITING_HUMAN recovery branch persists a
+        phase gate resolution, it must resolve the worktree path and
+        forward it to ``_persist_phase_gate_resolution``,
+        ``_commit_statefiles_to_worktree``, and ``push_worktree_branch``
+        — same shape as the #2345 conflation in
+        ``_sync_pipeline_decisions_to_contract``.
+        """
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "approve", "context": "Use adapter pattern"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        worktree_path = Path("/home/egg/.egg-worktrees/issue-42/repo")
+        mock_spawner = MagicMock()
+
+        with (
+            patch(
+                "routes.pipelines._resolve_pipeline_worktree_path",
+                return_value=worktree_path,
+            ) as mock_resolve_wt,
+            patch("routes.pipelines._persist_phase_gate_resolution") as mock_persist,
+            patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit,
+            patch("routes.pipelines._get_spawner", return_value=mock_spawner),
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+
+        mock_resolve_wt.assert_called_once_with(pipeline, Path("/repo"))
+
+        persist_args, _ = mock_persist.call_args
+        assert persist_args[0] == worktree_path, (
+            f"_persist_phase_gate_resolution must be called with the "
+            f"worktree path, got {persist_args[0]}"
+        )
+
+        commit_args, _ = mock_commit.call_args
+        assert commit_args[0] == worktree_path, (
+            f"_commit_statefiles_to_worktree must be called with the "
+            f"worktree path, got {commit_args[0]}"
+        )
+
+        push_kwargs = mock_spawner.gateway.push_worktree_branch.call_args.kwargs
+        assert push_kwargs["repo_path"] == str(worktree_path), (
+            f"push_worktree_branch must be called with the worktree path, "
+            f"got {push_kwargs['repo_path']}"
+        )
+
 
 # -----------------------------------------------------------------------------
 # Issue #1556 — Jira ticket plumbing

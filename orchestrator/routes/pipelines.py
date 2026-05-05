@@ -16594,9 +16594,20 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         phase_execution.completed_at = datetime.now(UTC)
 
                     # Persist phase gate resolution so next-phase agents see it.  #1295
+                    #
+                    # The contract and phase draft both live under the
+                    # per-pipeline worktree (``<worktree>/.egg-state/``),
+                    # not the orchestrator's main repo. Resolve the
+                    # worktree explicitly here — the inline path inside
+                    # ``_run_pipeline`` already has ``worktree_repo_path``
+                    # in scope, but this recovery branch only has the
+                    # main ``repo_path``. Passing ``repo_path`` would
+                    # silently no-op the contract write and draft append
+                    # (#2357, same shape as #2345).
                     if phase_gate_decisions:
+                        worktree_repo_path = _resolve_pipeline_worktree_path(pipeline, repo_path)
                         _persist_phase_gate_resolution(
-                            repo_path,
+                            worktree_repo_path,
                             pipeline_id,
                             phase_gate_decisions[0],
                             pipeline.current_phase.value,
@@ -16607,7 +16618,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         # include the contract/draft changes.
                         try:
                             _commit_statefiles_to_worktree(
-                                repo_path,
+                                worktree_repo_path,
                                 f"Persist HITL resolution after {pipeline.current_phase.value} phase gate",
                                 pipeline_identifier=_pipeline_identifier(
                                     pipeline.issue_number, pipeline_id
@@ -16627,7 +16638,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                 _spawner = _get_spawner()
                                 _spawner.gateway.push_worktree_branch(
                                     pipeline_id=pipeline_id,
-                                    repo_path=str(repo_path),
+                                    repo_path=str(worktree_repo_path),
                                     branch=pipeline.branch,
                                     mode=_gw_mode,
                                     base_branch=pipeline.base_branch,
