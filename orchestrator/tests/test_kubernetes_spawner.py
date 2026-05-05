@@ -328,6 +328,37 @@ class TestSpawnAgentJob:
         assert result.environment["EGG_AGENT_ROLE"] == "custom"
         assert result.environment["MY_KEY"] == "val"
 
+    def test_spawn_with_slice_id_sets_egg_slice_id_env(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """``slice_id=`` parameter propagates into ``EGG_SLICE_ID`` (#2410).
+
+        The spawner's ``slice_id`` parameter previously only drove the Job
+        name and worktree id; the agent container had no slice scope in
+        its environment, so its BRC handlers couldn't tag CONSENSUS_*
+        signals with the slice (failure mode #3 from #2410).
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        assert result.environment.get("EGG_SLICE_ID") == "slice-2"
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_SLICE_ID") == "slice-2"
+
+    def test_spawn_without_slice_id_does_not_set_egg_slice_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Pipeline-level spawns leave ``EGG_SLICE_ID`` unset."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+        )
+        assert "EGG_SLICE_ID" not in result.environment
+
     def test_spawn_labels(self, spawner, mock_k8s_client):
         """Spawn sets the expected labels on the Job."""
         spawner.spawn_agent_job(
@@ -1367,6 +1398,43 @@ class TestRestartAgentJobSliceScope:
         assert spawner.get_restart_count("issue-2261-v7", "coder") == 0
         # Sibling pipeline untouched.
         assert spawner.get_restart_count("issue-9999", "coder", slice_id="slice-2") == 4
+
+    def test_restart_propagates_egg_slice_id_to_container_env(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """The respawned Job's environment carries ``EGG_SLICE_ID``.
+
+        Failure mode #3 from #2410: without the env var on the new Job,
+        the agent's BRC handlers can't tag CONSENSUS_* signals with the
+        slice and the orchestrator routes them to the pipeline-level
+        tracker. Naming + worktree id alone are insufficient — the env
+        is what the *agent* reads.
+        """
+        result = spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        # The env on the SpawnedContainer reflects what spawn_agent_job
+        # assembled — and what was forwarded to ``create_container``.
+        assert result.environment.get("EGG_SLICE_ID") == "slice-2"
+        # Belt-and-braces: the env actually reached the k8s create call.
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_SLICE_ID") == "slice-2"
+
+    def test_pipeline_level_restart_does_not_set_egg_slice_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Without ``slice_id``, the restarted Job's env has no slice scope."""
+        result = spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+        )
+        assert "EGG_SLICE_ID" not in result.environment
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert "EGG_SLICE_ID" not in create_kwargs["environment"]
 
 
 class TestDetectUncommittedChangesSliceScope:

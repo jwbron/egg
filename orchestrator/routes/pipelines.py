@@ -2579,7 +2579,13 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
-    restart_count = spawner.get_restart_count(pipeline_id, agent_role)
+    # Slice-scoped restarts (#2410) bumped the per-slice budget bucket
+    # ``(pipeline_id, agent_role, slice_id)``; the pipeline-level
+    # ``(pipeline_id, agent_role, None)`` bucket is untouched. Reading
+    # without ``slice_id`` here would return the pipeline-level count
+    # (typically zero) and the audit log + JSON response below would
+    # misreport the operator's "you've burned N of M restarts" telemetry.
+    restart_count = spawner.get_restart_count(pipeline_id, agent_role, slice_id=slice_id)
 
     logger.info(
         "Agent restarted",

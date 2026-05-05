@@ -810,6 +810,13 @@ class TestRestartAgentEndpointSliceScope:
         assert response.status_code == 200
         restart_call = mock_spawner.restart_agent_container.call_args
         assert restart_call.kwargs["slice_id"] == "slice-2"
+        # Reading the restart count after a slice-scoped restart MUST
+        # query the per-slice budget bucket (#2410). Without this, the
+        # JSON response and audit log report the pipeline-level count
+        # (typically 0) and operators can't trust "you've burned N of M
+        # restarts" telemetry.
+        get_count_call = mock_spawner.get_restart_count.call_args
+        assert get_count_call.kwargs.get("slice_id") == "slice-2"
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
@@ -851,6 +858,8 @@ class TestRestartAgentEndpointSliceScope:
         assert response.status_code == 200
         restart_call = mock_spawner.restart_agent_container.call_args
         assert restart_call.kwargs["slice_id"] == "slice-2"
+        get_count_call = mock_spawner.get_restart_count.call_args
+        assert get_count_call.kwargs.get("slice_id") == "slice-2"
 
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
@@ -912,6 +921,8 @@ class TestRestartAgentEndpointSliceScope:
         assert response.status_code == 200
         restart_call = mock_spawner.restart_agent_container.call_args
         assert restart_call.kwargs["slice_id"] is None
+        get_count_call = mock_spawner.get_restart_count.call_args
+        assert get_count_call.kwargs.get("slice_id") is None
 
 
 # ---------------------------------------------------------------------------

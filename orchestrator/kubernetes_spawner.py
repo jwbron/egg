@@ -735,6 +735,20 @@ class KubernetesSpawner:
             elif pipeline_id:
                 environment["EGG_BRANCH"] = f"egg/{pipeline_id}/work"
 
+            # Slice scope (#2403, #2410): when this spawn is for a per-slice
+            # agent, propagate ``EGG_SLICE_ID`` so the agent's BRC handlers
+            # tag CONSENSUS_* signals with the slice and the orchestrator
+            # routes them to the per-slice tracker. Without this, the
+            # ``slice_id`` parameter only drove naming + worktree id and the
+            # restarted Job came up with no slice scope in its env — its
+            # signals would land on the pipeline-level tracker, which has
+            # no record of the agent (failure mode #3 from #2410). The
+            # concurrent-spawn path also stuffs ``EGG_SLICE_ID`` into
+            # ``sandbox_env`` (routes/pipelines.py) so both signals agree;
+            # the override below is idempotent in that case.
+            if slice_id is not None:
+                environment["EGG_SLICE_ID"] = slice_id
+
             # Caller's extra_env overrides defaults, except protected keys
             if extra_env:
                 for key, value in extra_env.items():
