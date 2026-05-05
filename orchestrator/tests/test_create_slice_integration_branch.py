@@ -18,7 +18,7 @@ re-introduce the local-ref dependency.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from gateway_client import GatewayClient, SessionInfo
@@ -382,7 +382,7 @@ class TestCreateSliceIntegrationBranchSession:
 
         assert ok is True
         assert register_spy.call_count == 1, "session must be registered exactly once"
-        assert delete_spy.call_args_list == [((("shared-tok"),), {})], (
+        assert delete_spy.call_args_list == [call("shared-tok")], (
             "session must be deleted exactly once with the shared token"
         )
         assert fetch_spy.call_args.kwargs.get("bearer_token") == "shared-tok"
@@ -416,4 +416,4 @@ class TestCreateSliceIntegrationBranchSession:
 
         assert ok is False
         assert register_spy.call_count == 1
-        assert delete_spy.call_args_list == [((("orphan-tok"),), {})]
+        assert delete_spy.call_args_list == [call("orphan-tok")]

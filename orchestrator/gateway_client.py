@@ -1954,9 +1954,15 @@ class GatewayClient:
         Best-effort operation used to fetch specific refs from remote.
 
         Args:
-            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            pipeline_id: Pipeline ID; used as ``container_id`` for the
+                temp session and for log fields.  When ``bearer_token``
+                is supplied no session is registered, so it's only used
+                for log fields in that case.
             repo_path: Path to the repo directory
             args: Additional args for git fetch (e.g., ["+remote:local"])
+            mode: Network mode for the temp session.  Ignored when
+                ``bearer_token`` is supplied — the supplied session's
+                mode was fixed at its register time.
             bearer_token: Pre-registered synthetic session token to reuse
                 (#2398).  When provided, skip the internal
                 ``register_session``/``delete_session`` and authenticate
@@ -2099,7 +2105,8 @@ class GatewayClient:
         ``bearer_token`` lets a caller pass in a pre-registered synthetic
         session to share across several gateway calls (#2398).  When
         provided, the per-call ``register_session``/``delete_session``
-        round-trip is skipped.
+        round-trip is skipped, and the ``mode`` argument is ignored —
+        the supplied session's mode was fixed at its register time.
         """
         owns_session = bearer_token is None
         session_token: str | None = bearer_token
