@@ -11596,27 +11596,32 @@ def _run_concurrent_phase(
     phase_str = phase if isinstance(phase, str) else phase.value
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
-    # Slice-aware sandbox env (#2137 TASK-4-3): when running a per-slice
-    # team, override EGG_PIPELINE_ID with the nested ``{pipeline_id}/{slice_id}``
-    # form so agent CLIs send CONSENSUS_* messages keyed on the slice's
-    # tracker scope. The bare pipeline_id is preserved on the caller's
-    # ``sandbox_env`` so we mutate a shallow copy here.
+    # Slice-aware sandbox env (#2137 TASK-4-3 / #2403): when running a
+    # per-slice team, expose the slice id via ``EGG_SLICE_ID`` and
+    # leave ``EGG_PIPELINE_ID`` as the bare pipeline id. An earlier
+    # shape encoded the slice into ``EGG_PIPELINE_ID`` itself
+    # (``{pipeline_id}/{slice_id}``) so the orchestrator's
+    # ``_tracker_key`` would route CONSENSUS_* to the slice tracker
+    # without an extra signal-level field. That broke every agent →
+    # orchestrator round-trip:
     #
-    # Trade-off (refine-phase decision-14 hybrid is partially honoured):
-    # the agent CLI uses the same env var for *every* outbound signal —
-    # CONSENSUS_*, HEARTBEAT, OVERSEER_ALERT — so HEARTBEAT and
-    # OVERSEER_ALERT also route to the slice-scoped tracker rather than
-    # the pipeline-scoped tracker. CONSENSUS_* isolation works as
-    # intended; cross-slice telemetry is per-slice today. A pipeline-
-    # level fan-out for OVERSEER_ALERT requires a CLI-side message-
-    # type-aware router and is tracked alongside the per-slice MCP
-    # control verbs in #2199. The orchestrator-side log line in
-    # ``_run_implement_phase_slices`` and the gateway broadcast on
-    # cascade provide the always-on fallback so a deadlocked
-    # downstream subtree is still surfaced to the operator.
+    #   * the orchestrator-side ``PIPELINE_ID_PATTERN`` and the agent
+    #     handler validator (``[a-zA-Z0-9_-]+``) both reject the slash,
+    #   * Flask's default URL converter doesn't allow ``/``, so every
+    #     ``POST /api/v1/pipelines/{pid}/...`` route 404s — i.e. all
+    #     of progress, BRC, heartbeat, message, phase, decision, etc.
+    #
+    # Slice routing is plumbed explicitly instead: the BRC handlers
+    # pull ``EGG_SLICE_ID`` and forward it on the signal payload, and
+    # the orchestrator's signal handlers feed it into
+    # ``get_peer_consensus_tracker(pipeline_id, slice_id)``. CONSENSUS_*
+    # isolation is preserved; HEARTBEAT / OVERSEER_ALERT continue to
+    # flow through the pipeline-scoped tracker, which is what
+    # cross-slice operator telemetry already wants. The pipeline-level
+    # fan-out for OVERSEER_ALERT mentioned in earlier comments here is
+    # tracked alongside the per-slice MCP control verbs in #2199.
     if slice_id is not None:
         sandbox_env = dict(sandbox_env)
-        sandbox_env["EGG_PIPELINE_ID"] = f"{pipeline_id}/{slice_id}"
         sandbox_env["EGG_SLICE_ID"] = slice_id
 
     # Build per-role prompts for concurrent phase execution.

@@ -65,6 +65,32 @@ _AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, ContractAgentRole] = {
 
 _SIGTERM_PATTERN = re.compile(r"\b143\b")
 
+# Slice-aware consensus routing (#2403): per-slice agents tag their
+# signals with a ``slice_id`` field on the request body so the
+# orchestrator routes each ``CONSENSUS_*`` to the per-slice tracker
+# (``peer_consensus._tracker_key`` composes ``{pipeline_id}/{slice_id}``).
+# Defense-in-depth: validate the shape here even though the spawn-side
+# is already canonical — a future caller that forgets the upstream
+# regex must not be able to smuggle path separators or shell
+# metacharacters into a tracker registry key.
+_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
+
+
+def _extract_slice_id(data: dict[str, Any]) -> str | None:
+    """Return the ``slice_id`` from the signal payload, validated.
+
+    Returns ``None`` when no slice scope was supplied (the agent is
+    pipeline-level, not slice-scoped). Raises ``ValueError`` when the
+    caller supplied a non-empty value that does not match the
+    canonical ``slice-<N>`` shape.
+    """
+    raw = data.get("slice_id")
+    if raw is None or raw == "":
+        return None
+    if not isinstance(raw, str) or not _SLICE_ID_PATTERN.fullmatch(raw):
+        raise ValueError(f"Invalid slice_id {raw!r}: must match 'slice-<N>'")
+    return raw
+
 
 def _is_sigterm_after_completion(pipeline: Pipeline, error_message: str) -> bool:
     """Return True if this error is a SIGTERM exit on an already-complete pipeline."""
@@ -1014,13 +1040,19 @@ def handle_consensus_propose_signal(
         return make_error_response(summary_error, 400)
 
     try:
+        slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(str(exc), 400)
+
+    try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
     if not tracker:
-        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+        scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
+        return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
 
     # Verify commit SHA exists on the expected branch before accepting
     # the proposal (#1473).  Reuses _verify_commit_on_branch() from the
@@ -1204,13 +1236,19 @@ def handle_consensus_ack_signal(
         )
 
     try:
+        slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(str(exc), 400)
+
+    try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
     if not tracker:
-        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+        scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
+        return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
 
     try:
         try:
@@ -1288,13 +1326,19 @@ def handle_consensus_nack_signal(
         return make_error_response(reason_error, 400)
 
     try:
+        slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(str(exc), 400)
+
+    try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
     if not tracker:
-        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+        scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
+        return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
 
     try:
         try:
@@ -1354,13 +1398,19 @@ def handle_consensus_withdraw_signal(
         return make_error_response(reason_error, 400)
 
     try:
+        slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(str(exc), 400)
+
+    try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
     if not tracker:
-        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+        scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
+        return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
 
     try:
         result = tracker.handle_withdraw(agent_role, reason)
@@ -1479,18 +1529,29 @@ def handle_consensus_confirmed_signal(
         return make_error_response("Missing agent_role")
 
     try:
+        slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(str(exc), 400)
+
+    try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
     if not tracker:
         # Defaults must be outside the try block so the message-bus fallback
         # (second try block) can reference them even if reconstruction fails.
         _phase = "implement"
         _repo = None
 
-        # Attempt reconstruction from message store before returning 404
+        # Attempt reconstruction from message store before returning 404.
+        # Slice-scoped trackers are NOT reconstructed today: the message
+        # store keys messages by bare pipeline_id only, so a per-slice
+        # replay would mingle other slices' messages and reach false
+        # consensus. Slice-restart recovery is tracked in #2199 alongside
+        # the per-slice MCP control verbs. For pipeline-level (slice_id is
+        # None) requests the existing replay path is unchanged.
         try:
             from peer_consensus import reconstruct_tracker_from_messages
             from review_graph import get_review_graph_for_phase
@@ -1503,12 +1564,14 @@ def handle_consensus_confirmed_signal(
             except StateStoreError:
                 pass
 
-            graph = get_review_graph_for_phase(_phase, repo=_repo)
-            tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
+            if slice_id is None:
+                graph = get_review_graph_for_phase(_phase, repo=_repo)
+                tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
         except Exception as recon_err:
             logger.warning(
                 "Tracker reconstruction failed in confirmed handler",
                 pipeline_id=pipeline_id,
+                slice_id=slice_id,
                 error=str(recon_err),
             )
 
@@ -1576,7 +1639,8 @@ def handle_consensus_confirmed_signal(
                     error=str(fallback_err),
                 )
 
-            return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+            scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
+            return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
 
     try:
         result = tracker.handle_confirmed(agent_role)
@@ -1730,13 +1794,19 @@ def handle_consensus_excuse_producer_signal(
         )
 
     try:
+        slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(str(exc), 400)
+
+    try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
     if not tracker:
-        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+        scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
+        return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
 
     try:
         result = tracker.excuse_producer(producer_role, reason)
@@ -1832,13 +1902,19 @@ def handle_consensus_resolve_obligation_signal(
             return make_error_response(note_error, 400)
 
     try:
+        slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(str(exc), 400)
+
+    try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
     if not tracker:
-        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+        scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
+        return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
 
     try:
         result = tracker.handle_resolve_obligation(
@@ -1926,13 +2002,19 @@ def handle_consensus_producer_push_signal(
     changed_files = data.get("changed_files")
 
     try:
+        slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(str(exc), 400)
+
+    try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
     if not tracker:
-        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+        scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
+        return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
 
     try:
         result = tracker.handle_producer_push(agent_role, commit_sha, changed_files)
