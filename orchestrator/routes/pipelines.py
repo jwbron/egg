@@ -3019,6 +3019,34 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
 
     event_bus = get_event_bus()
 
+    # Late-subscriber short-circuit (issue #2378): if the pipeline is
+    # already terminal at subscription time, the relevant ``pipeline.*``
+    # event was emitted before this call could subscribe — and the
+    # snap-to-tip below would cement that miss.  Synthesize a Path-A
+    # envelope so callers don't loop until the 1-hour cap.  This covers
+    # the common path where ``mark FAILED`` succeeds; the synthetic
+    # emit at ``_run_pipeline``'s mark-FAILED-failed branch covers the
+    # rarer case where the FAILED-mark itself raises.
+    _TERMINAL_EVENT_TYPES = {
+        PipelineStatus.COMPLETE: "pipeline.completed",
+        PipelineStatus.FAILED: "pipeline.failed",
+        PipelineStatus.CANCELLED: "pipeline.cancelled",
+    }
+    if pipeline.status in _TERMINAL_EVENT_TYPES:
+        terminal_cursor = _build_status_wait_cursor(
+            _message_store_tip_id(pipeline_id) or msg_since_id,
+            event_bus.current_sequence(),
+        )
+        terminal_envelope = _build_minimal_status_envelope(pipeline, terminal_cursor)
+        terminal_envelope.update(
+            {
+                "changed": True,
+                "trigger": "event",
+                "event_type": _TERMINAL_EVENT_TYPES[pipeline.status],
+            }
+        )
+        return make_success_response("Pipeline already terminal", data=terminal_envelope)
+
     # Snap event_since_seq to the current tip on first call.  This
     # preserves the "events before the call are already seen"
     # semantic and matches the message-bus ``from_tip`` behaviour

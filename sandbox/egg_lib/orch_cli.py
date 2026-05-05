@@ -639,7 +639,23 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
                 isinstance(status_str, str) and status_str in _WAIT_STATUS_TERMINAL_STATUSES
             ) or event_type in _WAIT_STATUS_TERMINAL_EVENTS:
                 return 0
-        # Path B (no_change): silent, loop again.
+        else:
+            # Path B (no_change): defense-in-depth for issue #2378. The
+            # server short-circuits already-terminal pipelines on Path A,
+            # but if any other code path leaves us subscribed past a
+            # terminal state, the envelope's ``status`` field still
+            # carries the truth — emit a synthetic terminal line and
+            # exit 0 instead of looping silently.
+            status_str = envelope.get("status")
+            if isinstance(status_str, str) and status_str in _WAIT_STATUS_TERMINAL_STATUSES:
+                line = {
+                    "trigger": "synthetic-terminal",
+                    "cursor": envelope.get("cursor"),
+                    "current_phase": envelope.get("current_phase"),
+                    "status": status_str,
+                }
+                print(json.dumps(line), flush=True)
+                return 0
 
     return 1
 

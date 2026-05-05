@@ -443,3 +443,79 @@ class TestQueueFull:
         assert resp.status_code == 200
         assert envelope["changed"] is True
         assert envelope["trigger"] == "event"
+
+
+class TestWaitRouteAlreadyTerminal:
+    """Late-subscriber short-circuit (issue #2378).
+
+    When ``/status/wait`` is called against a pipeline whose status is
+    already ``complete``/``failed``/``cancelled``, the relevant
+    ``pipeline.*`` event was emitted before this call could subscribe.
+    Without the short-circuit the route snaps the cursor to tip and
+    returns Path-B no_change indefinitely; the host then loops until
+    the 1-hour cap. The route must instead return Path-A immediately
+    so callers exit cleanly.
+    """
+
+    @pytest.mark.parametrize(
+        ("status", "expected_event_type"),
+        [
+            (PipelineStatus.FAILED, "pipeline.failed"),
+            (PipelineStatus.COMPLETE, "pipeline.completed"),
+            (PipelineStatus.CANCELLED, "pipeline.cancelled"),
+        ],
+    )
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_terminal_pipeline_returns_path_a_immediately(
+        self,
+        mock_resolve: MagicMock,
+        mock_repo: MagicMock,
+        status: PipelineStatus,
+        expected_event_type: str,
+        client,
+        isolated_event_bus: EventBus,
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline.status = status
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        start = time.monotonic()
+        resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?wait=25")
+        elapsed = time.monotonic() - start
+
+        assert resp.status_code == 200
+        envelope = json.loads(resp.data)["data"]
+        assert envelope["changed"] is True
+        assert envelope["trigger"] == "event"
+        assert envelope["event_type"] == expected_event_type
+        assert envelope["status"] == status.value
+        assert "cursor" in envelope
+        assert elapsed < 1.0, (
+            f"terminal short-circuit took {elapsed:.2f}s — did it block on the wake queue?"
+        )
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_running_pipeline_still_blocks(
+        self,
+        mock_resolve: MagicMock,
+        mock_repo: MagicMock,
+        client,
+        isolated_event_bus: EventBus,
+    ) -> None:
+        """Regression guard: the short-circuit must not fire on RUNNING."""
+        pipeline = _make_pipeline()
+        assert pipeline.status == PipelineStatus.RUNNING
+
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        start = time.monotonic()
+        resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?wait=1")
+        elapsed = time.monotonic() - start
+
+        assert resp.status_code == 200
+        envelope = json.loads(resp.data)["data"]
+        assert envelope["changed"] is False
+        assert envelope["no_change"] is True
+        assert elapsed >= 0.5, "RUNNING pipeline must still block until timeout"
