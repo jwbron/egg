@@ -440,8 +440,12 @@ shapes:
   `# yaml-tasks` `pr` block) — title is the planner-authored
   `contract.pr.title` (still capped to 70 chars); body opens with a
   `> Program-level umbrella PR — terminal slice of pipeline …`
-  banner and renders `contract.pr.description` /
-  `pr.test_plan` (under `## Test Plan`) / `pr.manual_steps` (under
+  banner and renders `contract.pr.description`, then — when present —
+  the `## ⚠️ Pre-merge Obligations` / `## ✅ Resolved within this PR`
+  section from `contract.pr.deferred_actions` (threaded via
+  `program_deferred_actions`; same placement as the legacy
+  single-PR path, rendered by `orchestrator/pr_obligations.py` #2354),
+  then `pr.test_plan` (under `## Test Plan`) / `pr.manual_steps` (under
   `## Manual Steps`) so the umbrella PR carries the program-level
   reviewer narrative; the slice-context footer survives so the chain
   position stays legible.
@@ -454,9 +458,12 @@ threads the kwargs:
 2. `terminal_ids = [s.id for s in contract.slices if s.id not in depended_on]`.
 3. `chosen_terminal = terminal_ids[-1]` (last in declared order — see
    the multi-terminal forest note below).
-4. For the terminal slice: pass `program_*` from `contract.pr`,
-   `terminal_slice_id=None`.
-5. For every non-terminal slice: pass `program_*=None`,
+4. For the terminal slice: pass `program_*` from `contract.pr`
+   (including `program_deferred_actions` collected via
+   `_collect_pre_merge_obligations`), `terminal_slice_id=None`.
+5. For every non-terminal slice: pass `program_*=None`
+   (`program_deferred_actions=None` — obligations belong on the
+   umbrella only),
    `terminal_slice_id=chosen_terminal` **only if** `contract.pr.title`
    is non-empty. When the contract has no program block (older
    contracts, or `_populate_contract_from_plan` did not run), the
