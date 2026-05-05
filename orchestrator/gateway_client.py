@@ -1582,15 +1582,22 @@ class GatewayClient:
     ) -> bool:
         """Create the slice integration branch on origin from ``parent_branch``.
 
-        Sends ``git push origin parent_branch:refs/heads/integration_branch``
-        via a synthetic, launcher-authenticated session through
-        ``/api/v1/git/push``.  The gateway treats the push as
-        orchestrator infrastructure: the synthetic flag (only settable
-        by ``/api/v1/sessions/create``, which is gated on the launcher
-        secret) combined with the slice integration-branch name
-        ``egg/<base>/(slice|phase)-N`` short-circuits the
-        pipeline-session push block from #2028 — see the
-        ``_SLICE_INTEGRATION_BRANCH_RE`` exemption in
+        Pushes ``<parent_sha>:refs/heads/<integration_branch>`` via a
+        synthetic, launcher-authenticated session through
+        ``/api/v1/git/push``.  The parent SHA is resolved by querying
+        origin directly (``git ls-remote``); pushing an explicit SHA on
+        the source side avoids relying on local ref-name resolution in
+        the orchestrator's per-pipeline worktree, which is checked out
+        on ``<branch>/work`` and does NOT carry a local ref matching
+        ``<parent_branch>`` (only ``refs/remotes/origin/<parent_branch>``
+        after a fetch — #2393).
+
+        The gateway treats this push as orchestrator infrastructure: the
+        synthetic flag (only settable by ``/api/v1/sessions/create``,
+        which is gated on the launcher secret) combined with the slice
+        integration-branch name ``egg/<base>/(slice|phase)-N``
+        short-circuits the pipeline-session push block from #2028 — see
+        the ``_SLICE_INTEGRATION_BRANCH_RE`` exemption in
         ``gateway/gateway.py``.  The branch itself still passes the
         normal ``egg/`` prefix branch-ownership check, so no
         orchestrator-role push surface is introduced.
@@ -1603,6 +1610,39 @@ class GatewayClient:
         if integration_branch == parent_branch:
             # No-op: integration branch already exists at parent's tip.
             return True
+
+        # Refresh the local remote-tracking ref + odb so the parent's
+        # commit object is available for the push below.  ``git push
+        # <sha>:refs/heads/...`` requires the source object to be
+        # locally reachable; the fetch makes that true even when the
+        # worktree was just created and has never seen this ref.
+        # Best-effort: if it fails the object may already be local
+        # from a prior step, so we still attempt the ls-remote / push.
+        self.fetch_branch(
+            pipeline_id,
+            repo_path,
+            args=[f"+refs/heads/{parent_branch}:refs/remotes/origin/{parent_branch}"],
+            mode=mode,
+        )
+
+        # Resolve the parent to a SHA on origin.  Failing fast here
+        # produces a clear "parent not found" error instead of git's
+        # confusing ``src refspec X does not match any``.
+        parent_sha = self.get_remote_branch_sha(
+            pipeline_id,
+            repo_path,
+            f"refs/heads/{parent_branch}",
+            mode=mode,
+        )
+        if not parent_sha:
+            logger.warning(
+                "Parent branch not found on origin; cannot create slice integration branch",
+                pipeline_id=pipeline_id,
+                integration_branch=integration_branch,
+                parent_branch=parent_branch,
+            )
+            return False
+
         temp_container_id = f"{pipeline_id}-slice-branch-{integration_branch.replace('/', '-')}"
         session_token: str | None = None
         try:
@@ -1617,9 +1657,7 @@ class GatewayClient:
             )
             session_token = session.session_token
 
-            # ``git push origin parent:refs/heads/integration`` creates
-            # ``integration`` on origin as a copy of ``parent``'s tip.
-            refspec = f"{parent_branch}:refs/heads/{integration_branch}"
+            refspec = f"{parent_sha}:refs/heads/{integration_branch}"
             self._make_request(
                 "/api/v1/git/push",
                 method="POST",
@@ -1635,6 +1673,7 @@ class GatewayClient:
                 pipeline_id=pipeline_id,
                 integration_branch=integration_branch,
                 parent_branch=parent_branch,
+                parent_sha=parent_sha,
             )
             return True
         except Exception as exc:  # noqa: BLE001
@@ -1643,6 +1682,7 @@ class GatewayClient:
                 pipeline_id=pipeline_id,
                 integration_branch=integration_branch,
                 parent_branch=parent_branch,
+                parent_sha=parent_sha,
                 error=str(exc),
             )
             return False
