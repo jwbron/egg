@@ -11245,9 +11245,23 @@ def _run_implement_phase_slices(
                                 # terminal slice; non-terminal slices
                                 # receive ``None`` so the umbrella is the
                                 # single place reviewers see them (#2354).
+                                #
+                                # Collect via ``_collect_pre_merge_obligations``
+                                # rather than passing raw ``DeferredAction``
+                                # objects so the umbrella picks up the live
+                                # peer_consensus tracker fallback when the
+                                # contract list is empty — exact parity with
+                                # the legacy ``_auto_create_pr`` path
+                                # (#2354 review item 2).
                                 "program_deferred_actions": (
-                                    list(program_pr.deferred_actions) if program_pr else None
-                                ),
+                                    _collect_pre_merge_obligations(
+                                        pipeline_id,
+                                        list(program_pr.deferred_actions),
+                                    )
+                                    or None
+                                )
+                                if program_pr
+                                else None,
                                 "terminal_slice_id": terminal_pointer,
                             }
                 except Exception as load_err:  # noqa: BLE001

@@ -825,11 +825,17 @@ class TestRunImplementPhaseSlices:
         actions = terminal_kwargs["program_deferred_actions"]
         assert actions is not None
         assert len(actions) == 2
-        # Pydantic objects survive the snapshot — caller passes them
-        # straight to ``create_slice_pr``, which delegates to
-        # ``pr_obligations.render_obligations_section``.
-        assert actions[0].condition.startswith("git mv legacy/x new/x")
-        assert actions[1].resolved_in_diff == "2c319626a"
+        # The snapshot passes through ``_collect_pre_merge_obligations`` so
+        # the gateway receives the *normalized* shape (list of
+        # ``{reviewer, condition, resolved_in_diff}`` dicts) — same shape
+        # the legacy ``_auto_create_pr`` path uses, which lets the umbrella
+        # pick up the live peer_consensus tracker fallback when the
+        # contract list is empty (#2354 review item 2).
+        assert actions[0]["condition"].startswith("git mv legacy/x new/x")
+        assert actions[0]["reviewer"] == "coder"
+        assert actions[0]["resolved_in_diff"] == ""
+        assert actions[1]["resolved_in_diff"] == "2c319626a"
+        assert actions[1]["reviewer"] == "reviewer_contract"
 
         for non_terminal_id in ("slice-1", "slice-2"):
             kwargs = pr_calls_by_slice[non_terminal_id]
