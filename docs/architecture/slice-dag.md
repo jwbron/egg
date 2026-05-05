@@ -344,12 +344,17 @@ the seam against any future caller that forgets the upstream check
 
 The slice run loop creates each slice's integration branch on origin
 **before agents spawn** by calling
-`GatewayClient.create_slice_integration_branch(...)`, which pushes
-`parent_branch:refs/heads/integration_branch` through the existing
+`GatewayClient.create_slice_integration_branch(...)`, which (1) fetches
+the parent ref so the commit object is locally reachable, (2) resolves
+the parent branch to a SHA on origin via `git ls-remote`, then (3)
+pushes `<parent_sha>:refs/heads/integration_branch` through the existing
 per-agent `/api/v1/git/push` allowlist (no new privileged endpoint;
-decision-15 invariant preserved). On creation failure the run loop
-calls `record_failure(slice_id)` and returns early — agents are not
-spawned against a missing integration branch.
+decision-15 invariant preserved). Pushing by SHA rather than ref name
+avoids local-ref resolution failures in the orchestrator's per-pipeline
+worktree, which is checked out on `<branch>/work` and carries no local
+ref matching `<parent_branch>` (#2393). On creation failure the run
+loop calls `record_failure(slice_id)` and returns early — agents are
+not spawned against a missing integration branch.
 
 The BRC tracker layer (`orchestrator/peer_consensus.py`) was extended so
 `create/get/remove_peer_consensus_tracker(pipeline_id, slice_id=None)` keys
