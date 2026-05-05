@@ -302,6 +302,26 @@ def cmd_serve(args: argparse.Namespace) -> int:
             error=str(probe_err),
         )
 
+    # Start the standalone HTTP listener for kubelet liveness/readiness
+    # probes on its own port (#2414). Isolating probes from waitress's
+    # worker pool means probe latency stays bounded even when every
+    # waitress thread is occupied with heartbeats / long polls — which
+    # is what triggered the SIGKILL in #2413. The listener serves the
+    # same content as the Flask routes by reading the same singletons.
+    # Bind failure is logged but non-fatal: the Flask routes on the API
+    # port still answer probes, just with the saturation risk we are
+    # trying to fix.
+    try:
+        from env_config import get_probe_listener_port
+        from probe_listener import start_probe_listener
+
+        start_probe_listener(port=get_probe_listener_port())
+    except Exception as listener_err:
+        logger.warning(
+            "Probe listener startup failed",
+            error=str(listener_err),
+        )
+
     if debug:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)

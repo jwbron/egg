@@ -44,6 +44,10 @@ ENV PYTHONPATH="/app"
 EXPOSE 9849
 # MCP server port (configured via EGG_MCP_SERVER_PORT)
 EXPOSE 9850
+# Standalone kubelet-probe listener (#2414, configured via
+# EGG_ORCH_PROBE_LISTENER_PORT). Isolated from the API port so probe
+# latency is decoupled from waitress thread-pool pressure.
+EXPOSE 9851
 
 COPY orchestrator/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
