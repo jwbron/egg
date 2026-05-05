@@ -159,8 +159,10 @@ class TestFindOrphans:
         assert orphan.deleted_base == "egg/issue-2137/slice-1"
         # Walk-up fallback: the parent's branch is gone (and slice-1
         # isn't in the contract here), so the pipeline branch is the
-        # last-resort target.
-        assert orphan.intended_new_base == "egg/issue-2137"
+        # last-resort target. Per #2399 the pipeline tip lives at
+        # ``egg/<id>/work`` so slice integration branches coexist as
+        # siblings under ``egg/<id>/``.
+        assert orphan.intended_new_base == "egg/issue-2137/work"
 
     def test_intended_new_base_walks_up_to_extant_ancestor(self) -> None:
         # A 3-level chain (slice-1 → slice-2 → slice-3): when
@@ -223,7 +225,8 @@ class TestFindOrphans:
         extant: set[str] = set()
         orphans = find_orphaned_child_prs(contract, prs, extant)
         assert len(orphans) == 1
-        assert orphans[0].intended_new_base == "egg/issue-2137"
+        # Pipeline tip lives at ``egg/<id>/work`` — see #2399.
+        assert orphans[0].intended_new_base == "egg/issue-2137/work"
 
     def test_intended_new_base_ignores_pr_metadata(self) -> None:
         # The PR's own ``base`` may have been modified by an out-of-
@@ -389,8 +392,9 @@ class TestFindOrphans:
         assert orphan.deleted_base == "egg/issue-2137-v3/slice-1"
         # Walk-up fallback: parent slice missing from contract, so the
         # qualified pipeline branch is the safe target — and crucially
-        # is NOT the unqualified ``egg/issue-2137``.
-        assert orphan.intended_new_base == "egg/issue-2137-v3"
+        # is NOT the unqualified ``egg/issue-2137/work``. Pipeline tip
+        # lives at ``<root>/work`` (#2399).
+        assert orphan.intended_new_base == "egg/issue-2137-v3/work"
 
     def test_qualified_pipeline_id_walks_up_to_qualified_ancestor(self) -> None:
         # The walk-up resolver must also use the qualified branch
@@ -531,8 +535,9 @@ class TestReconcileOnce:
         called = rebaser.calls[0]
         assert called.branch == "egg/issue-2137/slice-2"
         # Walk-up fallback: slice-1 isn't in the contract here, so
-        # the pipeline branch is the last-resort rebase target.
-        assert called.intended_new_base == "egg/issue-2137"
+        # the pipeline branch is the last-resort rebase target. Pipeline
+        # tip lives at ``<root>/work`` (#2399).
+        assert called.intended_new_base == "egg/issue-2137/work"
         assert called.deleted_base == "egg/issue-2137/slice-1"
         # The orphan now carries the PR number so the production
         # bridge can retarget the PR after the rebase.

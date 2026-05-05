@@ -677,6 +677,50 @@ WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 TESTER_FINDINGS_HEADER = "### tester findings"
 
 
+def _ensure_pipeline_work_ref(branch: str | None) -> str | None:
+    """Return the actual remote ref for an orchestrator-managed pipeline branch.
+
+    The orchestrator pushes the pipeline tip to ``<branch>/work`` so the
+    ``<branch>/`` namespace can hold slice integration branches as
+    siblings (``<branch>/slice-N``) without git's ``directory file
+    conflict`` rejection — see #2399. A leaf ref at ``<branch>`` and a
+    child at ``<branch>/slice-N`` cannot coexist on origin, so the
+    pipeline tip is moved one level deeper into the namespace.
+
+    Idempotent and safe across modes:
+
+    * ``None`` → ``None`` (prompt-driven; the caller generates a
+      ``/work``-shaped branch later).
+    * ``egg/<id>`` → ``egg/<id>/work`` (issue / CUSTOM submissions).
+    * ``egg/<id>/work`` → unchanged (resubmission, internal callers).
+    * non-``egg/`` (e.g. babysit PR head refs) → unchanged. Babysit
+      pipelines reuse an existing remote branch and do not own the
+      namespace below it, so the conflict cannot arise.
+    """
+    if branch is None:
+        return None
+    if not branch.startswith("egg/"):
+        return branch
+    if branch.endswith("/work"):
+        return branch
+    return f"{branch}/work"
+
+
+def _slice_namespace_root(pipeline_branch: str) -> str:
+    """Return the slice-integration-branch namespace root for a pipeline branch.
+
+    Slice integration branches live as siblings of the pipeline tip
+    under ``egg/<id>/`` (see :func:`_ensure_pipeline_work_ref`). The
+    namespace root is the pipeline branch with the trailing ``/work``
+    stripped — that's the prefix slice paths (``<root>/slice-N``) are
+    built from. For legacy / non-normalised branches that do not end in
+    ``/work``, the branch itself is the root.
+    """
+    if pipeline_branch.endswith("/work"):
+        return pipeline_branch[: -len("/work")]
+    return pipeline_branch
+
+
 def _pipeline_identifier(
     issue_number: int | None,
     pipeline_id: str,
@@ -1375,6 +1419,15 @@ def create_pipeline() -> tuple[Response, int]:
         and mode not in (PipelineMode.BABYSIT, PipelineMode.CUSTOM)
     ):
         return make_error_response("Missing branch")
+
+    # #2399 — push the pipeline tip to ``<branch>/work`` so slice
+    # integration branches at ``<branch>/slice-N`` can coexist as
+    # siblings under the same namespace (git rejects a leaf ref and
+    # children of that ref's path with ``directory file conflict``).
+    # Skipped for BABYSIT (the branch is an existing PR head we don't
+    # own) and for non-``egg/`` branches.
+    if mode != PipelineMode.BABYSIT:
+        branch = _ensure_pipeline_work_ref(branch)
 
     # Wait for the gateway to be ready before any gateway-dependent work.
     # On fresh deploys / pod restarts the orchestrator can accept requests
@@ -10957,16 +11010,20 @@ def _run_implement_phase_slices(
         return 1, "no slices in contract"
 
     pipeline_branch = pipeline.branch or (
-        f"egg/issue-{pipeline.issue_number}"
+        f"egg/issue-{pipeline.issue_number}/work"
         if pipeline.issue_number is not None
         else f"egg/{pipeline_id}/work"
     )
     issue_number = pipeline.issue_number
-    # Slice integration branches stack under ``pipeline_branch`` directly
-    # so any qualifier suffix (``-v3``, ``-backend``) is preserved — two
-    # qualified pipelines for the same issue would otherwise collide in
-    # the ``egg/issue-N/slice-M`` namespace (#2368).
-    issue_branch = pipeline_branch
+    # Slice integration branches stack as siblings of the pipeline tip
+    # under ``egg/<id>/`` (see :func:`_ensure_pipeline_work_ref` for the
+    # ``/work`` namespace decision in #2399). The namespace root drops the
+    # trailing ``/work`` so slice paths build to ``<root>/slice-M`` rather
+    # than ``<root>/work/slice-M``. The qualifier suffix (``-v3``,
+    # ``-backend``) is preserved through ``pipeline.branch`` so two
+    # qualified pipelines for the same issue do not collide on
+    # ``egg/issue-N/slice-M`` (#2368).
+    issue_branch = _slice_namespace_root(pipeline_branch)
 
     # Wrap scheduler construction so the run loop doesn't crash if the
     # contract bypassed plan-ingestion validation and reaches the

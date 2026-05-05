@@ -82,7 +82,8 @@ def _resolve_extant_new_base(
     slice_,
     slices_by_id,
     extant_branches: set[str],
-    issue_branch: str,
+    slice_namespace_root: str,
+    pipeline_branch: str,
 ) -> str:
     """Walk up the slice DAG until an extant branch is found.
 
@@ -95,6 +96,12 @@ def _resolve_extant_new_base(
     whose branch is still on origin. If the entire chain has been
     deleted, fall back to the pipeline branch — root-targeted
     branches are stable.
+
+    ``slice_namespace_root`` is the prefix slice paths are built from
+    (``egg/<id>``, no ``/work`` suffix); ``pipeline_branch`` is the
+    actual remote ref of the umbrella pipeline tip (``egg/<id>/work``,
+    after #2399). They differ by exactly the ``/work`` suffix — see
+    :func:`routes.pipelines._ensure_pipeline_work_ref`.
     """
     # ``dependencies[0]`` is the canonical parent under the forest
     # constraint enforced at plan ingestion. ``serialized_chain_order``
@@ -106,17 +113,17 @@ def _resolve_extant_new_base(
         parent_slice = slices_by_id.get(parent_id)
         if parent_slice is None:
             break
-        candidate = f"{issue_branch}/{parent_slice.id}"
+        candidate = f"{slice_namespace_root}/{parent_slice.id}"
         if candidate in extant_branches:
             return candidate
         # This ancestor's branch is also gone (cascading merge).
         # Walk one more level up.
         parent_id = parent_slice.dependencies[0] if parent_slice.dependencies else None
     # Either the slice has no dependencies (it's a root whose own
-    # PR shouldn't get here — roots target ``issue_branch`` directly,
+    # PR shouldn't get here — roots target ``pipeline_branch`` directly,
     # which is in ``extant_branches``), or every ancestor's branch
     # has been deleted. Either way, the pipeline branch is safe.
-    return issue_branch
+    return pipeline_branch
 
 
 @dataclass(frozen=True)
@@ -181,20 +188,27 @@ def find_orphaned_child_prs(
     # (``issue-N-v3``, ``issue-N-backend``), and JIRA (``ENG-1234``).
     # The orchestrator's slice-integration branches preserve the
     # qualifier (see ``routes/pipelines.py`` ``pipeline.branch``
-    # propagation), so deriving the issue branch from ``contract_key``
-    # keeps the reconciler's lookup shape aligned with the producer's
-    # branch shape. A prior ``f"egg/issue-{issue_number}"`` ternary
-    # here hard-coded the unqualified shape for any contract with a
-    # populated ``issue`` field, silently no-op'ing orphan detection
-    # on every qualified pipeline.
-    issue_branch = f"egg/{contract.contract_key}"
+    # propagation), so deriving the slice namespace root from
+    # ``contract_key`` keeps the reconciler's lookup shape aligned
+    # with the producer's branch shape. A prior ``f"egg/issue-{issue_number}"``
+    # ternary here hard-coded the unqualified shape for any contract
+    # with a populated ``issue`` field, silently no-op'ing orphan
+    # detection on every qualified pipeline.
+    #
+    # Slice integration branches live as siblings of the pipeline tip
+    # under ``egg/<id>/`` (#2399); the umbrella pipeline tip is at
+    # ``egg/<id>/work``. ``slice_namespace_root`` is the prefix slice
+    # paths are built from; ``pipeline_branch`` is the actual remote
+    # ref of the umbrella tip — used as the cascade-fallback base.
+    slice_namespace_root = f"egg/{contract.contract_key}"
+    pipeline_branch = f"{slice_namespace_root}/work"
     slices_by_id = {s.id: s for s in contract.slices}
 
     for slice_ in contract.slices:
         parent = slice_.parent_branch_at_creation
         if parent is None:
             continue  # not yet provisioned
-        slice_branch = f"{issue_branch}/{slice_.id}"
+        slice_branch = f"{slice_namespace_root}/{slice_.id}"
         pr = pr_by_head.get(slice_branch)
         if pr is None:
             continue  # slice's PR hasn't been opened yet (or is closed)
@@ -216,7 +230,13 @@ def find_orphaned_child_prs(
         # cascade is the primary trigger for orphan detection, and
         # in that case ``parent_branch_at_creation`` points at the
         # same just-deleted branch we're trying to escape from.
-        new_base = _resolve_extant_new_base(slice_, slices_by_id, extant_branches, issue_branch)
+        new_base = _resolve_extant_new_base(
+            slice_,
+            slices_by_id,
+            extant_branches,
+            slice_namespace_root,
+            pipeline_branch,
+        )
         orphans.append(
             OrphanedChildPR(
                 slice_id=slice_.id,

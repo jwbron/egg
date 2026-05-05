@@ -270,8 +270,15 @@ class ConcurrentPhaseExecutor:
             # cannot see in the slice PR's diff. We honour the
             # pipeline's existing branch as the issue prefix when set,
             # otherwise fall back to the issue-number / pipeline id.
+            #
+            # The pipeline tip is pushed to ``egg/<id>/work`` (#2399), so
+            # the slice integration branch lives as a sibling of ``/work``
+            # under ``egg/<id>/`` — strip the trailing ``/work`` from the
+            # pipeline branch to get the namespace root.
             issue = self.pipeline.issue_number or self.pipeline.id
             issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
+            if issue_branch.endswith("/work"):
+                issue_branch = issue_branch[: -len("/work")]
             normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
             # Defense-in-depth: re-validate the normalised slice id
             # shape before embedding it in a git ref. The contract-
@@ -298,17 +305,24 @@ class ConcurrentPhaseExecutor:
     def get_slice_integration_branch(self, slice_id: str) -> str:
         """Return the shared integration branch for a slice's BRC.
 
-        Each slice has its own integration branch under the pipeline
-        branch — ``egg/issue-N/slice-M`` — that the per-role work
-        branches rebase onto. Roots base off the pipeline branch
-        directly; child slices base off their parent slice's
-        integration branch.
+        Each slice has its own integration branch as a sibling of the
+        pipeline tip under ``egg/<id>/`` — ``egg/issue-N/slice-M`` —
+        that the per-role work branches rebase onto. Roots base off the
+        pipeline branch directly (``egg/issue-N/work``); child slices
+        base off their parent slice's integration branch.
+
+        The pipeline tip is pushed to ``egg/<id>/work`` (#2399), so the
+        slice integration branch lives as a sibling of ``/work`` under
+        ``egg/<id>/`` — strip the trailing ``/work`` from the pipeline
+        branch to get the namespace root.
 
         The slice id is regex-validated for defense-in-depth (see
         ``get_worktree_branch``).
         """
         issue = self.pipeline.issue_number or self.pipeline.id
         issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
+        if issue_branch.endswith("/work"):
+            issue_branch = issue_branch[: -len("/work")]
         normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
         import re
 
