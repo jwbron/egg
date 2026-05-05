@@ -347,7 +347,7 @@ The slice run loop creates each slice's integration branch on origin
 `GatewayClient.create_slice_integration_branch(...)`, which (1) fetches
 the parent ref so the commit object is locally reachable, (2) resolves
 the parent branch to a SHA on origin via `git ls-remote`, then (3)
-pushes `<parent_sha>:refs/heads/integration_branch` through the existing
+pushes `<parent_sha>:refs/heads/<integration_branch>` through the existing
 per-agent `/api/v1/git/push` allowlist (no new privileged endpoint;
 decision-15 invariant preserved). Pushing by SHA rather than ref name
 avoids local-ref resolution failures in the orchestrator's per-pipeline
