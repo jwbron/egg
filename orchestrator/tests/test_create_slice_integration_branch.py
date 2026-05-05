@@ -179,10 +179,18 @@ class TestCreateSliceIntegrationBranchFailures:
         assert ok is False
         assert push_invoked == [], "push must not be issued when parent is not on origin"
 
-    def test_fetch_failure_is_non_fatal(self, gateway_client):
-        """A failed defensive fetch must not abort branch creation —
-        the parent's object may already be locally reachable from a
-        prior step, so we still attempt the SHA lookup and push."""
+    def test_fetch_returning_false_does_not_short_circuit(self, gateway_client):
+        """A defensive fetch that returns ``False`` must not abort
+        branch creation — the parent's object may already be locally
+        reachable from a prior step, so we still attempt the SHA
+        lookup and push.
+
+        Note: this pins control flow only.  In production, a transient
+        fetch failure on a fresh worktree leaves the parent SHA absent
+        from the local odb, and the subsequent push will fail with
+        ``fatal: bad object``.  The semantic guarantee is "don't
+        short-circuit on fetch failure", not "fetch failure is
+        recoverable in all cases"."""
         push_invoked: list[bool] = []
 
         def fake_make_request(endpoint, method=None, data=None, **kwargs):
