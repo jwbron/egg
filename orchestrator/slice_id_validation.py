@@ -8,19 +8,27 @@ one — signal handlers (#2403), the operator-triggered restart route
 module, so each seam validates against the same regex rather than
 re-deriving it inline.
 
-The contract-side ``Slice.id`` field accepts the broader pattern
-``^(?:slice|phase)-[0-9]+$`` (``egg_contracts.models.Slice``) for
-backward compatibility with pre-#2137 contracts. The pattern below
-is intentionally narrower — only the canonical ``slice-<N>`` shape —
-because the model loader's ``_migrate_phases_to_slices`` validator
-rewrites legacy ``phase-<N>`` ids to ``slice-<N>`` on contract load,
-so every slice_id reaching the spawn / signal / restart path is
-already canonical. If a future migration tool ever constructs a
-``Slice`` from raw legacy JSON without going through the loader, the
-resulting ``phase-<N>`` id will be rejected here (as it should — the
+The contract-side ``Slice.id`` field
+(``shared/egg_contracts/models.py``) accepts the broader pattern
+``^(?:slice|phase)-[0-9]+$`` for backward compatibility with
+pre-#2137 contracts. The pattern below is intentionally narrower —
+only the canonical ``slice-<N>`` shape. The canonicalisation is
+performed by the parent ``Contract`` model validator
+``Contract._migrate_phases_to_slices`` (mode="wrap" — runs before
+per-Slice field validation), which rewrites legacy ``phase-<N>`` ids
+to ``slice-<N>`` whenever a contract is loaded via
+``Contract.model_validate(json_dict)``. Slices reaching the spawn /
+signal / restart path through the contract-loader path are therefore
+already canonical. The guarantee does NOT extend to direct ``Slice``
+construction (e.g. ``Slice(id="phase-2", ...)``) — pydantic field
+validation alone is permissive — so the regex below is doing real
+work for any code path that constructs Slices outside Contract
+loading (e.g. a future migration tool, a hand-built fixture, or
+direct ``model_validate`` on a Slice dict). Such a caller's
+``phase-<N>`` slice will be rejected here as it should — the
 registry key MUST be canonical so the per-slice tracker can be
 looked up, and Job names / worktree ids that embed it MUST be
-RFC-1123 safe).
+RFC-1123 safe.
 """
 
 from __future__ import annotations

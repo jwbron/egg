@@ -220,13 +220,8 @@ class TestConsensusSignalSliceRouting:
         # The tracker lookup MUST forward slice_id so consensus messages
         # land on the per-slice tracker (#2403).
         call = mock_get_tracker.call_args
-        slice_arg = (
-            call.kwargs.get("slice_id")
-            if "slice_id" in call.kwargs
-            else (call.args[1] if len(call.args) >= 2 else None)
-        )
-        assert call.args[0] == "issue-2403"
-        assert slice_arg == "slice-2"
+        assert _pipeline_arg_from_call(call) == "issue-2403"
+        assert _slice_arg_from_call(call) == "slice-2"
 
     @patch("peer_consensus.get_peer_consensus_tracker")
     def test_propose_without_slice_falls_back_to_pipeline_tracker(self, mock_get_tracker, app):
@@ -262,11 +257,8 @@ class TestConsensusSignalSliceRouting:
         # semantics — ``get_peer_consensus_tracker(pipeline_id, None)``
         # is the same key as the legacy single-arg lookup.
         call = mock_get_tracker.call_args
-        assert call.args[0] == "issue-2403"
-        # slice_id positional or kwarg must be None / absent.
-        positional_slice = call.args[1] if len(call.args) >= 2 else None
-        kwarg_slice = call.kwargs.get("slice_id")
-        assert positional_slice is None and kwarg_slice is None
+        assert _pipeline_arg_from_call(call) == "issue-2403"
+        assert _slice_arg_from_call(call) is None
 
     def test_propose_rejects_malformed_slice_id(self, app):
         from routes.signals import handle_consensus_propose_signal
@@ -300,6 +292,18 @@ def _slice_arg_from_call(call) -> str | None:
     if "slice_id" in call.kwargs:
         return call.kwargs["slice_id"]
     return call.args[1] if len(call.args) >= 2 else None
+
+
+def _pipeline_arg_from_call(call) -> str | None:
+    """Extract ``pipeline_id`` from ``get_peer_consensus_tracker``'s call_args.
+
+    Symmetric with ``_slice_arg_from_call`` so tests don't break if a
+    future refactor moves ``pipeline_id`` from a positional arg to a
+    kwarg.
+    """
+    if "pipeline_id" in call.kwargs:
+        return call.kwargs["pipeline_id"]
+    return call.args[0] if call.args else None
 
 
 class TestAllConsensusHandlersRouteToSliceTracker:
@@ -342,7 +346,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             )
 
         call = mock_get_tracker.call_args
-        assert call.args[0] == "issue-2403"
+        assert _pipeline_arg_from_call(call) == "issue-2403"
         assert _slice_arg_from_call(call) == "slice-2"
 
     @patch("peer_consensus.get_peer_consensus_tracker")
@@ -375,7 +379,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             )
 
         call = mock_get_tracker.call_args
-        assert call.args[0] == "issue-2403"
+        assert _pipeline_arg_from_call(call) == "issue-2403"
         assert _slice_arg_from_call(call) == "slice-2"
 
     @patch("peer_consensus.get_peer_consensus_tracker")
@@ -401,11 +405,28 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             )
 
         call = mock_get_tracker.call_args
-        assert call.args[0] == "issue-2403"
+        assert _pipeline_arg_from_call(call) == "issue-2403"
         assert _slice_arg_from_call(call) == "slice-2"
 
+    @patch("routes.signals._write_consensus_confirmed_marker")
+    @patch("routes.signals._resolve_pipeline_phase", return_value="implement")
+    @patch("routes.signals._existing_confirmed_for_role", return_value=(False, False))
+    @patch("message_store.get_message_store")
     @patch("peer_consensus.get_peer_consensus_tracker")
-    def test_confirmed_routes_to_slice_tracker(self, mock_get_tracker, app):
+    def test_confirmed_routes_to_slice_tracker(
+        self,
+        mock_get_tracker,
+        mock_get_store,
+        _mock_existing,
+        _mock_phase,
+        _mock_marker,
+        app,
+    ):
+        # Mock message_store.get_message_store and
+        # _existing_confirmed_for_role so the handler's "Final CONFIRMED"
+        # branch doesn't read or write the live in-memory message store
+        # (test hermeticity — repeated runs in the same process must not
+        # observe each other's CONSENSUS_CONFIRMED writes).
         from routes.signals import handle_consensus_confirmed_signal
 
         mock_tracker = MagicMock()
@@ -414,6 +435,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             "version": 1,
         }
         mock_get_tracker.return_value = mock_tracker
+        mock_get_store.return_value = MagicMock()
 
         with app.app_context():
             handle_consensus_confirmed_signal(
@@ -426,7 +448,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             )
 
         call = mock_get_tracker.call_args
-        assert call.args[0] == "issue-2403"
+        assert _pipeline_arg_from_call(call) == "issue-2403"
         assert _slice_arg_from_call(call) == "slice-2"
 
     @patch("peer_consensus.get_peer_consensus_tracker")
@@ -462,7 +484,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             )
 
         call = mock_get_tracker.call_args
-        assert call.args[0] == "issue-2403"
+        assert _pipeline_arg_from_call(call) == "issue-2403"
         assert _slice_arg_from_call(call) == "slice-2"
 
     @patch("peer_consensus.get_peer_consensus_tracker")
@@ -491,11 +513,16 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             )
 
         call = mock_get_tracker.call_args
-        assert call.args[0] == "issue-2403"
+        assert _pipeline_arg_from_call(call) == "issue-2403"
         assert _slice_arg_from_call(call) == "slice-2"
 
+    @patch("message_store.get_message_store")
     @patch("peer_consensus.get_peer_consensus_tracker")
-    def test_producer_push_routes_to_slice_tracker(self, mock_get_tracker, app):
+    def test_producer_push_routes_to_slice_tracker(self, mock_get_tracker, mock_get_store, app):
+        # Mock message_store.get_message_store for hermeticity: today the
+        # handler's auto re-propose branch is gated by ``auto_re_propose:
+        # False`` so the message-bus write is skipped, but the mock pins
+        # the test against a future regression where the gate moves.
         from routes.signals import handle_consensus_producer_push_signal
 
         mock_tracker = MagicMock()
@@ -504,6 +531,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             "version": 1,
         }
         mock_get_tracker.return_value = mock_tracker
+        mock_get_store.return_value = MagicMock()
 
         with app.app_context():
             handle_consensus_producer_push_signal(
@@ -518,7 +546,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
             )
 
         call = mock_get_tracker.call_args
-        assert call.args[0] == "issue-2403"
+        assert _pipeline_arg_from_call(call) == "issue-2403"
         assert _slice_arg_from_call(call) == "slice-2"
 
 
