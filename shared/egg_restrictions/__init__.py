@@ -12,6 +12,7 @@ from .checker import (
     get_agent_pattern,
     validate_agent_push,
 )
+from .hints import BLOCKED_HINTS, derive_hint
 from .patterns import (
     AGENT_PATTERNS,
     AgentFilePattern,
@@ -23,7 +24,9 @@ __all__ = [
     "AgentRestrictionResult",
     "AgentRole",
     "AGENT_PATTERNS",
+    "BLOCKED_HINTS",
     "check_agent_file_access",
+    "derive_hint",
     "get_agent_pattern",
     "validate_agent_push",
 ]

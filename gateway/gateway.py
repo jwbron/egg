@@ -70,6 +70,7 @@ if _shared_path.exists():
     sys.path.insert(0, str(_shared_path))
 from egg_health import HealthTracker
 from egg_logging import get_logger
+from egg_restrictions.hints import derive_hint as _derive_push_denied_hint
 
 # Module-level health tracker. Updated every time the /api/v1/health
 # endpoint is evaluated so callers can distinguish "healthy since process
@@ -1555,15 +1556,22 @@ def git_push() -> tuple[Response, int] | Response:
                     "blocked_reason": restriction_result.blocked_reason,
                 },
             )
+            details: dict[str, Any] = {
+                "role": session_role,
+                "blocked_files": restriction_result.blocked_files,
+                "blocked_reason": restriction_result.blocked_reason,
+            }
+            # Derive the hint from the blocked path's category so non-contract
+            # violations (CI workflows, anchors, role-scope mismatches) get
+            # actionable guidance instead of the legacy contract-only hint.
+            # See #2355.
+            hint = _derive_push_denied_hint(restriction_result.blocked_files)
+            if hint is not None:
+                details["hint"] = hint
             return make_error(
                 f"Push denied: {restriction_result.message}. {restriction_result.blocked_reason}",
                 status_code=403,
-                details={
-                    "role": session_role,
-                    "blocked_files": restriction_result.blocked_files,
-                    "blocked_reason": restriction_result.blocked_reason,
-                    "hint": "Use egg-contract CLI commands to update contract state.",
-                },
+                details=details,
             )
 
     # Agent-role file restrictions (#2039 restricted-path rejection).
