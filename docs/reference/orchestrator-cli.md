@@ -234,10 +234,11 @@ egg-orch anchor validate
 
 ## Phase Management MCP Tools
 
-Four MCP tools expose phase management operations for pipeline recovery and manual intervention, eliminating the need for raw `curl` calls during stuck pipeline scenarios (see [#1570](https://github.com/jwbron/egg/issues/1570) for motivation).
+Five MCP tools expose phase- and pipeline-level recovery operations, eliminating the need for raw `curl` calls during stuck pipeline scenarios (see [#1570](https://github.com/jwbron/egg/issues/1570) for motivation; pipeline-level recovery added in [#2411](https://github.com/jwbron/egg/issues/2411)).
 
 | MCP Tool | REST Endpoint | Description |
 |----------|---------------|-------------|
+| `start_pipeline` | `POST /pipelines/{id}/start` | Recover a non-RUNNING pipeline (FAILED, AWAITING_HUMAN with all decisions resolved). Resets the current phase to PENDING (clears `containers`, `agents`, `artifacts`), bumps `run_epoch`, sets `pipeline.status = RUNNING`, and re-launches the `_run_pipeline` thread. **Distinct from `start_phase`** — targets pipeline-level state. Use for the FAILED + RUNNING-phase combo that startup reconciliation can produce. Resets agent records before re-spawning, so cancel any live pods first if record drift caused a false-positive FAILED |
 | `advance_phase` | `POST /pipelines/{id}/phase` | Advance pipeline to a target phase. With `force=true`, stops running containers first to prevent SIGTERM cascading. When leaving the plan phase, automatically populates the contract from the plan draft |
 | `start_phase` | `POST /pipelines/{id}/phase/start` | Mark the current phase RUNNING. Does **not** spawn agents — agent spawning is driven by the `_run_pipeline` loop. Use for operator recovery when a phase needs to be re-marked RUNNING |
 | `complete_phase` | `POST /pipelines/{id}/phase/complete` | Mark a phase COMPLETE. Does **not** advance the pipeline — call `advance_phase` next. Response includes `current_phase` (unchanged) and `next_phase` (suggested transition). Returns 409 if unresolved HITL decisions exist; pass `force=true` to abandon them |
@@ -247,6 +248,7 @@ Four MCP tools expose phase management operations for pipeline recovery and manu
 
 All tools require `task_id` (the pipeline ID). Additional parameters:
 
+- **`start_pipeline`**: No additional parameters.
 - **`advance_phase`**: `target_phase` (string, required) — the phase to advance to (e.g., `"plan"`, `"implement"`, `"pr"`). `force` (boolean, optional, default `false`) — skip validation and stop running containers before advancing. **Important:** When `force=true`, containers from the current phase are stopped before the transition to prevent their SIGTERM signals from being misinterpreted as failures in the new phase. When the current phase is `plan`, `advance_phase` automatically runs the contract populate step (parsing the plan's `yaml-tasks` appendix into the contract (phases, tasks, and `contract.pr` metadata)), so a separate `populate_contract` call is not needed for plan→implement transitions.
 - **`start_phase`**: No additional parameters.
 - **`complete_phase`**: `artifacts` (object, optional) — phase completion artifacts to store (e.g., commit SHAs, PR URLs).
@@ -281,6 +283,14 @@ Note: reason codes are present in the raw HTTP response. The MCP handler layer d
 ```bash
 # 1. Check current state
 egg-orch phase get <pipeline-id>
+
+# 1a. If pipeline is FAILED with the current phase still RUNNING (a state startup
+#     reconciliation can produce on partial agent-state loss after an orch
+#     restart — see #2411), use start_pipeline. It resets the failed phase to
+#     PENDING and re-launches the runner.
+# Via MCP tool: start_pipeline(task_id="<id>")
+# Via REST:
+curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/start
 
 # 2. Force-advance past a stuck phase (stops running containers first)
 # Via MCP tool: advance_phase(task_id="<id>", target_phase="implement", force=true)

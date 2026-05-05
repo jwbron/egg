@@ -840,6 +840,7 @@ class TestToolRouting:
             "restart_agent",
             "restart_phase",
             "advance_phase",
+            "start_pipeline",
             "start_phase",
             "complete_phase",
             "populate_contract",
@@ -872,6 +873,59 @@ class TestToolRouting:
             assert "repo" in props, f"{tool_name} schema missing 'repo' property"
             assert props["repo"]["type"] == "string"
             assert "owner/repo" in props["repo"]["description"]
+
+
+class TestStartPipeline:
+    """Tests for the start_pipeline MCP tool (#2411)."""
+
+    def test_tool_definition_exists(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tool_names = [t["name"] for t in PIPELINE_TOOLS]
+        assert "start_pipeline" in tool_names
+
+    def test_tool_definition_requires_task_id(self):
+        from mcp_tools import PIPELINE_TOOLS
+
+        tool = next(t for t in PIPELINE_TOOLS if t["name"] == "start_pipeline")
+        schema = tool["inputSchema"]
+        assert "task_id" in schema.get("required", [])
+
+    def test_calls_pipeline_start_endpoint(self, handler):
+        """start_pipeline should POST to /pipelines/{id}/start, not /phase/start."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {"status": "running"}}
+            handler.handle_tool_call("start_pipeline", {"task_id": "issue-2411"})
+
+        mock_req.assert_called_once()
+        endpoint = mock_req.call_args[0][0]
+        assert "/api/v1/pipelines/issue-2411/start" in endpoint
+        assert "/phase/" not in endpoint
+        assert mock_req.call_args.kwargs.get("method") == "POST"
+
+    def test_url_encodes_task_id(self, handler):
+        """task_id with reserved characters should be URL-encoded."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call("start_pipeline", {"task_id": "issue-1/odd"})
+
+        endpoint = mock_req.call_args[0][0]
+        assert "issue-1%2Fodd" in endpoint
+
+    def test_distinct_from_start_phase(self, handler):
+        """start_pipeline and start_phase must hit different endpoints."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+
+            handler.handle_tool_call("start_pipeline", {"task_id": "issue-99"})
+            pipeline_endpoint = mock_req.call_args[0][0]
+
+            handler.handle_tool_call("start_phase", {"task_id": "issue-99"})
+            phase_endpoint = mock_req.call_args[0][0]
+
+        assert pipeline_endpoint != phase_endpoint
+        assert pipeline_endpoint.endswith("/start")
+        assert phase_endpoint.endswith("/phase/start")
 
 
 class TestValidateConfig:
