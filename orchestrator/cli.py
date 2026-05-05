@@ -420,16 +420,23 @@ def cmd_pipelines_list(args: argparse.Namespace) -> int:
 
 def cmd_pipelines_create(args: argparse.Namespace) -> int:
     """Create a new pipeline."""
+    from routes.pipelines import _ensure_pipeline_work_ref
     from state_store import get_state_store
 
     repo_path = Path(args.repo_path) if args.repo_path else Path.cwd()
     store = get_state_store(repo_path)
 
+    # Route through the same normalisation as the HTTP `create_pipeline`
+    # endpoint so a CLI-provisioned pipeline gets the ``<branch>/work``
+    # shape and slice integration branches at ``<branch>/slice-N`` can
+    # coexist as siblings (#2399).
+    branch = _ensure_pipeline_work_ref(args.branch or f"egg/issue-{args.issue}")
+
     try:
         pipeline = store.create_pipeline(
             issue_number=args.issue,
             repo=args.repo,
-            branch=args.branch or f"egg/issue-{args.issue}",
+            branch=branch,
         )
 
         if args.json:
@@ -956,7 +963,10 @@ def create_parser() -> argparse.ArgumentParser:
     create_parser = pipelines_subparsers.add_parser("create", help="Create a pipeline")
     create_parser.add_argument("--issue", type=int, required=True, help="Issue number")
     create_parser.add_argument("--repo", required=True, help="Repository (owner/repo)")
-    create_parser.add_argument("--branch", help="Branch name (default: egg/issue-N)")
+    create_parser.add_argument(
+        "--branch",
+        help="Branch name (default: egg/issue-N; normalised to egg/issue-N/work)",
+    )
     create_parser.add_argument("--repo-path", help="Repository path")
     create_parser.add_argument("--json", action="store_true", help="Output as JSON")
     create_parser.set_defaults(func=cmd_pipelines_create)

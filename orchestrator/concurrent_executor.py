@@ -277,8 +277,13 @@ class ConcurrentPhaseExecutor:
             # pipeline branch to get the namespace root.
             issue = self.pipeline.issue_number or self.pipeline.id
             issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
-            if issue_branch.endswith("/work"):
-                issue_branch = issue_branch[: -len("/work")]
+            # Structural check (≥2 slashes, last segment ``work``) — see
+            # ``_slice_namespace_root`` in ``routes/pipelines.py`` for
+            # the matching helper. A degenerate single-segment input
+            # like ``egg/work`` is treated as the root itself rather
+            # than collapsing to ``egg``.
+            if issue_branch.count("/") >= 2 and issue_branch.rsplit("/", 1)[1] == "work":
+                issue_branch = issue_branch.rsplit("/", 1)[0]
             normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
             # Defense-in-depth: re-validate the normalised slice id
             # shape before embedding it in a git ref. The contract-
@@ -321,8 +326,10 @@ class ConcurrentPhaseExecutor:
         """
         issue = self.pipeline.issue_number or self.pipeline.id
         issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
-        if issue_branch.endswith("/work"):
-            issue_branch = issue_branch[: -len("/work")]
+        # Structural check (≥2 slashes, last segment ``work``) — see
+        # ``_slice_namespace_root`` in ``routes/pipelines.py``.
+        if issue_branch.count("/") >= 2 and issue_branch.rsplit("/", 1)[1] == "work":
+            issue_branch = issue_branch.rsplit("/", 1)[0]
         normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
         import re
 

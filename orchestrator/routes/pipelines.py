@@ -687,21 +687,39 @@ def _ensure_pipeline_work_ref(branch: str | None) -> str | None:
     child at ``<branch>/slice-N`` cannot coexist on origin, so the
     pipeline tip is moved one level deeper into the namespace.
 
-    Idempotent and safe across modes:
+    Idempotent and bounded to ``egg/<id>``-shaped branches:
 
     * ``None`` → ``None`` (prompt-driven; the caller generates a
       ``/work``-shaped branch later).
     * ``egg/<id>`` → ``egg/<id>/work`` (issue / CUSTOM submissions).
     * ``egg/<id>/work`` → unchanged (resubmission, internal callers).
-    * non-``egg/`` (e.g. babysit PR head refs) → unchanged. Babysit
-      pipelines reuse an existing remote branch and do not own the
-      namespace below it, so the conflict cannot arise.
+    * non-``egg/`` (passed unchanged) — primarily babysit PR head refs;
+      the route-level caller already skips BABYSIT before reaching this
+      helper, so the only non-``egg/`` branch that lands here is a
+      CUSTOM-mode pipeline pointed at a foreign branch (e.g.
+      ``feature/foo``). CUSTOM-with-slices on a non-``egg/`` branch is
+      not a guaranteed-safe shape and is intentionally not normalised
+      here — the conflict would resurface at the slice push and is
+      tracked separately.
+
+    The trailing-``/work`` check is structural rather than a plain
+    suffix match (``branch.count("/") >= 2 and branch.rsplit("/", 1)[1]
+    == "work"``) so a degenerate input like ``egg/work`` — a single
+    segment that *happens* to end in ``/work`` — gets normalised to
+    ``egg/work/work`` (siblings ``egg/work/slice-N``) rather than
+    treated as already-normalised. Trailing slashes are stripped first
+    so ``egg/`` does not collapse to a double-slash ``egg//work``.
     """
     if branch is None:
         return None
+    branch = branch.rstrip("/")
     if not branch.startswith("egg/"):
         return branch
-    if branch.endswith("/work"):
+    # Structural check: only treat ``egg/<id>/work`` (≥2 slashes, last
+    # segment is ``work``) as already-normalised. ``egg/work`` looks
+    # like a suffix match but is a single-segment id and still needs the
+    # ``/work`` namespace deepening.
+    if branch.count("/") >= 2 and branch.rsplit("/", 1)[1] == "work":
         return branch
     return f"{branch}/work"
 
@@ -715,9 +733,14 @@ def _slice_namespace_root(pipeline_branch: str) -> str:
     stripped — that's the prefix slice paths (``<root>/slice-N``) are
     built from. For legacy / non-normalised branches that do not end in
     ``/work``, the branch itself is the root.
+
+    The trailing-``/work`` check mirrors the structural check in
+    :func:`_ensure_pipeline_work_ref` (≥2 slashes, last segment is
+    ``work``) so a degenerate single-segment input like ``egg/work``
+    is treated as the root itself rather than collapsing to ``egg``.
     """
-    if pipeline_branch.endswith("/work"):
-        return pipeline_branch[: -len("/work")]
+    if pipeline_branch.count("/") >= 2 and pipeline_branch.rsplit("/", 1)[1] == "work":
+        return pipeline_branch.rsplit("/", 1)[0]
     return pipeline_branch
 
 
@@ -2109,9 +2132,12 @@ def _cleanup_remote_branches(
     """Best-effort cleanup of remote branches for a pipeline.
 
     Deletes the pipeline's shared branch (``pipeline.branch``, typically
-    ``egg/{pipeline_id}``) and every per-container worktree branch
-    (``egg/{container_id}/work``).  Failures are logged as warnings and do
-    not block pipeline deletion.
+    ``egg/{pipeline_id}/work`` since #2399) and every per-container
+    worktree branch (``egg/{container_id}/work``).  Slice integration
+    branches at ``egg/{pipeline_id}/slice-N`` are siblings of the
+    pipeline tip and are NOT deleted here — see follow-up tracking on
+    #2399 for full namespace cleanup.  Failures are logged as warnings
+    and do not block pipeline deletion.
     """
     branches: set[str] = set()
     if pipeline.branch:
@@ -5301,10 +5327,13 @@ def _sync_worktree_with_remote(
     worktree so that all downstream code (contract loading, draft reading,
     populator, etc.) sees the full pipeline state.
 
-    ``pipeline_branch`` is the **remote** branch name to reconcile against
-    (e.g. ``egg/<pid>``).  The orchestrator-side worktree is checked out
-    on a ``/work``-suffixed local branch (``egg/<pid>/work``) that does
-    not exist on origin — agents push to ``egg/<pid>``.  Without an
+    ``pipeline_branch`` is the **remote** branch name to reconcile against.
+    Since #2399 the pipeline tip lives at ``egg/<pid>/work`` on origin so
+    slice integration branches at ``egg/<pid>/slice-N`` can coexist as
+    siblings; ``pipeline.branch`` already carries that ``/work`` suffix
+    (set by :func:`_ensure_pipeline_work_ref` at submission time), so
+    callers should pass ``pipeline_branch=pipeline.branch`` directly —
+    the local worktree branch and the remote ref now match.  Without an
     explicit ``pipeline_branch``, the function reads
     ``git branch --show-current`` and looks up ``origin/<that-name>``,
     which always misses on real pipelines and exits at

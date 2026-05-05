@@ -40,6 +40,30 @@ class TestEnsurePipelineWorkRef:
         # added as siblings if a custom pipeline ever uses the slice DAG.
         assert _ensure_pipeline_work_ref("egg/custom-deadbeef") == "egg/custom-deadbeef/work"
 
+    def test_single_segment_egg_work_is_not_treated_as_normalised(self) -> None:
+        # Degenerate input: ``egg/work`` ends in ``/work`` but is a
+        # single-segment id, not an already-normalised pipeline branch.
+        # Plain ``endswith("/work")`` would return it unchanged and the
+        # slice DAG would push to ``egg/work/slice-N`` under the leaf
+        # ``egg/work`` — back to the directory/file conflict #2399 fixes.
+        # Structural check (≥2 slashes, last segment ``work``) treats it
+        # as needing normalisation.
+        assert _ensure_pipeline_work_ref("egg/work") == "egg/work/work"
+
+    def test_strips_trailing_slash_before_appending_work(self) -> None:
+        # The branch validation regex permits trailing slashes; an
+        # input like ``egg/issue-1/`` must not collapse to a
+        # double-slash ``egg/issue-1//work``.
+        assert _ensure_pipeline_work_ref("egg/issue-1/") == "egg/issue-1/work"
+
+    def test_degenerate_egg_slash_does_not_double_slash(self) -> None:
+        # ``egg/`` is degenerate (no id segment). Pre-fix the helper
+        # produced ``egg//work``; we now strip the trailing slash and
+        # leave the bare ``egg`` unchanged (it does not start with
+        # ``egg/``). The branch validation regex upstream should
+        # reject this shape — the helper just refuses to make it worse.
+        assert _ensure_pipeline_work_ref("egg/") == "egg"
+
 
 class TestSliceNamespaceRoot:
     def test_strips_work_suffix(self) -> None:
@@ -55,6 +79,13 @@ class TestSliceNamespaceRoot:
 
     def test_qualifier_preserved(self) -> None:
         assert _slice_namespace_root("egg/issue-100-backend/work") == "egg/issue-100-backend"
+
+    def test_single_segment_egg_work_is_root_itself(self) -> None:
+        # Mirror of the structural check in ``_ensure_pipeline_work_ref``:
+        # ``egg/work`` is a single-segment id, not a normalised pipeline
+        # branch, so the namespace root is the branch itself rather than
+        # collapsing to ``egg``.
+        assert _slice_namespace_root("egg/work") == "egg/work"
 
 
 class TestNamespaceCoexistence:
