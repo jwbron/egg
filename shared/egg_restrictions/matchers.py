@@ -41,6 +41,13 @@ def match_pattern(file_path: str, pattern: str) -> bool:
     - Directory at any depth: "**/tests/" (matches any file under a
       ``tests/`` directory at any depth, including top-level)
 
+    Bare-prefix substring matching (e.g. ``"docs"`` matching
+    ``"src/docs/foo.py"``) is **not** supported — the pre-#2356
+    ``PhaseFileRestriction._matches_pattern`` had this fallback, but no
+    shipped config relied on it. Downstream configs that did should use
+    ``"**/docs/"`` (matches any file under a ``docs/`` directory at any
+    depth, identically across all four enforcement layers).
+
     Args:
         file_path: Path to check
         pattern: Pattern to match against
