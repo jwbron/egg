@@ -16608,14 +16608,18 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         worktree_repo_path = _resolve_pipeline_worktree_path(pipeline, repo_path)
                         if worktree_repo_path == repo_path:
                             # No materialised worktree — recovery degrades to
-                            # the pre-fix shape (contract write no-ops via
-                            # ContractNotFoundError, draft append skipped).
-                            # Surface this so operators can correlate missing
-                            # next-phase context with worktree-cleanup races.
+                            # the pre-fix shape (contract write typically
+                            # no-ops via ContractNotFoundError, draft append
+                            # skipped). The contract write *may* succeed if
+                            # the orchestrator's main repo happens to carry a
+                            # contract for this pipeline, but it would land
+                            # against the wrong tree. Surface this either way
+                            # so operators can correlate missing next-phase
+                            # context with worktree-cleanup races.
                             logger.warning(
                                 "No materialised worktree found for phase gate "
                                 "persistence; falling back to main repo path. "
-                                "Contract write will silently no-op.",
+                                "Contract write may silently no-op.",
                                 pipeline_id=pipeline_id,
                                 phase=pipeline.current_phase.value,
                             )
