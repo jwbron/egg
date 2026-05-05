@@ -11628,13 +11628,13 @@ def _run_concurrent_phase(
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
     # Slice-aware sandbox env (#2137 TASK-4-3 / #2403): when running a
-    # per-slice team, expose the slice id via ``EGG_SLICE_ID`` and
-    # leave ``EGG_PIPELINE_ID`` as the bare pipeline id. An earlier
-    # shape encoded the slice into ``EGG_PIPELINE_ID`` itself
-    # (``{pipeline_id}/{slice_id}``) so the orchestrator's
-    # ``_tracker_key`` would route CONSENSUS_* to the slice tracker
-    # without an extra signal-level field. That broke every agent →
-    # orchestrator round-trip:
+    # per-slice team, the spawner exposes the slice id via
+    # ``EGG_SLICE_ID`` and leaves ``EGG_PIPELINE_ID`` as the bare
+    # pipeline id. An earlier shape encoded the slice into
+    # ``EGG_PIPELINE_ID`` itself (``{pipeline_id}/{slice_id}``) so the
+    # orchestrator's ``_tracker_key`` would route CONSENSUS_* to the
+    # slice tracker without an extra signal-level field. That broke
+    # every agent → orchestrator round-trip:
     #
     #   * the orchestrator-side ``PIPELINE_ID_PATTERN`` and the agent
     #     handler validator (``[a-zA-Z0-9_-]+``) both reject the slash,
@@ -11655,9 +11655,13 @@ def _run_concurrent_phase(
     # pipeline-level fan-out for OVERSEER_ALERT mentioned in earlier
     # comments here is tracked alongside the per-slice MCP control
     # verbs in #2199.
-    if slice_id is not None:
-        sandbox_env = dict(sandbox_env)
-        sandbox_env["EGG_SLICE_ID"] = slice_id
+    #
+    # Single source of truth (#2410 v2 review): ``EGG_SLICE_ID`` is
+    # injected by ``KubernetesSpawner.spawn_agent_job`` from the same
+    # ``slice_id`` parameter that drives Job naming and worktree id, so
+    # there is no need to also stuff it into ``sandbox_env`` here. The
+    # key is in ``_PROTECTED_ENV_KEYS`` so any future caller that does
+    # supply a value via ``extra_env`` is logged and overridden.
 
     # Build per-role prompts for concurrent phase execution.
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase

@@ -359,6 +359,48 @@ class TestSpawnAgentJob:
         )
         assert "EGG_SLICE_ID" not in result.environment
 
+    def test_extra_env_cannot_override_egg_slice_id(self, spawner, mock_k8s_client, mock_gateway):
+        """``extra_env`` cannot override ``EGG_SLICE_ID`` — protected key (#2410 v2 review).
+
+        The spawner is the single source of truth: ``EGG_SLICE_ID`` is
+        derived from the ``slice_id`` parameter that already drives Job
+        naming and worktree id. A future caller that tried to ship a
+        different value via ``extra_env`` would silently end up with the
+        agent's signals tagged for one slice while its Job + worktree
+        belong to another. Protecting the key catches that.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+            extra_env={"EGG_SLICE_ID": "slice-99"},
+        )
+        # Spawner's value wins, not extra_env's.
+        assert result.environment.get("EGG_SLICE_ID") == "slice-2"
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_SLICE_ID") == "slice-2"
+
+    def test_extra_env_cannot_inject_egg_slice_id_when_pipeline_level(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Without ``slice_id``, ``extra_env`` cannot smuggle ``EGG_SLICE_ID`` in.
+
+        Pipeline-level spawns must not be tagged with a slice scope —
+        protecting the key blocks a regression where a slice-aware
+        caller would forget the ``slice_id`` parameter and try to bolt
+        the env var on directly via ``extra_env``.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            extra_env={"EGG_SLICE_ID": "slice-2"},
+        )
+        assert "EGG_SLICE_ID" not in result.environment
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert "EGG_SLICE_ID" not in create_kwargs["environment"]
+
     def test_spawn_labels(self, spawner, mock_k8s_client):
         """Spawn sets the expected labels on the Job."""
         spawner.spawn_agent_job(

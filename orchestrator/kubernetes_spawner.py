@@ -94,6 +94,14 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         # /resolve. Blocking the key here is defense in depth; the base
         # spawner env below never sets it to begin with.
         "EGG_LIFECYCLE_SECRET",
+        # Slice scope (#2410, v2 review follow-up). The spawner is the
+        # single source of truth: ``EGG_SLICE_ID`` is derived from the
+        # ``slice_id`` parameter that already drives Job naming and
+        # worktree id. Protecting the key prevents a future caller from
+        # silently shipping a mismatched value via ``extra_env`` —
+        # without this, the agent's signals could land on a different
+        # slice than its Job/worktree, with no warning.
+        "EGG_SLICE_ID",
     }
 )
 
@@ -742,10 +750,13 @@ class KubernetesSpawner:
             # ``slice_id`` parameter only drove naming + worktree id and the
             # restarted Job came up with no slice scope in its env — its
             # signals would land on the pipeline-level tracker, which has
-            # no record of the agent (failure mode #3 from #2410). The
-            # concurrent-spawn path also stuffs ``EGG_SLICE_ID`` into
-            # ``sandbox_env`` (routes/pipelines.py) so both signals agree;
-            # the override below is idempotent in that case.
+            # no record of the agent (failure mode #3 from #2410).
+            #
+            # Single source of truth (v2 review follow-up): the spawner is
+            # the only writer; ``EGG_SLICE_ID`` is in ``_PROTECTED_ENV_KEYS``
+            # so any ``extra_env`` value is logged and dropped, guaranteeing
+            # the env stays consistent with the Job name + worktree id that
+            # are also derived from this same ``slice_id`` parameter.
             if slice_id is not None:
                 environment["EGG_SLICE_ID"] = slice_id
 
