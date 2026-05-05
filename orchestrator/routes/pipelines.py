@@ -11710,6 +11710,7 @@ def _run_concurrent_phase(
         base_branch=pipeline.base_branch,
         spawn_max_retries=pipeline.config.spawn_max_retries,
         spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
+        slice_id=slice_id,
     )
 
     max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 6)

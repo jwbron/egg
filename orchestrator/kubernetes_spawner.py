@@ -11,6 +11,7 @@ Kubernetes deployments:
 """
 
 import os
+import re
 import sys
 import threading
 import time
@@ -235,12 +236,14 @@ class KubernetesSpawner:
 
     DEFAULT_SANDBOX_IMAGE = os.environ.get("EGG_SANDBOX_IMAGE", "egg:latest")
     JOB_NAME_FORMAT = "egg-agent-{pipeline_id}-{role}"
+    JOB_NAME_FORMAT_SLICE = "egg-agent-{pipeline_id}-{slice_id}-{role}"
 
     @classmethod
     def _build_k8s_job_names(
         cls,
         pipeline_id: str,
         agent_role: AgentRole,
+        slice_id: str | None = None,
     ) -> tuple[str, str]:
         """Build the two identifiers an agent Job is known by.
 
@@ -248,21 +251,53 @@ class KubernetesSpawner:
 
         - ``job_name`` is the unprefixed identifier used as the gateway
           session ``container_id`` and in labels (e.g.
-          ``egg-agent-issue-1962-task-planner``).
+          ``egg-agent-issue-1962-task-planner`` or, for slice-scoped
+          spawns, ``egg-agent-issue-2261-v7-slice-2-coder``).
         - ``actual_k8s_job_name`` is the real k8s Job name after
           ``KubernetesClient`` prepends ``JOB_PREFIX`` during
-          ``create_container`` (e.g.
-          ``egg-sandbox-egg-agent-issue-1962-task-planner``).
+          ``create_container``.
 
         Underscores in ``agent_role.value`` (``task_planner``,
         ``reviewer_refine``, …) are converted to hyphens because k8s
         resource names are RFC-1123 labels and reject underscores.
+
+        Slice scope (#2403): when ``slice_id`` is supplied, it is
+        embedded between the pipeline id and the role so concurrent
+        slices in the same pipeline don't collide on a single Job name
+        (which would cause ``spawn_agent_job``'s pre-spawn cleanup to
+        delete the in-flight sibling slice's Job — see line 405).
         """
-        job_name = cls.JOB_NAME_FORMAT.format(
-            pipeline_id=pipeline_id,
-            role=agent_role.value.replace("_", "-"),
-        )
+        if slice_id:
+            job_name = cls.JOB_NAME_FORMAT_SLICE.format(
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                role=agent_role.value.replace("_", "-"),
+            )
+        else:
+            job_name = cls.JOB_NAME_FORMAT.format(
+                pipeline_id=pipeline_id,
+                role=agent_role.value.replace("_", "-"),
+            )
         return job_name, f"{KubernetesClient.JOB_PREFIX}{job_name}"
+
+    @staticmethod
+    def _build_agent_worktree_id(
+        pipeline_id: str,
+        agent_role: AgentRole,
+        slice_id: str | None = None,
+    ) -> str:
+        """Build the per-agent worktree identifier.
+
+        The id is the gateway worktree key (``container_id`` for
+        ``create_worktrees`` / ``delete_worktrees``) and the agent's
+        ``CONTAINER_ID`` env var. For slice-scoped spawns it embeds the
+        slice id (#2403) so concurrent slices don't share a worktree —
+        otherwise slice-N's coder would inherit slice-(N-1)'s worktree
+        contents (or step on them mid-flight).
+        """
+        if slice_id:
+            return f"{pipeline_id}-{slice_id}-{agent_role.value}"
+        return f"{pipeline_id}-{agent_role.value}"
 
     def __init__(
         self,
@@ -368,6 +403,7 @@ class KubernetesSpawner:
         spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
         spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
         jira_ticket: str | None = None,
+        slice_id: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -398,7 +434,9 @@ class KubernetesSpawner:
         Raises:
             KubernetesSpawnError: If spawning fails
         """
-        job_name, actual_k8s_job_name = self._build_k8s_job_names(pipeline_id, agent_role)
+        job_name, actual_k8s_job_name = self._build_k8s_job_names(
+            pipeline_id, agent_role, slice_id=slice_id
+        )
 
         # Clean up any existing Job with the same name.
         try:
@@ -441,8 +479,16 @@ class KubernetesSpawner:
         host_uid = int(os.environ.get("HOST_UID", 1000))
         host_gid = int(os.environ.get("HOST_GID", 1000))
 
-        # Per-agent worktree isolation: create a dedicated worktree
-        agent_worktree_id = f"{pipeline_id}-{agent_role.value}"
+        # Per-agent worktree isolation: create a dedicated worktree.
+        # Slice scope (#2403): concurrent slices in the same pipeline
+        # MUST get distinct worktree ids — otherwise slice-N's coder
+        # spawns onto slice-(N-1)'s already-mounted worktree (or
+        # races with it during cleanup). The id is also the agent's
+        # ``CONTAINER_ID`` env and the gateway worktree key, so the
+        # whole gateway / agent / orchestrator triangle agrees on it.
+        agent_worktree_id = self._build_agent_worktree_id(
+            pipeline_id, agent_role, slice_id=slice_id
+        )
         worktree_created_this_call = False
 
         if repos:
@@ -916,15 +962,17 @@ class KubernetesSpawner:
                 worktree_ids_to_clean.add(f"{pipeline_id}-{role_label}")
 
         # Also scan filesystem for any per-agent worktrees.  Only match
-        # entries that are either the pipeline-level worktree or a
-        # "{pipeline_id}-{role}" directory where {role} is a known
-        # AgentRole value.  A naive `startswith(f"{pipeline_id}-")`
+        # entries that are either the pipeline-level worktree, a
+        # "{pipeline_id}-{role}" directory, or a slice-scoped
+        # "{pipeline_id}-slice-{N}-{role}" directory where {role} is a
+        # known AgentRole value (#2403). A naive `startswith(f"{pipeline_id}-")`
         # collides with longer pipeline IDs that share the prefix — e.g.
         # cleanup of `issue-1758` would match active worktrees of
         # `issue-1758-worktree-fix-tester`, wiping another pipeline's
         # state mid-phase (#1865).
         if WORKTREE_BASE_DIR.exists():
-            valid_suffixes = {f"-{role.value}" for role in AgentRole}
+            valid_role_suffixes = {f"-{role.value}" for role in AgentRole}
+            slice_segment_re = re.compile(r"^-slice-[0-9]+(-.+)$")
             try:
                 for entry in WORKTREE_BASE_DIR.iterdir():
                     if not entry.is_dir():
@@ -936,7 +984,15 @@ class KubernetesSpawner:
                     if not name.startswith(pipeline_id):
                         continue
                     suffix = name[len(pipeline_id) :]
-                    if suffix in valid_suffixes:
+                    if suffix in valid_role_suffixes:
+                        worktree_ids_to_clean.add(name)
+                        continue
+                    # Slice-scoped: "{pipeline_id}-slice-{N}-{role}".
+                    # The trailing "-{role}" inside the captured group
+                    # is matched against the role allowlist so this
+                    # branch can't sweep an unrelated sibling worktree.
+                    slice_match = slice_segment_re.match(suffix)
+                    if slice_match and slice_match.group(1) in valid_role_suffixes:
                         worktree_ids_to_clean.add(name)
             except Exception as e:
                 logger.warning(
@@ -1325,6 +1381,7 @@ class KubernetesSpawner:
         certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
         spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
         spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
+        slice_id: str | None = None,
     ):
         """Create a spawn callable compatible with ConcurrentPhaseExecutor.
 
@@ -1341,6 +1398,12 @@ class KubernetesSpawner:
             sandbox_env: Base environment variables.
             image: Container image override.
             base_branch: Branch to base worktrees on.
+            slice_id: Optional slice scope (#2403). When supplied, every
+                spawn (including ``spawn_specific_roles`` retries) is
+                tagged with this slice so concurrent slices in the same
+                pipeline get distinct Job names and worktree ids. Without
+                this, slice-N spawning ``coder`` would delete slice-(N-1)'s
+                still-running ``coder`` Job during the pre-spawn cleanup.
 
         Returns:
             Callable suitable for ConcurrentPhaseExecutor.spawn_fn.
@@ -1368,6 +1431,7 @@ class KubernetesSpawner:
                 command=command,
                 spawn_max_retries=spawn_max_retries,
                 spawn_retry_initial_backoff_seconds=(spawn_retry_initial_backoff_seconds),
+                slice_id=slice_id,
             )
 
         return _spawn

@@ -1159,3 +1159,162 @@ class TestGetKubernetesSpawner:
             assert first is second
 
         kubernetes_spawner._spawner = None
+
+
+# ---------------------------------------------------------------------------
+# Slice-scope plumbing (#2403)
+# ---------------------------------------------------------------------------
+
+
+class TestSliceScopedJobAndWorktreeIds:
+    """Concurrent slices in the same pipeline must spawn under distinct ids.
+
+    Without slice scope, slice-N's coder spawn:
+      * builds the same Job name as slice-(N-1)'s coder, so the
+        pre-spawn cleanup at the top of ``spawn_agent_job`` deletes the
+        sibling slice's still-running Job;
+      * builds the same ``agent_worktree_id`` so the gateway worktree
+        is reused, mounting slice-(N-1)'s contents (or stepping on
+        them mid-flight).
+    Both bugs surfaced together in #2403.
+    """
+
+    def test_build_k8s_job_names_includes_slice_segment(self):
+        from kubernetes_spawner import KubernetesSpawner
+
+        job_name, k8s_name = KubernetesSpawner._build_k8s_job_names(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-2"
+        )
+        assert job_name == "egg-agent-issue-2261-v7-slice-2-coder"
+        assert k8s_name.endswith("egg-agent-issue-2261-v7-slice-2-coder")
+
+    def test_build_k8s_job_names_omits_slice_segment_when_unscoped(self):
+        from kubernetes_spawner import KubernetesSpawner
+
+        job_name, _ = KubernetesSpawner._build_k8s_job_names("issue-2261-v7", AgentRole.CODER)
+        assert job_name == "egg-agent-issue-2261-v7-coder"
+
+    def test_build_agent_worktree_id_includes_slice(self):
+        from kubernetes_spawner import KubernetesSpawner
+
+        wt_id = KubernetesSpawner._build_agent_worktree_id(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-2"
+        )
+        assert wt_id == "issue-2261-v7-slice-2-coder"
+
+    def test_build_agent_worktree_id_omits_slice_when_unscoped(self):
+        from kubernetes_spawner import KubernetesSpawner
+
+        wt_id = KubernetesSpawner._build_agent_worktree_id("issue-2261-v7", AgentRole.CODER)
+        assert wt_id == "issue-2261-v7-coder"
+
+    def test_concurrent_slices_get_distinct_ids(self):
+        """Two slice spawns for the same role must NOT collide on either id."""
+        from kubernetes_spawner import KubernetesSpawner
+
+        s1_job, _ = KubernetesSpawner._build_k8s_job_names(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-1"
+        )
+        s2_job, _ = KubernetesSpawner._build_k8s_job_names(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-2"
+        )
+        assert s1_job != s2_job
+
+        s1_wt = KubernetesSpawner._build_agent_worktree_id(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-1"
+        )
+        s2_wt = KubernetesSpawner._build_agent_worktree_id(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-2"
+        )
+        assert s1_wt != s2_wt
+
+    def test_underscore_role_still_hyphenated_in_job_name(self):
+        """``task_planner`` etc. stay hyphenated under slice scope (RFC-1123)."""
+        from kubernetes_spawner import KubernetesSpawner
+
+        job_name, _ = KubernetesSpawner._build_k8s_job_names(
+            "issue-2261-v7", AgentRole.TASK_PLANNER, slice_id="slice-3"
+        )
+        assert job_name == "egg-agent-issue-2261-v7-slice-3-task-planner"
+
+
+class TestSpawnAgentJobSliceScope:
+    """``spawn_agent_job`` threads ``slice_id`` into the gateway worktree key."""
+
+    def test_create_worktrees_called_with_slice_scoped_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        spawner.spawn_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        # Pre-spawn worktree creation is keyed by the slice-scoped id.
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert cw_kwargs["container_id"] == "issue-2261-v7-slice-2-coder"
+
+    def test_session_register_uses_slice_scoped_worktree_container_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        spawner.spawn_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        # The gateway session reuses the worktree under the same key —
+        # without slice scope here the agent's session would dangle.
+        rs_kwargs = mock_gateway.register_session.call_args.kwargs
+        assert rs_kwargs["worktree_container_id"] == "issue-2261-v7-slice-2-coder"
+
+    def test_concurrent_spawn_fn_forwards_slice_id(self, spawner, mock_k8s_client, mock_gateway):
+        spawn_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="issue-2261-v7",
+            issue_number=2261,
+            repo_volumes={},
+            mode="public",
+            repos=["owner/repo"],
+            phase="implement",
+            slice_id="slice-2",
+        )
+        spawn_fn(role=AgentRole.CODER, branch="egg/issue-2261-v7/slice-2")
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert cw_kwargs["container_id"] == "issue-2261-v7-slice-2-coder"
+
+
+class TestCleanupPipelineSliceWorktrees:
+    """``cleanup_pipeline``'s filesystem scan recognises slice-scoped worktrees."""
+
+    def test_filesystem_scan_picks_up_slice_scoped_worktrees(
+        self, spawner, mock_k8s_client, mock_gateway, tmp_path, monkeypatch
+    ):
+        import kubernetes_spawner as ks_mod
+
+        # Lay out a mix of pipeline-level, role-level, slice-scoped, and
+        # unrelated entries so the scan's allowlist is exercised end-to-end.
+        (tmp_path / "issue-2261-v7").mkdir()
+        (tmp_path / "issue-2261-v7-coder").mkdir()
+        (tmp_path / "issue-2261-v7-slice-2-coder").mkdir()
+        (tmp_path / "issue-2261-v7-slice-3-tester").mkdir()
+        # Sibling pipeline whose id starts with the same prefix — must NOT
+        # be swept (mirrors the #1865 regression guard).
+        (tmp_path / "issue-2261-v7-other-thing").mkdir()
+        (tmp_path / "issue-9999-coder").mkdir()
+
+        monkeypatch.setattr(ks_mod, "WORKTREE_BASE_DIR", tmp_path)
+        # No Jobs returned — drive cleanup purely off the filesystem scan.
+        mock_k8s_client.list_containers.return_value = []
+
+        spawner.cleanup_pipeline("issue-2261-v7")
+
+        cleaned = {
+            call.kwargs.get("container_id") for call in mock_gateway.delete_worktrees.call_args_list
+        }
+        assert "issue-2261-v7" in cleaned
+        assert "issue-2261-v7-coder" in cleaned
+        assert "issue-2261-v7-slice-2-coder" in cleaned
+        assert "issue-2261-v7-slice-3-tester" in cleaned
+        # Sibling pipelines are left alone.
+        assert "issue-2261-v7-other-thing" not in cleaned
+        assert "issue-9999-coder" not in cleaned
