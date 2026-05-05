@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from egg_restrictions.matchers import match_pattern
+
 from .roles import Role
 
 
@@ -121,7 +123,7 @@ class FileAccessPattern:
         if not self.allowed_read:
             return True  # Empty list means all files readable
 
-        return any(self._matches_pattern(file_path, pattern) for pattern in self.allowed_read)
+        return any(match_pattern(file_path, pattern) for pattern in self.allowed_read)
 
     def can_write(self, file_path: str) -> bool:
         """Check if the agent can write to this file.
@@ -133,44 +135,14 @@ class FileAccessPattern:
             True if the file can be written
         """
         # Check blocked patterns first
-        if any(self._matches_pattern(file_path, pattern) for pattern in self.blocked_write):
+        if any(match_pattern(file_path, pattern) for pattern in self.blocked_write):
             return False
 
         # If no allowed patterns, block all writes
         if not self.allowed_write:
             return False
 
-        return any(self._matches_pattern(file_path, pattern) for pattern in self.allowed_write)
-
-    @staticmethod
-    def _matches_pattern(file_path: str, pattern: str) -> bool:
-        """Check if a file path matches a glob-like pattern.
-
-        Supports:
-        - Exact match: "foo/bar.py"
-        - Prefix match: "foo/" (matches any file under foo/)
-        - Wildcard: "*.py" (matches files ending in .py)
-        - Double wildcard: "**/*.py" (matches .py files at any depth)
-
-        Args:
-            file_path: Path to check
-            pattern: Pattern to match against
-
-        Returns:
-            True if the path matches the pattern
-        """
-        import fnmatch
-
-        # Normalize paths
-        file_path = file_path.lstrip("./")
-        pattern = pattern.lstrip("./")
-
-        # Prefix match (directory pattern)
-        if pattern.endswith("/"):
-            return file_path.startswith(pattern) or file_path + "/" == pattern
-
-        # Use fnmatch for wildcard matching
-        return fnmatch.fnmatch(file_path, pattern)
+        return any(match_pattern(file_path, pattern) for pattern in self.allowed_write)
 
 
 @dataclass
