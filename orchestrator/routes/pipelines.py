@@ -16594,9 +16594,37 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         phase_execution.completed_at = datetime.now(UTC)
 
                     # Persist phase gate resolution so next-phase agents see it.  #1295
+                    #
+                    # The contract and phase draft both live under the
+                    # per-pipeline worktree (``<worktree>/.egg-state/``),
+                    # not the orchestrator's main repo. Resolve the
+                    # worktree explicitly here — the inline path inside
+                    # ``_run_pipeline`` already has ``worktree_repo_path``
+                    # in scope, but this recovery branch only has the
+                    # main ``repo_path``. Passing ``repo_path`` would
+                    # silently no-op the contract write and draft append
+                    # (#2357, same shape as #2345).
                     if phase_gate_decisions:
+                        worktree_repo_path = _resolve_pipeline_worktree_path(pipeline, repo_path)
+                        if worktree_repo_path == repo_path:
+                            # No materialised worktree — recovery degrades to
+                            # the pre-fix shape (contract write typically
+                            # no-ops via ContractNotFoundError, draft append
+                            # skipped). The contract write *may* succeed if
+                            # the orchestrator's main repo happens to carry a
+                            # contract for this pipeline, but it would land
+                            # against the wrong tree. Surface this either way
+                            # so operators can correlate missing next-phase
+                            # context with worktree-cleanup races.
+                            logger.warning(
+                                "No materialised worktree found for phase gate "
+                                "persistence; falling back to main repo path. "
+                                "Contract write may silently no-op.",
+                                pipeline_id=pipeline_id,
+                                phase=pipeline.current_phase.value,
+                            )
                         _persist_phase_gate_resolution(
-                            repo_path,
+                            worktree_repo_path,
                             pipeline_id,
                             phase_gate_decisions[0],
                             pipeline.current_phase.value,
@@ -16607,27 +16635,34 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         # include the contract/draft changes.
                         try:
                             _commit_statefiles_to_worktree(
-                                repo_path,
+                                worktree_repo_path,
                                 f"Persist HITL resolution after {pipeline.current_phase.value} phase gate",
                                 pipeline_identifier=_pipeline_identifier(
                                     pipeline.issue_number, pipeline_id
                                 ),
                                 pipeline_id=pipeline_id,
                             )
-                        except subprocess.CalledProcessError as git_err:
+                        except Exception as git_err:
+                            # Catch broadly: see #2219.  The helper raises
+                            # ``TimeoutExpired`` and ``OSError`` paths that a
+                            # ``CalledProcessError``-only handler did not catch.
                             logger.warning(
                                 "Failed to commit statefiles after phase gate resolution (continuing)",
                                 pipeline_id=pipeline_id,
                                 error=str(git_err),
                             )
 
-                        # Push if this repo tracks a remote branch
-                        if pipeline.branch:
+                        # Push if this repo tracks a remote branch and a
+                        # worktree was materialised. Mirrors the inline
+                        # path's guard at pipelines.py:16044 — pushing from
+                        # the orchestrator's main repo would target the
+                        # wrong working tree.
+                        if pipeline.branch and worktree_repo_path != repo_path:
                             try:
                                 _spawner = _get_spawner()
                                 _spawner.gateway.push_worktree_branch(
                                     pipeline_id=pipeline_id,
-                                    repo_path=str(repo_path),
+                                    repo_path=str(worktree_repo_path),
                                     branch=pipeline.branch,
                                     mode=_gw_mode,
                                     base_branch=pipeline.base_branch,
