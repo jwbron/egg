@@ -291,6 +291,390 @@ class TestConsensusSignalSliceRouting:
         assert "slice_id" in response.get_json()["message"]
 
 
+def _slice_arg_from_call(call) -> str | None:
+    """Extract ``slice_id`` from ``get_peer_consensus_tracker``'s call_args.
+
+    The call site uses positional args (``pipeline_id, slice_id``) but
+    we accept a kwarg too so future refactors don't break the test.
+    """
+    if "slice_id" in call.kwargs:
+        return call.kwargs["slice_id"]
+    return call.args[1] if len(call.args) >= 2 else None
+
+
+class TestAllConsensusHandlersRouteToSliceTracker:
+    """Every consensus signal handler forwards ``slice_id`` to the tracker lookup.
+
+    The first review (#2402) noted that ``test_propose_routes_to_slice_tracker``
+    only pinned the ``propose`` path even though all eight CONSENSUS_*
+    handlers got the same paste-and-modify treatment. These tests pin the
+    other seven (ack, nack, withdraw, confirmed, excuse_producer,
+    resolve_obligation, producer_push) so the tracker-lookup wiring
+    cannot regress silently.
+    """
+
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_ack_routes_to_slice_tracker(self, mock_get_tracker, app):
+        from routes.signals import handle_consensus_ack_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_ack.return_value = {
+            "version": 1,
+            "newly_ready": [],
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            handle_consensus_ack_signal(
+                "issue-2403",
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "slice_id": "slice-2",
+                    "payload": {
+                        "reason": (
+                            "Reviewed slice-2 work and the diff matches the "
+                            "proposal summary; tests cover the new path."
+                        ),
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        call = mock_get_tracker.call_args
+        assert call.args[0] == "issue-2403"
+        assert _slice_arg_from_call(call) == "slice-2"
+
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_nack_routes_to_slice_tracker(self, mock_get_tracker, app):
+        from routes.signals import handle_consensus_nack_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_nack.return_value = {
+            "version": 1,
+            "reason": "needs more tests",
+            "revision_count": 1,
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            handle_consensus_nack_signal(
+                "issue-2403",
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "slice_id": "slice-2",
+                    "payload": {
+                        "reason": (
+                            "Slice-2 NACK: the diff is missing test coverage "
+                            "for the new branch in the orchestrator's strip site."
+                        ),
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        call = mock_get_tracker.call_args
+        assert call.args[0] == "issue-2403"
+        assert _slice_arg_from_call(call) == "slice-2"
+
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_withdraw_routes_to_slice_tracker(self, mock_get_tracker, app):
+        from routes.signals import handle_consensus_withdraw_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_withdraw.return_value = {"version": 2}
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            handle_consensus_withdraw_signal(
+                "issue-2403",
+                {
+                    "agent_role": "coder",
+                    "slice_id": "slice-2",
+                    "reason": (
+                        "Withdrawing slice-2 proposal: a reviewer flagged "
+                        "an interaction with the sibling slice integration."
+                    ),
+                },
+                Path("/tmp/repo"),
+            )
+
+        call = mock_get_tracker.call_args
+        assert call.args[0] == "issue-2403"
+        assert _slice_arg_from_call(call) == "slice-2"
+
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_confirmed_routes_to_slice_tracker(self, mock_get_tracker, app):
+        from routes.signals import handle_consensus_confirmed_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_confirmed.return_value = {
+            "status": "confirmed",
+            "version": 1,
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            handle_consensus_confirmed_signal(
+                "issue-2403",
+                {
+                    "agent_role": "coder",
+                    "slice_id": "slice-2",
+                },
+                Path("/tmp/repo"),
+            )
+
+        call = mock_get_tracker.call_args
+        assert call.args[0] == "issue-2403"
+        assert _slice_arg_from_call(call) == "slice-2"
+
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    @patch("decision_queue.get_decision_queue")
+    def test_excuse_producer_routes_to_slice_tracker(self, mock_get_queue, mock_get_tracker, app):
+        from models import DecisionStatus
+        from routes.signals import handle_consensus_excuse_producer_signal
+
+        # The excuse_producer handler is HITL-gated: short-circuit the
+        # decision-queue lookup with a RESOLVED decision scoped to the
+        # producer being excused.
+        mock_decision = MagicMock()
+        mock_decision.status = DecisionStatus.RESOLVED
+        mock_decision.context = "failed_role:coder"
+        mock_queue = MagicMock()
+        mock_queue.get_decision.return_value = mock_decision
+        mock_get_queue.return_value = mock_queue
+
+        mock_tracker = MagicMock()
+        mock_tracker.excuse_producer.return_value = {"affected_reviewers": []}
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            handle_consensus_excuse_producer_signal(
+                "issue-2403",
+                {
+                    "producer_role": "coder",
+                    "slice_id": "slice-2",
+                    "decision_id": "decision-1",
+                    "reason": "Producer unresponsive after 30m heartbeat gap.",
+                },
+                Path("/tmp/repo"),
+            )
+
+        call = mock_get_tracker.call_args
+        assert call.args[0] == "issue-2403"
+        assert _slice_arg_from_call(call) == "slice-2"
+
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_resolve_obligation_routes_to_slice_tracker(self, mock_get_tracker, app):
+        from routes.signals import handle_consensus_resolve_obligation_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_resolve_obligation.return_value = {
+            "version": 1,
+            "condition": "add coverage",
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            handle_consensus_resolve_obligation_signal(
+                "issue-2403",
+                {
+                    "agent_role": "tester",
+                    "reviewer_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "slice_id": "slice-2",
+                    "commit_sha": "deadbee",
+                    "note": "Cherry-picked test that covers the strip site.",
+                },
+                Path("/tmp/repo"),
+            )
+
+        call = mock_get_tracker.call_args
+        assert call.args[0] == "issue-2403"
+        assert _slice_arg_from_call(call) == "slice-2"
+
+    @patch("peer_consensus.get_peer_consensus_tracker")
+    def test_producer_push_routes_to_slice_tracker(self, mock_get_tracker, app):
+        from routes.signals import handle_consensus_producer_push_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_producer_push.return_value = {
+            "auto_re_propose": False,
+            "version": 1,
+        }
+        mock_get_tracker.return_value = mock_tracker
+
+        with app.app_context():
+            handle_consensus_producer_push_signal(
+                "issue-2403",
+                {
+                    "agent_role": "coder",
+                    "slice_id": "slice-2",
+                    "commit_sha": "deadbee",
+                    "changed_files": ["src/a.py"],
+                },
+                Path("/tmp/repo"),
+            )
+
+        call = mock_get_tracker.call_args
+        assert call.args[0] == "issue-2403"
+        assert _slice_arg_from_call(call) == "slice-2"
+
+
+class TestAllConsensusHandlersRejectMalformedSliceId:
+    """Defense-in-depth: every handler rejects a malformed ``slice_id`` at the boundary.
+
+    The boundary check lives in ``_extract_slice_id`` — if any handler
+    forgets to call it, a path-separator-bearing ``slice_id`` would
+    flow through to ``get_peer_consensus_tracker``'s registry key.
+    These tests pin every handler against that regression.
+    """
+
+    def test_ack_rejects_malformed_slice_id(self, app):
+        from routes.signals import handle_consensus_ack_signal
+
+        with app.app_context():
+            response, status = handle_consensus_ack_signal(
+                "issue-2403",
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "slice_id": "../etc/passwd",
+                    "payload": {
+                        "reason": (
+                            "Reviewed work; the diff matches the proposal "
+                            "summary and tests cover the new path."
+                        ),
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+        assert status == 400
+        assert "slice_id" in response.get_json()["message"]
+
+    def test_nack_rejects_malformed_slice_id(self, app):
+        from routes.signals import handle_consensus_nack_signal
+
+        with app.app_context():
+            response, status = handle_consensus_nack_signal(
+                "issue-2403",
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "slice_id": "phase-2",  # legacy shape rejected at signal boundary
+                    "payload": {
+                        "reason": (
+                            "NACK: the diff is missing test coverage for "
+                            "the new branch in the orchestrator strip site."
+                        ),
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+        assert status == 400
+        assert "slice_id" in response.get_json()["message"]
+
+    def test_withdraw_rejects_malformed_slice_id(self, app):
+        from routes.signals import handle_consensus_withdraw_signal
+
+        with app.app_context():
+            response, status = handle_consensus_withdraw_signal(
+                "issue-2403",
+                {
+                    "agent_role": "coder",
+                    "slice_id": "slice-2/extra",
+                    "reason": (
+                        "Withdrawing proposal: a reviewer flagged an "
+                        "interaction with the sibling slice integration."
+                    ),
+                },
+                Path("/tmp/repo"),
+            )
+        assert status == 400
+        assert "slice_id" in response.get_json()["message"]
+
+    def test_confirmed_rejects_malformed_slice_id(self, app):
+        from routes.signals import handle_consensus_confirmed_signal
+
+        with app.app_context():
+            response, status = handle_consensus_confirmed_signal(
+                "issue-2403",
+                {
+                    "agent_role": "coder",
+                    "slice_id": "../etc",
+                },
+                Path("/tmp/repo"),
+            )
+        assert status == 400
+        assert "slice_id" in response.get_json()["message"]
+
+    @patch("decision_queue.get_decision_queue")
+    def test_excuse_producer_rejects_malformed_slice_id(self, mock_get_queue, app):
+        from models import DecisionStatus
+        from routes.signals import handle_consensus_excuse_producer_signal
+
+        # The handler validates the HITL gate before slice_id, so a
+        # RESOLVED decision still has to short-circuit cleanly to reach
+        # the slice_id rejection branch.
+        mock_decision = MagicMock()
+        mock_decision.status = DecisionStatus.RESOLVED
+        mock_decision.context = "failed_role:coder"
+        mock_queue = MagicMock()
+        mock_queue.get_decision.return_value = mock_decision
+        mock_get_queue.return_value = mock_queue
+
+        with app.app_context():
+            response, status = handle_consensus_excuse_producer_signal(
+                "issue-2403",
+                {
+                    "producer_role": "coder",
+                    "slice_id": "../etc",
+                    "decision_id": "decision-1",
+                    "reason": "Producer unresponsive after heartbeat gap.",
+                },
+                Path("/tmp/repo"),
+            )
+        assert status == 400
+        assert "slice_id" in response.get_json()["message"]
+
+    def test_resolve_obligation_rejects_malformed_slice_id(self, app):
+        from routes.signals import handle_consensus_resolve_obligation_signal
+
+        with app.app_context():
+            response, status = handle_consensus_resolve_obligation_signal(
+                "issue-2403",
+                {
+                    "agent_role": "tester",
+                    "reviewer_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "slice_id": "../etc",
+                    "commit_sha": "deadbee",
+                    "note": "Cherry-picked test that covers the strip site.",
+                },
+                Path("/tmp/repo"),
+            )
+        assert status == 400
+        assert "slice_id" in response.get_json()["message"]
+
+    def test_producer_push_rejects_malformed_slice_id(self, app):
+        from routes.signals import handle_consensus_producer_push_signal
+
+        with app.app_context():
+            response, status = handle_consensus_producer_push_signal(
+                "issue-2403",
+                {
+                    "agent_role": "coder",
+                    "slice_id": "slice-2/extra",
+                    "commit_sha": "deadbee",
+                    "changed_files": ["src/a.py"],
+                },
+                Path("/tmp/repo"),
+            )
+        assert status == 400
+        assert "slice_id" in response.get_json()["message"]
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

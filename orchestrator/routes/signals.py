@@ -73,6 +73,19 @@ _SIGTERM_PATTERN = re.compile(r"\b143\b")
 # is already canonical — a future caller that forgets the upstream
 # regex must not be able to smuggle path separators or shell
 # metacharacters into a tracker registry key.
+#
+# Note: the contract-side ``Slice.id`` field accepts the broader
+# pattern ``^(?:slice|phase)-[0-9]+$`` (egg_contracts.models.Slice) for
+# backward compatibility with pre-#2137 contracts. The signal-side
+# pattern below is intentionally narrower — only the canonical
+# ``slice-<N>`` shape — because the model loader's
+# ``_migrate_phases_to_slices`` validator rewrites legacy
+# ``phase-<N>`` ids to ``slice-<N>`` on contract load, so every
+# slice_id reaching the spawn / signal path is already canonical. If
+# a future migration tool ever constructs a ``Slice`` from raw legacy
+# JSON without going through the loader, the resulting ``phase-<N>``
+# id will be rejected here (as it should — the registry key MUST be
+# canonical so the per-slice tracker can be looked up).
 _SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
 
 

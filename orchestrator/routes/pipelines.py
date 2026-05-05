@@ -11615,11 +11615,15 @@ def _run_concurrent_phase(
     # pull ``EGG_SLICE_ID`` and forward it on the signal payload, and
     # the orchestrator's signal handlers feed it into
     # ``get_peer_consensus_tracker(pipeline_id, slice_id)``. CONSENSUS_*
-    # isolation is preserved; HEARTBEAT / OVERSEER_ALERT continue to
-    # flow through the pipeline-scoped tracker, which is what
-    # cross-slice operator telemetry already wants. The pipeline-level
-    # fan-out for OVERSEER_ALERT mentioned in earlier comments here is
-    # tracked alongside the per-slice MCP control verbs in #2199.
+    # isolation is preserved; HEARTBEAT and OVERSEER_ALERT are not
+    # tracker-scoped at all — ``handle_heartbeat_signal`` is a no-op
+    # ACK with no tracker lookup, and OVERSEER_ALERT flows through the
+    # message bus (``MessageType.OVERSEER_ALERT``) rather than the
+    # consensus tracker. So per-slice scoping doesn't apply to either,
+    # and operator telemetry stays pipeline-wide as before. The
+    # pipeline-level fan-out for OVERSEER_ALERT mentioned in earlier
+    # comments here is tracked alongside the per-slice MCP control
+    # verbs in #2199.
     if slice_id is not None:
         sandbox_env = dict(sandbox_env)
         sandbox_env["EGG_SLICE_ID"] = slice_id
