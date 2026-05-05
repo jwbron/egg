@@ -24,7 +24,8 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from egg_contracts.models import PipelinePhase as PipelinePhase
-from egg_restrictions.patterns import AGENT_PATTERNS, AgentFilePattern
+from egg_restrictions.matchers import match_pattern
+from egg_restrictions.patterns import AGENT_PATTERNS
 
 
 class OperationType(StrEnum):
@@ -64,10 +65,11 @@ class FileRestriction:
     via git push. This is used to protect sensitive files like SDLC contracts
     that should only be modified through dedicated APIs.
 
-    Glob patterns (``**/*.md``, ``**/tests/``) are matched via the same
-    matcher used by ``AgentFilePattern`` so the gateway's early-reject
-    layer behaves consistently with the per-commit attribution layer
-    (#1903).
+    Glob patterns (``**/*.md``, ``**/tests/``) are matched via the
+    canonical ``egg_restrictions.matchers.match_pattern`` so the
+    gateway's early-reject layer behaves consistently with the per-commit
+    attribution layer (#1903) and the phase-level / role-definition
+    layers (#2356).
     """
 
     role: str
@@ -101,11 +103,11 @@ class FileRestriction:
             # Paths that escape the repository are always blocked
             return True
 
-        if not any(AgentFilePattern.matches_pattern(normalized, p) for p in self.blocked_patterns):
+        if not any(match_pattern(normalized, p) for p in self.blocked_patterns):
             return False
         # Block-exempt carve-outs (e.g. ``.egg-state/agent-outputs/``
         # under coder's ``.egg-state/`` block).
-        if any(AgentFilePattern.matches_pattern(normalized, p) for p in self.block_exempt_patterns):
+        if any(match_pattern(normalized, p) for p in self.block_exempt_patterns):
             return False
         return True
 
@@ -206,17 +208,18 @@ class PhaseFileRestriction:
 
         # Check blocked patterns first (explicit blocks take priority)
         for pattern in self.blocked_patterns:
-            if self._matches_pattern(normalized, pattern):
+            if match_pattern(normalized, pattern):
                 return False, f"File '{file_path}' matches blocked pattern '{pattern}'"
 
         # If allowed_patterns is defined and non-empty, file must match one
         if self.allowed_patterns:
-            # Special case: "*" means allow everything
+            # Special case: "*" means allow everything (short-circuit so
+            # the PR phase doesn't pay per-file fnmatch cost).
             if "*" in self.allowed_patterns:
                 return True, "All files allowed"
 
             for pattern in self.allowed_patterns:
-                if self._matches_pattern(normalized, pattern):
+                if match_pattern(normalized, pattern):
                     return (
                         True,
                         f"File '{file_path}' matches allowed pattern '{pattern}'",
@@ -241,28 +244,6 @@ class PhaseFileRestriction:
         if normalized.startswith("../") or normalized.startswith("/"):
             raise ValueError(f"Invalid path escapes repository: {file_path}")
         return normalized
-
-    @staticmethod
-    def _matches_pattern(file_path: str, pattern: str) -> bool:
-        """Check if a file path matches a glob-like pattern.
-
-        Supports:
-        - Exact prefix match (e.g., ".egg-state/contracts/" matches ".egg-state/contracts/foo.json")
-        - Wildcard suffix match (e.g., ".egg-state/drafts/*analysis*" matches "*-analysis.md")
-        - Full wildcard ("*" matches everything)
-        """
-        if pattern == "*":
-            return True
-
-        # If pattern ends with *, use fnmatch for glob matching
-        if "*" in pattern:
-            return fnmatch.fnmatch(file_path, pattern)
-
-        # Otherwise, use prefix matching (for directory patterns)
-        if pattern.endswith("/"):
-            return file_path.startswith(pattern)
-
-        return file_path.startswith(pattern)
 
 
 @dataclass
