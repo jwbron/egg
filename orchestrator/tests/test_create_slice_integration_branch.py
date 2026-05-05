@@ -18,7 +18,7 @@ re-introduce the local-ref dependency.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from gateway_client import GatewayClient, SessionInfo
@@ -347,3 +347,73 @@ class TestCreateSliceIntegrationBranchSession:
         assert kwargs["agent_role"] == "coder"
         assert kwargs["mode"] == "private"
         assert kwargs["pipeline_id"] == "pipe-1"
+
+    def test_one_session_shared_across_fetch_lsremote_and_push(self, gateway_client):
+        """#2398: the fetch, ls-remote, and push must reuse a single
+        synthetic session — exactly one ``register_session`` and one
+        ``delete_session`` per call, with the same bearer token
+        forwarded to ``fetch_branch``, ``get_remote_branch_sha``, and
+        the push request."""
+        register_spy = MagicMock(return_value=_session_info("shared-tok"))
+        delete_spy = MagicMock(return_value=True)
+        fetch_spy = MagicMock(return_value=True)
+        ls_spy = MagicMock(return_value="cafebabe" * 5)
+
+        push_tokens: list[str | None] = []
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/push":
+                push_tokens.append(kwargs.get("bearer_token"))
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", side_effect=register_spy),
+            patch.object(gateway_client, "delete_session", side_effect=delete_spy),
+            patch.object(gateway_client, "fetch_branch", side_effect=fetch_spy),
+            patch.object(gateway_client, "get_remote_branch_sha", side_effect=ls_spy),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            ok = gateway_client.create_slice_integration_branch(
+                "pipe-1",
+                "/repo",
+                integration_branch="egg/issue-2393/slice-1",
+                parent_branch="egg/issue-2393",
+            )
+
+        assert ok is True
+        assert register_spy.call_count == 1, "session must be registered exactly once"
+        assert delete_spy.call_args_list == [call("shared-tok")], (
+            "session must be deleted exactly once with the shared token"
+        )
+        assert fetch_spy.call_args.kwargs.get("bearer_token") == "shared-tok"
+        assert ls_spy.call_args.kwargs.get("bearer_token") == "shared-tok"
+        assert push_tokens == ["shared-tok"]
+
+    def test_session_cleaned_up_when_parent_missing(self, gateway_client):
+        """With the shared-session refactor (#2398) ``register_session``
+        runs before the ``ls-remote`` SHA lookup, so a missing parent
+        still has to clean up the session it just registered."""
+        register_spy = MagicMock(return_value=_session_info("orphan-tok"))
+        delete_spy = MagicMock(return_value=True)
+
+        with (
+            patch.object(gateway_client, "register_session", side_effect=register_spy),
+            patch.object(gateway_client, "delete_session", side_effect=delete_spy),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(gateway_client, "get_remote_branch_sha", return_value=None),
+            patch.object(
+                gateway_client,
+                "_make_request",
+                return_value={"success": True, "data": {}},
+            ),
+        ):
+            ok = gateway_client.create_slice_integration_branch(
+                "pipe-1",
+                "/repo",
+                integration_branch="egg/issue-2393/slice-1",
+                parent_branch="egg/issue-2393",
+            )
+
+        assert ok is False
+        assert register_spy.call_count == 1
+        assert delete_spy.call_args_list == [call("orphan-tok")]

@@ -1611,39 +1611,15 @@ class GatewayClient:
             # No-op: integration branch already exists at parent's tip.
             return True
 
-        # Refresh the local remote-tracking ref + odb so the parent's
-        # commit object is available for the push below.  ``git push
-        # <sha>:refs/heads/...`` requires the source object to be
-        # locally reachable; the fetch makes that true even when the
-        # worktree was just created and has never seen this ref.
-        # Best-effort: if it fails the object may already be local
-        # from a prior step, so we still attempt the ls-remote / push.
-        self.fetch_branch(
-            pipeline_id,
-            repo_path,
-            args=[f"+refs/heads/{parent_branch}:refs/remotes/origin/{parent_branch}"],
-            mode=mode,
-        )
-
-        # Resolve the parent to a SHA on origin.  Failing fast here
-        # produces a clear "parent not found" error instead of git's
-        # confusing ``src refspec X does not match any``.
-        parent_sha = self.get_remote_branch_sha(
-            pipeline_id,
-            repo_path,
-            f"refs/heads/{parent_branch}",
-            mode=mode,
-        )
-        if not parent_sha:
-            logger.warning(
-                "Parent branch not found on origin; cannot create slice integration branch",
-                pipeline_id=pipeline_id,
-                integration_branch=integration_branch,
-                parent_branch=parent_branch,
-            )
-            return False
-
+        # Register one synthetic session up front and share it across
+        # the fetch, ls-remote, and push (#2398).  The session is
+        # tagged for the push (branch=integration_branch + agent_role
+        # — required for the gateway's slice integration-branch
+        # exemption and branch-ownership check); the fetch and
+        # ls-remote endpoints accept any synthetic session, so the
+        # extra metadata is harmless for those calls.
         temp_container_id = f"{pipeline_id}-slice-branch-{integration_branch.replace('/', '-')}"
+        parent_sha: str | None = None
         session_token: str | None = None
         try:
             session = self.register_session(
@@ -1656,6 +1632,41 @@ class GatewayClient:
                 synthetic=True,
             )
             session_token = session.session_token
+
+            # Refresh the local remote-tracking ref + odb so the
+            # parent's commit object is available for the push below.
+            # ``git push <sha>:refs/heads/...`` requires the source
+            # object to be locally reachable; the fetch makes that
+            # true even when the worktree was just created and has
+            # never seen this ref.  Best-effort: if it fails the
+            # object may already be local from a prior step, so we
+            # still attempt the ls-remote / push.
+            self.fetch_branch(
+                pipeline_id,
+                repo_path,
+                args=[f"+refs/heads/{parent_branch}:refs/remotes/origin/{parent_branch}"],
+                mode=mode,
+                bearer_token=session_token,
+            )
+
+            # Resolve the parent to a SHA on origin.  Failing fast
+            # here produces a clear "parent not found" error instead
+            # of git's confusing ``src refspec X does not match any``.
+            parent_sha = self.get_remote_branch_sha(
+                pipeline_id,
+                repo_path,
+                f"refs/heads/{parent_branch}",
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if not parent_sha:
+                logger.warning(
+                    "Parent branch not found on origin; cannot create slice integration branch",
+                    pipeline_id=pipeline_id,
+                    integration_branch=integration_branch,
+                    parent_branch=parent_branch,
+                )
+                return False
 
             refspec = f"{parent_sha}:refs/heads/{integration_branch}"
             self._make_request(
@@ -1935,30 +1946,45 @@ class GatewayClient:
         repo_path: str,
         args: list[str] | None = None,
         mode: Literal["public", "private"] = "public",
+        *,
+        bearer_token: str | None = None,
     ) -> bool:
         """Fetch with custom args using a temporary session.
 
         Best-effort operation used to fetch specific refs from remote.
 
         Args:
-            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            pipeline_id: Pipeline ID; used as ``container_id`` for the
+                temp session and for log fields.  When ``bearer_token``
+                is supplied no session is registered, so it's only used
+                for log fields in that case.
             repo_path: Path to the repo directory
             args: Additional args for git fetch (e.g., ["+remote:local"])
+            mode: Network mode for the temp session.  Ignored when
+                ``bearer_token`` is supplied — the supplied session's
+                mode was fixed at its register time.
+            bearer_token: Pre-registered synthetic session token to reuse
+                (#2398).  When provided, skip the internal
+                ``register_session``/``delete_session`` and authenticate
+                the fetch with the supplied token — lets a caller share
+                one session across several gateway calls.
 
         Returns:
             True if fetch succeeded, False otherwise
         """
-        temp_container_id = f"{pipeline_id}-state-fetch"
-        session_token: str | None = None
+        owns_session = bearer_token is None
+        session_token: str | None = bearer_token
         try:
-            session = self.register_session(
-                container_id=temp_container_id,
-                container_ip=self.self_ip,
-                mode=mode,
-                pipeline_id=pipeline_id,
-                synthetic=True,
-            )
-            session_token = session.session_token
+            if owns_session:
+                temp_container_id = f"{pipeline_id}-state-fetch"
+                session = self.register_session(
+                    container_id=temp_container_id,
+                    container_ip=self.self_ip,
+                    mode=mode,
+                    pipeline_id=pipeline_id,
+                    synthetic=True,
+                )
+                session_token = session.session_token
 
             # Do NOT include container_id — repo_path is already the
             # resolved path; the synthetic container_id has no real
@@ -1989,7 +2015,7 @@ class GatewayClient:
             )
             return False
         finally:
-            if session_token:
+            if owns_session and session_token:
                 try:
                     self.delete_session(session_token)
                 except Exception:
@@ -2063,6 +2089,8 @@ class GatewayClient:
         repo_path: str,
         ref: str,
         mode: Literal["public", "private"] = "public",
+        *,
+        bearer_token: str | None = None,
     ) -> str | None:
         """Resolve a remote ref to its commit SHA via ``git ls-remote``.
 
@@ -2073,18 +2101,26 @@ class GatewayClient:
         different SHA than ``origin/<base_branch>``, the branch carries
         prior-pipeline commits and starting on top of it would inherit
         them — so refuse with a hint to ``cancel_task(cleanup=true)``.
+
+        ``bearer_token`` lets a caller pass in a pre-registered synthetic
+        session to share across several gateway calls (#2398).  When
+        provided, the per-call ``register_session``/``delete_session``
+        round-trip is skipped, and the ``mode`` argument is ignored —
+        the supplied session's mode was fixed at its register time.
         """
-        temp_container_id = f"{pipeline_id}-state-ls-remote-sha"
-        session_token: str | None = None
+        owns_session = bearer_token is None
+        session_token: str | None = bearer_token
         try:
-            session = self.register_session(
-                container_id=temp_container_id,
-                container_ip=self.self_ip,
-                mode=mode,
-                pipeline_id=pipeline_id,
-                synthetic=True,
-            )
-            session_token = session.session_token
+            if owns_session:
+                temp_container_id = f"{pipeline_id}-state-ls-remote-sha"
+                session = self.register_session(
+                    container_id=temp_container_id,
+                    container_ip=self.self_ip,
+                    mode=mode,
+                    pipeline_id=pipeline_id,
+                    synthetic=True,
+                )
+                session_token = session.session_token
 
             result = self._make_request(
                 "/api/v1/git/fetch",
@@ -2113,7 +2149,7 @@ class GatewayClient:
             )
             return None
         finally:
-            if session_token:
+            if owns_session and session_token:
                 try:
                     self.delete_session(session_token)
                 except Exception:
