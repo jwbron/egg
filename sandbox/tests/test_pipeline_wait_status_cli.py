@@ -338,7 +338,9 @@ class TestPathBTerminalShortCircuit:
     """
 
     @pytest.mark.parametrize("status", ["failed", "complete", "cancelled"])
-    def test_no_change_with_terminal_status_returns_zero(self, capsys: pytest.CaptureFixture[str], status: str) -> None:
+    def test_no_change_with_terminal_status_returns_zero(
+        self, capsys: pytest.CaptureFixture[str], status: str
+    ) -> None:
         with patch(_API_MOCK_PATH, side_effect=[_no_change_terminal(status=status)]) as mock:
             rc = cmd_pipeline_wait_status(_ns(max_iterations=5))
 
