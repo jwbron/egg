@@ -1451,6 +1451,153 @@ class TestCreateSlicePR:
         assert len(captured["title"]) == 70
         assert captured["title"].endswith("...")
 
+    def test_terminal_slice_renders_program_deferred_actions(self, gateway_client):
+        """#2354: when the terminal slice receives ``program_deferred_actions``
+        (already-normalized list of ``{reviewer, condition, resolved_in_diff}``
+        dicts produced by ``_collect_pre_merge_obligations``), the umbrella
+        PR body carries the same Pre-merge Obligations section the legacy
+        ``_auto_create_pr`` path emits — so reviewers don't have to discover
+        obligations out-of-band. Asserts the section sits *before*
+        ``## Test Plan`` (#2354 review item 1)."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-3",
+                slice_name="Apply the ratchet",
+                slice_tasks=None,
+                head="egg/issue-42/slice-3",
+                base="egg/issue-42/slice-2",
+                program_title="Decompose oversize files",
+                program_description="Description.",
+                program_test_plan="- Automated: make test-all green.",
+                program_manual_steps="Verify seam tables.",
+                program_deferred_actions=[
+                    {
+                        "reviewer": "coder",
+                        "condition": "git mv legacy/x new/x before merge",
+                        "resolved_in_diff": "",
+                    },
+                    {
+                        "reviewer": "reviewer_contract",
+                        "condition": "verify tests green against merged state",
+                        "resolved_in_diff": "2c319626a",
+                    },
+                ],
+            )
+        body = captured["body"]
+        assert "## ⚠️ Pre-merge Obligations" in body
+        assert "- **coder** — git mv legacy/x new/x before merge" in body
+        assert "## ✅ Resolved within this PR" in body
+        assert "Resolved in 2c319626a" in body
+        # Obligations sit *before* ``## Test Plan`` so the merge-blocking
+        # banner is visible without scrolling past plan/steps. The original
+        # placement (after Test Plan / Manual Steps) defeated the warning's
+        # visibility intent — see PR #2382 review item 1.
+        assert body.index("## ⚠️ Pre-merge Obligations") < body.index("## Test Plan")
+        assert body.index("## ⚠️ Pre-merge Obligations") < body.index("## Manual Steps")
+        # And before the slice-context footer (so reviewers see it without
+        # scrolling past pipeline metadata).
+        assert body.index("## ⚠️ Pre-merge Obligations") < body.index(
+            "Slice slice-3 of pipeline issue-42"
+        )
+
+    def test_terminal_slice_with_no_deferred_actions_omits_section(self, gateway_client):
+        """When the contract carries no obligations the body must not emit
+        an empty Pre-merge Obligations heading."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-3",
+                slice_name="Apply the ratchet",
+                slice_tasks=None,
+                head="egg/issue-42/slice-3",
+                base="egg/issue-42/slice-2",
+                program_title="Decompose oversize files",
+                program_deferred_actions=None,
+            )
+        assert "Pre-merge Obligations" not in captured["body"]
+        assert "Resolved within this PR" not in captured["body"]
+
+    def test_terminal_slice_with_empty_deferred_actions_list_omits_section(self, gateway_client):
+        """The realistic production case is ``contract.pr`` populated with
+        ``deferred_actions=[]`` (no obligations), not ``None``. The
+        ``_collect_pre_merge_obligations`` snapshot in
+        ``_run_one_slice_inner`` returns ``None`` only when there's nothing
+        to render, but a defensive ``[]`` should also short-circuit cleanly
+        — same merge-block visibility behaviour as the ``None`` case
+        (#2354 review item 4)."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-3",
+                slice_name="Apply the ratchet",
+                slice_tasks=None,
+                head="egg/issue-42/slice-3",
+                base="egg/issue-42/slice-2",
+                program_title="Decompose oversize files",
+                program_test_plan="- Automated: make test-all green.",
+                program_deferred_actions=[],
+            )
+        body = captured["body"]
+        assert "Pre-merge Obligations" not in body
+        assert "Resolved within this PR" not in body
+        # Test plan is unaffected by the empty obligations list.
+        assert "## Test Plan" in body
+
+    def test_non_terminal_slice_with_program_deferred_actions_raises(self, gateway_client):
+        """Wiring ``program_deferred_actions`` to a non-terminal slice (no
+        ``program_title``) is a caller mistake — the umbrella is the only
+        place obligations belong. Failing fast catches the regression
+        instead of silently dropping the obligations
+        (#2354 review nit)."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx, pytest.raises(AssertionError, match="program_deferred_actions must be None"):
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42",
+                program_deferred_actions=[
+                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
+                ],
+            )
+
+    def test_whitespace_program_title_does_not_trigger_assertion(self, gateway_client):
+        """``PRMetadata.title`` validates with ``min_length=1`` but does not
+        ``.strip()`` — so a whitespace-only title (e.g. ``" "``) currently
+        passes contract validation. The non-terminal-slice assertion must
+        guard on ``program_title is None`` rather than on
+        ``has_program_block`` (truthy after strip), so a whitespace-only
+        title doesn't spuriously masquerade as a slice routing error
+        (#2354 review observation B). The whitespace-title bug, if any, is
+        for ``PRMetadata`` to catch — not the slice PR builder."""
+        captured, ctx = self._capture(gateway_client)
+        # Should NOT raise AssertionError — program_title is not None,
+        # so the routing-error guard does not fire.
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42",
+                program_title=" ",
+                program_deferred_actions=[
+                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
+                ],
+            )
+
 
 class TestSelfIpResolution:
     """Tests for self_ip property used in temporary session registration."""

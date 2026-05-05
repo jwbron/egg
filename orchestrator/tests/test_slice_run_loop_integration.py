@@ -50,6 +50,7 @@ sys.modules.setdefault("docker.types", MagicMock())
 
 from egg_contracts.models import (  # noqa: E402
     Contract,
+    DeferredAction,
     IssueInfo,
     PRMetadata,
     Slice,
@@ -763,6 +764,83 @@ class TestRunImplementPhaseSlices:
             assert kwargs["program_manual_steps"] is None
             assert kwargs["terminal_slice_id"] == "slice-3"
 
+    def test_terminal_slice_pr_carries_program_deferred_actions(
+        self,
+    ) -> None:
+        """#2354: ``contract.pr.deferred_actions`` (conditional-ACK
+        obligations persisted by ``_persist_deferred_actions``) reach the
+        umbrella PR via the terminal slice only. Non-terminal slices
+        receive ``None`` so the obligations section appears exactly once
+        across the chain — same locality rule as the rest of
+        ``contract.pr.*`` (#2340 / #2351)."""
+        pipeline = _make_pipeline()
+        root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        middle = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
+        terminal = _make_slice("slice-3", deps=["slice-2"], tasks=[_make_task("task-3-1")])
+        contract = _make_contract(slices=[root, middle, terminal])
+        contract.pr = PRMetadata(
+            title="Decompose oversize files; ratchet allowlist",
+            description="Description.",
+            test_plan="Test plan.",
+            manual_steps="Manual steps.",
+            deferred_actions=[
+                DeferredAction(
+                    reviewer="coder",
+                    condition="git mv legacy/x new/x before merge",
+                ),
+                DeferredAction(
+                    reviewer="reviewer_contract",
+                    condition="verify make test-all green",
+                    resolved_in_diff="2c319626a",
+                ),
+            ],
+        )
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        pr_calls_by_slice = {
+            c.kwargs["slice_id"]: c.kwargs for c in spawner.gateway.create_slice_pr.call_args_list
+        }
+        terminal_kwargs = pr_calls_by_slice["slice-3"]
+        actions = terminal_kwargs["program_deferred_actions"]
+        assert actions is not None
+        assert len(actions) == 2
+        # The snapshot passes through ``_collect_pre_merge_obligations`` so
+        # the gateway receives the *normalized* shape (list of
+        # ``{reviewer, condition, resolved_in_diff}`` dicts) — same shape
+        # the legacy ``_auto_create_pr`` path uses, which lets the umbrella
+        # pick up the live peer_consensus tracker fallback when the
+        # contract list is empty (#2354 review item 2).
+        assert actions[0]["condition"].startswith("git mv legacy/x new/x")
+        assert actions[0]["reviewer"] == "coder"
+        assert actions[0]["resolved_in_diff"] == ""
+        assert actions[1]["resolved_in_diff"] == "2c319626a"
+        assert actions[1]["reviewer"] == "reviewer_contract"
+
+        for non_terminal_id in ("slice-1", "slice-2"):
+            kwargs = pr_calls_by_slice[non_terminal_id]
+            assert kwargs["program_deferred_actions"] is None
+
     def test_non_terminal_pointer_suppressed_when_contract_pr_missing(
         self,
     ) -> None:
@@ -815,6 +893,7 @@ class TestRunImplementPhaseSlices:
             assert kwargs["program_description"] is None
             assert kwargs["program_test_plan"] is None
             assert kwargs["program_manual_steps"] is None
+            assert kwargs["program_deferred_actions"] is None
             assert kwargs["terminal_slice_id"] is None
 
     def test_single_slice_path_skips_pr_when_repo_unset(self) -> None:
