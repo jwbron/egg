@@ -1510,11 +1510,17 @@ def git_push() -> tuple[Response, int] | Response:
     #
     # Infrastructure pushes (checkpoint branches, pipeline-state, and synthetic-
     # session slice integration-branch creation pushes; see is_infrastructure_push
-    # above) are exempt: the changed-files diff against `main` would otherwise pull
-    # in every file modified on the parent branch's history (drafts, contracts,
-    # brc-history, ...) and falsely block a logical no-op branch-creation push
-    # (#2372).  The downstream anchor/phase/agent-restriction checks already gate
-    # on `not is_infrastructure_push`; this gate makes the role check symmetric.
+    # above) are exempt for two distinct reasons:
+    #   1. ``egg/checkpoints/v2`` and ``egg/pipeline-state`` are orphan/disjoint-
+    #      history branches written by orchestrator infrastructure, not agent
+    #      BRC pushes, so role-based file restrictions don't conceptually apply.
+    #   2. Synthetic-session slice integration-branch creation pushes (#2368)
+    #      diff against `main` because the target ref doesn't exist yet, which
+    #      would otherwise pull in every file modified on the parent branch's
+    #      history (drafts, contracts, brc-history, ...) and falsely block a
+    #      logical no-op branch-creation push (#2372).
+    # The downstream anchor/phase/agent-restriction checks already gate on
+    # `not is_infrastructure_push`; this gate makes the role check symmetric.
     session_role = None
     changed_files = None  # May be populated by role check, reused by phase check
     if hasattr(g, "session") and g.session:
