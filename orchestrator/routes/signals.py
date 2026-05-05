@@ -74,18 +74,26 @@ _SIGTERM_PATTERN = re.compile(r"\b143\b")
 # regex must not be able to smuggle path separators or shell
 # metacharacters into a tracker registry key.
 #
-# Note: the contract-side ``Slice.id`` field accepts the broader
-# pattern ``^(?:slice|phase)-[0-9]+$`` (egg_contracts.models.Slice) for
-# backward compatibility with pre-#2137 contracts. The signal-side
-# pattern below is intentionally narrower — only the canonical
-# ``slice-<N>`` shape — because the model loader's
-# ``_migrate_phases_to_slices`` validator rewrites legacy
-# ``phase-<N>`` ids to ``slice-<N>`` on contract load, so every
-# slice_id reaching the spawn / signal path is already canonical. If
-# a future migration tool ever constructs a ``Slice`` from raw legacy
-# JSON without going through the loader, the resulting ``phase-<N>``
-# id will be rejected here (as it should — the registry key MUST be
-# canonical so the per-slice tracker can be looked up).
+# Note: the contract-side ``Slice.id`` field
+# (``shared/egg_contracts/models.py``) accepts the broader pattern
+# ``^(?:slice|phase)-[0-9]+$`` for backward compatibility with
+# pre-#2137 contracts. The signal-side pattern below is intentionally
+# narrower — only the canonical ``slice-<N>`` shape. The
+# canonicalisation is performed by the parent ``Contract`` model
+# validator ``Contract._migrate_phases_to_slices`` (mode="wrap" — runs
+# before per-Slice field validation), which rewrites legacy
+# ``phase-<N>`` ids to ``slice-<N>`` whenever a contract is loaded via
+# ``Contract.model_validate(json_dict)``. Slices reaching the spawn /
+# signal path through the contract-loader path are therefore already
+# canonical. The guarantee does NOT extend to direct Slice
+# construction (e.g. ``Slice(id="phase-2", ...)``) — pydantic field
+# validation alone is permissive — so the regex below is doing real
+# work for any code path that constructs Slices outside Contract
+# loading (e.g. a future migration tool, a hand-built fixture, or
+# direct model_validate on a Slice dict). Such a caller's
+# ``phase-<N>`` slice will be rejected here as it should — the
+# registry key MUST be canonical so the per-slice tracker can be
+# looked up.
 _SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
 
 
