@@ -773,6 +773,23 @@ For `trigger == "message"` the `event_type` key is replaced with
 CLI emits **nothing** and silently loops — the LLM only wakes when
 something happened.
 
+**Already-terminal short-circuit (issue #2378).** If the pipeline is
+already `complete` / `failed` / `cancelled` when the route is called,
+the terminal `pipeline.*` event was emitted before this call could
+subscribe and the route would otherwise return Path-B `no_change`
+indefinitely. The route detects this and returns Path-A immediately
+(`trigger: "event"`, appropriate `event_type`) so the CLI exits 0
+without looping.
+
+**Defense-in-depth — `trigger: "synthetic-terminal"`.** As a
+secondary guard, if the CLI receives a Path-B `no_change` envelope
+whose `status` field already carries a terminal value, it emits a
+synthetic JSON line with `trigger: "synthetic-terminal"` and exits 0
+rather than looping silently. The `event_type` field is present and
+equals the corresponding terminal event type (`pipeline.completed` /
+`pipeline.failed` / `pipeline.cancelled`), so consumers keying off
+`event_type` are unaffected.
+
 > **Why no full snapshot in the JSON line?** The full `_build_status_snapshot`
 > envelope (running/completed agents, pipeline metadata, recent_messages,
 > `pending_decisions`) costs tokens on every emission and is what the route's
