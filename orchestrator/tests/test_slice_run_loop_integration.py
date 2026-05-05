@@ -1183,7 +1183,10 @@ class TestRunConcurrentPhaseSliceIdPropagation:
             worktree_repo_path=Path("/tmp/x"),
             slice_id="slice-3",
         )
-        # Caller's dict is not mutated; the function takes a shallow copy.
+        # Caller's dict is not mutated — _run_concurrent_phase no longer
+        # touches sandbox_env (the EGG_SLICE_ID assignment was dropped in
+        # the v2 review fix; slice scope flows through the spawner via the
+        # slice_id kwarg instead).
         assert original_env == {"EGG_PIPELINE_ID": pipeline.id, "OTHER": "v"}
         # Executor receives slice_id="slice-3".
         assert MockExecutor.call_args.kwargs["slice_id"] == "slice-3"
