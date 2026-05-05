@@ -236,11 +236,11 @@ def api_request(
         # peer closes the connection mid-flight (e.g. orch pod restart during
         # a long-poll). Not wrapped by urllib, so without this branch they
         # propagate raw past every caller's ``except ApiError`` (issue #2412).
-        raise ApiError(f"HTTP protocol error: {e}") from e
+        raise ApiError(f"HTTP protocol error: {url}: {e}") from e
     except OSError as e:
         # ``ConnectionResetError``, ``ConnectionRefusedError``, and other
         # socket-level errors that bypass the ``URLError`` wrapper.
-        raise ApiError(f"Network error: {e}") from e
+        raise ApiError(f"Network error: {url}: {e}") from e
 
 
 def api_request_or_exit(
