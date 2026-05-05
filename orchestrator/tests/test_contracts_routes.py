@@ -373,12 +373,13 @@ class TestBranchReadFallback:
         assert response.status_code == 200, response.data
         body = json.loads(response.data)
         assert body["source"] == "branch"
-        # With branch=None the code should derive "egg/<pipeline_id>"
-        # and try origin/egg/<pipeline_id> as the preferred ref.
+        # With branch=None the code should derive "egg/<pipeline_id>/work"
+        # (the /work-suffixed shape from #2399) and try
+        # origin/egg/<pipeline_id>/work as the preferred ref.
         assert run_mock.call_args_list[0].args[0] == [
             "git",
             "show",
-            f"origin/egg/{self.PIPELINE_ID}:.egg-state/contracts/{self.PIPELINE_ID}.json",
+            f"origin/egg/{self.PIPELINE_ID}/work:.egg-state/contracts/{self.PIPELINE_ID}.json",
         ]
         assert run_mock.call_args_list[0].kwargs["cwd"] == store.repo_path
 

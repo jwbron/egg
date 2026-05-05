@@ -589,7 +589,9 @@ class TestCreatePipelineJiraAndQualifier:
         assert response.status_code == 200
         call_kwargs = mock_store.create_pipeline.call_args[1]
         assert call_kwargs["pipeline_id"] == "KORE-1234"
-        assert call_kwargs["branch"] == "egg/KORE-1234"
+        # #2399 — the pipeline tip is normalised to ``<branch>/work`` so slice
+        # integration branches at ``<branch>/slice-N`` can coexist as siblings.
+        assert call_kwargs["branch"] == "egg/KORE-1234/work"
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
@@ -621,7 +623,8 @@ class TestCreatePipelineJiraAndQualifier:
         assert response.status_code == 200
         call_kwargs = mock_store.create_pipeline.call_args[1]
         assert call_kwargs["pipeline_id"] == "KORE-1234-backend"
-        assert call_kwargs["branch"] == "egg/KORE-1234-backend"
+        # #2399 — pipeline tip normalised to ``<branch>/work``.
+        assert call_kwargs["branch"] == "egg/KORE-1234-backend/work"
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
@@ -661,7 +664,9 @@ class TestCreatePipelineJiraAndQualifier:
         assert "already exists" in body["message"]
         assert "qualifier" in body["message"]
         assert body["details"]["reason"] == "branch_exists"
-        assert body["details"]["branch"] == "egg/KORE-1234"
+        # #2399 — pipeline tip normalised to ``<branch>/work`` before the
+        # branch-existence check, so the error surfaces the /work shape.
+        assert body["details"]["branch"] == "egg/KORE-1234/work"
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
@@ -710,7 +715,8 @@ class TestCreatePipelineJiraAndQualifier:
         assert response.status_code == 409
         body = response.get_json()
         assert body["details"]["reason"] == "stale_branch"
-        assert body["details"]["branch"] == "egg/issue-2137"
+        # #2399 — pipeline tip normalised to ``<branch>/work``.
+        assert body["details"]["branch"] == "egg/issue-2137/work"
         assert "cancel_task" in body["details"]["hint"]
         assert "cleanup=true" in body["details"]["hint"]
 
@@ -822,7 +828,8 @@ class TestCreatePipelineJiraAndQualifier:
         assert response.status_code == 200
         call_kwargs = mock_store.create_pipeline.call_args[1]
         assert call_kwargs["pipeline_id"] == "issue-42-frontend"
-        assert call_kwargs["branch"] == "egg/issue-42-frontend"
+        # #2399 — pipeline tip normalised to ``<branch>/work``.
+        assert call_kwargs["branch"] == "egg/issue-42-frontend/work"
         assert call_kwargs["issue_number"] == 42
 
     @patch("routes.pipelines.get_gateway_client")
