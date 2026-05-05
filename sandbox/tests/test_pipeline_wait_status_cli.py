@@ -11,6 +11,7 @@ emission, cursor threading, and exit codes per the §3 contract in
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import sys
 from pathlib import Path
@@ -23,8 +24,10 @@ _sandbox_path = str(Path(__file__).parent.parent)
 if _sandbox_path not in sys.path:
     sys.path.insert(0, _sandbox_path)
 
+from egg_lib import orch_cli  # noqa: E402
 from egg_lib.orch_cli import (  # noqa: E402
     ApiError,
+    api_request,
     cmd_pipeline_wait_status,
     create_parser,
 )
@@ -374,6 +377,73 @@ class TestPathBTerminalShortCircuit:
 
         assert rc == 0
         assert mock.call_count == 3
+
+
+class TestApiRequestWrapsSocketErrors:
+    """Issue #2412: ``api_request`` must wrap raw socket / HTTP-protocol
+    errors as ``ApiError`` so callers' ``except ApiError`` branches catch
+    them. Previously ``http.client.RemoteDisconnected`` (raised when the
+    peer closes a long-poll connection mid-flight) propagated past
+    ``cmd_pipeline_wait_status``'s except chain and exited the CLI with
+    code 1 — outside the §3 contract.
+    """
+
+    def test_remote_disconnected_wrapped_as_api_error(self):
+        err = http.client.RemoteDisconnected("Remote end closed connection without response")
+        with patch.object(orch_cli._opener, "open", side_effect=err):
+            with pytest.raises(ApiError) as exc_info:
+                api_request("http://test-orchestrator:9849", "/api/v1/health")
+        # No HTTP status code → wait-status classifies as transient, not 4xx.
+        assert exc_info.value.status_code is None
+
+    def test_connection_reset_wrapped_as_api_error(self):
+        with patch.object(orch_cli._opener, "open", side_effect=ConnectionResetError("reset")):
+            with pytest.raises(ApiError) as exc_info:
+                api_request("http://test-orchestrator:9849", "/api/v1/health")
+        assert exc_info.value.status_code is None
+
+    def test_timeout_error_wrapped_as_api_error(self):
+        # ``socket.timeout`` is an alias for ``TimeoutError`` in 3.10+; the
+        # existing ``except TimeoutError`` branch handles it. Pinning the
+        # behavior so a future refactor of the except chain can't drop it.
+        with patch.object(orch_cli._opener, "open", side_effect=TimeoutError("timed out")):
+            with pytest.raises(ApiError) as exc_info:
+                api_request("http://test-orchestrator:9849", "/api/v1/health")
+        assert exc_info.value.status_code is None
+
+
+class TestWaitStatusSurvivesSocketErrors:
+    """End-to-end: with the ``api_request`` fix, transient socket errors
+    flow into wait-status's existing transient-retry branch and the loop
+    recovers cleanly to the next terminal event.
+    """
+
+    def test_remote_disconnected_then_terminal_returns_zero(self):
+        err = ApiError("HTTP protocol error: Remote end closed connection without response")
+        with (
+            patch(_API_MOCK_PATH, side_effect=[err, _terminal_event("msg:|evt:1")]),
+            patch("time.sleep"),
+        ):
+            rc = cmd_pipeline_wait_status(_ns(max_iterations=5))
+        assert rc == 0
+
+    def test_connection_reset_then_terminal_returns_zero(self):
+        err = ApiError("Network error: [Errno 104] Connection reset by peer")
+        with (
+            patch(_API_MOCK_PATH, side_effect=[err, _terminal_event("msg:|evt:1")]),
+            patch("time.sleep"),
+        ):
+            rc = cmd_pipeline_wait_status(_ns(max_iterations=5))
+        assert rc == 0
+
+    def test_repeated_socket_errors_exhaust_budget_returns_two(self):
+        err = ApiError("HTTP protocol error: Remote end closed connection without response")
+        with (
+            patch(_API_MOCK_PATH, side_effect=err),
+            patch("time.sleep"),
+        ):
+            rc = cmd_pipeline_wait_status(_ns(max_iterations=200))
+        assert rc == 2
 
 
 @pytest.fixture(autouse=True)

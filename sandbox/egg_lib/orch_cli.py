@@ -51,6 +51,7 @@ import json
 import os
 import re
 import sys
+from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -230,6 +231,16 @@ def api_request(
         raise ApiError(f"Connection error: {e.reason}") from e
     except TimeoutError as e:
         raise ApiError(f"Request timed out: {url}") from e
+    except HTTPException as e:
+        # ``http.client.RemoteDisconnected`` and friends — raised when the
+        # peer closes the connection mid-flight (e.g. orch pod restart during
+        # a long-poll). Not wrapped by urllib, so without this branch they
+        # propagate raw past every caller's ``except ApiError`` (issue #2412).
+        raise ApiError(f"HTTP protocol error: {e}") from e
+    except OSError as e:
+        # ``ConnectionResetError``, ``ConnectionRefusedError``, and other
+        # socket-level errors that bypass the ``URLError`` wrapper.
+        raise ApiError(f"Network error: {e}") from e
 
 
 def api_request_or_exit(
