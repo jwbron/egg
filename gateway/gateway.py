@@ -1809,14 +1809,22 @@ def git_push() -> tuple[Response, int] | Response:
                         "blocked_reason": anchor_result.blocked_reason,
                     },
                 )
+                anchor_details: dict[str, Any] = {
+                    "agent_anchor_id": session_anchor_id,
+                    "blocked_files": anchor_result.blocked_files,
+                    "blocked_reason": anchor_result.blocked_reason,
+                }
+                # Anchor-write violations bypass check_file_restrictions (the
+                # role-level coder blocklist exempts .egg-state/agent-anchors/),
+                # so they need their own derive_hint call to deliver the
+                # orchestrator-API guidance from BLOCKED_HINTS. See #2355.
+                anchor_hint = _derive_push_denied_hint(anchor_result.blocked_files)
+                if anchor_hint is not None:
+                    anchor_details["hint"] = anchor_hint
                 return make_error(
                     f"Push denied: {anchor_result.message}",
                     status_code=403,
-                    details={
-                        "agent_anchor_id": session_anchor_id,
-                        "blocked_files": anchor_result.blocked_files,
-                        "blocked_reason": anchor_result.blocked_reason,
-                    },
+                    details=anchor_details,
                 )
 
     # SECURITY: Check phase-based file restrictions for local mode sessions.

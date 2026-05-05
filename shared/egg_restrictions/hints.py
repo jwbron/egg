@@ -10,10 +10,10 @@ just the implementer.
 
 Patterns are evaluated top-to-bottom against
 ``AgentFilePattern.matches_pattern``; the first row whose glob matches at
-least one blocked path wins. The list is therefore ordered most-specific
-first. Order matters where prefixes overlap — the
-``.egg-state/agent-anchors/`` row must appear above any broader
-``.egg-state/`` row.
+least one blocked path wins. The list is ordered most-specific first so
+that if a future broader pattern (e.g. a catch-all ``.egg-state/`` row) is
+added at the end, it does not shadow the specific anchors / contracts /
+drafts / reviews hints above it.
 """
 
 from __future__ import annotations
@@ -48,22 +48,17 @@ BLOCKED_HINTS: list[tuple[str, str]] = [
         "docs/",
         "Documentation changes belong to the documenter role.",
     ),
+    # `**/*.md` covers any depth, including top-level (e.g. `README.md`). A
+    # narrower `**/README.md` row would always be shadowed here, so it's
+    # omitted.
     (
         "**/*.md",
         "Documentation changes belong to the documenter role.",
     ),
-    (
-        "**/README.md",
-        "Documentation changes belong to the documenter role.",
-    ),
-    (
-        "tests/",
-        "Test changes belong to the tester role.",
-    ),
-    (
-        "test/",
-        "Test changes belong to the tester role.",
-    ),
+    # Test directory globs. The `**/<dir>/` form matches both top-level
+    # (`tests/foo.py`) and nested (`gateway/tests/foo.py`) paths via the
+    # path-segment match in `AgentFilePattern.matches_pattern`, so bare
+    # `tests/` / `test/` rows would be redundant.
     (
         "**/tests/",
         "Test changes belong to the tester role.",
@@ -72,6 +67,7 @@ BLOCKED_HINTS: list[tuple[str, str]] = [
         "**/test/",
         "Test changes belong to the tester role.",
     ),
+    # Python test file globs.
     (
         "**/test_*.py",
         "Test changes belong to the tester role.",
@@ -82,6 +78,48 @@ BLOCKED_HINTS: list[tuple[str, str]] = [
     ),
     (
         "**/conftest.py",
+        "Test changes belong to the tester role.",
+    ),
+    # Go test file globs (mirror TESTER_PATTERNS in patterns.py).
+    (
+        "**/*_test.go",
+        "Test changes belong to the tester role.",
+    ),
+    (
+        "**/test_*.go",
+        "Test changes belong to the tester role.",
+    ),
+    # JS/TS test file globs (mirror TESTER_PATTERNS in patterns.py).
+    (
+        "**/*.test.ts",
+        "Test changes belong to the tester role.",
+    ),
+    (
+        "**/*.test.tsx",
+        "Test changes belong to the tester role.",
+    ),
+    (
+        "**/*.test.js",
+        "Test changes belong to the tester role.",
+    ),
+    (
+        "**/*.test.jsx",
+        "Test changes belong to the tester role.",
+    ),
+    (
+        "**/*.spec.ts",
+        "Test changes belong to the tester role.",
+    ),
+    (
+        "**/*.spec.tsx",
+        "Test changes belong to the tester role.",
+    ),
+    (
+        "**/*.spec.js",
+        "Test changes belong to the tester role.",
+    ),
+    (
+        "**/*.spec.jsx",
         "Test changes belong to the tester role.",
     ),
 ]

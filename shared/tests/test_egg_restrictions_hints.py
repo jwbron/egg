@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from egg_restrictions import BLOCKED_HINTS, derive_hint
+from egg_restrictions.patterns import AgentFilePattern
 
 
 def test_no_blocked_files_returns_none() -> None:
@@ -28,12 +29,26 @@ def test_unmatched_path_returns_none() -> None:
         ("docs/index.md", "documenter role"),
         ("README.md", "documenter role"),
         ("orchestrator/foo/README.md", "documenter role"),
+        # Test directory globs — `**/<dir>/` covers top-level and nested.
         ("tests/test_foo.py", "tester role"),
         ("test/test_foo.py", "tester role"),
         ("gateway/tests/test_gateway.py", "tester role"),
+        # Python test file globs.
         ("orchestrator/test_foo.py", "tester role"),
         ("orchestrator/foo_test.py", "tester role"),
         ("conftest.py", "tester role"),
+        # Go test file globs.
+        ("internal/foo_test.go", "tester role"),
+        ("internal/test_foo.go", "tester role"),
+        # JS/TS test file globs (Jest / Vitest conventions).
+        ("frontend/foo.test.ts", "tester role"),
+        ("frontend/foo.test.tsx", "tester role"),
+        ("frontend/foo.test.js", "tester role"),
+        ("frontend/foo.test.jsx", "tester role"),
+        ("frontend/foo.spec.ts", "tester role"),
+        ("frontend/foo.spec.tsx", "tester role"),
+        ("frontend/foo.spec.js", "tester role"),
+        ("frontend/foo.spec.jsx", "tester role"),
     ],
 )
 def test_each_category_yields_its_hint(blocked_path: str, expected_substring: str) -> None:
@@ -50,13 +65,23 @@ def test_first_match_wins_when_multiple_files_blocked() -> None:
     assert "egg-contract CLI" in hint
 
 
-def test_anchors_outranks_generic_egg_state_prefix() -> None:
-    # The agent-anchors row must appear above any broader .egg-state/ row so
-    # an anchor-write denial gets the orchestrator-API hint, not (e.g.) the
-    # contract or drafts hint.
-    hint = derive_hint([".egg-state/agent-anchors/coder.json"])
-    assert hint is not None
-    assert "mcp__sdlc__update_anchor" in hint
+def test_anchor_pattern_does_not_match_sibling_egg_state_paths() -> None:
+    # The `.egg-state/agent-anchors/` row is a sibling-prefix to the
+    # contracts/drafts/reviews rows — none of the four patterns should match
+    # an anchor path except the anchor row itself. Without this property,
+    # ordering of the four rows in BLOCKED_HINTS would matter; with it, the
+    # anchor row's relative position is irrelevant for anchor-only paths.
+    anchor_path = ".egg-state/agent-anchors/coder.json"
+    sibling_patterns = [
+        ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/reviews/",
+    ]
+    for pattern in sibling_patterns:
+        assert not AgentFilePattern.matches_pattern(anchor_path, pattern), (
+            f"sibling pattern {pattern!r} should not match anchor path"
+        )
+    assert AgentFilePattern.matches_pattern(anchor_path, ".egg-state/agent-anchors/")
 
 
 def test_blocked_hints_table_is_well_formed() -> None:
