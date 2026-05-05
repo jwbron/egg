@@ -907,3 +907,116 @@ class TestSliceIntegrationBranchExemption:
                 assert infra_events, (
                     "Expected push_infrastructure_exempt with exempt_type=slice_integration_branch"
                 )
+
+    def test_synthetic_slice_branch_skips_role_path_allowlist(self, client):
+        """Role-based path-allowlist check is bypassed for synthetic slice pushes (#2372).
+
+        ``create_slice_integration_branch`` pushes
+        ``parent:refs/heads/egg/<base>/slice-N`` with ``agent_role="coder"``.
+        ``get_changed_files_in_push`` falls back to a ``main``-based diff
+        when the target ref doesn't exist yet, surfacing every file
+        modified on the parent branch's history (drafts, contracts,
+        brc-history) — none of which ``coder`` can write.  The role
+        check at gateway/gateway.py must skip this branch-creation push
+        the same way the anchor/phase/agent-restriction checks already
+        do, otherwise a logical no-op push gets falsely blocked.
+
+        Mock ``check_file_restrictions`` to return ``allowed=False`` so
+        the test fails loudly if the gate ever regresses, and assert
+        that ``get_changed_files_in_push`` is never even called for an
+        infrastructure push.
+        """
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2261-v3/slice-2")
+        patches = _push_context(session)
+        forbidden_files = [
+            ".egg-state/brc-history/issue-2261-v3-2026-04-30.jsonl",
+            ".egg-state/contracts/issue-2261-v3.json",
+            ".egg-state/drafts/issue-2261-v3-plan.md",
+        ]
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            # Override patches[5] (get_changed_files_in_push) and patches[6]
+            # (check_file_restrictions) so the role check would 403 if it ran.
+            patch.object(
+                gateway,
+                "get_changed_files_in_push",
+                MagicMock(return_value=(forbidden_files, None)),
+            ) as mock_changed_files,
+            patch.object(
+                gateway,
+                "check_file_restrictions",
+                MagicMock(
+                    return_value=MagicMock(
+                        allowed=False,
+                        blocked_files=forbidden_files,
+                        blocked_reason="Role 'coder' cannot modify .egg-state/brc-history/...",
+                        message="Path allowlist violation",
+                    )
+                ),
+            ) as mock_check_restrictions,
+            patches[7],
+        ):
+            response = _do_push(
+                client,
+                refspec="egg/issue-2261-v3:refs/heads/egg/issue-2261-v3/slice-2",
+            )
+            assert response.status_code == 200, (
+                f"Synthetic slice integration push must bypass the role-based "
+                f"path allowlist (#2372). Got {response.status_code}: {response.data!r}"
+            )
+            mock_changed_files.assert_not_called()
+            mock_check_restrictions.assert_not_called()
+
+    def test_role_path_allowlist_still_enforced_for_non_infrastructure_pushes(self, client):
+        """Regression guard: the gate added in #2372 must NOT weaken the role
+        check for ordinary (non-infrastructure) pushes.
+
+        Use a non-pipeline session so the pipeline-session and push-target
+        enforcers don't fire first; the role check should still 403 with
+        ``push_denied_protected_files`` when ``check_file_restrictions``
+        rejects the diff.
+        """
+        session = _make_session(
+            role="coder",
+            pipeline_id=None,
+            assigned_branch="egg/some-branch",
+            synthetic=False,
+        )
+        patches = _push_context(session)
+        forbidden_files = [".egg-state/contracts/some.json"]
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patch.object(
+                gateway,
+                "get_changed_files_in_push",
+                MagicMock(return_value=(forbidden_files, None)),
+            ),
+            patch.object(
+                gateway,
+                "check_file_restrictions",
+                MagicMock(
+                    return_value=MagicMock(
+                        allowed=False,
+                        blocked_files=forbidden_files,
+                        blocked_reason="Role 'coder' cannot modify .egg-state/contracts/...",
+                        message="Path allowlist violation",
+                    )
+                ),
+            ),
+            patches[7],
+        ):
+            response = _do_push(client, refspec="egg/some-branch")
+            assert response.status_code == 403, (
+                f"Non-infrastructure pushes must still hit the role path-allowlist "
+                f"check. Got {response.status_code}: {response.data!r}"
+            )
+            data = json.loads(response.data)
+            assert "Path allowlist violation" in data["message"]
