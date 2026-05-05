@@ -671,6 +671,92 @@ class TestStartAwaitingHumanPipeline:
             f"got {push_kwargs['repo_path']}"
         )
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_phase_gate_commit_swallows_timeout(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Recovery's commit handler must catch broad exceptions (#2219, follow-up to #2357).
+
+        ``_commit_statefiles_to_worktree`` calls ``subprocess.run(...,
+        timeout=30)`` which can raise ``TimeoutExpired`` or ``OSError``.
+        Pre-fix the recovery branch's narrow
+        ``except subprocess.CalledProcessError`` was unreachable because
+        ``repo_path`` short-circuited the helper at its ``state_dir.exists()``
+        guard. Now that the helper actually executes git against the
+        worktree, the narrow handler would let those exceptions escape
+        as a 500. Mirror the inline path's broadened handler.
+        """
+        import subprocess
+
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "approve"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        worktree_path = Path("/home/egg/.egg-worktrees/issue-42/repo")
+
+        with (
+            patch(
+                "routes.pipelines._resolve_pipeline_worktree_path",
+                return_value=worktree_path,
+            ),
+            patch("routes.pipelines._persist_phase_gate_resolution"),
+            patch(
+                "routes.pipelines._commit_statefiles_to_worktree",
+                side_effect=subprocess.TimeoutExpired(cmd="git commit", timeout=30),
+            ),
+            patch("routes.pipelines._get_spawner", return_value=MagicMock()),
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200, (
+            "TimeoutExpired from _commit_statefiles_to_worktree must be "
+            "caught and logged, not propagate as a 500"
+        )
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_skips_push_when_worktree_resolves_to_main_repo(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """When no worktree is materialised, recovery must skip the push.
+
+        ``_resolve_pipeline_worktree_path`` falls back to the supplied
+        path when no worktree directory exists (e.g. cleaned up between
+        AWAITING_HUMAN entry and recovery, or after an orchestrator
+        restart). Pushing the orchestrator's main repo would target the
+        wrong working tree — mirror the inline path's
+        ``worktree_repo_path != repo_path`` guard at pipelines.py:16044.
+        """
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "approve"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        repo_path = Path("/repo")  # matches _setup_mocks
+        mock_spawner = MagicMock()
+
+        with (
+            patch(
+                "routes.pipelines._resolve_pipeline_worktree_path",
+                return_value=repo_path,  # fallback case: no worktree found
+            ),
+            patch("routes.pipelines._persist_phase_gate_resolution"),
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+            patch("routes.pipelines._get_spawner", return_value=mock_spawner),
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        mock_spawner.gateway.push_worktree_branch.assert_not_called()
+
 
 # -----------------------------------------------------------------------------
 # Issue #1556 — Jira ticket plumbing

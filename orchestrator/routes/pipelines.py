@@ -16606,6 +16606,19 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # (#2357, same shape as #2345).
                     if phase_gate_decisions:
                         worktree_repo_path = _resolve_pipeline_worktree_path(pipeline, repo_path)
+                        if worktree_repo_path == repo_path:
+                            # No materialised worktree — recovery degrades to
+                            # the pre-fix shape (contract write no-ops via
+                            # ContractNotFoundError, draft append skipped).
+                            # Surface this so operators can correlate missing
+                            # next-phase context with worktree-cleanup races.
+                            logger.warning(
+                                "No materialised worktree found for phase gate "
+                                "persistence; falling back to main repo path. "
+                                "Contract write will silently no-op.",
+                                pipeline_id=pipeline_id,
+                                phase=pipeline.current_phase.value,
+                            )
                         _persist_phase_gate_resolution(
                             worktree_repo_path,
                             pipeline_id,
@@ -16625,15 +16638,22 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                 ),
                                 pipeline_id=pipeline_id,
                             )
-                        except subprocess.CalledProcessError as git_err:
+                        except Exception as git_err:
+                            # Catch broadly: see #2219.  The helper raises
+                            # ``TimeoutExpired`` and ``OSError`` paths that a
+                            # ``CalledProcessError``-only handler did not catch.
                             logger.warning(
                                 "Failed to commit statefiles after phase gate resolution (continuing)",
                                 pipeline_id=pipeline_id,
                                 error=str(git_err),
                             )
 
-                        # Push if this repo tracks a remote branch
-                        if pipeline.branch:
+                        # Push if this repo tracks a remote branch and a
+                        # worktree was materialised. Mirrors the inline
+                        # path's guard at pipelines.py:16044 — pushing from
+                        # the orchestrator's main repo would target the
+                        # wrong working tree.
+                        if pipeline.branch and worktree_repo_path != repo_path:
                             try:
                                 _spawner = _get_spawner()
                                 _spawner.gateway.push_worktree_branch(
