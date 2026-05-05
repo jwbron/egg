@@ -1541,6 +1541,17 @@ Tier 1 (orchestrator) escalates directly to the overseer/HITL on heartbeat/progr
 
 Use `git show origin/<branch>:.egg-state/drafts/` to list draft files on the remote branch and verify the expected file exists.
 
+**"No materialised worktree found for phase gate persistence; falling back to main repo path. Contract write may silently no-op."**: The orchestrator entered this warning path during `AWAITING_HUMAN` recovery — the human resolved the phase gate but the pipeline's worktree could not be located. Common causes:
+- The worktree was cleaned up between the pipeline entering `AWAITING_HUMAN` and the human resolving the decision (cleanup race)
+- The orchestrator restarted between those two events and the worktree directory was not preserved
+
+**Impact**: Phase gate context/feedback (e.g., "Use adapter pattern") may not reach the next phase's agents — `_persist_phase_gate_resolution()` writes to `.egg-state/` under the worktree, and without a worktree the write targets the orchestrator's main repo (where the contract file is absent). The push is also skipped.
+
+**Recovery**: If the context is important, add the resolution manually to the contract before the next phase starts:
+```bash
+egg-contract update-notes --task <id> --notes "[Phase gate: <phase>] <resolution context>"
+```
+
 ### PR-Phase State File Troubleshooting
 
 The PR phase runs three operations before creating the PR: agent-outputs cleanup, BRC history re-write, and a final push. Each operation has diagnostic INFO-level logging to help identify failures.
