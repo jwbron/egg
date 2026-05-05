@@ -69,7 +69,7 @@ The PR-body renderer demotes resolved obligations from the merge-blocking `## �
 
 - **`egg-orch consensus status`** — prints a `Pending pre-merge obligations:` subsection for open obligations and a `Resolved within this PR:` subsection (with the satisfying SHA) for any that the reviewer marked resolved. No subsection is printed when its list is empty.
 - **`complete_phase` HITL gate** — when any obligations are live, `complete_phase` queues a `choice` HITL decision before allowing the phase to close (see [HITL gate at phase completion](#hitl-gate-at-phase-completion)). Resolution status is preserved through approval so the renderer downstream can demote resolved entries.
-- **Auto-created PR body** — a ⚠️-headed `## Pre-merge Obligations` section appears directly after the description, listing only **open** obligations so the merger sees actionable items before scrolling to the diff. Already-resolved obligations render under a ✅-headed `## Resolved within this PR` subsection that does not carry the merge-blocking banner.
+- **Auto-created PR body** — a ⚠️-headed `## Pre-merge Obligations` section appears directly after the description, listing only **open** obligations so the merger sees actionable items before scrolling to the diff. Already-resolved obligations render under a ✅-headed `## Resolved within this PR` subsection that does not carry the merge-blocking banner. Both the legacy single-PR path and the slice-DAG **umbrella PR** (terminal slice) render the same section via the shared `orchestrator/pr_obligations.py` module (#2354).
 - **`CONSENSUS_ACK_RECEIVED` event** — the condition (and `pre_merge_condition_resolved_in_diff` when set) is included on the event payload and the `handle_ack` return value, so downstream consumers (e.g. HITL gates) can act on it.
 
 ## HITL gate at phase completion
@@ -123,7 +123,7 @@ Resolution does not retroactively un-persist a `contract.pr.deferred_actions` en
 - Gate dispatch: [`orchestrator/routes/decisions.py`](../../orchestrator/routes/decisions.py) — `_handle_conditional_ack_gate`.
 - Resolve signal: [`orchestrator/routes/signals.py`](../../orchestrator/routes/signals.py) — `handle_consensus_resolve_obligation_signal`.
 - MCP tool: [`sandbox/egg_agent_tools/tools/brc.py`](../../sandbox/egg_agent_tools/tools/brc.py) — `mcp__brc__resolve_obligation`.
-- PR body: [`orchestrator/routes/pipelines.py`](../../orchestrator/routes/pipelines.py) — `_build_pre_merge_obligations_section`.
+- PR body renderer: [`orchestrator/pr_obligations.py`](../../orchestrator/pr_obligations.py) — `render_obligations_section`, `render_obligations_section_from_normalized`, `normalize_deferred_actions`. Shared by the legacy single-PR path (`_build_pre_merge_obligations_section` in `routes/pipelines.py`) and the slice-DAG umbrella PR path (`GatewayClient.create_slice_pr` in `gateway_client.py`).
 - Contract: [`shared/egg_contracts/models.py`](../../shared/egg_contracts/models.py) — `PRMetadata.deferred_actions`, `DeferredAction`.
 - CLI: [`sandbox/egg_lib/orch_cli.py`](../../sandbox/egg_lib/orch_cli.py) — `cmd_consensus_ack`, `cmd_consensus_status`.
 - Related: [Concurrent Execution: Reviewer verdict variants](../guides/concurrent-execution.md#reviewer-verdict-variants), [HITL Decisions](../hitl-decisions.md), [Orchestrator CLI](orchestrator-cli.md), [Reviewer Sync](../../shared/prompts/REVIEWER-SYNC.md).
