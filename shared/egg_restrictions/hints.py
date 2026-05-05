@@ -9,16 +9,16 @@ regardless of which role attempted the push — every role blocked from
 just the implementer.
 
 Patterns are evaluated top-to-bottom against
-``AgentFilePattern.matches_pattern``; the first row whose glob matches at
-least one blocked path wins. The list is ordered most-specific first so
-that if a future broader pattern (e.g. a catch-all ``.egg-state/`` row) is
-added at the end, it does not shadow the specific anchors / contracts /
-drafts / reviews hints above it.
+:func:`egg_restrictions.matchers.match_pattern`; the first row whose
+glob matches at least one blocked path wins. The list is ordered
+most-specific first so that if a future broader pattern (e.g. a
+catch-all ``.egg-state/`` row) is added at the end, it does not shadow
+the specific anchors / contracts / drafts / reviews hints above it.
 """
 
 from __future__ import annotations
 
-from .patterns import AgentFilePattern
+from .matchers import match_pattern
 
 __all__ = ["BLOCKED_HINTS", "derive_hint"]
 
@@ -57,8 +57,8 @@ BLOCKED_HINTS: list[tuple[str, str]] = [
     ),
     # Test directory globs. The `**/<dir>/` form matches both top-level
     # (`tests/foo.py`) and nested (`gateway/tests/foo.py`) paths via the
-    # path-segment match in `AgentFilePattern.matches_pattern`, so bare
-    # `tests/` / `test/` rows would be redundant.
+    # path-segment match in `match_pattern`, so bare `tests/` / `test/`
+    # rows would be redundant.
     (
         "**/tests/",
         "Test changes belong to the tester role.",
@@ -136,6 +136,6 @@ def derive_hint(blocked_files: list[str]) -> str | None:
         return None
     for pattern, hint in BLOCKED_HINTS:
         for path in blocked_files:
-            if AgentFilePattern.matches_pattern(path, pattern):
+            if match_pattern(path, pattern):
                 return hint
     return None

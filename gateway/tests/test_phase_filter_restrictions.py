@@ -12,6 +12,7 @@ Covers:
 """
 
 import pytest
+from egg_restrictions.matchers import match_pattern
 from phase_filter import (
     FileRestriction,
     FileRestrictionResult,
@@ -119,31 +120,29 @@ class TestPhaseFileRestrictionNormalizePath:
             PhaseFileRestriction._normalize_path("/etc/passwd")
 
 
-class TestPhaseFileRestrictionMatchesPattern:
-    """Tests for PhaseFileRestriction._matches_pattern()."""
+class TestPhaseFileRestrictionMatcher:
+    """Tests for the canonical matcher used by ``PhaseFileRestriction`` (#2356).
+
+    Pre-#2356 ``PhaseFileRestriction`` carried its own private
+    ``_matches_pattern`` static method. It now delegates to
+    :func:`egg_restrictions.matchers.match_pattern`, which is a strict
+    superset — every pre-existing pattern in
+    ``_get_default_phase_file_restrictions`` (fnmatch-style globs and
+    directory prefixes) keeps matching the same paths.
+    """
 
     def test_star_matches_everything(self):
-        assert PhaseFileRestriction._matches_pattern("anything.py", "*") is True
+        assert match_pattern("anything.py", "*") is True
 
     def test_directory_prefix_match(self):
-        assert (
-            PhaseFileRestriction._matches_pattern(
-                ".egg-state/contracts/123.json", ".egg-state/contracts/"
-            )
-            is True
-        )
+        assert match_pattern(".egg-state/contracts/123.json", ".egg-state/contracts/") is True
 
     def test_directory_prefix_no_match(self):
-        assert (
-            PhaseFileRestriction._matches_pattern("src/contracts/123.json", ".egg-state/contracts/")
-            is False
-        )
+        assert match_pattern("src/contracts/123.json", ".egg-state/contracts/") is False
 
     def test_fnmatch_glob(self):
         assert (
-            PhaseFileRestriction._matches_pattern(
-                ".egg-state/drafts/644-analysis.md", ".egg-state/drafts/*analysis*"
-            )
+            match_pattern(".egg-state/drafts/644-analysis.md", ".egg-state/drafts/*analysis*")
             is True
         )
 

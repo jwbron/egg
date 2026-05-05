@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from egg_restrictions import BLOCKED_HINTS, derive_hint
-from egg_restrictions.patterns import AgentFilePattern
+from egg_restrictions.matchers import match_pattern
 
 
 def test_no_blocked_files_returns_none() -> None:
@@ -78,10 +78,10 @@ def test_anchor_pattern_does_not_match_sibling_egg_state_paths() -> None:
         ".egg-state/reviews/",
     ]
     for pattern in sibling_patterns:
-        assert not AgentFilePattern.matches_pattern(anchor_path, pattern), (
+        assert not match_pattern(anchor_path, pattern), (
             f"sibling pattern {pattern!r} should not match anchor path"
         )
-    assert AgentFilePattern.matches_pattern(anchor_path, ".egg-state/agent-anchors/")
+    assert match_pattern(anchor_path, ".egg-state/agent-anchors/")
 
 
 def test_blocked_hints_table_is_well_formed() -> None:
