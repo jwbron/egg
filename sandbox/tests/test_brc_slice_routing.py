@@ -9,6 +9,7 @@ the agent-side end of that contract.
 
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -61,9 +62,9 @@ _RESOLVE_REQ = {
 }
 
 
-def _captured_data(mock_request) -> dict:
+def _captured_data(mock_request: Any) -> dict[str, Any]:
     assert mock_request.called, "orchestrator_request was not invoked"
-    return mock_request.call_args.kwargs["data"]
+    return dict(mock_request.call_args.kwargs["data"])
 
 
 class TestSliceIdAttachedFromEnv:
