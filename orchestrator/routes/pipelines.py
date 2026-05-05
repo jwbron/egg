@@ -7443,6 +7443,24 @@ def _collect_pre_merge_obligations(
 
     Returns a list of ``{reviewer, condition, resolved_in_diff}`` dicts. The
     contract source takes precedence over the live tracker when present.
+
+    .. note::
+
+       The tracker fallback is functionally a no-op when called from the
+       slice-DAG umbrella path (``_run_one_slice_inner`` →
+       ``create_slice_pr``). ``get_peer_consensus_tracker(pipeline_id)``
+       returns the **pipeline-level** tracker, but slice-mode BRC
+       consensus runs on per-slice trackers keyed
+       ``{pipeline_id}/{slice_id}`` (see ``peer_consensus._tracker_key``)
+       — so any slice-BRC ACK obligations are written to the per-slice
+       tracker and the pipeline-level tracker won't see them. In
+       practice ``contract.pr.deferred_actions`` (populated by
+       ``_persist_deferred_actions`` when HITL resolves) is therefore the
+       only effective source for the slice umbrella PR. The fallback is
+       still wired in for call-shape parity with the legacy
+       ``_auto_create_pr`` path so future changes (e.g. aggregating
+       slice obligations onto the pipeline tracker) get parity for
+       free — see PR #2382 review observation A.
     """
     try:
         from pr_obligations import normalize_deferred_actions

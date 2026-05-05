@@ -1317,10 +1317,19 @@ class GatewayClient:
             # fast here catches a caller wiring ``program_deferred_actions``
             # through to a non-terminal slice (#2354 review nit) instead
             # of silently dropping it.
-            assert program_deferred_actions is None, (
-                "program_deferred_actions must be None on non-terminal slices; "
-                "obligations belong on the umbrella PR only"
-            )
+            #
+            # Guarded on ``program_title is None`` rather than
+            # ``has_program_block`` so a whitespace-only ``program_title``
+            # (which ``PRMetadata.title`` allows under its current
+            # ``min_length=1`` validator) doesn't masquerade as a slice
+            # routing error here — that's a different bug and should
+            # surface as such, not as a spurious AssertionError on the
+            # umbrella PR creation path (#2354 review observation B).
+            if program_title is None:
+                assert program_deferred_actions is None, (
+                    "program_deferred_actions must be None on non-terminal slices; "
+                    "obligations belong on the umbrella PR only"
+                )
             body_lines.append(slice_name)
             if slice_tasks:
                 body_lines.append("")

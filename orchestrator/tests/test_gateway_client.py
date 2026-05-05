@@ -1571,6 +1571,33 @@ class TestCreateSlicePR:
                 ],
             )
 
+    def test_whitespace_program_title_does_not_trigger_assertion(self, gateway_client):
+        """``PRMetadata.title`` validates with ``min_length=1`` but does not
+        ``.strip()`` — so a whitespace-only title (e.g. ``" "``) currently
+        passes contract validation. The non-terminal-slice assertion must
+        guard on ``program_title is None`` rather than on
+        ``has_program_block`` (truthy after strip), so a whitespace-only
+        title doesn't spuriously masquerade as a slice routing error
+        (#2354 review observation B). The whitespace-title bug, if any, is
+        for ``PRMetadata`` to catch — not the slice PR builder."""
+        captured, ctx = self._capture(gateway_client)
+        # Should NOT raise AssertionError — program_title is not None,
+        # so the routing-error guard does not fire.
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42",
+                program_title=" ",
+                program_deferred_actions=[
+                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
+                ],
+            )
+
 
 class TestSelfIpResolution:
     """Tests for self_ip property used in temporary session registration."""
