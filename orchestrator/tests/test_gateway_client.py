@@ -1451,6 +1451,103 @@ class TestCreateSlicePR:
         assert len(captured["title"]) == 70
         assert captured["title"].endswith("...")
 
+    def test_terminal_slice_renders_program_deferred_actions(self, gateway_client):
+        """#2354: when the terminal slice receives ``program_deferred_actions``
+        from ``contract.pr.deferred_actions``, the umbrella PR body carries
+        the same Pre-merge Obligations section the legacy ``_auto_create_pr``
+        path emits — so reviewers don't have to discover obligations
+        out-of-band."""
+
+        class _DA:
+            def __init__(self, condition, reviewer="", resolved_in_diff=""):
+                self.condition = condition
+                self.reviewer = reviewer
+                self.resolved_in_diff = resolved_in_diff
+
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-3",
+                slice_name="Apply the ratchet",
+                slice_tasks=None,
+                head="egg/issue-42/slice-3",
+                base="egg/issue-42/slice-2",
+                program_title="Decompose oversize files",
+                program_description="Description.",
+                program_deferred_actions=[
+                    _DA(
+                        condition="git mv legacy/x new/x before merge",
+                        reviewer="coder",
+                    ),
+                    _DA(
+                        condition="verify tests green against merged state",
+                        reviewer="reviewer_contract",
+                        resolved_in_diff="2c319626a",
+                    ),
+                ],
+            )
+        body = captured["body"]
+        assert "## ⚠️ Pre-merge Obligations" in body
+        assert "- **coder** — git mv legacy/x new/x before merge" in body
+        assert "## ✅ Resolved within this PR" in body
+        assert "Resolved in 2c319626a" in body
+        # The obligations section sits before the slice-context footer
+        # (so reviewers see it without scrolling past pipeline metadata).
+        assert body.index("## ⚠️ Pre-merge Obligations") < body.index(
+            "Slice slice-3 of pipeline issue-42"
+        )
+
+    def test_terminal_slice_with_no_deferred_actions_omits_section(self, gateway_client):
+        """When the contract carries no obligations the body must not emit
+        an empty Pre-merge Obligations heading."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-3",
+                slice_name="Apply the ratchet",
+                slice_tasks=None,
+                head="egg/issue-42/slice-3",
+                base="egg/issue-42/slice-2",
+                program_title="Decompose oversize files",
+                program_deferred_actions=None,
+            )
+        assert "Pre-merge Obligations" not in captured["body"]
+        assert "Resolved within this PR" not in captured["body"]
+
+    def test_non_terminal_slice_ignores_program_deferred_actions(self, gateway_client):
+        """Defensive: even if a caller mistakenly threads
+        ``program_deferred_actions`` to a non-terminal slice (no
+        ``program_title``), the body stays auto-generated. Obligations
+        belong on the umbrella, not on every PR in the chain."""
+
+        class _DA:
+            def __init__(self, condition, reviewer=""):
+                self.condition = condition
+                self.reviewer = reviewer
+                self.resolved_in_diff = ""
+
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42",
+                program_deferred_actions=[_DA(condition="do X", reviewer="r1")],
+            )
+        # Auto-generated title (no program_title) — body should not carry
+        # the obligations section.
+        assert captured["title"].startswith("slice slice-1:")
+        assert "Pre-merge Obligations" not in captured["body"]
+        assert "Resolved within this PR" not in captured["body"]
+
 
 class TestSelfIpResolution:
     """Tests for self_ip property used in temporary session registration."""

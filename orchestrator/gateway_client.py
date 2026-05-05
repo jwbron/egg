@@ -1219,6 +1219,7 @@ class GatewayClient:
         program_description: str | None = None,
         program_test_plan: str | None = None,
         program_manual_steps: str | None = None,
+        program_deferred_actions: list[Any] | None = None,
         terminal_slice_id: str | None = None,
     ) -> str | None:
         """Open a PR for one slice in a stacked-PR chain.
@@ -1229,13 +1230,18 @@ class GatewayClient:
           contract's ``pr`` block): the PR carries the planner-authored
           title / description / test plan / manual steps, plus a
           banner marking it as the program-level umbrella for the
-          chain. This is the reviewer-facing narrative for the whole
-          pipeline.
+          chain. When ``program_deferred_actions`` is non-empty, the
+          body also includes the ``## ⚠️ Pre-merge Obligations`` (and,
+          when applicable, ``## ✅ Resolved within this PR``) section
+          carrying conditional-ACK obligations from
+          ``contract.pr.deferred_actions`` (#2354). This is the
+          reviewer-facing narrative for the whole pipeline.
         * **Non-terminal slice** (no ``program_title``): deterministic
           ``slice {slice_id}: {slice_name}`` title, bulleted task list
           body. When ``terminal_slice_id`` is supplied, the body also
           carries a pointer to the terminal slice so reviewers can
-          jump to the umbrella PR.
+          jump to the umbrella PR. ``program_deferred_actions`` is
+          ignored on this shape — obligations belong on the umbrella.
 
         Both shapes always end with a footer naming the slice and the
         branch it stacks onto, so the slice's role in the chain stays
@@ -1275,6 +1281,22 @@ class GatewayClient:
                 body_lines.append("")
                 body_lines.append(program_manual_steps.strip())
                 body_lines.append("")
+            if program_deferred_actions:
+                # Render the same Pre-merge Obligations / Resolved-within-PR
+                # sections the legacy ``_auto_create_pr`` path emits via
+                # ``_build_pre_merge_obligations_section`` (#2354). Shared
+                # markdown composer lives in ``orchestrator.pr_obligations``
+                # so both paths stay byte-identical.
+                try:
+                    from pr_obligations import render_obligations_section
+                except ImportError:
+                    from orchestrator.pr_obligations import (  # type: ignore[no-redef]
+                        render_obligations_section,
+                    )
+                obligations_section = render_obligations_section(program_deferred_actions)
+                if obligations_section:
+                    body_lines.append(obligations_section)
+                    body_lines.append("")
         else:
             body_lines.append(slice_name)
             if slice_tasks:

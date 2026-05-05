@@ -7417,58 +7417,22 @@ def _build_pre_merge_obligations_section(
        no deferred_actions — either because the gate landed before
        tracker teardown, or the gate was never required.
 
-    Each obligation is classified as **open** or **resolved** (#2336):
-
-    * Open obligations (no ``resolved_in_diff``) render under a merge-blocking
-      "Pre-merge Obligations" banner — a human must act before merging.
-    * Resolved obligations (the reviewer marked them satisfied within the same
-      PR's diff) render under a "Resolved within this PR" subsection with a
-      pointer to the satisfying commit. They do not block merge.
+    The markdown composition (open vs. resolved sections, banner copy) is
+    delegated to :mod:`orchestrator.pr_obligations` so the slice-DAG
+    umbrella PR path (``GatewayClient.create_slice_pr``) renders the same
+    section from the same input shape (#2354).
 
     Returns an empty string if neither source yields obligations, so callers
     can unconditionally append the result to the PR body.
     """
+    try:
+        from pr_obligations import render_obligations_section_from_normalized
+    except ImportError:
+        from ..pr_obligations import (  # type: ignore[import-not-found,no-redef]
+            render_obligations_section_from_normalized,
+        )
     obligations = _collect_pre_merge_obligations(pipeline_id, contract_deferred_actions)
-    if not obligations:
-        return ""
-
-    open_obligations = [o for o in obligations if not o["resolved_in_diff"]]
-    resolved_obligations = [o for o in obligations if o["resolved_in_diff"]]
-
-    sections: list[str] = []
-
-    if open_obligations:
-        lines: list[str] = [
-            "## ⚠️ Pre-merge Obligations",
-            "",
-            "The reviewers below issued a **conditional ACK** — the work is "
-            "approved, but a human must perform the listed action before "
-            "merging. Do **not** merge this PR until every obligation is "
-            "complete.",
-            "",
-        ]
-        for o in open_obligations:
-            lines.extend(_format_obligation_bullet(o, resolved=False))
-        sections.append("\n".join(lines))
-
-    if resolved_obligations:
-        # When the only obligations on the PR are already-satisfied ones, this
-        # subsection stands on its own — there's no "do not merge" banner to
-        # contradict (#2336). Reviewers still get a record of what was
-        # promised and what diff resolved it.
-        lines = [
-            "## ✅ Resolved within this PR",
-            "",
-            "The reviewers below issued a **conditional ACK** and later "
-            "marked the obligation satisfied within this PR's diff. Listed "
-            "for the audit trail; no merge action required.",
-            "",
-        ]
-        for o in resolved_obligations:
-            lines.extend(_format_obligation_bullet(o, resolved=True))
-        sections.append("\n".join(lines))
-
-    return "\n\n".join(sections)
+    return render_obligations_section_from_normalized(obligations)
 
 
 def _collect_pre_merge_obligations(
@@ -7480,39 +7444,15 @@ def _collect_pre_merge_obligations(
     Returns a list of ``{reviewer, condition, resolved_in_diff}`` dicts. The
     contract source takes precedence over the live tracker when present.
     """
-    if contract_deferred_actions:
-        normalized: list[dict[str, str]] = []
-        for entry in contract_deferred_actions:
-            # ``DeferredAction`` (Pydantic) — the post-#2336 shape.
-            reviewer = getattr(entry, "reviewer", None)
-            condition = getattr(entry, "condition", None)
-            resolved = getattr(entry, "resolved_in_diff", None)
-            if condition is None and isinstance(entry, str):
-                # Defensive: a caller passed a legacy string list directly
-                # without going through the field validator (e.g. a unit test
-                # that constructs the input by hand). Parse it the same way
-                # the validator would.
-                text = entry.strip()
-                if not text:
-                    continue
-                head, sep, tail = text.partition(": ")
-                if sep and tail.strip():
-                    reviewer, condition = head.strip(), tail.strip()
-                else:
-                    reviewer, condition = "", text
-                resolved = ""
-            condition_text = (condition or "").strip()
-            if not condition_text:
-                continue
-            normalized.append(
-                {
-                    "reviewer": (reviewer or "").strip(),
-                    "condition": condition_text,
-                    "resolved_in_diff": (resolved or "").strip(),
-                }
-            )
-        if normalized:
-            return normalized
+    try:
+        from pr_obligations import normalize_deferred_actions
+    except ImportError:
+        from ..pr_obligations import (  # type: ignore[import-not-found,no-redef]
+            normalize_deferred_actions,
+        )
+    normalized = normalize_deferred_actions(contract_deferred_actions)
+    if normalized:
+        return normalized
 
     # Tier 2 — live tracker (pre-#2004 path; kept so conditions still
     # render if the HITL gate hasn't resolved yet, e.g. under force=true).
@@ -7533,43 +7473,19 @@ def _collect_pre_merge_obligations(
         )
         return []
 
-    normalized = []
+    tracker_normalized: list[dict[str, str]] = []
     for c in conditions:
         condition = str(c.get("condition", "")).strip()
         if not condition:
             continue
-        normalized.append(
+        tracker_normalized.append(
             {
                 "reviewer": str(c.get("reviewer", "") or "").strip(),
                 "condition": condition,
                 "resolved_in_diff": str(c.get("resolved_in_diff", "") or "").strip(),
             }
         )
-    return normalized
-
-
-def _format_obligation_bullet(
-    obligation: dict[str, str],
-    resolved: bool,
-) -> list[str]:
-    """Format a single obligation as a markdown bullet (multi-line aware)."""
-    reviewer = obligation["reviewer"] or "unknown"
-    # ``strip()`` before splitlines so a leading/trailing newline doesn't
-    # produce an empty first line ("- **reviewer** — " with nothing after the
-    # em-dash). The collector filters whitespace-only conditions but a
-    # ``"\nreal text"`` value would otherwise slip through with an empty
-    # first line (#2336 review).
-    condition = obligation["condition"].strip()
-    first, *rest = condition.splitlines()
-    bullet = f"- **{reviewer}** — {first}"
-    lines = [bullet]
-    for extra in rest:
-        lines.append(f"  {extra}")
-    if resolved and obligation["resolved_in_diff"]:
-        # Bare SHA (no backticks) so GitHub auto-links it to the commit page
-        # in the rendered PR body — code-span text is not auto-linked.
-        lines.append(f"  - Resolved in {obligation['resolved_in_diff']}")
-    return lines
+    return tracker_normalized
 
 
 def _build_brc_history_link_line(
@@ -11322,6 +11238,16 @@ def _run_implement_phase_slices(
                                 "program_manual_steps": (
                                     program_pr.manual_steps if program_pr else None
                                 ),
+                                # Snapshot the obligations list under the
+                                # state lock alongside the rest of the
+                                # program-* fields. Threaded into
+                                # ``create_slice_pr`` only for the
+                                # terminal slice; non-terminal slices
+                                # receive ``None`` so the umbrella is the
+                                # single place reviewers see them (#2354).
+                                "program_deferred_actions": (
+                                    list(program_pr.deferred_actions) if program_pr else None
+                                ),
                                 "terminal_slice_id": terminal_pointer,
                             }
                 except Exception as load_err:  # noqa: BLE001
@@ -11350,6 +11276,7 @@ def _run_implement_phase_slices(
                             program_description=slice_pr_data["program_description"],
                             program_test_plan=slice_pr_data["program_test_plan"],
                             program_manual_steps=slice_pr_data["program_manual_steps"],
+                            program_deferred_actions=slice_pr_data["program_deferred_actions"],
                             terminal_slice_id=slice_pr_data["terminal_slice_id"],
                         )
                     except Exception as pr_err:  # noqa: BLE001
