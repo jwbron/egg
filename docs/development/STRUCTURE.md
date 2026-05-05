@@ -316,10 +316,11 @@ shared/
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
 │   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
 ├── egg_restrictions/        # Shared agent file restriction patterns and checking logic
-│   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push, match_pattern
+│   ├── __init__.py         # Public API: AgentFilePattern, check_agent_file_access, validate_agent_push, match_pattern, BLOCKED_HINTS, derive_hint
 │   ├── matchers.py         # Canonical glob-pattern matcher (match_pattern) shared by all four enforcement layers
 │   ├── patterns.py         # Role-based file access patterns (AgentRole, AgentFilePattern, AGENT_PATTERNS)
-│   └── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
+│   ├── checker.py          # File access validation (check_agent_file_access, validate_agent_push)
+│   └── hints.py            # Actionable push-denial hints keyed by blocked path category (BLOCKED_HINTS, derive_hint)
 ├── egg_container/          # Shared container-launch config builder
 │   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
