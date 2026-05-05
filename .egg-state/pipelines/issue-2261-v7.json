@@ -5,7 +5,7 @@
   "branch": "egg/issue-2261-v7/work",
   "base_branch": null,
   "prompt": null,
-  "status": "pending",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -67,7 +67,7 @@
   "phases": {},
   "decisions": [],
   "created_at": "2026-05-05T20:59:12.440370Z",
-  "updated_at": "2026-05-05T20:59:12.440703Z",
+  "updated_at": "2026-05-05T20:59:12.552998Z",
   "contract_synced": false,
   "network_mode": null,
   "mode": "issue",
@@ -81,6 +81,6 @@
   "source_branch": "egg/issue-2261-v3",
   "source_artifact_prefix": "issue-2261-v3",
   "run_epoch": null,
-  "version": 2,
+  "version": 3,
   "jira_ticket": null
 }
