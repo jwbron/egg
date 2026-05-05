@@ -94,6 +94,35 @@ def _setup_spawn(executions: list[AgentExecution]):
     return pipeline, mock_store, mock_spawner
 
 
+# ---------------------------------------------------------------------------
+# call_args helpers — colocated above all consumers so a future
+# ``get_peer_consensus_tracker`` signature change has one place to update.
+# ---------------------------------------------------------------------------
+
+
+def _slice_arg_from_call(call) -> str | None:
+    """Extract ``slice_id`` from ``get_peer_consensus_tracker``'s call_args.
+
+    The call site uses positional args (``pipeline_id, slice_id``) but
+    we accept a kwarg too so future refactors don't break the test.
+    """
+    if "slice_id" in call.kwargs:
+        return call.kwargs["slice_id"]
+    return call.args[1] if len(call.args) >= 2 else None
+
+
+def _pipeline_arg_from_call(call) -> str | None:
+    """Extract ``pipeline_id`` from ``get_peer_consensus_tracker``'s call_args.
+
+    Symmetric with ``_slice_arg_from_call`` so tests don't break if a
+    future refactor moves ``pipeline_id`` from a positional arg to a
+    kwarg.
+    """
+    if "pipeline_id" in call.kwargs:
+        return call.kwargs["pipeline_id"]
+    return call.args[0] if call.args else None
+
+
 class TestSliceSpawnEnvShape:
     """``EGG_PIPELINE_ID`` stays canonical; slice scope rides on ``EGG_SLICE_ID``."""
 
@@ -283,29 +312,6 @@ class TestConsensusSignalSliceRouting:
         assert "slice_id" in response.get_json()["message"]
 
 
-def _slice_arg_from_call(call) -> str | None:
-    """Extract ``slice_id`` from ``get_peer_consensus_tracker``'s call_args.
-
-    The call site uses positional args (``pipeline_id, slice_id``) but
-    we accept a kwarg too so future refactors don't break the test.
-    """
-    if "slice_id" in call.kwargs:
-        return call.kwargs["slice_id"]
-    return call.args[1] if len(call.args) >= 2 else None
-
-
-def _pipeline_arg_from_call(call) -> str | None:
-    """Extract ``pipeline_id`` from ``get_peer_consensus_tracker``'s call_args.
-
-    Symmetric with ``_slice_arg_from_call`` so tests don't break if a
-    future refactor moves ``pipeline_id`` from a positional arg to a
-    kwarg.
-    """
-    if "pipeline_id" in call.kwargs:
-        return call.kwargs["pipeline_id"]
-    return call.args[0] if call.args else None
-
-
 class TestAllConsensusHandlersRouteToSliceTracker:
     """Every consensus signal handler forwards ``slice_id`` to the tracker lookup.
 
@@ -427,6 +433,15 @@ class TestAllConsensusHandlersRouteToSliceTracker:
         # branch doesn't read or write the live in-memory message store
         # (test hermeticity — repeated runs in the same process must not
         # observe each other's CONSENSUS_CONFIRMED writes).
+        #
+        # The ``message_store.get_message_store`` patch reaches the
+        # handler because ``signals.py`` imports the symbol *inside* the
+        # function body (``from message_store import get_message_store``
+        # at the call sites). If anyone moves that to a module-level
+        # ``from message_store import get_message_store`` at the top of
+        # ``signals.py``, this patch silently stops intercepting and the
+        # hermeticity guarantee breaks. Switch the patch target to
+        # ``routes.signals.get_message_store`` if that refactor lands.
         from routes.signals import handle_consensus_confirmed_signal
 
         mock_tracker = MagicMock()
