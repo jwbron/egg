@@ -3711,6 +3711,70 @@ class TestReviewerPollUsesWaitLoop:
         )
 
 
+_PRODUCER_ROLES_BY_PHASE = [
+    ("refiner", "refine"),
+    ("architect", "plan"),
+    ("task_planner", "plan"),
+    ("risk_analyst", "plan"),
+    ("coder", "implement"),
+    ("tester", "implement"),
+    ("documenter", "implement"),
+]
+
+
+class TestProducerRespondToReviewsWaitLoop:
+    """Producer RESPOND TO REVIEWS step must spell out the pre-confirm
+    ``--for`` allowlist and explicitly exclude ``CONSENSUS_CONFIRMED``
+    (issue #2482).
+
+    Background: step 4 originally said only "Poll for ACK/NACK from
+    reviewers via ``egg-orch message wait-loop``" without the explicit
+    flag list. Producer agents improvised and copied the step 6
+    STAY ALIVE allowlist, which includes ``CONSENSUS_CONFIRMED``. The
+    orchestrator's pre-confirm guard rejects that with HTTP 400 (#2064)
+    because the producer's own confirm is part of what generates the
+    global ``CONSENSUS_CONFIRMED`` signal, so the wait would deadlock
+    on itself. The reject-and-retry burned a tool turn at every
+    propose→confirm boundary.
+
+    The bug originally surfaced on the refiner role; parametrizing
+    across every producer role pins the property in case
+    ``_build_brc_preamble`` ever becomes role-specific.
+    """
+
+    @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
+    def test_step4_lists_pre_confirm_allowlist(self, role, phase):
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        respond_end = preamble.index("**CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        for required in (
+            "--for CONSENSUS_ACK",
+            "--for CONSENSUS_NACK",
+            "--for CONSENSUS_RE_REVIEW",
+            "--for OVERSEER_ALERT",
+        ):
+            assert required in respond_block, (
+                f"RESPOND TO REVIEWS step must include `{required}` in the "
+                f"pre-confirm wait-loop incantation for role={role} "
+                f"phase={phase} (issue #2482)."
+            )
+
+    @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
+    def test_step4_excludes_consensus_confirmed(self, role, phase):
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        respond_end = preamble.index("**CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        assert "--for CONSENSUS_CONFIRMED" not in respond_block, (
+            "RESPOND TO REVIEWS step must NOT include "
+            "`--for CONSENSUS_CONFIRMED` — the orchestrator's "
+            "pre-confirm guard rejects that pattern with HTTP 400 "
+            f"(#2064, #2482) for role={role} phase={phase} because the "
+            "producer's own confirm is part of what generates that signal."
+        )
+
+
 class TestReviewerWaitLoopMentionsAutoCursor:
     """Reviewer + producer wait-loop steps must explain auto cursor
     threading (issue #2323).
