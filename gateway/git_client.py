@@ -355,8 +355,11 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--first-parent",
             "--reverse",
             "--max-count",
-            # Note: -n is not normalized for log (no entry in FLAG_NORMALIZATION).
-            # Users should use --max-count=N or -3 (numeric shorthand) instead.
+            # ``-n N``, ``-n=N``, and ``-nN`` are accepted as aliases for
+            # ``--max-count=N`` via a special case in ``validate_git_args``
+            # (search for "issue #2480"). We don't put ``-n`` in the log entry of
+            # FLAG_NORMALIZATION because its value is a separate argument, which
+            # the per-flag normalizer can't see.
             "--since",
             "--until",
             "--author",
@@ -1097,6 +1100,28 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
                     f"Numeric flag '{arg}' is not allowed for git {operation}",
                     [],
                 )
+
+        # Handle `-n N`, `-n=N`, `-nN` for git log (alias for --max-count=N).
+        # Per `git log --help`, `-n` is the canonical short form for limiting
+        # commit count, so agents naturally emit it; without this special case
+        # they retry with `--max-count` and burn an audit-log entry. Issue #2480.
+        # Scoped to log only because `-n` means very different things elsewhere
+        # (--dry-run for push, --no-commit for cherry-pick, etc.).
+        if operation == "log" and "--max-count" in allowed_flags:
+            n_match = re.match(r"^-n(?:=(\d+)|(\d+))?$", arg)
+            if n_match:
+                count = n_match.group(1) or n_match.group(2)
+                if count is None:
+                    # Bare `-n`; consume the next arg if it's a number.
+                    if i + 1 < len(args) and re.match(r"^\d+$", args[i + 1]):
+                        count = args[i + 1]
+                        normalized.append(f"--max-count={count}")
+                        i += 2
+                        continue
+                else:
+                    normalized.append(f"--max-count={count}")
+                    i += 1
+                    continue
 
         # Normalize short flags to long form (per-subcommand)
         normalized_flag = normalize_flag(arg, operation)

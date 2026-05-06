@@ -222,6 +222,40 @@ class TestValidateGitArgs:
         assert not valid
         assert "numeric flag" in error.lower()
 
+    def test_dash_n_with_separate_arg_for_log(self):
+        """`git log -n 5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("log", ["--oneline", "-n", "5"])
+        assert valid
+        assert "--max-count=5" in normalized
+        assert "--oneline" in normalized
+        assert "-n" not in normalized
+        assert "5" not in normalized  # consumed as the count value
+
+    def test_dash_n_combined_for_log(self):
+        """`git log -n5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("log", ["-n5"])
+        assert valid
+        assert "--max-count=5" in normalized
+
+    def test_dash_n_equals_for_log(self):
+        """`git log -n=5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("log", ["-n=5"])
+        assert valid
+        assert "--max-count=5" in normalized
+
+    def test_dash_n_without_value_rejected_for_log(self):
+        """Bare `-n` (no count) for log falls through to allowlist rejection."""
+        valid, error, _normalized = validate_git_args("log", ["-n"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_dash_n_for_push_unchanged(self):
+        """`-n` for push still normalizes to --dry-run (not --max-count)."""
+        valid, _error, normalized = validate_git_args("push", ["-n"])
+        assert valid
+        assert "--dry-run" in normalized
+        assert "--max-count=" not in " ".join(normalized)
+
     def test_double_dash_separator_allowed(self):
         """The -- separator should be allowed for any operation."""
         valid, _error, normalized = validate_git_args("checkout", ["--", "file.txt"])
