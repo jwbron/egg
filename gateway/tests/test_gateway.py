@@ -658,7 +658,13 @@ class TestGitPush:
             assert response.status_code == 403
             data = json.loads(response.data)
             assert "cannot modify" in data["message"].lower()
-            assert ".egg-state/contracts/123.json" in data["data"]["blocked_files"]
+            # The legacy ``blocked_files`` shape from the duplicate naive
+            # check that ran before the attribution-aware path was removed
+            # in #2489.  The canonical attribution-aware rejection (#2039)
+            # surfaces the same data under ``blocked_paths`` along with the
+            # ``error: restricted_path_modified`` discriminator.
+            assert data["data"]["error"] == "restricted_path_modified"
+            assert ".egg-state/contracts/123.json" in data["data"]["blocked_paths"]
             assert data["data"]["role"] == "coder"
 
     def test_push_allowed_for_reviewer_modifying_contract_files(self, client):

@@ -976,9 +976,13 @@ class TestSliceIntegrationBranchExemption:
         check for ordinary (non-infrastructure) pushes.
 
         Use a non-pipeline session so the pipeline-session and push-target
-        enforcers don't fire first; the role check should still 403 with
-        ``push_denied_protected_files`` when ``check_file_restrictions``
-        rejects the diff.
+        enforcers don't fire first; the role check should still 403 with the
+        canonical attribution-aware ``restricted_path_modified`` rejection
+        (#2039) — replaces the legacy ``push_denied_protected_files`` event,
+        which fired from a duplicate naive check the gateway no longer runs
+        (#2489).  When attribution lookup returns no commits the handler
+        fails closed and treats every file in the diff as own-authored, so
+        the 403 still fires for restricted paths.
         """
         session = _make_session(
             role="coder",
@@ -999,18 +1003,7 @@ class TestSliceIntegrationBranchExemption:
                 "get_changed_files_in_push",
                 MagicMock(return_value=(forbidden_files, None)),
             ),
-            patch.object(
-                gateway,
-                "check_file_restrictions",
-                MagicMock(
-                    return_value=MagicMock(
-                        allowed=False,
-                        blocked_files=forbidden_files,
-                        blocked_reason="Role 'coder' cannot modify .egg-state/contracts/...",
-                        message="Path allowlist violation",
-                    )
-                ),
-            ),
+            patches[6],
             patches[7],
         ):
             response = _do_push(client, refspec="egg/some-branch")
@@ -1018,5 +1011,8 @@ class TestSliceIntegrationBranchExemption:
                 f"Non-infrastructure pushes must still hit the role path-allowlist "
                 f"check. Got {response.status_code}: {response.data!r}"
             )
-            data = json.loads(response.data)
-            assert "Path allowlist violation" in data["message"]
+            body = json.loads(response.data)
+            data = body.get("data") or {}
+            assert data.get("error") == "restricted_path_modified", body
+            assert data.get("role") == "coder", body
+            assert ".egg-state/contracts/some.json" in (data.get("blocked_paths") or []), body
