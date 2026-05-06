@@ -3258,6 +3258,209 @@ class TestAlertProgressGate:
 
 
 # ---------------------------------------------------------------------------
+# Tests: overseer silence is exempt from the alive-signal gate (issue #2430)
+# ---------------------------------------------------------------------------
+
+
+class TestOverseerSilenceExemption:
+    """Issue #2430: the overseer is the watchdog, so its silence must
+    surface regardless of peer activity. The alive-signal peer-progress
+    gate (#2242) is correct for ordinary BRC agents but inverts the
+    contract for the overseer — a healthy BRC roster would otherwise
+    defer overseer escalations indefinitely. Repro from ``issue-2261-v9``:
+    overseer silent for 27+ minutes past threshold while every poll
+    deferred with ``reason="peer heartbeat 18s ago"``.
+    """
+
+    def test_overseer_heartbeat_alert_fires_despite_peer_heartbeats(self):
+        """Peer heartbeats must NOT defer the overseer's silence alert."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+
+        # Overseer registered at t=base, then silent.
+        _emit_heartbeat(bus, agent_id="overseer")
+
+        # Peer heartbeats steadily — broader pipeline alive.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 200
+            _emit_heartbeat(bus, agent_id=AGENT_ID)
+            _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+
+        # At t=base+250: overseer silent 250s (>60s threshold). Peer
+        # heartbeats are 50s old — well within the 300s gate. For an
+        # ordinary agent this would defer; the overseer must escalate.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 250
+            actions = monitor.check_heartbeats()
+
+        overseer_actions = [a for a in actions if a["agent_id"] == "overseer"]
+        assert len(overseer_actions) == 1, (
+            "Overseer silence past threshold must escalate even when peers are heartbeating"
+        )
+
+    def test_overseer_progress_alert_fires_despite_peer_heartbeats(self):
+        """Same exemption applies to the progress-stall path."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_progress(bus, agent_id="overseer")
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 200
+            _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 250
+            actions = monitor.check_progress()
+
+        overseer_actions = [a for a in actions if a["agent_id"] == "overseer"]
+        assert len(overseer_actions) == 1, (
+            "Overseer progress stall must escalate despite peer heartbeats"
+        )
+
+    def test_overseer_silence_routed_to_hitl_not_self(self):
+        """Escalations about the overseer's own silence must go to HITL —
+        you cannot escalate a silent watchdog to itself.
+        """
+        bus = _make_event_bus()
+        escalations: list[dict] = []
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+            overseer_enabled=True,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.on_escalation(escalations.append)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id="overseer")
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 250
+            monitor.check_heartbeats()
+
+        overseer_escalations = [e for e in escalations if e["agent_id"] == "overseer"]
+        assert len(overseer_escalations) == 1
+        assert overseer_escalations[0]["type"] == "hitl", (
+            "Overseer self-escalation would be silently dropped — must route to HITL"
+        )
+
+    def test_non_overseer_silence_still_deferred_by_peers(self):
+        """Regression: ordinary agents keep the existing peer-progress gate."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 200
+            _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 250
+            actions = monitor.check_heartbeats()
+
+        assert actions == [], (
+            "Ordinary agents must still defer when peer heartbeats are within the gate"
+        )
+
+    def test_non_overseer_escalation_still_routes_to_overseer(self):
+        """Regression: non-overseer alerts continue to escalate to the overseer
+        when ``overseer_enabled=True``."""
+        bus = _make_event_bus()
+        escalations: list[dict] = []
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,  # disable gate so we isolate routing
+            overseer_enabled=True,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.on_escalation(escalations.append)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 250
+            monitor.check_heartbeats()
+
+        agent_escalations = [e for e in escalations if e["agent_id"] == AGENT_ID]
+        assert len(agent_escalations) == 1
+        assert agent_escalations[0]["type"] == "overseer"
+
+    def test_overseer_agent_id_constant_matches_role_enum(self):
+        """Pin the literal in `health_monitor` to `AgentRole.OVERSEER.value`.
+
+        `_OVERSEER_AGENT_ID` is duplicated as a literal to avoid pulling
+        ``shared/egg_contracts`` into the production module. A future rename
+        of ``AgentRole.OVERSEER`` would silently re-introduce #2430 without
+        this guard.
+        """
+        from egg_contracts import AgentRole
+        from health_monitor import _OVERSEER_AGENT_ID
+
+        assert _OVERSEER_AGENT_ID == AgentRole.OVERSEER.value, (
+            "If AgentRole.OVERSEER was renamed, update _OVERSEER_AGENT_ID "
+            "in orchestrator/health_monitor.py to match."
+        )
+
+    def test_escalate_error_routes_overseer_to_hitl(self):
+        """Direct test: `_escalate_error` with ``agent_id='overseer'`` routes
+        to HITL even when ``overseer_enabled=True``.
+
+        Repeated-error alerts reach the same `_resolve_escalation_target`
+        helper as heartbeat/progress alerts; this guards against a future
+        revert that re-introduces the ``overseer_enabled ? overseer : hitl``
+        ternary at the `_escalate_error` call site.
+        """
+        bus = _make_event_bus()
+        escalations: list[dict] = []
+        config = _make_config(overseer_enabled=True)
+        monitor = _make_monitor(bus, config)
+        monitor.on_escalation(escalations.append)
+
+        monitor._escalate_error("overseer", "watchdog hit an internal error", count=3)
+
+        assert len(escalations) == 1
+        assert escalations[0]["agent_id"] == "overseer"
+        assert escalations[0]["type"] == "hitl", (
+            "Repeated-error alerts about the overseer must route to HITL — "
+            "routing them to the overseer would silently swallow them"
+        )
+
+    def test_escalate_error_routes_non_overseer_to_overseer(self):
+        """Regression companion to the test above: non-overseer
+        ``_escalate_error`` calls still route to the overseer when enabled."""
+        bus = _make_event_bus()
+        escalations: list[dict] = []
+        config = _make_config(overseer_enabled=True)
+        monitor = _make_monitor(bus, config)
+        monitor.on_escalation(escalations.append)
+
+        monitor._escalate_error(AGENT_ID, "transient db error", count=3)
+
+        assert len(escalations) == 1
+        assert escalations[0]["agent_id"] == AGENT_ID
+        assert escalations[0]["type"] == "overseer"
+
+
+# ---------------------------------------------------------------------------
 # Tests: phase-aware post-ACK confirmation timeout (issue #2242)
 # ---------------------------------------------------------------------------
 

@@ -242,6 +242,8 @@ If a peer signal is found within the window, the alert is deferred. The deferral
 
 **Setting `orchestrator_alert_progress_gate_seconds = 0` disables the peer-progress gate.** (#2242)
 
+**Caveat — overseer carve-out:** Both gates are skipped when the focal agent is the overseer (`agent_id == "overseer"`). The overseer is the platform's watchdog, so its silence is the signal that most needs to surface — without the carve-out, a healthy BRC roster's peer heartbeats would defer overseer escalations indefinitely. Repro from `issue-2261-v9`: overseer silent for 27+ minutes past threshold while every poll deferred with `reason="peer heartbeat 18s ago"`. Symmetrically, escalations *about* the overseer are routed to HITL rather than to the overseer itself — you cannot escalate a silent watchdog to itself. (#2430)
+
 ### Branch-Divergence Detection
 
 When a pipeline's branch absorbs merged-main commits (the contamination shape investigated in #2222), the resulting PR shows a diff against main that includes unrelated merged work. The branch-divergence detector catches this at phase-boundary granularity — strictly better than detecting at PR open, but complementary to the primary gate in #2282.
