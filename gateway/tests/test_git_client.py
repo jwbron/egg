@@ -222,6 +222,94 @@ class TestValidateGitArgs:
         assert not valid
         assert "numeric flag" in error.lower()
 
+    def test_dash_n_with_separate_arg_for_log(self):
+        """`git log -n 5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("log", ["--oneline", "-n", "5"])
+        assert valid
+        assert "--max-count=5" in normalized
+        assert "--oneline" in normalized
+        assert "-n" not in normalized
+        assert "5" not in normalized  # consumed as the count value
+
+    def test_dash_n_combined_for_log(self):
+        """`git log -n5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("log", ["-n5"])
+        assert valid
+        assert "--max-count=5" in normalized
+
+    def test_dash_n_equals_for_log(self):
+        """`git log -n=5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("log", ["-n=5"])
+        assert valid
+        assert "--max-count=5" in normalized
+
+    def test_dash_n_without_value_rejected_for_log(self):
+        """Bare `-n` (no count) for log falls through to allowlist rejection."""
+        valid, error, _normalized = validate_git_args("log", ["-n"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_dash_n_for_push_unchanged(self):
+        """`-n` for push still normalizes to --dry-run (not --max-count)."""
+        valid, _error, normalized = validate_git_args("push", ["-n"])
+        assert valid
+        assert "--dry-run" in normalized
+        assert "--max-count=" not in " ".join(normalized)
+
+    def test_dash_n_for_reflog_normalized(self):
+        """`git reflog -n 5` is normalized to `--max-count=5` — reflog is a log walker (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-n", "5"])
+        assert valid
+        assert "--max-count=5" in normalized
+        assert "-n" not in normalized
+
+    def test_dash_n_combined_for_reflog(self):
+        """`git reflog -n5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-n5"])
+        assert valid
+        assert "--max-count=5" in normalized
+
+    def test_dash_n_equals_for_reflog(self):
+        """`git reflog -n=5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-n=5"])
+        assert valid
+        assert "--max-count=5" in normalized
+
+    def test_dash_n_followed_by_flag_falls_through_for_log(self):
+        """`git log -n --oneline`: bare `-n` doesn't consume a non-numeric next arg; falls through to allowlist rejection."""
+        valid, error, _normalized = validate_git_args("log", ["-n", "--oneline"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_dash_n_followed_by_non_numeric_falls_through_for_log(self):
+        """`git log -n abc`: bare `-n` doesn't consume a non-numeric next arg; falls through to allowlist rejection."""
+        valid, error, _normalized = validate_git_args("log", ["-n", "abc"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_dash_n_followed_by_signed_number_falls_through_for_log(self):
+        """`git log -n -3`: bare `-n` doesn't consume a signed integer; the regex requires a bare unsigned digit run.
+
+        Locks in the boundary so a future "be helpful and parse signed ints"
+        change can't silently consume `-3` as the count value.
+        """
+        valid, error, _normalized = validate_git_args("log", ["-n", "-3"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_numeric_flag_for_reflog(self):
+        """`git reflog -3` is normalized to `--max-count=3` — reflog is a log walker (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-3", "--oneline"])
+        assert valid
+        assert "--max-count=3" in normalized
+        assert "--oneline" in normalized
+
+    def test_numeric_flag_for_reflog_larger_number(self):
+        """`git reflog -10` is normalized to `--max-count=10` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-10"])
+        assert valid
+        assert "--max-count=10" in normalized
+
     def test_double_dash_separator_allowed(self):
         """The -- separator should be allowed for any operation."""
         valid, _error, normalized = validate_git_args("checkout", ["--", "file.txt"])

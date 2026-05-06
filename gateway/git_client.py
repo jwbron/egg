@@ -355,8 +355,14 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--first-parent",
             "--reverse",
             "--max-count",
-            # Note: -n is not normalized for log (no entry in FLAG_NORMALIZATION).
-            # Users should use --max-count=N or -3 (numeric shorthand) instead.
+            # ``-n N``, ``-n=N``, ``-nN``, and ``-<N>`` (e.g. ``-3``) are
+            # accepted as aliases for ``--max-count=N`` via special cases in
+            # ``validate_git_args`` (search for "issue #2480"). We don't put
+            # ``-n`` in the log entry of FLAG_NORMALIZATION because its value
+            # is a separate argument, which the per-flag normalizer can't see.
+            # Both special cases also apply to the ``reflog`` allowlist below —
+            # reflog is internally a log walker and shares the same
+            # ``--max-count`` semantics for both forms.
             "--since",
             "--until",
             "--author",
@@ -812,8 +818,11 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--format",
             "--oneline",
             "--max-count",
-            # Note: -n is not normalized for reflog (no entry in FLAG_NORMALIZATION).
-            # Users should use --max-count=N instead.
+            # ``-n N``, ``-n=N``, ``-nN``, and ``-<N>`` (e.g. ``-3``) are
+            # accepted as aliases for ``--max-count=N`` via the same special
+            # cases in ``validate_git_args`` that handle ``log`` (search for
+            # "issue #2480"). reflog is internally a log walker, so both
+            # forms carry the same ``--max-count`` semantics.
         ],
     },
     "describe": {
@@ -1079,9 +1088,12 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
             continue
 
         # Handle numeric flags like -3, -10 (shorthand for --max-count=N)
-        # These are valid for 'log' and 'format-patch' operations
+        # These are valid for 'log', 'reflog', and 'format-patch' operations.
+        # reflog is internally a log walker and accepts -<N> natively in real
+        # git, so the boilerplate-burn argument from issue #2480 applies
+        # symmetrically to both -n N and -<N> forms.
         if re.match(r"^-\d+$", arg):
-            if operation == "log" and "--max-count" in allowed_flags:
+            if operation in ("log", "reflog") and "--max-count" in allowed_flags:
                 # Convert -N to --max-count=N for consistency
                 normalized.append(f"--max-count={arg[1:]}")
                 i += 1
@@ -1097,6 +1109,30 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
                     f"Numeric flag '{arg}' is not allowed for git {operation}",
                     [],
                 )
+
+        # Handle `-n N`, `-n=N`, `-nN` for git log/reflog (alias for
+        # --max-count=N). Per `git log --help`, `-n` is the canonical short form
+        # for limiting commit count, so agents naturally emit it; without this
+        # special case they retry with `--max-count` and burn an audit-log
+        # entry. Issue #2480. reflog is internally a log walker and shares the
+        # same `-n` semantics. Scoped to these two because `-n` means very
+        # different things elsewhere (--dry-run for push, --no-commit for
+        # cherry-pick, --show-number for blame, --numbered for format-patch).
+        if operation in ("log", "reflog") and "--max-count" in allowed_flags:
+            n_match = re.match(r"^-n(?:=(\d+)|(\d+))?$", arg)
+            if n_match:
+                count = n_match.group(1) or n_match.group(2)
+                if count is None:
+                    # Bare `-n`; consume the next arg if it's a number.
+                    if i + 1 < len(args) and re.match(r"^\d+$", args[i + 1]):
+                        count = args[i + 1]
+                        normalized.append(f"--max-count={count}")
+                        i += 2
+                        continue
+                else:
+                    normalized.append(f"--max-count={count}")
+                    i += 1
+                    continue
 
         # Normalize short flags to long form (per-subcommand)
         normalized_flag = normalize_flag(arg, operation)
