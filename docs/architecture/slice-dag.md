@@ -617,7 +617,7 @@ on parse failure.
 
 | Env var | Type | Default | Controls |
 |---------|------|---------|----------|
-| `EGG_ORCH_MAX_PARALLEL_SLICES` | int | 5 | **Per-pipeline** wave slice spawn concurrency cap. Enforced via `iter_ready` and mirrored on the wave's `ThreadPoolExecutor.max_workers`. |
+| `EGG_ORCH_MAX_PARALLEL_SLICES` | int | 2 | **Per-pipeline** wave slice spawn concurrency cap. Enforced via `iter_ready` and mirrored on the wave's `ThreadPoolExecutor.max_workers`. |
 | `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` | int | 4 | **Process-wide** slice cap across ALL running pipelines (#2241 gap 1). Enforced by `orchestrator.global_slice_admit.try_admit()` in the run loop; deferred slices stay READY and re-yield next tick. |
 | `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | int | 3 | Per-slice BRC re-proposal ceiling before HITL escalation. *Currently inert — #2199 wires the trip flag through the BRC re-proposal loop.* |
 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` | int | 10 | Pipeline-wide summed slice-cycle cap. *Currently inert — see local cycles row.* |
@@ -656,7 +656,7 @@ wedged.
 The slicing design was driven by 18 HITL decisions plus a feedback round
 during refine. The most consequential are referenced inline above:
 
-- **decision-5** — concurrency: unbounded per wave; `max_parallel_slices=5`
+- **decision-5** — concurrency: unbounded per wave; `max_parallel_slices=2`
   is an operator-tunable soft cap.
 - **decision-7** — schema rename ships with a one-version load-time
   migration; legacy `phases[]` JSON keeps loading.

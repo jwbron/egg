@@ -263,7 +263,7 @@ def get_heartbeat_rate_limit() -> int:
 #   decision-16 opt-3 hybrid).
 # -----------------------------------------------------------------
 
-DEFAULT_MAX_PARALLEL_SLICES = 5
+DEFAULT_MAX_PARALLEL_SLICES = 2
 DEFAULT_GLOBAL_MAX_PARALLEL_SLICES = 4
 DEFAULT_SLICE_LOCAL_MAX_CYCLES = 3
 DEFAULT_SLICE_GLOBAL_MAX_CYCLES = 10
@@ -324,7 +324,7 @@ def _coerce_positive_float(env_name: str, default: float) -> float:
 
 
 def get_max_parallel_slices() -> int:
-    """Return the per-pipeline parallel-slice spawn cap (default 5)."""
+    """Return the per-pipeline parallel-slice spawn cap (default 2)."""
     return _coerce_positive_int("EGG_ORCH_MAX_PARALLEL_SLICES", DEFAULT_MAX_PARALLEL_SLICES)
 
 

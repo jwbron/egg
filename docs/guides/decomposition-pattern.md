@@ -189,7 +189,7 @@ Each slice removes its file's entry from
 `scripts/file-size-allowlist.yaml`. The lint already enforces this —
 do not bypass it with a fresh allowlist entry.
 
-With `EGG_ORCH_MAX_PARALLEL_SLICES=5`, this YAML file conflicts
+With `EGG_ORCH_MAX_PARALLEL_SLICES=2`, this YAML file conflicts
 mechanically across parallel slices. The rebase recipe:
 
 ```bash
