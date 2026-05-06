@@ -8,42 +8,46 @@ contract file in the *shared* pipeline worktree at
 on disk.
 
 At phase end, the orchestrator runs ``_sync_worktree_with_remote`` to
-incorporate agent-pushed drafts/code from origin.  When the local branch
-is behind origin (the typical case — agents pushed during the phase),
-that helper falls through to ``git reset --hard origin/<branch>``, which
-discards uncommitted working-tree changes.  Without intervention, the
-agent's contract decisions are wiped before the bridge
-(``_queue_and_await_contract_decisions``) has a chance to surface them.
+incorporate agent-pushed drafts/code from origin.  Two paths through that
+helper run ``git reset --hard origin/<branch>`` and so will discard
+uncommitted working-tree changes:
+
+* ``local_ahead == 0 and remote_ahead > 0`` (local-behind) — falls
+  through to the step-4 reset.
+* ``local_ahead > 0 and remote_ahead == 0`` plus ``prior_phase_succeeded``
+  with a failed push — also falls through to the step-4 reset.
+
+Without intervention, the agent's contract decisions are wiped on those
+paths before the bridge (``_queue_and_await_contract_decisions``) has a
+chance to surface them.
 
 The fix: commit ``.egg-state/`` ahead of the sync so the agent's contract
 writes become part of the local branch tip and survive any subsequent
-reset/rebase.  This test exercises the real git plumbing end-to-end —
-no subprocess mocks — so that the commit/sync interaction is verified
-against ground truth.
+reset/rebase.  The pre-sync commit also turns a "local-behind" state
+into a "diverged" state, which the helper resolves via rebase rather
+than reset — preserving the change in the canonical way.
+
+These tests use real git plumbing (no subprocess mocks) so the
+commit/sync interaction is verified against ground truth.  Test 1
+demonstrates the bug at the bare ``git reset`` level.  Tests 2 and 3
+exercise ``_sync_worktree_with_remote`` directly with a gateway stub
+that performs real ``git fetch`` / ``git push`` against a local bare
+remote, so the assertion holds against the actual production sync code
+path — not a hand-rolled approximation of it.
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-_orchestrator_path = Path(__file__).parent.parent
-if str(_orchestrator_path) not in sys.path:
-    sys.path.insert(0, str(_orchestrator_path))
-
-_shared_path = Path(__file__).parent.parent.parent / "shared"
-if _shared_path.exists() and str(_shared_path) not in sys.path:
-    sys.path.insert(0, str(_shared_path))
-
-# Mock docker before importing modules that depend on it
-sys.modules.setdefault("docker", MagicMock())
-sys.modules.setdefault("docker.errors", MagicMock())
-sys.modules.setdefault("docker.types", MagicMock())
-
-from routes.pipelines import _commit_statefiles_to_worktree  # noqa: E402
+from gateway_client import PushResult
+from routes.pipelines import (
+    _commit_statefiles_to_worktree,
+    _sync_worktree_with_remote,
+)
 
 
 def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -151,6 +155,59 @@ def _agent_writes_decision_to_contract(worktree: Path, identifier: str) -> Path:
     return path
 
 
+def _make_gateway_stub_with_real_git(worktree: Path) -> MagicMock:
+    """Build a ``spawner`` mock whose gateway calls run real git commands.
+
+    ``_sync_worktree_with_remote`` only reaches into the spawner via
+    ``spawner.gateway.fetch_worktree_branch`` and
+    ``spawner.gateway.push_worktree_branch``.  Stubbing those two surfaces
+    with real ``git fetch`` / ``git push`` against the local bare remote
+    is enough to exercise the production helper end-to-end without
+    bringing up the gateway sidecar.
+
+    The stub mirrors the gateway's contract:
+
+    * ``fetch_worktree_branch`` returns ``True`` on success / ``False``
+      on failure.
+    * ``push_worktree_branch`` returns a ``PushResult`` (truthy on
+      success).  The gateway uses the ``HEAD:refs/heads/{branch}``
+      refspec form, so the stub does the same.
+    """
+    spawner = MagicMock()
+
+    def real_fetch(pipeline_id: str, repo_path: str, mode: str) -> bool:  # noqa: ARG001
+        result = subprocess.run(
+            ["git", "-C", repo_path, "fetch", "origin"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        return result.returncode == 0
+
+    def real_push(
+        pipeline_id: str,  # noqa: ARG001
+        repo_path: str,
+        branch: str,
+        mode: str,  # noqa: ARG001
+        base_branch: str | None = None,  # noqa: ARG001
+    ) -> PushResult:
+        result = subprocess.run(
+            ["git", "-C", repo_path, "push", "origin", f"HEAD:refs/heads/{branch}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            return PushResult(ok=True)
+        return PushResult(ok=False, category="push_rejected", detail=result.stderr)
+
+    spawner.gateway.fetch_worktree_branch.side_effect = real_fetch
+    spawner.gateway.push_worktree_branch.side_effect = real_push
+    return spawner
+
+
 def test_uncommitted_contract_decisions_lost_when_sync_resets_without_pre_commit(
     tmp_path: Path,
 ) -> None:
@@ -179,17 +236,27 @@ def test_uncommitted_contract_decisions_lost_when_sync_resets_without_pre_commit
     )
 
 
-def test_pre_sync_commit_preserves_agent_decisions_through_rebase(
+def test_pre_sync_commit_preserves_agent_decisions_through_real_sync_helper(
     tmp_path: Path,
 ) -> None:
-    """The fix: ``_commit_statefiles_to_worktree`` ahead of the sync
-    captures the agent's contract modification so the rebase path
-    cannot discard it.  The commit makes it part of the local branch
-    tip, which the sync's rebase reconciles with origin.
+    """End-to-end against the real ``_sync_worktree_with_remote`` helper.
+
+    The fix: ``_commit_statefiles_to_worktree`` ahead of the sync
+    captures the agent's contract modification.  The pre-sync commit
+    moves the worktree from ``local_ahead == 0 and remote_ahead > 0``
+    (which would have hit the step-4 reset) to
+    ``local_ahead > 0 and remote_ahead > 0`` (which routes through the
+    rebase path).  Calling ``_sync_worktree_with_remote`` with a gateway
+    stub that performs real ``git fetch`` / ``git push`` exercises the
+    actual production code path — proving that the helper's rebase
+    branch reconciles the contract commit with the agent's pushed draft.
+
+    A future regression in ``_sync_worktree_with_remote`` (e.g. adding
+    ``git checkout -- .egg-state/`` before reset) would fail this test,
+    closing the gap left by the lower-level git-only tests.
     """
     worktree, remote, branch, identifier = _setup_repo_with_remote(tmp_path)
     _push_agent_draft_to_origin(remote, branch, tmp_path)
-    _git("fetch", "origin", cwd=worktree)
 
     contract_path = _agent_writes_decision_to_contract(worktree, identifier)
     expected_body = contract_path.read_text()
@@ -202,43 +269,60 @@ def test_pre_sync_commit_preserves_agent_decisions_through_rebase(
         pipeline_id=identifier,
     )
 
-    # Now rebase local onto origin/<branch> (the divergence path the real
-    # ``_sync_worktree_with_remote`` takes when local is ahead by the
-    # contract commit and remote is ahead by the agent's draft commit).
-    _git("rebase", f"origin/{branch}", cwd=worktree)
+    # Run the production sync helper directly.  The stub gateway
+    # performs real git fetch/push against the bare remote.
+    spawner = _make_gateway_stub_with_real_git(worktree)
+    _sync_worktree_with_remote(
+        spawner,
+        identifier,
+        worktree,
+        prior_phase_succeeded=True,
+        gateway_mode="public",
+        base_branch="main",
+        pipeline_branch=branch,
+    )
 
+    # Contract decision survived the sync.
     assert contract_path.read_text() == expected_body
     assert "decision-1" in contract_path.read_text()
-    # The agent's draft commit from origin must also be present after rebase.
+    # The agent's draft commit from origin was also brought in.
     assert (worktree / ".egg-state/drafts/42-analysis.md").exists()
 
 
-def test_pre_sync_commit_survives_reset_to_origin_after_push(
+def test_real_sync_helper_loses_decisions_without_pre_sync_commit(
     tmp_path: Path,
 ) -> None:
-    """Even when the post-rebase flow falls through to a ``git reset
-    --hard origin/<branch>`` (the local-ahead-then-push path inside
-    ``_sync_worktree_with_remote``), the contract survives because the
-    commit it sits on has already been pushed and is part of
-    ``origin/<branch>``.
+    """Negative case against the real ``_sync_worktree_with_remote`` helper.
+
+    Skipping the pre-sync commit must leave the local-behind path
+    falling through to ``git reset --hard origin/<branch>``, which
+    discards the uncommitted contract modification.  Pairs with the
+    positive test above so the helper itself is exercised on both
+    sides of the fix — if a future change to the helper accidentally
+    started preserving uncommitted ``.egg-state/`` writes, this test
+    would fail and prompt re-evaluation of whether the pre-sync commit
+    is still necessary.
     """
     worktree, remote, branch, identifier = _setup_repo_with_remote(tmp_path)
     _push_agent_draft_to_origin(remote, branch, tmp_path)
-    _git("fetch", "origin", cwd=worktree)
 
     contract_path = _agent_writes_decision_to_contract(worktree, identifier)
-
-    _commit_statefiles_to_worktree(
-        worktree,
-        "Persist agent statefile writes before refine sync",
-        pipeline_identifier=42,
-        pipeline_id=identifier,
-    )
-    _git("rebase", f"origin/{branch}", cwd=worktree)
-    _git("push", "origin", branch, cwd=worktree)
-
-    # Re-fetch and reset (mirrors the post-push reset in the sync helper).
-    _git("fetch", "origin", cwd=worktree)
-    _git("reset", "--hard", f"origin/{branch}", cwd=worktree)
-
     assert "decision-1" in contract_path.read_text()
+
+    # NOTE: deliberately no _commit_statefiles_to_worktree() call here.
+    spawner = _make_gateway_stub_with_real_git(worktree)
+    _sync_worktree_with_remote(
+        spawner,
+        identifier,
+        worktree,
+        prior_phase_succeeded=True,
+        gateway_mode="public",
+        base_branch="main",
+        pipeline_branch=branch,
+    )
+
+    assert "decision-1" not in contract_path.read_text(), (
+        "Without the pre-sync commit, _sync_worktree_with_remote's "
+        "local-behind path resets to origin and discards the agent's "
+        "uncommitted contract decision — the bug fixed in #2488."
+    )
