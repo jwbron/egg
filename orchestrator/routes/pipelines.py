@@ -2629,17 +2629,27 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 # ``agent-heartbeat-stall`` trigger is structurally dead on
                 # the ``restart_agent`` path (issue #2084).
                 respawn_started_at = datetime.now(UTC)
+                # Match on ``(role, slice_id)`` — without the slice tiebreaker
+                # the first matching role wins, which on a multi-slice phase
+                # mutates the wrong slice's record (#2422). ``slice_id`` is
+                # the route-level scope already plumbed into the spawner and
+                # consensus tracker above.
                 found = False
                 for agent in fresh_phase_exec.agents:
-                    if hasattr(agent, "role") and (
-                        agent.role == role
-                        or (hasattr(agent.role, "value") and agent.role.value == role.value)
-                    ):
-                        agent.container_id = spawned.container_info.container_id
-                        agent.status = AgentExecutionStatus.RUNNING
-                        agent.started_at = respawn_started_at
-                        found = True
-                        break
+                    if not hasattr(agent, "role"):
+                        continue
+                    role_match = agent.role == role or (
+                        hasattr(agent.role, "value") and agent.role.value == role.value
+                    )
+                    if not role_match:
+                        continue
+                    if getattr(agent, "slice_id", None) != slice_id:
+                        continue
+                    agent.container_id = spawned.container_info.container_id
+                    agent.status = AgentExecutionStatus.RUNNING
+                    agent.started_at = respawn_started_at
+                    found = True
+                    break
                 if not found:
                     fresh_phase_exec.agents.append(
                         AgentExecution(
@@ -2647,6 +2657,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                             container_id=spawned.container_info.container_id,
                             status=AgentExecutionStatus.RUNNING,
                             started_at=respawn_started_at,
+                            slice_id=slice_id,
                         )
                     )
 
@@ -12030,6 +12041,7 @@ def _run_concurrent_phase(
                         ),
                         container_id=exec_info.container_id,
                         started_at=datetime.now(UTC),
+                        slice_id=slice_id,
                     )
                     phase_execution.agents.append(agent_state)
                 store.save_pipeline(pip)
@@ -12251,7 +12263,14 @@ def _run_concurrent_phase(
                     except Exception:
                         pass
 
+                # Filter to this slice's agents — without the filter, slice-2
+                # BRC completing flips slice-3's still-running agents to
+                # COMPLETE because they share ``pe.agents`` (#2422). For
+                # pipeline-level (non-sliced) phases ``slice_id`` is ``None``
+                # and we still match all agents whose ``slice_id`` is ``None``.
                 for agent in pe.agents:
+                    if getattr(agent, "slice_id", None) != slice_id:
+                        continue
                     if agent.status in (StateAgentStatus.RUNNING, StateAgentStatus.FAILED):
                         agent.status = StateAgentStatus.COMPLETE
                         agent.completed_at = datetime.now(UTC)
@@ -13173,11 +13192,20 @@ def _spawn_and_wait(
                 )
                 phase_execution.containers.append(container_info)
 
-                # Track agent execution
+                # Track agent execution.
+                #
+                # ``slice_id`` is explicitly ``None`` because this helper has
+                # no production callers today and is reachable only from
+                # tests that mock-patch it. If a future change resurrects
+                # this path for a sliced spawn, the caller MUST plumb a
+                # ``slice_id`` through here — otherwise the new
+                # ``(role, slice_id)`` walks added in #2422 will not see
+                # the record. See PR #2435 review thread.
                 agent_execution = AgentExecution(
                     role=agent_role,
                     status=AgentExecutionStatus.RUNNING,
                     container_id=spawned.container_info.container_id,
+                    slice_id=None,
                     started_at=datetime.now(UTC),
                 )
                 phase_execution.agents.append(agent_execution)

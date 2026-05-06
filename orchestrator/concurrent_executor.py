@@ -460,6 +460,7 @@ class ConcurrentPhaseExecutor:
                             role=role,
                             status=AgentExecutionStatus.FAILED,
                             error=str(e),
+                            slice_id=self._slice_id,
                         )
                     )
 
@@ -500,6 +501,7 @@ class ConcurrentPhaseExecutor:
             container_id=container_id,
             container_info=result.container_info,
             started_at=datetime.now(UTC),
+            slice_id=self._slice_id,
         )
 
     def handle_agent_failure(self, role: str, error: str) -> dict[str, Any]:

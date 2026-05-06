@@ -4,6 +4,7 @@ Tests for orchestrator models.
 
 from datetime import UTC, datetime
 
+import pytest
 from models import (
     PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN,
     AgentExecution,
@@ -74,6 +75,32 @@ class TestAgentExecution:
         )
         assert agent.commit == "abc1234"
         assert agent.outputs["files_changed"] == ["src/main.py"]
+
+    def test_slice_id_none_allowed(self):
+        """``slice_id=None`` (the default) is the pipeline-level scope."""
+        agent = AgentExecution(role=AgentRole.CODER)
+        assert agent.slice_id is None
+
+    def test_slice_id_canonical_accepted(self):
+        """Canonical ``slice-<N>`` ids pass the validator."""
+        agent = AgentExecution(role=AgentRole.CODER, slice_id="slice-2")
+        assert agent.slice_id == "slice-2"
+
+    @pytest.mark.parametrize(
+        "bad_value",
+        ["phase-2", "slice-", "slice-2a", "Slice-2", " slice-2", "slice-2 ", ""],
+    )
+    def test_slice_id_non_canonical_rejected(self, bad_value):
+        """Non-canonical ``slice_id`` values are rejected at construction.
+
+        Defense-in-depth (#2422 review): production write paths use
+        ``extract_slice_id`` / ``concurrent_executor._slice_id`` which
+        already enforce ``SLICE_ID_PATTERN``, but a hand-built fixture
+        or migration tool must not be able to smuggle a non-canonical
+        value through ``AgentExecution(...)``.
+        """
+        with pytest.raises(ValueError, match="Invalid slice_id"):
+            AgentExecution(role=AgentRole.CODER, slice_id=bad_value)
 
 
 class TestHITLDecision:

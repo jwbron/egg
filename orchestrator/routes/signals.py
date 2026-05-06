@@ -573,6 +573,19 @@ def handle_error_signal(
     error_message = data.get("error", "Unknown error")
     recoverable = data.get("recoverable", False)
 
+    # Slice-scope the "already COMPLETE" suppression check below — without
+    # this, a slice-2 coder finishing would silently swallow a slice-3
+    # coder's error because both records share ``phase_execution.agents``
+    # (#2422). The sandbox attaches ``slice_id`` on per-slice agents via
+    # ``progress._maybe_attach_slice_id``; pipeline-level agents send no
+    # ``slice_id`` and this resolves to ``None`` (matches non-sliced
+    # records). ``_extract_slice_id`` rejects malformed values the same
+    # way the BRC handlers do.
+    try:
+        signal_slice_id = _extract_slice_id(data)
+    except ValueError as exc:
+        return make_error_response(f"Invalid slice_id: {exc}")
+
     try:
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
@@ -602,11 +615,16 @@ def handle_error_signal(
         phase_execution = pipeline.phases.get(phase_key)
         if phase_execution is not None:
             for agent in phase_execution.agents:
-                if agent.role == agent_role and agent.status == AgentExecutionStatus.COMPLETE:
+                if (
+                    agent.role == agent_role
+                    and getattr(agent, "slice_id", None) == signal_slice_id
+                    and agent.status == AgentExecutionStatus.COMPLETE
+                ):
                     logger.info(
                         "Agent already COMPLETE, suppressing error signal (consensus path)",
                         pipeline_id=pipeline_id,
                         role=agent_role.value,
+                        slice_id=signal_slice_id,
                     )
                     return make_success_response(
                         "Error suppressed (agent already complete)",
