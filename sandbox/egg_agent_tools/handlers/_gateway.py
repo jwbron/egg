@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -27,7 +28,9 @@ except ImportError:  # pragma: no cover - env without egg_config
     GATEWAY_PORT = 9848  # noqa: EGG002
     ORCHESTRATOR_PORT = 9849  # noqa: EGG002
 
-from egg_agent_tools.handlers.errors import GatewayError
+from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
 
 # Bypass any HTTP(S)_PROXY for internal egg-network requests.
 _opener = build_opener(ProxyHandler({}))
@@ -97,6 +100,43 @@ def get_slice_id() -> str | None:
     return os.environ.get("EGG_SLICE_ID") or None
 
 
+def maybe_attach_slice_id(req: dict[str, Any], data: dict[str, Any]) -> None:
+    """Forward ``slice_id`` from the request or env onto a signal body.
+
+    Single source of truth for the BRC / progress / heartbeat handlers
+    (#2451 follow-up). Per-slice agents set ``EGG_SLICE_ID`` so the
+    orchestrator can route their ``CONSENSUS_*`` to the slice tracker
+    (#2403) and refresh the slice-scoped gateway session container_id
+    (#2451). Callers can also pass ``slice_id`` on ``req`` to override
+    (e.g. tests, or operator tooling acting on a specific slice).
+    Validation matches the canonical ``slice-<N>`` regex enforced at
+    the orchestrator seam so a malformed value cannot smuggle path
+    separators into a tracker key or container_id.
+    """
+    slice_id = req.get("slice_id") or get_slice_id()
+    if not slice_id:
+        return
+    if not isinstance(slice_id, str) or not _SLICE_ID_PATTERN.fullmatch(slice_id):
+        raise HandlerError(f"Invalid slice_id {slice_id!r}: must match 'slice-<N>'")
+    data["slice_id"] = slice_id
+
+
+def resolve_slice_id(req: dict[str, Any]) -> str | None:
+    """Return a validated ``slice_id`` (from ``req`` or env), or ``None``.
+
+    Same validation as :func:`maybe_attach_slice_id` but returns the
+    value instead of mutating a payload dict. Used by callers that
+    thread ``slice_id`` through their own data structures (e.g. the
+    wait-loop heartbeat emitter, which builds the payload itself).
+    """
+    slice_id = req.get("slice_id") or get_slice_id()
+    if not slice_id:
+        return None
+    if not isinstance(slice_id, str) or not _SLICE_ID_PATTERN.fullmatch(slice_id):
+        raise HandlerError(f"Invalid slice_id {slice_id!r}: must match 'slice-<N>'")
+    return slice_id
+
+
 def get_issue_number() -> int | None:
     """Issue number from env (``EGG_ISSUE_NUMBER``)."""
     raw = os.environ.get("EGG_ISSUE_NUMBER")
@@ -137,7 +177,7 @@ def _parse_http_error(exc: HTTPError) -> GatewayError:
         body = json.loads(exc.read().decode())
         message = body.get("message", str(exc))
         details = body.get("details") or body.get("data") or {}
-    except json.JSONDecodeError, Exception:
+    except Exception:
         message = str(exc)
         details = {}
     return GatewayError(

@@ -25,7 +25,9 @@ from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_pipeline_id,
     orchestrator_request,
+    resolve_slice_id,
 )
+from egg_agent_tools.handlers._gateway import maybe_attach_slice_id as _maybe_attach_slice_id
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
 _HEARTBEAT_STATES = {
@@ -35,6 +37,7 @@ _HEARTBEAT_STATES = {
     "PROPOSED",
     "IDLE",
 }
+
 
 # Interval between ``WAITING_FOR_EVENT`` keep-alive heartbeats emitted by
 # ``message_wait_loop`` while blocked. Needs to be well under the
@@ -162,6 +165,7 @@ def _default_emit_wait_loop_heartbeat(
     state: str,
     body: str,
     since: str | None = None,
+    slice_id: str | None = None,
 ) -> None:
     """Emit a single liveness heartbeat from ``message_wait_loop``.
 
@@ -180,6 +184,16 @@ def _default_emit_wait_loop_heartbeat(
     entry so every periodic ``WAITING_FOR_EVENT`` beat carries the same
     value, letting the overseer read it as a monotonically aging
     "waiting since" rather than a clock that resets each tick.
+
+    ``slice_id`` (optional) is forwarded so the orchestrator's gateway
+    -session fan-out can reconstruct the slice-scoped container_id
+    (``egg-agent-{pid}-{slice}-{role}``) that
+    ``kubernetes_spawner.JOB_NAME_FORMAT_SLICE`` registered. Without it,
+    every ``wait_loop`` tick from a slice-scoped reviewer/tester would
+    log "Session not found for container" and leave the gateway
+    session's idle timer unrefreshed (#2451). Pipeline-level agents
+    (no slice) leave it ``None`` and fall through to the
+    ``egg-agent-{pid}-{role}`` shape.
     """
     if not pipeline_id or not role:
         return
@@ -190,6 +204,8 @@ def _default_emit_wait_loop_heartbeat(
     }
     if since:
         payload["since"] = since
+    if slice_id:
+        payload["slice_id"] = slice_id
     try:
         orchestrator_request(
             f"/api/v1/pipelines/{pipeline_id}/heartbeat",
@@ -285,6 +301,11 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     role_hb = _role_or_env(req)
     for_types_hb = _coerce_for_types(req)
     from_role_hb = req.get("from_role") or req.get("from")
+    # Capture (and validate) once at wait entry so every periodic tick
+    # forwards the same value. Slice-scoped reviewers/testers spend the
+    # bulk of their lifetimes blocked here, so this is the dominant
+    # heartbeat path #2451 was trying to fix.
+    slice_id_hb = resolve_slice_id(req)
     emit_hb: Callable[..., None] = req.get("_emit_heartbeat", _default_emit_wait_loop_heartbeat)
     hb_interval = float(req.get("_heartbeat_interval", _WAIT_LOOP_HEARTBEAT_INTERVAL_SECS))
     start_hb: Callable[[Callable[[], None], float], Callable[[], None]] = req.get(
@@ -301,7 +322,14 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     wait_since = _datetime.datetime.now(_datetime.UTC).isoformat()
 
     def _tick() -> None:
-        emit_hb(pipeline_id_hb, role_hb, "WAITING_FOR_EVENT", waiting_body, wait_since)
+        emit_hb(
+            pipeline_id_hb,
+            role_hb,
+            "WAITING_FOR_EVENT",
+            waiting_body,
+            wait_since,
+            slice_id=slice_id_hb,
+        )
 
     stop_hb = start_hb(_tick, hb_interval)
 
@@ -382,7 +410,13 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
         # Final transition back to WORKING so the overseer sees the
         # agent leave the wait cleanly. Best-effort; dedup will still
         # collapse a follow-on manual WORKING beat from the caller.
-        emit_hb(pipeline_id_hb, role_hb, "WORKING", "wait_loop exited")
+        emit_hb(
+            pipeline_id_hb,
+            role_hb,
+            "WORKING",
+            "wait_loop exited",
+            slice_id=slice_id_hb,
+        )
 
 
 def message_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
@@ -432,6 +466,7 @@ def message_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
         body["since"] = req["since"]
     if req.get("body"):
         body["body"] = req["body"]
+    _maybe_attach_slice_id(req, body)
 
     result = orchestrator_request(
         f"/api/v1/pipelines/{pid}/heartbeat",

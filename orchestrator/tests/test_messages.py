@@ -2550,6 +2550,173 @@ class TestHeartbeatRoute:
                     expected_container_id
                 )
 
+    @pytest.mark.parametrize(
+        "from_role,slice_id,expected_container_id",
+        [
+            (
+                "reviewer_contract",
+                "slice-2",
+                "egg-agent-test-pipeline-slice-2-reviewer-contract",
+            ),
+            (
+                "reviewer_code_holistic",
+                "slice-12",
+                "egg-agent-test-pipeline-slice-12-reviewer-code-holistic",
+            ),
+            ("tester", "slice-5", "egg-agent-test-pipeline-slice-5-tester"),
+            ("coder", "slice-1", "egg-agent-test-pipeline-slice-1-coder"),
+        ],
+    )
+    def test_heartbeat_fan_out_includes_slice_id(
+        self, client, app, from_role, slice_id, expected_container_id
+    ):
+        """Slice-scoped heartbeats fan out to the slice-scoped container_id (#2451).
+
+        Slice-DAG agents register gateway sessions under
+        ``egg-agent-{pid}-{slice_id}-{role}`` per
+        ``kubernetes_spawner.JOB_NAME_FORMAT_SLICE``. The orchestrator
+        must thread the agent's ``slice_id`` (forwarded via the
+        heartbeat body from ``EGG_SLICE_ID``) into the fan-out's
+        container_id, otherwise every slice-scoped reviewer/tester
+        emits warnings ("Session not found for container") and the
+        gateway session never has its idle timer refreshed.
+        """
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": from_role,
+                        "state": "WAITING_FOR_EVENT",
+                        "slice_id": slice_id,
+                    },
+                )
+                assert resp.status_code == 200
+                mock_gw_client.heartbeat_session_by_container.assert_called_once_with(
+                    expected_container_id
+                )
+
+    @pytest.mark.parametrize(
+        "bad_slice_id",
+        [
+            "phase-2",  # legacy contract migration shape
+            "../escape",  # path traversal
+            "; rm -rf /",  # shell metacharacters
+            "slice-2/extra",  # path separator after a valid prefix
+            "slice-",  # missing index
+            "Slice-2",  # case mismatch
+            "",  # empty string disguised as set
+            "slice-2 ",  # trailing whitespace
+        ],
+    )
+    def test_heartbeat_rejects_invalid_slice_id(self, client, app, bad_slice_id):
+        """Malformed ``slice_id`` is rejected with 400 rather than smuggled into the fan-out.
+
+        Mirrors the canonical ``slice-<N>`` regex enforced at every
+        gateway-facing seam (#2403, ``slice_id_validation``). A path
+        separator, shell metacharacter, or other contract-foreign value
+        must not reach the container_id construction below — covering
+        both real-world legacy payloads (``phase-2``) and obviously
+        malicious values (``../escape``, ``; rm -rf /``) so the
+        security intent of the regex is explicit in the test corpus.
+        """
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": "tester",
+                        "state": "WORKING",
+                        "slice_id": bad_slice_id,
+                    },
+                )
+                # Empty-string ``slice_id`` is treated as "no slice" by
+                # the orchestrator's ``extract_slice_id`` (matches the
+                # agent-side ``or`` fallback) — the request still
+                # succeeds but pipeline-level fan-out semantics apply.
+                if bad_slice_id == "":
+                    assert resp.status_code == 200
+                    return
+                assert resp.status_code == 400, (
+                    f"slice_id={bad_slice_id!r} must reject with 400; got {resp.status_code}"
+                )
+                mock_gw_client.heartbeat_session_by_container.assert_not_called()
+
+    def test_heartbeat_sibling_slices_do_not_share_throttle(self, client, app):
+        """Sibling slices with the same role each fan out independently (#2451).
+
+        The dedup-amplification cap (#2076 NB2) is keyed per role to
+        bound a single hot-looping agent. Without slice-scoping the
+        throttle key, slice-2 reviewer-code's fan-out would suppress
+        slice-3 reviewer-code's fan-out for 30 s, leaving slice-3's
+        gateway session unrefreshed even though they are independent
+        agents in independent pods.
+        """
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+                patch(
+                    "routes.messages._GATEWAY_FANOUT_MIN_INTERVAL_SECONDS",
+                    300.0,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                for slice_id in ("slice-2", "slice-3"):
+                    resp = client.post(
+                        "/api/v1/pipelines/test-pipeline/heartbeat",
+                        json={
+                            "from_role": "reviewer_code",
+                            "state": "WORKING",
+                            "slice_id": slice_id,
+                        },
+                    )
+                    assert resp.status_code == 200
+                assert mock_gw_client.heartbeat_session_by_container.call_count == 2
+                fan_out_calls = [
+                    call.args[0]
+                    for call in mock_gw_client.heartbeat_session_by_container.call_args_list
+                ]
+                assert fan_out_calls == [
+                    "egg-agent-test-pipeline-slice-2-reviewer-code",
+                    "egg-agent-test-pipeline-slice-3-reviewer-code",
+                ]
+
     def test_heartbeat_fan_out_throttle_caps_dedup_amplification(self, client, app):
         """#2076 NB2: dedup'd hot-loops cannot amplify into the gateway.
 

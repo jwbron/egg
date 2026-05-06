@@ -13,32 +13,13 @@ from typing import Any
 from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_pipeline_id,
-    get_slice_id,
     orchestrator_request,
 )
+from egg_agent_tools.handlers._gateway import maybe_attach_slice_id as _maybe_attach_slice_id
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 _PIPELINE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
-_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
-
-
-def _maybe_attach_slice_id(req: dict[str, Any], data: dict[str, Any]) -> None:
-    """Forward ``slice_id`` from the request or env onto the signal body.
-
-    Per-slice agents set ``EGG_SLICE_ID`` so the orchestrator can route
-    their ``CONSENSUS_*`` to the slice tracker instead of the bare
-    pipeline tracker (#2403). Callers can also pass ``slice_id`` on
-    ``req`` to override (e.g. tests, or operator tooling acting on a
-    specific slice). Validation mirrors the orchestrator side so a
-    malformed value can't smuggle path separators into a tracker key.
-    """
-    slice_id = req.get("slice_id") or get_slice_id()
-    if not slice_id:
-        return
-    if not isinstance(slice_id, str) or not _SLICE_ID_PATTERN.fullmatch(slice_id):
-        raise HandlerError(f"Invalid slice_id {slice_id!r}: must match 'slice-<N>'")
-    data["slice_id"] = slice_id
 
 
 def _validate_commit_sha(sha: str) -> str:

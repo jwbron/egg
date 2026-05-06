@@ -475,6 +475,57 @@ class TestHeartbeat:
             rc = cmd_message_heartbeat(_make_hb_args(state="WORKING"))
         assert rc == 3
 
+    def test_heartbeat_forwards_slice_id_from_env(self):
+        """Issue #2451: slice-scoped agents forward ``EGG_SLICE_ID`` so
+        the orchestrator's gateway-session fan-out can build the
+        slice-scoped container_id (``egg-agent-{pid}-{slice}-{role}``)
+        that ``kubernetes_spawner.JOB_NAME_FORMAT_SLICE`` registered.
+        """
+        with (
+            patch(
+                "egg_agent_tools.handlers._gateway.get_slice_id",
+                return_value="slice-2",
+            ),
+            patch(_ORCH_MOCK_PATH) as mock_req,
+        ):
+            mock_req.return_value = {"success": True, "data": {"deduped": False}}
+            rc = cmd_message_heartbeat(_make_hb_args(state="WORKING"))
+        assert rc == 0
+        posted = mock_req.call_args.kwargs["data"]
+        assert posted["slice_id"] == "slice-2"
+
+    def test_heartbeat_omits_slice_id_for_pipeline_level_agents(self):
+        """Pipeline-level agents (no ``EGG_SLICE_ID``) MUST NOT include
+        a ``slice_id`` field — the orchestrator's fan-out then falls
+        back to the pipeline-level container_id shape, which is what
+        ``JOB_NAME_FORMAT`` (no slice) registered.
+        """
+        with (
+            patch(
+                "egg_agent_tools.handlers._gateway.get_slice_id",
+                return_value=None,
+            ),
+            patch(_ORCH_MOCK_PATH) as mock_req,
+        ):
+            mock_req.return_value = {"success": True, "data": {"deduped": False}}
+            rc = cmd_message_heartbeat(_make_hb_args(state="WORKING"))
+        assert rc == 0
+        posted = mock_req.call_args.kwargs["data"]
+        assert "slice_id" not in posted
+
+    def test_heartbeat_rejects_invalid_slice_id(self):
+        """Defense-in-depth: a malformed ``EGG_SLICE_ID`` is rejected at
+        handler-construction time (``HandlerError`` → CLI exit 3) so a
+        path separator or shell metacharacter cannot be smuggled to
+        the orchestrator's container_id construction.
+        """
+        with patch(
+            "egg_agent_tools.handlers._gateway.get_slice_id",
+            return_value="../escape",
+        ):
+            rc = cmd_message_heartbeat(_make_hb_args(state="WORKING"))
+        assert rc == 3
+
 
 # ---------------------------------------------------------------------------
 # Auto cursor file (issue #2323): close the wait→process→wait race that
