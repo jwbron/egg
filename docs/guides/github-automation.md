@@ -228,9 +228,11 @@ defensible default to pick and ship), or (b) the reviewer EXPLICITLY asked for a
 follow-up issue. A "non-blocking" label, a soft observation ("nit", "worth one more
 case", "minor"), or the agent's own judgment that something is "out of scope" or
 "would balloon the PR" are NOT grounds for deferral — reviewers who flag a problem
-in a PR review want it fixed in that PR. The agent should prefer `disagree (out of
-scope; <reason>)` over a deferral when it genuinely thinks the change isn't warranted.
-Phantom follow-ups — promises to file an issue after posting the response, or
+in a PR review want it fixed in that PR. The agent should prefer `disagree (<why
+this isn't a real problem>)` over a deferral when it genuinely thinks the change
+isn't warranted; `disagree` is reserved for "this isn't a real problem," not for
+"valid concern, wrong PR." Phantom follow-ups — promises to file an issue after
+posting the response, or
 `deferred-to` references to non-existent or pre-existing issues — are forbidden and
 detected by a post-run guard that fails the workflow.
 

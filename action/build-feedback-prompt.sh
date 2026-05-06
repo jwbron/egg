@@ -140,8 +140,8 @@ of the following is true, and you must state which in your response:
        own — design, product, or architecture input the reviewer's feedback
        didn't supply, with no defensible default you could pick, ship, and
        let the reviewer push back on in another round;
-  (ii) the reviewer EXPLICITLY asked for a follow-up issue (e.g. \"track as
-       follow-up #NNNN\", \"let's do this in a separate PR\"). A
+  (ii) the reviewer EXPLICITLY asked for a follow-up issue (e.g. \"please
+       file a follow-up for this\", \"let's do this in a separate PR\"). A
        \"non-blocking\" label, a soft observation (\"worth one more case\",
        \"minor\", \"nit\"), or your own judgment that something is \"out of
        scope\" or \"would balloon the PR\" do NOT count as explicit
@@ -153,10 +153,12 @@ PR review want it fixed in that PR; if they wanted a separate issue they
 would have filed one themselves. Bias toward in-PR in every ambiguous case
 — a small fix bundled into the PR is far cheaper than opening,
 prioritizing, and shepherding an issue, and an ever-growing follow-up
-backlog is its own form of debt. Prefer \`disagree (out of scope; <reason>)\`
-over a deferral when you genuinely think the reviewer is wrong about
-needing the change at all — that puts the burden back on them rather than
-expanding the issue tracker.
+backlog is its own form of debt. Prefer \`disagree (<why this isn't a real
+problem>)\` over a deferral when you genuinely think the reviewer is wrong
+about needing the change at all — that puts the burden back on them rather
+than expanding the issue tracker. Reserve \`disagree\` for \"this isn't a
+real problem,\" not for \"valid concern, wrong PR\" (the latter is either
+fix-in-PR or, if the reviewer explicitly asked, deferral).
 
 **No phantom follow-ups.** The following are forbidden in your response:
 
