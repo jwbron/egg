@@ -123,7 +123,7 @@ Egg's SDLC pipeline combines both loop types in a structured workflow:
 |-------|--------------|------------|---------|
 | **Refine** | Agent analyzes problem, reviewer validates | Human approves analysis | Ensure shared understanding of the problem |
 | **Plan** | Agent creates plan, reviewer validates | Human approves approach | Ensure alignment on implementation strategy |
-| **Implement** | Agent codes, tester finds gaps, PR review provides feedback | CI/tests validate | Produce working, tested code |
+| **Implement** | Agent codes, tester adversarially probes for bugs and finds gaps, PR review provides feedback | CI/tests validate | Produce working, tested code |
 | **Merge** | — | Human reviews and merges | Final human accountability gate |
 
 ### Why Each Human Gate Matters
