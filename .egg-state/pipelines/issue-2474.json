@@ -5,7 +5,7 @@
   "branch": "egg/issue-2474/work",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -308,10 +308,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "complete",
+      "status": "failed",
       "started_at": "2026-05-06T22:34:26.846355Z",
       "work_started_at": "2026-05-06T22:34:50.369384Z",
-      "completed_at": "2026-05-06T23:18:58.690598Z",
+      "completed_at": "2026-05-06T23:19:58.306911Z",
       "containers": [
         {
           "container_id": "127e1b3e-86c5-487c-bf45-823f2bf73423",
@@ -538,12 +538,12 @@
         {
           "cycle": 0,
           "started_at": "2026-05-06T22:34:50.369384Z",
-          "completed_at": "2026-05-06T22:35:30.193584Z",
+          "completed_at": "2026-05-06T23:19:58.306818Z",
           "commit_sha": "8a76c30d3cc1628601432b91c76bb0f118b91bcc"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-05-06 23:17:56 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=fac347e1-d22a-4f80-88a0-f05f31173263 cost_usd=4.708041750000001 num_turns=88 duration_ms=2555710 success=False error=\"You've hit your limit · resets 2:10am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:391]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xfffeeab497d0>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xfffeeab497d0>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 2:10am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed (code 1 after 2557s). NOT restarting.\nYou've hit your limit · resets 2:10am (UTC)You've hit your limit · resets 2:10am (UTC)\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=reviewer_code, coder, reviewer_security, reviewer_concurrency, tester, reviewer_code_holistic",
       "hitl_feedback": null,
       "phase_start_sha": "8a76c30d3cc1628601432b91c76bb0f118b91bcc",
       "agent_exits": [
@@ -1248,7 +1248,7 @@
     }
   ],
   "created_at": "2026-05-06T21:55:24.190816Z",
-  "updated_at": "2026-05-06T23:18:58.692326Z",
+  "updated_at": "2026-05-06T23:19:58.307505Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1256,12 +1256,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-05-06 23:17:56 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=fac347e1-d22a-4f80-88a0-f05f31173263 cost_usd=4.708041750000001 num_turns=88 duration_ms=2555710 success=False error=\"You've hit your limit · resets 2:10am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:391]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xfffeeab497d0>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xfffeeab497d0>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 2:10am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed (code 1 after 2557s). NOT restarting.\nYou've hit your limit · resets 2:10am (UTC)You've hit your limit · resets 2:10am (UTC)\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=reviewer_code, coder, reviewer_security, reviewer_concurrency, tester, reviewer_code_holistic",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-06T22:34:25.476130Z",
-  "version": 122,
+  "version": 123,
   "jira_ticket": null
 }
