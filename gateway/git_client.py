@@ -355,13 +355,14 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--first-parent",
             "--reverse",
             "--max-count",
-            # ``-n N``, ``-n=N``, and ``-nN`` are accepted as aliases for
-            # ``--max-count=N`` via a special case in ``validate_git_args``
-            # (search for "issue #2480"). We don't put ``-n`` in the log entry of
-            # FLAG_NORMALIZATION because its value is a separate argument, which
-            # the per-flag normalizer can't see. The same special case also
-            # applies to the ``reflog`` allowlist below — reflog is internally a
-            # log walker and shares ``-n``'s ``--max-count`` semantics.
+            # ``-n N``, ``-n=N``, ``-nN``, and ``-<N>`` (e.g. ``-3``) are
+            # accepted as aliases for ``--max-count=N`` via special cases in
+            # ``validate_git_args`` (search for "issue #2480"). We don't put
+            # ``-n`` in the log entry of FLAG_NORMALIZATION because its value
+            # is a separate argument, which the per-flag normalizer can't see.
+            # Both special cases also apply to the ``reflog`` allowlist below —
+            # reflog is internally a log walker and shares the same
+            # ``--max-count`` semantics for both forms.
             "--since",
             "--until",
             "--author",
@@ -817,10 +818,11 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--format",
             "--oneline",
             "--max-count",
-            # ``-n N``, ``-n=N``, and ``-nN`` are accepted as aliases for
-            # ``--max-count=N`` via the same special case in ``validate_git_args``
-            # that handles ``log`` (search for "issue #2480"). reflog is
-            # internally a log walker, so ``-n`` carries the same semantics.
+            # ``-n N``, ``-n=N``, ``-nN``, and ``-<N>`` (e.g. ``-3``) are
+            # accepted as aliases for ``--max-count=N`` via the same special
+            # cases in ``validate_git_args`` that handle ``log`` (search for
+            # "issue #2480"). reflog is internally a log walker, so both
+            # forms carry the same ``--max-count`` semantics.
         ],
     },
     "describe": {
@@ -1086,9 +1088,12 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
             continue
 
         # Handle numeric flags like -3, -10 (shorthand for --max-count=N)
-        # These are valid for 'log' and 'format-patch' operations
+        # These are valid for 'log', 'reflog', and 'format-patch' operations.
+        # reflog is internally a log walker and accepts -<N> natively in real
+        # git, so the boilerplate-burn argument from issue #2480 applies
+        # symmetrically to both -n N and -<N> forms.
         if re.match(r"^-\d+$", arg):
-            if operation == "log" and "--max-count" in allowed_flags:
+            if operation in ("log", "reflog") and "--max-count" in allowed_flags:
                 # Convert -N to --max-count=N for consistency
                 normalized.append(f"--max-count={arg[1:]}")
                 i += 1

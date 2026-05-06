@@ -297,6 +297,19 @@ class TestValidateGitArgs:
         assert not valid
         assert "not allowed" in error.lower()
 
+    def test_numeric_flag_for_reflog(self):
+        """`git reflog -3` is normalized to `--max-count=3` — reflog is a log walker (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-3", "--oneline"])
+        assert valid
+        assert "--max-count=3" in normalized
+        assert "--oneline" in normalized
+
+    def test_numeric_flag_for_reflog_larger_number(self):
+        """`git reflog -10` is normalized to `--max-count=10` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-10"])
+        assert valid
+        assert "--max-count=10" in normalized
+
     def test_double_dash_separator_allowed(self):
         """The -- separator should be allowed for any operation."""
         valid, _error, normalized = validate_git_args("checkout", ["--", "file.txt"])
