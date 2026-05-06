@@ -2454,22 +2454,25 @@ class PipelineToolHandler:
         }
 
     def _handle_get_contract(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Get SDLC contract state."""
+        """Get SDLC contract state.
+
+        Routes through the orchestrator's ``/api/v1/contracts/<identifier>``
+        endpoint with the pipeline_id as the path identifier so qualified
+        pipelines (e.g. ``issue-42-v9``) resolve to their own contract file
+        instead of the unqualified ``issue-42.json`` (#2427).
+        """
         issue_number = args.get("issue_number")
         pipeline_id: str | None = args.get("task_id")
 
-        if not issue_number and pipeline_id:
-            # Look up issue_number from pipeline data
-            task_id = quote(pipeline_id, safe="")
-            pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
-            issue_number = pipeline_result.get("data", {}).get("pipeline", {}).get("issue_number")
+        if not pipeline_id and issue_number is None:
+            return {"error": "Either issue_number or task_id is required"}
 
-        if not issue_number:
-            return {"error": "Either issue_number or task_id (with linked issue) is required"}
-
-        # When only issue_number was provided, try to find the active pipeline
-        # so we can pass its ID for worktree resolution.
+        # When only issue_number was provided, find the active pipeline so we
+        # use its qualified ID — the canonical issue-<N> key would always
+        # resolve the unqualified contract on disk even when a qualified one
+        # exists.
         if not pipeline_id:
+            issue_int = int(issue_number)
             try:
                 pipelines_resp = self._make_request("/api/v1/pipelines?active_only=true")
                 # If multiple active pipelines exist for this issue (e.g. a retry
@@ -2478,18 +2481,20 @@ class PipelineToolHandler:
                 # so we scan all matching entries and keep the latest by created_at.
                 best: dict[str, Any] | None = None
                 for p in pipelines_resp.get("data", {}).get("pipelines", []):
-                    if p.get("issue_number") == int(issue_number):
+                    if p.get("issue_number") == issue_int:
                         if best is None or p.get("created_at", "") > best.get("created_at", ""):
                             best = p
                 if best is not None:
                     pipeline_id = best["id"]
             except Exception:
-                pass  # best-effort; proceed without pipeline_id
+                pass  # best-effort; fall back to canonical issue-<N>
 
-        url = f"/api/v1/contract/{int(issue_number)}"
-        if pipeline_id:
-            url += f"?pipeline_id={quote(pipeline_id, safe='')}"
-        return self._make_gateway_request(url)
+            if not pipeline_id:
+                pipeline_id = f"issue-{issue_int}"
+
+        encoded = quote(pipeline_id, safe="")
+        url = f"/api/v1/contracts/{encoded}?pipeline_id={encoded}"
+        return self._make_request(url)
 
     def _handle_restart_agent(self, args: dict[str, Any]) -> dict[str, Any]:
         """Restart a single agent in a pipeline."""
