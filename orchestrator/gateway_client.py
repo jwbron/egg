@@ -1875,10 +1875,17 @@ class GatewayClient:
         # Validation is intentionally strict: callers are all internal,
         # so a bad tag is a programming error, not user input. Hyphens
         # are allowed because the canonical tag format is hyphen-
-        # separated (e.g. "stacked-pr-ls-remote").
-        if not operation_tag or not operation_tag.replace("-", "").isalnum():
+        # separated (e.g. "stacked-pr-ls-remote"). The isascii() check
+        # rejects unicode alphanumerics (e.g. "café") that would
+        # otherwise pass isalnum() and produce mixed-encoding audit-log
+        # identifiers.
+        if (
+            not operation_tag
+            or not operation_tag.isascii()
+            or not operation_tag.replace("-", "").isalnum()
+        ):
             raise ValueError(
-                f"operation_tag must be non-empty and alphanumeric (hyphens allowed); "
+                f"operation_tag must be non-empty ASCII alphanumeric (hyphens allowed); "
                 f"got {operation_tag!r}"
             )
         temp_container_id = f"{pipeline_id}-{operation_tag}"
