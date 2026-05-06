@@ -278,7 +278,7 @@ class TestAutoAdvanceRespawnsThread:
         )
         idx = source.index(self._BLOCK_MARKER)
         # Take a generous window so the block including the return is included.
-        return source[idx : idx + 2000]
+        return source[idx : idx + 3000]
 
     def test_auto_advance_bumps_run_epoch(self):
         block = self._auto_advance_block()
