@@ -8,30 +8,12 @@ from typing import Any
 from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_pipeline_id,
-    get_slice_id,
     orchestrator_request,
 )
+from egg_agent_tools.handlers._gateway import maybe_attach_slice_id as _maybe_attach_slice_id
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
 _PIPELINE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
-_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
-
-
-def _maybe_attach_slice_id(req: dict[str, Any], data: dict[str, Any]) -> None:
-    """Forward ``slice_id`` from the request or env onto the signal body.
-
-    Mirrors ``brc._maybe_attach_slice_id`` so the orchestrator-side
-    ``handle_error_signal`` can scope its "agent already COMPLETE,
-    suppress error" check by ``(role, slice_id)`` rather than role
-    alone — without this, slice-2 coder finishing would silently
-    swallow slice-3 coder's error (#2422).
-    """
-    slice_id = req.get("slice_id") or get_slice_id()
-    if not slice_id:
-        return
-    if not isinstance(slice_id, str) or not _SLICE_ID_PATTERN.fullmatch(slice_id):
-        raise HandlerError(f"Invalid slice_id {slice_id!r}: must match 'slice-<N>'")
-    data["slice_id"] = slice_id
 
 
 def _require_pipeline_id(req: dict[str, Any]) -> str:

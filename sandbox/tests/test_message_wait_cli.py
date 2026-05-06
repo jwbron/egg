@@ -483,7 +483,7 @@ class TestHeartbeat:
         """
         with (
             patch(
-                "egg_agent_tools.handlers.message.get_slice_id",
+                "egg_agent_tools.handlers._gateway.get_slice_id",
                 return_value="slice-2",
             ),
             patch(_ORCH_MOCK_PATH) as mock_req,
@@ -502,7 +502,7 @@ class TestHeartbeat:
         """
         with (
             patch(
-                "egg_agent_tools.handlers.message.get_slice_id",
+                "egg_agent_tools.handlers._gateway.get_slice_id",
                 return_value=None,
             ),
             patch(_ORCH_MOCK_PATH) as mock_req,
@@ -520,7 +520,7 @@ class TestHeartbeat:
         the orchestrator's container_id construction.
         """
         with patch(
-            "egg_agent_tools.handlers.message.get_slice_id",
+            "egg_agent_tools.handlers._gateway.get_slice_id",
             return_value="../escape",
         ):
             rc = cmd_message_heartbeat(_make_hb_args(state="WORKING"))

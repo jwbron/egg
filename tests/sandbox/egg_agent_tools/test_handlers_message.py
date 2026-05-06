@@ -334,7 +334,7 @@ class TestMessageWaitLoopHeartbeat:
         """Return (emitted_list, fake_emit) for use in tests."""
         emitted: list[dict] = []
 
-        def fake_emit(pipeline_id, role, state, body, since=None):
+        def fake_emit(pipeline_id, role, state, body, since=None, slice_id=None):
             emitted.append(
                 {
                     "pipeline_id": pipeline_id,
@@ -342,6 +342,7 @@ class TestMessageWaitLoopHeartbeat:
                     "state": state,
                     "body": body,
                     "since": since,
+                    "slice_id": slice_id,
                 }
             )
 
@@ -442,7 +443,7 @@ class TestMessageWaitLoopHeartbeat:
                     "role": "coder",
                     "for_types": ["X"],
                     "_emit_heartbeat": (
-                        lambda pid, role, state, body, since=None: None
+                        lambda pid, role, state, body, since=None, slice_id=None: None
                     ),  # no-op (production default swallows errors)
                     "_heartbeat_interval": 0,
                     "_sleep": sleeps.append,
@@ -490,6 +491,118 @@ class TestMessageWaitLoopHeartbeat:
             message._default_emit_wait_loop_heartbeat("p", "coder", "WORKING", "exited")
         assert req.call_count == 1
         assert "since" not in req.call_args.kwargs["data"]
+
+    def test_default_emitter_forwards_slice_id_in_payload(self):
+        """Issue #2451: slice-scoped agents' wait-loop heartbeats must
+        forward ``slice_id`` so the orchestrator's gateway-session
+        fan-out can reconstruct ``egg-agent-{pid}-{slice}-{role}``
+        instead of falling back to the pipeline-level shape and 404'ing
+        the gateway lookup. This is the dominant heartbeat path — wait
+        -loop ticks at 60 s for every blocked agent — so a missing
+        forward here is what produced the steady stream of
+        "Session not found for container" warnings in #2451.
+        """
+        with patch("egg_agent_tools.handlers.message.orchestrator_request") as req:
+            message._default_emit_wait_loop_heartbeat(
+                "p", "reviewer_code", "WAITING_FOR_EVENT", "blocked", slice_id="slice-2"
+            )
+        assert req.call_count == 1
+        sent_body = req.call_args.kwargs["data"]
+        assert sent_body["slice_id"] == "slice-2"
+        assert sent_body["state"] == "WAITING_FOR_EVENT"
+        assert sent_body["from_role"] == "reviewer_code"
+
+    def test_default_emitter_omits_slice_id_for_pipeline_level_agents(self):
+        """Pipeline-level agents (no slice) must NOT include a
+        ``slice_id`` field — the orchestrator's fan-out then falls back
+        to the pipeline-level container_id shape, which is what
+        ``JOB_NAME_FORMAT`` (no slice) registered.
+        """
+        with patch("egg_agent_tools.handlers.message.orchestrator_request") as req:
+            message._default_emit_wait_loop_heartbeat(
+                "p", "planner", "WAITING_FOR_EVENT", "blocked"
+            )
+        assert req.call_count == 1
+        assert "slice_id" not in req.call_args.kwargs["data"]
+
+    def test_wait_loop_threads_slice_id_into_periodic_ticks(self):
+        """Regression for #2451: ``message_wait_loop`` must capture
+        ``slice_id`` once at entry and pass it on every emitted tick
+        (entry, periodic ``WAITING_FOR_EVENT``, and the final ``WORKING``
+        beat in the finally). Without this, slice-scoped reviewers /
+        testers spend their entire lifetime emitting fan-out 404s.
+        """
+        emitted, fake_emit = self._capture_emit()
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait",
+            return_value={"ok": True, "matched": True, "messages": [{"id": "m"}]},
+        ):
+            message.message_wait_loop(
+                {
+                    "pipeline_id": "p",
+                    "role": "reviewer_code",
+                    "slice_id": "slice-3",
+                    "for_types": ["CONSENSUS_ACK"],
+                    "_emit_heartbeat": fake_emit,
+                    "_heartbeat_interval": 0,
+                }
+            )
+        assert emitted, "wait_loop must emit at least one heartbeat"
+        # Every emitted beat (entry + exit) must carry the captured slice_id.
+        slice_ids = {e["slice_id"] for e in emitted}
+        assert slice_ids == {"slice-3"}, (
+            f"every wait_loop tick must forward slice_id; got {slice_ids}"
+        )
+
+    def test_wait_loop_omits_slice_id_for_pipeline_level_agents(self):
+        """Pipeline-level agents (no env var, no override) must not
+        smuggle a ``slice_id`` onto the heartbeat — the orchestrator's
+        fan-out would otherwise build a slice-shaped container_id that
+        the pipeline-level pod never registered.
+        """
+        emitted, fake_emit = self._capture_emit()
+        with (
+            patch(
+                "egg_agent_tools.handlers.message.message_wait",
+                return_value={"ok": True, "matched": True, "messages": [{"id": "m"}]},
+            ),
+            patch(
+                "egg_agent_tools.handlers._gateway.get_slice_id",
+                return_value=None,
+            ),
+        ):
+            message.message_wait_loop(
+                {
+                    "pipeline_id": "p",
+                    "role": "planner",
+                    "for_types": ["CONSENSUS_ACK"],
+                    "_emit_heartbeat": fake_emit,
+                    "_heartbeat_interval": 0,
+                }
+            )
+        slice_ids = {e["slice_id"] for e in emitted}
+        assert slice_ids == {None}, (
+            f"pipeline-level wait_loop ticks must not carry slice_id; got {slice_ids}"
+        )
+
+    def test_wait_loop_rejects_invalid_slice_id_at_entry(self):
+        """Defense-in-depth: a malformed ``slice_id`` is rejected
+        before the wait begins so a path separator or shell metachar
+        cannot be smuggled into the heartbeat fan-out's container_id.
+        """
+        emitted, fake_emit = self._capture_emit()
+        with pytest.raises(HandlerError):
+            message.message_wait_loop(
+                {
+                    "pipeline_id": "p",
+                    "role": "reviewer_code",
+                    "slice_id": "../escape",
+                    "for_types": ["CONSENSUS_ACK"],
+                    "_emit_heartbeat": fake_emit,
+                    "_heartbeat_interval": 0,
+                }
+            )
+        assert emitted == [], "malformed slice_id must reject before any tick fires"
 
     def test_since_is_captured_once_and_shared_across_ticks(self):
         """``since`` is the wait *entry* time, captured once before the

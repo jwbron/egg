@@ -2360,13 +2360,29 @@ class TestHeartbeatRoute:
                     expected_container_id
                 )
 
-    def test_heartbeat_rejects_invalid_slice_id(self, client, app):
+    @pytest.mark.parametrize(
+        "bad_slice_id",
+        [
+            "phase-2",  # legacy contract migration shape
+            "../escape",  # path traversal
+            "; rm -rf /",  # shell metacharacters
+            "slice-2/extra",  # path separator after a valid prefix
+            "slice-",  # missing index
+            "Slice-2",  # case mismatch
+            "",  # empty string disguised as set
+            "slice-2 ",  # trailing whitespace
+        ],
+    )
+    def test_heartbeat_rejects_invalid_slice_id(self, client, app, bad_slice_id):
         """Malformed ``slice_id`` is rejected with 400 rather than smuggled into the fan-out.
 
         Mirrors the canonical ``slice-<N>`` regex enforced at every
         gateway-facing seam (#2403, ``slice_id_validation``). A path
-        separator or shell metacharacter must not reach the
-        container_id construction below.
+        separator, shell metacharacter, or other contract-foreign value
+        must not reach the container_id construction below — covering
+        both real-world legacy payloads (``phase-2``) and obviously
+        malicious values (``../escape``, ``; rm -rf /``) so the
+        security intent of the regex is explicit in the test corpus.
         """
         with app.test_request_context():
             mock_gw_client = MagicMock()
@@ -2388,10 +2404,19 @@ class TestHeartbeatRoute:
                     json={
                         "from_role": "tester",
                         "state": "WORKING",
-                        "slice_id": "phase-2",  # legacy shape not allowed at this seam
+                        "slice_id": bad_slice_id,
                     },
                 )
-                assert resp.status_code == 400
+                # Empty-string ``slice_id`` is treated as "no slice" by
+                # the orchestrator's ``extract_slice_id`` (matches the
+                # agent-side ``or`` fallback) — the request still
+                # succeeds but pipeline-level fan-out semantics apply.
+                if bad_slice_id == "":
+                    assert resp.status_code == 200
+                    return
+                assert resp.status_code == 400, (
+                    f"slice_id={bad_slice_id!r} must reject with 400; got {resp.status_code}"
+                )
                 mock_gw_client.heartbeat_session_by_container.assert_not_called()
 
     def test_heartbeat_sibling_slices_do_not_share_throttle(self, client, app):

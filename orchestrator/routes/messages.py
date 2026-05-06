@@ -741,7 +741,9 @@ def _refresh_gateway_session(pipeline_id: str, from_role: str, slice_id: str | N
     # different slices of the same wave) do not suppress each other's
     # fan-outs. The coordinator key is opaque to the throttle, so
     # scoping at the call site keeps the coordinator API unchanged.
-    throttle_role = f"{slice_id}/{from_role}" if slice_id else from_role
+    # ``:`` (not ``/``) so the composite never reads as a path if it
+    # surfaces in a log line — current usage is purely internal.
+    throttle_role = f"{slice_id}:{from_role}" if slice_id else from_role
     if not coordinator.should_fan_out_gateway_session(
         pipeline_id, throttle_role, _GATEWAY_FANOUT_MIN_INTERVAL_SECONDS
     ):
