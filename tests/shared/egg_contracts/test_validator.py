@@ -1,5 +1,7 @@
 """Tests for egg_contracts.validator module."""
 
+import warnings
+
 import pytest
 from egg_contracts.models import (
     AuditAction,
@@ -17,6 +19,7 @@ from egg_contracts.validator import (
     validate_phase_mutation,
     validate_task_mutation,
 )
+from pydantic_core import PydanticSerializationUnexpectedValue
 
 
 class TestValidateMutation:
@@ -249,6 +252,36 @@ class TestApplyMutation:
         assert type(result.audit_entry.new_value) is str
         assert result.audit_entry.old_value == "plan"
         assert result.audit_entry.new_value == "implement"
+
+    def test_current_phase_string_assignment_coerces_to_enum(self, sample_contract):
+        """``apply_mutation`` with a raw string leaves ``current_phase`` as ``PipelinePhase``.
+
+        Regression for #2465: before ``validate_assignment=True`` was set
+        on ``Contract``, ``setattr(contract, "current_phase", "plan")``
+        left the field as a plain ``str``, breaking ``.value`` reads and
+        triggering ``PydanticSerializationUnexpectedValue`` on the next
+        ``model_dump``.
+        """
+        sample_contract.current_phase = PipelinePhase.REFINE
+
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.HUMAN,
+            actor="human-reviewer",
+            field_path="current_phase",
+            new_value="plan",
+        )
+
+        assert result.success is True
+        assert type(result.contract.current_phase) is PipelinePhase
+        assert result.contract.current_phase is PipelinePhase.PLAN
+
+        # Re-serialising the contract must not emit
+        # PydanticSerializationUnexpectedValue (the warning that #2465
+        # called out as the second symptom of the bug).
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", PydanticSerializationUnexpectedValue)
+            result.contract.model_dump(mode="json")
 
     def test_non_current_phase_field_still_emits_update_action(self, sample_contract):
         """Non-current_phase fields continue to emit AuditAction.UPDATE."""
