@@ -8874,10 +8874,10 @@ def _build_phase_prompt(
                 "## Output Format\n",
                 "Create an analysis document following the template below. The "
                 "fenced block is the **template literal** — copy it as-is and fill "
-                "in the bracketed placeholders. The unfenced section that follows "
-                "(`## How to Populate Open Questions`) is **meta-guidance** about "
-                "how to populate the `## Open Questions` section — do **not** "
-                "transcribe it into your analysis document.\n",
+                "in the bracketed placeholders. The unfenced sections that follow "
+                "(`## How to Populate Open Questions`, `## Complexity Assessment`) "
+                "are **meta-guidance** — do **not** transcribe them into your "
+                "analysis document.\n",
                 "````markdown",
                 "# Analysis: [Issue Title]\n",
                 "> Issue: #[number] | Phase: refine\n",

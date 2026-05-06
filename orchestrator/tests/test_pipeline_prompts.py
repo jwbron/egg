@@ -2901,6 +2901,10 @@ class TestRefinePromptTemplateFenceSeparation:
             "egg-contract add-feedback",
             "**DO NOT:**",
             "Skip already-resolved questions",
+            "Surface **all** uncertainties",
+            "**Multiple-choice questions**",
+            "**Open-ended questions**",
+            "Transcribe this `## How to Populate Open Questions` section",
         ):
             assert needle not in body, (
                 f"meta-instruction {needle!r} leaked into template fence — "
