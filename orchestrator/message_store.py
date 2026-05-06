@@ -252,7 +252,10 @@ class MessageStore:
                 clear or a post-compaction anchor recovery), fall back to
                 returning all messages rather than silently dropping to empty.
                 This matches the Redis backend's behavior and avoids a silent
-                delivery failure that can stall agents.
+                delivery failure that can stall agents. Cursor resolution happens
+                exactly once per call (under the fast-path lock); the blocking
+                branch slices forward from the resolved index rather than
+                re-resolving on every notify (issue #2454).
             limit: Maximum messages to return.
             wait: If > 0, block up to this many seconds waiting for matching
                 messages to arrive.  Issue #1897.

@@ -562,6 +562,13 @@ class TestStaleSinceIdInBlockingWait:
         assert len(warnings) == 1, (
             f"expected exactly one stale-cursor warning across the wait, got {len(warnings)}"
         )
+        # Pin the wait-for-types contract too: none of the eight intervening
+        # adds were CONSENSUS_CONFIRMED, so the wait must time out empty.
+        # Catches a future regression where wait_for_types filtering breaks
+        # while the warning suppression still works.
+        assert got == [[]], (
+            f"expected empty result on timeout (no CONSENSUS_CONFIRMED arrived), got {got}"
+        )
 
     def test_stale_cursor_still_returns_full_history(self, store: MessageStore) -> None:
         """The contract from
