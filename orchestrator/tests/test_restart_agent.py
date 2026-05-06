@@ -924,6 +924,100 @@ class TestRestartAgentEndpointSliceScope:
         get_count_call = mock_spawner.get_restart_count.call_args
         assert get_count_call.kwargs.get("slice_id") is None
 
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_slice_restart_passes_slice_integration_branch(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Slice-scoped restart must target the slice integration branch (#2428).
+
+        The gateway registers the new session with ``assigned_branch =
+        branch`` and rejects every push that doesn't match. If the
+        restart route forwards the pipeline tip instead, the restarted
+        agent's pushes are rejected the same way the slice-coder
+        spawn-side bug rejected them. The slice integration branch is
+        ``<namespace_root>/<slice_id>``, the same shape the slice
+        scheduler uses for the initial spawn.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        # Use a /work-suffixed pipeline branch so the namespace root is
+        # exercised (post-#2399 shape).
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.branch = "egg/issue-100/work"
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
+            json={"reason": "Slice agent stalled"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_pipeline_level_restart_passes_pipeline_branch(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Without slice_id, restart still forwards the pipeline branch unchanged."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={"reason": "Pipeline-level restart"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["branch"] == "egg/issue-100"
+
 
 # ---------------------------------------------------------------------------
 # Issue #1695: mode=None raises ValueError (issue 7)

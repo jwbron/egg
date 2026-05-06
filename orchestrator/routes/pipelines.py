@@ -2362,6 +2362,27 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # Compute gateway mode from pipeline config (not hardcoded "public")
     gateway_mode, _ = _compute_gateway_mode(pipeline)
 
+    # Slice-aware restart branch (#2428). When the restart targets a
+    # slice agent, the spawner must register the gateway session
+    # against the slice integration branch (``<root>/<slice_id>``); the
+    # pipeline tip (``<root>/work``) is the wrong target and every
+    # subsequent push from the restarted agent would be rejected by
+    # the gateway's branch allowlist. Mirror the slice scheduler's
+    # derivation in :func:`_run_implement_phase_slices` so a restarted
+    # slice agent lands on the same integration branch its peers are
+    # using.
+    if slice_id is not None:
+        _pipeline_branch = pipeline.branch or (
+            f"egg/issue-{pipeline.issue_number}/work"
+            if pipeline.issue_number is not None
+            else f"egg/{pipeline_id}/work"
+        )
+        _issue_branch = _slice_namespace_root(_pipeline_branch)
+        _normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
+        agent_branch = f"{_issue_branch}/{_normalised_slice}"
+    else:
+        agent_branch = pipeline.branch
+
     # Reconstruct command and extra_env for concurrent agents.
     # In concurrent mode, agents need a consensus-wrapped prompt command
     # and role-specific environment variables to function properly.
@@ -2438,7 +2459,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             repos=[pipeline.repo] if pipeline.repo else None,
             phase=current_phase,
             command=command,
-            branch=pipeline.branch,
+            branch=agent_branch,
             base_branch=pipeline.branch,
             reason=reason,
             spawn_max_retries=pipeline.config.spawn_max_retries,
@@ -15026,11 +15047,20 @@ def _run_pipeline(
                 "EGG_ORCHESTRATOR_URL": orchestrator_url,
                 "EGG_ORCHESTRATOR_MODE": "distributed",
             }
-            if pipeline.branch:
-                sandbox_env["EGG_BRANCH"] = pipeline.branch
-            else:
+            # ``EGG_BRANCH`` is intentionally NOT set here. The spawner
+            # is the single source of truth for the agent's assigned
+            # branch (#2428): ``KubernetesSpawner.spawn_agent_job``
+            # derives ``EGG_BRANCH`` from its ``branch`` parameter,
+            # which the slice scheduler populates with the slice
+            # integration branch via
+            # ``ConcurrentPhaseExecutor.get_worktree_branch``. Stuffing
+            # ``pipeline.branch`` into ``sandbox_env`` here used to win
+            # the env-var override race in the spawner and silently
+            # downgrade slice agents to the pipeline tip, breaking
+            # every slice-coder push. The branch persistence below is
+            # the only side-effect the run loop still needs.
+            if not pipeline.branch:
                 generated_branch = f"egg/{pipeline_id}/work"
-                sandbox_env["EGG_BRANCH"] = generated_branch
                 # Persist the generated branch so the PR phase can use it
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)

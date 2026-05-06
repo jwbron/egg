@@ -401,6 +401,63 @@ class TestSpawnAgentJob:
         create_kwargs = mock_k8s_client.create_container.call_args.kwargs
         assert "EGG_SLICE_ID" not in create_kwargs["environment"]
 
+    def test_extra_env_cannot_override_egg_branch(self, spawner, mock_k8s_client, mock_gateway):
+        """``extra_env`` cannot override ``EGG_BRANCH`` — protected key (#2428).
+
+        The agent's ``egg-orch push`` reads ``EGG_BRANCH`` to retarget
+        the refspec; the gateway's session-scoped allowlist compares
+        that target against the ``assigned_branch`` registered at
+        session creation. Both must agree, so the spawner's ``branch``
+        parameter is the single source of truth. Slice scheduling
+        previously routed the spawn loop's pipeline-level ``EGG_BRANCH``
+        through ``extra_env``; that override silently won and every
+        slice agent's push ended up retargeted to ``<pid>/work``
+        instead of ``<pid>/<slice>``, getting rejected by the gateway.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            branch="egg/issue-2261/slice-2",
+            extra_env={"EGG_BRANCH": "egg/issue-2261/work"},
+        )
+        # Spawner's branch wins, not extra_env's.
+        assert result.environment.get("EGG_BRANCH") == "egg/issue-2261/slice-2"
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_BRANCH") == "egg/issue-2261/slice-2"
+
+    def test_concurrent_spawn_fn_slice_branch_wins_over_pipeline_sandbox_env(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """End-to-end repro of #2428 through the concurrent spawn entrypoint.
+
+        The pipeline run loop builds ``sandbox_env`` once for the whole
+        phase and threads it through ``create_concurrent_spawn_fn`` to
+        every per-slice agent. When the slice scheduler then asks the
+        executor to spawn a slice agent, the per-spawn ``branch`` is
+        the slice integration branch but the merged ``extra_env`` still
+        carried the pipeline-level value. The spawner's ``branch``
+        parameter must win on ``EGG_BRANCH`` regardless.
+        """
+        sandbox_env_pipeline_branch = "egg/issue-2261/work"
+        spawn_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="issue-2261",
+            issue_number=2261,
+            repo_volumes={"owner/repo": "/home/egg/.egg-worktrees/test/repo"},
+            mode="public",
+            repos=["owner/repo"],
+            phase="implement",
+            sandbox_env={"EGG_BRANCH": sandbox_env_pipeline_branch},
+            slice_id="slice-2",
+        )
+        result = spawn_fn(
+            role=AgentRole.CODER,
+            branch="egg/issue-2261/slice-2",
+        )
+        assert result.environment.get("EGG_BRANCH") == "egg/issue-2261/slice-2"
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_BRANCH") == "egg/issue-2261/slice-2"
+
     def test_spawn_labels(self, spawner, mock_k8s_client):
         """Spawn sets the expected labels on the Job."""
         spawner.spawn_agent_job(
