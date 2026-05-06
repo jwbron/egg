@@ -1714,6 +1714,75 @@ class TestGetRepoVisibility:
             assert result is None
 
 
+class TestListRemoteBranchesWithShasOperationTag:
+    """Tests for the operation_tag kwarg on list_remote_branches_with_shas.
+
+    The kwarg controls the audit-log identifier the synthetic gateway
+    session registers under (``f"{pipeline_id}-{operation_tag}"``).
+    Empty / non-alphanumeric values would silently break the log-filter
+    rules the kwarg was added to preserve, so callers that pass garbage
+    must fail loudly rather than register a malformed session.
+    """
+
+    def test_empty_operation_tag_raises(self, gateway_client):
+        with pytest.raises(ValueError, match="operation_tag"):
+            gateway_client.list_remote_branches_with_shas(
+                "pipeline-1",
+                "/repo",
+                operation_tag="",
+            )
+
+    def test_operation_tag_with_slash_raises(self, gateway_client):
+        with pytest.raises(ValueError, match="operation_tag"):
+            gateway_client.list_remote_branches_with_shas(
+                "pipeline-1",
+                "/repo",
+                operation_tag="ls/remote",
+            )
+
+    def test_operation_tag_with_whitespace_raises(self, gateway_client):
+        with pytest.raises(ValueError, match="operation_tag"):
+            gateway_client.list_remote_branches_with_shas(
+                "pipeline-1",
+                "/repo",
+                operation_tag="ls remote",
+            )
+
+    def test_unicode_operation_tag_raises(self, gateway_client):
+        # ``str.isalnum()`` accepts non-ASCII letters (e.g. "café"),
+        # which would silently produce a mixed-encoding audit-log
+        # identifier and break the log-filter rules the kwarg was
+        # added to preserve. The validator must reject these.
+        with pytest.raises(ValueError, match="operation_tag"):
+            gateway_client.list_remote_branches_with_shas(
+                "pipeline-1",
+                "/repo",
+                operation_tag="café",
+            )
+
+    def test_hyphenated_operation_tag_accepted(self, gateway_client, mock_gateway_server):
+        # The canonical caller passes a hyphen-separated tag — must pass
+        # validation AND propagate to the synthetic-session container_id
+        # as ``f"{pipeline_id}-{operation_tag}"``. Pinning the container_id
+        # is the actual contract the kwarg was added to preserve, so we
+        # capture the ``register_session`` call-site rather than relying
+        # on the bare return-type assertion.
+        with patch.object(
+            gateway_client, "register_session", wraps=gateway_client.register_session
+        ) as mock_reg:
+            result = gateway_client.list_remote_branches_with_shas(
+                "pipeline-1",
+                "/repo",
+                operation_tag="stacked-pr-ls-remote",
+            )
+        assert isinstance(result, dict)
+        mock_reg.assert_called_once()
+        registered_id = mock_reg.call_args.kwargs.get("container_id") or mock_reg.call_args[1].get(
+            "container_id"
+        )
+        assert registered_id == "pipeline-1-stacked-pr-ls-remote"
+
+
 class TestSingletonClient:
     """Tests for singleton client."""
 

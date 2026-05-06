@@ -277,7 +277,53 @@ git switch <target-branch>
 git cherry-pick <recovered-base>..recovered/<scope>
 ```
 
-The orchestrator never deletes `egg/recovered/*` refs — they outlive the pipeline they belong to. Operators clean up after replay (`git push origin --delete <ref>`).
+Operators may delete `egg/recovered/*` refs manually after replay (`git push origin --delete <ref>`). For automatic cleanup of refs left behind by replays that never came, see [Recovery Ref Cleanup](#recovery-ref-cleanup) below.
+
+### Recovery Ref Cleanup
+
+Source: `orchestrator/agent_salvage_cleanup.py`
+
+A periodic background sweep prunes `egg/recovered/*` refs older than a configurable TTL so the salvage namespace stays bounded on a busy cluster ([#2446](https://github.com/jwbron/egg/issues/2446)).
+
+**How it works**
+
+1. **List** every `egg/recovered/*` ref on origin via `git ls-remote --heads`. The same round-trip captures the SHA at each ref tip.
+2. **Refresh** local tracking refs (`refs/remotes/origin/egg/recovered/*`) via a scoped `git fetch --prune` so the staleness and reachability checks run against current state.
+3. **Classify** each ref by reading the committer date of the tip commit (`git log -1 --format=%cI`):
+   - **Recent**: committer date within the TTL window — leave alone.
+   - **Reachable**: committer date past the TTL but the SHA is reachable from any non-`egg/recovered/*` remote-tracking branch — leave alone (defensive against a pending or in-flight replay).
+   - **Unknown age**: tip commit not present locally and fetch couldn't recover it — leave alone (we never delete a ref whose age we can't determine).
+   - **Stale**: committer date past the TTL and not reachable elsewhere — delete via `gateway.delete_remote_branch`.
+4. **Delete** is idempotent: `already_deleted` from origin is treated as success, so concurrent operator deletes don't surface as errors.
+
+The sweep is best-effort. Any per-ref failure (gateway error, unparseable git output, etc.) is logged and counted against `refs_skipped_error`; the loop continues to the next ref.
+
+**Configuration**
+
+| Env var | Default | Effect |
+|---------|---------|--------|
+| `EGG_ORCH_RECOVERY_REF_CLEANUP_ENABLED` | `true` | Master kill switch. Set to `false`/`0`/`no`/`off` to disable the loop entirely. |
+| `EGG_ORCH_RECOVERY_REF_TTL_DAYS` | `90` | Committer-date age past which a recovery ref is eligible for deletion. |
+| `EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS` | `86400` | Period between sweeps (default 24 h). **Also gates the first sweep:** the loop sleeps a full `interval_seconds` *before* its first run so multiple replicas restarted together don't pile onto the same minute. After an orchestrator restart, expect no recovery-ref cleanup for one full interval. There is no operator CLI to force an immediate sweep; the supported escape hatches are (a) restart the orchestrator with a temporarily lowered interval, or (b) call `RecoveryRefCleaner.run_once()` directly on the cleaner stashed in `app.config["RECOVERY_REF_CLEANERS"]`. The sweep is cheap when no refs need deletion, but the gateway round-trip adds up if set very low. |
+
+The cleanup loop runs once per repo path discovered under `EGG_REPO_PATH`. Each loop is a daemon thread; see the `EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS` row above for the first-sweep timing.
+
+**Metrics in logs**
+
+Each sweep emits a single structured log line at INFO level:
+
+```
+Recovery-ref cleanup sweep complete  repo_path=/repos/foo  ttl_days=90
+  refs_inspected=42  refs_deleted=3  refs_skipped_recent=35
+  refs_skipped_reachable=2  refs_skipped_unknown_age=1  refs_skipped_error=1
+  oldest_remaining_age_days=78.4
+```
+
+`oldest_remaining_age_days` is the age of the oldest ref still on origin after the sweep. Drift in this metric (e.g. climbing past `ttl_days`) indicates refs are being skipped — usually by the reachability guard — so look for replay branches that are pinning recovery commits.
+
+**Recovery workflow interaction**
+
+Operators replaying a recovery ref should fetch and cherry-pick promptly: a recovered branch left at HEAD on origin (e.g. `recovered/<scope>` pushed back) keeps the salvage ref alive past the TTL via the reachability guard. After cherry-picking, deleting the replay branch lets the next sweep clean the original `egg/recovered/...` ref on schedule.
 
 ### What Salvage Does Not Do
 

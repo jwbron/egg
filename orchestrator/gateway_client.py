@@ -1827,9 +1827,68 @@ class GatewayClient:
         :func:`list_open_prs` is the join key, the empty set is
         safe — no PRs means no orphans.
         """
+        return set(
+            self.list_remote_branches_with_shas(
+                pipeline_id,
+                repo_path,
+                agent_role=agent_role,
+                mode=mode,
+                # Preserve the audit-log identifier the stacked-PR
+                # reconciler used before this method was unified with
+                # the SHA-returning variant — runbooks and dashboards
+                # filter by this string.
+                operation_tag="stacked-pr-ls-remote",
+            ).keys()
+        )
+
+    def list_remote_branches_with_shas(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+        operation_tag: str = "ls-remote",
+    ) -> dict[str, str]:
+        """Like :meth:`list_remote_branches` but returns ``{branch: sha}``.
+
+        Used by the recovery-ref cleanup sweep (#2446), which needs the
+        SHA at each ref tip to read its committer date for staleness
+        detection without an extra fetch round-trip.
+
+        ``operation_tag`` is appended to the synthetic gateway session's
+        container id (``f"{pipeline_id}-{operation_tag}"``) and shows up
+        in audit/session logs. Callers should pick a tag that matches
+        the operation they are performing so existing log-filter rules
+        keep working — e.g. the stacked-PR reconciler passes
+        ``"stacked-pr-ls-remote"``. Empty / non-alphanumeric values are
+        rejected to keep the audit-log identifier well-formed: an empty
+        tag would produce a trailing-dash id, and a tag containing
+        whitespace or ``/`` would silently break the log-filter rules
+        the kwarg was added to preserve.
+
+        Same error-handling contract as :meth:`list_remote_branches`:
+        on any gateway failure returns an empty mapping.
+        """
         if not repo_path:
-            return set()
-        temp_container_id = f"{pipeline_id}-stacked-pr-ls-remote"
+            return {}
+        # Validation is intentionally strict: callers are all internal,
+        # so a bad tag is a programming error, not user input. Hyphens
+        # are allowed because the canonical tag format is hyphen-
+        # separated (e.g. "stacked-pr-ls-remote"). The isascii() check
+        # rejects unicode alphanumerics (e.g. "café") that would
+        # otherwise pass isalnum() and produce mixed-encoding audit-log
+        # identifiers.
+        if (
+            not operation_tag
+            or not operation_tag.isascii()
+            or not operation_tag.replace("-", "").isalnum()
+        ):
+            raise ValueError(
+                f"operation_tag must be non-empty ASCII alphanumeric (hyphens allowed); "
+                f"got {operation_tag!r}"
+            )
+        temp_container_id = f"{pipeline_id}-{operation_tag}"
         session_token: str | None = None
         try:
             session = self.register_session(
@@ -1854,21 +1913,21 @@ class GatewayClient:
                 bearer_token=session_token,
             )
             stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
-            branches: set[str] = set()
+            branches: dict[str, str] = {}
             for line in stdout.splitlines():
                 # Lines look like "<sha>\trefs/heads/<name>".
                 parts = line.strip().split("\t")
                 if len(parts) >= 2 and parts[1].startswith("refs/heads/"):
-                    branches.add(parts[1][len("refs/heads/") :])
+                    branches[parts[1][len("refs/heads/") :]] = parts[0]
             return branches
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "list_remote_branches: gateway request failed",
+                "list_remote_branches_with_shas: gateway request failed",
                 pipeline_id=pipeline_id,
                 repo_path=repo_path,
                 error=str(exc),
             )
-            return set()
+            return {}
         finally:
             if session_token:
                 try:

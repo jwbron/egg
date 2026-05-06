@@ -226,6 +226,53 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 error=str(monitor_err),
             )
 
+        # --- Recovery-ref cleanup loop (#2446) ---
+        # Periodically deletes ``egg/recovered/*`` refs older than the
+        # configured TTL so the salvage namespace doesn't grow unbounded
+        # on a busy cluster. One cleaner per repo path; default-on but
+        # gated by ``EGG_ORCH_RECOVERY_REF_CLEANUP_ENABLED``.
+        try:
+            from agent_salvage_cleanup import RecoveryRefCleaner
+            from env_config import (
+                get_recovery_ref_cleanup_enabled,
+                get_recovery_ref_cleanup_interval_seconds,
+                get_recovery_ref_ttl_days,
+            )
+            from gateway_client import get_gateway_client
+
+            if get_recovery_ref_cleanup_enabled():
+                gateway = get_gateway_client()
+                ttl_days = get_recovery_ref_ttl_days()
+                interval = get_recovery_ref_cleanup_interval_seconds()
+                cleaners: list[RecoveryRefCleaner] = []
+                for rp in repo_paths:
+                    cleaner = RecoveryRefCleaner(
+                        gateway=gateway,
+                        repo_path=rp,
+                        ttl_days=ttl_days,
+                        interval_seconds=interval,
+                    )
+                    cleaner.start()
+                    cleaners.append(cleaner)
+                # Stash on app.config so a future shutdown hook (or
+                # operator-facing route) can reach the cleaner instances.
+                app.config["RECOVERY_REF_CLEANERS"] = cleaners
+                logger.info(
+                    "Recovery-ref cleanup loop started",
+                    repo_count=len(cleaners),
+                    ttl_days=ttl_days,
+                    interval_seconds=interval,
+                )
+            else:
+                logger.info(
+                    "Recovery-ref cleanup disabled by EGG_ORCH_RECOVERY_REF_CLEANUP_ENABLED"
+                )
+        except Exception as cleanup_err:
+            logger.warning(
+                "Recovery-ref cleanup loop startup failed",
+                error=str(cleanup_err),
+            )
+
         # --- Health check framework initialization ---
         # Register all Tier 1 (programmatic) health checks and run the
         # STARTUP trigger against every RUNNING pipeline.  The runner is
