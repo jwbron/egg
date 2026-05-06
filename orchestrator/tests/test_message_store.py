@@ -497,6 +497,95 @@ class TestFromTipSemantics:
         assert msgs[0].message_type == MessageType.CONSENSUS_CONFIRMED
 
 
+class TestStaleSinceIdInBlockingWait:
+    """Regression coverage for issue #2454.
+
+    A stale ``since_id`` (e.g., a cursor that survived a phase-boundary
+    ``clear()``) used to log ``since_id not found in store`` from inside
+    ``_filter`` — which the blocking branch invokes once per ``notify``,
+    producing one log line per concurrent message arrival during a long
+    poll. With multiple consumers polling and heartbeats fanning in, the
+    same warning could be emitted dozens of times for a single 25 s
+    wait. Resolution moved into the fast-path lock, so the warning is
+    bound to one emission per call regardless of the number of notifies
+    that fire while the caller is blocked.
+    """
+
+    def test_stale_cursor_logs_warning_once_per_call(
+        self,
+        store: MessageStore,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A stale ``since_id`` that survives a flood of intervening
+        notifies must produce exactly one warning, not one per notify."""
+        # Seed and clear the store — anchor.id is now a "valid-looking"
+        # cursor that the store no longer indexes.
+        anchor = store.add_message(_make_message(message_type=MessageType.PROGRESS))
+        store.clear("test-pipeline")
+
+        # Re-seed so the blocking branch's ``observed`` flag stays True
+        # after the clear (otherwise the cv-detach branch returns early
+        # before any flood of notifies can run through ``_filter``).
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            with caplog.at_level("WARNING", logger="orchestrator.message_store"):
+                got.append(
+                    store.get_messages(
+                        "test-pipeline",
+                        wait=2,
+                        wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+                        since_id=anchor.id,
+                    )
+                )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)  # let the thread enter the blocking wait
+
+        # Flood with non-matching adds — every add fires notify_all and
+        # the pre-fix code would log the warning on each wake-up.
+        for _ in range(8):
+            store.add_message(_make_message(message_type=MessageType.PROGRESS))
+            time.sleep(0.01)
+
+        t.join(timeout=4)
+        assert not t.is_alive()
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "since_id not found" in r.message
+        ]
+        assert len(warnings) == 1, (
+            f"expected exactly one stale-cursor warning across the wait, got {len(warnings)}"
+        )
+        # Pin the wait-for-types contract too: none of the eight intervening
+        # adds were CONSENSUS_CONFIRMED, so the wait must time out empty.
+        # Catches a future regression where wait_for_types filtering breaks
+        # while the warning suppression still works.
+        assert got == [[]], (
+            f"expected empty result on timeout (no CONSENSUS_CONFIRMED arrived), got {got}"
+        )
+
+    def test_stale_cursor_still_returns_full_history(self, store: MessageStore) -> None:
+        """The contract from
+        ``test_stale_since_id_returns_all_messages`` (HTTP layer) still
+        holds at the store level: an unknown ``since_id`` falls back to
+        full-history replay rather than empty, so a directed message
+        sent before the stale cursor is still delivered."""
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+        store.add_message(_make_message(message_type=MessageType.CONSENSUS_CONFIRMED))
+
+        msgs = store.get_messages(
+            "test-pipeline",
+            since_id="nonexistent-cursor-xyz",
+        )
+        assert len(msgs) == 2
+
+
 class TestGetLatestId:
     """Tests for ``MessageStore.get_latest_id``."""
 
