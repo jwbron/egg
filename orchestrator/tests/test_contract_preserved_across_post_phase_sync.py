@@ -84,6 +84,11 @@ def _setup_repo_with_remote(tmp_path: Path) -> tuple[Path, Path, str, str]:
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     _git("init", cwd=worktree)
+    # Configure local git identity so commits made via subprocess.run
+    # without GIT_AUTHOR_* env vars (e.g. _commit_statefiles_to_worktree)
+    # succeed on CI runners that have no global git config.
+    _git("config", "user.email", "test@example.com", cwd=worktree)
+    _git("config", "user.name", "test", cwd=worktree)
     _git("remote", "add", "origin", str(remote), cwd=worktree)
 
     # Initial commit on main, then branch off to a feature branch.
