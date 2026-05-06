@@ -3711,6 +3711,17 @@ class TestReviewerPollUsesWaitLoop:
         )
 
 
+_PRODUCER_ROLES_BY_PHASE = [
+    ("refiner", "refine"),
+    ("architect", "plan"),
+    ("task_planner", "plan"),
+    ("risk_analyst", "plan"),
+    ("coder", "implement"),
+    ("tester", "implement"),
+    ("documenter", "implement"),
+]
+
+
 class TestProducerRespondToReviewsWaitLoop:
     """Producer RESPOND TO REVIEWS step must spell out the pre-confirm
     ``--for`` allowlist and explicitly exclude ``CONSENSUS_CONFIRMED``
@@ -3725,10 +3736,15 @@ class TestProducerRespondToReviewsWaitLoop:
     global ``CONSENSUS_CONFIRMED`` signal, so the wait would deadlock
     on itself. The reject-and-retry burned a tool turn at every
     propose→confirm boundary.
+
+    The bug originally surfaced on the refiner role; parametrizing
+    across every producer role pins the property in case
+    ``_build_brc_preamble`` ever becomes role-specific.
     """
 
-    def test_step4_lists_pre_confirm_allowlist(self):
-        preamble = _build_brc_preamble("coder", "implement", branch="egg/issue-123")
+    @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
+    def test_step4_lists_pre_confirm_allowlist(self, role, phase):
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
         respond_start = preamble.index("**RESPOND TO REVIEWS**")
         respond_end = preamble.index("**CONFIRM**", respond_start)
         respond_block = preamble[respond_start:respond_end]
@@ -3740,11 +3756,13 @@ class TestProducerRespondToReviewsWaitLoop:
         ):
             assert required in respond_block, (
                 f"RESPOND TO REVIEWS step must include `{required}` in the "
-                "pre-confirm wait-loop incantation (issue #2482)."
+                f"pre-confirm wait-loop incantation for role={role} "
+                f"phase={phase} (issue #2482)."
             )
 
-    def test_step4_excludes_consensus_confirmed(self):
-        preamble = _build_brc_preamble("coder", "implement", branch="egg/issue-123")
+    @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
+    def test_step4_excludes_consensus_confirmed(self, role, phase):
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
         respond_start = preamble.index("**RESPOND TO REVIEWS**")
         respond_end = preamble.index("**CONFIRM**", respond_start)
         respond_block = preamble[respond_start:respond_end]
@@ -3752,8 +3770,8 @@ class TestProducerRespondToReviewsWaitLoop:
             "RESPOND TO REVIEWS step must NOT include "
             "`--for CONSENSUS_CONFIRMED` — the orchestrator's "
             "pre-confirm guard rejects that pattern with HTTP 400 "
-            "(#2064, #2482) because the producer's own confirm is "
-            "part of what generates that signal."
+            f"(#2064, #2482) for role={role} phase={phase} because the "
+            "producer's own confirm is part of what generates that signal."
         )
 
 
