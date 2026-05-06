@@ -5,16 +5,13 @@ The sandbox can't import from the orchestrator package at runtime
 canonical ``slice-<N>`` regex is mirrored in ``egg_lib._slice_id``.
 This test pins the two definitions together so a future tweak on
 either side trips CI instead of silently letting them drift.
+
+Imports rely on ``tests/conftest.py`` (which puts ``sandbox/`` and
+``shared/`` on ``sys.path``) and on pytest's rootdir discovery for the
+``orchestrator`` package.
 """
 
 from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "sandbox"))
-sys.path.insert(0, str(ROOT / "shared"))
 
 
 def test_sandbox_pattern_matches_orchestrator():
