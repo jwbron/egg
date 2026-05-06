@@ -14,7 +14,7 @@ The scheduler is the orchestrator-side glue:
 2. Computes execution waves (kahn-style) — every slice in a wave can
    run concurrently because its dependencies are satisfied.
 3. Caps wave concurrency at ``max_parallel_slices`` (config; default
-   5; env var ``EGG_ORCH_MAX_PARALLEL_SLICES``).
+   2; env var ``EGG_ORCH_MAX_PARALLEL_SLICES``).
 4. Owns the two-tier ``max_cycles`` accounting (per-slice local cap
    default 3; pipeline-global cap default 10) — either trip
    escalates HITL.
@@ -157,7 +157,7 @@ class SliceScheduler:
         # ``SliceScheduler(contract)`` picks up the operator's
         # ``EGG_ORCH_*`` overrides from ``orchestrator/env_config.py``.
         if max_parallel_slices is None:
-            max_parallel_slices = int(_resolve_default("get_max_parallel_slices", 5))
+            max_parallel_slices = int(_resolve_default("get_max_parallel_slices", 2))
         if local_max_cycles is None:
             local_max_cycles = int(_resolve_default("get_slice_local_max_cycles", 3))
         if global_max_cycles is None:
