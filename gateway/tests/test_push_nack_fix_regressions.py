@@ -45,7 +45,6 @@ import git_client
 import pytest
 import session_manager
 from git_client import AttributedFile, AttributedPushRange
-from phase_filter import FileRestrictionResult
 from policy import PolicyResult
 from private_repo_policy import PrivateRepoPolicyResult
 from session_manager import SessionValidationResult
@@ -128,9 +127,9 @@ def _patches_for(mock_session, file_paths, attributed_range):
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=(file_paths, None)),
-        patch.object(
-            gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-        ),
+        # Legacy ``gateway.check_file_restrictions`` patch removed in
+        # #2489 — the gateway no longer calls that function from
+        # ``git_push`` (see ``test_filtered_push_blocked_modify``).
         patch.object(
             git_client,
             "get_attributed_changed_files_in_push",

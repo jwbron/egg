@@ -600,6 +600,14 @@ class TestGitPush:
 
         current_session_manager = sys.modules.get("session_manager", session_manager)
 
+        # After #2489 the gateway no longer calls
+        # ``gateway.check_file_restrictions`` from ``git_push`` — the
+        # attribution-aware path is the sole agent-role enforcer.  Drive
+        # the new behavior by letting the attribution lookup fall back
+        # (no commits in range → fail-closed → every file treated as
+        # own-authored, real ``partition_files_by_role`` consulted
+        # against AGENT_PATTERNS), which still produces the canonical
+        # ``restricted_path_modified`` 403 for coder + contracts.
         with (
             patch.object(
                 current_session_manager, "validate_session_for_request", return_value=mock_result
@@ -608,7 +616,6 @@ class TestGitPush:
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
-            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
         ):
             # Mock git remote get-url
             mock_run.return_value = MagicMock(
@@ -632,16 +639,6 @@ class TestGitPush:
                 None,
             )
 
-            # Mock check_file_restrictions - contract file is blocked
-            from phase_filter import FileRestrictionResult
-
-            mock_check_restrictions.return_value = FileRestrictionResult.block(
-                message="Role 'implementer' cannot modify: .egg-state/contracts/123.json",
-                role="coder",
-                blocked_files=[".egg-state/contracts/123.json"],
-                blocked_reason="Contract files can only be modified through the contract API",
-            )
-
             response = client.post(
                 "/api/v1/git/push",
                 headers={"Authorization": "Bearer test-session-token"},
@@ -658,11 +655,9 @@ class TestGitPush:
             assert response.status_code == 403
             data = json.loads(response.data)
             assert "cannot modify" in data["message"].lower()
-            # The legacy ``blocked_files`` shape from the duplicate naive
-            # check that ran before the attribution-aware path was removed
-            # in #2489.  The canonical attribution-aware rejection (#2039)
-            # surfaces the same data under ``blocked_paths`` along with the
-            # ``error: restricted_path_modified`` discriminator.
+            # Canonical attribution-aware rejection shape (#2039) — the
+            # legacy ``blocked_files`` shape from the duplicate naive
+            # check was removed in #2489.
             assert data["data"]["error"] == "restricted_path_modified"
             assert ".egg-state/contracts/123.json" in data["data"]["blocked_paths"]
             assert data["data"]["role"] == "coder"
@@ -701,6 +696,11 @@ class TestGitPush:
 
         current_session_manager = sys.modules.get("session_manager", session_manager)
 
+        # After #2489 the gateway no longer calls
+        # ``gateway.check_file_restrictions`` from ``git_push``.  The
+        # attribution-aware path is the sole agent-role enforcer, and
+        # ``reviewer_contract``'s allowlist permits ``.egg-state/contracts/``,
+        # so the push proceeds without any explicit role-check mock.
         with (
             patch.object(
                 current_session_manager, "validate_session_for_request", return_value=mock_result
@@ -710,7 +710,6 @@ class TestGitPush:
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_token_for_repo") as mock_get_token,
             patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
-            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
         ):
 
             def run_side_effect(*args, **kwargs):
@@ -745,13 +744,6 @@ class TestGitPush:
 
             # Mock get_changed_files_in_push
             mock_get_changed_files.return_value = ([".egg-state/contracts/123.json"], None)
-
-            # Mock check_file_restrictions - reviewer is allowed (no restrictions for reviewer)
-            from phase_filter import FileRestrictionResult
-
-            mock_check_restrictions.return_value = FileRestrictionResult.allow(
-                "No file restrictions for role: reviewer"
-            )
 
             response = client.post(
                 "/api/v1/git/push",
@@ -810,9 +802,13 @@ class TestGitPush:
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
-            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
             patch.object(gateway, "get_token_for_repo") as mock_get_token,
         ):
+            # The legacy ``gateway.check_file_restrictions`` patch lived
+            # here before #2489.  The gateway no longer calls that
+            # function from ``git_push`` (the attribution-aware path is
+            # the sole agent-role enforcer); coder may write to
+            # ``src/`` and root config files, so the push proceeds.
 
             def run_side_effect(*args, **kwargs):
                 cmd = args[0] if args else kwargs.get("args", [])
@@ -844,11 +840,6 @@ class TestGitPush:
             # Mock get_changed_files_in_push - NO contract files being modified
             # Use coder-allowed files (README.md is blocked for coders)
             mock_get_changed_files.return_value = (["src/main.py", "config.yml"], None)
-
-            # Mock check_file_restrictions - all files allowed
-            from phase_filter import FileRestrictionResult
-
-            mock_check_restrictions.return_value = FileRestrictionResult.allow("All files allowed")
 
             # Mock get_token_for_repo to return valid token
             mock_get_token.return_value = ("test-token", "bot", "")
@@ -988,9 +979,14 @@ class TestGitPush:
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
-            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
         ):
-            # Mock git remote get-url
+            # The legacy ``gateway.check_file_restrictions`` patch lived
+            # here before #2489.  The gateway no longer calls that
+            # function from ``git_push`` (the attribution-aware path is
+            # the sole agent-role enforcer); ``coder`` cannot write
+            # ``.egg-state/contracts/`` so the push is rejected with
+            # the canonical ``restricted_path_modified`` shape — even
+            # with ``force=true``.
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="https://github.com/owner/repo.git\n",
@@ -1008,16 +1004,6 @@ class TestGitPush:
 
             # Mock get_changed_files_in_push - contract file is being modified
             mock_get_changed_files.return_value = ([".egg-state/contracts/123.json"], None)
-
-            # Mock check_file_restrictions - contract file is blocked
-            from phase_filter import FileRestrictionResult
-
-            mock_check_restrictions.return_value = FileRestrictionResult.block(
-                message="Role 'implementer' cannot modify: .egg-state/contracts/123.json",
-                role="coder",
-                blocked_files=[".egg-state/contracts/123.json"],
-                blocked_reason="Contract files can only be modified through the contract API",
-            )
 
             # Request with force=true
             response = client.post(
@@ -1086,7 +1072,6 @@ class TestGitPush:
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_token_for_repo") as mock_get_token,
             patch.object(gateway, "get_changed_files_in_push") as mock_get_changed_files,
-            patch.object(gateway, "check_file_restrictions") as mock_check_restrictions,
         ):
 
             def run_side_effect(*args, **kwargs):
@@ -1141,10 +1126,11 @@ class TestGitPush:
             data = json.loads(response.data)
             assert data["success"] is True
 
-            # Verify file restriction check was NOT invoked
-            mock_check_restrictions.assert_not_called()
-
-            # Verify get_changed_files_in_push was NOT invoked (check skipped entirely)
+            # The agent-role check (now the attribution-aware path,
+            # post-#2489) is gated on ``session_role`` being set.  When
+            # ``agent_role=None`` the gate is skipped and the gateway
+            # never even computes the changed-file list — assert the
+            # observable side: ``get_changed_files_in_push`` is silent.
             mock_get_changed_files.assert_not_called()
 
     def test_push_phase_hint_with_non_state_files(self, client):

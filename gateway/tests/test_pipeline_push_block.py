@@ -123,11 +123,12 @@ def _push_context(mock_session):
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
-        patch.object(
-            gateway,
-            "check_file_restrictions",
-            return_value=MagicMock(allowed=True, blocked=False),
-        ),
+        # Slot 6 of the returned tuple is reserved for the agent-role
+        # restriction patch.  After #2489 the gateway no longer calls
+        # the legacy whole-push-diff ``check_file_restrictions`` from
+        # ``git_push`` (the attribution-aware ``check_agent_restrictions``
+        # path is the sole agent-role enforcer), so we no longer patch
+        # the dead symbol here.
         patch.object(
             gateway,
             "check_agent_restrictions",
@@ -169,7 +170,6 @@ class TestPipelinePushBlock:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(client)
             assert response.status_code == 403
@@ -191,7 +191,6 @@ class TestPipelinePushBlock:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(client, consensus_push=True)
             assert response.status_code == 200, (
@@ -216,7 +215,6 @@ class TestPipelinePushBlock:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, env):
                 response = _do_push(client)
@@ -237,7 +235,6 @@ class TestPipelinePushBlock:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(client)
             assert response.status_code == 200, (
@@ -261,7 +258,6 @@ class TestPipelinePushBlock:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, env):
                 response = _do_push(client)
@@ -286,7 +282,6 @@ class TestPipelinePushBlock:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, env):
                 response = _do_push(client)
@@ -309,7 +304,6 @@ class TestPipelinePushBlock:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             # Push to infrastructure branch — should not be blocked by
             # pipeline-push enforcement (infrastructure is exempt).
@@ -339,7 +333,6 @@ class TestPipelinePushBlockEdgeCases:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(client, consensus_push=False)
             assert response.status_code == 403
@@ -359,7 +352,6 @@ class TestPipelinePushBlockEdgeCases:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(client)
             assert response.status_code == 403
@@ -383,7 +375,6 @@ class TestPipelinePushBlockEdgeCases:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(client)
             assert response.status_code == 403
@@ -410,7 +401,6 @@ class TestPipelinePushBlockEdgeCases:
                 patches[4],
                 patches[5],
                 patches[6],
-                patches[7],
             ):
                 with patch.dict(os.environ, env):
                     response = _do_push(client)
@@ -432,7 +422,6 @@ class TestPipelinePushBlockEdgeCases:
                 patches[4],
                 patches[5],
                 patches[6],
-                patches[7],
             ):
                 response = _do_push(client)
                 assert response.status_code == 403, (
@@ -452,7 +441,6 @@ class TestPipelinePushBlockEdgeCases:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.object(gateway, "audit_log") as mock_audit:
                 response = _do_push(client)
@@ -605,7 +593,6 @@ class TestOrchestratorLauncherAuthPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(client)
             assert response.status_code == 403, (
@@ -717,7 +704,6 @@ class TestSliceIntegrationBranchExemption:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(
                 client,
@@ -740,7 +726,6 @@ class TestSliceIntegrationBranchExemption:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(
                 client,
@@ -760,7 +745,6 @@ class TestSliceIntegrationBranchExemption:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(
                 client,
@@ -781,7 +765,6 @@ class TestSliceIntegrationBranchExemption:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(
                 client,
@@ -808,7 +791,6 @@ class TestSliceIntegrationBranchExemption:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(
                 client,
@@ -838,7 +820,6 @@ class TestSliceIntegrationBranchExemption:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(client, refspec="egg/issue-2261")
             assert response.status_code == 403
@@ -861,7 +842,6 @@ class TestSliceIntegrationBranchExemption:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _do_push(
                 client,
@@ -882,7 +862,6 @@ class TestSliceIntegrationBranchExemption:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.object(gateway, "audit_log") as mock_audit:
                 response = _do_push(
@@ -921,10 +900,14 @@ class TestSliceIntegrationBranchExemption:
         the same way the anchor/phase/agent-restriction checks already
         do, otherwise a logical no-op push gets falsely blocked.
 
-        Mock ``check_file_restrictions`` to return ``allowed=False`` so
-        the test fails loudly if the gate ever regresses, and assert
-        that ``get_changed_files_in_push`` is never even called for an
-        infrastructure push.
+        After #2489 the role check lives in the attribution-aware block
+        and is gated on ``not is_infrastructure_push`` —
+        ``get_changed_files_in_push`` is the single observable that
+        proves the gate fired.  Asserting it was never called pins the
+        infrastructure-bypass behavior end-to-end (the assertion would
+        also have caught the legacy duplicate ``check_file_restrictions``
+        if it had remained, since that path also consumed
+        ``changed_files``).
         """
         session = _make_session(synthetic=True, assigned_branch="egg/issue-2261-v3/slice-2")
         patches = _push_context(session)
@@ -939,26 +922,14 @@ class TestSliceIntegrationBranchExemption:
             patches[2],
             patches[3],
             patches[4],
-            # Override patches[5] (get_changed_files_in_push) and patches[6]
-            # (check_file_restrictions) so the role check would 403 if it ran.
+            # Override patches[5] (get_changed_files_in_push) so the
+            # attribution-aware role check would 403 if it ran.
             patch.object(
                 gateway,
                 "get_changed_files_in_push",
                 MagicMock(return_value=(forbidden_files, None)),
             ) as mock_changed_files,
-            patch.object(
-                gateway,
-                "check_file_restrictions",
-                MagicMock(
-                    return_value=MagicMock(
-                        allowed=False,
-                        blocked_files=forbidden_files,
-                        blocked_reason="Role 'coder' cannot modify .egg-state/brc-history/...",
-                        message="Path allowlist violation",
-                    )
-                ),
-            ) as mock_check_restrictions,
-            patches[7],
+            patches[6],
         ):
             response = _do_push(
                 client,
@@ -969,7 +940,6 @@ class TestSliceIntegrationBranchExemption:
                 f"path allowlist (#2372). Got {response.status_code}: {response.data!r}"
             )
             mock_changed_files.assert_not_called()
-            mock_check_restrictions.assert_not_called()
 
     def test_role_path_allowlist_still_enforced_for_non_infrastructure_pushes(self, client):
         """Regression guard: the gate added in #2372 must NOT weaken the role
@@ -1004,7 +974,6 @@ class TestSliceIntegrationBranchExemption:
                 MagicMock(return_value=(forbidden_files, None)),
             ),
             patches[6],
-            patches[7],
         ):
             response = _do_push(client, refspec="egg/some-branch")
             assert response.status_code == 403, (

@@ -22,7 +22,6 @@ import git_client
 import pytest
 import session_manager
 from git_client import AttributedFile, AttributedPushRange
-from phase_filter import FileRestrictionResult
 from policy import PolicyResult
 from private_repo_policy import PrivateRepoPolicyResult
 from session_manager import SessionValidationResult
@@ -62,7 +61,17 @@ def _attributed(files_per_sha: list[tuple[str, list[str], str]]) -> AttributedPu
 
 def _push_patches(session, attributed: AttributedPushRange, changed_files: list[str]):
     """Patch the surrounding gateway machinery so the push reaches the
-    auto-filter branch with the supplied attribution."""
+    auto-filter branch with the supplied attribution.
+
+    Note: after #2489 the gateway no longer calls
+    ``check_file_restrictions`` from ``git_push`` — the attribution-
+    aware path is the sole agent-role enforcer.  We therefore do NOT
+    patch ``gateway.check_file_restrictions`` here; if a regression
+    re-introduced the legacy whole-push-diff call, the
+    ``TestPulledCommitsDoNotTrigger403`` regression test would catch
+    it (architect-authored ``docs/`` and ``gateway/`` paths in the
+    diff range would block the risk_analyst push).
+    """
     import auth
 
     auth._session_manager = None
@@ -117,9 +126,6 @@ def _push_patches(session, attributed: AttributedPushRange, changed_files: list[
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=(changed_files, None)),
-        patch.object(
-            gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-        ),
         patch.object(
             git_client,
             "get_attributed_changed_files_in_push",

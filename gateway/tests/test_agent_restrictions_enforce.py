@@ -27,7 +27,6 @@ import git_client
 import pytest
 import session_manager
 from git_client import AttributedFile, AttributedPushRange
-from phase_filter import FileRestrictionResult
 from policy import PolicyResult
 from private_repo_policy import PrivateRepoPolicyResult
 from session_manager import SessionValidationResult
@@ -150,9 +149,9 @@ def _push_context(mock_session, agent_blocked=True):
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=(changed_files, None)),
-        patch.object(
-            gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-        ),
+        # Legacy ``gateway.check_file_restrictions`` patch removed in
+        # #2489 — the gateway no longer calls that function from
+        # ``git_push`` (see ``test_filtered_push_blocked_modify``).
         patch.object(
             git_client,
             "get_attributed_changed_files_in_push",
@@ -210,7 +209,6 @@ class TestAgentRestrictionsWarnOnly:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
                 response = _do_push(client)
@@ -229,7 +227,6 @@ class TestAgentRestrictionsWarnOnly:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "0"}):
                 response = _do_push(client)
@@ -248,7 +245,6 @@ class TestAgentRestrictionsWarnOnly:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "no"}):
                 response = _do_push(client)
@@ -267,7 +263,6 @@ class TestAgentRestrictionsWarnOnly:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             # Remove the env var entirely — default should enforce
             with patch.dict(os.environ, {}, clear=False):
@@ -292,7 +287,6 @@ class TestAgentRestrictionsEnforceMode:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -311,7 +305,6 @@ class TestAgentRestrictionsEnforceMode:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -330,7 +323,6 @@ class TestAgentRestrictionsEnforceMode:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "yes"}):
                 response = _do_push(client)
@@ -349,7 +341,6 @@ class TestAgentRestrictionsEnforceMode:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "1"}):
                 response = _do_push(client)
@@ -379,7 +370,6 @@ class TestAgentRestrictionsUnknownRole:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -403,7 +393,6 @@ class TestAgentRestrictionsNoRole:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -475,9 +464,9 @@ def _push_context_real_check(mock_session, changed_files):
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=(changed_files, None)),
-        patch.object(
-            gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-        ),
+        # Legacy ``gateway.check_file_restrictions`` patch removed in
+        # #2489 — the gateway no longer calls that function from
+        # ``git_push`` (see ``test_filtered_push_blocked_modify``).
         patch.object(
             git_client,
             "get_attributed_changed_files_in_push",
@@ -529,7 +518,6 @@ class TestCoderEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -547,7 +535,6 @@ class TestCoderEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -565,7 +552,6 @@ class TestCoderEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -583,7 +569,6 @@ class TestCoderEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -607,7 +592,6 @@ class TestTesterEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -625,7 +609,6 @@ class TestTesterEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -645,7 +628,6 @@ class TestTesterEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -667,7 +649,6 @@ class TestDocumenterEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -685,7 +666,6 @@ class TestDocumenterEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -703,7 +683,6 @@ class TestDocumenterEndToEndPushRejection1901:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)

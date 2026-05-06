@@ -124,9 +124,10 @@ def _push_context(mock_session, file_paths: list[str]):
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=(file_paths, None)),
-        patch.object(
-            gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-        ),
+        # Legacy ``gateway.check_file_restrictions`` patch removed in
+        # #2489 — the gateway no longer calls that function from
+        # ``git_push`` (the attribution-aware path is the sole agent-
+        # role enforcer).  See ``test_filtered_push_blocked_modify``.
         patch.object(
             git_client,
             "get_attributed_changed_files_in_push",
@@ -177,7 +178,6 @@ class TestRestrictedPathRejection:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -197,7 +197,6 @@ class TestRestrictedPathRejection:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -215,7 +214,6 @@ class TestRestrictedPathRejection:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -244,7 +242,6 @@ class TestAllAllowedResponse:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -264,7 +261,6 @@ class TestAllAllowedResponse:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -282,7 +278,6 @@ class TestAllAllowedResponse:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -309,7 +304,6 @@ class TestWarnOnlyPassthrough:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
                 response = _do_push(client)
@@ -390,9 +384,9 @@ class TestPulledCommitsField:
                 "get_changed_files_in_push",
                 return_value=(["src/main.py", "tests/test_main.py"], None),
             ),
-            patch.object(
-                gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-            ),
+            # Legacy ``gateway.check_file_restrictions`` patch removed in
+            # #2489 — the gateway no longer calls that function from
+            # ``git_push`` (see ``test_filtered_push_blocked_modify``).
             patch.object(
                 git_client,
                 "get_attributed_changed_files_in_push",
@@ -429,7 +423,6 @@ class TestNoAgentRole:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)

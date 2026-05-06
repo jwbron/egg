@@ -176,7 +176,6 @@ try:
         PipelinePhase,
         check_agent_restrictions,  # noqa: F401 — re-exported for test patching
         check_anchor_write_permission,
-        check_file_restrictions,  # noqa: F401 — re-exported for test patching
         check_phase_file_restrictions,
         filter_operation,
     )
@@ -324,7 +323,6 @@ except ImportError:
         PipelinePhase,
         check_agent_restrictions,  # noqa: F401 — re-exported for test patching
         check_anchor_write_permission,
-        check_file_restrictions,  # noqa: F401 — re-exported for test patching
         check_phase_file_restrictions,
         filter_operation,
     )
@@ -1727,6 +1725,25 @@ def git_push() -> tuple[Response, int] | Response:
                 "human reviewer (see issue #1998 for the conditional-ACK "
                 "pattern)."
             )
+            details: dict[str, Any] = {
+                "error": "restricted_path_modified",
+                "role": session_role,
+                "blocked_paths": sorted_blocked,
+                "recommended_action": recommended_action,
+                "doc_ref": "#1998",
+                "pulled_commits": pulled_commits_summary,
+                "attribution_fallback": attribution_fallback,
+            }
+            # #2355 hint catalogue: surface category-specific guidance
+            # (e.g. "Use egg-contract CLI commands…" for contract paths,
+            # "Documentation changes belong to the documenter role." for
+            # docs/) alongside the generic conditional-ACK pointer.  The
+            # legacy whole-push-diff check used to do this; restoring it
+            # here keeps the response shape consistent with the anchor-
+            # write 403 below.
+            hint = _derive_push_denied_hint(sorted_blocked)
+            if hint is not None:
+                details["hint"] = hint
             return make_error(
                 (
                     f"Push denied: role '{session_role}' cannot modify restricted "
@@ -1734,15 +1751,7 @@ def git_push() -> tuple[Response, int] | Response:
                     f"{recommended_action}"
                 ),
                 status_code=403,
-                details={
-                    "error": "restricted_path_modified",
-                    "role": session_role,
-                    "blocked_paths": sorted_blocked,
-                    "recommended_action": recommended_action,
-                    "doc_ref": "#1998",
-                    "pulled_commits": pulled_commits_summary,
-                    "attribution_fallback": attribution_fallback,
-                },
+                details=details,
             )
         elif blocked_own and not enforce:
             # Warn-only mode: log but let the plain push proceed.
@@ -2454,7 +2463,11 @@ def git_execute() -> tuple[Response, int] | Response:
                     f"the contamination shape from #2222. If you need to "
                     f"bring in new commits from the base, ask the operator "
                     f"to resume the pipeline so the orchestrator-side "
-                    f"rebase runs."
+                    f"rebase runs. If you were trying to drop pulled upstream "
+                    f"commits to recover from a 'restricted_path_modified' "
+                    f"push 403, that is no longer necessary (#2489) — pulled "
+                    f"commits authored by other roles are exempt from your "
+                    f"role allowlist; retry the push as-is."
                 )
                 audit_log(
                     "git_execute_blocked",
