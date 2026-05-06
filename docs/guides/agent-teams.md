@@ -69,9 +69,9 @@ This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review o
 | reviewer_contract | coder |
 | reviewer_security | coder, tester |
 | reviewer_concurrency | coder, tester |
-| tester | coder (implicitly — writes tests against the code, runs lint/type-checks, ACKs if tests and checks pass) |
+| tester | coder (implicitly — writes regression tests AND adversarially probes the implementation for bugs; NACKs with a failing test as the bug report when a coder-side bug is found) |
 
-The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests and lint/type-checks against it).
+The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests, adversarially probing for bugs and edge cases, and running lint/type-checks).
 
 This gives 11 directed review edges (10 critical + 1 advisory to documenter) for the default implement phase instead of ~56 for full N=8 pairwise review (3 producers + 6 reviewers, with tester counted once for its dual role). The edge count varies by phase configuration.
 
