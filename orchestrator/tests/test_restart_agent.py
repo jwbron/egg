@@ -1442,6 +1442,86 @@ class TestRestartAgentEndpointBaseBranch:
         restart_call = mock_spawner.restart_agent_container.call_args
         assert restart_call.kwargs["base_branch"] == "main"
 
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_child_slice_restart_prefers_parent_branch_at_creation(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_load_contract,
+        client,
+    ):
+        """Restart prefers the recorded ``parent_branch_at_creation`` over reconstruction.
+
+        Set by ``_run_one_slice_inner`` when the slice was provisioned
+        (#2137 TASK-4-2); per the docstring on
+        ``Slice.parent_branch_at_creation`` it's *the* recorded fact
+        about how the slice was forked. Reconstructing
+        ``f"{_issue_branch}/{parent_slice_id}"`` would silently drift
+        if a future qualifier-suffix or namespacing change lands in
+        ``_run_one_slice_inner`` but not in the restart route — the
+        recorded value would not (#2460 review observation 2).
+        """
+        from egg_contracts.models import Contract, Slice
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.branch = "egg/issue-100/work"
+        pipeline.base_branch = "main"
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        # The recorded value differs from what reconstruction would
+        # produce (a hypothetical future qualifier suffix). The route
+        # must prefer the recorded value over reconstruction.
+        recorded_parent_branch = "egg/issue-100/slice-1-future-qualifier"
+        mock_load_contract.return_value = Contract(
+            pipeline_id="issue-100",
+            slices=[
+                Slice(id="slice-1", name="Parent slice"),
+                Slice(
+                    id="slice-2",
+                    name="Child slice",
+                    dependencies=["slice-1"],
+                    parent_branch_at_creation=recorded_parent_branch,
+                ),
+            ],
+        )
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
+            json={"reason": "Child slice agent stalled"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        # The recorded parent branch wins over reconstructed
+        # ``egg/issue-100/slice-1``.
+        assert restart_call.kwargs["base_branch"] == recorded_parent_branch
+
 
 # ---------------------------------------------------------------------------
 # Issue #2422: in-place agent-state mutation matches on (role, slice_id)
