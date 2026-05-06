@@ -638,15 +638,16 @@ compound the spam.
 
 A runaway loop in one role (e.g. a compaction cascade in `coder`) must
 not silently back-pressure the rate limit for other roles. The
-per-role keying ensures that one misbehaving agent cannot starve others
-of heartbeat capacity.
+per-`(slice, role)` keying ensures that one misbehaving agent cannot
+starve others of heartbeat capacity.
 
 Slice scoping goes one level further: two parallel slices that share a
 role (e.g. `reviewer_code` in `slice-2` and `slice-3` of the same
 wave) are independent pods. A shared per-role budget would let one
 busy slice hit the per-minute ceiling and drop a sibling's beat. By
 including `slice_id` in the key, each slice gets its own independent
-rate budget.
+rate budget. Pipeline-level agents collapse to `slice_id=None`, so the
+slice axis only kicks in when slices actually exist.
 
 ## 6. `EGG_MESSAGE_POLL_MAX_WAIT` — Long-Poll Cap Coupling
 
