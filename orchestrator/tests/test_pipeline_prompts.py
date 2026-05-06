@@ -3037,6 +3037,19 @@ class TestProducerOrientation:
         orient = _build_producer_orientation("documenter", "implement", [])
         assert "documentation" in orient.lower() or "doc" in orient.lower()
 
+    def test_documenter_orientation_directs_no_op_propose_for_no_doc_surface(self):
+        """Documenter orientation tells the documenter to use the no-op
+        propose path on slices that warrant no doc updates, instead of
+        heartbeating forever and deadlocking BRC consensus (#2444, mirror
+        of #2431).
+        """
+        orient = _build_producer_orientation("documenter", "implement", [])
+        assert "no_doc_changes_needed" in orient
+        # Must explicitly tell the documenter they MUST propose even on
+        # no-op slices — silent waiting is the bug.
+        assert "MUST propose" in orient
+        assert "deadlock" in orient.lower()
+
     def test_architect_explores_architecture(self):
         """Architect orientation includes architecture exploration."""
         orient = _build_producer_orientation("architect", "plan", ["reviewer_plan"])
