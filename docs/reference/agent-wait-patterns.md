@@ -646,8 +646,8 @@ role (e.g. `reviewer_code` in `slice-2` and `slice-3` of the same
 wave) are independent pods. A shared per-role budget would let one
 busy slice hit the per-minute ceiling and drop a sibling's beat. By
 including `slice_id` in the key, each slice gets its own independent
-rate budget. Pipeline-level agents collapse to `slice_id=None`, so the
-slice axis only kicks in when slices actually exist.
+rate budget. For pipeline-level agents the slice axis is a no-op —
+`slice_id=None` collapses the key back to `(pipeline_id, role)`.
 
 ## 6. `EGG_MESSAGE_POLL_MAX_WAIT` — Long-Poll Cap Coupling
 
