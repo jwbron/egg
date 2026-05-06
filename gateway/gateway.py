@@ -1815,9 +1815,9 @@ def git_push() -> tuple[Response, int] | Response:
                     "blocked_files": anchor_result.blocked_files,
                     "blocked_reason": anchor_result.blocked_reason,
                 }
-                # Anchor-write violations bypass check_file_restrictions (the
-                # role-level coder blocklist exempts .egg-state/agent-anchors/),
-                # so they need their own derive_hint call to deliver the
+                # Anchor-write violations bypass the role-level partition (the
+                # coder blocklist exempts .egg-state/agent-anchors/), so they
+                # need their own derive_hint call to deliver the
                 # orchestrator-API guidance from BLOCKED_HINTS. See #2355.
                 anchor_hint = _derive_push_denied_hint(anchor_result.blocked_files)
                 if anchor_hint is not None:
