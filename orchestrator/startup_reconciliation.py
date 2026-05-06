@@ -316,7 +316,18 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
 
                         phase_exec = pipeline.phases.get(pipeline.current_phase.value)
                         if phase_exec is not None:
+                            # The reconstructed tracker is the pipeline-level
+                            # one (``get_peer_consensus_tracker(pipeline_id)``
+                            # — no slice arg), so only mark pipeline-level
+                            # agents COMPLETE. Per-slice tracker
+                            # reconstruction would have to evaluate each
+                            # slice's tracker separately; flipping every
+                            # agent regardless of slice would prematurely
+                            # complete agents whose slice-scoped consensus
+                            # hadn't actually reached terminal state (#2422).
                             for agent in phase_exec.agents:
+                                if getattr(agent, "slice_id", None) is not None:
+                                    continue
                                 if agent.status == AgentExecutionStatus.RUNNING:
                                     agent.status = AgentExecutionStatus.COMPLETE
                                     agent.completed_at = datetime.now(UTC)

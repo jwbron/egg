@@ -746,6 +746,14 @@ class KubernetesMonitor:
                 if phase_key is None:
                     return
 
+                # ``slice_id`` is optional in the health-check details dict
+                # (the consensus_stall check is currently pipeline-level
+                # only, but #2422's audit asks every walker of
+                # ``phase_exec.agents`` to scope by ``(role, slice_id)`` so
+                # the moment it becomes slice-aware this path doesn't flip
+                # other slices' agents to COMPLETE).
+                stall_slice_id = details.get("slice_id")
+
                 fresh_pipeline = store.load_pipeline(pipeline_id)
                 original_version = fresh_pipeline.version
 
@@ -764,6 +772,8 @@ class KubernetesMonitor:
                 now = datetime.now(UTC)
                 completed_container_ids: set[str] = set()
                 for agent in phase_exec.agents:
+                    if getattr(agent, "slice_id", None) != stall_slice_id:
+                        continue
                     if agent.status in (AgentExecutionStatus.RUNNING, AgentExecutionStatus.FAILED):
                         agent.status = AgentExecutionStatus.COMPLETE
                         agent.completed_at = now

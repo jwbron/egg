@@ -229,6 +229,17 @@ class AgentExecution(BaseModel):
             "Optional for backward compatibility with older state files."
         ),
     )
+    slice_id: str | None = Field(
+        default=None,
+        description=(
+            "Slice scope (e.g. ``slice-2``) when the agent runs as part of a "
+            "per-slice team in a multi-slice phase (#2137). ``None`` for "
+            "pipeline-level (non-sliced) agents. Distinguishes concurrent "
+            "same-role agents in the same ``phase_exec.agents`` list so "
+            "consumers that walk by role match on ``(role, slice_id)`` "
+            "rather than role alone (#2422)."
+        ),
+    )
     started_at: datetime | None = Field(default=None, description="When started")
     completed_at: datetime | None = Field(default=None, description="When completed")
     commit: str | None = Field(default=None, description="Commit SHA if changes made")

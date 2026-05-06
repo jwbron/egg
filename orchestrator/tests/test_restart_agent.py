@@ -926,6 +926,207 @@ class TestRestartAgentEndpointSliceScope:
 
 
 # ---------------------------------------------------------------------------
+# Issue #2422: in-place agent-state mutation matches on (role, slice_id)
+# ---------------------------------------------------------------------------
+
+
+def _make_pipeline_with_two_slice_coders():
+    """Pipeline with concurrent slice-2 + slice-3 coder records.
+
+    The two ``AgentExecution`` records share ``role=CODER`` and only
+    differ on ``slice_id``. Pre-#2422 the restart route walked
+    ``phase_exec.agents`` looking for ``agent.role == role`` and mutated
+    the first match — so a slice-3 restart would clobber slice-2's
+    record. This fixture lets the test assert the new ``(role,
+    slice_id)`` predicate keeps the unrelated slice's row untouched.
+    """
+    pipeline = Pipeline(
+        id="issue-100",
+        issue_number=100,
+        repo="owner/repo",
+        branch="egg/issue-100",
+        status=PipelineStatus.RUNNING,
+        current_phase=PipelinePhase.IMPLEMENT,
+    )
+    pipeline.phases = {
+        "implement": PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            containers=[
+                ContainerInfo(
+                    container_id="container-slice-2",
+                    container_name="egg-issue-100-slice-2-coder",
+                    agent_role=AgentRole.CODER,
+                    status=ContainerStatus.RUNNING,
+                ),
+                ContainerInfo(
+                    container_id="container-slice-3",
+                    container_name="egg-issue-100-slice-3-coder",
+                    agent_role=AgentRole.CODER,
+                    status=ContainerStatus.RUNNING,
+                ),
+            ],
+            agents=[
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.RUNNING,
+                    container_id="container-slice-2",
+                    slice_id="slice-2",
+                ),
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.RUNNING,
+                    container_id="container-slice-3",
+                    slice_id="slice-3",
+                ),
+            ],
+        ),
+    }
+    return pipeline
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartAgentSliceMatching:
+    """``restart_agent`` mutation predicate matches on ``(role, slice_id)`` (#2422)."""
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_slice_3_restart_does_not_mutate_slice_2_record(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Restarting slice-3 coder leaves slice-2 coder's AgentExecution intact."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_two_slice_coders()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="container-slice-3-RESTARTED",
+                container_name="egg-issue-100-slice-3-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        slice2_before = next(
+            a for a in pipeline.phases["implement"].agents if a.slice_id == "slice-2"
+        )
+        slice2_container_before = slice2_before.container_id
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-3",
+            json={"reason": "slice-3 stall"},
+        )
+
+        assert response.status_code == 200, response.get_json()
+
+        # The store under update_pipeline serialized the mutated pipeline.
+        # Inspect the in-memory pipeline directly — the route mutates the
+        # same object that ``_resolve_pipeline`` returned.
+        agents = pipeline.phases["implement"].agents
+        slice2_after = next(a for a in agents if a.slice_id == "slice-2")
+        slice3_after = next(a for a in agents if a.slice_id == "slice-3")
+
+        assert slice2_after.container_id == slice2_container_before, (
+            "slice-2 container_id must not change when slice-3 is restarted"
+        )
+        assert slice3_after.container_id == "container-slice-3-RESTARTED"
+        assert slice3_after.status == AgentExecutionStatus.RUNNING
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_slice_3_restart_with_no_existing_record_appends_with_slice_id(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Fall-through ``AgentExecution`` append carries the route's slice_id."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+
+        # Pipeline has only slice-2 coder; slice-3 restart should append
+        # a new slice-3 row rather than mutating slice-2's record.
+        pipeline = Pipeline(
+            id="issue-100",
+            issue_number=100,
+            repo="owner/repo",
+            branch="egg/issue-100",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                containers=[
+                    ContainerInfo(
+                        container_id="container-slice-2",
+                        container_name="egg-issue-100-slice-2-coder",
+                        agent_role=AgentRole.CODER,
+                        status=ContainerStatus.RUNNING,
+                    ),
+                ],
+                agents=[
+                    AgentExecution(
+                        role=AgentRole.CODER,
+                        status=AgentExecutionStatus.RUNNING,
+                        container_id="container-slice-2",
+                        slice_id="slice-2",
+                    ),
+                ],
+            ),
+        }
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="container-slice-3-NEW",
+                container_name="egg-issue-100-slice-3-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-3",
+            json={"reason": "slice-3 first restart"},
+        )
+
+        assert response.status_code == 200
+        agents = pipeline.phases["implement"].agents
+        # slice-2 untouched, slice-3 appended
+        assert any(
+            a.slice_id == "slice-2" and a.container_id == "container-slice-2" for a in agents
+        )
+        slice3_rows = [a for a in agents if a.slice_id == "slice-3"]
+        assert len(slice3_rows) == 1
+        assert slice3_rows[0].container_id == "container-slice-3-NEW"
+
+
+# ---------------------------------------------------------------------------
 # Issue #1695: mode=None raises ValueError (issue 7)
 # ---------------------------------------------------------------------------
 
