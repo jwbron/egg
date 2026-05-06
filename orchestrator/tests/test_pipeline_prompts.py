@@ -1600,7 +1600,18 @@ class TestTesterGapFindingPrompts:
     """Tests for tester gap-finding language in prompts."""
 
     def test_tester_prompt_contains_gap_finding_language(self):
-        """Tester prompt includes gap-finding focus items."""
+        """Tester role-task block includes the dual-mandate framing and
+        adversarial probing focus items.
+
+        The mandate has two parts: comprehensive regression coverage AND
+        adversarial probing that produces failing tests as bug reports
+        back to the coder. Both must surface in the role-task block —
+        this test guards the implement-phase tester block in
+        `_build_agent_prompt`. The companion guard
+        `test_tester_orientation_contains_dual_mandate_pointer` covers
+        the orientation-side text; together they detect partial removal
+        across the two locations (review feedback on PR #2450).
+        """
         result = _build_agent_prompt(
             role_value="tester",
             phase="implement",
@@ -1609,11 +1620,27 @@ class TestTesterGapFindingPrompts:
             prompt="# Feature\n\nDetail.",
             issue_number=1,
         )
-        assert "Validate the changes and find gaps" in result
-        assert "Gap-finding focus" in result
+        # Dual mandate framing
+        assert "mandate is two-fold" in result
+        assert "Comprehensive coverage" in result
+        assert "Adversarial probing" in result
+        # Failing test must be paired with an explicit NACK that names it —
+        # the committed failing test alone is not the bug report.
+        assert "the NACK is the bug report" in result
+        assert "naming the failing test" in result.lower()
+        # The role-task probing list AND the testing-step header both use
+        # the "Adversarial probing" wording — count >= 2 protects against
+        # silent drift back to "Adversarial bug-hunting".
+        assert result.count("Adversarial probing") >= 2
         assert "Missing error handling" in result
         assert "Boundary conditions" in result
         assert "Uncovered code paths" in result
+        # Untested-but-still-reported gap categories
+        assert "Gap-finding focus" in result
+        # Bridge to Configured Checks: the failing-test workflow must
+        # connect to the propose-gate so testers don't propose with a
+        # red `test` check.
+        assert "Configured Checks" in result
 
     def test_phase_prompt_revision_reviewer_only_no_tester_language(self):
         """Phase prompt with reviewer-only feedback uses reviewer-only language."""
@@ -2925,6 +2952,29 @@ class TestAgentRoster:
         assert "unknown_agent" in roster
         assert "Executes assigned role" in roster
 
+    def test_tester_roster_description_signals_adversarial_mandate(self):
+        """The tester's roster description (visible to *every other* agent
+        in the BRC preamble) names the adversarial-probing half of the
+        mandate, not just the dual-role-also-reviews-coder framing.
+
+        Review feedback on PR #2450 noted that the roster description
+        changed from `"Writes and runs tests (dual role: also reviews
+        coder)"` to a longer adversarial-probing description, but no test
+        guarded the new text. Without this assertion, a future
+        well-meaning edit could shorten the description back to the old
+        defensive framing and the cross-agent visibility of the new
+        mandate would silently regress — the coder/reviewer/etc. would
+        stop seeing the adversarial signal in their preamble roster.
+        """
+        roster = _build_agent_roster(["coder", "reviewer_code", "tester"], "coder", "implement")
+        assert "tester" in roster
+        # The roster description names adversarial probing — the key
+        # cross-agent signal that the tester is not just a coverage role.
+        assert "adversarially probes" in roster
+        # And keeps the dual-role disclosure so reviewers/coder still see
+        # that the tester is wearing both hats.
+        assert "dual role" in roster.lower()
+
 
 class TestReviewerPreparation:
     """Tests for _build_reviewer_preparation — proactive prep instructions."""
@@ -3019,6 +3069,37 @@ class TestProducerOrientation:
         # agent has a concrete starting point, not just a mandate.
         assert "tasks[].files" in orient
         assert "acceptance criteria" in orient.lower()
+
+    def test_tester_orientation_contains_dual_mandate_pointer(self):
+        """Tester orientation carries a brief dual-mandate pointer, NOT the
+        full failing-test → NACK → HANDOFF instruction.
+
+        Review feedback on PR #2450 flagged that the dual-mandate paragraph
+        was duplicated nearly verbatim in `_build_producer_orientation` and
+        the implement-phase tester role-task block, so a single-callsite
+        edit could silently drift one copy. The fix keeps the full mandate
+        in the role-task block and trims the orientation copy to a one-line
+        pointer.
+
+        This test guards the trim from creeping back: orientation must
+        carry the brief two-fold signal but must NOT inline the full
+        failing-test → NACK paragraph (which lives in the role-task block,
+        guarded by `test_tester_prompt_contains_gap_finding_language`).
+        """
+        orient = _build_producer_orientation("tester", "implement", [])
+        # Brief two-fold pointer survives in the orientation block.
+        assert "mandate is two-fold" in orient
+        assert "adversarial probing" in orient.lower()
+        # Pointer must direct readers to the role-task block for the full
+        # mandate — preserves the single-source-of-truth for the workflow
+        # detail.
+        assert "Your Task" in orient
+        # The full failing-test → NACK paragraph must NOT be re-inlined in
+        # orientation. If a future edit copies it back, this assertion
+        # catches the drift before the prompt grows duplicated prose.
+        assert "the NACK is the bug report" not in orient
+        assert "naming the failing test" not in orient.lower()
+        assert "HANDOFF to coder" not in orient
 
     def test_tester_orientation_directs_no_op_propose_for_refactor(self):
         """Tester orientation tells tester to use the no-op propose path on

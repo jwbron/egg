@@ -9468,8 +9468,11 @@ _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "commits with source files, tests may be included",
     ),
     "tester": (
-        "Writes and runs tests (dual role: also reviews coder)",
-        "test files, coverage reports, test pass/fail results",
+        "Writes comprehensive regression tests AND adversarially probes the "
+        "coder's implementation for bugs and edge cases (dual role: also "
+        "reviews coder)",
+        "test files (including failing tests that demonstrate bugs), check "
+        "results, gap reports back to the coder",
     ),
     "documenter": (
         "Updates documentation for changes",
@@ -9869,6 +9872,11 @@ def _build_producer_orientation(
                 "being implemented. Check the existing test infrastructure — "
                 "test frameworks, fixtures, conftest files, and naming conventions. "
                 "Identify edge cases from the requirements before writing tests. "
+                "**Your mandate is two-fold**: comprehensive regression "
+                "coverage AND adversarial probing for bugs the coder missed "
+                "— see the *Your Task* → mandate block for the full "
+                "instruction (including the failing-test → NACK → HANDOFF "
+                "workflow when you catch a coder-side bug). "
                 "**Scaffold-first while the coder is producing**: draft test "
                 "scaffolding from the plan alone — test file paths from "
                 "`tasks[].files`, function signatures from each task's acceptance "
@@ -10143,8 +10151,26 @@ def _build_agent_prompt(
                 "implementation, run checks, and report gaps. If the coder hasn't committed yet, "
                 "wait — do not implement the solution yourself.",
                 "",
-                "Validate the changes and find gaps in the CODER agent's implementation. "
-                "You are responsible for both **testing** and **lint/type-check validation**.",
+                "**Your mandate is two-fold**:",
+                "",
+                "1. **Comprehensive coverage** — write tests that prevent "
+                "regressions, covering the happy path and realistic alternative "
+                "paths through every changed area. New behavior gets new tests; "
+                "modified behavior gets updated tests; nothing the coder changed "
+                "should silently lose coverage.",
+                "2. **Adversarial probing** — actively probe the coder's "
+                "implementation for bugs and edge cases they missed. Treat the "
+                "implementation as suspect until you have tried to break it. "
+                "Write tests that target suspected weaknesses. When a test "
+                "fails because of a coder-side bug, **the committed failing "
+                "test is evidence — the NACK is the bug report**. Pair every "
+                "failing test with an explicit NACK on the coder's proposal "
+                "that names the failing test in its rationale; otherwise the "
+                "bug is easy for the coder to miss. Also list the bug in "
+                "`gaps_found` and HANDOFF to coder with the failure output. "
+                "The coder owns the fix; you own surfacing the bug.",
+                "",
+                "You are also responsible for **lint/type-check validation**.",
                 "",
                 "### When the slice warrants no new tests (#2431)",
                 "",
@@ -10179,17 +10205,39 @@ def _build_agent_prompt(
                 "### Testing",
                 "",
                 "1. Review the changed files (available in handoff data or via git diff)",
-                "2. Identify gaps: missing error handling, boundary conditions, uncovered branches",
-                "3. Write or update tests targeting identified gaps and new/changed code",
-                "4. Run all tests and record which pass and which fail",
-                "5. Document gaps found in your handoff output (`gaps_found` field)",
-                "6. Commit test files with descriptive messages",
+                "2. Build coverage tests for the happy path and realistic "
+                "alternative paths in every changed area",
+                "3. **Adversarially probe** the implementation: identify "
+                "suspected bugs and untested edge cases, then write tests that "
+                "target them",
+                "4. Run all tests. Tests that pass demonstrate coverage; "
+                "**tests that fail demonstrate bugs you have found** — keep them",
+                "5. For every failing test caused by a coder-side bug: "
+                "commit the failing test AND **NACK the coder's proposal, "
+                "explicitly naming the failing test in the NACK rationale**. "
+                "The committed test alone is not sufficient — the NACK is "
+                "what surfaces the bug to the coder. Also list the bug in "
+                "`gaps_found` and HANDOFF to the coder with the failure "
+                "output. Your `test` configured check will fail until the "
+                "coder pushes a fix — that is expected; do NOT propose "
+                "consensus until every configured check passes per the "
+                "*Configured Checks* section below",
+                "6. Commit all test files with descriptive messages",
                 "",
-                "Gap-finding focus:",
+                "Adversarial probing — actively try to break the implementation:",
                 "- Missing error handling and input validation",
-                "- Boundary conditions and edge cases",
-                "- Uncovered code paths and branches",
-                "- Integration gaps between components",
+                "- Boundary conditions, off-by-one, empty/null/oversized inputs",
+                "- Uncovered code paths and branches (especially error paths)",
+                "- Concurrency: races, partial failures, retry behavior, ordering assumptions",
+                "- Contract violations: does the code actually match the "
+                "acceptance criteria, or just the happy path of them?",
+                "- Integration gaps between components and unstated interface assumptions",
+                "",
+                "Gap-finding focus (still report these in `gaps_found` even "
+                "when you cannot write a test for them):",
+                "- Logic errors that would require design changes to fix",
+                "- Inconsistencies between the implementation and the plan/contract",
+                "- Missing test infrastructure that prevents adequate coverage",
                 "",
                 "### Configured Checks (MANDATORY)",
                 "",
