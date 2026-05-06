@@ -3431,10 +3431,7 @@ class TestOverseerSilenceExemption:
         """
         bus = _make_event_bus()
         escalations: list[dict] = []
-        config = _make_config(
-            overseer_enabled=True,
-            orchestrator_error_repeat_threshold=2,
-        )
+        config = _make_config(overseer_enabled=True)
         monitor = _make_monitor(bus, config)
         monitor.on_escalation(escalations.append)
 
@@ -3452,10 +3449,7 @@ class TestOverseerSilenceExemption:
         ``_escalate_error`` calls still route to the overseer when enabled."""
         bus = _make_event_bus()
         escalations: list[dict] = []
-        config = _make_config(
-            overseer_enabled=True,
-            orchestrator_error_repeat_threshold=2,
-        )
+        config = _make_config(overseer_enabled=True)
         monitor = _make_monitor(bus, config)
         monitor.on_escalation(escalations.append)
 
