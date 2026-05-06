@@ -2842,6 +2842,7 @@ class TestRefinePromptHonorsAdditionalContext:
         assert "already decided" in prompt or "already-resolved" in prompt.lower()
         assert "pre-refine" in prompt
         assert "Skip already-resolved questions" in prompt
+        assert "### Resolved in Pre-Refine" in prompt
 
 
 class TestReviewerBrcPreamble:

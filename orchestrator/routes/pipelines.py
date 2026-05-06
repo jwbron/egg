@@ -8803,9 +8803,11 @@ def _build_phase_prompt(
                 "HITL round). Do NOT call `egg-contract add-decision` or "
                 "`egg-contract add-feedback` for questions whose answers are already "
                 "captured in `## Additional Context` — re-registering them wastes turns "
-                "and produces no-op decisions. Read that section first, list the "
-                "decisions it already settles, and only register questions that go "
-                "beyond it.\n",
+                "and produces no-op decisions. Read that section first; if it settles "
+                "anything, list those items in a `### Resolved in Pre-Refine` "
+                "subsection at the top of `## Open Questions` (one bullet per resolved "
+                "item, citing the answer). Only register questions that go beyond what "
+                "`## Additional Context` covers.\n",
                 "Surface **all** uncertainties, ambiguities, and assumptions that need "
                 "human input. Do not limit yourself to a small number — every genuine "
                 "ambiguity, missing requirement, unstated assumption, or design choice "
