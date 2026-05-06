@@ -1600,7 +1600,13 @@ class TestTesterGapFindingPrompts:
     """Tests for tester gap-finding language in prompts."""
 
     def test_tester_prompt_contains_gap_finding_language(self):
-        """Tester prompt includes gap-finding focus items."""
+        """Tester prompt includes the dual-mandate framing and adversarial
+        probing focus items.
+
+        The mandate has two parts: comprehensive regression coverage AND
+        adversarial bug-hunting that produces failing tests as bug reports
+        back to the coder. Both must surface in the prompt.
+        """
         result = _build_agent_prompt(
             role_value="tester",
             phase="implement",
@@ -1609,11 +1615,19 @@ class TestTesterGapFindingPrompts:
             prompt="# Feature\n\nDetail.",
             issue_number=1,
         )
-        assert "Validate the changes and find gaps" in result
-        assert "Gap-finding focus" in result
+        # Dual mandate framing
+        assert "mandate is two-fold" in result
+        assert "Comprehensive coverage" in result
+        assert "Adversarial bug-hunting" in result
+        # Failing-test-as-bug-report language
+        assert "a failing test is a bug report" in result.lower()
+        # Adversarial probing list
+        assert "Adversarial probing" in result
         assert "Missing error handling" in result
         assert "Boundary conditions" in result
         assert "Uncovered code paths" in result
+        # Untested-but-still-reported gap categories
+        assert "Gap-finding focus" in result
 
     def test_phase_prompt_revision_reviewer_only_no_tester_language(self):
         """Phase prompt with reviewer-only feedback uses reviewer-only language."""
