@@ -51,6 +51,7 @@ import json
 import os
 import re
 import sys
+from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -146,6 +147,16 @@ def get_pipeline_id_from_env() -> str | None:
     return os.environ.get("EGG_PIPELINE_ID")
 
 
+def get_slice_id_from_env() -> str | None:
+    """Get slice ID from environment (``EGG_SLICE_ID``) if set.
+
+    Set on agents spawned for a per-slice BRC team (#2403). When
+    present, consensus signal commands forward it on the request body
+    so the orchestrator routes ``CONSENSUS_*`` to the slice's tracker.
+    """
+    return os.environ.get("EGG_SLICE_ID") or None
+
+
 def get_agent_role_from_env() -> str | None:
     """Get agent role from environment if set."""
     return os.environ.get("EGG_AGENT_ROLE")
@@ -230,6 +241,16 @@ def api_request(
         raise ApiError(f"Connection error: {e.reason}") from e
     except TimeoutError as e:
         raise ApiError(f"Request timed out: {url}") from e
+    except HTTPException as e:
+        # ``http.client.RemoteDisconnected`` and friends — raised when the
+        # peer closes the connection mid-flight (e.g. orch pod restart during
+        # a long-poll). Not wrapped by urllib, so without this branch they
+        # propagate raw past every caller's ``except ApiError`` (issue #2412).
+        raise ApiError(f"HTTP protocol error: {url}: {e}") from e
+    except OSError as e:
+        # ``ConnectionResetError``, ``ConnectionRefusedError``, and other
+        # socket-level errors that bypass the ``URLError`` wrapper.
+        raise ApiError(f"Network error: {url}: {e}") from e
 
 
 def api_request_or_exit(
@@ -2560,6 +2581,9 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
         "agent_role": role,
         "reason": args.reason,
     }
+    slice_id = get_slice_id_from_env()
+    if slice_id:
+        data["slice_id"] = slice_id
 
     result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
 

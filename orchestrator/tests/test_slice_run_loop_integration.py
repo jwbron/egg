@@ -85,10 +85,15 @@ def _make_pipeline(
 ) -> Pipeline:
     """Pipeline with concurrent_execution enabled for slice-loop tests.
 
-    ``branch`` is derived from ``pipeline_id`` so qualified pipelines
-    (``issue-N-v3``, ``issue-N-backend``) propagate the qualifier into
-    ``pipeline.branch`` — the slice-loop's canonical source for the
-    integration-branch parent (#2370 review).
+    ``branch`` is derived from ``pipeline_id`` and carries the ``/work``
+    suffix that ``create_pipeline`` applies via
+    :func:`routes.pipelines._ensure_pipeline_work_ref` (#2399). The
+    pipeline tip lives at ``egg/<id>/work`` so slice integration
+    branches (``egg/<id>/slice-N``) coexist as siblings under
+    ``egg/<id>/``. Qualified pipelines (``issue-N-v3``,
+    ``issue-N-backend``) propagate the qualifier into ``pipeline.branch``
+    — the slice-loop's canonical source for the integration-branch
+    parent (#2370 review).
     """
     config = PipelineConfig(
         concurrent_execution=True,
@@ -99,7 +104,7 @@ def _make_pipeline(
         id=pipeline_id,
         issue_number=issue_number,
         repo="owner/repo",
-        branch=f"egg/{pipeline_id}",
+        branch=f"egg/{pipeline_id}/work",
         status=PipelineStatus.RUNNING,
         current_phase=PipelinePhase.IMPLEMENT,
         config=config,
@@ -515,7 +520,9 @@ class TestRunImplementPhaseSlices:
         spawner.gateway.create_slice_pr.assert_called_once()
         pr_kwargs = spawner.gateway.create_slice_pr.call_args.kwargs
         assert pr_kwargs["base"] == pipeline.branch
-        assert pr_kwargs["head"] == f"{pipeline.branch}/slice-1"
+        # Slice integration branch lives as a sibling of ``/work`` under
+        # ``egg/<id>/`` (#2399), not as a child of ``/work``.
+        assert pr_kwargs["head"] == f"egg/{pipeline.id}/slice-1"
         assert pr_kwargs["slice_id"] == "slice-1"
 
     def test_child_slice_targets_parent_integration_branch(self) -> None:
@@ -1176,7 +1183,10 @@ class TestRunConcurrentPhaseSliceIdPropagation:
             worktree_repo_path=Path("/tmp/x"),
             slice_id="slice-3",
         )
-        # Caller's dict is not mutated; the function takes a shallow copy.
+        # Caller's dict is not mutated — _run_concurrent_phase no longer
+        # touches sandbox_env (the EGG_SLICE_ID assignment was dropped in
+        # the v2 review fix; slice scope flows through the spawner via the
+        # slice_id kwarg instead).
         assert original_env == {"EGG_PIPELINE_ID": pipeline.id, "OTHER": "v"}
         # Executor receives slice_id="slice-3".
         assert MockExecutor.call_args.kwargs["slice_id"] == "slice-3"
@@ -1606,7 +1616,9 @@ class TestSliceIntegrationBranchQualifierPreserved:
     def test_qualified_pipeline_branch_propagates_to_slice_branches(self) -> None:
         """``egg/issue-N-v3`` ⇒ slices stack under the qualified prefix."""
         pipeline = _make_pipeline(pipeline_id="issue-2261-v3", issue_number=2261)
-        assert pipeline.branch == "egg/issue-2261-v3"  # helper-derived; sanity-check
+        # Pipeline tip lives at ``<root>/work`` (#2399); the slice
+        # namespace root is ``egg/issue-2261-v3``, one level up.
+        assert pipeline.branch == "egg/issue-2261-v3/work"  # helper-derived; sanity-check
         contract = _make_contract(
             pipeline_id="issue-2261-v3",
             issue_number=2261,
@@ -1646,9 +1658,10 @@ class TestSliceIntegrationBranchQualifierPreserved:
                 worktree_repo_path=Path("/tmp/x"),
             )
 
-        assert captured.get("parent_branch") == "egg/issue-2261-v3", (
-            "parent_branch for the root slice must be the qualified pipeline branch, "
-            f"got {captured.get('parent_branch')!r}"
+        assert captured.get("parent_branch") == "egg/issue-2261-v3/work", (
+            "parent_branch for the root slice must be the qualified pipeline branch "
+            "(``<root>/work`` per #2399), got "
+            f"{captured.get('parent_branch')!r}"
         )
         assert captured.get("integration_branch") == "egg/issue-2261-v3/slice-1", (
             "integration_branch must inherit the qualifier so qualified pipelines "

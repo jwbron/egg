@@ -200,7 +200,12 @@ def _branch_read_contract(
         )
         return None
 
-    branch = pipeline.branch or f"egg/{pipeline_id}"
+    # The pipeline tip is pushed to ``egg/<id>/work`` so slice integration
+    # branches can coexist as siblings — see
+    # :func:`routes.pipelines._ensure_pipeline_work_ref` for the rationale
+    # (#2399). The fallback shape mirrors the actual remote ref the
+    # contract was committed to.
+    branch = pipeline.branch or f"egg/{pipeline_id}/work"
     return contract_store.load_contract_from_branch(identifier, store.repo_path, branch)
 
 

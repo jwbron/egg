@@ -328,6 +328,79 @@ class TestSpawnAgentJob:
         assert result.environment["EGG_AGENT_ROLE"] == "custom"
         assert result.environment["MY_KEY"] == "val"
 
+    def test_spawn_with_slice_id_sets_egg_slice_id_env(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """``slice_id=`` parameter propagates into ``EGG_SLICE_ID`` (#2410).
+
+        The spawner's ``slice_id`` parameter previously only drove the Job
+        name and worktree id; the agent container had no slice scope in
+        its environment, so its BRC handlers couldn't tag CONSENSUS_*
+        signals with the slice (failure mode #3 from #2410).
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        assert result.environment.get("EGG_SLICE_ID") == "slice-2"
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_SLICE_ID") == "slice-2"
+
+    def test_spawn_without_slice_id_does_not_set_egg_slice_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Pipeline-level spawns leave ``EGG_SLICE_ID`` unset."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+        )
+        assert "EGG_SLICE_ID" not in result.environment
+
+    def test_extra_env_cannot_override_egg_slice_id(self, spawner, mock_k8s_client, mock_gateway):
+        """``extra_env`` cannot override ``EGG_SLICE_ID`` — protected key (#2410 v2 review).
+
+        The spawner is the single source of truth: ``EGG_SLICE_ID`` is
+        derived from the ``slice_id`` parameter that already drives Job
+        naming and worktree id. A future caller that tried to ship a
+        different value via ``extra_env`` would silently end up with the
+        agent's signals tagged for one slice while its Job + worktree
+        belong to another. Protecting the key catches that.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+            extra_env={"EGG_SLICE_ID": "slice-99"},
+        )
+        # Spawner's value wins, not extra_env's.
+        assert result.environment.get("EGG_SLICE_ID") == "slice-2"
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_SLICE_ID") == "slice-2"
+
+    def test_extra_env_cannot_inject_egg_slice_id_when_pipeline_level(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Without ``slice_id``, ``extra_env`` cannot smuggle ``EGG_SLICE_ID`` in.
+
+        Pipeline-level spawns must not be tagged with a slice scope —
+        protecting the key blocks a regression where a slice-aware
+        caller would forget the ``slice_id`` parameter and try to bolt
+        the env var on directly via ``extra_env``.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            extra_env={"EGG_SLICE_ID": "slice-2"},
+        )
+        assert "EGG_SLICE_ID" not in result.environment
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert "EGG_SLICE_ID" not in create_kwargs["environment"]
+
     def test_spawn_labels(self, spawner, mock_k8s_client):
         """Spawn sets the expected labels on the Job."""
         spawner.spawn_agent_job(
@@ -902,7 +975,7 @@ class TestRestartAgentJob:
         """Restart raises when limit is exceeded."""
         from kubernetes_spawner import KubernetesSpawnError
 
-        spawner._restart_counts[("pipe-1", "coder")] = 2
+        spawner._restart_counts[("pipe-1", "coder", None)] = 2
         with pytest.raises(KubernetesSpawnError, match="Restart limit.*exceeded"):
             spawner.restart_agent_job(
                 pipeline_id="pipe-1",
@@ -991,9 +1064,9 @@ class TestRestartCounts:
 
     def test_reset_restart_counts(self, spawner):
         """reset_restart_counts clears all counts for a pipeline."""
-        spawner._restart_counts[("pipe-1", "coder")] = 3
-        spawner._restart_counts[("pipe-1", "tester")] = 1
-        spawner._restart_counts[("pipe-2", "coder")] = 2
+        spawner._restart_counts[("pipe-1", "coder", None)] = 3
+        spawner._restart_counts[("pipe-1", "tester", None)] = 1
+        spawner._restart_counts[("pipe-2", "coder", None)] = 2
 
         spawner.reset_restart_counts("pipe-1")
 
@@ -1159,3 +1232,349 @@ class TestGetKubernetesSpawner:
             assert first is second
 
         kubernetes_spawner._spawner = None
+
+
+# ---------------------------------------------------------------------------
+# Slice-scope plumbing (#2403)
+# ---------------------------------------------------------------------------
+
+
+class TestSliceScopedJobAndWorktreeIds:
+    """Concurrent slices in the same pipeline must spawn under distinct ids.
+
+    Without slice scope, slice-N's coder spawn:
+      * builds the same Job name as slice-(N-1)'s coder, so the
+        pre-spawn cleanup at the top of ``spawn_agent_job`` deletes the
+        sibling slice's still-running Job;
+      * builds the same ``agent_worktree_id`` so the gateway worktree
+        is reused, mounting slice-(N-1)'s contents (or stepping on
+        them mid-flight).
+    Both bugs surfaced together in #2403.
+    """
+
+    def test_build_k8s_job_names_includes_slice_segment(self):
+        from kubernetes_spawner import KubernetesSpawner
+
+        job_name, k8s_name = KubernetesSpawner._build_k8s_job_names(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-2"
+        )
+        assert job_name == "egg-agent-issue-2261-v7-slice-2-coder"
+        assert k8s_name.endswith("egg-agent-issue-2261-v7-slice-2-coder")
+
+    def test_build_k8s_job_names_omits_slice_segment_when_unscoped(self):
+        from kubernetes_spawner import KubernetesSpawner
+
+        job_name, _ = KubernetesSpawner._build_k8s_job_names("issue-2261-v7", AgentRole.CODER)
+        assert job_name == "egg-agent-issue-2261-v7-coder"
+
+    def test_build_agent_worktree_id_includes_slice(self):
+        from kubernetes_spawner import KubernetesSpawner
+
+        wt_id = KubernetesSpawner._build_agent_worktree_id(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-2"
+        )
+        assert wt_id == "issue-2261-v7-slice-2-coder"
+
+    def test_build_agent_worktree_id_omits_slice_when_unscoped(self):
+        from kubernetes_spawner import KubernetesSpawner
+
+        wt_id = KubernetesSpawner._build_agent_worktree_id("issue-2261-v7", AgentRole.CODER)
+        assert wt_id == "issue-2261-v7-coder"
+
+    def test_concurrent_slices_get_distinct_ids(self):
+        """Two slice spawns for the same role must NOT collide on either id."""
+        from kubernetes_spawner import KubernetesSpawner
+
+        s1_job, _ = KubernetesSpawner._build_k8s_job_names(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-1"
+        )
+        s2_job, _ = KubernetesSpawner._build_k8s_job_names(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-2"
+        )
+        assert s1_job != s2_job
+
+        s1_wt = KubernetesSpawner._build_agent_worktree_id(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-1"
+        )
+        s2_wt = KubernetesSpawner._build_agent_worktree_id(
+            "issue-2261-v7", AgentRole.CODER, slice_id="slice-2"
+        )
+        assert s1_wt != s2_wt
+
+    def test_underscore_role_still_hyphenated_in_job_name(self):
+        """``task_planner`` etc. stay hyphenated under slice scope (RFC-1123)."""
+        from kubernetes_spawner import KubernetesSpawner
+
+        job_name, _ = KubernetesSpawner._build_k8s_job_names(
+            "issue-2261-v7", AgentRole.TASK_PLANNER, slice_id="slice-3"
+        )
+        assert job_name == "egg-agent-issue-2261-v7-slice-3-task-planner"
+
+
+class TestSpawnAgentJobSliceScope:
+    """``spawn_agent_job`` threads ``slice_id`` into the gateway worktree key."""
+
+    def test_create_worktrees_called_with_slice_scoped_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        spawner.spawn_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        # Pre-spawn worktree creation is keyed by the slice-scoped id.
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert cw_kwargs["container_id"] == "issue-2261-v7-slice-2-coder"
+
+    def test_session_register_uses_slice_scoped_worktree_container_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        spawner.spawn_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        # The gateway session reuses the worktree under the same key —
+        # without slice scope here the agent's session would dangle.
+        rs_kwargs = mock_gateway.register_session.call_args.kwargs
+        assert rs_kwargs["worktree_container_id"] == "issue-2261-v7-slice-2-coder"
+
+    def test_concurrent_spawn_fn_forwards_slice_id(self, spawner, mock_k8s_client, mock_gateway):
+        spawn_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id="issue-2261-v7",
+            issue_number=2261,
+            repo_volumes={},
+            mode="public",
+            repos=["owner/repo"],
+            phase="implement",
+            slice_id="slice-2",
+        )
+        spawn_fn(role=AgentRole.CODER, branch="egg/issue-2261-v7/slice-2")
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert cw_kwargs["container_id"] == "issue-2261-v7-slice-2-coder"
+
+
+class TestRestartAgentJobSliceScope:
+    """``restart_agent_job`` threads ``slice_id`` into delete + respawn (#2410)."""
+
+    def test_delete_targets_slice_scoped_job_name(self, spawner, mock_k8s_client, mock_gateway):
+        """A slice-scoped restart must delete the slice-scoped Job, not the pipeline-level one.
+
+        Without the fix, ``delete_job`` was called against ``egg-sandbox-egg-agent-{pid}-{role}``
+        — leaving the actual ``egg-agent-{pid}-slice-{N}-{role}`` Job running while a fresh
+        non-scoped Job was spawned alongside it.
+        """
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        delete_call = mock_k8s_client.delete_job.call_args_list[-1]
+        assert delete_call.args[0] == "egg-sandbox-egg-agent-issue-2261-v7-slice-2-coder"
+
+    def test_gateway_session_cleanup_uses_slice_scoped_container_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """The gateway session is keyed by the slice-scoped unprefixed name."""
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        gw_call = mock_gateway.delete_session_by_container.call_args_list[-1]
+        assert gw_call.args[0] == "egg-agent-issue-2261-v7-slice-2-coder"
+
+    def test_respawn_uses_slice_scoped_worktree_id(self, spawner, mock_k8s_client, mock_gateway):
+        """The respawned Job mounts the slice-scoped worktree.
+
+        Pre-spawn ``create_worktrees`` is keyed by the slice-scoped container_id
+        — failure mode #2 from the issue (worktree wrong / absent) is fixed by
+        threading slice_id into the spawn call.
+        """
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        cw_kwargs = mock_gateway.create_worktrees.call_args.kwargs
+        assert cw_kwargs["container_id"] == "issue-2261-v7-slice-2-coder"
+
+    def test_restart_count_is_per_slice(self, spawner, mock_k8s_client, mock_gateway):
+        """Concurrent slices each get an independent restart budget."""
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-3",
+        )
+        # Each slice's coder has burned exactly one budget slot.
+        assert spawner.get_restart_count("issue-2261-v7", "coder", slice_id="slice-2") == 1
+        assert spawner.get_restart_count("issue-2261-v7", "coder", slice_id="slice-3") == 1
+        # The pipeline-level bucket is untouched.
+        assert spawner.get_restart_count("issue-2261-v7", "coder") == 0
+
+    def test_reset_restart_counts_clears_slice_buckets(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Per-pipeline reset must sweep every slice bucket too."""
+        spawner._restart_counts[("issue-2261-v7", "coder", "slice-2")] = 3
+        spawner._restart_counts[("issue-2261-v7", "coder", "slice-3")] = 2
+        spawner._restart_counts[("issue-2261-v7", "coder", None)] = 1
+        spawner._restart_counts[("issue-9999", "coder", "slice-2")] = 4
+
+        spawner.reset_restart_counts("issue-2261-v7")
+
+        assert spawner.get_restart_count("issue-2261-v7", "coder", slice_id="slice-2") == 0
+        assert spawner.get_restart_count("issue-2261-v7", "coder", slice_id="slice-3") == 0
+        assert spawner.get_restart_count("issue-2261-v7", "coder") == 0
+        # Sibling pipeline untouched.
+        assert spawner.get_restart_count("issue-9999", "coder", slice_id="slice-2") == 4
+
+    def test_restart_propagates_egg_slice_id_to_container_env(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """The respawned Job's environment carries ``EGG_SLICE_ID``.
+
+        Failure mode #3 from #2410: without the env var on the new Job,
+        the agent's BRC handlers can't tag CONSENSUS_* signals with the
+        slice and the orchestrator routes them to the pipeline-level
+        tracker. Naming + worktree id alone are insufficient — the env
+        is what the *agent* reads.
+        """
+        result = spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+            slice_id="slice-2",
+        )
+        # The env on the SpawnedContainer reflects what spawn_agent_job
+        # assembled — and what was forwarded to ``create_container``.
+        assert result.environment.get("EGG_SLICE_ID") == "slice-2"
+        # Belt-and-braces: the env actually reached the k8s create call.
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert create_kwargs["environment"].get("EGG_SLICE_ID") == "slice-2"
+
+    def test_pipeline_level_restart_does_not_set_egg_slice_id(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Without ``slice_id``, the restarted Job's env has no slice scope."""
+        result = spawner.restart_agent_job(
+            pipeline_id="issue-2261-v7",
+            agent_role=AgentRole.CODER,
+            repos=["owner/repo"],
+        )
+        assert "EGG_SLICE_ID" not in result.environment
+        create_kwargs = mock_k8s_client.create_container.call_args.kwargs
+        assert "EGG_SLICE_ID" not in create_kwargs["environment"]
+
+
+class TestDetectUncommittedChangesSliceScope:
+    """``detect_uncommitted_changes`` inspects the slice-scoped worktree (#2410)."""
+
+    def test_detects_changes_in_slice_scoped_worktree(self, spawner, tmp_path):
+        worktree_dir = tmp_path / "issue-2261-v7-slice-2-coder" / "owner-repo"
+        worktree_dir.mkdir(parents=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=" M file1.py\n?? file2.py\n",
+            )
+            result = spawner.detect_uncommitted_changes(
+                "issue-2261-v7", "coder", slice_id="slice-2"
+            )
+
+        assert result is not None
+        assert result["worktree_id"] == "issue-2261-v7-slice-2-coder"
+        assert result["slice_id"] == "slice-2"
+        assert result["file_count"] == 2
+
+    def test_pipeline_level_call_does_not_pick_up_slice_worktree(self, spawner, tmp_path):
+        """Without slice_id, only the pipeline-level worktree is inspected.
+
+        A slice agent's uncommitted work must not surface through a
+        pipeline-level call — they're separate worktrees with separate
+        ownership semantics.
+        """
+        # Only the slice-scoped worktree exists on disk.
+        slice_dir = tmp_path / "issue-2261-v7-slice-2-coder" / "owner-repo"
+        slice_dir.mkdir(parents=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=" M file1.py\n")
+            result = spawner.detect_uncommitted_changes("issue-2261-v7", "coder")
+
+        # No pipeline-level worktree → returns None even though the slice worktree
+        # has uncommitted changes.
+        assert result is None
+
+    def test_slice_call_does_not_pick_up_pipeline_worktree(self, spawner, tmp_path):
+        """Symmetric guard: a slice-scoped lookup must not surface pipeline-level work."""
+        # Only the pipeline-level worktree exists on disk.
+        pipeline_dir = tmp_path / "issue-2261-v7-coder" / "owner-repo"
+        pipeline_dir.mkdir(parents=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=" M file1.py\n")
+            result = spawner.detect_uncommitted_changes(
+                "issue-2261-v7", "coder", slice_id="slice-2"
+            )
+
+        assert result is None
+
+
+class TestCleanupPipelineSliceWorktrees:
+    """``cleanup_pipeline``'s filesystem scan recognises slice-scoped worktrees."""
+
+    def test_filesystem_scan_picks_up_slice_scoped_worktrees(
+        self, spawner, mock_k8s_client, mock_gateway, tmp_path, monkeypatch
+    ):
+        import kubernetes_spawner as ks_mod
+
+        # Lay out a mix of pipeline-level, role-level, slice-scoped, and
+        # unrelated entries so the scan's allowlist is exercised end-to-end.
+        (tmp_path / "issue-2261-v7").mkdir()
+        (tmp_path / "issue-2261-v7-coder").mkdir()
+        (tmp_path / "issue-2261-v7-slice-2-coder").mkdir()
+        (tmp_path / "issue-2261-v7-slice-3-tester").mkdir()
+        # Sibling pipeline whose id starts with the same prefix — must NOT
+        # be swept (mirrors the #1865 regression guard).
+        (tmp_path / "issue-2261-v7-other-thing").mkdir()
+        (tmp_path / "issue-9999-coder").mkdir()
+
+        monkeypatch.setattr(ks_mod, "WORKTREE_BASE_DIR", tmp_path)
+        # No Jobs returned — drive cleanup purely off the filesystem scan.
+        mock_k8s_client.list_containers.return_value = []
+
+        spawner.cleanup_pipeline("issue-2261-v7")
+
+        cleaned = {
+            call.kwargs.get("container_id") for call in mock_gateway.delete_worktrees.call_args_list
+        }
+        assert "issue-2261-v7" in cleaned
+        assert "issue-2261-v7-coder" in cleaned
+        assert "issue-2261-v7-slice-2-coder" in cleaned
+        assert "issue-2261-v7-slice-3-tester" in cleaned
+        # Sibling pipelines are left alone.
+        assert "issue-2261-v7-other-thing" not in cleaned
+        assert "issue-9999-coder" not in cleaned

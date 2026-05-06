@@ -85,6 +85,18 @@ def get_pipeline_id() -> str | None:
     return os.environ.get("EGG_PIPELINE_ID") or None
 
 
+def get_slice_id() -> str | None:
+    """Slice ID from env (``EGG_SLICE_ID``).
+
+    Set on agents spawned for a per-slice BRC team (#2403). When
+    present, BRC handlers forward it on the signal payload so the
+    orchestrator routes ``CONSENSUS_*`` to the slice's tracker
+    (see ``orchestrator.peer_consensus._tracker_key``). Pipeline-level
+    agents leave it unset and route to the bare pipeline tracker.
+    """
+    return os.environ.get("EGG_SLICE_ID") or None
+
+
 def get_issue_number() -> int | None:
     """Issue number from env (``EGG_ISSUE_NUMBER``)."""
     raw = os.environ.get("EGG_ISSUE_NUMBER")
