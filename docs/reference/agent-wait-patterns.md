@@ -44,10 +44,10 @@ and issues [#2064](https://github.com/jwbron/egg/issues/2064), [#2482](https://g
 
 | `--for` value | Meaning | Action on exit |
 |---------------|---------|----------------|
-| `CONSENSUS_ACK` | A reviewer ACKed — check if all required reviewers have ACKed, then confirm | Print and act |
-| `CONSENSUS_NACK` | A reviewer NACKed — start fixing immediately | Print and act |
-| `CONSENSUS_RE_REVIEW` | Re-review requested (peer re-proposed) | Print and act |
-| `OVERSEER_ALERT` | Overseer escalation | Print and act |
+| `CONSENSUS_ACK` | A reviewer ACKed — check if all required reviewers have ACKed, then confirm | Print and exit 0; act on the message |
+| `CONSENSUS_NACK` | A reviewer NACKed — start fixing immediately | Print and exit 0; act on the message |
+| `CONSENSUS_RE_REVIEW` | Re-review requested (peer re-proposed) | Print and exit 0; act on the message |
+| `OVERSEER_ALERT` | Overseer escalation | Print and exit 0; act on the message |
 
 ```bash
 # Producer pre-confirm idiom (RESPOND TO REVIEWS, step 4)
@@ -176,7 +176,7 @@ version. The MCP-counterpart returns
 `{"ok": false, "status": "stale_version", "rejection": {...}}` with
 the snapshot under `rejection.current_proposal`.
 
-## 2. The Four Anti-Patterns (from #1897)
+## 2. The Five Anti-Patterns (#1897, #2064)
 
 Each of these was observed in production pipelines before #1897 and
 caused real latency or bus pollution. Do **not** use any of them.
