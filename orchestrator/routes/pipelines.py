@@ -2382,8 +2382,9 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 try:
                     contract = load_contract(contract_id, worktree_path)
                 except ContractNotFoundError:
-                    # Contract not yet populated — fall through silently.
-                    contract = None
+                    # Contract not yet populated — fall through silently
+                    # (``contract`` already initialised to ``None`` above).
+                    pass
             except (OSError, ValueError, ContractValidationError) as exc:
                 # Worktree pruned, filesystem failure, or corrupt/invalid
                 # contract JSON: log and fall through. The reviewer's #2421
