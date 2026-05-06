@@ -13,6 +13,7 @@ from typing import Any, Literal, NamedTuple
 
 from egg_contracts.models import PipelinePhase
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from slice_id_validation import SLICE_ID_PATTERN
 
 # Phase-aware fallback defaults for consensus timeout. Calibrated against
 # producer/reviewer fan-out and iteration profile per phase — see #2263.
@@ -240,6 +241,26 @@ class AgentExecution(BaseModel):
             "rather than role alone (#2422)."
         ),
     )
+
+    @field_validator("slice_id")
+    @classmethod
+    def _validate_slice_id(cls, v: str | None) -> str | None:
+        """Defense-in-depth: reject non-canonical ``slice_id`` values.
+
+        Production write paths populate this field from validated values
+        produced by ``extract_slice_id`` / ``concurrent_executor._slice_id``,
+        which already enforce ``SLICE_ID_PATTERN``. This validator closes
+        the gap for hand-built fixtures, migration tools, or any future
+        caller that constructs ``AgentExecution`` directly — a non-canonical
+        value would silently break the ``(role, slice_id)`` walks that
+        consumers rely on.
+        """
+        if v is None:
+            return None
+        if not SLICE_ID_PATTERN.fullmatch(v):
+            raise ValueError(f"Invalid slice_id {v!r}: must match 'slice-<N>'")
+        return v
+
     started_at: datetime | None = Field(default=None, description="When started")
     completed_at: datetime | None = Field(default=None, description="When completed")
     commit: str | None = Field(default=None, description="Commit SHA if changes made")

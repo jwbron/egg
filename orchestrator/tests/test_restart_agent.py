@@ -1033,18 +1033,23 @@ class TestRestartAgentSliceMatching:
 
         assert response.status_code == 200, response.get_json()
 
-        # The store under update_pipeline serialized the mutated pipeline.
-        # Inspect the in-memory pipeline directly — the route mutates the
-        # same object that ``_resolve_pipeline`` returned.
-        agents = pipeline.phases["implement"].agents
-        slice2_after = next(a for a in agents if a.slice_id == "slice-2")
-        slice3_after = next(a for a in agents if a.slice_id == "slice-3")
+        # Assert on the *persisted* state, not just the in-memory pipeline.
+        # The route serialises the mutated pipeline via
+        # ``store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))``;
+        # inspecting the call_args guards against a future refactor where
+        # ``_resolve_pipeline`` returns a copy and the route forgets to
+        # save the mutation back.
+        mock_store.update_pipeline.assert_called()
+        persisted = mock_store.update_pipeline.call_args[0][1]
+        persisted_agents = persisted["phases"]["implement"]["agents"]
+        slice2_persisted = next(a for a in persisted_agents if a["slice_id"] == "slice-2")
+        slice3_persisted = next(a for a in persisted_agents if a["slice_id"] == "slice-3")
 
-        assert slice2_after.container_id == slice2_container_before, (
+        assert slice2_persisted["container_id"] == slice2_container_before, (
             "slice-2 container_id must not change when slice-3 is restarted"
         )
-        assert slice3_after.container_id == "container-slice-3-RESTARTED"
-        assert slice3_after.status == AgentExecutionStatus.RUNNING
+        assert slice3_persisted["container_id"] == "container-slice-3-RESTARTED"
+        assert slice3_persisted["status"] == AgentExecutionStatus.RUNNING.value
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
@@ -1116,14 +1121,19 @@ class TestRestartAgentSliceMatching:
         )
 
         assert response.status_code == 200
-        agents = pipeline.phases["implement"].agents
+        # Assert on the *persisted* state — same robustness rationale as
+        # the slice-3-does-not-mutate-slice-2 test above.
+        mock_store.update_pipeline.assert_called()
+        persisted = mock_store.update_pipeline.call_args[0][1]
+        persisted_agents = persisted["phases"]["implement"]["agents"]
         # slice-2 untouched, slice-3 appended
         assert any(
-            a.slice_id == "slice-2" and a.container_id == "container-slice-2" for a in agents
+            a["slice_id"] == "slice-2" and a["container_id"] == "container-slice-2"
+            for a in persisted_agents
         )
-        slice3_rows = [a for a in agents if a.slice_id == "slice-3"]
+        slice3_rows = [a for a in persisted_agents if a["slice_id"] == "slice-3"]
         assert len(slice3_rows) == 1
-        assert slice3_rows[0].container_id == "container-slice-3-NEW"
+        assert slice3_rows[0]["container_id"] == "container-slice-3-NEW"
 
 
 # ---------------------------------------------------------------------------

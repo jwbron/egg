@@ -13065,11 +13065,20 @@ def _spawn_and_wait(
                 )
                 phase_execution.containers.append(container_info)
 
-                # Track agent execution
+                # Track agent execution.
+                #
+                # ``slice_id`` is explicitly ``None`` because this helper has
+                # no production callers today and is reachable only from
+                # tests that mock-patch it. If a future change resurrects
+                # this path for a sliced spawn, the caller MUST plumb a
+                # ``slice_id`` through here — otherwise the new
+                # ``(role, slice_id)`` walks added in #2422 will not see
+                # the record. See PR #2435 review thread.
                 agent_execution = AgentExecution(
                     role=agent_role,
                     status=AgentExecutionStatus.RUNNING,
                     container_id=spawned.container_info.container_id,
+                    slice_id=None,
                     started_at=datetime.now(UTC),
                 )
                 phase_execution.agents.append(agent_execution)

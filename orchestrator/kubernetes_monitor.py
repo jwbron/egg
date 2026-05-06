@@ -808,6 +808,14 @@ class KubernetesMonitor:
                 if phase_exec.cycle_timings and phase_exec.cycle_timings[-1].completed_at is None:
                     phase_exec.cycle_timings[-1].completed_at = now
 
+                # TODO(#2441): the phase-level mutations below are unconditional
+                # even though the agent walk above is now slice-scoped. Safe
+                # today because ``consensus_stall`` is pipeline-level only and
+                # ``stall_slice_id`` is always ``None`` here, but the moment
+                # the upstream check becomes slice-aware this path will mark
+                # the whole phase COMPLETE while other slices are still
+                # RUNNING. Scope to \"no other slice still active\" or split
+                # ``phase_exec`` into per-slice status when #2441 lands.
                 phase_exec.status = PipelineStatus.COMPLETE
                 phase_exec.completed_at = now
 

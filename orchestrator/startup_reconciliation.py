@@ -331,6 +331,13 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                                 if agent.status == AgentExecutionStatus.RUNNING:
                                     agent.status = AgentExecutionStatus.COMPLETE
                                     agent.completed_at = datetime.now(UTC)
+                            # TODO(#2441): phase-level mutations are
+                            # unconditional even though the agent walk above
+                            # is slice-scoped (only pipeline-level agents
+                            # flipped). Marks the whole phase COMPLETE even
+                            # if per-slice trackers are still RUNNING; safe
+                            # today because per-slice tracker reconstruction
+                            # isn't wired in here yet.
                             phase_exec.status = PipelineStatus.COMPLETE
                             phase_exec.completed_at = datetime.now(UTC)
                             store.save_pipeline(pipeline)

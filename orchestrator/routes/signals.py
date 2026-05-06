@@ -583,7 +583,7 @@ def handle_error_signal(
     # way the BRC handlers do.
     try:
         signal_slice_id = _extract_slice_id(data)
-    except Exception as exc:
+    except ValueError as exc:
         return make_error_response(f"Invalid slice_id: {exc}")
 
     try:
