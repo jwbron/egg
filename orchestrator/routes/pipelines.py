@@ -8907,11 +8907,11 @@ def _build_phase_prompt(
                 "## Recommended Approach\n",
                 "[Which option is recommended and why. Reference the option above.]\n",
                 "## Open Questions\n",
-                "[Register every open question via `egg-contract add-decision` or "
-                "`egg-contract add-feedback` and paste the markdown output of each "
-                "command into this section. See `## How to Populate Open Questions` "
-                "below the template for the registration protocol — do **not** copy "
-                "those instructions into this document.]\n",
+                "[Register every open question by following the protocol in "
+                "`## How to Populate Open Questions` below the template, then paste "
+                "the markdown output of each registration command into this section. "
+                "Do **not** copy the protocol instructions themselves into this "
+                "document.]\n",
                 "---\n",
                 "*Authored-by: egg*",
                 "````\n",
