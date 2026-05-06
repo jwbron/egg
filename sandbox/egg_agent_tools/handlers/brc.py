@@ -212,9 +212,15 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
        rejects bad types in both branches, so pre-flight must too.
     2. **Strict-mode rule logic** that mirrors ``_validate_strict``
        (the post-Pydantic checks). Branches on the parsed
-       ``tests_execution_blocked`` value to enforce the
-       ``tests_run > 0 + checks_passed populated`` requirement (or the
-       blocked-with-reason alternative).
+       ``tests_execution_blocked`` and ``no_test_changes_needed`` values
+       to enforce the ``tests_run > 0 + checks_passed populated``
+       requirement, or one of the alternative paths:
+
+       - ``tests_execution_blocked=true`` + non-empty
+         ``tests_execution_blocked_reason`` (checks could not run);
+       - ``no_test_changes_needed=true`` + non-empty
+         ``no_test_changes_reason`` + populated ``checks_passed`` —
+         the no-op propose path for refactor / doc-only slices (#2431).
 
     Failures raise ``HandlerError`` with an actionable message
     naming the field, the common cause, and the expected format —
@@ -274,6 +280,10 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
         attestation.get("tests_execution_blocked", False),
         field="tests_execution_blocked",
     )
+    no_test_changes = _coerce_attestation_bool(
+        attestation.get("no_test_changes_needed", False),
+        field="no_test_changes_needed",
+    )
     tests_run_int = _coerce_attestation_int(
         attestation.get("tests_run", 0),
         field="tests_run",
@@ -301,6 +311,16 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
         )
 
     # Layer 2 — strict-mode rule logic that mirrors _validate_strict.
+    # Mutual exclusion (#2431): blocked vs. no-changes-needed describe
+    # different failure modes and cannot both be true.
+    if blocked and no_test_changes:
+        raise HandlerError(
+            "Tester attestation: tests_execution_blocked and "
+            "no_test_changes_needed are mutually exclusive. Pick one: "
+            "'blocked' means the configured checks could not run; "
+            "'no_test_changes_needed' means they ran and passed but the "
+            "slice warrants no new tests."
+        )
     if blocked:
         reason = (attestation.get("tests_execution_blocked_reason") or "").strip()
         if not reason:
@@ -322,21 +342,37 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
             )
         return
 
-    # Non-blocked path — strict mode requires tests_run > 0 and
-    # checks_passed populated. Mirror the orchestrator: only
-    # ``tests_run == 0`` is rejected. Negative counts slip past
-    # Pydantic (no constraint on the int field) and the strict
-    # validator's ``elif instance.tests_run == 0`` check, so pre-flight
-    # intentionally lets them pass too. If we tighten one side, tighten
-    # both — see the cross-check tests in
-    # ``test_handlers_brc.py::TestPreFlightMirrorsOrchestrator``.
-    if tests_run_int == 0:
+    if no_test_changes:
+        # No-op propose path for refactor / doc-only slices (#2431).
+        # tests_run == 0 is allowed; checks_passed is still required
+        # below (the tester ran the configured checks).
+        no_changes_reason = (attestation.get("no_test_changes_reason") or "").strip()
+        if not no_changes_reason:
+            raise HandlerError(
+                "Tester attestation: 'no_test_changes_needed' is true but "
+                "'no_test_changes_reason' is empty. Populate "
+                "attestation.no_test_changes_reason with why the slice "
+                "warrants no new tests (e.g. 'pure refactor: symbol "
+                "moves, no behavior change; existing test coverage "
+                "applies'), then retry."
+            )
+    elif tests_run_int == 0:
+        # Non-blocked, non-no-op path — strict mode requires
+        # tests_run > 0. Mirror the orchestrator: only ``tests_run == 0``
+        # is rejected. Negative counts slip past Pydantic (no constraint
+        # on the int field) and the strict validator's ``elif
+        # instance.tests_run == 0`` check, so pre-flight intentionally
+        # lets them pass too. If we tighten one side, tighten both — see
+        # ``test_handlers_brc.py::TestPreFlightMirrorsOrchestrator``.
         raise HandlerError(
             "Tester attestation requires tests_run > 0 (the integer count "
             "of tests executed). If tests genuinely could not run, set "
             "tests_execution_blocked=true with a non-empty "
-            "tests_execution_blocked_reason instead. Pass these as fields "
-            "on the propose tool's `attestation` dict — e.g. "
+            "tests_execution_blocked_reason. If the slice is a pure "
+            "refactor or doc-only change with no new tests warranted, "
+            "set no_test_changes_needed=true with a non-empty "
+            "no_test_changes_reason instead. Pass these as fields on the "
+            "propose tool's `attestation` dict — e.g. "
             "attestation={'tests_run': 42, 'checks_passed': "
             "['lint', 'test']}."
         )
@@ -346,8 +382,8 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
             "Tester attestation requires checks_passed to list the "
             "configured checks that actually passed (e.g. "
             "['lint', 'test']). Only include checks that passed — do NOT "
-            "include checks that failed. Empty list is rejected when "
-            "tests_execution_blocked is false."
+            "include checks that failed. Empty list is rejected unless "
+            "tests_execution_blocked is true."
         )
 
 
@@ -367,11 +403,17 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
             ``attestation`` below).
         tasks (list[str]): tasks_satisfied
         attestation (dict): role-specific attestation payload. For the
-            ``tester`` role under strict mode, requires either
-            ``tests_run > 0`` (integer) and a non-empty ``checks_passed``
-            list, or ``tests_execution_blocked=true`` with a non-empty
-            ``tests_execution_blocked_reason``. Pre-flight validated by
-            this handler so misconfigurations fail locally rather than
+            ``tester`` role under strict mode, requires one of:
+            (a) ``tests_run > 0`` (integer) and a non-empty
+            ``checks_passed`` list (the normal path);
+            (b) ``tests_execution_blocked=true`` with a non-empty
+            ``tests_execution_blocked_reason`` (checks could not run);
+            (c) ``no_test_changes_needed=true`` with a non-empty
+            ``no_test_changes_reason`` and populated ``checks_passed``
+            — the no-op propose path for refactor / doc-only slices
+            where the configured checks ran and passed but no new
+            tests were warranted (#2431). Pre-flight validated by this
+            handler so misconfigurations fail locally rather than
             bouncing off the orchestrator as 400 (#2338).
         changed_artifacts (list[str]): optional re-proposal delta.
         raw_payload (dict): pre-built payload dict — every key is

@@ -9357,9 +9357,16 @@ def _build_producer_orientation(
                 "coder's CONSENSUS_PROPOSE before drafting these scaffolds — the "
                 "scaffold work does not depend on coder output and recovers "
                 "downstream-producer time. Your propose-ready iteration should "
-                "start at the coder's first commit, not their first propose."
-                + sync_note
-                + reviewer_awareness
+                "start at the coder's first commit, not their first propose. "
+                "**You MUST propose** even when the slice warrants no new tests "
+                "(pure refactor / doc-only / symbol moves with no behavior "
+                "change): the BRC consensus blocks until every producer has "
+                "proposed (#2431). For that case, run the configured checks "
+                "against the coder's diff and use the no-op propose path — "
+                "set `attestation.no_test_changes_needed=true` with a non-empty "
+                "`no_test_changes_reason` and the usual `checks_passed` list. "
+                "Do NOT just heartbeat indefinitely waiting for test work that "
+                "isn't there — that deadlocks the slice." + sync_note + reviewer_awareness
             )
         elif role_value == "documenter":
             sync_note = ""
@@ -9618,6 +9625,36 @@ def _build_agent_prompt(
                 "",
                 "Validate the changes and find gaps in the CODER agent's implementation. "
                 "You are responsible for both **testing** and **lint/type-check validation**.",
+                "",
+                "### When the slice warrants no new tests (#2431)",
+                "",
+                "Pure refactors (symbol moves, decompositions with no behavior "
+                "change), doc-only slices, and other no-test-work slices still "
+                "require you to **propose** — BRC consensus blocks until every "
+                "producer has proposed at least once. **Don't just heartbeat "
+                "and wait for work that isn't coming.** Instead:",
+                "",
+                "1. Run **all** configured checks against the coder's diff "
+                "(`make lint`, `make test`, etc.) and confirm they pass.",
+                "2. Propose with the no-op attestation:",
+                "   - `attestation.no_test_changes_needed: true`",
+                "   - `attestation.no_test_changes_reason`: a concrete sentence "
+                'explaining why no new tests are warranted (e.g. "slice-3 is '
+                "a pure decomposition: symbol moves between submodules, no "
+                "behavior change; the existing test suite covers the "
+                're-exported barrel").',
+                "   - `attestation.checks_passed`: the configured checks that "
+                "actually ran and passed (`['lint', 'test']` etc.) — still "
+                "required.",
+                "   - `attestation.tests_run`: 0 is acceptable here; if you "
+                "did run the existing suite, report the count.",
+                '3. Make sure your propose `summary` says "no new tests '
+                'warranted: <reason>" so reviewers can verify the diff '
+                "really is behavior-preserving.",
+                "",
+                "If the slice **does** have new test work (real behavior "
+                "changes, new edge cases, modified contracts), do NOT use the "
+                "no-op path — author tests as usual.",
                 "",
                 "### Testing",
                 "",
