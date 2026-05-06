@@ -249,7 +249,10 @@ class TestSweepRecoveryRefs:
         gateway = self._make_gateway(refs={ref_name: sha})
         report = sweep_recovery_refs(gateway, repo, ttl_days=90, dry_run=True)
 
-        assert report.refs_deleted == 1
+        # In dry-run nothing is removed from origin, so `refs_deleted`
+        # stays a count of *actual* deletes. `deleted_refs` lists what
+        # would be deleted in a real run.
+        assert report.refs_deleted == 0
         assert report.deleted_refs == [ref_name]
         gateway.delete_remote_branch.assert_not_called()
 
@@ -297,7 +300,10 @@ class TestSweepRecoveryRefs:
         assert "gateway down" in report.error
         gateway.delete_remote_branch.assert_not_called()
 
-    def test_per_ref_classify_failure_does_not_abort_loop(self, tmp_path: Path) -> None:
+    def test_unknown_age_does_not_abort_loop(self, tmp_path: Path) -> None:
+        """Unknown-age (SHA missing locally) is a normal classification
+        path that must not stop the sweep. Mixes A (unknown) with B
+        (deletable) and asserts both are processed."""
         repo = tmp_path / "repo"
         _make_repo(repo)
         old = datetime.now(UTC) - timedelta(days=200)
@@ -313,6 +319,48 @@ class TestSweepRecoveryRefs:
         assert report.refs_inspected == 2
         assert report.refs_deleted == 1
         assert report.refs_skipped_unknown_age == 1
+        # Symmetric assertion: the unknown-age path must NOT increment
+        # refs_skipped_error. A regression that swaps the two counters
+        # would be invisible without this.
+        assert report.refs_skipped_error == 0
+
+    def test_per_ref_classify_failure_does_not_abort_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A real raise inside ``_classify`` must hit the
+        ``refs_skipped_error`` counter and let the loop continue
+        processing the remaining refs."""
+        import agent_salvage_cleanup as cleanup
+
+        repo = tmp_path / "repo"
+        _make_repo(repo)
+        old = datetime.now(UTC) - timedelta(days=200)
+        sha_b = _commit_at(repo, "b.txt", "b", "b commit", when=old)
+        ref_a = "egg/recovered/issue-99/coder/aaa111"
+        ref_b = "egg/recovered/issue-99/tester/bbb222"
+        _set_remote_tracking(repo, ref_b, sha_b)
+
+        real_classify = cleanup._classify
+
+        def flaky_classify(name: str, sha: str, repo_path: Path, cutoff):
+            if name == ref_a:
+                raise RuntimeError("boom in classify")
+            return real_classify(name, sha, repo_path, cutoff)
+
+        monkeypatch.setattr(cleanup, "_classify", flaky_classify)
+
+        gateway = self._make_gateway(refs={ref_a: "0" * 40, ref_b: sha_b})
+        report = sweep_recovery_refs(gateway, repo, ttl_days=90)
+
+        # A → classify raised → refs_skipped_error. B → still deleted.
+        assert report.refs_inspected == 2
+        assert report.refs_deleted == 1
+        assert report.refs_skipped_error == 1
+        # Symmetric assertion: the exception path is *not* the
+        # unknown-age path. A regression that swaps the counters fails
+        # here and on `test_unknown_age_does_not_abort_loop` together.
+        assert report.refs_skipped_unknown_age == 0
+        assert report.deleted_refs == [ref_b]
 
 
 # ---------------------------------------------------------------------------
@@ -392,3 +440,9 @@ class TestEnvConfig:
 
         monkeypatch.delenv("EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS", raising=False)
         assert get_recovery_ref_cleanup_interval_seconds() == 86400.0
+
+    def test_interval_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from env_config import get_recovery_ref_cleanup_interval_seconds
+
+        monkeypatch.setenv("EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS", "600")
+        assert get_recovery_ref_cleanup_interval_seconds() == 600.0

@@ -1833,6 +1833,11 @@ class GatewayClient:
                 repo_path,
                 agent_role=agent_role,
                 mode=mode,
+                # Preserve the audit-log identifier the stacked-PR
+                # reconciler used before this method was unified with
+                # the SHA-returning variant — runbooks and dashboards
+                # filter by this string.
+                operation_tag="stacked-pr-ls-remote",
             ).keys()
         )
 
@@ -1843,6 +1848,7 @@ class GatewayClient:
         *,
         agent_role: str = "coder",
         mode: Literal["public", "private"] = "public",
+        operation_tag: str = "ls-remote",
     ) -> dict[str, str]:
         """Like :meth:`list_remote_branches` but returns ``{branch: sha}``.
 
@@ -1850,12 +1856,19 @@ class GatewayClient:
         SHA at each ref tip to read its committer date for staleness
         detection without an extra fetch round-trip.
 
+        ``operation_tag`` is appended to the synthetic gateway session's
+        container id (``f"{pipeline_id}-{operation_tag}"``) and shows up
+        in audit/session logs. Callers should pick a tag that matches
+        the operation they are performing so existing log-filter rules
+        keep working — e.g. the stacked-PR reconciler passes
+        ``"stacked-pr-ls-remote"``.
+
         Same error-handling contract as :meth:`list_remote_branches`:
         on any gateway failure returns an empty mapping.
         """
         if not repo_path:
             return {}
-        temp_container_id = f"{pipeline_id}-ls-remote"
+        temp_container_id = f"{pipeline_id}-{operation_tag}"
         session_token: str | None = None
         try:
             session = self.register_session(

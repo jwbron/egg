@@ -22,7 +22,6 @@ best-effort: any per-ref failure is logged and never aborts the loop.
 
 from __future__ import annotations
 
-import fnmatch
 import subprocess
 import threading
 from dataclasses import dataclass, field
@@ -294,7 +293,9 @@ def sweep_recovery_refs(
 
         if action == "delete":
             if dry_run:
-                report.refs_deleted += 1
+                # No real delete happened — only `deleted_refs` records
+                # what *would* be removed. `refs_deleted` stays a count of
+                # actual deletes so operators can trust the metric.
                 report.deleted_refs.append(name)
                 continue
             try:
@@ -311,6 +312,12 @@ def sweep_recovery_refs(
                     ref=name,
                     error=str(exc),
                 )
+                # Ref is still on origin — fold its age into oldest_remaining
+                # so the metric reflects what is actually present, not what
+                # we hoped to remove.
+                if ref.committed_at is not None:
+                    if oldest_remaining is None or ref.committed_at < oldest_remaining:
+                        oldest_remaining = ref.committed_at
                 continue
             if push_result.ok or push_result.category == "already_deleted":
                 report.refs_deleted += 1
@@ -328,6 +335,11 @@ def sweep_recovery_refs(
                     ref=name,
                     detail=push_result.describe(),
                 )
+                # Same fold-in: the delete was rejected, so the ref still
+                # exists on origin and its age belongs in the metric.
+                if ref.committed_at is not None:
+                    if oldest_remaining is None or ref.committed_at < oldest_remaining:
+                        oldest_remaining = ref.committed_at
             continue
 
         if action == "recent":
@@ -447,5 +459,10 @@ class RecoveryRefCleaner:
 
 
 def is_recovery_ref(name: str) -> bool:
-    """Public predicate exposed for tests / operator scripts."""
-    return fnmatch.fnmatch(name, f"{RECOVERY_BRANCH_PREFIX}/*")
+    """Public predicate exposed for tests / operator scripts.
+
+    Uses ``startswith`` to match the same membership rule that
+    :func:`list_recovery_refs` applies, so a future change to the
+    prefix can't quietly diverge between the two paths.
+    """
+    return name.startswith(f"{RECOVERY_BRANCH_PREFIX}/")
