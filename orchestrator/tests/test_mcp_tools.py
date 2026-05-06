@@ -2,8 +2,9 @@
 
 Tests cover the 10 new tools added for comprehensive platform interface:
 - check_health, list_containers, get_container_logs, send_message,
-  get_consensus_status, get_phase, get_pipeline_snapshot (orchestrator-backed)
-- list_checkpoints, search_checkpoints, get_contract (gateway-backed)
+  get_consensus_status, get_phase, get_pipeline_snapshot,
+  get_contract (orchestrator-backed)
+- list_checkpoints, search_checkpoints (gateway-backed)
 """
 
 import asyncio
@@ -628,20 +629,21 @@ class TestSearchCheckpoints:
 class TestGetContract:
     def test_with_issue_number_and_active_pipeline(self, handler):
         """issue_number resolves pipeline_id from active pipelines list."""
-        with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {
-                "data": {"pipelines": [{"id": "issue-42", "issue_number": 42}]}
-            }
-            with patch.object(handler, "_make_gateway_request") as mock_gw:
-                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
-                handler.handle_tool_call("get_contract", {"issue_number": 42})
+        responses = [
+            {"data": {"pipelines": [{"id": "issue-42", "issue_number": 42}]}},
+            {"success": True, "data": {"contract": {}}},
+        ]
+        with patch.object(handler, "_make_request", side_effect=responses) as mock_req:
+            handler.handle_tool_call("get_contract", {"issue_number": 42})
 
-        mock_gw.assert_called_once_with("/api/v1/contract/42?pipeline_id=issue-42")
+        assert mock_req.call_args_list[-1][0][0] == (
+            "/api/v1/contracts/issue-42?pipeline_id=issue-42"
+        )
 
     def test_with_issue_number_picks_latest_pipeline(self, handler):
         """When multiple active pipelines match the issue, pick the latest by created_at."""
-        with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {
+        responses = [
+            {
                 "data": {
                     "pipelines": [
                         {"id": "old-run", "issue_number": 42, "created_at": "2026-04-01T10:00:00Z"},
@@ -653,52 +655,89 @@ class TestGetContract:
                         {"id": "mid-run", "issue_number": 42, "created_at": "2026-04-02T10:00:00Z"},
                     ]
                 }
-            }
-            with patch.object(handler, "_make_gateway_request") as mock_gw:
-                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
-                handler.handle_tool_call("get_contract", {"issue_number": 42})
+            },
+            {"success": True, "data": {"contract": {}}},
+        ]
+        with patch.object(handler, "_make_request", side_effect=responses) as mock_req:
+            handler.handle_tool_call("get_contract", {"issue_number": 42})
 
-        mock_gw.assert_called_once_with("/api/v1/contract/42?pipeline_id=newest-run")
+        assert mock_req.call_args_list[-1][0][0] == (
+            "/api/v1/contracts/newest-run?pipeline_id=newest-run"
+        )
 
     def test_with_issue_number_no_active_pipeline(self, handler):
-        """issue_number without matching active pipeline omits pipeline_id."""
+        """issue_number without matching active pipeline falls back to canonical issue-<N>."""
+        responses = [
+            {"data": {"pipelines": []}},
+            {"success": True, "data": {"contract": {}}},
+        ]
+        with patch.object(handler, "_make_request", side_effect=responses) as mock_req:
+            handler.handle_tool_call("get_contract", {"issue_number": 42})
+
+        assert mock_req.call_args_list[-1][0][0] == (
+            "/api/v1/contracts/issue-42?pipeline_id=issue-42"
+        )
+
+    def test_with_task_id_uses_qualified_path(self, handler):
+        """task_id is used directly as the path identifier — no issue lookup needed."""
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {"data": {"pipelines": []}}
-            with patch.object(handler, "_make_gateway_request") as mock_gw:
-                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
-                handler.handle_tool_call("get_contract", {"issue_number": 42})
+            mock_req.return_value = {"success": True, "data": {"contract": {}}}
+            handler.handle_tool_call("get_contract", {"task_id": "issue-42"})
 
-        mock_gw.assert_called_once_with("/api/v1/contract/42")
+        mock_req.assert_called_once_with("/api/v1/contracts/issue-42?pipeline_id=issue-42")
 
-    def test_with_task_id_lookup(self, handler):
+    def test_with_qualified_task_id_preserves_qualifier(self, handler):
+        """Regression for #2427: qualified pipeline IDs (e.g. issue-42-v9) must
+        load the qualified contract file, not the unqualified issue-42.json."""
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {"data": {"pipeline": {"issue_number": 42}}}
-            with patch.object(handler, "_make_gateway_request") as mock_gw:
-                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
-                handler.handle_tool_call("get_contract", {"task_id": "issue-42"})
+            mock_req.return_value = {"success": True, "data": {"contract": {}}}
+            handler.handle_tool_call("get_contract", {"task_id": "issue-42-v9"})
 
-        mock_gw.assert_called_once_with("/api/v1/contract/42?pipeline_id=issue-42")
+        mock_req.assert_called_once_with("/api/v1/contracts/issue-42-v9?pipeline_id=issue-42-v9")
+
+    def test_with_jira_task_id(self, handler):
+        """Non-issue pipeline IDs (e.g. JIRA tickets) work without an issue_number."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {"contract": {}}}
+            handler.handle_tool_call("get_contract", {"task_id": "ABC-1234"})
+
+        mock_req.assert_called_once_with("/api/v1/contracts/ABC-1234?pipeline_id=ABC-1234")
 
     def test_missing_both_params(self, handler):
         result = handler.handle_tool_call("get_contract", {})
         assert "error" in result
 
-    def test_task_id_without_issue(self, handler):
-        with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {"data": {"pipeline": {"issue_number": None}}}
-            result = handler.handle_tool_call("get_contract", {"task_id": "prompt-based"})
+    def test_pipeline_lookup_failure_is_graceful(self, handler):
+        """If listing active pipelines fails, fall back to the canonical issue-<N> key."""
+        responses = [
+            Exception("connection refused"),
+            {"success": True, "data": {"contract": {}}},
+        ]
+        with patch.object(handler, "_make_request", side_effect=responses) as mock_req:
+            handler.handle_tool_call("get_contract", {"issue_number": 42})
+
+        assert mock_req.call_args_list[-1][0][0] == (
+            "/api/v1/contracts/issue-42?pipeline_id=issue-42"
+        )
+
+    def test_contract_fetch_http_error_surfaces_to_caller(self, handler):
+        """A 404 from the orchestrator's contracts route is surfaced to the
+        caller via handle_tool_call's outer catch, not swallowed silently."""
+        http_err = _make_http_error(404, {"error": "Contract not found"})
+        with patch.object(handler, "_make_request", side_effect=http_err):
+            result = handler.handle_tool_call("get_contract", {"task_id": "issue-42-v9"})
 
         assert "error" in result
+        assert "404" in result["error"]
 
-    def test_pipeline_lookup_failure_is_graceful(self, handler):
-        """If listing pipelines fails, the request proceeds without pipeline_id."""
-        with patch.object(handler, "_make_request") as mock_req:
-            mock_req.side_effect = Exception("connection refused")
-            with patch.object(handler, "_make_gateway_request") as mock_gw:
-                mock_gw.return_value = {"success": True, "data": {"contract": {}}}
-                handler.handle_tool_call("get_contract", {"issue_number": 42})
+    def test_contract_fetch_returns_orchestrator_envelope_unchanged(self, handler):
+        """When the orchestrator returns a JSON envelope (success or error
+        dict), the handler passes it through verbatim — no rewrapping."""
+        envelope = {"success": False, "error": "worktree gone", "code": "WORKTREE_MISSING"}
+        with patch.object(handler, "_make_request", return_value=envelope):
+            result = handler.handle_tool_call("get_contract", {"task_id": "issue-42-v9"})
 
-        mock_gw.assert_called_once_with("/api/v1/contract/42")
+        assert result == envelope
 
 
 class TestGatewayAuth:

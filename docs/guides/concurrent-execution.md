@@ -52,7 +52,9 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
 | `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency` |
 
-**Branch model**: For **refine** and **plan**, all agents operate on the pipeline's shared branch (e.g., `egg/issue-123`) and coordinate commits via the message bus to sequence their work and avoid conflicts. For **implement**, each slice runs on its own integration branch (`egg/issue-N/slice-M`); the shared-branch coordination described below applies *within* a slice's agent team — see [Slice-DAG Implement Phase](../architecture/slice-dag.md).
+**Branch model**: For **refine** and **plan**, all agents operate on the pipeline's shared branch (e.g., `egg/issue-123/work`) and coordinate commits via the message bus to sequence their work and avoid conflicts. For **implement**, each slice runs on its own integration branch (`egg/issue-N/slice-M`); the shared-branch coordination described below applies *within* a slice's agent team — see [Slice-DAG Implement Phase](../architecture/slice-dag.md).
+
+> **Branch namespace (#2399):** The pipeline tip is pushed to `<id>/work` (e.g., `egg/issue-123/work`) so slice integration branches at `<id>/slice-N` can coexist as siblings. A leaf ref at `<id>` and a child at `<id>/slice-N` cannot coexist in git.
 
 **Environment injection**: Each concurrent agent receives:
 
@@ -63,6 +65,7 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 | `EGG_BRC_ROLE_TYPE` | `"producer"`, `"reviewer"`, or `"producer,reviewer"` | Agent's role in the BRC review graph |
 | `EGG_BRC_REVIEWERS` | Comma-separated roles | Reviewer roles assigned to this producer (producers only) |
 | `EGG_BRC_PRODUCERS` | Comma-separated roles | Producer roles this agent must review (reviewers only) |
+| `EGG_SLICE_ID` | `"slice-<N>"` | Slice scope for per-slice BRC teams (implement phase only); absent for pipeline-level agents. BRC handlers forward this to the orchestrator so `CONSENSUS_*` signals are routed to the per-slice tracker. |
 
 Each agent is registered in the peer consensus tracker before spawning begins.
 
@@ -870,7 +873,7 @@ Each concurrent agent runs in its own isolated git worktree. This prevents agent
 
 **Architecture:**
 - Each agent pod receives a unique worktree created by the gateway, keyed by Job name (not pipeline ID)
-- For **refine** and **plan**, all agents push to the same shared pipeline branch (e.g., `egg/issue-{N}`); for **implement**, all agents within a slice push to that slice's integration branch (`egg/issue-{N}/slice-{M}`) — see [Slice-DAG Implement Phase](../architecture/slice-dag.md)
+- For **refine** and **plan**, all agents push to the same shared pipeline branch (e.g., `egg/issue-{N}/work`); for **implement**, all agents within a slice push to that slice's integration branch (`egg/issue-{N}/slice-{M}`) — see [Slice-DAG Implement Phase](../architecture/slice-dag.md)
 - Git worktrees share the object store — only working tree files are duplicated, so disk overhead is marginal
 
 **Push coordination (pull-before-push):**

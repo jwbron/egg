@@ -42,6 +42,25 @@ class TesterAttestation(BaseModel):
     tests_execution_blocked_reason: str = Field(
         default="", description="Why tests could not be executed"
     )
+    no_test_changes_needed: bool = Field(
+        default=False,
+        description=(
+            "True if the slice/diff warrants no new tests — pure refactor "
+            "(symbol moves, no behavior change) or doc-only changes (#2431). "
+            "Distinct from tests_execution_blocked: the tester ran the "
+            "configured checks and they passed; there was simply nothing "
+            "new to author. Reviewers should verify the diff really is "
+            "behavior-preserving before ACKing this."
+        ),
+    )
+    no_test_changes_reason: str = Field(
+        default="",
+        description=(
+            "Why no new tests are warranted (e.g. 'pure refactor: symbol "
+            "moves between submodules, no behavior change; existing test "
+            "coverage applies'). Required when no_test_changes_needed=true."
+        ),
+    )
     coverage_delta: str = Field(default="", description="Coverage change")
     edge_cases: list[str] = Field(default_factory=list, description="Edge cases covered")
     concern_considered: str = Field(default="", description="One concern considered")
@@ -282,6 +301,19 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                     "Coder attestation requires at least one changed file in strict mode"
                 )
         elif role == "tester" and isinstance(instance, TesterAttestation):
+            # Mutual exclusion (#2431): tests_execution_blocked and
+            # no_test_changes_needed describe different failure modes —
+            # the former means the tester couldn't run checks; the
+            # latter means it ran them and found nothing new to author.
+            # A proposal that asserts both is incoherent.
+            if instance.tests_execution_blocked and instance.no_test_changes_needed:
+                raise ValueError(
+                    "Tester attestation has both tests_execution_blocked=true and "
+                    "no_test_changes_needed=true — these are mutually exclusive. "
+                    "Pick one: 'blocked' means the configured checks could not run; "
+                    "'no_test_changes_needed' means they ran and passed but the slice "
+                    "warrants no new tests."
+                )
             if instance.tests_execution_blocked:
                 if not instance.tests_execution_blocked_reason:
                     raise ValueError(
@@ -294,12 +326,30 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                         "tests_run > 0 — these are mutually exclusive. If some tests "
                         "ran, set tests_execution_blocked=false and report normally"
                     )
+            elif instance.no_test_changes_needed:
+                # No-op propose path for refactor / doc-only slices (#2431).
+                # The tester still ran the configured checks (checks_passed
+                # is required below); it just authored no new tests.
+                if not instance.no_test_changes_reason.strip():
+                    raise ValueError(
+                        "Tester attestation requires no_test_changes_reason "
+                        "when no_test_changes_needed is true. Explain why the "
+                        "slice warrants no new tests (e.g. 'pure refactor: "
+                        "symbol moves, no behavior change; existing test "
+                        "coverage applies')."
+                    )
             elif instance.tests_run == 0:
-                raise ValueError("Tester attestation requires tests_run > 0 in strict mode")
-            # Require checks_passed to be populated when tests actually ran —
-            # the tester must report which configured checks passed
-            # (issues #1459, #1467).  Skip when tests_execution_blocked
-            # since the tester may not have been able to run any checks.
+                raise ValueError(
+                    "Tester attestation requires tests_run > 0 in strict mode. "
+                    "If the slice is a pure refactor or doc-only change with no "
+                    "new tests warranted, set no_test_changes_needed=true and "
+                    "populate no_test_changes_reason instead."
+                )
+            # Require checks_passed to be populated when the tester ran
+            # the configured checks — covers both the normal path and
+            # the no_test_changes_needed path. Skip only when
+            # tests_execution_blocked since the tester may not have been
+            # able to run any checks (issues #1459, #1467, #2431).
             if not instance.tests_execution_blocked and not instance.checks_passed:
                 raise ValueError(
                     "Tester attestation requires checks_passed to list the checks that "

@@ -3020,6 +3020,18 @@ class TestProducerOrientation:
         assert "tasks[].files" in orient
         assert "acceptance criteria" in orient.lower()
 
+    def test_tester_orientation_directs_no_op_propose_for_refactor(self):
+        """Tester orientation tells tester to use the no-op propose path on
+        slices that warrant no new tests, instead of heartbeating forever
+        and deadlocking BRC consensus (#2431).
+        """
+        orient = _build_producer_orientation("tester", "implement", [])
+        assert "no_test_changes_needed" in orient
+        # Must explicitly tell the tester they MUST propose even on no-op
+        # slices — silent waiting is the bug.
+        assert "MUST propose" in orient
+        assert "deadlock" in orient.lower()
+
     def test_documenter_checks_doc_structure(self):
         """Documenter orientation includes checking documentation structure."""
         orient = _build_producer_orientation("documenter", "implement", [])

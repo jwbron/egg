@@ -42,12 +42,13 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 On orchestrator restart, orphaned container state is automatically recovered:
 
 1. **RUNNING pipelines**: For each pipeline showing `status=RUNNING`, the reconciliation process recovers orphaned state:
-   - **Un-spawned PENDING phase** (crash-between-submit-and-spawn): If the current phase is `PENDING` with `started_at=None` and no containers or agents, the orchestrator crashed before `_run_pipeline` reached `executor.spawn_all`. The pipeline is immediately marked `FAILED` with an actionable message; no container scanning is performed for this pipeline. Operators restart via `POST /pipelines/{id}/start`.
-   - Scans only the **current phase** for stale containers. This applies when the phase has containers or agents — the un-spawned PENDING case above is handled separately. Containers from prior phases are intentionally terminated and their absence is expected — checking all phases caused false `FAILED` transitions when the orchestrator restarted mid-pipeline.
+   - **Un-spawned PENDING phase** (crash-between-submit-and-spawn): If the current phase is `PENDING` with `started_at=None` and no containers or agents, the orchestrator crashed before `_run_pipeline` reached `executor.spawn_all`. The pipeline is immediately marked `FAILED` with an actionable message; no container scanning is performed for this pipeline. Operators restart via `POST /pipelines/{id}/start` (the `start_pipeline` MCP tool).
+   - **Live-pod safety net** (#2411): before any stale-record scan, queries Kubernetes for pods labeled `egg.pipeline.id=<id>`. If **any** pods are alive for the pipeline, it is left `RUNNING` and the per-agent scan below is skipped — record drift between persisted state and the new orchestrator process's view of pods is expected after a restart and is reconciled by the running orchestrator. If the pod query itself fails, the pipeline is also left `RUNNING` (fail-safe: defer to the running orchestrator's reconciliation rather than risk a false-positive `FAILED` transition). Only when the pipeline has **zero live pods** does reconciliation fall through to the per-agent stale scan below.
+   - **Stale-record scan scope** (zero-live-pod path only): scans only the **current phase** for stale containers. This applies when the phase has containers or agents — the un-spawned PENDING case above is handled separately. Containers from prior phases are intentionally terminated and their absence is expected — checking all phases caused false `FAILED` transitions when the orchestrator restarted mid-pipeline.
    - Any agent in the current phase whose pod is absent from the live Kubernetes pod set is marked `FAILED`.
    - If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
 
-2. **AWAITING_HUMAN pipelines**: For each pipeline showing `status=AWAITING_HUMAN` with no pending decisions (orphaned after a restart where the decision was already resolved), the pipeline is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`. The restart endpoint will automatically recover by parsing the latest phase_gate resolution and either advancing to the next phase (approved) or resetting the current phase for re-run (request_changes/change_approach).
+2. **AWAITING_HUMAN pipelines**: For each pipeline showing `status=AWAITING_HUMAN` with no pending decisions (orphaned after a restart where the decision was already resolved), the pipeline is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start` (the `start_pipeline` MCP tool). The restart endpoint will automatically recover by parsing the latest phase_gate resolution and either advancing to the next phase (approved) or resetting the current phase for re-run (request_changes/change_approach).
 
 3. **Concurrent pipeline consensus trackers**: For each `RUNNING` pipeline (i.e., those not already marked `FAILED` by step 1) in a concurrent phase, the in-memory `PeerConsensusTracker` (which does not persist to disk) is reconstructed by replaying `CONSENSUS_*` messages from the message store in timestamp order. This allows agents that are mid-consensus to resume correctly after a restart rather than looping. Reconstruction is best-effort — if no consensus messages are found, the tracker is left absent and agents will encounter an empty consensus state (handled by the wrapper's message-bus fallback).
 
@@ -179,7 +180,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 **Architecture:**
 - Gateway creates worktrees at `/home/egg/.egg-worktrees/{job-name}/{repo-name}/` (one per agent)
 - Each agent pod mounts its own worktree via hostPath and writes artifacts to it
-- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}`)
+- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}/work` since #2399; babysit-pr uses the existing PR head branch)
 - Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
 - Worktree paths are resolved dynamically based on Job name and repository
 
@@ -474,13 +475,13 @@ NetworkPolicies (enforced by Calico CNI):
 - `GET /health` - MCP server health check
 - `POST /mcp` - Streamable HTTP transport endpoint (MCP protocol via JSON-RPC)
 
-Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
+Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `get_contract`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
 
 Blocking host-side waits run via the `egg-orch pipeline wait-status` Bash CLI rather than an MCP tool (issue [#2211](https://github.com/jwbron/egg/issues/2211)). The CLI loops the orchestrator's `/api/v1/pipelines/<id>/status/wait` route server-side and emits one JSON-line per pipeline-relevant event. See [Host-Side Waits](../reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the envelope, exit-code contract, and cursor protocol. The route itself stays — the CLI is a wrapper.
 
-Available MCP tools (gateway-backed, requires `gateway_url`): `list_checkpoints`, `search_checkpoints`, `get_contract`
+Available MCP tools (gateway-backed, requires `gateway_url`): `list_checkpoints`, `search_checkpoints`
 
-The gateway-backed checkpoint tools (`list_checkpoints`, `search_checkpoints`) accept an optional `repo` parameter to specify the checkpoint repository in `owner/repo` format (e.g., `owner/repo-checkpoints`). When provided, this is forwarded as the `source_repo` query parameter to the gateway checkpoint endpoint. The `get_contract` tool also uses the gateway session but does not require the `repo` parameter.
+The gateway-backed checkpoint tools (`list_checkpoints`, `search_checkpoints`) accept an optional `repo` parameter to specify the checkpoint repository in `owner/repo` format (e.g., `owner/repo-checkpoints`). When provided, this is forwarded as the `source_repo` query parameter to the gateway checkpoint endpoint.
 
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.
