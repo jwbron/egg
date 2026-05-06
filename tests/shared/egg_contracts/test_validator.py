@@ -241,6 +241,13 @@ class TestApplyMutation:
 
         assert result.success is True
         assert result.audit_entry.action == AuditAction.TRANSITION
+        # The normalisation in validator.py converts PipelinePhase -> str so
+        # downstream consumers see a plain string. Asserting type() (rather than
+        # equality) is required because PipelinePhase is a StrEnum and would
+        # compare equal to "implement" even without normalisation.
+        assert type(result.audit_entry.old_value) is str
+        assert type(result.audit_entry.new_value) is str
+        assert not isinstance(result.audit_entry.new_value, PipelinePhase)
         assert result.audit_entry.old_value == "plan"
         assert result.audit_entry.new_value == "implement"
 
