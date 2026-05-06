@@ -1103,6 +1103,51 @@ class TestCountLivePodsForPipelinePredicate:
 
         assert result is None
 
+    def test_quiet_suppresses_helper_warning(self):
+        """``quiet=True`` (used by the guard's ``force=true`` branch)
+        suppresses the helper-level warning so the audit log doesn't
+        carry two near-identical warnings on the same override (#2436
+        re-review observation 2)."""
+        from routes.pipelines import _count_live_pods_for_pipeline
+
+        backend = MagicMock()
+        backend.list_containers.side_effect = RuntimeError("k8s api unreachable")
+        spawner = MagicMock()
+        spawner.backend = backend
+
+        with (
+            patch("routes.pipelines._get_spawner", return_value=spawner),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            result = _count_live_pods_for_pipeline("issue-42", quiet=True)
+
+        assert result is None
+        mock_logger.warning.assert_not_called()
+
+    def test_loud_default_emits_helper_warning(self):
+        """The non-override caller path keeps the helper-level warning so
+        operators have visibility into label-query failures even when the
+        guard's own audit context is absent (e.g. the no-force path that
+        returns 409 ``live_pod_check_failed`` instead of logging)."""
+        from routes.pipelines import _count_live_pods_for_pipeline
+
+        backend = MagicMock()
+        backend.list_containers.side_effect = RuntimeError("k8s api unreachable")
+        spawner = MagicMock()
+        spawner.backend = backend
+
+        with (
+            patch("routes.pipelines._get_spawner", return_value=spawner),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            result = _count_live_pods_for_pipeline("issue-42")  # no quiet kwarg
+
+        assert result is None
+        # Exactly one helper-level warning, citing the failed label query.
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert "live-pod check failed" in call_args.args[0]
+
 
 class TestStartPipelineForceBooleanStrictness:
     """``force`` is a strict-boolean check: ``body.get("force") is True``.

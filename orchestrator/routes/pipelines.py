@@ -935,7 +935,7 @@ _LIVE_POD_STATUSES: tuple[ContainerStatus, ...] = (
 )
 
 
-def _count_live_pods_for_pipeline(pipeline_id: str) -> int | None:
+def _count_live_pods_for_pipeline(pipeline_id: str, *, quiet: bool = False) -> int | None:
     """Count live pods labeled to this pipeline (#2420).
 
     Live = ``ContainerStatus`` in :data:`_LIVE_POD_STATUSES` (Pending /
@@ -947,6 +947,11 @@ def _count_live_pods_for_pipeline(pipeline_id: str) -> int | None:
     Returns the number of live pods, or ``None`` if the label query failed —
     callers must distinguish "verified zero" from "unknown" because the
     start_pipeline reset would orphan any pods we couldn't see.
+
+    ``quiet=True`` suppresses the helper-level warning when the label query
+    fails. The guard's ``force=true`` branch passes this flag because it
+    emits its own structured audit log on the ``live is None`` path; the
+    helper's warning would just duplicate it.
     """
     try:
         spawner = _get_spawner()
@@ -955,11 +960,12 @@ def _count_live_pods_for_pipeline(pipeline_id: str) -> int | None:
         )
         return sum(1 for p in pods if p.status in _LIVE_POD_STATUSES)
     except Exception as e:
-        logger.warning(
-            "start_pipeline live-pod check failed",
-            pipeline_id=pipeline_id,
-            error=str(e),
-        )
+        if not quiet:
+            logger.warning(
+                "start_pipeline live-pod check failed",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
         return None
 
 
@@ -976,7 +982,10 @@ def _guard_live_pods_or_force(
     ``force=true``.
     """
     if force:
-        live = _count_live_pods_for_pipeline(pipeline_id)
+        # ``quiet=True`` because the ``live is None`` branch below emits
+        # its own structured audit log; the helper-level warning would
+        # just duplicate it on the override path.
+        live = _count_live_pods_for_pipeline(pipeline_id, quiet=True)
         # Template the audit log so the static message reflects what the
         # override actually did. ``live == 0`` means the override was a
         # no-op — log at ``info`` so it doesn't read like a near-miss.
