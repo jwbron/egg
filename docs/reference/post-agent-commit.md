@@ -44,12 +44,14 @@ Since [#2438](https://github.com/jwbron/egg/pull/2438), `cleanup_pipeline` autom
 egg/recovered/<pipeline_id>/<scope>/<short_sha>
 ```
 
-The `<short_sha>` is the HEAD SHA at salvage time, so re-running salvage produces immutable refs rather than force-overwriting earlier ones. Recovery refs are never deleted by the orchestrator — they outlive the pipeline.
+`<scope>` is the worktree's stable scope label: `pipeline` for pipeline-scoped worktrees, `<agent_role>` for role-scoped worktrees (e.g. `coder`), or `<slice_id>-<agent_role>` for slice-scoped worktrees (e.g. `slice-2-coder`). The `<short_sha>` is the first 12 chars of the HEAD SHA at salvage time, so re-running salvage produces a fresh ref when the agent has new commits, rather than force-overwriting the earlier one (a re-run with an unchanged HEAD pushes to the same ref name as a no-op fast-forward). Recovery refs are never deleted by the orchestrator — they outlive the pipeline.
+
+> **Note on assigned-branch reachability.** When `origin/<assigned_branch>` is not reachable (e.g. the branch was never pushed), the enumeration falls back to `origin/<base_branch>`, then to a HEAD-only cap of 200 commits — so the salvage report is best-effort, not strictly the diff against the assigned branch.
 
 **To locate all salvaged commits for a pipeline:**
 
 ```bash
-git ls-remote origin 'refs/heads/egg/recovered/<pipeline>/*'
+git ls-remote origin 'egg/recovered/<pipeline>/*'
 ```
 
 **To replay onto a recovery branch:**
@@ -68,7 +70,7 @@ Two MCP tools let operators triage and trigger salvage manually, before or inste
 | `list_agent_local_commits` | No | List unpushed commits in every per-agent worktree for a pipeline. Scoped by `agent_role` and/or `slice_id`. |
 | `salvage_agent_commits` | Yes (pushes to origin) | Push unpushed commits to `egg/recovered/...` refs using orchestrator launcher auth, which bypasses the agent-targeted allowlist that rejected the original push. |
 
-**Example — triage before cleanup:**
+**Example — triage before cleanup** (called from a sandboxed agent or operator MCP client; the MCP transport handles tool registration):
 
 ```python
 # Check what would be lost
