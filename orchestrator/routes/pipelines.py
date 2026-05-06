@@ -9089,7 +9089,11 @@ def _build_reviewer_preparation(
                 "once producers propose. When reviewing the tester's proposal, "
                 "scrutinize the attestation for `tests_run` and "
                 "`tests_execution_blocked`: `tests_execution_blocked: true` is a "
-                "blocking concern unless clearly documented."
+                "blocking concern unless clearly documented. "
+                "If the tester reports `no_test_changes_needed: true`, walk the "
+                "diff and confirm it is genuinely behavior-preserving (symbol "
+                "moves, doc-only, etc.) before ACKing — the no-op propose path "
+                "is only valid when the slice truly warrants no new tests (#2431)."
             )
         if role_value == "reviewer_code_holistic":
             return (
@@ -9148,7 +9152,11 @@ def _build_reviewer_preparation(
                 "this is a blocking concern — NACK unless the limitation is clearly "
                 "documented and the tests are syntactically valid. "
                 "Also scrutinize low `tests_run` counts relative to change scope — "
-                "a multi-file change with only 1 test run warrants investigation."
+                "a multi-file change with only 1 test run warrants investigation. "
+                "If the tester reports `no_test_changes_needed: true`, walk the diff "
+                "and confirm it is genuinely behavior-preserving (symbol moves, "
+                "doc-only, etc.) before ACKing — the no-op propose path is only "
+                "valid when the slice truly warrants no new tests (#2431)."
             )
         elif role_value == "reviewer_code_holistic":
             return (
@@ -9762,6 +9770,14 @@ def _build_agent_prompt(
             "in your attestation when proposing consensus",
             '2. Include an explicit **"TESTS UNVERIFIED"** warning in your proposal summary',
             '3. Do NOT claim your work is "complete" — state that tests are written but unverified',
+            "",
+            "**Picking between `tests_execution_blocked` and `no_test_changes_needed`** "
+            "(see the no-op section above): if the slice warrants no new tests *and* "
+            "the configured checks could not run, prefer the blocked path — "
+            "`tests_execution_blocked` reports lower confidence than "
+            "`no_test_changes_needed` and is the more conservative claim. The two "
+            "flags are mutually exclusive; the orchestrator and pre-flight both "
+            "reject a proposal that asserts both.",
             "",
         ]
         if network_mode == "private":

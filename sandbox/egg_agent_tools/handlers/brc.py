@@ -119,9 +119,10 @@ _BOOL_FALSE_STRINGS = frozenset({"false", "no", "off", "0", "f", "n"})
 def _coerce_attestation_bool(value: Any, *, field: str) -> bool:
     """Coerce a JSON-ish value to bool, matching Pydantic v2's lax rules.
 
-    Used for ``tests_execution_blocked`` so pre-flight's verdict matches
-    the orchestrator's Pydantic parse step. Without this, a string like
-    ``"false"`` is truthy under Python's ``bool()`` (non-empty string)
+    Used for the tester attestation's bool fields — ``tests_execution_blocked``
+    and (since #2431) ``no_test_changes_needed`` — so pre-flight's verdict
+    matches the orchestrator's Pydantic parse step. Without this, a string
+    like ``"false"`` is truthy under Python's ``bool()`` (non-empty string)
     but parses to ``False`` in Pydantic — pre-flight would reject a
     payload the orchestrator would accept.
     """
@@ -255,9 +256,12 @@ def _validate_tester_attestation_pre_flight(attestation: dict[str, Any]) -> None
     locally instead of the orchestrator accepting an obscure type):
 
     - ``checks_passed`` as a tuple (Pydantic coerces to list).
-    - ``tests_execution_blocked`` as ``0.0``/``1.0`` float, ``b"true"``
-      bytes, or other Pydantic-lax bool inputs not in
-      ``_BOOL_TRUE_STRINGS`` / ``_BOOL_FALSE_STRINGS``.
+    - ``tests_execution_blocked`` and ``no_test_changes_needed`` as
+      ``0.0``/``1.0`` float, ``b"true"`` bytes, or other Pydantic-lax
+      bool inputs not in ``_BOOL_TRUE_STRINGS`` /
+      ``_BOOL_FALSE_STRINGS`` — both fields share
+      ``_coerce_attestation_bool``, so the divergence applies
+      symmetrically.
     - ``tests_run`` as a stringified non-integer float (e.g. ``"1.0"``)
       — Pydantic v2 accepts via float-then-int; pre-flight requires
       the string to parse straight to int.
