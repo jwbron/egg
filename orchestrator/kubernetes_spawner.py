@@ -1030,6 +1030,33 @@ class KubernetesSpawner:
                     error=str(e),
                 )
 
+        # Auto-salvage unpushed agent commits before deleting worktrees
+        # (#2429). Best-effort: any failure logs and continues so cleanup
+        # cannot be blocked by salvage. The default policy here used to
+        # be silent loss when an agent's pushes were wedged — this hook
+        # makes the default policy "push to egg/recovered/<pipeline>/...
+        # then delete" so salvageable work is always reachable from
+        # origin before the worktree filesystem state is gone.
+        try:
+            try:
+                from agent_salvage import auto_salvage_pipeline
+            except ImportError:
+                from orchestrator.agent_salvage import (  # type: ignore[no-redef]
+                    auto_salvage_pipeline,
+                )
+
+            auto_salvage_pipeline(
+                self.gateway,
+                pipeline_id,
+                worktree_filter=worktree_ids_to_clean,
+            )
+        except Exception as e:
+            logger.warning(
+                "Auto-salvage failed during cleanup; proceeding with worktree deletion",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
         for wt_id in worktree_ids_to_clean:
             try:
                 self.gateway.delete_worktrees(container_id=wt_id, force=True)

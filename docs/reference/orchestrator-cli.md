@@ -322,6 +322,19 @@ curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase/complete \
   -d '{"force": true, "force_reason": "Manual recovery: decision stale"}'
 ```
 
+## Salvage MCP Tools
+
+Two MCP tools recover unpushed agent commits before `cleanup_pipeline` deletes the worktree (see [#2429](https://github.com/jwbron/egg/issues/2429); architecture in [Agent Recovery: Salvaging Unpushed Local Commits](agent-recovery.md#salvaging-unpushed-local-commits)).
+
+| MCP Tool | REST Endpoint | Description |
+|----------|---------------|-------------|
+| `list_agent_local_commits` | `GET /pipelines/{id}/local-commits` | Read-only enumeration of commits on each per-agent worktree's local `egg/{worktree_id}/work` branch that are not reachable from `origin/<assigned_branch>` (with `origin/<base_branch>` fallback). No fetch, no push. Optional `agent_role` and `slice_id` filters narrow the scope to one worktree |
+| `salvage_agent_commits` | `POST /pipelines/{id}/salvage` | Push the worktree's HEAD to `egg/recovered/{pipeline_id}/{scope}/{short_sha}` via launcher auth. Launcher auth bypasses the agent-targeted branch-allowlist check, so this works to recover work even when the agent's own pushes were the thing that wedged. Returns per-worktree results — failure of one worktree never blocks others. The recovery-ref name embeds the HEAD short SHA so re-salvages produce immutable refs instead of force-overwriting earlier ones |
+
+`cleanup_pipeline` runs salvage automatically before deleting any worktree (best-effort; failures are logged and never block cleanup). The MCP tools are for explicit operator-driven recovery — typically before `cancel_task(cleanup=true)` on a pipeline whose pushes are wedged.
+
+After salvage, recover the work with `git ls-remote origin 'refs/heads/egg/recovered/<pipeline-id>/*'`, then `git fetch` + `git cherry-pick`.
+
 ## BRC Consensus Protocol
 
 The BRC (Broadcast-Review-Converge) protocol is used during concurrent execution for multi-agent consensus. All protocol actions are gated by formal **action guards** defined in `orchestrator/action_guards.py` — see [Concurrent Execution — Action Guards](../guides/concurrent-execution.md#action-guards) for the complete guard table.
