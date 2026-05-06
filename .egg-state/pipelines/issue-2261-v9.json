@@ -894,10 +894,10 @@
         {
           "container_id": "5264e4a3-4260-4b80-9758-4a8721b5544b",
           "container_name": "egg-sandbox-egg-agent-issue-2261-v9-slice-7-reviewer-c-1f18cc9c",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-06T01:34:21.085526Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-06T01:37:20Z",
+          "exit_code": 1,
           "agent_role": "reviewer_concurrency",
           "session_token": null,
           "pod_name": null,
@@ -1727,14 +1727,14 @@
         },
         {
           "role": "reviewer_concurrency",
-          "status": "running",
+          "status": "failed",
           "container_id": "5264e4a3-4260-4b80-9758-4a8721b5544b",
           "container_info": null,
           "started_at": "2026-05-06T01:34:21.085528Z",
-          "completed_at": null,
+          "completed_at": "2026-05-06T01:38:40.047861Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -9162,6 +9162,51 @@
           ],
           "terminated_at": "2026-05-06T01:38:39.553621Z",
           "container_id": "2317c624-6fd6-4406-944a-e485495c4a7b"
+        },
+        {
+          "role": "reviewer_concurrency",
+          "exit_code": 1,
+          "last_lines": [
+            "2026-05-06 01:33:59 [INFO    ] egg-agent: Registered egg MCP tools event_type=system event_subtype=mcp_tools_enabled flag=EGG_MCP_TOOLS namespaces=\"['sdlc', 'brc', 'checkpoint', 'phase', 'progress', 'task']\" [/opt/egg-runtime/shared/egg_agent/client.py:265]",
+            "2026-05-06 01:33:59 [INFO    ] egg-agent: Agent session init event_type=system event_subtype=init model=opus cwd=/home/egg/repos/egg permission_mode=bypassPermissions max_turns=1000 timeout=7200 setting_sources=\"['project', 'user']\" disallowed_tools=[] sdk=claude_agent_sdk [/opt/egg-runtime/shared/egg_agent/client.py:289]",
+            "2026-05-06 01:34:01 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 3:10am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:340]",
+            "2026-05-06 01:34:01 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=<synthetic> session_id=bdbec27d-d504-40a5-8a1e-d28b1527480f cost_usd=0 num_turns=1 duration_ms=1069 success=False error=\"You've hit your limit · resets 3:10am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:391]",
+            "an error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xfffee388d7d0>",
+            "asyncgen: <async_generator object InternalClient._process_query_inner at 0xfffee388d7d0>",
+            "RuntimeError: aclose(): asynchronous generator is already running",
+            "You've hit your limit · resets 3:10am (UTC)",
+            "[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...",
+            "[consensus-wrapper] Startup failure (code 1 after 2s, likely transient API/network error). Will restart with backoff.",
+            "[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...",
+            "[consensus-wrapper] Backoff: sleeping 5s before restart...",
+            "[consensus-wrapper] Agent exited without BRC consensus. Restarting (1/2)...",
+            "2026-05-06 01:35:20 [INFO    ] egg-agent: Registered egg MCP tools event_type=system event_subtype=mcp_tools_enabled flag=EGG_MCP_TOOLS namespaces=\"['sdlc', 'brc', 'checkpoint', 'phase', 'progress', 'task']\" [/opt/egg-runtime/shared/egg_agent/client.py:265]",
+            "2026-05-06 01:35:20 [INFO    ] egg-agent: Agent session init event_type=system event_subtype=init model=opus cwd=/home/egg/repos/egg permission_mode=bypassPermissions max_turns=1000 timeout=7200 setting_sources=\"['project', 'user']\" disallowed_tools=[] sdk=claude_agent_sdk [/opt/egg-runtime/shared/egg_agent/client.py:289]",
+            "2026-05-06 01:35:21 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 3:10am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:340]",
+            "2026-05-06 01:35:21 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=<synthetic> session_id=2eec40eb-59d0-438f-a428-f6ac56a0d0b0 cost_usd=0 num_turns=1 duration_ms=656 success=False error=\"You've hit your limit · resets 3:10am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:391]",
+            "an error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff722ed7d0>",
+            "asyncgen: <async_generator object InternalClient._process_query_inner at 0xffff722ed7d0>",
+            "RuntimeError: aclose(): asynchronous generator is already running",
+            "You've hit your limit · resets 3:10am (UTC)",
+            "[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...",
+            "[consensus-wrapper] Startup failure on restart 1 (code 1 after 1s). Will retry.",
+            "[consensus-wrapper] Backoff: sleeping 10s before restart...",
+            "[consensus-wrapper] Agent exited without BRC consensus. Restarting (2/2)...",
+            "2026-05-06 01:36:33 [INFO    ] egg-agent: Registered egg MCP tools event_type=system event_subtype=mcp_tools_enabled flag=EGG_MCP_TOOLS namespaces=\"['sdlc', 'brc', 'checkpoint', 'phase', 'progress', 'task']\" [/opt/egg-runtime/shared/egg_agent/client.py:265]",
+            "2026-05-06 01:36:33 [INFO    ] egg-agent: Agent session init event_type=system event_subtype=init model=opus cwd=/home/egg/repos/egg permission_mode=bypassPermissions max_turns=1000 timeout=7200 setting_sources=\"['project', 'user']\" disallowed_tools=[] sdk=claude_agent_sdk [/opt/egg-runtime/shared/egg_agent/client.py:289]",
+            "2026-05-06 01:36:34 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 3:10am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:340]",
+            "2026-05-06 01:36:34 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=<synthetic> session_id=9c5d5e08-de75-48e9-bcef-ba6aff4c15ae cost_usd=0 num_turns=1 duration_ms=369 success=False error=\"You've hit your limit · resets 3:10am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:391]",
+            "an error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff9475d7d0>",
+            "asyncgen: <async_generator object InternalClient._process_query_inner at 0xffff9475d7d0>",
+            "RuntimeError: aclose(): asynchronous generator is already running",
+            "You've hit your limit · resets 3:10am (UTC)",
+            "[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...",
+            "[consensus-wrapper] Startup failure on restart 2 (code 1 after 1s). Will retry.",
+            "[consensus-wrapper] Max restarts (2) exhausted. Agent never reached CONFIRMED. Exiting with failure.",
+            "You've hit your limit · resets 3:10am (UTC)You've hit your limit · resets 3:10am (UTC)You've hit your limit · resets 3:10am (UTC)You've hit your limit · resets 3:10am (UTC)You've hit your limit · resets 3:10am (UTC)You've hit your limit · resets 3:10am (UTC)"
+          ],
+          "terminated_at": "2026-05-06T01:38:40.047909Z",
+          "container_id": "5264e4a3-4260-4b80-9758-4a8721b5544b"
         }
       ]
     }
@@ -9241,7 +9286,7 @@
     }
   ],
   "created_at": "2026-05-06T00:19:00.703221Z",
-  "updated_at": "2026-05-06T01:38:39.554779Z",
+  "updated_at": "2026-05-06T01:38:40.048286Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -9255,6 +9300,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 69,
+  "version": 70,
   "jira_ticket": null
 }
