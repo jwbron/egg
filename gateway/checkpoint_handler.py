@@ -1413,9 +1413,14 @@ _handler_lock = threading.Lock()
 # shared ``egg/checkpoints/v2`` branch (e.g. multiple agents from
 # different repos all targeting ``jwbron/egg-checkpoints``) serialize
 # their fetch + commit + push sequence. When ``checkpoint_repo`` is
-# unset, fall back to the source ``repo_path`` so same-source-repo
-# writers still serialize on local ``.git/worktrees`` state.
-# See #2069 (per-source-repo origin) and #2316 (target-keyed).
+# unset, the key is the caller's ``repo_path``; after the worktree-
+# per-agent rollout that is a worktree path, so this fallback only
+# serializes in-process callers that share the *same* worktree.
+# Cross-worktree serialization on local ``.git/worktrees`` state lives
+# in ``bare_repo_lock``, which resolves any worktree path onto the
+# underlying main repo (#2452 / PR #2456).
+# See #2069 (per-source-repo origin), #2316 (target-keyed), #2452
+# (bare_repo_lock worktree resolution).
 _store_locks: dict[str, threading.Lock] = {}
 _store_locks_guard = threading.Lock()
 
@@ -1428,9 +1433,16 @@ def _get_store_lock(key: str) -> Generator[None]:
     serialization.  When ``checkpoint_repo`` is set, callers pass it as
     ``key`` so cross-source-repo writers contending on the same shared
     ``egg/checkpoints/v2`` branch serialize their fetch + commit + push
-    sequence (#2316).  When unset, callers fall back to ``repo_path``
-    so same-source-repo writers still serialize on local
-    ``.git/worktrees`` state (#2069).  The destination key only
+    sequence (#2316).  When unset, callers fall back to ``repo_path``;
+    after the worktree-per-agent rollout that is a worktree path, so
+    two agents on the same main repo pass *different* keys and acquire
+    *different* locks here.  This fallback now only serializes in-
+    process callers that share the *same* worktree path (e.g. multiple
+    async tasks on a single agent); cross-worktree serialization on
+    local ``.git/worktrees`` state — what #2069 originally relied on —
+    lives in ``bare_repo_lock``, which resolves any worktree path to
+    its underlying main repo so all worktrees of the same repo flock
+    the same inode (#2452 / PR #2456).  The destination key also only
     synchronizes within a *single gateway process* — multiple gateway
     pods writing to the same ``checkpoint_repo`` race past this lock,
     and the regenerate-on-non-FF retry in ``store_checkpoint_v2`` is
