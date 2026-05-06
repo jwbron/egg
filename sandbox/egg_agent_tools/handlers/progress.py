@@ -138,7 +138,12 @@ def progress_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
     pid = _require_pipeline_id(req)
     role = _require_role(req)
 
-    data = {"signal_type": "heartbeat", "agent_role": role}
+    data: dict[str, Any] = {"signal_type": "heartbeat", "agent_role": role}
+    # ``handle_heartbeat_signal`` is a no-op consumer today (#2473), but
+    # any future change that slice-scopes per-role liveness would otherwise
+    # silently treat this as pipeline-level. Forward for consistency with
+    # ``progress_signal_error``.
+    _maybe_attach_slice_id(req, data)
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "heartbeat failed"))

@@ -134,6 +134,35 @@ class TestProgressHeartbeat:
             with pytest.raises(GatewayError):
                 progress.progress_heartbeat({"pipeline_id": "p", "role": "r"})
 
+    def test_attaches_slice_id_from_env(self, monkeypatch):
+        # #2473: heartbeat must mirror progress_signal_error's slice_id
+        # forwarding so a future slice-scoped consumer can route correctly.
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-3")
+        with patch(
+            "egg_agent_tools.handlers.progress.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ) as req:
+            progress.progress_heartbeat({"pipeline_id": "p", "role": "coder"})
+        assert req.call_args.kwargs["data"]["slice_id"] == "slice-3"
+
+    def test_omits_slice_id_when_unset(self, monkeypatch):
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        with patch(
+            "egg_agent_tools.handlers.progress.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ) as req:
+            progress.progress_heartbeat({"pipeline_id": "p", "role": "coder"})
+        assert "slice_id" not in req.call_args.kwargs["data"]
+
+    def test_invalid_slice_id_rejected(self, monkeypatch):
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-2/../etc")
+        with patch(
+            "egg_agent_tools.handlers.progress.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ):
+            with pytest.raises(HandlerError, match="slice_id"):
+                progress.progress_heartbeat({"pipeline_id": "p", "role": "coder"})
+
 
 # ---------------------------------------------------------------------------
 # Iter-2 (#1917): progress_overseer_alert + progress_query_status
