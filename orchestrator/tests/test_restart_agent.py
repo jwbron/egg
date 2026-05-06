@@ -12,6 +12,7 @@ Covers:
 
 import threading
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1025,8 +1026,59 @@ class TestRestartAgentEndpointSliceScope:
         )
 
         assert response.status_code == 200
+        # Lock in the "gate ran AND accepted" intent: without this assertion
+        # the test would pass identically whether the gate executed or fell
+        # through silently on a fast-path skip. ``load_contract`` may also
+        # be invoked downstream by the spawner flow, so we verify the gate's
+        # specific call rather than the total count.
+        mock_load_contract.assert_any_call(100, Path("/repo"))
         restart_call = mock_spawner.restart_agent_container.call_args
         assert restart_call.kwargs["slice_id"] == "slice-2"
+
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_slice_id_rejected_for_pipeline_without_contract(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_load_contract,
+        client,
+    ):
+        """``slice_id`` is rejected for pipelines with ``has_contract=False`` (#2421).
+
+        BABYSIT and CUSTOM+PR pipelines are not slice-aware (no
+        contract = no slices), so any non-``None`` ``slice_id`` against
+        them is by definition unknown. Rejecting outright also avoids a
+        wasted ``resolve_worktree_path`` + ``load_contract`` call that
+        would always raise ``ContractNotFoundError``.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.has_contract = False
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-1",
+            json={},
+        )
+
+        assert response.status_code == 404
+        body = response.get_json()
+        assert body["success"] is False
+        assert "slice-1" in body["message"]
+        assert body["details"]["slice_id"] == "slice-1"
+        assert body["details"]["known_slices"] == []
+        # Fast-path: no contract load attempted, no spawner call.
+        mock_load_contract.assert_not_called()
+        mock_spawner.restart_agent_container.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

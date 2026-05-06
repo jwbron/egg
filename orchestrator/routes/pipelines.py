@@ -2341,17 +2341,36 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # ``slice_id`` would otherwise spawn an orphan Job + worktree
     # the rest of the system has no record of. The shape regex in
     # ``extract_slice_id`` only catches malformed values; only the
-    # contract knows which slices the pipeline actually has. Skip
-    # silently when the contract isn't loadable (e.g. worktree pruned
-    # for a CANCELLED pipeline) so we don't regress legitimate
-    # restarts on the existing pipeline-level path.
+    # contract knows which slices the pipeline actually has.
+    #
+    # Pipelines without a contract (BABYSIT, CUSTOM+PR) are not
+    # slice-aware, so any non-``None`` ``slice_id`` targeting them is
+    # by definition unknown — reject outright. For contracted
+    # pipelines, load the contract and check membership; fall through
+    # silently if the contract can't be loaded (worktree pruned,
+    # contract not yet populated, filesystem error) so we don't
+    # regress legitimate restarts on the existing pipeline-level path.
     if slice_id is not None:
+        if not pipeline.has_contract:
+            return make_error_response(
+                f"slice_id {slice_id!r} is invalid for pipeline "
+                f"{pipeline_id} (pipeline has no contract; not slice-aware)",
+                status_code=404,
+                details={
+                    "slice_id": slice_id,
+                    "known_slices": [],
+                },
+            )
         try:
-            from egg_contracts.loader import load_contract
+            from egg_contracts.loader import (
+                ContractNotFoundError,
+                ContractValidationError,
+                load_contract,
+            )
             from routes import resolve_worktree_path
         except ImportError:
             logger.warning(
-                "egg_contracts unavailable; skipping slice_id existence check",
+                "Required modules unavailable; skipping slice_id existence check",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
             )
@@ -2360,12 +2379,18 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             try:
                 worktree_path = resolve_worktree_path(pipeline_id, Path(repo_path))
                 contract_id = _pipeline_identifier(pipeline.issue_number, pipeline_id)
-                contract = load_contract(contract_id, worktree_path)
-            except Exception as exc:  # noqa: BLE001 — best-effort gate
-                # Worktree pruned, contract not yet populated, or filesystem
-                # error: log and fall through. The reviewer's #2421 ask was
-                # to catch the easy "wrong slice_id" case, not to gate
-                # restarts on contract reachability.
+                try:
+                    contract = load_contract(contract_id, worktree_path)
+                except ContractNotFoundError:
+                    # Contract not yet populated — fall through silently.
+                    contract = None
+            except (OSError, ValueError, ContractValidationError) as exc:
+                # Worktree pruned, filesystem failure, or corrupt/invalid
+                # contract JSON: log and fall through. The reviewer's #2421
+                # ask was to catch the easy "wrong slice_id" case, not to
+                # gate restarts on contract reachability. Programmer errors
+                # (AttributeError, TypeError, NameError) are left to
+                # propagate so they surface during development.
                 logger.warning(
                     "Could not load contract for slice_id existence check; allowing restart",
                     pipeline_id=pipeline_id,
