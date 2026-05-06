@@ -2,8 +2,9 @@
 
 Tests cover the 10 new tools added for comprehensive platform interface:
 - check_health, list_containers, get_container_logs, send_message,
-  get_consensus_status, get_phase, get_pipeline_snapshot (orchestrator-backed)
-- list_checkpoints, search_checkpoints, get_contract (gateway-backed)
+  get_consensus_status, get_phase, get_pipeline_snapshot,
+  get_contract (orchestrator-backed)
+- list_checkpoints, search_checkpoints (gateway-backed)
 """
 
 import asyncio
@@ -718,6 +719,25 @@ class TestGetContract:
         assert mock_req.call_args_list[-1][0][0] == (
             "/api/v1/contracts/issue-42?pipeline_id=issue-42"
         )
+
+    def test_contract_fetch_http_error_surfaces_to_caller(self, handler):
+        """A 404 from the orchestrator's contracts route is surfaced to the
+        caller via handle_tool_call's outer catch, not swallowed silently."""
+        http_err = _make_http_error(404, {"error": "Contract not found"})
+        with patch.object(handler, "_make_request", side_effect=http_err):
+            result = handler.handle_tool_call("get_contract", {"task_id": "issue-42-v9"})
+
+        assert "error" in result
+        assert "404" in result["error"]
+
+    def test_contract_fetch_returns_orchestrator_envelope_unchanged(self, handler):
+        """When the orchestrator returns a JSON envelope (success or error
+        dict), the handler passes it through verbatim — no rewrapping."""
+        envelope = {"success": False, "error": "worktree gone", "code": "WORKTREE_MISSING"}
+        with patch.object(handler, "_make_request", return_value=envelope):
+            result = handler.handle_tool_call("get_contract", {"task_id": "issue-42-v9"})
+
+        assert result == envelope
 
 
 class TestGatewayAuth:

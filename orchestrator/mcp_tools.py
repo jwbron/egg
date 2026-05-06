@@ -2472,6 +2472,7 @@ class PipelineToolHandler:
         # resolve the unqualified contract on disk even when a qualified one
         # exists.
         if not pipeline_id:
+            issue_int = int(issue_number)
             try:
                 pipelines_resp = self._make_request("/api/v1/pipelines?active_only=true")
                 # If multiple active pipelines exist for this issue (e.g. a retry
@@ -2480,7 +2481,7 @@ class PipelineToolHandler:
                 # so we scan all matching entries and keep the latest by created_at.
                 best: dict[str, Any] | None = None
                 for p in pipelines_resp.get("data", {}).get("pipelines", []):
-                    if p.get("issue_number") == int(issue_number):
+                    if p.get("issue_number") == issue_int:
                         if best is None or p.get("created_at", "") > best.get("created_at", ""):
                             best = p
                 if best is not None:
@@ -2489,7 +2490,7 @@ class PipelineToolHandler:
                 pass  # best-effort; fall back to canonical issue-<N>
 
             if not pipeline_id:
-                pipeline_id = f"issue-{int(issue_number)}"
+                pipeline_id = f"issue-{issue_int}"
 
         encoded = quote(pipeline_id, safe="")
         url = f"/api/v1/contracts/{encoded}?pipeline_id={encoded}"
