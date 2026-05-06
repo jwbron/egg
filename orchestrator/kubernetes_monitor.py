@@ -746,6 +746,14 @@ class KubernetesMonitor:
                 if phase_key is None:
                     return
 
+                # ``slice_id`` is optional in the health-check details dict
+                # (the consensus_stall check is currently pipeline-level
+                # only, but #2422's audit asks every walker of
+                # ``phase_exec.agents`` to scope by ``(role, slice_id)`` so
+                # the moment it becomes slice-aware this path doesn't flip
+                # other slices' agents to COMPLETE).
+                stall_slice_id = details.get("slice_id")
+
                 fresh_pipeline = store.load_pipeline(pipeline_id)
                 original_version = fresh_pipeline.version
 
@@ -764,6 +772,8 @@ class KubernetesMonitor:
                 now = datetime.now(UTC)
                 completed_container_ids: set[str] = set()
                 for agent in phase_exec.agents:
+                    if getattr(agent, "slice_id", None) != stall_slice_id:
+                        continue
                     if agent.status in (AgentExecutionStatus.RUNNING, AgentExecutionStatus.FAILED):
                         agent.status = AgentExecutionStatus.COMPLETE
                         agent.completed_at = now
@@ -798,6 +808,14 @@ class KubernetesMonitor:
                 if phase_exec.cycle_timings and phase_exec.cycle_timings[-1].completed_at is None:
                     phase_exec.cycle_timings[-1].completed_at = now
 
+                # TODO(#2441): the phase-level mutations below are unconditional
+                # even though the agent walk above is now slice-scoped. Safe
+                # today because ``consensus_stall`` is pipeline-level only and
+                # ``stall_slice_id`` is always ``None`` here, but the moment
+                # the upstream check becomes slice-aware this path will mark
+                # the whole phase COMPLETE while other slices are still
+                # RUNNING. Scope to "no other slice still active" or split
+                # ``phase_exec`` into per-slice status when #2441 lands.
                 phase_exec.status = PipelineStatus.COMPLETE
                 phase_exec.completed_at = now
 

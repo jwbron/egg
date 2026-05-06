@@ -600,6 +600,133 @@ class TestStartPhaseImplementContractPopulation:
         assert len(contract.phases) == 1
         assert len(contract.phases[0].tasks) == 2
 
+    def test_current_phase_advanced_when_explicitly_provided(self, tmp_path: Path):
+        """Regression for #2427 sub-bug: when start_phase=implement, the
+        plan-completion hook never fires, so the safety-net populator must
+        advance ``contract.current_phase`` itself. Without this, the contract
+        sticks at ``refine`` while the pipeline is actually in implement,
+        triggering false "phase tracking mismatch" alerts.
+        """
+        from egg_contracts.loader import create_contract, load_contract
+        from egg_contracts.models import PipelinePhase
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-phase-advance"
+
+        # Default initial_phase is REFINE.
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(
+            tmp_path,
+            pipeline_id,
+            "local",
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.current_phase == PipelinePhase.IMPLEMENT
+        # And slices/tasks were still populated.
+        assert len(contract.phases) == 1
+
+    def test_current_phase_unchanged_when_not_provided(self, tmp_path: Path):
+        """Default behaviour is preserved: callers that don't pass
+        ``current_phase`` (e.g. the natural plan-completion hook, which has
+        already advanced the pipeline elsewhere) leave the contract's
+        current_phase alone.
+        """
+        from egg_contracts.loader import create_contract, load_contract
+        from egg_contracts.models import PipelinePhase
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-phase-untouched"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.current_phase == PipelinePhase.REFINE
+
+    def test_current_phase_does_not_demote(self, tmp_path: Path):
+        """Forward-only guard: a respawn of _run_pipeline (e.g. when a
+        ``start_phase=implement`` pipeline progresses to the PR phase and
+        re-enters the safety-net) must not demote the contract.  If the
+        contract has already advanced to PR, passing IMPLEMENT must be a
+        no-op.
+        """
+        from egg_contracts.loader import create_contract, load_contract, save_contract
+        from egg_contracts.models import PipelinePhase
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-no-demote"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+        contract = load_contract(pipeline_id, tmp_path)
+        contract.current_phase = PipelinePhase.PR
+        save_contract(contract, tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(
+            tmp_path,
+            pipeline_id,
+            "local",
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+
+        contract = load_contract(pipeline_id, tmp_path)
+        # PR was preserved — IMPLEMENT did not silently demote it.
+        assert contract.current_phase == PipelinePhase.PR
+
+    def test_current_phase_advance_appends_audit_entry(self, tmp_path: Path):
+        """Operators inspecting the contract audit log to debug a phase
+        mismatch (which is exactly the situation #2427 surfaced) must see a
+        structured ``current_phase`` transition entry when the populator
+        advances the contract — without this, the transition is invisible.
+        """
+        from egg_contracts.loader import create_contract, load_contract
+        from egg_contracts.models import AuditAction, PipelinePhase
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-audit"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(
+            tmp_path,
+            pipeline_id,
+            "local",
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+
+        contract = load_contract(pipeline_id, tmp_path)
+        transitions = [
+            entry
+            for entry in contract.audit_log
+            if entry.action == AuditAction.TRANSITION and entry.field_path == "current_phase"
+        ]
+        assert len(transitions) == 1
+        assert transitions[0].old_value == PipelinePhase.REFINE.value
+        assert transitions[0].new_value == PipelinePhase.IMPLEMENT.value
+
 
 class TestSourceBranchArtifactWriteToDisk:
     """Source-branch artifacts are written to disk after _read_source_branch_artifacts.

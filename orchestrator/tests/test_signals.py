@@ -504,6 +504,169 @@ class TestAgentAlreadyCompleteSuppression:
         # Contract should have been updated with the error
         mock_orch.fail_agent.assert_called_once()
 
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.resolve_worktree_path")
+    @patch("routes.signals.get_state_store")
+    @patch("routes.signals.load_contract")
+    def test_slice_3_error_not_suppressed_by_slice_2_complete(
+        self,
+        mock_load_contract,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_save_contract,
+        app,
+    ):
+        """slice-3 coder error must not be silently swallowed by a slice-2 coder
+        already-COMPLETE record (#2422). Pre-fix the role-only predicate matched
+        the slice-2 row first and returned ``already_complete``."""
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            AgentRole,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            agents=[
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.COMPLETE,
+                    slice_id="slice-2",
+                ),
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.RUNNING,
+                    slice_id="slice-3",
+                ),
+            ],
+        )
+        pipeline.phases["implement"] = phase_exec
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+        mock_resolve_wt.return_value = Path("/tmp/worktree")
+        mock_load_contract.return_value = MagicMock()
+
+        mock_orch = MagicMock()
+        mock_orch.apply_to_contract.return_value = MagicMock()
+
+        with patch("routes.signals.create_orchestrator", return_value=mock_orch):
+            with app.app_context():
+                from routes.signals import handle_error_signal
+
+                response, status_code = handle_error_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "coder",
+                        "error": "Build failed in slice-3",
+                        "recoverable": False,
+                        "slice_id": "slice-3",
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        data = json.loads(response.data)
+        # slice-3 is RUNNING, so it must NOT be suppressed
+        assert "already_complete" not in data.get("data", {}), (
+            "slice-3 error was suppressed by slice-2's COMPLETE record"
+        )
+        mock_orch.fail_agent.assert_called_once()
+
+    @patch("routes.signals.get_state_store")
+    def test_slice_3_error_suppressed_when_slice_3_complete(
+        self,
+        mock_get_store,
+        app,
+    ):
+        """slice-3 coder COMPLETE → slice-3 coder error is suppressed (positive case)."""
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            AgentRole,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            agents=[
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.RUNNING,
+                    slice_id="slice-2",
+                ),
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.COMPLETE,
+                    slice_id="slice-3",
+                ),
+            ],
+        )
+        pipeline.phases["implement"] = phase_exec
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+
+        with app.app_context():
+            from routes.signals import handle_error_signal
+
+            response, status_code = handle_error_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "error": "post-consensus SIGTERM",
+                    "recoverable": False,
+                    "slice_id": "slice-3",
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200
+        data = json.loads(response.data)
+        assert data["data"]["already_complete"] is True
+
+    def test_invalid_slice_id_returns_400(self, app):
+        """Malformed slice_id is rejected before touching pipeline state."""
+        with app.app_context():
+            from routes.signals import handle_error_signal
+
+            response, status_code = handle_error_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "error": "x",
+                    "slice_id": "../etc",
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # Completion signal branch verification tests (TASK-5-3)
