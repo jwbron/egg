@@ -110,7 +110,15 @@ Agents communicate with each other during concurrent execution via the orchestra
 Agents wait for BRC messages with a single canonical command — `egg-orch message wait-loop` — which long-polls the bus server-side and exits only on a terminal match or a permanent error. The full contract (the one-liner for producers and reviewers, the five anti-patterns to avoid, the `egg-orch message wait` exit codes, the `HEARTBEAT` schema, and the `EGG_MESSAGE_POLL_MAX_WAIT` ↔ gateway-Squid coupling) is in [Agent Wait Patterns](../reference/agent-wait-patterns.md) — read it before writing an outer `for`-loop, a `sleep`, or a multi-call poll sequence.
 
 ```bash
-# Producer STAY ALIVE — exits on consensus, re-review, or overseer alert
+# Producer RESPOND TO REVIEWS (pre-confirm, step 4) — must NOT include CONSENSUS_CONFIRMED
+# (orchestrator rejects it HTTP 400 — own confirm generates the signal; #2064, #2482)
+egg-orch message wait-loop \
+  --for CONSENSUS_ACK \
+  --for CONSENSUS_NACK \
+  --for CONSENSUS_RE_REVIEW \
+  --for OVERSEER_ALERT
+
+# Producer STAY ALIVE (post-confirm, step 6) — exits on consensus, re-review, or overseer alert
 egg-orch message wait-loop \
   --for CONSENSUS_CONFIRMED \
   --for CONSENSUS_RE_REVIEW \

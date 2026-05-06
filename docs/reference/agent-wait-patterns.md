@@ -33,9 +33,35 @@ listed message types arrives. It exits cleanly only on terminal match or on
 a permanent error — there is no outer timeout, no `for i in 1..N`, no
 `sleep N`. The LLM has zero degrees of freedom in how it waits.
 
-### Producer STAY ALIVE
+### Producer RESPOND TO REVIEWS (pre-confirm, step 4)
 
-Producers listen for the three terminal signals:
+Before confirming, producers poll for ACK/NACK from reviewers. The allowlist
+**must not** include `CONSENSUS_CONFIRMED` — the orchestrator rejects that
+pattern with HTTP 400 (exit code 3) because the producer's own confirm is
+part of what generates the global `CONSENSUS_CONFIRMED` signal; including it
+creates a self-deadlock (see [Anti-pattern 5](#anti-pattern-5--producer-waits-on-consensus_confirmed-before-its-own-confirm-has-succeeded-2064)
+and issues [#2064](https://github.com/jwbron/egg/issues/2064), [#2482](https://github.com/jwbron/egg/issues/2482)).
+
+| `--for` value | Meaning | Action on exit |
+|---------------|---------|----------------|
+| `CONSENSUS_ACK` | A reviewer ACKed — check if all required reviewers have ACKed, then confirm | Print and exit 0; act on the message |
+| `CONSENSUS_NACK` | A reviewer NACKed — start fixing immediately | Print and exit 0; act on the message |
+| `CONSENSUS_RE_REVIEW` | Re-review requested (peer re-proposed) | Print and exit 0; act on the message |
+| `OVERSEER_ALERT` | Overseer escalation | Print and exit 0; act on the message |
+
+```bash
+# Producer pre-confirm idiom (RESPOND TO REVIEWS, step 4)
+egg-orch message wait-loop \
+  --for CONSENSUS_ACK \
+  --for CONSENSUS_NACK \
+  --for CONSENSUS_RE_REVIEW \
+  --for OVERSEER_ALERT
+```
+
+### Producer STAY ALIVE (post-confirm, step 6)
+
+After the producer's own confirm succeeds, it enters STAY ALIVE and listens
+for the three terminal signals:
 
 | `--for` value | Meaning | Action on exit |
 |---------------|---------|----------------|
@@ -44,7 +70,7 @@ Producers listen for the three terminal signals:
 | `OVERSEER_ALERT` | Overseer escalation — read the alert body and comply | Print and exit 0 |
 
 ```bash
-# Producer idiom (paste verbatim from your prompt)
+# Producer STAY ALIVE idiom (post-confirm, step 6 — paste verbatim from your prompt)
 egg-orch message wait-loop \
   --for CONSENSUS_CONFIRMED \
   --for CONSENSUS_RE_REVIEW \
@@ -150,7 +176,7 @@ version. The MCP-counterpart returns
 `{"ok": false, "status": "stale_version", "rejection": {...}}` with
 the snapshot under `rejection.current_proposal`.
 
-## 2. The Four Anti-Patterns (from #1897)
+## 2. The Five Anti-Patterns (#1897, #2064)
 
 Each of these was observed in production pipelines before #1897 and
 caused real latency or bus pollution. Do **not** use any of them.
