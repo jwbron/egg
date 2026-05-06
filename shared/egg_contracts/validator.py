@@ -8,6 +8,8 @@ only authorized roles can modify specific fields.
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import ValidationError
+
 from .audit import create_transition_entry, create_update_entry
 from .models import AuditEntry, AuditRole, Contract, PipelinePhase
 from .roles import Role, can_modify, get_field_owner, normalize_path
@@ -117,6 +119,17 @@ def apply_mutation(
         return MutationResult(
             success=False,
             message=f"Failed to apply mutation: {e}",
+        )
+    except ValidationError as e:
+        # ``Contract.model_config = ConfigDict(validate_assignment=True)``
+        # (added for #2465) makes ``setattr`` raise pydantic
+        # ``ValidationError`` for out-of-domain values (e.g. an
+        # arbitrary string for an enum field). Surface that through the
+        # existing ``MutationResult`` channel so the contract /mutate
+        # route returns a structured 4xx instead of an opaque 500.
+        return MutationResult(
+            success=False,
+            message=f"Invalid value for {field_path}: {e}",
         )
 
     # Create audit entry. ``current_phase`` mutations get the dedicated

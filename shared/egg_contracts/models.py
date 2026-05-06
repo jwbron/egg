@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, cast
 
-from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 
 class TaskStatus(StrEnum):
@@ -595,6 +595,15 @@ class AgentExecutionModel(BaseModel):
 
 class Contract(BaseModel):
     """The complete SDLC contract."""
+
+    # ``validate_assignment=True`` ensures that ``setattr`` on Contract
+    # fields coerces the value back to the declared type — most
+    # importantly, that ``contract.current_phase = "plan"`` produces a
+    # ``PipelinePhase`` enum rather than a plain ``str``. See #2465 for
+    # the bug this guards against (apply_mutation leaving
+    # ``current_phase`` as a string until the next save/load round-trip,
+    # which broke ``.value`` reads and emitted serializer warnings).
+    model_config = ConfigDict(validate_assignment=True)
 
     schemaVersion: str = Field(  # noqa: N815
         default="1.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"

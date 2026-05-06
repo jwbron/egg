@@ -1,5 +1,7 @@
 """Tests for egg_contracts.validator module."""
 
+import warnings
+
 import pytest
 from egg_contracts.models import (
     AuditAction,
@@ -17,6 +19,7 @@ from egg_contracts.validator import (
     validate_phase_mutation,
     validate_task_mutation,
 )
+from pydantic_core import PydanticSerializationUnexpectedValue
 
 
 class TestValidateMutation:
@@ -249,6 +252,63 @@ class TestApplyMutation:
         assert type(result.audit_entry.new_value) is str
         assert result.audit_entry.old_value == "plan"
         assert result.audit_entry.new_value == "implement"
+
+    def test_current_phase_string_assignment_coerces_to_enum(self, sample_contract):
+        """``apply_mutation`` with a raw string leaves ``current_phase`` as ``PipelinePhase``.
+
+        Regression for #2465: before ``validate_assignment=True`` was set
+        on ``Contract``, ``setattr(contract, "current_phase", "plan")``
+        left the field as a plain ``str``, breaking ``.value`` reads and
+        triggering ``PydanticSerializationUnexpectedValue`` on the next
+        ``model_dump``.
+        """
+        sample_contract.current_phase = PipelinePhase.REFINE
+
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.HUMAN,
+            actor="human-reviewer",
+            field_path="current_phase",
+            new_value="plan",
+        )
+
+        assert result.success is True
+        assert type(result.contract.current_phase) is PipelinePhase
+        assert result.contract.current_phase is PipelinePhase.PLAN
+
+        # Re-serialising the contract must not emit
+        # PydanticSerializationUnexpectedValue (the warning that #2465
+        # called out as the second symptom of the bug).
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", PydanticSerializationUnexpectedValue)
+            result.contract.model_dump(mode="json")
+
+    def test_invalid_enum_value_returns_failed_mutation(self, sample_contract):
+        """Out-of-domain enum strings return ``success=False`` instead of raising.
+
+        With ``validate_assignment=True`` on ``Contract`` (added for
+        #2465), ``setattr(contract, "current_phase", "garbage")`` raises
+        ``pydantic.ValidationError`` from inside the assignment.
+        ``apply_mutation`` must catch that and surface it through the
+        existing ``MutationResult(success=False, ...)`` channel so the
+        contract /mutate route returns a structured 4xx instead of an
+        opaque 500.
+        """
+        sample_contract.current_phase = PipelinePhase.REFINE
+
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.HUMAN,
+            actor="human-reviewer",
+            field_path="current_phase",
+            new_value="invalid_phase_value",
+        )
+
+        assert result.success is False
+        assert result.message is not None
+        assert "current_phase" in result.message
+        # The original value is unchanged.
+        assert sample_contract.current_phase is PipelinePhase.REFINE
 
     def test_non_current_phase_field_still_emits_update_action(self, sample_contract):
         """Non-current_phase fields continue to emit AuditAction.UPDATE."""
