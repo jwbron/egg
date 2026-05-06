@@ -770,34 +770,35 @@ PIPELINE_TOOLS = [
             "state — distinct from ``start_phase``, which only flips the "
             "current phase.  Intended for the FAILED + RUNNING-phase combo "
             "that startup reconciliation can produce (#2411): the route "
-            "**unconditionally** resets the failed phase to PENDING "
-            "(clears ``containers``, ``agents``, ``artifacts`` regardless "
-            "of whether the records are verifiably stale), bumps "
-            "``run_epoch``, sets ``pipeline.status = RUNNING``, and "
-            "re-launches the ``_run_pipeline`` thread.  Also handles "
-            "AWAITING_HUMAN recovery when all decisions are resolved, and "
-            "starts PENDING pipelines (no early-return for PENDING in the "
-            "route).\n\n"
-            "Note: the reset is unconditional — there is no programmatic "
-            "check for live pods.  If pods labeled to the pipeline still "
-            "exist (e.g. orch restarted but pods are healthy), they will "
-            "be orphaned.  This footgun applies to **all** non-RUNNING "
-            "states the route accepts, not just the FAILED + RUNNING-phase "
-            "combo: AWAITING_HUMAN-with-resolved-decisions also flows "
-            "through a phase-reset branch (when the resolution is "
-            "request_changes / change_approach), and startup "
-            "reconciliation's AWAITING_HUMAN→FAILED transition runs "
-            "*before* the new live-pod safety net (so the live-pod-orphan "
-            "case can apply on the AWAITING_HUMAN recovery path too).  "
-            "Use ``cancel_task(cleanup=true)`` first or rely on the "
-            "running orchestrator's reconciliation if the pipeline is "
-            "genuinely alive.  See #2420 for the tracking issue on "
-            "adding a defensive route-level guard.\n\n"
+            "resets the failed phase to PENDING (clears ``containers``, "
+            "``agents``, ``artifacts``), bumps ``run_epoch``, sets "
+            "``pipeline.status = RUNNING``, and re-launches the "
+            "``_run_pipeline`` thread.  Also handles AWAITING_HUMAN "
+            "recovery when all decisions are resolved, and starts PENDING "
+            "pipelines (no early-return for PENDING in the route).\n\n"
+            "Live-pod safety guard (#2420): before the reset clears the "
+            "phase's ``containers`` / ``agents`` / ``artifacts``, the "
+            "route label-queries k8s for pods carrying "
+            "``egg.pipeline.id=<id>``.  If any are alive, the route "
+            "returns 409 with ``reason=live_pods_present`` rather than "
+            "orphan them.  Pass ``force=true`` (with an optional "
+            "``force_reason`` audit note) to override — typically after "
+            "you've already cleaned the pods up via "
+            "``cancel_task(cleanup=true)`` and want to re-run the phase "
+            "from scratch.  The guard fires on both reset paths: the "
+            "FAILED-recovery branch and the AWAITING_HUMAN "
+            "request_changes/change_approach branch.\n\n"
             "Error responses include a machine-readable ``reason`` code "
             "(#1939). Note: reason codes are only visible to direct HTTP "
             "callers; the MCP handler layer does not yet surface them.\n"
             "- 409 — pipeline already RUNNING / COMPLETE / CANCELLED, or "
             "AWAITING_HUMAN with pending decisions\n"
+            "- ``live_pods_present`` (409) — pods labeled to the pipeline "
+            "are still alive; cancel them first or pass ``force=true``\n"
+            "- ``live_pod_check_failed`` (409) — the label query failed; "
+            "pass ``force=true`` to override after manual verification\n"
+            "- ``invalid_force_reason`` (400) — force_reason must be a "
+            "string\n"
             "- ``invalid_pipeline_id`` (400), ``pipeline_not_found`` (404)"
         ),
         "inputSchema": {
@@ -806,6 +807,20 @@ PIPELINE_TOOLS = [
                 "task_id": {
                     "type": "string",
                     "description": "Pipeline/task ID",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": (
+                        "Skip the live-pod orphan guard and reset the "
+                        "phase even if pods labeled to the pipeline are "
+                        "still alive. The override is recorded in the "
+                        "orchestrator log for audit."
+                    ),
+                    "default": False,
+                },
+                "force_reason": {
+                    "type": "string",
+                    "description": "Audit note explaining why force=true was used",
                 },
             },
             "required": ["task_id"],
@@ -2645,12 +2660,20 @@ class PipelineToolHandler:
         /api/v1/pipelines/{id}/start``.  See the ``start_pipeline`` tool
         definition in :data:`PIPELINE_TOOLS` for the full contract,
         including the FAILED + RUNNING-phase combo from startup
-        reconciliation that this verb exists to recover from.
+        reconciliation that this verb exists to recover from, and the
+        live-pod safety guard added in #2420 (pass ``force=true`` to
+        override).
         """
         task_id = quote(args["task_id"], safe="")
+        data: dict[str, Any] = {}
+        if args.get("force"):
+            data["force"] = True
+        if args.get("force_reason"):
+            data["force_reason"] = args["force_reason"]
         return self._make_request(
             f"/api/v1/pipelines/{task_id}/start",
             method="POST",
+            data=data if data else None,
         )
 
     def _handle_start_phase(self, args: dict[str, Any]) -> dict[str, Any]:

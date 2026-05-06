@@ -927,6 +927,55 @@ class TestStartPipeline:
         assert pipeline_endpoint.endswith("/start")
         assert phase_endpoint.endswith("/phase/start")
 
+    def test_tool_definition_exposes_force_params(self):
+        """force / force_reason are documented on the tool input schema (#2420)."""
+        from mcp_tools import PIPELINE_TOOLS
+
+        tool = next(t for t in PIPELINE_TOOLS if t["name"] == "start_pipeline")
+        props = tool["inputSchema"]["properties"]
+        assert "force" in props
+        assert props["force"]["type"] == "boolean"
+        assert "force_reason" in props
+        assert props["force_reason"]["type"] == "string"
+
+    def test_no_body_when_force_omitted(self, handler):
+        """Default call (no force) must not send a body — preserves the
+        prior wire format for callers that haven't migrated."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call("start_pipeline", {"task_id": "issue-1"})
+
+        assert mock_req.call_args.kwargs.get("data") is None
+
+    def test_forwards_force_to_route(self, handler):
+        """force=true must reach the HTTP route (#2420)."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call(
+                "start_pipeline",
+                {"task_id": "issue-1", "force": True},
+            )
+
+        body = mock_req.call_args.kwargs.get("data")
+        assert body == {"force": True}
+
+    def test_forwards_force_reason(self, handler):
+        """force_reason rides along with force=true for audit (#2420)."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True}
+            handler.handle_tool_call(
+                "start_pipeline",
+                {
+                    "task_id": "issue-1",
+                    "force": True,
+                    "force_reason": "Cleaned up via cancel_task",
+                },
+            )
+
+        body = mock_req.call_args.kwargs.get("data")
+        assert body["force"] is True
+        assert body["force_reason"] == "Cleaned up via cancel_task"
+
 
 class TestValidateConfig:
     def test_valid_config(self, handler):

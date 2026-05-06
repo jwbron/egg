@@ -238,7 +238,7 @@ Five MCP tools expose phase- and pipeline-level recovery operations, eliminating
 
 | MCP Tool | REST Endpoint | Description |
 |----------|---------------|-------------|
-| `start_pipeline` | `POST /pipelines/{id}/start` | Recover a non-RUNNING pipeline (FAILED, AWAITING_HUMAN with all decisions resolved, or PENDING — the route has no early-return for PENDING). **Unconditionally** resets the current phase to PENDING (clears `containers`, `agents`, `artifacts` regardless of whether the records are verifiably stale), bumps `run_epoch`, sets `pipeline.status = RUNNING`, and re-launches the `_run_pipeline` thread. **Distinct from `start_phase`** — targets pipeline-level state. Use for the FAILED + RUNNING-phase combo that startup reconciliation can produce. Cancel any live pods first (`cancel_task(cleanup=true)`) if record drift caused a false-positive FAILED — see #2420 for the tracking issue on adding a defensive route-level guard |
+| `start_pipeline` | `POST /pipelines/{id}/start` | Recover a non-RUNNING pipeline (FAILED, AWAITING_HUMAN with all decisions resolved, or PENDING — the route has no early-return for PENDING). Resets the current phase to PENDING (clears `containers`, `agents`, `artifacts`), bumps `run_epoch`, sets `pipeline.status = RUNNING`, and re-launches the `_run_pipeline` thread. **Distinct from `start_phase`** — targets pipeline-level state. Before the reset, the route label-queries k8s for pods carrying `egg.pipeline.id=<id>` and refuses with 409 (`live_pods_present`) if any are alive, to avoid orphaning live work (#2420). Pass `force=true` (with an optional `force_reason` audit note) to override after `cancel_task(cleanup=true)` |
 | `advance_phase` | `POST /pipelines/{id}/phase` | Advance pipeline to a target phase. With `force=true`, stops running containers first to prevent SIGTERM cascading. When leaving the plan phase, automatically populates the contract from the plan draft |
 | `start_phase` | `POST /pipelines/{id}/phase/start` | Mark the current phase RUNNING. Does **not** spawn agents — agent spawning is driven by the `_run_pipeline` loop. Use for operator recovery when a phase needs to be re-marked RUNNING |
 | `complete_phase` | `POST /pipelines/{id}/phase/complete` | Mark a phase COMPLETE. Does **not** advance the pipeline — call `advance_phase` next. Response includes `current_phase` (unchanged) and `next_phase` (suggested transition). Returns 409 if unresolved HITL decisions exist; pass `force=true` to abandon them |
@@ -248,7 +248,7 @@ Five MCP tools expose phase- and pipeline-level recovery operations, eliminating
 
 All tools require `task_id` (the pipeline ID). Additional parameters:
 
-- **`start_pipeline`**: No additional parameters.
+- **`start_pipeline`**: `force` (boolean, optional, default `false`) — skip the live-pod orphan guard and reset the phase even if pods labeled to the pipeline are still alive (#2420). `force_reason` (string, optional) — audit note explaining why `force=true` was used; recorded in the orchestrator log.
 - **`advance_phase`**: `target_phase` (string, required) — the phase to advance to (e.g., `"plan"`, `"implement"`, `"pr"`). `force` (boolean, optional, default `false`) — skip validation and stop running containers before advancing. **Important:** When `force=true`, containers from the current phase are stopped before the transition to prevent their SIGTERM signals from being misinterpreted as failures in the new phase. When the current phase is `plan`, `advance_phase` automatically runs the contract populate step (parsing the plan's `yaml-tasks` appendix into the contract (phases, tasks, and `contract.pr` metadata)), so a separate `populate_contract` call is not needed for plan→implement transitions.
 - **`start_phase`**: No additional parameters.
 - **`complete_phase`**: `artifacts` (object, optional) — phase completion artifacts to store (e.g., commit SHAs, PR URLs).
@@ -266,6 +266,9 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
 | `advance_phase` | `invalid_phase_transition` | 400 | Not a valid transition from the current phase; change target or pass `force=true` |
 | `advance_phase` | `previous_phase_not_complete` | 400 | Current phase still running or failed; call `complete_phase` first, or pass `force=true` |
 | `advance_phase` | `health_checks_failed` | 409 | Tier 1/2 health checks returned `FAIL_PIPELINE`; `details.health_results` lists failing checks. Resolve the underlying issue or pass `force=true` |
+| `start_pipeline` | `live_pods_present` | 409 | Pods labeled to the pipeline are still alive; the reset would orphan them. Cancel them first (`cancel_task(cleanup=true)`) or pass `force=true`. `details.live_pod_count` carries the count |
+| `start_pipeline` | `live_pod_check_failed` | 409 | Label query for live pods failed; pass `force=true` after manual verification |
+| `start_pipeline` | `invalid_force_reason` | 400 | `force_reason` must be a string |
 | `start_phase` | `phase_already_running` | 400 | Phase is already in `RUNNING` status; no action needed |
 | `complete_phase` | `unresolved_hitl_decisions` | 409 | Phase has pending HITL decisions; `details.unresolved_decision_ids` lists them. Resolve or pass `force=true` |
 | `complete_phase` | `invalid_artifacts` | 400 | `artifacts` must be a JSON object with string values |
@@ -287,10 +290,18 @@ egg-orch phase get <pipeline-id>
 # 1a. If pipeline is FAILED with the current phase still RUNNING (a state startup
 #     reconciliation can produce on partial agent-state loss after an orch
 #     restart — see #2411), use start_pipeline. It resets the failed phase to
-#     PENDING and re-launches the runner.
+#     PENDING and re-launches the runner. Returns 409 with reason=live_pods_present
+#     if pods labeled to the pipeline are still alive — cancel them first via
+#     cancel_task(cleanup=true) or pass force=true to override (#2420).
 # Via MCP tool: start_pipeline(task_id="<id>")
 # Via REST:
 curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/start
+# Override the live-pod guard after manual cleanup:
+# Via MCP tool: start_pipeline(task_id="<id>", force=true, force_reason="Cleaned up via cancel_task")
+# Via REST:
+curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/start \
+  -H "Content-Type: application/json" \
+  -d '{"force": true, "force_reason": "Cleaned up via cancel_task"}'
 
 # 2. Force-advance past a stuck phase (stops running containers first)
 # Via MCP tool: advance_phase(task_id="<id>", target_phase="implement", force=true)

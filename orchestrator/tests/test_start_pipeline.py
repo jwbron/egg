@@ -55,6 +55,19 @@ def client(app):
     return app.test_client()
 
 
+@pytest.fixture(autouse=True)
+def _zero_live_pods():
+    """Default the live-pod guard (#2420) to ``0 live pods`` for all tests in
+    this file so existing reset-path tests proceed unchanged. Tests that
+    exercise the guard itself patch the helper explicitly.
+    """
+    with patch(
+        "routes.pipelines._count_live_pods_for_pipeline",
+        return_value=0,
+    ):
+        yield
+
+
 def _make_pipeline(status, phase=PipelinePhase.REFINE, phase_status=None):
     """Create a Pipeline with the given status and phase state."""
     pipeline = Pipeline(
@@ -756,6 +769,240 @@ class TestStartAwaitingHumanPipeline:
 
         assert resp.status_code == 200
         mock_spawner.gateway.push_worktree_branch.assert_not_called()
+
+
+# -----------------------------------------------------------------------------
+# Issue #2420 — live-pod orphan guard
+# -----------------------------------------------------------------------------
+
+
+class TestStartPipelineLivePodGuard:
+    """Refuse the phase reset when pods labeled to the pipeline are still
+    alive — the reset would orphan them (#2420). Pass ``force=true`` to
+    override.
+    """
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_failed_path_refuses_reset_when_live_pods_present(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with patch(
+            "routes.pipelines._count_live_pods_for_pipeline",
+            return_value=3,
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 409
+        data = json.loads(resp.data)
+        assert data["reason"] == "live_pods_present"
+        assert data["details"]["live_pod_count"] == 3
+        # Phase must NOT have been reset
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.FAILED
+        assert phase_exec.agents != []
+        assert phase_exec.artifacts != {}
+        # Runner thread must NOT have been launched
+        mock_run.assert_not_called()
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_failed_path_force_overrides_live_pod_guard(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with patch(
+            "routes.pipelines._count_live_pods_for_pipeline",
+            return_value=3,
+        ):
+            resp = client.post(
+                "/api/v1/pipelines/issue-42/start",
+                json={"force": True, "force_reason": "Cleaned up manually"},
+            )
+
+        assert resp.status_code == 200
+        # Phase must have been reset despite the live pods
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.PENDING
+        assert phase_exec.agents == []
+        assert phase_exec.artifacts == {}
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_failed_path_refuses_when_pod_check_fails(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Label-query failure fails-safe: refuse the reset since we can't
+        verify zero live pods. force=true is the documented override."""
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with patch(
+            "routes.pipelines._count_live_pods_for_pipeline",
+            return_value=None,
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 409
+        data = json.loads(resp.data)
+        assert data["reason"] == "live_pod_check_failed"
+        # Phase must NOT have been reset
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.FAILED
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_failed_path_zero_pods_proceeds(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Zero live pods is the green-path — no force required."""
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        # The autouse fixture already returns 0; assert the green-path.
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.PENDING
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_invalid_force_reason_returns_400(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post(
+            "/api/v1/pipelines/issue-42/start",
+            json={"force_reason": 42},
+        )
+
+        assert resp.status_code == 400
+        data = json.loads(resp.data)
+        assert data["reason"] == "invalid_force_reason"
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_awaiting_human_request_changes_refuses_when_live_pods(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """The AWAITING_HUMAN request_changes branch also resets containers/
+        agents/artifacts and must be guarded (#2420 — issue body explicitly
+        flags this branch)."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "request_changes", "feedback": "Fix tests"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with patch(
+            "routes.pipelines._count_live_pods_for_pipeline",
+            return_value=2,
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 409
+        data = json.loads(resp.data)
+        assert data["reason"] == "live_pods_present"
+        assert data["details"]["live_pod_count"] == 2
+        # Phase must NOT have been reset (still COMPLETE from awaiting setup)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.COMPLETE
+        mock_run.assert_not_called()
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_awaiting_human_approve_skips_pod_check(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """The approve branch advances the phase (does NOT reset containers)
+        so it has no orphan risk and must NOT be blocked by the guard."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "approve"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with patch(
+            "routes.pipelines._count_live_pods_for_pipeline",
+            return_value=5,
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        # REFINE → PLAN
+        assert pipeline.current_phase == PipelinePhase.PLAN
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_failed_path_with_pending_phase_skips_pod_check(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """If the phase is already PENDING (no reset would happen), the
+        live-pod guard is skipped — there's nothing to orphan."""
+        # Build a FAILED pipeline whose current phase is already PENDING
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.FAILED,
+            current_phase=PipelinePhase.REFINE,
+        )
+        # No phase_execution mutation — defaults to PENDING
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with patch(
+            "routes.pipelines._count_live_pods_for_pipeline",
+            return_value=99,  # would block if guard fired
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
 
 
 # -----------------------------------------------------------------------------
