@@ -107,15 +107,16 @@ def _track_long_poll_end() -> None:
 # liveness keep-alive emitted by ``mcp__brc__wait_loop`` while it's
 # blocked — periodic identical beats are exactly the signal the
 # overseer's stall detector consumes, so dedup must not collapse them.
-# Rate-limit (20/min per role) still applies.
+# Rate-limit (20/min per slice+role; #2471) still applies.
 _DEDUP_EXEMPT_HEARTBEAT_STATES: frozenset[str] = frozenset({"WAITING_FOR_EVENT"})
 
 # Minimum seconds between gateway-session fan-outs per (pipeline_id,
-# role) (#2076 NB2).  The dedup early-return path bypasses the per-role
-# heartbeat rate limit by design (#1897 NB1: dedup'd heartbeats are
-# no-ops and must not consume rate budget), so without a separate cap a
-# misbehaving agent hot-looping with identical state could amplify into
-# the gateway at the agent's emission rate.  The gateway's idle window
+# slice_id, role) (#2076 NB2, slice-scoped per #2471).  The dedup
+# early-return path bypasses the per-(slice, role) heartbeat rate limit
+# by design (#1897 NB1: dedup'd heartbeats are no-ops and must not
+# consume rate budget), so without a separate cap a misbehaving agent
+# hot-looping with identical state could amplify into the gateway at
+# the agent's emission rate.  The gateway's idle window
 # is 60 minutes, so fanning out every 30 s is far more than enough to
 # keep the session alive; the cap exists purely to bound amplification.
 _GATEWAY_FANOUT_MIN_INTERVAL_SECONDS: float = 30.0
@@ -556,13 +557,14 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
               ``retry_after`` seconds.
 
     Implementation notes:
-        * ``(state, waiting_on)`` tuples that match the role's
-          most-recent heartbeat are **silently deduped** (no bus
-          message written) so re-entering the same state twice is
-          idempotent.  See plan TASK-3-2.
+        * ``(state, waiting_on)`` tuples that match the most-recent
+          heartbeat for this ``(pipeline_id, slice_id, role)`` are
+          **silently deduped** (no bus message written) so re-entering
+          the same state twice is idempotent.  See plan TASK-3-2.
         * Rate limit: ``EGG_HEARTBEAT_RATE_LIMIT`` per minute per
-          ``(pipeline_id, role)``, default 20/min.  See plan
-          TASK-3-4.
+          ``(pipeline_id, slice_id, role)``, default 20/min.  See plan
+          TASK-3-4.  Slice-scoping (#2471) keeps sibling slices that
+          share a role from sharing each other's rate budget.
     """
     body = request.get_json() or {}
 
@@ -615,7 +617,7 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     # per-role cooldown (#2076 NB2) to bound dedup-path amplification
     # without consuming rate budget.
     if state not in _DEDUP_EXEMPT_HEARTBEAT_STATES and coordinator.is_duplicate(
-        pipeline_id, from_role, state, waiting_on
+        pipeline_id, slice_id, from_role, state, waiting_on
     ):
         _refresh_gateway_session(pipeline_id, from_role, slice_id)
         return _make_success(
@@ -632,7 +634,7 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     # ``Retry-After`` response header MUST echo N so standards-compliant
     # HTTP clients can honour it without parsing the JSON.
     limit = get_heartbeat_rate_limit()
-    decision = coordinator.check_rate_limit(pipeline_id, from_role, limit)
+    decision = coordinator.check_rate_limit(pipeline_id, slice_id, from_role, limit)
     if not decision.allowed:
         retry_after = int(decision.retry_after_seconds)
         resp = jsonify(
@@ -641,7 +643,7 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
                 "error": "rate_limited",
                 "message": (
                     f"HEARTBEAT rate limit exceeded "
-                    f"({limit}/min per role); retry after {retry_after}s."
+                    f"({limit}/min per slice+role); retry after {retry_after}s."
                 ),
                 "retry_after": retry_after,
             }
@@ -677,7 +679,7 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     )
     store = get_message_store()
     store.add_message(msg)
-    coordinator.record_state(pipeline_id, from_role, state, waiting_on)
+    coordinator.record_state(pipeline_id, slice_id, from_role, state, waiting_on)
 
     # Emit an event so SSE consumers and HealthMonitor see it.
     emit_event(
@@ -736,16 +738,13 @@ def _refresh_gateway_session(pipeline_id: str, from_role: str, slice_id: str | N
     expiry under any realistic heartbeat cadence.
     """
     coordinator = get_heartbeat_coordinator()
-    # Compose the throttle role with the slice scope so concurrent
-    # slices that share a role (e.g. two reviewer-code agents in
-    # different slices of the same wave) do not suppress each other's
-    # fan-outs. The coordinator key is opaque to the throttle, so
-    # scoping at the call site keeps the coordinator API unchanged.
-    # ``:`` (not ``/``) so the composite never reads as a path if it
-    # surfaces in a log line — current usage is purely internal.
-    throttle_role = f"{slice_id}:{from_role}" if slice_id else from_role
+    # The coordinator's throttle key is now ``(pipeline_id, slice_id,
+    # role)`` (#2471) so concurrent slices that share a role (e.g. two
+    # reviewer-code agents in different slices of the same wave) do not
+    # suppress each other's fan-outs. Pass ``slice_id`` directly — no
+    # synthetic role-string composition needed.
     if not coordinator.should_fan_out_gateway_session(
-        pipeline_id, throttle_role, _GATEWAY_FANOUT_MIN_INTERVAL_SECONDS
+        pipeline_id, slice_id, from_role, _GATEWAY_FANOUT_MIN_INTERVAL_SECONDS
     ):
         return
     try:
