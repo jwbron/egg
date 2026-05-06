@@ -87,6 +87,7 @@ try:
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..gateway_client import GatewayError, _rebase_with_agent_output_autoresolve
     from ..kubernetes_client import (
+        LABEL_PIPELINE_ID,
         JobOperationError,
         KubernetesClientError,
         PodNotFoundError,
@@ -131,6 +132,7 @@ except ImportError:
     )
     from gateway_client import GatewayError, _rebase_with_agent_output_autoresolve  # type: ignore
     from kubernetes_client import (  # type: ignore
+        LABEL_PIPELINE_ID,
         JobOperationError,
         KubernetesClientError,
         PodNotFoundError,
@@ -914,6 +916,126 @@ def _get_spawner():
     return get_container_spawner()
 
 
+# Container statuses that count as "live" for the purposes of the
+# orphan guard — a pod whose status maps to one of these is still
+# bound to the pipeline and would be orphaned by clearing
+# ``containers`` / ``agents`` / ``artifacts``.  Pods in terminal
+# phases (``Failed``/``Succeeded`` → ``ContainerStatus.FAILED`` /
+# ``EXITED``) have already exited and the reset orphans no work.
+# This matters because k8s Jobs default to ``ttlSecondsAfterFinished=600``
+# so a Failed pod object survives in the cluster for up to 10 minutes
+# after the pod itself has terminated — which is exactly the window
+# where ``start_pipeline`` is most commonly called for recovery.
+# ``startup_reconciliation.py`` applies the same filter so the two
+# label-scoped pod checks agree on what "live" means.
+_LIVE_POD_STATUSES: tuple[ContainerStatus, ...] = (
+    ContainerStatus.PENDING,
+    ContainerStatus.CREATING,
+    ContainerStatus.RUNNING,
+)
+
+
+def _count_live_pods_for_pipeline(pipeline_id: str, *, quiet: bool = False) -> int | None:
+    """Count live pods labeled to this pipeline (#2420).
+
+    Live = ``ContainerStatus`` in :data:`_LIVE_POD_STATUSES` (Pending /
+    Creating / Running). Pods in terminal phases (``Failed`` / ``Succeeded``
+    → ``ContainerStatus.FAILED`` / ``EXITED``) are excluded — they have
+    already exited and the start_pipeline reset orphans no work tied to
+    them.
+
+    Returns the number of live pods, or ``None`` if the label query failed —
+    callers must distinguish "verified zero" from "unknown" because the
+    start_pipeline reset would orphan any pods we couldn't see.
+
+    ``quiet=True`` suppresses the helper-level warning when the label query
+    fails. The guard's ``force=true`` branch passes this flag because it
+    emits its own structured audit log on the ``live is None`` path; the
+    helper's warning would just duplicate it.
+    """
+    try:
+        spawner = _get_spawner()
+        pods = spawner.backend.list_containers(
+            labels={LABEL_PIPELINE_ID: pipeline_id},
+        )
+        return sum(1 for p in pods if p.status in _LIVE_POD_STATUSES)
+    except Exception as e:
+        if not quiet:
+            logger.warning(
+                "start_pipeline live-pod check failed",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+        return None
+
+
+def _guard_live_pods_or_force(
+    pipeline_id: str,
+    force: bool,
+    force_reason: str | None,
+) -> tuple[Response, int] | None:
+    """Refuse a phase reset that would orphan live pods (#2420).
+
+    Returns ``None`` when the reset is safe to proceed (zero live pods, or
+    ``force=true``). Returns a 409 ``(response, status)`` when live pods are
+    present (or the label query failed) and the caller did not pass
+    ``force=true``.
+    """
+    if force:
+        # ``quiet=True`` because the ``live is None`` branch below emits
+        # its own structured audit log; the helper-level warning would
+        # just duplicate it on the override path.
+        live = _count_live_pods_for_pipeline(pipeline_id, quiet=True)
+        # Template the audit log so the static message reflects what the
+        # override actually did. ``live == 0`` means the override was a
+        # no-op — log at ``info`` so it doesn't read like a near-miss.
+        if live is None:
+            logger.warning(
+                "start_pipeline force=true override; live-pod check failed, "
+                "phase reset will proceed regardless",
+                pipeline_id=pipeline_id,
+                live_pod_count=None,
+                force_reason=force_reason,
+            )
+        elif live > 0:
+            logger.warning(
+                "start_pipeline force=true override; phase reset will proceed "
+                "and orphan live pods labeled to the pipeline",
+                pipeline_id=pipeline_id,
+                live_pod_count=live,
+                force_reason=force_reason,
+            )
+        else:
+            logger.info(
+                "start_pipeline force=true override applied (no live pods present)",
+                pipeline_id=pipeline_id,
+                live_pod_count=0,
+                force_reason=force_reason,
+            )
+        return None
+
+    live = _count_live_pods_for_pipeline(pipeline_id)
+    if live is None:
+        return make_error_response(
+            f"Could not verify live pod count for pipeline {pipeline_id}; "
+            "the start_pipeline reset would orphan any pods labeled to it. "
+            "Cancel them first via cancel_task(cleanup=true) or pass "
+            "force=true to override.",
+            status_code=409,
+            reason="live_pod_check_failed",
+        )
+    if live > 0:
+        return make_error_response(
+            f"Pipeline {pipeline_id} has {live} live pod(s); the "
+            "start_pipeline reset would orphan them. Cancel them first via "
+            "cancel_task(cleanup=true) or pass force=true to override.",
+            status_code=409,
+            details={"live_pod_count": live},
+            reason="live_pods_present",
+        )
+    return None
+
+
 from routes import get_repo_path, resolve_worktree_repo_path  # noqa: E402 — shared helpers
 
 try:
@@ -1010,9 +1132,18 @@ def make_error_response(
     message: str,
     status_code: int = 400,
     details: dict[str, Any] | None = None,
+    reason: str | None = None,
 ) -> tuple[Response, int]:
-    """Create an error response."""
+    """Create an error response.
+
+    ``reason`` is a stable, machine-readable enum-like code that disambiguates
+    responses sharing the same HTTP status (especially 409, where distinct
+    gates would otherwise collapse into one signal). Callers should switch on
+    ``reason`` rather than parsing ``message``. See #1939.
+    """
     response: dict[str, Any] = {"success": False, "message": message}
+    if reason is not None:
+        response["reason"] = reason
     if details:
         response["details"] = details
     return jsonify(response), status_code
@@ -16882,6 +17013,25 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
     """
     repo_path = get_repo_path()
 
+    # Parse force / force_reason from body. ``force=true`` skips the
+    # live-pod orphan guard before the phase reset (#2420). force_reason
+    # is recorded in the structured warning log, mirroring the
+    # complete_phase audit pattern.
+    body = request.get_json(silent=True) or {}
+    # Strict boolean — `body.get("force") is True` rather than
+    # `bool(body.get("force"))` so non-boolean truthy values
+    # (`"false"`, `[]`, `{}`, `1`) don't silently flip the predicate.
+    force = body.get("force") is True
+    force_reason = body.get("force_reason")
+    if force_reason is not None and not isinstance(force_reason, str):
+        return make_error_response(
+            "force_reason must be a string",
+            status_code=400,
+            reason="invalid_force_reason",
+        )
+    if isinstance(force_reason, str) and not force_reason.strip():
+        force_reason = None
+
     try:
         store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
         # Use the store's repo_path so _run_pipeline operates on the correct directory
@@ -17073,6 +17223,12 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         PipelineStatus.RUNNING,
                         PipelineStatus.AWAITING_HUMAN,
                     ):
+                        # Refuse to clear containers/agents/artifacts when
+                        # pods labeled to this pipeline are still alive —
+                        # the reset would orphan them (#2420).
+                        guard = _guard_live_pods_or_force(pipeline_id, force, force_reason)
+                        if guard is not None:
+                            return guard
                         phase_execution.status = PipelineStatus.PENDING
                         phase_execution.started_at = None
                         phase_execution.work_started_at = None
@@ -17145,6 +17301,12 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 # sets the pipeline to FAILED without updating the phase status.
                 phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
                 if phase_execution.status in (PipelineStatus.FAILED, PipelineStatus.RUNNING):
+                    # Refuse to clear containers/agents/artifacts when pods
+                    # labeled to this pipeline are still alive — the reset
+                    # would orphan them (#2420).
+                    guard = _guard_live_pods_or_force(pipeline_id, force, force_reason)
+                    if guard is not None:
+                        return guard
                     prev_status = phase_execution.status.value
                     phase_execution.status = PipelineStatus.PENDING
                     phase_execution.started_at = None
