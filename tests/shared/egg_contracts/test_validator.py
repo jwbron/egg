@@ -2,9 +2,11 @@
 
 import pytest
 from egg_contracts.models import (
+    AuditAction,
     Contract,
     IssueInfo,
     Phase,
+    PipelinePhase,
     Task,
     TaskStatus,
 )
@@ -200,6 +202,61 @@ class TestApplyMutation:
         assert result.success is True
         assert result.audit_entry.old_value == "Original notes"
         assert result.audit_entry.new_value == "Updated notes"
+
+    def test_current_phase_emits_transition_action(self, sample_contract):
+        """current_phase mutations emit AuditAction.TRANSITION (not UPDATE)."""
+        sample_contract.current_phase = PipelinePhase.REFINE
+
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.HUMAN,
+            actor="human-reviewer",
+            field_path="current_phase",
+            new_value=PipelinePhase.PLAN.value,
+            reason="Analysis approved",
+        )
+
+        assert result.success is True
+        assert result.audit_entry is not None
+        assert result.audit_entry.action == AuditAction.TRANSITION
+        assert result.audit_entry.field_path == "current_phase"
+        # Old/new values are normalised to the enum string form regardless
+        # of whether the caller passed a string or a PipelinePhase instance.
+        assert result.audit_entry.old_value == "refine"
+        assert result.audit_entry.new_value == "plan"
+        assert result.audit_entry.reason == "Analysis approved"
+
+    def test_current_phase_normalises_enum_new_value(self, sample_contract):
+        """Passing a PipelinePhase enum as new_value still produces a string-valued audit entry."""
+        sample_contract.current_phase = PipelinePhase.PLAN
+
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.HUMAN,
+            actor="human-reviewer",
+            field_path="current_phase",
+            new_value=PipelinePhase.IMPLEMENT,
+            reason="Plan approved",
+        )
+
+        assert result.success is True
+        assert result.audit_entry.action == AuditAction.TRANSITION
+        assert result.audit_entry.old_value == "plan"
+        assert result.audit_entry.new_value == "implement"
+
+    def test_non_current_phase_field_still_emits_update_action(self, sample_contract):
+        """Non-current_phase fields continue to emit AuditAction.UPDATE."""
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.IMPLEMENTER,
+            actor="james-in-a-box",
+            field_path="phases.0.tasks.0.commit",
+            new_value="abc1234",
+        )
+
+        assert result.success is True
+        assert result.audit_entry is not None
+        assert result.audit_entry.action == AuditAction.UPDATE
 
 
 class TestValidateTaskMutation:

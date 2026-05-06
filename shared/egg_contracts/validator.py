@@ -8,8 +8,8 @@ only authorized roles can modify specific fields.
 from dataclasses import dataclass
 from typing import Any
 
-from .audit import create_update_entry
-from .models import AuditEntry, AuditRole, Contract
+from .audit import create_transition_entry, create_update_entry
+from .models import AuditEntry, AuditRole, Contract, PipelinePhase
 from .roles import Role, can_modify, get_field_owner, normalize_path
 
 
@@ -119,16 +119,28 @@ def apply_mutation(
             message=f"Failed to apply mutation: {e}",
         )
 
-    # Create audit entry
+    # Create audit entry. ``current_phase`` mutations get the dedicated
+    # TRANSITION action so the audit log shape is uniform across all
+    # phase-transition code paths (gateway phase API, direct contract
+    # PATCH, orchestrator-side populator). See #2445.
     audit_role = AuditRole(role.value)
-    audit_entry = create_update_entry(
-        actor=actor,
-        role=audit_role,
-        field_path=field_path,
-        old_value=old_value,
-        new_value=new_value,
-        reason=reason,
-    )
+    if field_path == "current_phase":
+        audit_entry = create_transition_entry(
+            actor=actor,
+            role=audit_role,
+            from_phase=old_value.value if isinstance(old_value, PipelinePhase) else old_value,
+            to_phase=new_value.value if isinstance(new_value, PipelinePhase) else new_value,
+            reason=reason,
+        )
+    else:
+        audit_entry = create_update_entry(
+            actor=actor,
+            role=audit_role,
+            field_path=field_path,
+            old_value=old_value,
+            new_value=new_value,
+            reason=reason,
+        )
     contract.audit_log.append(audit_entry)
 
     return MutationResult(
