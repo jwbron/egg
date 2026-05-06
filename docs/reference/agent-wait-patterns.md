@@ -608,15 +608,17 @@ loop:
 - `WAITING_ON_ROLE` missing `--waiting-on` → exit 3
 - Rate-limit 429 (see §5) → exit 3
 
-## 5. `EGG_HEARTBEAT_RATE_LIMIT` — Per-Role Heartbeat Cap
+## 5. `EGG_HEARTBEAT_RATE_LIMIT` — Per-Slice+Role Heartbeat Cap
 
 The orchestrator rate-limits `HEARTBEAT` emissions to prevent a runaway
 loop from flooding the bus. Limits are keyed by `(pipeline_id,
-agent_role)` with minute granularity (sliding window).
+slice_id, agent_role)` with minute granularity (sliding window).
+Pipeline-level agents (no slice scope) use `slice_id=None` and share a
+single bucket per `(pipeline_id, role)`.
 
 | Env var | Default | Scope | Effect |
 |---------|---------|-------|--------|
-| `EGG_HEARTBEAT_RATE_LIMIT` | `20` | Per `(pipeline_id, agent_role)` per minute | Exceeding returns HTTP 429 with a `Retry-After` header |
+| `EGG_HEARTBEAT_RATE_LIMIT` | `20` | Per `(pipeline_id, slice_id, agent_role)` per minute | Exceeding returns HTTP 429 with a `Retry-After` header |
 
 ### 429 response shape
 
@@ -632,12 +634,19 @@ retry sooner than that. The CLI surfaces 429 as exit 3 (permanent from
 the caller's perspective) so agents do not retry in a tight loop and
 compound the spam.
 
-### Why per-role, not per-pipeline?
+### Why per-slice+role, not per-pipeline?
 
 A runaway loop in one role (e.g. a compaction cascade in `coder`) must
 not silently back-pressure the rate limit for other roles. The
 per-role keying ensures that one misbehaving agent cannot starve others
 of heartbeat capacity.
+
+Slice scoping goes one level further: two parallel slices that share a
+role (e.g. `reviewer_code` in `slice-2` and `slice-3` of the same
+wave) are independent pods. A shared per-role budget would let one
+busy slice hit the per-minute ceiling and drop a sibling's beat. By
+including `slice_id` in the key, each slice gets its own independent
+rate budget.
 
 ## 6. `EGG_MESSAGE_POLL_MAX_WAIT` — Long-Poll Cap Coupling
 
