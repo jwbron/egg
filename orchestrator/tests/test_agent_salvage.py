@@ -470,11 +470,17 @@ class TestAutoSalvagePipeline:
 
 
 class TestParseGitLog:
+    # ASCII unit separator (U+001F) — the field separator the production
+    # ``--format`` string uses (`%x1f`). Picked because it cannot appear
+    # in a commit subject, so the parser does not shift on a tab-bearing
+    # subject the way the original ``%x09`` separator did.
+    _US = "\x1f"
+
     def test_parses_single_commit_with_shortstat(self) -> None:
         from agent_salvage import _parse_git_log
 
         out = (
-            "abc1234567890\tfix bug\tAlice\t2026-05-06T10:00:00+00:00\n"
+            f"abc1234567890{self._US}fix bug{self._US}Alice{self._US}2026-05-06T10:00:00+00:00\n"
             "\n"
             " 3 files changed, 12 insertions(+), 4 deletions(-)\n"
         )
@@ -490,11 +496,11 @@ class TestParseGitLog:
         from agent_salvage import _parse_git_log
 
         out = (
-            "sha1\tone\tA\t2026-05-06T10:00:00+00:00\n"
+            f"sha1{self._US}one{self._US}A{self._US}2026-05-06T10:00:00+00:00\n"
             "\n"
             " 1 file changed, 1 insertion(+)\n"
             "\n"
-            "sha2\ttwo\tB\t2026-05-06T11:00:00+00:00\n"
+            f"sha2{self._US}two{self._US}B{self._US}2026-05-06T11:00:00+00:00\n"
             "\n"
             " 2 files changed, 5 insertions(+)\n"
         )
@@ -506,10 +512,34 @@ class TestParseGitLog:
         from agent_salvage import _parse_git_log
 
         # Empty/merge commits may have no shortstat line.
-        out = "abc\tempty merge\tBot\t2026-05-06T10:00:00+00:00\n"
+        out = f"abc{self._US}empty merge{self._US}Bot{self._US}2026-05-06T10:00:00+00:00\n"
         commits = _parse_git_log(out)
         assert len(commits) == 1
         assert commits[0].files_changed == 0
+
+    def test_tab_in_commit_subject_does_not_shift_fields(self) -> None:
+        """Subjects with literal tabs must not bleed into trailing fields.
+
+        Regression test for the original ``%x09`` (tab) separator: a commit
+        whose subject contained a tab caused ``str.split('\\t', 3)`` to
+        slice the subject in half and shift author / authored_at. The
+        unit separator (`%x1f`) cannot appear in a subject, so the parser
+        keeps every field intact.
+        """
+        from agent_salvage import _parse_git_log
+
+        subject_with_tab = "fix:\tindentation in helper"
+        out = (
+            f"deadbeef{self._US}{subject_with_tab}{self._US}Alice"
+            f"{self._US}2026-05-06T10:00:00+00:00\n"
+        )
+        commits = _parse_git_log(out)
+        assert len(commits) == 1
+        c = commits[0]
+        assert c.sha == "deadbeef"
+        assert c.summary == subject_with_tab
+        assert c.author == "Alice"
+        assert c.authored_at == "2026-05-06T10:00:00+00:00"
 
 
 # ---------------------------------------------------------------------------

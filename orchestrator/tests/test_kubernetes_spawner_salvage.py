@@ -150,3 +150,59 @@ class TestCleanupSalvageHook:
         assert captured["pipeline_id"] == "pipe-1"
         # At minimum, the pipeline-level worktree id is in scope for salvage.
         assert "pipe-1" in (captured["filter"] or set())
+
+    def test_salvage_mode_and_base_branch_threaded_through(self, spawner, mock_gateway):
+        """``salvage_mode`` / ``salvage_base_branch`` reach the hook (#2429 review).
+
+        Regression test for the blocking review feedback: cleanup_pipeline
+        used to default to ``mode="public"`` for every pipeline, which
+        could silently lose private-mode work the hook is supposed to
+        save. The caller now passes the running-pipeline's mode + base
+        branch.
+        """
+        captured: dict[str, object] = {}
+
+        def fake_salvage(_gateway, _pipeline_id, *, mode=None, base_branch=None, **_kw):
+            captured["mode"] = mode
+            captured["base_branch"] = base_branch
+            return []
+
+        with (
+            patch("agent_salvage.auto_salvage_pipeline", side_effect=fake_salvage),
+            patch(
+                "kubernetes_spawner.WORKTREE_BASE_DIR",
+                MagicMock(exists=MagicMock(return_value=False)),
+            ),
+        ):
+            spawner.cleanup_pipeline(
+                "pipe-1",
+                salvage_mode="private",
+                salvage_base_branch="main",
+            )
+        assert captured["mode"] == "private"
+        assert captured["base_branch"] == "main"
+
+    def test_salvage_mode_omitted_falls_back_to_public(self, spawner, mock_gateway):
+        """``salvage_mode=None`` keeps the historical default (``"public"``).
+
+        Callers that cannot load the Pipeline (legacy in-flight callers)
+        are still safe — only public-repo work, which is the original
+        behavior — because the hook passes no ``mode`` kwarg and
+        ``auto_salvage_pipeline`` defaults to ``"public"``. The contract
+        here is "if ``salvage_mode is None``, ``mode=`` is not forwarded."
+        """
+        captured: dict[str, object] = {}
+
+        def fake_salvage(_gateway, _pipeline_id, *, mode="public", **_kw):
+            captured["mode"] = mode
+            return []
+
+        with (
+            patch("agent_salvage.auto_salvage_pipeline", side_effect=fake_salvage),
+            patch(
+                "kubernetes_spawner.WORKTREE_BASE_DIR",
+                MagicMock(exists=MagicMock(return_value=False)),
+            ),
+        ):
+            spawner.cleanup_pipeline("pipe-1")  # no salvage_mode kwarg
+        assert captured["mode"] == "public"

@@ -82,6 +82,7 @@ except ImportError:
 
 # Import orchestrator modules - try relative import first
 try:
+    from .. import agent_salvage
     from ..container_spawner import ContainerSpawnError, SpawnFailureError, get_container_spawner
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
@@ -118,6 +119,7 @@ try:
         get_state_store,
     )
 except ImportError:
+    import agent_salvage  # type: ignore[no-redef]
     from container_spawner import (  # type: ignore
         ContainerSpawnError,
         SpawnFailureError,
@@ -2029,6 +2031,17 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # so the PATCH response returns immediately.  The DELETE handler
             # already re-runs cleanup_pipeline() as a safety net, so it will
             # catch anything the background thread hasn't finished.
+            #
+            # Compute the salvage mode + base branch up front (in the
+            # request thread, where ``pipeline`` is still in scope) so the
+            # background thread can pass them to ``cleanup_pipeline``
+            # without re-loading state. Using the wrong mode here would
+            # mismatch the policy the rest of the pipeline ran under and
+            # the launcher-auth push could be rejected — see #2429
+            # review.
+            _bg_salvage_mode, _ = _compute_gateway_mode(pipeline)
+            _bg_salvage_base_branch = pipeline.base_branch
+
             def _background_cleanup(pid: str, status_value: str) -> None:
                 try:
                     spawner = _get_spawner()
@@ -2039,6 +2052,8 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         pid,
                         force=True,
                         preserve_worktrees=(status_value == "cancelled"),
+                        salvage_mode=_bg_salvage_mode,
+                        salvage_base_branch=_bg_salvage_base_branch,
                     )
                     if removed > 0:
                         logger.info(
@@ -2205,7 +2220,16 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
         # Clean up any running containers for this pipeline
         try:
             spawner = _get_spawner()
-            removed = spawner.cleanup_pipeline(pipeline_id, force=True)
+            # Pass the running pipeline's gateway mode + base branch so the
+            # auto-salvage hook in cleanup_pipeline pushes recovery refs
+            # under the same policy the pipeline ran under (#2429 review).
+            _delete_salvage_mode, _ = _compute_gateway_mode(_pipeline)
+            removed = spawner.cleanup_pipeline(
+                pipeline_id,
+                force=True,
+                salvage_mode=_delete_salvage_mode,
+                salvage_base_branch=_pipeline.base_branch,
+            )
             if removed > 0:
                 logger.info(
                     "Cleaned up pipeline containers",
@@ -3002,20 +3026,15 @@ def list_pipeline_local_commits(pipeline_id: str) -> tuple[Response, int]:
     except ValueError as e:
         return make_error_response(str(e), status_code=400)
 
-    try:
-        from agent_salvage import enumerate_agent_worktrees, list_unpushed_commits
-    except ImportError:
-        from ..agent_salvage import (  # type: ignore[no-redef]
-            enumerate_agent_worktrees,
-            list_unpushed_commits,
-        )
-
     worktrees = _filter_salvage_worktrees(
-        enumerate_agent_worktrees(pipeline_id),
+        agent_salvage.enumerate_agent_worktrees(pipeline_id),
         agent_role=agent_role,
         slice_id=slice_id,
     )
-    reports = [list_unpushed_commits(wt, base_branch=pipeline.base_branch) for wt in worktrees]
+    reports = [
+        agent_salvage.list_unpushed_commits(wt, base_branch=pipeline.base_branch)
+        for wt in worktrees
+    ]
 
     return make_success_response(
         f"Listed local commits for pipeline {pipeline_id}",
@@ -3078,16 +3097,8 @@ def salvage_pipeline_local_commits(pipeline_id: str) -> tuple[Response, int]:
     except ValueError as e:
         return make_error_response(str(e), status_code=400)
 
-    try:
-        from agent_salvage import enumerate_agent_worktrees, salvage_worktree
-    except ImportError:
-        from ..agent_salvage import (  # type: ignore[no-redef]
-            enumerate_agent_worktrees,
-            salvage_worktree,
-        )
-
     worktrees = _filter_salvage_worktrees(
-        enumerate_agent_worktrees(pipeline_id),
+        agent_salvage.enumerate_agent_worktrees(pipeline_id),
         agent_role=agent_role,
         slice_id=slice_id,
     )
@@ -3098,7 +3109,7 @@ def salvage_pipeline_local_commits(pipeline_id: str) -> tuple[Response, int]:
     results = []
     for wt in worktrees:
         try:
-            result = salvage_worktree(
+            result = agent_salvage.salvage_worktree(
                 gateway,
                 wt,
                 base_branch=pipeline.base_branch,
@@ -3111,11 +3122,7 @@ def salvage_pipeline_local_commits(pipeline_id: str) -> tuple[Response, int]:
                 worktree_id=wt.worktree_id,
                 error=str(e),
             )
-            try:
-                from agent_salvage import SalvageResult
-            except ImportError:
-                from ..agent_salvage import SalvageResult  # type: ignore[no-redef]
-            result = SalvageResult(
+            result = agent_salvage.SalvageResult(
                 worktree_id=wt.worktree_id,
                 agent_role=wt.agent_role,
                 slice_id=wt.slice_id,
@@ -16863,10 +16870,15 @@ def _run_pipeline(
         # new thread's containers are not killed.  See #1386, #1638.
         if not pipeline_was_restarted:
             try:
+                # ``gateway_mode`` is the mode this pipeline ran under;
+                # the auto-salvage hook needs it to push recovery refs
+                # under the same policy (#2429 review).
                 removed = _spawner.cleanup_pipeline(
                     pipeline_id,
                     force=True,
                     preserve_worktrees=skip_cleanup,
+                    salvage_mode=gateway_mode,
+                    salvage_base_branch=pipeline.base_branch,
                 )
                 if removed > 0:
                     logger.info(

@@ -50,14 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-try:
-    from egg_logging import get_logger
-except ImportError:
-    import logging
-
-    def get_logger(name: str, **_: object) -> logging.Logger:  # type: ignore[misc]
-        return logging.getLogger(name)
-
+from egg_logging import get_logger
 
 if TYPE_CHECKING:
     from gateway_client import GatewayClient
@@ -425,9 +418,11 @@ def list_unpushed_commits(
     log_args: list[str] = [
         "log",
         f"--max-count={_MAX_COMMITS_PER_WORKTREE}",
-        # %x09 is a literal tab; chosen so we can str.split('\t', 4) without
-        # a fragile separator.
-        "--format=%H%x09%s%x09%an%x09%aI",
+        # %x1f is the ASCII unit separator (U+001F). Using it instead of
+        # a tab keeps the parser correct when the commit subject itself
+        # contains a tab — git would otherwise pass the literal tab
+        # through and shift the trailing fields on str.split.
+        "--format=%H%x1f%s%x1f%an%x1f%aI",
         "--shortstat",
         worktree.local_branch,
     ]
@@ -465,20 +460,23 @@ def list_unpushed_commits(
 _SHORTSTAT_FILES_RE = re.compile(r"(\d+)\s+files?\s+changed")
 
 
+_UNIT_SEP = "\x1f"
+
+
 def _parse_git_log(output: str) -> list[UnpushedCommit]:
     """Parse ``git log --format=... --shortstat`` output.
 
     Each commit looks like::
 
-        <sha>\t<summary>\t<author>\t<authored_at>
+        <sha>\x1f<summary>\x1f<author>\x1f<authored_at>
         <blank>
          3 files changed, 12 insertions(+), 4 deletions(-)
         <blank>
 
     Empty lines separate commits. Shortstat may be absent (merge with no
-    diff, empty commit). We skip blank lines, parse the tab-separated
-    line as the commit header, and accumulate any following non-tab
-    line as the shortstat for that commit.
+    diff, empty commit). We skip blank lines, parse the unit-separated
+    line as the commit header, and accumulate any following line
+    without a unit separator as the shortstat for that commit.
     """
     commits: list[UnpushedCommit] = []
     pending: list[str] | None = None
@@ -505,9 +503,9 @@ def _parse_git_log(output: str) -> list[UnpushedCommit]:
         line = raw.rstrip()
         if not line:
             continue
-        if "\t" in line:
+        if _UNIT_SEP in line:
             _flush()
-            parts = line.split("\t", 3)
+            parts = line.split(_UNIT_SEP, 3)
             if len(parts) == 4:
                 pending = parts
                 files_changed = 0
