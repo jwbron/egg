@@ -3711,6 +3711,52 @@ class TestReviewerPollUsesWaitLoop:
         )
 
 
+class TestProducerRespondToReviewsWaitLoop:
+    """Producer RESPOND TO REVIEWS step must spell out the pre-confirm
+    ``--for`` allowlist and explicitly exclude ``CONSENSUS_CONFIRMED``
+    (issue #2482).
+
+    Background: step 4 originally said only "Poll for ACK/NACK from
+    reviewers via ``egg-orch message wait-loop``" without the explicit
+    flag list. Producer agents improvised and copied the step 6
+    STAY ALIVE allowlist, which includes ``CONSENSUS_CONFIRMED``. The
+    orchestrator's pre-confirm guard rejects that with HTTP 400 (#2064)
+    because the producer's own confirm is part of what generates the
+    global ``CONSENSUS_CONFIRMED`` signal, so the wait would deadlock
+    on itself. The reject-and-retry burned a tool turn at every
+    propose→confirm boundary.
+    """
+
+    def test_step4_lists_pre_confirm_allowlist(self):
+        preamble = _build_brc_preamble("coder", "implement", branch="egg/issue-123")
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        respond_end = preamble.index("**CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        for required in (
+            "--for CONSENSUS_ACK",
+            "--for CONSENSUS_NACK",
+            "--for CONSENSUS_RE_REVIEW",
+            "--for OVERSEER_ALERT",
+        ):
+            assert required in respond_block, (
+                f"RESPOND TO REVIEWS step must include `{required}` in the "
+                "pre-confirm wait-loop incantation (issue #2482)."
+            )
+
+    def test_step4_excludes_consensus_confirmed(self):
+        preamble = _build_brc_preamble("coder", "implement", branch="egg/issue-123")
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        respond_end = preamble.index("**CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        assert "--for CONSENSUS_CONFIRMED" not in respond_block, (
+            "RESPOND TO REVIEWS step must NOT include "
+            "`--for CONSENSUS_CONFIRMED` — the orchestrator's "
+            "pre-confirm guard rejects that pattern with HTTP 400 "
+            "(#2064, #2482) because the producer's own confirm is "
+            "part of what generates that signal."
+        )
+
+
 class TestReviewerWaitLoopMentionsAutoCursor:
     """Reviewer + producer wait-loop steps must explain auto cursor
     threading (issue #2323).
