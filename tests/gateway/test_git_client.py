@@ -149,14 +149,15 @@ class TestGitAllowedCommands:
         assert valid, f"git blame -L should be valid: {err}"
 
     def test_reflog_validates_common_flags(self):
-        """git reflog accepts common flags (use --max-count, not -n)."""
+        """git reflog accepts common flags."""
         valid, err, _ = validate_git_args("reflog", ["--oneline", "--max-count", "10"])
         assert valid, f"git reflog --max-count should be valid: {err}"
 
-    def test_reflog_rejects_n_flag(self):
-        """git reflog rejects -n flag (normalized to --dry-run globally)."""
-        valid, _err, _ = validate_git_args("reflog", ["-n", "10"])
-        assert not valid, "-n should be rejected for reflog (normalized to --dry-run)"
+    def test_reflog_normalizes_n_flag(self):
+        """git reflog accepts -n N as an alias for --max-count=N (issue #2480)."""
+        valid, err, normalized = validate_git_args("reflog", ["-n", "10"])
+        assert valid, f"-n N should be normalized for reflog: {err}"
+        assert "--max-count=10" in normalized
 
     def test_describe_validates_common_flags(self):
         """git describe accepts common flags."""
