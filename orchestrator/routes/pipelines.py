@@ -333,6 +333,28 @@ def _message_store_tip_id(pipeline_id: str) -> str | None:
     returns without matching a message.  Returns ``None`` when the
     store has no messages yet — the caller formats this as the
     empty ``msg:`` half of the compound cursor.
+
+    Three distinct conditions all collapse to ``None`` here and
+    callers cannot distinguish between them:
+
+    1. **Store import failure** — the message-store module is not
+       loadable in this process (test harness without Redis,
+       packaging skew). Pre-PR / post-#2464: same behavior.
+    2. **Transient ``get_latest_id`` failure** — e.g.,
+       :class:`redis.RedisError` from ``XREVRANGE`` on a connection
+       blip. ``RedisMessageStore.get_latest_id`` already catches
+       this and returns ``None``, so we see "no tip". This conflates
+       a transient error with a genuinely empty store; #2464's fix
+       at the call site (``_message_store_tip_id() or msg_since_id``
+       removal) drops the consumer's cursor on this transient as
+       well, which is a small behavioral regression vs. pre-PR
+       graceful-degradation behavior. Acceptable in practice
+       because transient Redis errors degrade many other paths
+       simultaneously, but worth knowing.
+    3. **Empty store** — the ``/status/wait`` post-clear case the
+       PR is fixing. Returning ``None`` lets the route emit an
+       empty ``msg:`` half so the consumer doesn't re-feed the
+       dead cursor.
     """
     try:
         store = _get_message_store()()
@@ -3757,6 +3779,13 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                 since_id=msg_since_id,
                 limit=1,
                 wait=0,
+                # Suppress the "since_id not found in store" warning on
+                # this probe so a single ``/status/wait`` request that
+                # hits a stale cursor doesn't double-log: the long-poll
+                # daemon below makes its own ``get_messages`` call with
+                # the same cursor and emits the warning once. Pre-PR
+                # cadence was one warning per request; we preserve that.
+                _suppress_stale_warning=True,
             )
             since_id_stale = meta.since_id_stale
         except Exception as exc:  # pragma: no cover

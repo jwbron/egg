@@ -956,6 +956,104 @@ class TestSinceIdStaleSignal:
                 assert resp.status_code == 200
                 assert data["data"].get("since_id_stale") is True
 
+    def test_messages_wait_omits_flag_for_fresh_cursor(self, client, app):
+        """Pin the byte-shape contract for ``/messages/wait`` on the
+        fresh-cursor path: when the supplied ``since_id`` resolves
+        cleanly the response must omit ``since_id_stale`` entirely
+        (instead of carrying ``false``). A future divergence between
+        ``/messages`` and ``/messages/wait`` field handling would
+        otherwise slip through — see reviewer note #6 on PR #2485."""
+        store = MessageStore()
+        first = Message(
+            pipeline_id="test-pipeline",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="first",
+        )
+        store.add_message(first)
+        # Add a matching second message so the wait returns immediately
+        # via the fast-path filter rather than blocking on the timeout.
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="match",
+            )
+        )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    f"?for=CONSENSUS_CONFIRMED&timeout=2&since_id={first.id}"
+                )
+                data = json.loads(resp.data)
+
+                assert resp.status_code == 200
+                assert data["data"]["matched"] is True
+                assert "since_id_stale" not in data["data"]
+
+    def test_messages_wait_omits_flag_when_no_since_id(self, client, app):
+        """No ``since_id`` parameter → ``from_tip=True`` semantics,
+        ``meta.since_id_stale`` is irrelevant by construction, and the
+        field must be absent from the response (mirrors the
+        ``/messages`` no-cursor case)."""
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="match",
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
+                data = json.loads(resp.data)
+
+                assert resp.status_code == 200
+                assert data["data"]["matched"] is True
+                assert "since_id_stale" not in data["data"]
+
 
 class TestMessageStatus:
     """Test message status endpoint."""

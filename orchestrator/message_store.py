@@ -323,6 +323,7 @@ class MessageStore:
         wait_for_types: Sequence[str] | None = None,
         from_role: str | None = None,
         from_tip: bool = False,
+        _suppress_stale_warning: bool = False,
     ) -> tuple[list[Message], GetMessagesMeta]:
         """Same as :meth:`get_messages` but also returns staleness metadata.
 
@@ -334,6 +335,14 @@ class MessageStore:
         :meth:`get_messages` would return — but consumers now have a
         structured signal they can use to clear cached cursors instead
         of re-passing the same dead value forever (issue #2464).
+
+        ``_suppress_stale_warning`` is internal: ``True`` suppresses the
+        ``since_id not found in store`` log line on a stale cursor while
+        still populating ``meta.since_id_stale``. Used by ``/status/wait``
+        to avoid double-logging when its synchronous probe and its
+        long-poll daemon both reach for the same cursor on a single
+        request (the probe call sets it; the daemon's later call still
+        logs once if reached, matching pre-PR cadence).
         """
         # Snapshot the tip / since_id index at call entry under the lock
         # below so from_tip semantics are race-free against concurrent
@@ -383,13 +392,14 @@ class MessageStore:
                     start_idx = found_idx + 1
                 else:
                     since_id_stale = True
-                    logger.warning(
-                        "since_id not found in store; returning full history",
-                        extra={
-                            "pipeline_id": pipeline_id,
-                            "since_id": since_id,
-                        },
-                    )
+                    if not _suppress_stale_warning:
+                        logger.warning(
+                            "since_id not found in store; returning full history",
+                            extra={
+                                "pipeline_id": pipeline_id,
+                                "since_id": since_id,
+                            },
+                        )
 
             meta = GetMessagesMeta(since_id_stale=since_id_stale)
             matches = _filter(initial_msgs)

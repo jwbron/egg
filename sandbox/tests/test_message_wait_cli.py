@@ -943,6 +943,96 @@ class TestAutoCursorWaitLoop:
             cmd_message_wait_loop(self._make_loop_args(since="01-explicit"))
         assert captured.get("since") == "01-explicit"
 
+    def test_stale_response_with_fresh_tip_replaces_cursor_file(self, monkeypatch, tmp_path):
+        """Issue #2464 — mirror of ``test_stale_cursor_file_replaced_with_fresh_tip``
+        for the wait-loop wrapper: when the handler returns
+        ``since_id_stale: true`` plus a fresh tip cursor, the file ends
+        up holding the fresh tip (not the pre-clear value)."""
+        self._setenv(monkeypatch, tmp_path)
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
+        assert cursor_path is not None
+        with open(cursor_path, "w") as fh:
+            fh.write("01-pre-clear")
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            return_value={
+                "ok": True,
+                "matched": False,
+                "messages": [],
+                "cursor": "01-fresh-tip",
+                "since_id_stale": True,
+                "iterations": 1,
+            },
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args())
+        assert rc == 1
+        with open(cursor_path) as fh:
+            assert fh.read().strip() == "01-fresh-tip"
+
+    def test_stale_response_with_null_cursor_unlinks_file(self, monkeypatch, tmp_path):
+        """Issue #2464 — mirror of
+        ``test_stale_response_with_null_cursor_unlinks_file`` for the
+        wait-loop wrapper: when the handler signals staleness AND the
+        loop ended without a fresh cursor (``cursor: None``), the file
+        must be unlinked. Without this the dead value would survive on
+        disk and be re-read on the next invocation. Direct coverage of
+        the ``_delete_cursor_file`` branch at
+        ``cmd_message_wait_loop`` (sandbox/egg_lib/orch_cli.py:1689)."""
+        self._setenv(monkeypatch, tmp_path)
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
+        assert cursor_path is not None
+        with open(cursor_path, "w") as fh:
+            fh.write("01-dead-cursor")
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            return_value={
+                "ok": True,
+                "matched": False,
+                "messages": [],
+                "cursor": None,
+                "since_id_stale": True,
+                "iterations": 1,
+            },
+        ):
+            cmd_message_wait_loop(self._make_loop_args())
+        assert not Path(cursor_path).exists(), (
+            "stale cursor file should have been unlinked when the "
+            "wait-loop response carried since_id_stale + null cursor"
+        )
+
+    def test_stale_response_on_safety_cap_unlinks_file(self, monkeypatch, tmp_path):
+        """Issue #2464 follow-up — even when the handler hits its
+        ``--max-iterations`` safety cap (so ``matched=False``), the
+        propagated ``since_id_stale: true`` on the cap-exit response
+        must still trigger the unlink. Pre-fix the loop dropped
+        ``inner["since"]`` after iteration 1 saw staleness, so iteration
+        N+ saw no cursor and the server's response carried no flag —
+        leaving the stale file on disk for the next invocation. The
+        handler now tracks ``loop_saw_stale`` and re-attaches the flag
+        to the cap-exit response."""
+        self._setenv(monkeypatch, tmp_path)
+        cursor_path = _wait_cursor_path("issue-42", "reviewer_plan", ["CONSENSUS_PROPOSE"])
+        assert cursor_path is not None
+        with open(cursor_path, "w") as fh:
+            fh.write("01-pre-clear")
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            return_value={
+                "ok": True,
+                "matched": False,
+                "messages": [],
+                "cursor": None,
+                "since_id_stale": True,
+                "iterations": 5,
+            },
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args())
+        assert rc == 1
+        assert not Path(cursor_path).exists(), (
+            "stale cursor file should have been unlinked on cap-exit "
+            "when handler propagated since_id_stale=True"
+        )
+
 
 class TestCursorNullResponsePreservesPriorCursor:
     """A ``cursor=None`` response (empty stream, pathological safety
@@ -1261,6 +1351,106 @@ class TestWaitLoopStalenessHandling:
         assert observed_sinces[1] is None, (
             f"expected iteration 2 to start from-tip after staleness, "
             f"got since={observed_sinces[1]!r}"
+        )
+
+    def test_cap_exit_after_stale_seen_propagates_flag(self):
+        """Issue #2464 follow-up: iteration 1 sees ``since_id_stale``,
+        iteration 2+ start from-tip (no ``since``) so the server's
+        response on those iterations carries no flag. Pre-fix that meant
+        the cap-exit response (``last_resp`` from iteration N) had no
+        ``since_id_stale`` field and the CLI's unlink branch would not
+        fire. Post-fix the handler tracks ``loop_saw_stale`` and
+        re-attaches the flag on cap-exit."""
+        from egg_agent_tools.handlers import message as _handlers
+
+        observed_sinces: list[str | None] = []
+
+        def _fake_message_wait(req: dict[str, Any]) -> dict[str, Any]:
+            observed_sinces.append(req.get("since"))
+            if len(observed_sinces) == 1:
+                return {
+                    "ok": True,
+                    "matched": False,
+                    "messages": [],
+                    "cursor": None,
+                    "since_id_stale": True,
+                }
+            # Iterations 2+: no ``since``, so server returns no flag.
+            return {
+                "ok": True,
+                "matched": False,
+                "messages": [],
+                "cursor": None,
+                "since_id_stale": False,
+            }
+
+        with patch.object(_handlers, "message_wait", side_effect=_fake_message_wait):
+            resp = _handlers.message_wait_loop(
+                {
+                    "pipeline_id": "issue-42",
+                    "role": "coder",
+                    "for_types": ["CONSENSUS_CONFIRMED"],
+                    "since": "01-pre-clear",
+                    "timeout": 1,
+                    "max_iterations": 3,
+                    "_heartbeat_interval": 0,
+                }
+            )
+
+        assert resp["matched"] is False
+        assert resp["iterations"] == 3
+        # Critical: the cap-exit response carries the propagated flag,
+        # even though the *last* iteration's server response did not.
+        assert resp.get("since_id_stale") is True, (
+            "cap-exit response must surface since_id_stale when any "
+            "iteration in the loop observed it"
+        )
+
+    def test_match_after_stale_seen_propagates_flag(self):
+        """Mirror of the cap-exit test for the matched-exit path: if
+        iteration 1 saw staleness and iteration 2 matched (cursor
+        replaced via tip after the clear), the matched response also
+        carries the propagated ``since_id_stale`` flag so the CLI
+        unlinks the dead cursor file even on a successful match."""
+        from egg_agent_tools.handlers import message as _handlers
+
+        observed_sinces: list[str | None] = []
+
+        def _fake_message_wait(req: dict[str, Any]) -> dict[str, Any]:
+            observed_sinces.append(req.get("since"))
+            if len(observed_sinces) == 1:
+                return {
+                    "ok": True,
+                    "matched": False,
+                    "messages": [],
+                    "cursor": None,
+                    "since_id_stale": True,
+                }
+            return {
+                "ok": True,
+                "matched": True,
+                "messages": [{"id": "01-fresh", "subject": "go"}],
+                "cursor": "01-fresh",
+                "since_id_stale": False,
+            }
+
+        with patch.object(_handlers, "message_wait", side_effect=_fake_message_wait):
+            resp = _handlers.message_wait_loop(
+                {
+                    "pipeline_id": "issue-42",
+                    "role": "coder",
+                    "for_types": ["CONSENSUS_CONFIRMED"],
+                    "since": "01-pre-clear",
+                    "timeout": 1,
+                    "max_iterations": 3,
+                    "_heartbeat_interval": 0,
+                }
+            )
+
+        assert resp["matched"] is True
+        assert resp.get("since_id_stale") is True, (
+            "matched response must surface propagated since_id_stale "
+            "when an earlier iteration in the loop observed it"
         )
 
     def test_fresh_cursor_is_threaded_normally(self):

@@ -215,6 +215,68 @@ class TestGetMessages:
         _, meta_after = store.get_messages_with_meta("test-pipeline", since_id=anchor)
         assert meta_after.since_id_stale is True
 
+    def test_get_messages_with_meta_transient_redis_error_is_not_stale(self, store):
+        """Issue #2464 reviewer note #3 — a transient ``RedisError``
+        raised from the scan fallback (e.g., a connection blip during
+        ``XRANGE``) must NOT be reported as cursor staleness. Pre-fix
+        this path swallowed the exception inside
+        ``_find_stream_id_by_message_id`` and returned ``None``, which
+        the caller treated as "scan miss → since_id_stale=True". A
+        well-behaved consumer would then drop a still-live cursor on a
+        momentary blip.
+
+        Post-fix the scan helper re-raises ``RedisError`` so the caller
+        can distinguish "scan completed empty" from "scan errored out"
+        — the route preserves the cursor on the latter."""
+        from unittest.mock import patch
+
+        import redis
+
+        # Pre-populate the stream so the cache resolve fails (cache cleared
+        # below) and the scan fallback path is taken.
+        msgs = self._add_messages(store, 3)
+        target_id = msgs[1].id
+        with store._lock:
+            store._id_to_stream_id.clear()
+
+        # Force *only* the scan helper to raise — leaves the downstream
+        # XRANGE / XREAD calls in ``_read_once`` (which serve the
+        # full-history fallback) backed by real fakeredis, so we
+        # exercise the route's branch without breaking the rest of
+        # the call. Pre-fix the swallow turned this into
+        # ``since_id_stale=True``; post-fix the caller catches the
+        # raise and reports ``False`` so consumers keep the cursor
+        # through the blip.
+        with patch.object(
+            store,
+            "_find_stream_id_by_message_id",
+            side_effect=redis.RedisError("connection blip"),
+        ):
+            _msgs, meta = store.get_messages_with_meta("test-pipeline", since_id=target_id)
+
+        assert meta.since_id_stale is False, (
+            "transient RedisError during scan must not be reported as "
+            "cursor staleness — would tell consumers to drop a live cursor"
+        )
+
+    def test_find_stream_id_by_message_id_propagates_redis_error(self, store):
+        """Pin the contract change at the helper level: ``_find_stream_id_by_message_id``
+        used to swallow ``RedisError`` and return ``None`` (indistinguishable
+        from a genuine scan miss). It must now propagate the exception so
+        :meth:`get_messages_with_meta` can branch on it."""
+        from unittest.mock import patch
+
+        import redis
+
+        self._add_messages(store, 1)
+        with patch.object(
+            store._redis,
+            "xrange",
+            side_effect=redis.RedisError("connection blip"),
+        ):
+            with pytest.raises(redis.RedisError):
+                store._find_stream_id_by_message_id("test-pipeline", "any-id")
+
     def test_limit(self, store):
         self._add_messages(store, 10)
         messages = store.get_messages("test-pipeline", limit=3)

@@ -655,6 +655,49 @@ class TestGetMessagesWithMeta:
         assert isinstance(result, list)
         assert len(result) == 1
 
+    def test_suppress_stale_warning_silences_log_but_keeps_meta(
+        self, store: MessageStore, caplog
+    ) -> None:
+        """``_suppress_stale_warning=True`` (used by ``/status/wait``'s
+        synchronous probe) silences the ``since_id not found in store``
+        log line on a stale cursor but still populates the structured
+        ``meta.since_id_stale`` flag — reviewer note #2 on PR #2485."""
+        import logging
+
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+
+        # Probe-shape call: limit=1, wait=0, with the suppression flag.
+        with caplog.at_level(logging.WARNING, logger="orchestrator.message_store"):
+            _msgs, meta = store.get_messages_with_meta(
+                "test-pipeline",
+                since_id="cursor-the-store-never-saw",
+                limit=1,
+                wait=0,
+                _suppress_stale_warning=True,
+            )
+
+        # Structured signal still set — consumers can still detect.
+        assert meta.since_id_stale is True
+        # Warning log line is silenced.
+        assert not any("since_id not found in store" in rec.getMessage() for rec in caplog.records)
+
+    def test_default_emits_stale_warning(self, store: MessageStore, caplog) -> None:
+        """Pin the regression boundary: without the suppression flag
+        the warning still fires (the daemon's later call relies on this
+        to preserve pre-PR cadence of one warning per request)."""
+        import logging
+
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+
+        with caplog.at_level(logging.WARNING, logger="orchestrator.message_store"):
+            _msgs, meta = store.get_messages_with_meta(
+                "test-pipeline",
+                since_id="cursor-the-store-never-saw",
+            )
+
+        assert meta.since_id_stale is True
+        assert any("since_id not found in store" in rec.getMessage() for rec in caplog.records)
+
 
 class TestGetLatestId:
     """Tests for ``MessageStore.get_latest_id``."""
