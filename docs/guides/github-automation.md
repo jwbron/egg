@@ -221,9 +221,16 @@ top-level response comment:
 | `deferred-to #<NNNN>` | Not fixing in this PR. Agent must file the issue with `gh issue create` *before* posting the response; `#NNNN` must be the resulting issue number created during this run. |
 | `disagree (<reasoning>)` | Agent disagrees the change is needed. Must explain why. |
 
-**Default to in-PR fixes.** Deferral is allowed only when the fix would balloon PR scope,
-requires design alignment that can't be reached here, or the reviewer explicitly asked for
-a follow-up. Phantom follow-ups — promises to file an issue after posting the response, or
+**Default to in-PR fixes — strongly.** A follow-up issue is allowed only when (a) the
+fix requires a human-in-the-loop decision the agent cannot make on its own (design,
+product, or architecture input the reviewer's feedback didn't supply, with no
+defensible default to pick and ship), or (b) the reviewer EXPLICITLY asked for a
+follow-up issue. A "non-blocking" label, a soft observation ("nit", "worth one more
+case", "minor"), or the agent's own judgment that something is "out of scope" or
+"would balloon the PR" are NOT grounds for deferral — reviewers who flag a problem
+in a PR review want it fixed in that PR. The agent should prefer `disagree (out of
+scope; <reason>)` over a deferral when it genuinely thinks the change isn't warranted.
+Phantom follow-ups — promises to file an issue after posting the response, or
 `deferred-to` references to non-existent or pre-existing issues — are forbidden and
 detected by a post-run guard that fails the workflow.
 

@@ -133,13 +133,30 @@ top-level response comment must list every item with its disposition tag:
   posting your response, and \`#<NNNN>\` must be the resulting issue number.
 - \`disagree (<reasoning>)\` — you disagree the change is needed. Explain why.
 
-**Default to in-PR fixes.** Deferral is the exception, not a coequal option.
-You may only defer when one of the following is true, and you must state which:
+**Default to in-PR fixes — strongly.** Open a follow-up issue ONLY when one
+of the following is true, and you must state which in your response:
 
-  (i) the fix is large and risky enough that landing it here would balloon
-      this PR's scope past what reviewers can sensibly approve;
-  (ii) the fix needs design alignment that cannot be reached in this PR;
-  (iii) the reviewer explicitly asked for a follow-up.
+  (i)  the fix requires a human-in-the-loop decision you cannot make on your
+       own — design, product, or architecture input the reviewer's feedback
+       didn't supply, with no defensible default you could pick, ship, and
+       let the reviewer push back on in another round;
+  (ii) the reviewer EXPLICITLY asked for a follow-up issue (e.g. \"track as
+       follow-up #NNNN\", \"let's do this in a separate PR\"). A
+       \"non-blocking\" label, a soft observation (\"worth one more case\",
+       \"minor\", \"nit\"), or your own judgment that something is \"out of
+       scope\" or \"would balloon the PR\" do NOT count as explicit
+       defer requests.
+
+Apparent scope, apparent risk, \"this PR is already big\", or \"this is
+adjacent\" are NOT grounds for deferral. Reviewers who flag a problem in a
+PR review want it fixed in that PR; if they wanted a separate issue they
+would have filed one themselves. Bias toward in-PR in every ambiguous case
+— a small fix bundled into the PR is far cheaper than opening,
+prioritizing, and shepherding an issue, and an ever-growing follow-up
+backlog is its own form of debt. Prefer \`disagree (out of scope; <reason>)\`
+over a deferral when you genuinely think the reviewer is wrong about
+needing the change at all — that puts the burden back on them rather than
+expanding the issue tracker.
 
 **No phantom follow-ups.** The following are forbidden in your response:
 
