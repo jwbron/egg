@@ -7810,6 +7810,15 @@ def worktree_list() -> tuple[Response, int] | Response:
 _worktree_prune_lock = threading.Lock()
 
 
+# Slice-scoped per-agent worktree dir suffix:
+# ``{pipeline_id}-slice-{N}-{role}``.  The role part follows AgentRole
+# values (``[a-z_]+``).  Used by ``_derive_worktree_anchor_ids`` to
+# recognise slice-scoped worktrees of a live pipeline that the session
+# metadata alone can't express (sessions carry pipeline_id + agent_role
+# but not slice_id).
+_SLICE_WORKTREE_SUFFIX_RE = re.compile(r"^-slice-[0-9]+-[a-z_]+$")
+
+
 def _derive_worktree_anchor_ids(sessions: list[dict[str, Any]]) -> set[str]:
     """Return the set of worktree directory names implied by active sessions.
 
@@ -7821,15 +7830,45 @@ def _derive_worktree_anchor_ids(sessions: list[dict[str, Any]]) -> set[str]:
     derivation, ``cleanup_orphaned_worktrees`` treats every per-agent
     worktree as an orphan, which wiped live pipelines' worktrees during
     gateway startup cleanup (#1874).
+
+    Slice-scoped per-agent worktrees (``{pipeline_id}-slice-{N}-{role}``,
+    introduced in #2403) carry no slice context on the session, so for
+    each live pipeline we additionally scan the worktree base for
+    matching directories and add them to the anchor set.  Without this
+    scan, slice-scoped agent worktrees with unpushed local commits are
+    wiped during gateway startup cleanup — silently destroying the work
+    that ``salvage_agent_commits`` was designed to recover (#2463).
     """
     anchors: set[str] = set()
+    pipeline_ids: set[str] = set()
     for session_info in sessions:
         pipeline_id = session_info.get("pipeline_id")
         agent_role = session_info.get("agent_role")
         if pipeline_id:
             anchors.add(pipeline_id)
+            pipeline_ids.add(pipeline_id)
             if agent_role:
                 anchors.add(f"{pipeline_id}-{agent_role}")
+
+    if pipeline_ids:
+        try:
+            entries = list(WORKTREE_BASE_DIR.iterdir())
+        except OSError:
+            entries = []
+        for entry in entries:
+            try:
+                if not entry.is_dir():
+                    continue
+            except OSError:
+                continue
+            name = entry.name
+            for pid in pipeline_ids:
+                if not name.startswith(pid):
+                    continue
+                suffix = name[len(pid) :]
+                if _SLICE_WORKTREE_SUFFIX_RE.match(suffix):
+                    anchors.add(name)
+                    break
     return anchors
 
 
@@ -7837,9 +7876,10 @@ def _container_ids_from_sessions(sessions: list[dict[str, Any]]) -> set[str]:
     """Return container IDs and worktree anchor IDs from session dicts.
 
     Each session contributes its own ``container_id`` plus the derived
-    per-agent (``{pipeline_id}-{agent_role}``) and pipeline-level
-    (``{pipeline_id}``) worktree anchor IDs so that cleanup never wipes
-    a live pipeline's worktrees (#1874).
+    per-agent (``{pipeline_id}-{agent_role}``), pipeline-level
+    (``{pipeline_id}``), and slice-scoped
+    (``{pipeline_id}-slice-{N}-{role}``) worktree anchor IDs so that
+    cleanup never wipes a live pipeline's worktrees (#1874, #2463).
     """
     ids: set[str] = set()
     for session_info in sessions:

@@ -576,6 +576,77 @@ class TestDeriveWorktreeAnchorIds:
         anchors = gateway._derive_worktree_anchor_ids([{"container_id": "adhoc"}])
         assert anchors == set()
 
+    def test_slice_scoped_worktrees_protected_via_disk_scan(self, tmp_path):
+        """Slice-scoped per-agent worktrees ({pipeline_id}-slice-N-{role})
+        carry no slice context on the session, so the helper discovers
+        them by scanning the worktree base for matching directories.
+        Without this, the gateway's startup cleanup would wipe slice-
+        scoped agent worktrees with unpushed commits — exactly the
+        scenario salvage_agent_commits exists to recover from (#2463).
+        """
+        # Realistic slice-DAG layout: pipeline-state, overseer (per-role),
+        # plus three slice-scoped agent worktrees.  A sibling worktree
+        # whose suffix doesn't match the slice pattern must not leak in.
+        (tmp_path / "issue-2261-v10").mkdir()
+        (tmp_path / "issue-2261-v10-overseer").mkdir()
+        (tmp_path / "issue-2261-v10-slice-2-coder").mkdir()
+        (tmp_path / "issue-2261-v10-slice-2-tester").mkdir()
+        (tmp_path / "issue-2261-v10-slice-5-coder").mkdir()
+        (tmp_path / "issue-2261-v10-not-a-slice").mkdir()
+        # Unrelated pipeline that must not be touched.
+        (tmp_path / "issue-9999-slice-1-coder").mkdir()
+
+        with patch.object(gateway, "WORKTREE_BASE_DIR", tmp_path):
+            anchors = gateway._derive_worktree_anchor_ids(
+                [
+                    # Only the overseer session is alive — the slice
+                    # agents may have died with the orch crash, but their
+                    # worktrees on disk still hold unpushed commits.
+                    {"pipeline_id": "issue-2261-v10", "agent_role": "overseer"},
+                ]
+            )
+
+        assert anchors == {
+            "issue-2261-v10",
+            "issue-2261-v10-overseer",
+            "issue-2261-v10-slice-2-coder",
+            "issue-2261-v10-slice-2-tester",
+            "issue-2261-v10-slice-5-coder",
+        }
+
+    def test_slice_scan_handles_missing_worktree_base(self, tmp_path):
+        """Helper must not raise when ``WORKTREE_BASE_DIR`` is absent."""
+        missing = tmp_path / "does-not-exist"
+        with patch.object(gateway, "WORKTREE_BASE_DIR", missing):
+            anchors = gateway._derive_worktree_anchor_ids(
+                [{"pipeline_id": "p1", "agent_role": "coder"}]
+            )
+        assert anchors == {"p1", "p1-coder"}
+
+    def test_slice_scan_skipped_when_no_live_pipelines(self, tmp_path):
+        """No live pipeline_ids means no scan — sessions with only
+        ``container_id`` fall through to the empty set.
+        """
+        (tmp_path / "issue-99-slice-1-coder").mkdir()
+        with patch.object(gateway, "WORKTREE_BASE_DIR", tmp_path):
+            anchors = gateway._derive_worktree_anchor_ids([{"container_id": "adhoc"}])
+        assert anchors == set()
+
+    def test_slice_scan_does_not_match_pipeline_id_prefix_collision(self, tmp_path):
+        """Pipeline ID ``p1`` must not absorb slice worktrees of an
+        unrelated pipeline ``p1-extra`` — the suffix regex anchors on
+        ``-slice-N-{role}`` immediately after the pipeline id.
+        """
+        (tmp_path / "p1-extra-slice-2-coder").mkdir()
+        with patch.object(gateway, "WORKTREE_BASE_DIR", tmp_path):
+            anchors = gateway._derive_worktree_anchor_ids(
+                [{"pipeline_id": "p1", "agent_role": "coder"}]
+            )
+        # p1's anchors are present, but p1-extra-slice-2-coder is not
+        # because ``-extra-slice-2-coder`` does not match the slice
+        # suffix regex anchored at the pipeline id boundary.
+        assert "p1-extra-slice-2-coder" not in anchors
+
 
 class TestContainerIdsFromSessions:
     """Unit tests for ``_container_ids_from_sessions`` — the shared helper
