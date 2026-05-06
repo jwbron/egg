@@ -273,33 +273,22 @@ class MessageStore:
         Returns:
             List of matching messages, oldest first. Empty list on timeout.
         """
-        # Snapshot the tip index at call entry under the lock below so
-        # from_tip semantics are race-free against concurrent add_message
-        # calls.
-        tip_index: int | None = None
+        # Snapshot the tip / since_id index at call entry under the lock
+        # below so from_tip semantics are race-free against concurrent
+        # add_message calls. Resolving the cursor ONCE (issue #2454) — not
+        # on every notify in the blocking branch — keeps the per-iteration
+        # cost O(n_new_messages) instead of O(n_total_history) and ensures
+        # the "since_id not found" warning fires at most once per call
+        # rather than once per notify (which during a 25 s long-poll under
+        # heartbeat fan-in could fan the same warning out 10+ times).
         use_tip = from_tip and not since_id and wait > 0
+        start_idx = 0
 
         def _filter(all_msgs: list[Message]) -> list[Message]:
-            msgs = list(all_msgs)
-            # from_tip branch: since_id is guaranteed unset here (guard
-            # above ensures mutual exclusion).
-            if use_tip and tip_index is not None:
-                msgs = msgs[tip_index:]
-            # Filter by since_id. If the cursor is unknown, degrade to
-            # "return all" instead of returning empty, so a stale cursor
-            # doesn't silently hide new messages from a polling agent.
-            elif since_id:
-                found_idx = next((i for i, m in enumerate(msgs) if m.id == since_id), None)
-                if found_idx is not None:
-                    msgs = msgs[found_idx + 1 :]
-                else:
-                    logger.warning(
-                        "since_id not found in store; returning full history",
-                        extra={
-                            "pipeline_id": pipeline_id,
-                            "since_id": since_id,
-                        },
-                    )
+            # Slice forward from the resolved start_idx (set under the
+            # lock below). Cheap: O(n_total - start_idx) plus the filter
+            # passes, regardless of how many notifies fire during a wait.
+            msgs = all_msgs[start_idx:]
 
             # from_role filter — applied here so it participates in the
             # wait-for-match decision (wrong sender does not unblock).
@@ -314,9 +303,30 @@ class MessageStore:
 
         # Fast path: check once under the lock.
         with self._lock:
+            initial_msgs = self._messages.get(pipeline_id, [])
             if use_tip:
-                tip_index = len(self._messages.get(pipeline_id, []))
-            matches = _filter(self._messages.get(pipeline_id, []))
+                start_idx = len(initial_msgs)
+            elif since_id:
+                # Resolve since_id to an index ONCE. If the cursor is
+                # unknown, log a single warning and degrade to "return
+                # all" (start_idx stays 0) instead of returning empty,
+                # so a stale cursor doesn't silently hide new messages
+                # from a polling agent.
+                found_idx = next(
+                    (i for i, m in enumerate(initial_msgs) if m.id == since_id),
+                    None,
+                )
+                if found_idx is not None:
+                    start_idx = found_idx + 1
+                else:
+                    logger.warning(
+                        "since_id not found in store; returning full history",
+                        extra={
+                            "pipeline_id": pipeline_id,
+                            "since_id": since_id,
+                        },
+                    )
+            matches = _filter(initial_msgs)
             if wait_for_types:
                 typed = [m for m in matches if m.message_type in set(wait_for_types)]
                 if typed:
