@@ -107,6 +107,7 @@ try:
         PipelineStatus,
         ReviewVerdict,
     )
+    from ..slice_id_validation import extract_slice_id
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -153,6 +154,7 @@ except ImportError:
         PipelineStatus,
         ReviewVerdict,
     )
+    from slice_id_validation import extract_slice_id  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -675,6 +677,73 @@ WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 # Sentinel header used in tester gap summaries. Checked in prompt-building
 # functions to adapt language when tester findings are present.
 TESTER_FINDINGS_HEADER = "### tester findings"
+
+
+def _ensure_pipeline_work_ref(branch: str | None) -> str | None:
+    """Return the actual remote ref for an orchestrator-managed pipeline branch.
+
+    The orchestrator pushes the pipeline tip to ``<branch>/work`` so the
+    ``<branch>/`` namespace can hold slice integration branches as
+    siblings (``<branch>/slice-N``) without git's ``directory file
+    conflict`` rejection — see #2399. A leaf ref at ``<branch>`` and a
+    child at ``<branch>/slice-N`` cannot coexist on origin, so the
+    pipeline tip is moved one level deeper into the namespace.
+
+    Idempotent and bounded to ``egg/<id>``-shaped branches:
+
+    * ``None`` → ``None`` (prompt-driven; the caller generates a
+      ``/work``-shaped branch later).
+    * ``egg/<id>`` → ``egg/<id>/work`` (issue / CUSTOM submissions).
+    * ``egg/<id>/work`` → unchanged (resubmission, internal callers).
+    * non-``egg/`` (passed unchanged) — primarily babysit PR head refs;
+      the route-level caller already skips BABYSIT before reaching this
+      helper, so the only non-``egg/`` branch that lands here is a
+      CUSTOM-mode pipeline pointed at a foreign branch (e.g.
+      ``feature/foo``). CUSTOM-with-slices on a non-``egg/`` branch is
+      not a guaranteed-safe shape and is intentionally not normalised
+      here — the conflict would resurface at the slice push and is
+      tracked separately.
+
+    The trailing-``/work`` check is structural rather than a plain
+    suffix match (``branch.count("/") >= 2 and branch.rsplit("/", 1)[1]
+    == "work"``) so a degenerate input like ``egg/work`` — a single
+    segment that *happens* to end in ``/work`` — gets normalised to
+    ``egg/work/work`` (siblings ``egg/work/slice-N``) rather than
+    treated as already-normalised. Trailing slashes are stripped first
+    so ``egg/`` does not collapse to a double-slash ``egg//work``.
+    """
+    if branch is None:
+        return None
+    branch = branch.rstrip("/")
+    if not branch.startswith("egg/"):
+        return branch
+    # Structural check: only treat ``egg/<id>/work`` (≥2 slashes, last
+    # segment is ``work``) as already-normalised. ``egg/work`` looks
+    # like a suffix match but is a single-segment id and still needs the
+    # ``/work`` namespace deepening.
+    if branch.count("/") >= 2 and branch.rsplit("/", 1)[1] == "work":
+        return branch
+    return f"{branch}/work"
+
+
+def _slice_namespace_root(pipeline_branch: str) -> str:
+    """Return the slice-integration-branch namespace root for a pipeline branch.
+
+    Slice integration branches live as siblings of the pipeline tip
+    under ``egg/<id>/`` (see :func:`_ensure_pipeline_work_ref`). The
+    namespace root is the pipeline branch with the trailing ``/work``
+    stripped — that's the prefix slice paths (``<root>/slice-N``) are
+    built from. For legacy / non-normalised branches that do not end in
+    ``/work``, the branch itself is the root.
+
+    The trailing-``/work`` check mirrors the structural check in
+    :func:`_ensure_pipeline_work_ref` (≥2 slashes, last segment is
+    ``work``) so a degenerate single-segment input like ``egg/work``
+    is treated as the root itself rather than collapsing to ``egg``.
+    """
+    if pipeline_branch.count("/") >= 2 and pipeline_branch.rsplit("/", 1)[1] == "work":
+        return pipeline_branch.rsplit("/", 1)[0]
+    return pipeline_branch
 
 
 def _pipeline_identifier(
@@ -1376,6 +1445,15 @@ def create_pipeline() -> tuple[Response, int]:
     ):
         return make_error_response("Missing branch")
 
+    # #2399 — push the pipeline tip to ``<branch>/work`` so slice
+    # integration branches at ``<branch>/slice-N`` can coexist as
+    # siblings under the same namespace (git rejects a leaf ref and
+    # children of that ref's path with ``directory file conflict``).
+    # Skipped for BABYSIT (the branch is an existing PR head we don't
+    # own) and for non-``egg/`` branches.
+    if mode != PipelineMode.BABYSIT:
+        branch = _ensure_pipeline_work_ref(branch)
+
     # Wait for the gateway to be ready before any gateway-dependent work.
     # On fresh deploys / pod restarts the orchestrator can accept requests
     # while the gateway HTTP listener is still coming up; without this gate
@@ -2056,9 +2134,12 @@ def _cleanup_remote_branches(
     """Best-effort cleanup of remote branches for a pipeline.
 
     Deletes the pipeline's shared branch (``pipeline.branch``, typically
-    ``egg/{pipeline_id}``) and every per-container worktree branch
-    (``egg/{container_id}/work``).  Failures are logged as warnings and do
-    not block pipeline deletion.
+    ``egg/{pipeline_id}/work`` since #2399) and every per-container
+    worktree branch (``egg/{container_id}/work``).  Slice integration
+    branches at ``egg/{pipeline_id}/slice-N`` are siblings of the
+    pipeline tip and are NOT deleted here — see follow-up tracking on
+    #2399 for full namespace cleanup.  Failures are logged as warnings
+    and do not block pipeline deletion.
     """
     branches: set[str] = set()
     if pipeline.branch:
@@ -2191,9 +2272,17 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         pipeline_id: Pipeline ID
         agent_role: Agent role to restart (e.g. "coder", "tester")
 
+    Query string (optional):
+        slice_id: Slice scope (``slice-<N>``). When supplied, the
+            slice-scoped Job and worktree are restarted, ``EGG_SLICE_ID``
+            is propagated to the new Job, and consensus reset targets
+            the per-slice tracker. Pipeline-level agents omit it.
+            ``slice_id`` may also be supplied via the JSON body.
+
     Request body (optional):
         {
-            "reason": "Human-readable reason for the restart"
+            "reason": "Human-readable reason for the restart",
+            "slice_id": "slice-2"
         }
 
     Response:
@@ -2237,6 +2326,16 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
 
     body = request.get_json(silent=True) or {}
     reason = body.get("reason", "Manual restart via API")
+
+    # Slice scope (#2410): query param wins over body so the URL
+    # form is unambiguous; both forms validate against the canonical
+    # ``slice-<N>`` shape via ``extract_slice_id``.
+    raw_slice_id = request.args.get("slice_id")
+    slice_payload = {"slice_id": raw_slice_id} if raw_slice_id is not None else body
+    try:
+        slice_id = extract_slice_id(slice_payload)
+    except ValueError as e:
+        return make_error_response(str(e), status_code=400)
 
     # Restart the container via spawner
     spawner = _get_spawner()
@@ -2344,6 +2443,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             reason=reason,
             spawn_max_retries=pipeline.config.spawn_max_retries,
             spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
+            slice_id=slice_id,
         )
     except (ContainerSpawnError, KubernetesSpawnError) as e:
         # Revert early status update — the agent is not actually running.
@@ -2363,6 +2463,8 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # Spawn succeeded — now reset consensus state for this agent.
     # If consensus reset fails, log a warning but don't fail the restart:
     # the restarted agent will re-enter consensus on its own.
+    # Slice-scoped restarts (#2410) target the per-slice tracker; the
+    # pipeline-level tracker has no record of the slice agent.
     try:
         try:
             from peer_consensus import get_peer_consensus_tracker
@@ -2371,13 +2473,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 get_peer_consensus_tracker,  # type: ignore[import-not-found]
             )
 
-        tracker = get_peer_consensus_tracker(pipeline_id)
+        tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
         if tracker:
             tracker.remove_agent(agent_role)
             logger.info(
                 "Reset consensus state for agent",
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
+                slice_id=slice_id,
             )
     except ImportError:
         pass
@@ -2386,6 +2489,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             "Failed to reset consensus state (agent will re-enter consensus)",
             pipeline_id=pipeline_id,
             agent_role=agent_role,
+            slice_id=slice_id,
             error=str(e),
         )
 
@@ -2475,7 +2579,13 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
-    restart_count = spawner.get_restart_count(pipeline_id, agent_role)
+    # Slice-scoped restarts (#2410) bumped the per-slice budget bucket
+    # ``(pipeline_id, agent_role, slice_id)``; the pipeline-level
+    # ``(pipeline_id, agent_role, None)`` bucket is untouched. Reading
+    # without ``slice_id`` here would return the pipeline-level count
+    # (typically zero) and the audit log + JSON response below would
+    # misreport the operator's "you've burned N of M restarts" telemetry.
+    restart_count = spawner.get_restart_count(pipeline_id, agent_role, slice_id=slice_id)
 
     logger.info(
         "Agent restarted",
@@ -5276,10 +5386,13 @@ def _sync_worktree_with_remote(
     worktree so that all downstream code (contract loading, draft reading,
     populator, etc.) sees the full pipeline state.
 
-    ``pipeline_branch`` is the **remote** branch name to reconcile against
-    (e.g. ``egg/<pid>``).  The orchestrator-side worktree is checked out
-    on a ``/work``-suffixed local branch (``egg/<pid>/work``) that does
-    not exist on origin — agents push to ``egg/<pid>``.  Without an
+    ``pipeline_branch`` is the **remote** branch name to reconcile against.
+    Since #2399 the pipeline tip lives at ``egg/<pid>/work`` on origin so
+    slice integration branches at ``egg/<pid>/slice-N`` can coexist as
+    siblings; ``pipeline.branch`` already carries that ``/work`` suffix
+    (set by :func:`_ensure_pipeline_work_ref` at submission time), so
+    callers should pass ``pipeline_branch=pipeline.branch`` directly —
+    the local worktree branch and the remote ref now match.  Without an
     explicit ``pipeline_branch``, the function reads
     ``git branch --show-current`` and looks up ``origin/<that-name>``,
     which always misses on real pipelines and exits at
@@ -10985,16 +11098,20 @@ def _run_implement_phase_slices(
         return 1, "no slices in contract"
 
     pipeline_branch = pipeline.branch or (
-        f"egg/issue-{pipeline.issue_number}"
+        f"egg/issue-{pipeline.issue_number}/work"
         if pipeline.issue_number is not None
         else f"egg/{pipeline_id}/work"
     )
     issue_number = pipeline.issue_number
-    # Slice integration branches stack under ``pipeline_branch`` directly
-    # so any qualifier suffix (``-v3``, ``-backend``) is preserved — two
-    # qualified pipelines for the same issue would otherwise collide in
-    # the ``egg/issue-N/slice-M`` namespace (#2368).
-    issue_branch = pipeline_branch
+    # Slice integration branches stack as siblings of the pipeline tip
+    # under ``egg/<id>/`` (see :func:`_ensure_pipeline_work_ref` for the
+    # ``/work`` namespace decision in #2399). The namespace root drops the
+    # trailing ``/work`` so slice paths build to ``<root>/slice-M`` rather
+    # than ``<root>/work/slice-M``. The qualifier suffix (``-v3``,
+    # ``-backend``) is preserved through ``pipeline.branch`` so two
+    # qualified pipelines for the same issue do not collide on
+    # ``egg/issue-N/slice-M`` (#2368).
+    issue_branch = _slice_namespace_root(pipeline_branch)
 
     # Wrap scheduler construction so the run loop doesn't crash if the
     # contract bypassed plan-ingestion validation and reaches the
@@ -11538,28 +11655,41 @@ def _run_concurrent_phase(
     phase_str = phase if isinstance(phase, str) else phase.value
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
-    # Slice-aware sandbox env (#2137 TASK-4-3): when running a per-slice
-    # team, override EGG_PIPELINE_ID with the nested ``{pipeline_id}/{slice_id}``
-    # form so agent CLIs send CONSENSUS_* messages keyed on the slice's
-    # tracker scope. The bare pipeline_id is preserved on the caller's
-    # ``sandbox_env`` so we mutate a shallow copy here.
+    # Slice-aware sandbox env (#2137 TASK-4-3 / #2403): when running a
+    # per-slice team, the spawner exposes the slice id via
+    # ``EGG_SLICE_ID`` and leaves ``EGG_PIPELINE_ID`` as the bare
+    # pipeline id. An earlier shape encoded the slice into
+    # ``EGG_PIPELINE_ID`` itself (``{pipeline_id}/{slice_id}``) so the
+    # orchestrator's ``_tracker_key`` would route CONSENSUS_* to the
+    # slice tracker without an extra signal-level field. That broke
+    # every agent → orchestrator round-trip:
     #
-    # Trade-off (refine-phase decision-14 hybrid is partially honoured):
-    # the agent CLI uses the same env var for *every* outbound signal —
-    # CONSENSUS_*, HEARTBEAT, OVERSEER_ALERT — so HEARTBEAT and
-    # OVERSEER_ALERT also route to the slice-scoped tracker rather than
-    # the pipeline-scoped tracker. CONSENSUS_* isolation works as
-    # intended; cross-slice telemetry is per-slice today. A pipeline-
-    # level fan-out for OVERSEER_ALERT requires a CLI-side message-
-    # type-aware router and is tracked alongside the per-slice MCP
-    # control verbs in #2199. The orchestrator-side log line in
-    # ``_run_implement_phase_slices`` and the gateway broadcast on
-    # cascade provide the always-on fallback so a deadlocked
-    # downstream subtree is still surfaced to the operator.
-    if slice_id is not None:
-        sandbox_env = dict(sandbox_env)
-        sandbox_env["EGG_PIPELINE_ID"] = f"{pipeline_id}/{slice_id}"
-        sandbox_env["EGG_SLICE_ID"] = slice_id
+    #   * the orchestrator-side ``PIPELINE_ID_PATTERN`` and the agent
+    #     handler validator (``[a-zA-Z0-9_-]+``) both reject the slash,
+    #   * Flask's default URL converter doesn't allow ``/``, so every
+    #     ``POST /api/v1/pipelines/{pid}/...`` route 404s — i.e. all
+    #     of progress, BRC, heartbeat, message, phase, decision, etc.
+    #
+    # Slice routing is plumbed explicitly instead: the BRC handlers
+    # pull ``EGG_SLICE_ID`` and forward it on the signal payload, and
+    # the orchestrator's signal handlers feed it into
+    # ``get_peer_consensus_tracker(pipeline_id, slice_id)``. CONSENSUS_*
+    # isolation is preserved; HEARTBEAT and OVERSEER_ALERT are not
+    # tracker-scoped at all — ``handle_heartbeat_signal`` is a no-op
+    # ACK with no tracker lookup, and OVERSEER_ALERT flows through the
+    # message bus (``MessageType.OVERSEER_ALERT``) rather than the
+    # consensus tracker. So per-slice scoping doesn't apply to either,
+    # and operator telemetry stays pipeline-wide as before. The
+    # pipeline-level fan-out for OVERSEER_ALERT mentioned in earlier
+    # comments here is tracked alongside the per-slice MCP control
+    # verbs in #2199.
+    #
+    # Single source of truth (#2410 v2 review): ``EGG_SLICE_ID`` is
+    # injected by ``KubernetesSpawner.spawn_agent_job`` from the same
+    # ``slice_id`` parameter that drives Job naming and worktree id, so
+    # there is no need to also stuff it into ``sandbox_env`` here. The
+    # key is in ``_PROTECTED_ENV_KEYS`` so any future caller that does
+    # supply a value via ``extra_env`` is logged and overridden.
 
     # Build per-role prompts for concurrent phase execution.
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
@@ -11647,6 +11777,7 @@ def _run_concurrent_phase(
         base_branch=pipeline.base_branch,
         spawn_max_retries=pipeline.config.spawn_max_retries,
         spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
+        slice_id=slice_id,
     )
 
     max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 6)

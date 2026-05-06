@@ -41,6 +41,7 @@ from peer_consensus import (
     get_peer_consensus_tracker,
 )
 from review_graph import ReviewGraph, get_review_graph_for_phase
+from slice_id_validation import SLICE_ID_PATTERN
 
 logger = get_logger("orchestrator.concurrent_executor")
 
@@ -270,8 +271,20 @@ class ConcurrentPhaseExecutor:
             # cannot see in the slice PR's diff. We honour the
             # pipeline's existing branch as the issue prefix when set,
             # otherwise fall back to the issue-number / pipeline id.
+            #
+            # The pipeline tip is pushed to ``egg/<id>/work`` (#2399), so
+            # the slice integration branch lives as a sibling of ``/work``
+            # under ``egg/<id>/`` — strip the trailing ``/work`` from the
+            # pipeline branch to get the namespace root.
             issue = self.pipeline.issue_number or self.pipeline.id
             issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
+            # Structural check (≥2 slashes, last segment ``work``) — see
+            # ``_slice_namespace_root`` in ``routes/pipelines.py`` for
+            # the matching helper. A degenerate single-segment input
+            # like ``egg/work`` is treated as the root itself rather
+            # than collapsing to ``egg``.
+            if issue_branch.count("/") >= 2 and issue_branch.rsplit("/", 1)[1] == "work":
+                issue_branch = issue_branch.rsplit("/", 1)[0]
             normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
             # Defense-in-depth: re-validate the normalised slice id
             # shape before embedding it in a git ref. The contract-
@@ -281,10 +294,10 @@ class ConcurrentPhaseExecutor:
             # validation must not be able to smuggle path separators
             # or shell metacharacters in via this seam (per the
             # security reviewer's defense-in-depth suggestion on the
-            # v1 BRC review).
-            import re
-
-            if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
+            # v1 BRC review). The pattern is the canonical one shared
+            # with the signal handlers (#2403) and the operator restart
+            # route (#2410) — see ``slice_id_validation``.
+            if not SLICE_ID_PATTERN.fullmatch(normalised_slice):
                 raise ValueError(
                     f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
                 )
@@ -298,21 +311,28 @@ class ConcurrentPhaseExecutor:
     def get_slice_integration_branch(self, slice_id: str) -> str:
         """Return the shared integration branch for a slice's BRC.
 
-        Each slice has its own integration branch under the pipeline
-        branch — ``egg/issue-N/slice-M`` — that the per-role work
-        branches rebase onto. Roots base off the pipeline branch
-        directly; child slices base off their parent slice's
-        integration branch.
+        Each slice has its own integration branch as a sibling of the
+        pipeline tip under ``egg/<id>/`` — ``egg/issue-N/slice-M`` —
+        that the per-role work branches rebase onto. Roots base off the
+        pipeline branch directly (``egg/issue-N/work``); child slices
+        base off their parent slice's integration branch.
+
+        The pipeline tip is pushed to ``egg/<id>/work`` (#2399), so the
+        slice integration branch lives as a sibling of ``/work`` under
+        ``egg/<id>/`` — strip the trailing ``/work`` from the pipeline
+        branch to get the namespace root.
 
         The slice id is regex-validated for defense-in-depth (see
         ``get_worktree_branch``).
         """
         issue = self.pipeline.issue_number or self.pipeline.id
         issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
+        # Structural check (≥2 slashes, last segment ``work``) — see
+        # ``_slice_namespace_root`` in ``routes/pipelines.py``.
+        if issue_branch.count("/") >= 2 and issue_branch.rsplit("/", 1)[1] == "work":
+            issue_branch = issue_branch.rsplit("/", 1)[0]
         normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
-        import re
-
-        if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
+        if not SLICE_ID_PATTERN.fullmatch(normalised_slice):
             raise ValueError(
                 f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
             )

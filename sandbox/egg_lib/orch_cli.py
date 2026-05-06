@@ -147,6 +147,16 @@ def get_pipeline_id_from_env() -> str | None:
     return os.environ.get("EGG_PIPELINE_ID")
 
 
+def get_slice_id_from_env() -> str | None:
+    """Get slice ID from environment (``EGG_SLICE_ID``) if set.
+
+    Set on agents spawned for a per-slice BRC team (#2403). When
+    present, consensus signal commands forward it on the request body
+    so the orchestrator routes ``CONSENSUS_*`` to the slice's tracker.
+    """
+    return os.environ.get("EGG_SLICE_ID") or None
+
+
 def get_agent_role_from_env() -> str | None:
     """Get agent role from environment if set."""
     return os.environ.get("EGG_AGENT_ROLE")
@@ -2571,6 +2581,9 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
         "agent_role": role,
         "reason": args.reason,
     }
+    slice_id = get_slice_id_from_env()
+    if slice_id:
+        data["slice_id"] = slice_id
 
     result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
 
