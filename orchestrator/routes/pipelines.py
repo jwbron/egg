@@ -9878,10 +9878,13 @@ def _build_producer_orientation(
                 "Treat the coder's implementation as suspect until you have "
                 "tried to break it — write tests that target weak spots, "
                 "boundary conditions, error paths, and contract violations. "
-                "**A failing test IS a bug report**: when you find a bug, "
-                "commit the failing test, list it in `gaps_found`, NACK the "
-                "coder's proposal citing the test, and HANDOFF to coder with "
-                "the failure details. The coder owns the fix; you own "
+                "When a test fails because of a coder-side bug, **the "
+                "committed failing test is evidence — the NACK is the bug "
+                "report**. Pair every failing test with an explicit NACK on "
+                "the coder's proposal that names the failing test in its "
+                "rationale; otherwise the bug is easy for the coder to miss. "
+                "Also list the bug in `gaps_found` and HANDOFF to coder with "
+                "the failure output. The coder owns the fix; you own "
                 "surfacing the bug. "
                 "**Scaffold-first while the coder is producing**: draft test "
                 "scaffolding from the plan alone — test file paths from "
@@ -10167,11 +10170,14 @@ def _build_agent_prompt(
                 "2. **Adversarial bug-hunting** — actively probe the coder's "
                 "implementation for bugs and edge cases they missed. Treat the "
                 "implementation as suspect until you have tried to break it. "
-                "Write tests that target suspected weaknesses; **a failing test "
-                "IS a bug report**. Commit the failing test, list it in "
-                "`gaps_found`, NACK the coder's proposal citing the test, and "
-                "HANDOFF to coder with the failure output. The coder owns the "
-                "fix; you own surfacing the bug.",
+                "Write tests that target suspected weaknesses. When a test "
+                "fails because of a coder-side bug, **the committed failing "
+                "test is evidence — the NACK is the bug report**. Pair every "
+                "failing test with an explicit NACK on the coder's proposal "
+                "that names the failing test in its rationale; otherwise the "
+                "bug is easy for the coder to miss. Also list the bug in "
+                "`gaps_found` and HANDOFF to coder with the failure output. "
+                "The coder owns the fix; you own surfacing the bug.",
                 "",
                 "You are also responsible for **lint/type-check validation**.",
                 "",
@@ -10215,10 +10221,12 @@ def _build_agent_prompt(
                 "target them",
                 "4. Run all tests. Tests that pass demonstrate coverage; "
                 "**tests that fail demonstrate bugs you have found** — keep them",
-                "5. For every failing test caused by a coder-side bug: commit "
-                "the failing test, list the bug in `gaps_found`, NACK the "
-                "coder's proposal citing the test, and HANDOFF to the coder "
-                "with the failure output",
+                "5. For every failing test caused by a coder-side bug: "
+                "commit the failing test AND **NACK the coder's proposal, "
+                "explicitly naming the failing test in the NACK rationale**. "
+                "The committed test alone is not sufficient — the NACK is "
+                "what surfaces the bug to the coder. Also list the bug in "
+                "`gaps_found` and HANDOFF to the coder with the failure output",
                 "6. Commit all test files with descriptive messages",
                 "",
                 "Adversarial probing — actively try to break the implementation:",

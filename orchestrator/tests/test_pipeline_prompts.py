@@ -1619,8 +1619,10 @@ class TestTesterGapFindingPrompts:
         assert "mandate is two-fold" in result
         assert "Comprehensive coverage" in result
         assert "Adversarial bug-hunting" in result
-        # Failing-test-as-bug-report language
-        assert "a failing test is a bug report" in result.lower()
+        # Failing test must be paired with an explicit NACK that names it —
+        # the committed failing test alone is not the bug report.
+        assert "the NACK is the bug report" in result
+        assert "naming the failing test" in result.lower()
         # Adversarial probing list
         assert "Adversarial probing" in result
         assert "Missing error handling" in result
