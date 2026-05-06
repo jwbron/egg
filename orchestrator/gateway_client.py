@@ -1861,13 +1861,26 @@ class GatewayClient:
         in audit/session logs. Callers should pick a tag that matches
         the operation they are performing so existing log-filter rules
         keep working — e.g. the stacked-PR reconciler passes
-        ``"stacked-pr-ls-remote"``.
+        ``"stacked-pr-ls-remote"``. Empty / non-alphanumeric values are
+        rejected to keep the audit-log identifier well-formed: an empty
+        tag would produce a trailing-dash id, and a tag containing
+        whitespace or ``/`` would silently break the log-filter rules
+        the kwarg was added to preserve.
 
         Same error-handling contract as :meth:`list_remote_branches`:
         on any gateway failure returns an empty mapping.
         """
         if not repo_path:
             return {}
+        # Validation is intentionally strict: callers are all internal,
+        # so a bad tag is a programming error, not user input. Hyphens
+        # are allowed because the canonical tag format is hyphen-
+        # separated (e.g. "stacked-pr-ls-remote").
+        if not operation_tag or not operation_tag.replace("-", "").isalnum():
+            raise ValueError(
+                f"operation_tag must be non-empty and alphanumeric (hyphens allowed); "
+                f"got {operation_tag!r}"
+            )
         temp_container_id = f"{pipeline_id}-{operation_tag}"
         session_token: str | None = None
         try:

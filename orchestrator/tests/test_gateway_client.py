@@ -1714,6 +1714,50 @@ class TestGetRepoVisibility:
             assert result is None
 
 
+class TestListRemoteBranchesWithShasOperationTag:
+    """Tests for the operation_tag kwarg on list_remote_branches_with_shas.
+
+    The kwarg controls the audit-log identifier the synthetic gateway
+    session registers under (``f"{pipeline_id}-{operation_tag}"``).
+    Empty / non-alphanumeric values would silently break the log-filter
+    rules the kwarg was added to preserve, so callers that pass garbage
+    must fail loudly rather than register a malformed session.
+    """
+
+    def test_empty_operation_tag_raises(self, gateway_client):
+        with pytest.raises(ValueError, match="operation_tag"):
+            gateway_client.list_remote_branches_with_shas(
+                "pipeline-1",
+                "/repo",
+                operation_tag="",
+            )
+
+    def test_operation_tag_with_slash_raises(self, gateway_client):
+        with pytest.raises(ValueError, match="operation_tag"):
+            gateway_client.list_remote_branches_with_shas(
+                "pipeline-1",
+                "/repo",
+                operation_tag="ls/remote",
+            )
+
+    def test_operation_tag_with_whitespace_raises(self, gateway_client):
+        with pytest.raises(ValueError, match="operation_tag"):
+            gateway_client.list_remote_branches_with_shas(
+                "pipeline-1",
+                "/repo",
+                operation_tag="ls remote",
+            )
+
+    def test_hyphenated_operation_tag_accepted(self, gateway_client, mock_gateway_server):
+        # The canonical caller passes a hyphen-separated tag — must pass.
+        result = gateway_client.list_remote_branches_with_shas(
+            "pipeline-1",
+            "/repo",
+            operation_tag="stacked-pr-ls-remote",
+        )
+        assert isinstance(result, dict)
+
+
 class TestSingletonClient:
     """Tests for singleton client."""
 

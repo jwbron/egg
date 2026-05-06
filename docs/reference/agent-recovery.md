@@ -304,9 +304,9 @@ The sweep is best-effort. Any per-ref failure (gateway error, unparseable git ou
 |---------|---------|--------|
 | `EGG_ORCH_RECOVERY_REF_CLEANUP_ENABLED` | `true` | Master kill switch. Set to `false`/`0`/`no`/`off` to disable the loop entirely. |
 | `EGG_ORCH_RECOVERY_REF_TTL_DAYS` | `90` | Committer-date age past which a recovery ref is eligible for deletion. |
-| `EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS` | `86400` | Period between sweeps (default 24 h). **Also gates the first sweep:** the loop sleeps a full `interval_seconds` *before* its first run so multiple replicas restarted together don't pile onto the same minute. After an orchestrator restart, expect no recovery-ref cleanup for one full interval; trigger a one-shot sweep manually if you need immediate cleanup. The sweep is cheap when no refs need deletion, but the gateway round-trip adds up if set very low. |
+| `EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS` | `86400` | Period between sweeps (default 24 h). **Also gates the first sweep:** the loop sleeps a full `interval_seconds` *before* its first run so multiple replicas restarted together don't pile onto the same minute. After an orchestrator restart, expect no recovery-ref cleanup for one full interval. There is no operator CLI to force an immediate sweep; the supported escape hatches are (a) restart the orchestrator with a temporarily lowered interval, or (b) call `RecoveryRefCleaner.run_once()` directly on the cleaner stashed in `app.config["RECOVERY_REF_CLEANERS"]`. The sweep is cheap when no refs need deletion, but the gateway round-trip adds up if set very low. |
 
-The cleanup loop runs once per repo path discovered under `EGG_REPO_PATH`. Each loop is a daemon thread that sleeps `interval_seconds` before its first sweep so multiple replicas restarted together don't pile onto the same minute.
+The cleanup loop runs once per repo path discovered under `EGG_REPO_PATH`. Each loop is a daemon thread; see the `EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS` row above for the first-sweep timing.
 
 **Metrics in logs**
 

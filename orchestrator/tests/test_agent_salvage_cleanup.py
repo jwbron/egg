@@ -287,6 +287,36 @@ class TestSweepRecoveryRefs:
         report = sweep_recovery_refs(gateway, repo, ttl_days=90)
         assert report.refs_skipped_error == 1
         assert report.refs_deleted == 0
+        # Regression guard for the gateway-rejected fold-in: when the
+        # gateway refuses the delete, the ref is still on origin so its
+        # age must surface in oldest_remaining_age_days. Without the
+        # fold-in, this metric would be None and operators would see a
+        # misleadingly young (or absent) "oldest" exactly when they need
+        # the truth.
+        assert report.oldest_remaining_age_days is not None
+        assert report.oldest_remaining_age_days > 90
+
+    def test_delete_exception_folds_into_oldest_remaining(self, tmp_path: Path) -> None:
+        """Regression guard for the exception-path fold-in. When
+        ``gateway.delete_remote_branch`` raises, the ref is still on
+        origin and its age must show up in ``oldest_remaining_age_days``
+        — otherwise a future change that drops the fold-in would slide
+        through silently."""
+        repo = tmp_path / "repo"
+        _make_repo(repo)
+        old = datetime.now(UTC) - timedelta(days=200)
+        sha = _commit_at(repo, "old.txt", "old", "stale", when=old)
+        ref_name = "egg/recovered/issue-99/coder/abc123def456"
+        _set_remote_tracking(repo, ref_name, sha)
+
+        gateway = self._make_gateway(refs={ref_name: sha})
+        gateway.delete_remote_branch.side_effect = RuntimeError("network down")
+
+        report = sweep_recovery_refs(gateway, repo, ttl_days=90)
+        assert report.refs_skipped_error == 1
+        assert report.refs_deleted == 0
+        assert report.oldest_remaining_age_days is not None
+        assert report.oldest_remaining_age_days > 90
 
     def test_list_failure_aborts_cleanly(self, tmp_path: Path) -> None:
         repo = tmp_path / "repo"
