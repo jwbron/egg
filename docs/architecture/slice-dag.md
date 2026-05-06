@@ -310,7 +310,7 @@ lived on a per-role sibling branch GitHub does not see in the PR.
 
 | Mode | `slice_id` | Result |
 |------|------------|--------|
-| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N` (per-role suffix `/{role}/work` for babysit-pr staging). |
+| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N/work` (tip pushed to `<id>/work` since #2399; per-role suffix `/{role}/work` for babysit-pr staging). |
 | Slice mode (post-v6) | `"slice-2"` or `"2"` | `egg/issue-N/slice-2` — **shared by every role in the slice**. |
 
 > **The slice is the unit of isolation, not the role within the slice.**

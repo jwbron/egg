@@ -208,6 +208,10 @@ Agent restart preserves the agent's existing worktree (including committed work 
 > curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/agents/<role>/restart \
 >   -H "Content-Type: application/json" -d '{"reason": "Agent hung"}'
 >
+> # Restart a slice-scoped agent (supply slice_id as query param or in body)
+> curl -X POST "http://egg-orchestrator:9849/api/v1/pipelines/<id>/agents/<role>/restart?slice_id=slice-2" \
+>   -H "Content-Type: application/json" -d '{"reason": "Slice agent hung"}'
+>
 > # Phase restart via REST API
 > curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phases/<phase>/restart \
 >   -H "Content-Type: application/json" -d '{"reason": "Phase stalled", "context": "Focus on X"}'

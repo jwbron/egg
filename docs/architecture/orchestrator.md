@@ -179,7 +179,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 **Architecture:**
 - Gateway creates worktrees at `/home/egg/.egg-worktrees/{job-name}/{repo-name}/` (one per agent)
 - Each agent pod mounts its own worktree via hostPath and writes artifacts to it
-- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}`)
+- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}/work` since #2399; babysit-pr uses the existing PR head branch)
 - Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
 - Worktree paths are resolved dynamically based on Job name and repository
 
