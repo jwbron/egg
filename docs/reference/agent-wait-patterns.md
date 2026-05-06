@@ -873,9 +873,12 @@ empty) rather than re-emitting the dead `msg_since_id`. The CLI
 threads the corrected cursor forward automatically; host-side
 callers see no change in the JSON-line output. The response also
 carries `since_id_stale: True` in the envelope, but the host CLI
-does not currently surface this field in its JSON-line output — it
-is consumed by sandbox-side `message wait` / `wait-loop` to delete
-their on-disk cursor files (see §3, point 5).
+does not currently surface this field in its JSON-line output and
+no other consumer reads it from the `/status/wait` route. The
+same-named flag is independently surfaced by `/messages/wait` and
+consumed there by sandbox-side `message wait` / `wait-loop` to
+delete their on-disk cursor files (see §3, point 5) — that
+consumer is fully decoupled from this route.
 
 A cursor-less first call (omit `--since`) starts from the **tip** of
 both sources — only events that arrive after the call begins will
