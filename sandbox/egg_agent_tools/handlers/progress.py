@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from egg_lib._slice_id import SLICE_ID_PATTERN as _SLICE_ID_PATTERN
+
 from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_pipeline_id,
@@ -14,7 +16,6 @@ from egg_agent_tools.handlers._gateway import (
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
 _PIPELINE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
-_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
 
 
 def _maybe_attach_slice_id(req: dict[str, Any], data: dict[str, Any]) -> None:
