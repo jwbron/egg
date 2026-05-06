@@ -1522,6 +1522,95 @@ class TestRestartAgentEndpointBaseBranch:
         # ``egg/issue-100/slice-1``.
         assert restart_call.kwargs["base_branch"] == recorded_parent_branch
 
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_child_slice_restart_falls_back_when_parent_complete(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_load_contract,
+        client,
+    ):
+        """Restart falls back to ``pipeline.base_branch`` when the parent slice is complete (#2470).
+
+        When the parent slice has reached ``SliceStatus.COMPLETE``,
+        its PR has plausibly been merged and the head branch deleted
+        by GitHub's standard auto-cleanup. The gateway's per-repo
+        ``git fetch origin <parent_branch>`` would then wedge the
+        restart on a missing-branch fetch error. The route detects
+        this via the contract's slice status and falls back to
+        ``pipeline.base_branch`` — equivalent to the
+        contract-unloadable fall-through (#2421/#2439): prefer
+        letting the restart proceed over over-strict gating.
+
+        The recorded ``parent_branch_at_creation`` is set on the
+        child slice here to confirm the fallback wins even when the
+        recorded value is available (the issue here is the *branch's*
+        existence, not the route's knowledge of its name).
+        """
+        from egg_contracts.models import Contract, Slice, SliceStatus
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.branch = "egg/issue-100/work"
+        pipeline.base_branch = "main"
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_load_contract.return_value = Contract(
+            pipeline_id="issue-100",
+            slices=[
+                Slice(
+                    id="slice-1",
+                    name="Parent slice (complete, branch likely deleted on origin)",
+                    status=SliceStatus.COMPLETE,
+                ),
+                Slice(
+                    id="slice-2",
+                    name="Child slice",
+                    dependencies=["slice-1"],
+                    parent_branch_at_creation="egg/issue-100/slice-1",
+                ),
+            ],
+        )
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
+            json={"reason": "Child slice restart after parent merged"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        # Fallback wins over both the recorded parent branch and
+        # reconstructed ``egg/issue-100/slice-1``.
+        assert restart_call.kwargs["base_branch"] == "main"
+        # Agent's assigned branch is unaffected — still its own
+        # integration branch.
+        assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
+
 
 # ---------------------------------------------------------------------------
 # Issue #2422: in-place agent-state mutation matches on (role, slice_id)
