@@ -814,7 +814,7 @@ class KubernetesMonitor:
                 # ``stall_slice_id`` is always ``None`` here, but the moment
                 # the upstream check becomes slice-aware this path will mark
                 # the whole phase COMPLETE while other slices are still
-                # RUNNING. Scope to \"no other slice still active\" or split
+                # RUNNING. Scope to "no other slice still active" or split
                 # ``phase_exec`` into per-slice status when #2441 lands.
                 phase_exec.status = PipelineStatus.COMPLETE
                 phase_exec.completed_at = now
