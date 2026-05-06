@@ -16,7 +16,7 @@ When an agent container exits, the gateway **no longer** automatically commits a
 - It committed files outside the agent's role boundaries, blocking downstream agents' pushes
 - WIP commits broke CI and confused reviewers
 
-With per-agent worktree isolation, each agent's uncommitted work persists safely in its own worktree on disk until the pipeline cleans up. There is no risk of losing work silently.
+With per-agent worktree isolation, each agent's uncommitted work persists safely in its own worktree on disk until the pipeline cleans up. For committed-but-unpushed work (pushes wedged by gateway rejection or infra failure), `cleanup_pipeline` now auto-salvages to `egg/recovered/…` refs before deleting worktrees — see [Committed but Unpushed: Auto-Salvage](#committed-but-unpushed-auto-salvage) below.
 
 Source: `gateway/post_agent_commit.py`
 
@@ -32,7 +32,63 @@ When the orchestrator detects uncommitted work in an agent's worktree after exit
 
 ## Worktree Lifecycle
 
-Per-agent worktrees persist after container exit (until pipeline cleanup). The uncommitted work is not lost — it sits in the worktree on disk. This is a direct benefit of per-agent worktree isolation: each agent's worktree is independent, so cleanup of one agent's worktree cannot affect another agent's work.
+Per-agent worktrees persist after container exit (until pipeline cleanup). Uncommitted work is not lost — it sits in the worktree on disk. This is a direct benefit of per-agent worktree isolation: each agent's worktree is independent, so cleanup of one agent's worktree cannot affect another agent's work.
+
+## Committed but Unpushed: Auto-Salvage
+
+A different failure class exists when an agent **commits** work locally but its **pushes** to the remote are wedged — gateway branch-allowlist rejection from a wrong-branch spawn-time env var, transient infra failure, or restart-reconciliation marking a still-running pipeline `failed`. In these cases the commits sit on the local `egg/{worktree_id}/work` branch and are lost when `cleanup_pipeline` deletes the worktree.
+
+Since [#2438](https://github.com/jwbron/egg/pull/2438), `cleanup_pipeline` automatically calls `auto_salvage_pipeline` before deleting any worktree. Every per-agent worktree with local commits not reachable from `origin/<assigned_branch>` is pushed to a recovery ref:
+
+```
+egg/recovered/<pipeline_id>/<scope>/<short_sha>
+```
+
+The `<short_sha>` is the HEAD SHA at salvage time, so re-running salvage produces immutable refs rather than force-overwriting earlier ones. Recovery refs are never deleted by the orchestrator — they outlive the pipeline.
+
+**To locate all salvaged commits for a pipeline:**
+
+```bash
+git ls-remote origin 'refs/heads/egg/recovered/<pipeline>/*'
+```
+
+**To replay onto a recovery branch:**
+
+```bash
+git fetch origin egg/recovered/<pipeline>/<scope>/<sha>
+git cherry-pick <sha>
+```
+
+### Operator MCP Tools
+
+Two MCP tools let operators triage and trigger salvage manually, before or instead of waiting for cleanup:
+
+| Tool | Mutates? | Purpose |
+|------|----------|---------|
+| `list_agent_local_commits` | No | List unpushed commits in every per-agent worktree for a pipeline. Scoped by `agent_role` and/or `slice_id`. |
+| `salvage_agent_commits` | Yes (pushes to origin) | Push unpushed commits to `egg/recovered/...` refs using orchestrator launcher auth, which bypasses the agent-targeted allowlist that rejected the original push. |
+
+**Example — triage before cleanup:**
+
+```python
+# Check what would be lost
+commits = await mcp.call_tool("list_agent_local_commits", {"task_id": "issue-2261-v9"})
+# commits["worktrees"] — per-worktree breakdown with commit list
+
+# Salvage all worktrees for the pipeline
+result = await mcp.call_tool("salvage_agent_commits", {"task_id": "issue-2261-v9"})
+# result["recovery_refs"] — list of pushed egg/recovered/... refs
+```
+
+Scope to a single role:
+
+```python
+await mcp.call_tool("list_agent_local_commits", {
+    "task_id": "issue-2261-v9",
+    "agent_role": "coder",
+    "slice_id": "slice-2",
+})
+```
 
 ## Migration from Auto-Commit
 
@@ -44,7 +100,7 @@ Per-agent worktrees persist after container exit (until pipeline cleanup). The u
 | WIP commits pushed to branch automatically | No automatic push; HITL decides |
 | Phase-restricted files filtered before commit | No filtering needed — nothing is auto-committed |
 | Symlink filtering applied | No filtering needed |
-| `egg/salvage-<id>` branches created for main | No salvage branches needed |
+| `egg/salvage-<id>` branches created for main | `egg/recovered/<pipeline>/...` refs auto-created by `cleanup_pipeline` for committed-but-unpushed work |
 
 ### What operators should know
 

@@ -74,7 +74,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 |----------|-------------|
 | [Agent Roles](reference/agent-roles.md) | All agent roles: purpose, phase, file access permissions, input/output artifacts |
 | [Agent Recovery](reference/agent-recovery.md) | Retry manager, circuit breaker, conflict detection, and resilience utilities |
-| [Post-Agent Commit](reference/post-agent-commit.md) | HITL recovery for uncommitted work on agent exit (replaces auto-commit) |
+| [Post-Agent Commit](reference/post-agent-commit.md) | HITL recovery for uncommitted work on agent exit (replaces auto-commit); auto-salvage of committed-but-unpushed commits to `egg/recovered/…` refs; `list_agent_local_commits` and `salvage_agent_commits` MCP tools |
 | [Redaction](reference/redaction.md) | Checkpoint redaction patterns, security model, and limitations |
 | [Orchestrator CLI](reference/orchestrator-cli.md) | Full `egg-orch` command reference for pipelines, phases, decisions, containers |
 | [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
