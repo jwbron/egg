@@ -69,6 +69,13 @@ except ImportError:
 # Validation pattern for IDs used in URL path segments
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
 
+# Canonical ``slice-<N>`` shape — mirrors orchestrator's
+# ``slice_id_validation.SLICE_ID_PATTERN`` and the handler-side regex in
+# ``egg_agent_tools.handlers.{brc,progress}``. Kept inline rather than
+# importing from the orchestrator package because ``egg_lib`` ships in
+# the sandbox and must not depend on orchestrator code.
+_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
+
 
 class ApiError(Exception):
     """Error from an API request."""
@@ -153,8 +160,34 @@ def get_slice_id_from_env() -> str | None:
     Set on agents spawned for a per-slice BRC team (#2403). When
     present, consensus signal commands forward it on the request body
     so the orchestrator routes ``CONSENSUS_*`` to the slice's tracker.
+
+    Prefer :func:`resolve_slice_id` for CLI commands that forward the
+    value — that helper validates against the canonical ``slice-<N>``
+    shape so a misconfigured env var fails fast locally instead of
+    round-tripping a 400 through the orchestrator.
     """
     return os.environ.get("EGG_SLICE_ID") or None
+
+
+def resolve_slice_id() -> str | None:
+    """Validated counterpart of :func:`get_slice_id_from_env` (#2473).
+
+    Returns the canonical ``slice-<N>`` value, or ``None`` when unset.
+    A non-empty value that fails the regex prints to stderr and exits
+    with status 1, so CLI commands surface a misconfigured
+    ``EGG_SLICE_ID`` locally rather than letting the orchestrator
+    reject the request via ``slice_id_validation.extract_slice_id``.
+    """
+    raw = os.environ.get("EGG_SLICE_ID") or None
+    if raw is None:
+        return None
+    if not _SLICE_ID_PATTERN.fullmatch(raw):
+        print(
+            f"Error: Invalid EGG_SLICE_ID {raw!r}: must match 'slice-<N>'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return raw
 
 
 def get_agent_role_from_env() -> str | None:
@@ -2581,7 +2614,7 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
         "agent_role": role,
         "reason": args.reason,
     }
-    slice_id = get_slice_id_from_env()
+    slice_id = resolve_slice_id()
     if slice_id:
         data["slice_id"] = slice_id
 
