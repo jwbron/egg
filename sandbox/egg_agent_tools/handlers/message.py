@@ -138,11 +138,18 @@ def message_wait(req: dict[str, Any]) -> dict[str, Any]:
     messages = list(data.get("messages", []) or [])
     matched = bool(data.get("matched")) or bool(messages)
     cursor = data.get("cursor")
+    # Issue #2464: server signals when ``since_id`` resolved to no
+    # known message in the store (typically because a phase-boundary
+    # ``clear`` wiped the cursor). The CLI uses this to drop its on-disk
+    # cursor file so the next wait re-snaps to tip instead of feeding
+    # the dead cursor back forever.
+    since_id_stale = bool(data.get("since_id_stale"))
     return {
         "ok": True,
         "matched": matched,
         "messages": messages,
         "cursor": cursor,
+        "since_id_stale": since_id_stale,
         "role": role,
         "for_types": for_types,
         "raw": result,
@@ -326,6 +333,12 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
                 backoff = min(backoff * 2, 5.0)
                 continue
             last_resp = resp
+            # Issue #2464: if the server flagged the previous ``since``
+            # as unresolvable (post-phase-clear cursor) drop it before
+            # threading the new cursor — otherwise a server-side tip of
+            # ``None`` would let the dead cursor live another iteration.
+            if resp.get("since_id_stale"):
+                inner.pop("since", None)
             # Thread the server cursor into the next wait's ``since`` so
             # events that arrive between this response and the next call
             # can't slip through the gap (issue #1995). A cursor of ``None``

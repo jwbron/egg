@@ -299,20 +299,24 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     if wait > 0:
         _track_long_poll_start()
     try:
-        messages = message_store.get_messages(pipeline_id, **kwargs)
+        messages, meta = message_store.get_messages_with_meta(pipeline_id, **kwargs)
     finally:
         if wait > 0:
             _track_long_poll_end()
 
     messages = _apply_delphi_filter(pipeline_id, role, messages)
 
-    return _make_success(
-        "Messages retrieved",
-        data={
-            "messages": [m.to_dict() for m in messages],
-            "count": len(messages),
-        },
-    )
+    data: dict[str, Any] = {
+        "messages": [m.to_dict() for m in messages],
+        "count": len(messages),
+    }
+    # Structured staleness signal (issue #2464). Only emitted when True so
+    # responses stay byte-identical for the common case; consumers that
+    # care (the sandbox CLI cursor file, agent wait_loop) clear their
+    # cached cursor when they see this and re-snap to tip.
+    if meta.since_id_stale:
+        data["since_id_stale"] = True
+    return _make_success("Messages retrieved", data=data)
 
 
 def _apply_delphi_filter(
@@ -497,7 +501,7 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
         # "0-0" (issue #1925). Callers that want cursor-passing
         # semantics pass ``since_id`` explicitly, which disables
         # from_tip below.
-        messages = message_store.get_messages(
+        messages, meta = message_store.get_messages_with_meta(
             pipeline_id,
             role=role,
             since_id=since_id,
@@ -522,15 +526,16 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
     else:
         cursor = message_store.get_latest_id(pipeline_id)
 
-    return _make_success(
-        "Wait completed",
-        data={
-            "messages": [m.to_dict() for m in messages],
-            "count": len(messages),
-            "matched": bool(messages),
-            "cursor": cursor,
-        },
-    )
+    data: dict[str, Any] = {
+        "messages": [m.to_dict() for m in messages],
+        "count": len(messages),
+        "matched": bool(messages),
+        "cursor": cursor,
+    }
+    # Structured staleness signal (issue #2464). See poll_messages above.
+    if meta.since_id_stale:
+        data["since_id_stale"] = True
+    return _make_success("Wait completed", data=data)
 
 
 @messages_bp.route("/<pipeline_id>/heartbeat", methods=["POST"])

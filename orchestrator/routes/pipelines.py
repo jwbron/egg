@@ -3738,6 +3738,34 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
 
     event_bus = get_event_bus()
 
+    # Synchronous up-front cursor-staleness probe (issue #2464). The route
+    # used to silently keep re-emitting ``msg_since_id`` whenever the store
+    # tip was empty (post-phase-clear), so a polling client kept feeding
+    # the dead cursor back forever. Probe once at entry with ``wait=0`` so
+    # we can both stop re-emitting it and surface ``since_id_stale: True``
+    # in the envelope, letting consumers (sandbox CLI cursor file, agent
+    # wait_loop) drop the stale cursor and re-snap to tip. Done before
+    # the terminal short-circuit below so a request that arrives after
+    # both a phase clear and pipeline completion still sees the flag.
+    since_id_stale = False
+    if msg_since_id is not None:
+        try:
+            store_fn = _get_message_store()
+            store = store_fn()
+            _msgs, meta = store.get_messages_with_meta(
+                pipeline_id,
+                since_id=msg_since_id,
+                limit=1,
+                wait=0,
+            )
+            since_id_stale = meta.since_id_stale
+        except Exception as exc:  # pragma: no cover
+            logger.debug(
+                "status_wait staleness probe error",
+                pipeline_id=pipeline_id,
+                error=str(exc),
+            )
+
     # Late-subscriber short-circuit (issue #2378): if the pipeline is
     # already terminal at request time, the relevant ``pipeline.*``
     # event was emitted before this call could subscribe — and the
@@ -3752,8 +3780,11 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         PipelineStatus.CANCELLED: "pipeline.cancelled",
     }
     if pipeline.status in _TERMINAL_EVENT_TYPES:
+        # Issue #2464: don't fall back to ``msg_since_id`` when the tip
+        # is empty — that's exactly the post-clear state that perpetuates
+        # the dead cursor.
         terminal_cursor = _build_status_wait_cursor(
-            _message_store_tip_id(pipeline_id) or msg_since_id,
+            _message_store_tip_id(pipeline_id),
             event_bus.current_sequence(),
         )
         terminal_envelope = _build_minimal_status_envelope(pipeline, terminal_cursor)
@@ -3764,6 +3795,8 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                 "event_type": _TERMINAL_EVENT_TYPES[pipeline.status],
             }
         )
+        if since_id_stale:
+            terminal_envelope["since_id_stale"] = True
         return make_success_response("Pipeline already terminal", data=terminal_envelope)
 
     # Snap event_since_seq to the current tip on first call.  This
@@ -3846,7 +3879,13 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
 
         if source == "event":
             event = payload
-            tip_msg_id = _message_store_tip_id(pipeline_id) or msg_since_id
+            # Issue #2464: never fall back to ``msg_since_id`` when the
+            # tip is empty. After a phase-boundary clear the caller's
+            # cursor is dead; re-emitting it here is what kept the
+            # ``since_id not found in store`` warning firing on every
+            # subsequent poll. ``since_id_stale: True`` in the envelope
+            # tells the consumer to drop its cached cursor.
+            tip_msg_id = _message_store_tip_id(pipeline_id)
             cursor = _build_status_wait_cursor(tip_msg_id, event.sequence)
             envelope = _build_minimal_status_envelope(fresh_pipeline, cursor)
             envelope.update(
@@ -3856,11 +3895,16 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                     "event_type": event.event_type.value,
                 }
             )
+            if since_id_stale:
+                envelope["since_id_stale"] = True
             return make_success_response("Event wake", data=envelope)
 
         if source == "message":
             messages = payload
-            last_id = messages[-1].id if messages else msg_since_id
+            # Issue #2464: same as the event path — fall back to None
+            # when the message half is unavailable rather than re-emitting
+            # the stale ``msg_since_id``.
+            last_id = messages[-1].id if messages else None
             # Delphi filter pass — currently a no-op for the host caller
             # (role=None returns messages unchanged) but plumbed here so a
             # future role parameter can enable reviewer-redaction (R13).
@@ -3879,14 +3923,18 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                     "messages": [m.to_dict() for m in messages],
                 }
             )
+            if since_id_stale:
+                envelope["since_id_stale"] = True
             return make_success_response("Message wake", data=envelope)
 
         # Timeout path — minimal envelope only.
-        tip_msg_id = _message_store_tip_id(pipeline_id) or msg_since_id
+        tip_msg_id = _message_store_tip_id(pipeline_id)
         tip_evt_seq = event_bus.current_sequence()
         cursor = _build_status_wait_cursor(tip_msg_id, tip_evt_seq)
         envelope = _build_minimal_status_envelope(fresh_pipeline, cursor)
         envelope.update({"changed": False, "no_change": True})
+        if since_id_stale:
+            envelope["since_id_stale"] = True
         return make_success_response("No change within wait window", data=envelope)
     finally:
         try:

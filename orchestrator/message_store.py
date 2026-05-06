@@ -11,11 +11,31 @@ import time
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("orchestrator.message_store")
+
+
+class GetMessagesMeta(NamedTuple):
+    """Side-channel metadata returned alongside ``get_messages_with_meta``.
+
+    Issue #2464. The store advertises "fall back to full history" when a
+    caller passes a ``since_id`` it doesn't recognize, but consumers had
+    no structured way to *know* this happened — they just saw whatever
+    messages came back and kept threading the same cursor forward, which
+    produced the chronic ``since_id not found in store`` warning cadence
+    described in #2454.
+
+    ``since_id_stale`` is the explicit signal: ``True`` iff the caller
+    passed a non-None ``since_id`` that did not resolve to any message
+    in the store. Consumers (the route layer, the sandbox CLI cursor
+    file) treat ``True`` as "your cursor is dead — drop it and re-snap
+    to tip".
+    """
+
+    since_id_stale: bool
 
 
 class MessageType:
@@ -244,6 +264,10 @@ class MessageStore:
     ) -> list[Message]:
         """Get messages for a pipeline, optionally filtered.
 
+        Thin wrapper around :meth:`get_messages_with_meta` that drops the
+        meta tuple. Existing callers that don't care about cursor staleness
+        continue to use this signature unchanged.
+
         Args:
             pipeline_id: Pipeline ID to query.
             role: If set, return messages where to_role is this role or 'all'.
@@ -276,6 +300,41 @@ class MessageStore:
         Returns:
             List of matching messages, oldest first. Empty list on timeout.
         """
+        messages, _meta = self.get_messages_with_meta(
+            pipeline_id,
+            role=role,
+            since_id=since_id,
+            limit=limit,
+            wait=wait,
+            wait_for_types=wait_for_types,
+            from_role=from_role,
+            from_tip=from_tip,
+        )
+        return messages
+
+    def get_messages_with_meta(
+        self,
+        pipeline_id: str,
+        *,
+        role: str | None = None,
+        since_id: str | None = None,
+        limit: int = 100,
+        wait: int = 0,
+        wait_for_types: Sequence[str] | None = None,
+        from_role: str | None = None,
+        from_tip: bool = False,
+    ) -> tuple[list[Message], GetMessagesMeta]:
+        """Same as :meth:`get_messages` but also returns staleness metadata.
+
+        The second return value is a :class:`GetMessagesMeta` whose
+        ``since_id_stale`` field is ``True`` iff the caller supplied a
+        non-None ``since_id`` that did not resolve to any message in the
+        store at call entry. The full-history fallback contract is
+        preserved — the messages returned are exactly what
+        :meth:`get_messages` would return — but consumers now have a
+        structured signal they can use to clear cached cursors instead
+        of re-passing the same dead value forever (issue #2464).
+        """
         # Snapshot the tip / since_id index at call entry under the lock
         # below so from_tip semantics are race-free against concurrent
         # add_message calls. Resolving the cursor ONCE (issue #2454) — not
@@ -286,6 +345,7 @@ class MessageStore:
         # heartbeat fan-in could fan the same warning out 10+ times).
         use_tip = from_tip and not since_id and wait > 0
         start_idx = 0
+        since_id_stale = False
 
         def _filter(all_msgs: list[Message]) -> list[Message]:
             # Slice forward from the resolved start_idx (set under the
@@ -322,6 +382,7 @@ class MessageStore:
                 if found_idx is not None:
                     start_idx = found_idx + 1
                 else:
+                    since_id_stale = True
                     logger.warning(
                         "since_id not found in store; returning full history",
                         extra={
@@ -329,22 +390,27 @@ class MessageStore:
                             "since_id": since_id,
                         },
                     )
+
+            meta = GetMessagesMeta(since_id_stale=since_id_stale)
             matches = _filter(initial_msgs)
             if wait_for_types:
                 typed = [m for m in matches if m.message_type in set(wait_for_types)]
                 if typed:
-                    return typed[-limit:] if len(typed) > limit else typed
+                    out = typed[-limit:] if len(typed) > limit else typed
+                    return out, meta
                 # fall through to blocking branch only if wait > 0
             else:
                 if matches:
-                    return matches[-limit:] if len(matches) > limit else matches
+                    out = matches[-limit:] if len(matches) > limit else matches
+                    return out, meta
                 # fall through to blocking branch only if wait > 0
 
             if wait <= 0:
                 # Non-blocking: return whatever we have (empty or filtered).
                 if wait_for_types:
-                    return []
-                return matches[-limit:] if len(matches) > limit else matches
+                    return [], meta
+                out = matches[-limit:] if len(matches) > limit else matches
+                return out, meta
 
             # Blocking branch: wait on the per-pipeline condition variable.
             # We already hold the lock via `with self._lock:`; the cv shares
@@ -374,25 +440,27 @@ class MessageStore:
                 # cleanly instead of sleeping out the budget.
                 current_cv = self._cond.get(pipeline_id)
                 if current_cv is not cv:
-                    return []
+                    return [], meta
 
                 if pipeline_id in self._messages:
                     observed = True
                 elif observed:
                     # Pipeline existed and was cleared while we were waiting.
-                    return []
+                    return [], meta
 
                 matches = _filter(self._messages.get(pipeline_id, []))
                 if want_types is not None:
                     typed = [m for m in matches if m.message_type in want_types]
                     if typed:
-                        return typed[-limit:] if len(typed) > limit else typed
+                        out = typed[-limit:] if len(typed) > limit else typed
+                        return out, meta
                 elif matches:
-                    return matches[-limit:] if len(matches) > limit else matches
+                    out = matches[-limit:] if len(matches) > limit else matches
+                    return out, meta
 
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    return []
+                    return [], meta
 
                 # wait() releases the lock, waits for notify, re-acquires it.
                 cv.wait(timeout=remaining)

@@ -176,6 +176,45 @@ class TestGetMessages:
         msgs = store.get_messages("test-pipeline", since_id="nonexistent-cursor-xyz")
         assert len(msgs) == 3
 
+    def test_get_messages_with_meta_signals_stale_cursor(self, store):
+        """Issue #2464 — Redis backend mirrors the in-memory staleness
+        signal: an unknown ``since_id`` produces ``since_id_stale=True``
+        on the meta sibling, while ``get_messages`` keeps its full-history
+        fallback."""
+        self._add_messages(store, 3)
+        msgs, meta = store.get_messages_with_meta(
+            "test-pipeline", since_id="nonexistent-cursor-xyz"
+        )
+        assert meta.since_id_stale is True
+        assert len(msgs) == 3
+
+    def test_get_messages_with_meta_clean_when_cursor_known(self, store):
+        """A resolvable ``since_id`` reports ``since_id_stale=False``."""
+        msgs = self._add_messages(store, 3)
+        _result, meta = store.get_messages_with_meta("test-pipeline", since_id=msgs[0].id)
+        assert meta.since_id_stale is False
+
+    def test_get_messages_with_meta_clean_when_no_since_id(self, store):
+        """No ``since_id`` → never stale (no cursor to resolve)."""
+        self._add_messages(store, 3)
+        _msgs, meta = store.get_messages_with_meta("test-pipeline")
+        assert meta.since_id_stale is False
+
+    def test_get_messages_with_meta_signals_stale_after_clear(self, store):
+        """After ``clear()`` the previously-valid cursor is stale —
+        exactly the post-phase-boundary case #2464 surfaces."""
+        msgs = self._add_messages(store, 3)
+        anchor = msgs[0].id
+        # Pre-clear, anchor is fresh.
+        _, meta_before = store.get_messages_with_meta("test-pipeline", since_id=anchor)
+        assert meta_before.since_id_stale is False
+
+        store.clear("test-pipeline")
+        self._add_messages(store, 1)
+
+        _, meta_after = store.get_messages_with_meta("test-pipeline", since_id=anchor)
+        assert meta_after.since_id_stale is True
+
     def test_limit(self, store):
         self._add_messages(store, 10)
         messages = store.get_messages("test-pipeline", limit=3)
