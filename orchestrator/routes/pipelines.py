@@ -9872,20 +9872,11 @@ def _build_producer_orientation(
                 "being implemented. Check the existing test infrastructure — "
                 "test frameworks, fixtures, conftest files, and naming conventions. "
                 "Identify edge cases from the requirements before writing tests. "
-                "**Your mandate is two-fold**: (a) write comprehensive tests "
-                "that prevent regressions and cover realistic paths, and "
-                "(b) actively hunt for bugs and edge cases the coder missed. "
-                "Treat the coder's implementation as suspect until you have "
-                "tried to break it — write tests that target weak spots, "
-                "boundary conditions, error paths, and contract violations. "
-                "When a test fails because of a coder-side bug, **the "
-                "committed failing test is evidence — the NACK is the bug "
-                "report**. Pair every failing test with an explicit NACK on "
-                "the coder's proposal that names the failing test in its "
-                "rationale; otherwise the bug is easy for the coder to miss. "
-                "Also list the bug in `gaps_found` and HANDOFF to coder with "
-                "the failure output. The coder owns the fix; you own "
-                "surfacing the bug. "
+                "**Your mandate is two-fold**: comprehensive regression "
+                "coverage AND adversarial probing for bugs the coder missed "
+                "— see the *Your Task* → mandate block for the full "
+                "instruction (including the failing-test → NACK → HANDOFF "
+                "workflow when you catch a coder-side bug). "
                 "**Scaffold-first while the coder is producing**: draft test "
                 "scaffolding from the plan alone — test file paths from "
                 "`tasks[].files`, function signatures from each task's acceptance "
@@ -10167,7 +10158,7 @@ def _build_agent_prompt(
                 "paths through every changed area. New behavior gets new tests; "
                 "modified behavior gets updated tests; nothing the coder changed "
                 "should silently lose coverage.",
-                "2. **Adversarial bug-hunting** — actively probe the coder's "
+                "2. **Adversarial probing** — actively probe the coder's "
                 "implementation for bugs and edge cases they missed. Treat the "
                 "implementation as suspect until you have tried to break it. "
                 "Write tests that target suspected weaknesses. When a test "
@@ -10226,7 +10217,11 @@ def _build_agent_prompt(
                 "explicitly naming the failing test in the NACK rationale**. "
                 "The committed test alone is not sufficient — the NACK is "
                 "what surfaces the bug to the coder. Also list the bug in "
-                "`gaps_found` and HANDOFF to the coder with the failure output",
+                "`gaps_found` and HANDOFF to the coder with the failure "
+                "output. Your `test` configured check will fail until the "
+                "coder pushes a fix — that is expected; do NOT propose "
+                "consensus until every configured check passes per the "
+                "*Configured Checks* section below",
                 "6. Commit all test files with descriptive messages",
                 "",
                 "Adversarial probing — actively try to break the implementation:",
