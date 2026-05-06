@@ -310,7 +310,7 @@ lived on a per-role sibling branch GitHub does not see in the PR.
 
 | Mode | `slice_id` | Result |
 |------|------------|--------|
-| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N` (per-role suffix `/{role}/work` for babysit-pr staging). |
+| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` (e.g. `egg/issue-N/work` since #2399; per-role suffix `/{role}/work` for babysit-pr staging). |
 | Slice mode (post-v6) | `"slice-2"` or `"2"` | `egg/issue-N/slice-2` — **shared by every role in the slice**. |
 
 > **The slice is the unit of isolation, not the role within the slice.**
@@ -332,8 +332,13 @@ per-role even though every role in the slice shares one head ref.
 
 A helper `get_slice_integration_branch(slice_id)` returns the shared
 integration branch for a slice's BRC: `egg/issue-N/slice-M`. Roots base
-their integration branch off the pipeline branch directly; child slices
-base off their parent slice's integration branch.
+their integration branch off the pipeline branch directly
+(`egg/issue-N/work` since #2399); child slices base off their parent
+slice's integration branch. Slice integration branches live as siblings
+of the pipeline tip under `egg/issue-N/` — git rejects a leaf ref at
+`egg/issue-N` and children at `egg/issue-N/slice-M` simultaneously
+("directory file conflict"), so the pipeline tip was moved to
+`egg/issue-N/work` in #2399 to free the namespace.
 
 Both helpers `re.fullmatch` the normalised slice id against
 `r"slice-[0-9]+"` before embedding it in a git ref. The contract-layer
@@ -423,10 +428,13 @@ Per-slice agent teams are spawned via the existing
 
 `_run_concurrent_phase` mutates a shallow copy of the sandbox env to set
 `EGG_PIPELINE_ID = "{pipeline_id}/{slice_id}"` and exports
-`EGG_SLICE_ID` as an advisory hint. Agent CLIs send `CONSENSUS_*`
-messages keyed on the slice's tracker scope; `_handle_brc_consensus_timeout`
-also receives `slice_id` so the timeout / stuck-phase handler operates
-on the correct tracker.
+`EGG_SLICE_ID`. BRC handlers in the sandbox read `EGG_SLICE_ID` and
+attach `slice_id` to every `CONSENSUS_*` payload (#2403), so the
+orchestrator routes each signal to the per-slice tracker
+(`peer_consensus._tracker_key` composes `{pipeline_id}/{slice_id}`)
+rather than the bare pipeline tracker.
+`_handle_brc_consensus_timeout` also receives `slice_id` so the
+timeout / stuck-phase handler operates on the correct tracker.
 
 ## Stacked-PR creation
 
@@ -677,12 +685,14 @@ during refine. The most consequential are referenced inline above:
 
 ## Out of scope (#2137)
 
-- **Per-slice MCP control verbs** (`restart_slice`, `restart_agent` with
-  `slice_id`, `get_slice_status`, `list_slices`) — tracked in #2199. The
-  slice-addressable hooks the verbs will wrap are public on
-  `SliceScheduler` already (`teardown_slice`, `respawn_slice`,
-  `get_slice_status`, plus the implicit `list_slices` view via the
-  scheduler's contract reference).
+- **Per-slice MCP control verbs** (`restart_slice`, `get_slice_status`,
+  `list_slices`) — tracked in #2199. The slice-addressable hooks the
+  verbs will wrap are public on `SliceScheduler` already
+  (`teardown_slice`, `respawn_slice`, `get_slice_status`, plus the
+  implicit `list_slices` view via the scheduler's contract reference).
+  Note: `restart_agent` with `slice_id` landed in #2399/#2410 — the
+  REST endpoint (`POST /api/v1/pipelines/<id>/agents/<role>/restart`)
+  now accepts `?slice_id=slice-N` (or `"slice_id"` in the body).
 - **`record_cycle` two-tier wiring (#2199)** — `SliceScheduler`'s
   `record_cycle` API and `hitl_escalator` hook are public and unit-
   tested but the slice run loop does not call `record_cycle` on each
