@@ -41,6 +41,13 @@
       "registered_at": "2026-05-06T22:13:36.722891+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
+    },
+    "a5ded41dee50dc7fef2f731bc686a35c16cfbb14": {
+      "branch": "egg/issue-2474/work",
+      "pipeline_id": "issue-2474",
+      "registered_at": "2026-05-06T22:18:47.837128+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
     }
   },
   "version": 1
