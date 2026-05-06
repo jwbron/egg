@@ -12,6 +12,7 @@ Covers:
 
 import threading
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -923,6 +924,161 @@ class TestRestartAgentEndpointSliceScope:
         assert restart_call.kwargs["slice_id"] is None
         get_count_call = mock_spawner.get_restart_count.call_args
         assert get_count_call.kwargs.get("slice_id") is None
+
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_unknown_slice_id_returns_404(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_load_contract,
+        client,
+    ):
+        """``slice_id`` not present in the pipeline's contract is rejected (#2421).
+
+        Without this gate a well-formed but unknown ``slice-<N>`` would
+        spawn an orphan Job + worktree the rest of the system has no
+        record of.
+        """
+        from egg_contracts.models import Contract, Slice
+
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_running_agent()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_load_contract.return_value = Contract(
+            pipeline_id="issue-100",
+            slices=[Slice(id="slice-1", name="Only known slice")],
+        )
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-99",
+            json={},
+        )
+
+        assert response.status_code == 404
+        body = response.get_json()
+        assert body["success"] is False
+        assert "slice-99" in body["message"]
+        assert body["details"]["slice_id"] == "slice-99"
+        assert body["details"]["known_slices"] == ["slice-1"]
+        mock_spawner.restart_agent_container.assert_not_called()
+
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_known_slice_id_passes_validation(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_load_contract,
+        client,
+    ):
+        """A ``slice_id`` matching the contract still reaches the spawner (#2421)."""
+        from egg_contracts.models import Contract, Slice
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_load_contract.return_value = Contract(
+            pipeline_id="issue-100",
+            slices=[
+                Slice(id="slice-1", name="First"),
+                Slice(id="slice-2", name="Second"),
+            ],
+        )
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
+            json={},
+        )
+
+        assert response.status_code == 200
+        # Lock in the "gate ran AND accepted" intent: without this assertion
+        # the test would pass identically whether the gate executed or fell
+        # through silently on a fast-path skip. ``load_contract`` may also
+        # be invoked downstream by the spawner flow, so we verify the gate's
+        # specific call rather than the total count.
+        mock_load_contract.assert_any_call(100, Path("/repo"))
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["slice_id"] == "slice-2"
+
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_slice_id_rejected_for_pipeline_without_contract(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_load_contract,
+        client,
+    ):
+        """``slice_id`` is rejected for pipelines with ``has_contract=False`` (#2421).
+
+        BABYSIT and CUSTOM+PR pipelines are not slice-aware (no
+        contract = no slices), so any non-``None`` ``slice_id`` against
+        them is by definition unknown. Rejecting outright also avoids a
+        wasted ``resolve_worktree_path`` + ``load_contract`` call that
+        would always raise ``ContractNotFoundError``.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.has_contract = False
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-1",
+            json={},
+        )
+
+        assert response.status_code == 404
+        body = response.get_json()
+        assert body["success"] is False
+        assert "slice-1" in body["message"]
+        assert body["details"]["slice_id"] == "slice-1"
+        assert body["details"]["known_slices"] == []
+        # Fast-path: no contract load attempted, no spawner call.
+        mock_load_contract.assert_not_called()
+        mock_spawner.restart_agent_container.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
