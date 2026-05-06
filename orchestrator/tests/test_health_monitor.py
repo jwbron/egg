@@ -3404,6 +3404,67 @@ class TestOverseerSilenceExemption:
         assert len(agent_escalations) == 1
         assert agent_escalations[0]["type"] == "overseer"
 
+    def test_overseer_agent_id_constant_matches_role_enum(self):
+        """Pin the literal in `health_monitor` to `AgentRole.OVERSEER.value`.
+
+        `_OVERSEER_AGENT_ID` is duplicated as a literal to avoid pulling
+        ``shared/egg_contracts`` into the production module. A future rename
+        of ``AgentRole.OVERSEER`` would silently re-introduce #2430 without
+        this guard.
+        """
+        from egg_contracts import AgentRole
+        from health_monitor import _OVERSEER_AGENT_ID
+
+        assert _OVERSEER_AGENT_ID == AgentRole.OVERSEER.value, (
+            "If AgentRole.OVERSEER was renamed, update _OVERSEER_AGENT_ID "
+            "in orchestrator/health_monitor.py to match."
+        )
+
+    def test_escalate_error_routes_overseer_to_hitl(self):
+        """Direct test: `_escalate_error` with ``agent_id='overseer'`` routes
+        to HITL even when ``overseer_enabled=True``.
+
+        Repeated-error alerts reach the same `_resolve_escalation_target`
+        helper as heartbeat/progress alerts; this guards against a future
+        revert that re-introduces the ``overseer_enabled ? overseer : hitl``
+        ternary at the `_escalate_error` call site.
+        """
+        bus = _make_event_bus()
+        escalations: list[dict] = []
+        config = _make_config(
+            overseer_enabled=True,
+            orchestrator_error_repeat_threshold=2,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.on_escalation(escalations.append)
+
+        monitor._escalate_error("overseer", "watchdog hit an internal error", count=3)
+
+        assert len(escalations) == 1
+        assert escalations[0]["agent_id"] == "overseer"
+        assert escalations[0]["type"] == "hitl", (
+            "Repeated-error alerts about the overseer must route to HITL — "
+            "routing them to the overseer would silently swallow them"
+        )
+
+    def test_escalate_error_routes_non_overseer_to_overseer(self):
+        """Regression companion to the test above: non-overseer
+        ``_escalate_error`` calls still route to the overseer when enabled."""
+        bus = _make_event_bus()
+        escalations: list[dict] = []
+        config = _make_config(
+            overseer_enabled=True,
+            orchestrator_error_repeat_threshold=2,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.on_escalation(escalations.append)
+
+        monitor._escalate_error(AGENT_ID, "transient db error", count=3)
+
+        assert len(escalations) == 1
+        assert escalations[0]["agent_id"] == AGENT_ID
+        assert escalations[0]["type"] == "overseer"
+
 
 # ---------------------------------------------------------------------------
 # Tests: phase-aware post-ACK confirmation timeout (issue #2242)
