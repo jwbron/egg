@@ -16475,6 +16475,32 @@ def _run_pipeline(
             )
             _emit_pipeline_event(pipeline, "phase.completed")
 
+            # Commit any uncommitted ``.egg-state/`` writes the agents
+            # made during the phase BEFORE the worktree sync runs.
+            # ``register_open_question`` / ``request_feedback`` mutate the
+            # contract live in the shared pipeline worktree (see
+            # ``orchestrator/contract_store.py``); those writes are
+            # uncommitted on disk.  The ``git reset --hard`` step inside
+            # ``_sync_worktree_with_remote`` discards them, leaving the
+            # bridge below with an empty ``contract.decisions`` and
+            # silently dropping the operator-bound questions (#2488).
+            # Committing first lets the sync's rebase reconcile them
+            # against agent-pushed drafts cleanly.
+            try:
+                _commit_statefiles_to_worktree(
+                    worktree_repo_path,
+                    f"Persist agent statefile writes before {current_phase.value} sync",
+                    pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
+                    pipeline_id=pipeline_id,
+                )
+            except Exception as git_err:
+                logger.warning(
+                    "Failed to commit pre-sync agent statefiles (continuing)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    error=str(git_err),
+                )
+
             # Sync worktree with remote before post-phase modifications
             # so that agent-pushed commits (including plan drafts) are
             # incorporated.  This must run BEFORE _populate_contract_from_plan
