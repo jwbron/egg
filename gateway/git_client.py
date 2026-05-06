@@ -359,7 +359,9 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             # ``--max-count=N`` via a special case in ``validate_git_args``
             # (search for "issue #2480"). We don't put ``-n`` in the log entry of
             # FLAG_NORMALIZATION because its value is a separate argument, which
-            # the per-flag normalizer can't see.
+            # the per-flag normalizer can't see. The same special case also
+            # applies to the ``reflog`` allowlist below — reflog is internally a
+            # log walker and shares ``-n``'s ``--max-count`` semantics.
             "--since",
             "--until",
             "--author",
@@ -815,8 +817,10 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--format",
             "--oneline",
             "--max-count",
-            # Note: -n is not normalized for reflog (no entry in FLAG_NORMALIZATION).
-            # Users should use --max-count=N instead.
+            # ``-n N``, ``-n=N``, and ``-nN`` are accepted as aliases for
+            # ``--max-count=N`` via the same special case in ``validate_git_args``
+            # that handles ``log`` (search for "issue #2480"). reflog is
+            # internally a log walker, so ``-n`` carries the same semantics.
         ],
     },
     "describe": {
@@ -1101,13 +1105,15 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
                     [],
                 )
 
-        # Handle `-n N`, `-n=N`, `-nN` for git log (alias for --max-count=N).
-        # Per `git log --help`, `-n` is the canonical short form for limiting
-        # commit count, so agents naturally emit it; without this special case
-        # they retry with `--max-count` and burn an audit-log entry. Issue #2480.
-        # Scoped to log only because `-n` means very different things elsewhere
-        # (--dry-run for push, --no-commit for cherry-pick, etc.).
-        if operation == "log" and "--max-count" in allowed_flags:
+        # Handle `-n N`, `-n=N`, `-nN` for git log/reflog (alias for
+        # --max-count=N). Per `git log --help`, `-n` is the canonical short form
+        # for limiting commit count, so agents naturally emit it; without this
+        # special case they retry with `--max-count` and burn an audit-log
+        # entry. Issue #2480. reflog is internally a log walker and shares the
+        # same `-n` semantics. Scoped to these two because `-n` means very
+        # different things elsewhere (--dry-run for push, --no-commit for
+        # cherry-pick, --show-number for blame, --numbered for format-patch).
+        if operation in ("log", "reflog") and "--max-count" in allowed_flags:
             n_match = re.match(r"^-n(?:=(\d+)|(\d+))?$", arg)
             if n_match:
                 count = n_match.group(1) or n_match.group(2)

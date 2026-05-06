@@ -256,6 +256,47 @@ class TestValidateGitArgs:
         assert "--dry-run" in normalized
         assert "--max-count=" not in " ".join(normalized)
 
+    def test_dash_n_for_reflog_normalized(self):
+        """`git reflog -n 5` is normalized to `--max-count=5` — reflog is a log walker (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-n", "5"])
+        assert valid
+        assert "--max-count=5" in normalized
+        assert "-n" not in normalized
+
+    def test_dash_n_combined_for_reflog(self):
+        """`git reflog -n5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-n5"])
+        assert valid
+        assert "--max-count=5" in normalized
+
+    def test_dash_n_equals_for_reflog(self):
+        """`git reflog -n=5` is normalized to `--max-count=5` (issue #2480)."""
+        valid, _error, normalized = validate_git_args("reflog", ["-n=5"])
+        assert valid
+        assert "--max-count=5" in normalized
+
+    def test_dash_n_followed_by_flag_falls_through_for_log(self):
+        """`git log -n --oneline`: bare `-n` doesn't consume a non-numeric next arg; falls through to allowlist rejection."""
+        valid, error, _normalized = validate_git_args("log", ["-n", "--oneline"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_dash_n_followed_by_non_numeric_falls_through_for_log(self):
+        """`git log -n abc`: bare `-n` doesn't consume a non-numeric next arg; falls through to allowlist rejection."""
+        valid, error, _normalized = validate_git_args("log", ["-n", "abc"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_dash_n_followed_by_signed_number_falls_through_for_log(self):
+        """`git log -n -3`: bare `-n` doesn't consume a signed integer; the regex requires a bare unsigned digit run.
+
+        Locks in the boundary so a future "be helpful and parse signed ints"
+        change can't silently consume `-3` as the count value.
+        """
+        valid, error, _normalized = validate_git_args("log", ["-n", "-3"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
     def test_double_dash_separator_allowed(self):
         """The -- separator should be allowed for any operation."""
         valid, _error, normalized = validate_git_args("checkout", ["--", "file.txt"])
