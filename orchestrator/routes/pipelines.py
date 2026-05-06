@@ -17235,6 +17235,22 @@ def _run_pipeline(
                 # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``.
                 store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
 
+            # Drop the previous phase's in-memory consensus tracker and
+            # message-store entries (#2502).  The other phase-transition
+            # paths -- ``advance_phase`` REST handler, HITL-revision
+            # re-run, and the ``recover_pipeline`` resume path -- all
+            # call this; the auto-advance path used to skip it, leaving
+            # a stale plan-phase tracker keyed under the bare
+            # ``pipeline_id`` for ``_get_concurrent_status`` to find and
+            # report as ``is_complete: True`` long after the implement
+            # phase had started.  ``_write_brc_history`` already ran
+            # earlier in this iteration (line ~16753) so the BRC
+            # transcript is already on disk by the time we wipe the
+            # message store here.
+            from routes.phases import _clear_concurrent_state
+
+            _clear_concurrent_state(pipeline_id)
+
             logger.info(
                 "Phase advanced (auto), respawning driver thread",
                 pipeline_id=pipeline_id,

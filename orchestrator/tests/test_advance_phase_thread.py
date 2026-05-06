@@ -314,6 +314,31 @@ class TestAutoAdvanceRespawnsThread:
             "health monitor — the new thread builds its own."
         )
 
+    def test_auto_advance_clears_concurrent_state(self):
+        """Regression for #2502.
+
+        The auto-advance block must drop the previous phase's in-memory
+        consensus tracker (and message-store entries) before spawning the
+        next phase's driver thread.  Otherwise ``_get_concurrent_status``
+        keeps finding the prior phase's tracker keyed under the bare
+        ``pipeline_id`` and reports its ``is_complete: True`` indefinitely
+        — which is exactly what masked an in-progress implement-phase
+        BRC stall in pipeline ``issue-2474`` (see issue #2502).
+
+        Source-inspection in the same style as the sibling assertions: a
+        behavioural test would need to drive the full phase loop through
+        a mock harness.  Pairs with the explicit ``_clear_concurrent_state``
+        calls already present in the ``advance_phase`` REST handler, the
+        HITL-revision re-run path, and the ``recover_pipeline`` resume
+        path.
+        """
+        block = self._auto_advance_block()
+        assert "_clear_concurrent_state(pipeline_id)" in block, (
+            "Auto-advance must call _clear_concurrent_state(pipeline_id) so "
+            "the next phase's get_pipeline_snapshot / get_consensus_status "
+            "calls don't surface the previous phase's tracker (#2502)."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tests for #2219: post-BRC band must not strand the pipeline on
