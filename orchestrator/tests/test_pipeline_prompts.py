@@ -2820,6 +2820,31 @@ class TestExternalResearchInstructions:
         assert "WebFetch" in prompt
 
 
+class TestRefinePromptHonorsAdditionalContext:
+    """Refine prompt must instruct refiner to skip already-resolved questions.
+
+    Regression for #2481: when the SDLC skill's pre-refine HITL captures
+    answers and embeds them under `## Additional Context` in the task
+    description, the refiner used to re-register those answered questions
+    as `register_open_question` decisions, wasting turns and producing
+    no-op decisions that the skill auto-resolves.
+    """
+
+    def test_refine_prompt_warns_against_re_registering_resolved_questions(self):
+        prompt = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Analyze this issue.\n\n## Additional Context\n\nAlready answered.",
+            issue_number=100,
+        )
+        assert "Additional Context" in prompt
+        assert "already decided" in prompt or "already-resolved" in prompt.lower()
+        assert "pre-refine" in prompt
+        assert "Skip already-resolved questions" in prompt
+        assert "### Resolved in Pre-Refine" in prompt
+
+
 class TestReviewerBrcPreamble:
     """Tests that reviewer agents receive BRC preamble in concurrent mode."""
 
