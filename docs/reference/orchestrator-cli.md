@@ -212,10 +212,14 @@ Agent restart preserves the agent's existing worktree (including committed work 
 > curl -X POST "http://egg-orchestrator:9849/api/v1/pipelines/<id>/agents/<role>/restart?slice_id=slice-2" \
 >   -H "Content-Type: application/json" -d '{"reason": "Slice agent hung"}'
 >
-> # If slice_id is unknown, the endpoint returns HTTP 404:
+> # If slice_id is unknown, the endpoint returns HTTP 404 with a "success: false"
+> # envelope and a "details" object containing slice_id and known_slices:
 > # {"success": false, "message": "slice_id 'slice-99' does not match any slice ...",
 > #  "details": {"slice_id": "slice-99", "known_slices": ["slice-1", "slice-2"]}}
-> # Pipelines without a contract (BABYSIT, CUSTOM+PR) reject any slice_id with 404.
+> # Pipelines without a contract (BABYSIT, CUSTOM+PR, and CUSTOM without inline
+> # analysis/plan or issue-mode contract file) reject any slice_id with 404 and
+> # known_slices: []; the message reads "... is invalid for pipeline <id>
+> # (pipeline has no contract; not slice-aware)" instead.
 >
 > # Phase restart via REST API
 > curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phases/<phase>/restart \
