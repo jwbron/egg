@@ -987,3 +987,94 @@ class TestStartupConsensusReconstruction:
         assert phase.agents[0].completed_at is not None
         # save_pipeline should have been called
         store.save_pipeline.assert_called()
+
+    def test_phase_stays_running_when_slice_scoped_agents_still_active(self):
+        """Regression for #2441: the reconstructed tracker is pipeline-level,
+        so only ``slice_id is None`` agents are flipped. If sibling
+        slice-scoped agents are still RUNNING (their per-slice trackers
+        haven't been reconstructed here yet), the whole phase must NOT be
+        marked COMPLETE — that would prematurely terminate active slices."""
+
+        pipeline = Pipeline(
+            id="issue-concurrent",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.config.concurrent_execution = True
+
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        phase.status = PipelineStatus.RUNNING
+        phase.started_at = datetime.now(UTC)
+
+        # Pipeline-level (slice_id=None) agent — eligible for the flip.
+        phase.containers.append(
+            ContainerInfo(
+                container_id="pipeline-coder",
+                container_name="egg-coder",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.now(UTC),
+            )
+        )
+        phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="pipeline-coder",
+                started_at=datetime.now(UTC),
+            )
+        )
+
+        # Slice-scoped agent — must remain RUNNING.
+        phase.containers.append(
+            ContainerInfo(
+                container_id="slice-1-coder",
+                container_name="egg-coder-slice-1",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.now(UTC),
+            )
+        )
+        phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="slice-1-coder",
+                started_at=datetime.now(UTC),
+                slice_id="slice-1",
+            )
+        )
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client(
+            live_ids=["pipeline-coder", "slice-1-coder"],
+            pipeline_live_map={pipeline.id: ["pipeline-coder", "slice-1-coder"]},
+        )
+
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {"is_complete": True}
+
+        with (
+            patch("peer_consensus.reconstruct_tracker_from_messages") as mock_reconstruct,
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+        ):
+            mock_reconstruct.return_value = mock_tracker
+
+            reconcile_stale_containers(store, docker_client)
+
+        # Phase must NOT be marked COMPLETE — the slice-1 agent is still active.
+        assert phase.status == PipelineStatus.RUNNING
+        assert phase.completed_at is None
+
+        # Pipeline-level agent flipped to COMPLETE.
+        pipeline_level = next(a for a in phase.agents if a.slice_id is None)
+        assert pipeline_level.status == AgentExecutionStatus.COMPLETE
+        assert pipeline_level.completed_at is not None
+
+        # Slice-1 agent untouched.
+        sliced = next(a for a in phase.agents if a.slice_id == "slice-1")
+        assert sliced.status == AgentExecutionStatus.RUNNING
+        assert sliced.completed_at is None

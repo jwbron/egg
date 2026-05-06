@@ -776,3 +776,128 @@ class TestHandleConsensusStallRecovery:
         # Both containers should be stopped
         stopped_ids = {call.args[0] for call in f.monitor.k8s_client.stop_container.call_args_list}
         assert stopped_ids == {"container-coder", "container-tester"}
+
+
+def _make_multi_slice_pipeline() -> Pipeline:
+    """Return a RUNNING pipeline whose implement phase has two active slices."""
+    pipeline = _make_pipeline()
+    phase_exec = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+    phase_exec.status = PipelineStatus.RUNNING
+    phase_exec.started_at = datetime.now(UTC) - timedelta(seconds=120)
+
+    for slice_id in ("slice-2", "slice-3"):
+        for role in (AgentRole.CODER, AgentRole.TESTER):
+            container_id = f"container-{slice_id}-{role.value}"
+            phase_exec.containers.append(
+                ContainerInfo(
+                    container_id=container_id,
+                    container_name=f"egg-{role.value}-{slice_id}-issue-1014",
+                    status=ContainerStatus.RUNNING,
+                    started_at=datetime.now(UTC),
+                )
+            )
+            phase_exec.agents.append(
+                AgentExecution(
+                    role=role,
+                    status=AgentExecutionStatus.RUNNING,
+                    container_id=container_id,
+                    started_at=datetime.now(UTC),
+                    slice_id=slice_id,
+                )
+            )
+    return pipeline
+
+
+class TestSliceScopedAggressiveRecovery:
+    """Regression coverage for #2441: phase-level mutations must be scoped
+    to "no other slice still active" so that a slice-aware ``stall_slice_id``
+    in the future doesn't mark the whole phase COMPLETE while sibling slices
+    are still RUNNING."""
+
+    def test_slice_3_recovery_with_slice_2_running_does_not_flip_phase(self):
+        monitor = _make_monitor()
+        result = _make_degraded_result()
+        result.details["slice_id"] = "slice-3"
+
+        fresh_pipeline = _make_multi_slice_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = fresh_pipeline
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.reconstruct_tracker_from_messages.return_value = None
+        mock_graph_mod = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": mock_pc,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            monitor._handle_consensus_stall_recovery(
+                [result], _make_multi_slice_pipeline(), mock_store
+            )
+
+        phase_exec = fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+
+        # Phase must remain RUNNING — slice-2 has not finished yet.
+        assert phase_exec.status == PipelineStatus.RUNNING
+        assert phase_exec.completed_at is None
+
+        # slice-3 agents flipped to COMPLETE.
+        slice_3 = [a for a in phase_exec.agents if a.slice_id == "slice-3"]
+        assert slice_3
+        for agent in slice_3:
+            assert agent.status == AgentExecutionStatus.COMPLETE
+            assert agent.completed_at is not None
+
+        # slice-2 agents must be untouched.
+        slice_2 = [a for a in phase_exec.agents if a.slice_id == "slice-2"]
+        assert slice_2
+        for agent in slice_2:
+            assert agent.status == AgentExecutionStatus.RUNNING
+            assert agent.completed_at is None
+
+        # Only slice-3 pods should be stopped — slice-2 keeps running.
+        stopped_ids = {call.args[0] for call in monitor.k8s_client.stop_container.call_args_list}
+        assert stopped_ids == {"container-slice-3-coder", "container-slice-3-tester"}
+
+    def test_slice_3_recovery_with_slice_2_terminal_flips_phase(self):
+        """When the only sibling slice is already terminal, the phase
+        flip still fires — preserves today's pipeline-level behavior."""
+        monitor = _make_monitor()
+        result = _make_degraded_result()
+        result.details["slice_id"] = "slice-3"
+
+        fresh_pipeline = _make_multi_slice_pipeline()
+        # Mark slice-2 agents already terminal (consensus completed earlier).
+        for agent in fresh_pipeline.phases["implement"].agents:
+            if agent.slice_id == "slice-2":
+                agent.status = AgentExecutionStatus.COMPLETE
+                agent.completed_at = datetime.now(UTC)
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = fresh_pipeline
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.reconstruct_tracker_from_messages.return_value = None
+        mock_graph_mod = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": mock_pc,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            monitor._handle_consensus_stall_recovery(
+                [result], _make_multi_slice_pipeline(), mock_store
+            )
+
+        phase_exec = fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+        assert phase_exec.status == PipelineStatus.COMPLETE
+        assert phase_exec.completed_at is not None

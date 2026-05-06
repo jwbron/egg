@@ -808,16 +808,26 @@ class KubernetesMonitor:
                 if phase_exec.cycle_timings and phase_exec.cycle_timings[-1].completed_at is None:
                     phase_exec.cycle_timings[-1].completed_at = now
 
-                # TODO(#2441): the phase-level mutations below are unconditional
-                # even though the agent walk above is now slice-scoped. Safe
-                # today because ``consensus_stall`` is pipeline-level only and
-                # ``stall_slice_id`` is always ``None`` here, but the moment
-                # the upstream check becomes slice-aware this path will mark
+                # Phase-level mutations are scoped to "no other slice
+                # still active": only flip phase status when every other
+                # slice's agents in this phase are already terminal
+                # (COMPLETE / FAILED). This is a no-op today because
+                # ``consensus_stall`` is pipeline-level only and
+                # ``stall_slice_id`` is always ``None`` (so any sibling
+                # slice with a non-terminal agent would correctly hold
+                # the phase open), but it prevents the path from marking
                 # the whole phase COMPLETE while other slices are still
-                # RUNNING. Scope to "no other slice still active" or split
-                # ``phase_exec`` into per-slice status when #2441 lands.
-                phase_exec.status = PipelineStatus.COMPLETE
-                phase_exec.completed_at = now
+                # RUNNING the moment the upstream check becomes
+                # slice-aware (#2441).
+                other_slice_active = any(
+                    getattr(agent, "slice_id", None) != stall_slice_id
+                    and agent.status
+                    not in (AgentExecutionStatus.COMPLETE, AgentExecutionStatus.FAILED)
+                    for agent in phase_exec.agents
+                )
+                if not other_slice_active:
+                    phase_exec.status = PipelineStatus.COMPLETE
+                    phase_exec.completed_at = now
 
                 store.save_pipeline(fresh_pipeline, expected_version=original_version)
                 logger.info(
