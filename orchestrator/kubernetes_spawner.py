@@ -102,6 +102,18 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         # without this, the agent's signals could land on a different
         # slice than its Job/worktree, with no warning.
         "EGG_SLICE_ID",
+        # Same single-source-of-truth shape (#2428). The agent's
+        # ``egg-orch push`` retargets the refspec to ``HEAD:$EGG_BRANCH``
+        # (sandbox/egg_lib/cli_push.py); the gateway's session-scoped
+        # allowlist then compares that target against the
+        # ``assigned_branch`` registered at session creation. The
+        # spawner derives both from the same ``branch`` parameter, so
+        # they agree. An ``extra_env`` value sneaking in from upstream
+        # (e.g. the run loop's pipeline-level ``sandbox_env``) used to
+        # win because the override loop ran after the spawner's
+        # default, leaving slice agents pushing to ``<pid>/work``
+        # instead of ``<pid>/<slice>`` — every coder push was rejected.
+        "EGG_BRANCH",
     }
 )
 
