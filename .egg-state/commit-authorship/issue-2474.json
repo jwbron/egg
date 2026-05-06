@@ -20,6 +20,13 @@
       "registered_at": "2026-05-06T21:56:16.292642+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_refine"
+    },
+    "7239091e65e20c4da423b92b0e7ac9c60052435e": {
+      "branch": "egg/issue-2474/work",
+      "pipeline_id": "issue-2474",
+      "registered_at": "2026-05-06T22:13:36.722891+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "risk_analyst"
     }
   },
   "version": 1
