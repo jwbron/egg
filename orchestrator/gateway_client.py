@@ -1827,9 +1827,35 @@ class GatewayClient:
         :func:`list_open_prs` is the join key, the empty set is
         safe — no PRs means no orphans.
         """
+        return set(
+            self.list_remote_branches_with_shas(
+                pipeline_id,
+                repo_path,
+                agent_role=agent_role,
+                mode=mode,
+            ).keys()
+        )
+
+    def list_remote_branches_with_shas(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+    ) -> dict[str, str]:
+        """Like :meth:`list_remote_branches` but returns ``{branch: sha}``.
+
+        Used by the recovery-ref cleanup sweep (#2446), which needs the
+        SHA at each ref tip to read its committer date for staleness
+        detection without an extra fetch round-trip.
+
+        Same error-handling contract as :meth:`list_remote_branches`:
+        on any gateway failure returns an empty mapping.
+        """
         if not repo_path:
-            return set()
-        temp_container_id = f"{pipeline_id}-stacked-pr-ls-remote"
+            return {}
+        temp_container_id = f"{pipeline_id}-ls-remote"
         session_token: str | None = None
         try:
             session = self.register_session(
@@ -1854,21 +1880,21 @@ class GatewayClient:
                 bearer_token=session_token,
             )
             stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
-            branches: set[str] = set()
+            branches: dict[str, str] = {}
             for line in stdout.splitlines():
                 # Lines look like "<sha>\trefs/heads/<name>".
                 parts = line.strip().split("\t")
                 if len(parts) >= 2 and parts[1].startswith("refs/heads/"):
-                    branches.add(parts[1][len("refs/heads/") :])
+                    branches[parts[1][len("refs/heads/") :]] = parts[0]
             return branches
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "list_remote_branches: gateway request failed",
+                "list_remote_branches_with_shas: gateway request failed",
                 pipeline_id=pipeline_id,
                 repo_path=repo_path,
                 error=str(exc),
             )
-            return set()
+            return {}
         finally:
             if session_token:
                 try:

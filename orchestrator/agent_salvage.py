@@ -38,8 +38,11 @@ salvaged commit for a pipeline with::
     git ls-remote origin 'refs/heads/egg/recovered/<pipeline>/*'
 
 and replay them onto a recovery branch with ``git fetch`` plus
-``git cherry-pick``. The orchestrator never deletes ``egg/recovered/*``
-refs — they outlive the pipeline they belong to.
+``git cherry-pick``. A separate periodic sweep
+(:mod:`agent_salvage_cleanup`, #2446) deletes recovery refs older
+than the configured TTL (default 90 days) so the namespace stays
+bounded; see ``docs/reference/agent-recovery.md`` for the operator-
+visible knobs.
 """
 
 from __future__ import annotations

@@ -412,3 +412,54 @@ def get_state_store_probe_interval() -> float:
     if val <= 0:
         return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
     return val
+
+
+# -----------------------------------------------------------------
+# EGG_ORCH_RECOVERY_REF_CLEANUP_ENABLED — opt-out kill switch for the
+#   periodic ``egg/recovered/*`` cleanup sweep (#2446). Default: enabled.
+# EGG_ORCH_RECOVERY_REF_TTL_DAYS — committer-date age (days) past which
+#   a recovery ref is eligible for deletion. Default 90.
+# EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS — period of the cleanup
+#   loop. Default 86400 (24h). Lower for tests; the sweep is cheap when
+#   no refs need deletion.
+# -----------------------------------------------------------------
+
+DEFAULT_RECOVERY_REF_TTL_DAYS = 90
+DEFAULT_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS = 86400.0
+
+
+def get_recovery_ref_cleanup_enabled() -> bool:
+    """Return True iff the recovery-ref cleanup loop should run.
+
+    Reads ``EGG_ORCH_RECOVERY_REF_CLEANUP_ENABLED`` (default ``true``).
+    Accepts ``0/1``, ``true/false``, ``yes/no`` (case-insensitive). Any
+    other value falls back to the default (enabled) and logs a warning.
+    """
+    raw = os.environ.get("EGG_ORCH_RECOVERY_REF_CLEANUP_ENABLED", "").strip().lower()
+    if not raw:
+        return True
+    if raw in ("1", "true", "yes", "y", "on"):
+        return True
+    if raw in ("0", "false", "no", "n", "off"):
+        return False
+    logger.warning(
+        "EGG_ORCH_RECOVERY_REF_CLEANUP_ENABLED=%r is not a recognised boolean; treating as enabled",
+        raw,
+    )
+    return True
+
+
+def get_recovery_ref_ttl_days() -> int:
+    """Return the recovery-ref staleness TTL in days (default 90)."""
+    return _coerce_positive_int(
+        "EGG_ORCH_RECOVERY_REF_TTL_DAYS",
+        DEFAULT_RECOVERY_REF_TTL_DAYS,
+    )
+
+
+def get_recovery_ref_cleanup_interval_seconds() -> float:
+    """Return the recovery-ref cleanup cadence in seconds (default 86400)."""
+    return _coerce_positive_float(
+        "EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS",
+        DEFAULT_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS,
+    )
