@@ -493,6 +493,16 @@ without callers having to opt in. The mechanism:
 4. **Untouched on errors.** rc=2 (transient) and rc=3 (permanent)
    leave the file alone — the wait did not advance, so the cursor
    must not move.
+5. **Deleted on staleness (issue #2464).** If the server response
+   carries `since_id_stale: True` — meaning the caller's `since_id`
+   did not resolve to any message in the store (typically a
+   phase-boundary `clear` wiped the store between calls) — the file
+   is **deleted** before the new cursor is written. This causes the
+   next call to re-snap to tip rather than re-feeding the dead value
+   forever. Deletion is best-effort: a missing file is the desired
+   post-state; other `OSError` is logged to stderr and the next call
+   falls back to full-history replay once more, writing a fresh
+   cursor on success.
 
 Debug shells without `EGG_AGENT_ROLE` set get the legacy from-tip
 behavior with no file-system side effects.
@@ -880,6 +890,21 @@ invocation after the 10 min cap can pick up where the prior call
 left off without re-waking on already-seen events. This closes the
 snapshot→wait race window on **both** sources: an event that fired
 between the prior wake and the next call still wakes the wait.
+
+**Stale-cursor recovery (issue #2464).** After a phase-boundary
+store clear, the `msg:` half of the caller's cursor no longer
+resolves to any message. The route detects this and returns the
+current store tip (or an empty `msg:` half if the store is still
+empty) rather than re-emitting the dead `msg_since_id`. The CLI
+threads the corrected cursor forward automatically; host-side
+callers see no change in the JSON-line output. The response also
+carries `since_id_stale: True` in the envelope, but the host CLI
+does not currently surface this field in its JSON-line output and
+no other consumer reads it from the `/status/wait` route. The
+same-named flag is independently surfaced by `/messages/wait` and
+consumed there by sandbox-side `message wait` / `wait-loop` to
+delete their on-disk cursor files (see §3, point 5) — that
+consumer is fully decoupled from this route.
 
 A cursor-less first call (omit `--since`) starts from the **tip** of
 both sources — only events that arrive after the call begins will
