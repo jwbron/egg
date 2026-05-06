@@ -66,15 +66,10 @@ except ImportError:
     ORCHESTRATOR_PORT = 9849  # noqa: EGG002
     GATEWAY_PORT = 9848  # noqa: EGG002
 
+from egg_lib._slice_id import SLICE_ID_PATTERN as _SLICE_ID_PATTERN
+
 # Validation pattern for IDs used in URL path segments
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
-
-# Canonical ``slice-<N>`` shape — mirrors orchestrator's
-# ``slice_id_validation.SLICE_ID_PATTERN`` and the handler-side regex in
-# ``egg_agent_tools.handlers.{brc,progress}``. Kept inline rather than
-# importing from the orchestrator package because ``egg_lib`` ships in
-# the sandbox and must not depend on orchestrator code.
-_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
 
 
 class ApiError(Exception):
