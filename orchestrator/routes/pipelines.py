@@ -2531,6 +2531,16 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # ``None`` for slices whose worktree has not been provisioned yet, in
     # which case we fall through to reconstruction.
     parent_branch_recorded: str | None = None
+    # ``parent_slice_complete`` is set when the parent slice has reached
+    # ``SliceStatus.COMPLETE`` per the contract — i.e. its PR has plausibly
+    # been merged. GitHub's standard branch-auto-cleanup deletes the head
+    # branch on merge, so the gateway's per-repo ``git fetch origin
+    # <parent_branch>`` would wedge the restart on a missing-branch fetch
+    # error. When ``True``, we fall back to ``pipeline.base_branch`` rather
+    # than depend on a (likely deleted) parent ref — matching the
+    # contract-unloadable fall-through policy: prefer letting the restart
+    # proceed over over-strict gating (#2470).
+    parent_slice_complete: bool = False
     if slice_id is not None:
         if not pipeline.has_contract:
             return make_error_response(
@@ -2602,6 +2612,20 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 if slice_obj.dependencies:
                     parent_slice_id = slice_obj.dependencies[0]
                     parent_branch_recorded = slice_obj.parent_branch_at_creation
+                    # #2470: if the parent slice is complete, its PR has
+                    # plausibly been merged and its branch deleted by
+                    # GitHub auto-cleanup. Detect that here so the
+                    # base-branch selection below can fall back to
+                    # ``pipeline.base_branch`` rather than wedge the
+                    # restart on a missing-branch fetch.
+                    from egg_contracts.models import SliceStatus
+
+                    parent_obj = next(
+                        (s for s in contract.slices if s.id == parent_slice_id),
+                        None,
+                    )
+                    if parent_obj is not None and parent_obj.status == SliceStatus.COMPLETE:
+                        parent_slice_complete = True
 
     # Restart the container via spawner
     spawner = _get_spawner()
@@ -2684,7 +2708,15 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
             )
         agent_branch = f"{_issue_branch}/{slice_id}"
-        if parent_slice_id is not None:
+        if parent_slice_id is not None and parent_slice_complete:
+            # #2470: parent slice's PR has plausibly been merged and its
+            # branch deleted by GitHub auto-cleanup. Falling back to
+            # ``pipeline.base_branch`` is safe: ``complete`` means the
+            # parent's commits have been integrated upstream (either via
+            # PR merge or via the cascade), and prefer letting the
+            # restart proceed over wedging on a missing-branch fetch.
+            base_branch_for_restart = pipeline.base_branch
+        elif parent_slice_id is not None:
             if parent_branch_recorded:
                 # Prefer the literal branch the parent slice was
                 # provisioned against (#2460 review observation 2).
