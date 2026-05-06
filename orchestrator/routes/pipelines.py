@@ -9608,7 +9608,14 @@ def _build_reviewer_preparation(
                 "If the tester reports `no_test_changes_needed: true`, walk the "
                 "diff and confirm it is genuinely behavior-preserving (symbol "
                 "moves, doc-only, etc.) before ACKing — the no-op propose path "
-                "is only valid when the slice truly warrants no new tests (#2431)."
+                "is only valid when the slice truly warrants no new tests (#2431). "
+                "If the documenter reports `no_doc_changes_needed: true`, walk "
+                "the diff and confirm there is genuinely no documented-surface "
+                "impact (no public API signature change, no behavior change a "
+                "user-facing doc describes, no new feature/flag in README or "
+                "docs/, no docstring contract drift) before ACKing — the "
+                "documenter's no-op path is only valid when the slice truly "
+                "warrants no doc updates (#2444)."
             )
         if role_value == "reviewer_code_holistic":
             return (
@@ -9671,7 +9678,14 @@ def _build_reviewer_preparation(
                 "If the tester reports `no_test_changes_needed: true`, walk the diff "
                 "and confirm it is genuinely behavior-preserving (symbol moves, "
                 "doc-only, etc.) before ACKing — the no-op propose path is only "
-                "valid when the slice truly warrants no new tests (#2431)."
+                "valid when the slice truly warrants no new tests (#2431). "
+                "If the documenter reports `no_doc_changes_needed: true`, walk "
+                "the diff and confirm there is genuinely no documented-surface "
+                "impact (no public API signature change, no behavior change a "
+                "user-facing doc describes, no new feature/flag in README or "
+                "docs/, no docstring contract drift) before ACKing — the "
+                "documenter's no-op path is only valid when the slice truly "
+                "warrants no doc updates (#2444)."
             )
         elif role_value == "reviewer_code_holistic":
             return (
@@ -9908,7 +9922,17 @@ def _build_producer_orientation(
                 "being implemented. Check existing documentation structure — "
                 "README files, doc directories, inline documentation patterns. "
                 "Identify which docs will need updating once the implementation "
-                "is complete." + sync_note + reviewer_awareness
+                "is complete. "
+                "**You MUST propose** even when the slice warrants no doc "
+                "updates (pure refactor / test-only / internal-only with no "
+                "documented-surface impact): the BRC consensus blocks until "
+                "every producer has proposed (#2444, mirror of #2431). For "
+                "that case, walk the coder's diff to confirm there is no "
+                "doc surface impacted, then use the no-op propose path — "
+                "set `attestation.no_doc_changes_needed=true` with a "
+                "non-empty `no_doc_changes_reason`. Do NOT just heartbeat "
+                "indefinitely waiting for doc work that isn't there — that "
+                "deadlocks the slice." + sync_note + reviewer_awareness
             )
     elif phase == "plan":
         if role_value == "architect":
@@ -10439,6 +10463,35 @@ def _build_agent_prompt(
                 "",
                 "Find all changed files across agents:",
                 "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`",
+                "",
+                "### When the slice warrants no doc updates (#2444)",
+                "",
+                "Pure refactors (symbol moves, decompositions with no "
+                "surfaced API change), test-only slices, and internal-only "
+                "slices that don't touch any documented surface still "
+                "require you to **propose** — BRC consensus blocks until "
+                "every producer has proposed at least once. **Don't just "
+                "heartbeat and wait for work that isn't coming.** Instead:",
+                "",
+                "1. Walk the coder's diff and confirm there is no "
+                "documented-surface impact: no public API signature "
+                "changes, no behavior changes a user-facing doc describes, "
+                "no new feature or flag mentioned in README / docs/, no "
+                "docstring contracts that drift.",
+                "2. Propose with the no-op attestation:",
+                "   - `attestation.no_doc_changes_needed: true`",
+                "   - `attestation.no_doc_changes_reason`: a concrete "
+                "sentence explaining why no doc updates are warranted "
+                '(e.g. "slice-3 is a pure decomposition: symbol moves '
+                "between submodules, no surfaced API change; no README / "
+                'docs/ / docstring surface impacted").',
+                '3. Make sure your propose `summary` says "no doc '
+                'updates warranted: <reason>" so reviewers can verify '
+                "the diff really has no doc impact.",
+                "",
+                "If the slice **does** have doc impact (any of the bullets "
+                "above), do NOT use the no-op path — author doc changes as "
+                "usual.",
                 "",
             ]
         )

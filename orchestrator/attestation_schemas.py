@@ -79,6 +79,27 @@ class DocumenterAttestation(BaseModel):
     sections_updated: list[str] = Field(default_factory=list, description="Doc sections updated")
     links_verified: list[str] = Field(default_factory=list, description="Links verified")
     concern_considered: str = Field(default="", description="One concern considered")
+    no_doc_changes_needed: bool = Field(
+        default=False,
+        description=(
+            "True if the slice/diff warrants no doc updates — pure refactor "
+            "(symbol moves, no surfaced API change), test-only changes, or "
+            "internal-only changes that don't touch any documented surface "
+            "(#2444, mirror of #2431). The documenter still walks the diff "
+            "and confirms there is no documented surface impacted; it just "
+            "did not author any doc changes. Reviewers should verify the "
+            "diff really has no doc impact before ACKing this."
+        ),
+    )
+    no_doc_changes_reason: str = Field(
+        default="",
+        description=(
+            "Why no doc updates are warranted (e.g. 'pure refactor: symbol "
+            "moves between submodules, no surfaced API or behavior change; "
+            "no README / docs/ / docstring surface impacted'). Required "
+            "when no_doc_changes_needed=true."
+        ),
+    )
 
 
 # --- Reviewer attestations ---
@@ -357,9 +378,26 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                     "passed — do not include checks that failed."
                 )
         elif role == "documenter" and isinstance(instance, DocumenterAttestation):
-            if not instance.sections_updated:
+            # No-op propose path for refactor / test-only / no-doc-surface
+            # slices (#2444, mirror of #2431). The documenter still walks
+            # the diff to confirm there is no documented surface impacted;
+            # it just did not author any doc changes.
+            if instance.no_doc_changes_needed:
+                if not instance.no_doc_changes_reason.strip():
+                    raise ValueError(
+                        "Documenter attestation requires no_doc_changes_reason "
+                        "when no_doc_changes_needed is true. Explain why the "
+                        "slice warrants no doc updates (e.g. 'pure refactor: "
+                        "symbol moves, no surfaced API change; no README / "
+                        "docs/ / docstring surface impacted')."
+                    )
+            elif not instance.sections_updated:
                 raise ValueError(
-                    "Documenter attestation requires at least one section updated in strict mode"
+                    "Documenter attestation requires at least one section "
+                    "updated in strict mode. If the slice warrants no doc "
+                    "updates (pure refactor / test-only / no-doc-surface), "
+                    "set no_doc_changes_needed=true and populate "
+                    "no_doc_changes_reason instead."
                 )
     else:
         if role == "reviewer_code" and isinstance(instance, ReviewerCodeAttestation):

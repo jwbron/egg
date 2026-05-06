@@ -3026,6 +3026,31 @@ class TestReviewerPreparation:
         assert "**PREPARE**" in preamble
         assert "egg-contract show" in preamble
 
+    def test_code_reviewer_prep_callouts_documenter_no_op_implement(self):
+        """Implement-phase reviewer_code prep names the documenter no-op
+        path so a future refactor cannot silently drop the callout (#2444,
+        review feedback on #2458).
+        """
+        prep = _build_reviewer_preparation("reviewer_code", "implement")
+        assert "no_doc_changes_needed" in prep
+        assert "#2444" in prep
+
+    def test_code_reviewer_prep_callouts_documenter_no_op_babysit(self):
+        """Babysit / PR-diff-aware reviewer_code prep also names the
+        documenter no-op path. Both prompt branches must be covered —
+        the documenter ships in babysit-mode rosters via
+        ``get_roles_for_phase("implement", include_reviewers=True)`` so
+        a missing callout here is a real reviewer-instruction gap (#2444,
+        review feedback on #2458).
+        """
+        from models import PipelineMode
+
+        prep = _build_reviewer_preparation(
+            "reviewer_code", "implement", mode=PipelineMode.BABYSIT, pr_number=42
+        )
+        assert "no_doc_changes_needed" in prep
+        assert "#2444" in prep
+
 
 class TestProducerOrientation:
     """Tests for _build_producer_orientation — pre-work context gathering."""
@@ -3117,6 +3142,19 @@ class TestProducerOrientation:
         """Documenter orientation includes checking documentation structure."""
         orient = _build_producer_orientation("documenter", "implement", [])
         assert "documentation" in orient.lower() or "doc" in orient.lower()
+
+    def test_documenter_orientation_directs_no_op_propose_for_no_doc_surface(self):
+        """Documenter orientation tells the documenter to use the no-op
+        propose path on slices that warrant no doc updates, instead of
+        heartbeating forever and deadlocking BRC consensus (#2444, mirror
+        of #2431).
+        """
+        orient = _build_producer_orientation("documenter", "implement", [])
+        assert "no_doc_changes_needed" in orient
+        # Must explicitly tell the documenter they MUST propose even on
+        # no-op slices — silent waiting is the bug.
+        assert "MUST propose" in orient
+        assert "deadlock" in orient.lower()
 
     def test_architect_explores_architecture(self):
         """Architect orientation includes architecture exploration."""
