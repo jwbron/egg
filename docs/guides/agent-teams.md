@@ -149,10 +149,12 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 | Role | Required attestation |
 |------|---------------------|
 | Coder | Commit SHAs, files changed, test pass/fail summary, one risk considered |
-| Tester | Tests written/run count, coverage delta, edge cases covered, one concern considered, `checks_passed` list of all configured checks that passed (see notes below) |
+| Tester | Tests written/run count, coverage delta, edge cases covered, one concern considered, `checks_passed` list of all configured checks that passed (see notes below; refactor / doc-only slices use the no-op propose path — see "Tester no-op propose" callout) |
 | Documenter | Sections updated, links verified, one concern considered |
 
 > **Tester blocked-execution attestation:** If tests could not execute (e.g., private network mode blocks dependency downloads), the Tester must set `tests_execution_blocked: true` with a `tests_execution_blocked_reason` explaining why. The orchestrator accepts this in place of a passing test count.
+
+> **Tester no-op propose (refactor / doc-only slices, #2431):** When a slice warrants no new tests — pure refactor (symbol moves, no behavior change), doc-only changes, or similar — the Tester must still propose to satisfy BRC consensus (every producer must propose at least once, otherwise reviewers cannot confirm). For that case, run all configured checks against the coder's diff and propose with `no_test_changes_needed: true` plus a non-empty `no_test_changes_reason` (e.g. `"slice-3 is a pure decomposition: symbol moves between submodules, no behavior change; existing test coverage applies"`) and the usual `checks_passed` list. `tests_run = 0` is acceptable on this path. Mutually exclusive with `tests_execution_blocked` — the no-op flag means checks ran and passed; the blocked flag means they could not run.
 
 > **Tester `checks_passed` requirement:** The Tester's attestation must include a `checks_passed` list naming every configured check that **passed** (e.g. `["lint", "test"]`). Only include checks with a clean exit — do not include checks that failed. The server validates that all checks listed in `repositories.yaml` appear in this list and rejects the proposal if any are missing. Running tests alone is not sufficient — all configured checks must pass and be reported.
 

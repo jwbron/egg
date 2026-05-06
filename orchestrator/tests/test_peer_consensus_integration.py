@@ -527,6 +527,75 @@ class TestAttestationSchemas:
             is_producer=True,
         )
 
+    def test_tester_strict_allows_no_test_changes_needed_with_reason(self):
+        """Tester accepts tests_run=0 when no_test_changes_needed=true with a reason (#2431)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        # Should not raise — refactor / doc-only slice no-op propose path.
+        validate_attestation(
+            "tester",
+            {
+                "tests_run": 0,
+                "no_test_changes_needed": True,
+                "no_test_changes_reason": (
+                    "slice-3 is a pure decomposition: symbol moves, no behavior change"
+                ),
+                "checks_passed": ["lint", "test"],
+            },
+            AttestationStrictness.STRICT,
+            is_producer=True,
+        )
+
+    def test_tester_strict_rejects_no_test_changes_needed_without_reason(self):
+        """no_test_changes_needed=true without reason is rejected (#2431)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="no_test_changes_reason"):
+            validate_attestation(
+                "tester",
+                {
+                    "tests_run": 0,
+                    "no_test_changes_needed": True,
+                    "checks_passed": ["lint", "test"],
+                },
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
+    def test_tester_strict_rejects_no_test_changes_needed_without_checks_passed(self):
+        """The no-op path still requires checks_passed populated (#2431)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="checks_passed"):
+            validate_attestation(
+                "tester",
+                {
+                    "tests_run": 0,
+                    "no_test_changes_needed": True,
+                    "no_test_changes_reason": "pure refactor; existing tests cover",
+                },
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
+    def test_tester_strict_rejects_no_test_changes_and_blocked_together(self):
+        """no_test_changes_needed and tests_execution_blocked are mutually exclusive (#2431)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            validate_attestation(
+                "tester",
+                {
+                    "tests_execution_blocked": True,
+                    "tests_execution_blocked_reason": "private net blocks deps",
+                    "no_test_changes_needed": True,
+                    "no_test_changes_reason": "pure refactor",
+                    "checks_passed": ["lint"],
+                },
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
     def test_tester_relaxed_allows_empty_checks_passed(self):
         """Relaxed mode does not require checks_passed."""
         from attestation_schemas import AttestationStrictness, validate_attestation
