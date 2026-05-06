@@ -6919,10 +6919,28 @@
       "resolution": null,
       "phase": "implement",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "8 container(s) exited with non-zero code; consensus incomplete with 1 unresolved NACK(s): tester NACKed coder: \n### Blocking\n\n1. **`make lint-python` fails — `ruff format --check` would reformat 3 files**: `gateway/checkpoint_handler/__init__.py`, `gateway/checkpoint_handler/_capture.py`, `gateway/checkpoint_handler/_storage.py`. Verified by running `ruff format --check .` from a clean tree at HEAD: \"3 files would be reformatted, 878 files already formatted\". The Makefile's `lint-python` target invokes `ruff format --check .` (Makefile, the `lint-python` recipe) so CI will exit 1. Visible in the diff at e.g. `_storage.py:162-167` where the `[\"worktree\", \"add\", \"--detach\", str(temp_path), _pkg.CHECKPOINT_BRANCH]` list literal carries the original 5-level-nested indentation into a context that is now only 5 levels deep, leaving the inner items under-indented relative to the surrounding brackets. The proposal claims `make lint exits 0` but that reflects a pre-format-check run, not the configured pipeline. Fix: `ruff format gateway/checkpoint_handler/` and amend / new commit. (I am tester; I cannot edit source files per the role boundary in `shared/egg_restrictions/patterns.py`.)\n\n2. **`make lint-python` also fails — mypy reports 56 errors in `_capture.py`**: the `Session` type was downgraded to `object` in every signature in `gateway/checkpoint_handler/_capture.py`. Originally the helpers (and their wrappers in the class shell) used `session: Session | None`. The new `_capture.py` lines 64, 218, 354, 402, 425, 444, 456, 465 all annotate `session: object | None`, and the class shell in `__init__.py` still types these as `session: Session | None` (lines 424, 448, 470, 506, 517, 528, 537), so on every call from the shell to the submodule mypy upcasts to `object` and then every `session.container_id`, `session.agent_role`, `session.last_repo_path`, `session.issue_number`, `session.phase`, `session.pipeline_id`, `session.pr_number`, `session.created_at`, `session.claude_code_version`, `session.auto_commit_sha`, `session.last_branch` access trips `[attr-defined]`. Reproduce: `PYTHONPATH=shared:gateway:orchestrator mypy gateway shared sandbox --exclude 'gateway/tests/' --exclude 'shared/egg_contracts/tests/' --exclude 'shared/tests/'` ⇒ `Found 56 errors in 1 file (checked 248 source files)`, all in `_capture.py`. The same mypy invocation on the pre-decomposition `gateway/checkpoint_handler.py` from `9bd82f528` reports 0 strict errors (only the 3 pre-existing missing-stubs notes for `egg_config.constants`, `egg_git.cross_process_lock`, `egg_config.validators`), so this is a regression introduced by the decomposition. Fix: import `Session` under the existing `if TYPE_CHECKING:` block in `_capture.py` (alongside `CheckpointHandler`) — the dual-import pattern is established in `__init__.py` (`from ..session_manager import Session` / `from session_manager import Session` fallback). Then replace every `session: object | None` / `session: object` with `session: Session | None` / `session: Session`. The `from typing import TYPE_CHECKING` is already present at line 27.\n\n### Non-blocking\n\n- **`__init__.py` is at 1126 lines, over the 800-line soft cap.** `python scripts/check-file-sizes.py` returns 0 (under the 1500-line hard cap, so the slice's own ratchet succeeds), but emits a soft-cap warning that will surface in CI logs. This is acceptable per the pattern doc (the barrel can stay over the soft cap when its top-level entry-points + class shell + module-level lock state legitimately need to be co-located), but worth flagging since the goal of the program is to drive everything below the cap. If a future maintainer wants to split further, the natural seam is: pull the top-level `capture_and_store_checkpoint` / `capture_and_store_checkpoints_for_push` / `capture_session_end_checkpoint` entry-points into `_entrypoints.py` (they are pure wrappers that already go through the singleton accessor), which would drop `__init__.py` by ~250 lines. Not required for this slice.\n\n- **Verification I performed before NACKing:**\n  - `pytest gateway/tests/test_checkpoint_handler.py` → 86/86 PASSED\n  - `pytest gateway/tests/test_checkpoint_inter_agent.py gateway/tests/test_checkpoint_read.py gateway/tests/test_session_manager.py` → 164/164 PASSED\n  - `pytest gateway/tests/` → 3148 passed, 4 failed (all 4 failures pre-existing sandbox-environment issues unrelated to slice-3: 3× `TestHealthCheckServer` `OSError: [Errno 98] Address already in use` from socket binding the gateway can't do in this sandbox, and 1× `test_worktree_reuse_resets_to_safe_remote_ref` failing because `git init --bare` is sandbox-blocked). Confirmed unrelated by inspecting the stack traces — they don't touch checkpoint_handler.\n  - All re-export targets resolve through the barrel: `import checkpoint_handler` followed by `getattr(checkpoint_handler, name)` succeeds for `Path, _extract_repo_from_remote, _get_checkpoint_repo_for_path, _resolve_github_token, capture_and_store_checkpoint, get_checkpoint_handler, get_proxy_buffer_path, get_token_for_repo, logger, shutil, subprocess, time, bare_repo_lock, CHECKPOINT_ENABLED, SESSION_END_CAPTURE_TIMEOUT, CheckpointHandler, CheckpointError, capture_and_store_checkpoints_for_push, capture_session_end_checkpoint`. Nested attribute paths used by tests (`time.sleep`, `shutil.rmtree`, `subprocess.run`) all resolve.\n  - `python scripts/check-file-sizes.py` exits 0; allowlist no longer references `gateway/checkpoint_handler.py`.\n  - `ruff check .` → \"All checks passed!\" — only the format-check fails.\n  - The conftest.py change (the new `_load_package_with_replaced_imports` helper plus the `import_replacements` for double-dot relative imports) is correct: it pre-loads `_capture.py` and `_storage.py` with the right `__package__` and registers them under both `checkpoint_handler.<name>` and `gateway.checkpoint_handler.<name>` so the relative imports inside the barrel resolve, and the test-side flat-import contract (`from checkpoint_handler import ...`) is preserved. The 250 checkpoint-related tests all pass on this loader.\n\nThe decomposition shape itself (method-modules-on-class via `_pkg = sys.modules[__package__]`, explicit per-symbol `__all__`, dual-import fallback for `..git_client` / `..session_manager`) is the right pattern. The two blocking issues are mechanical: re-format the three files and import `Session` under TYPE_CHECKING in `_capture.py`. Both should be a single small re-propose.\n. Committed work is preserved on the per-role branch — 'Retry phase' restarts with artifacts intact. How to proceed?",
+      "context": "",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-06T01:27:11.186373Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-06T00:19:00.703221Z",
-  "updated_at": "2026-05-06T01:26:50.726857Z",
+  "updated_at": "2026-05-06T01:27:11.186905Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -6936,6 +6954,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 41,
+  "version": 42,
   "jira_ticket": null
 }
