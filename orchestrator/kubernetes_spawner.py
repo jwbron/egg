@@ -33,6 +33,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
+import agent_salvage
 from egg_config import GATEWAY_PORT, GATEWAY_PROXY_PORT
 from gateway_client import (
     GatewayClient,
@@ -944,6 +945,8 @@ class KubernetesSpawner:
         pipeline_id: str,
         force: bool = True,
         preserve_worktrees: bool = False,
+        salvage_mode: str | None = None,
+        salvage_base_branch: str | None = None,
     ) -> int:
         """Clean up all Jobs and sessions for a pipeline.
 
@@ -955,6 +958,20 @@ class KubernetesSpawner:
                 worktrees. Jobs and gateway sessions are still removed so the
                 retry spawns fresh pods. Default False preserves the prior
                 behavior of deleting every worktree.
+            salvage_mode: Gateway session mode (``"public"`` / ``"private"``)
+                used by the auto-salvage hook for the launcher-auth push to
+                ``egg/recovered/...``. Callers with a ``Pipeline`` in scope
+                should compute this via ``_compute_gateway_mode(pipeline)``
+                so private-repo / private-network pipelines salvage with
+                the policy they ran under. ``None`` (the default) falls
+                back to ``"public"`` and is only correct for callers that
+                cannot load the pipeline.
+            salvage_base_branch: Base branch (e.g. ``"main"``) used by the
+                salvage hook as the secondary ``^anchor`` cut when
+                ``origin/<assigned_branch>`` is missing. ``None`` is safe
+                — the hook falls back to the full HEAD history (capped at
+                200 commits) — but threading ``pipeline.base_branch``
+                produces tighter recovery refs.
 
         Returns:
             Number of Jobs removed
@@ -1041,6 +1058,33 @@ class KubernetesSpawner:
                     pipeline_id=pipeline_id,
                     error=str(e),
                 )
+
+        # Auto-salvage unpushed agent commits before deleting worktrees
+        # (#2429). Best-effort: any failure logs and continues so cleanup
+        # cannot be blocked by salvage. The default policy here used to
+        # be silent loss when an agent's pushes were wedged — this hook
+        # makes the default policy "push to egg/recovered/<pipeline>/...
+        # then delete" so salvageable work is always reachable from
+        # origin before the worktree filesystem state is gone.
+        try:
+            agent_salvage.auto_salvage_pipeline(
+                self.gateway,
+                pipeline_id,
+                worktree_filter=worktree_ids_to_clean,
+                # Mismatching the running-pipeline mode would re-create
+                # the silent-loss class this hook exists to prevent for
+                # private-mode pipelines. Callers without a Pipeline in
+                # scope keep the historical default ("public") via
+                # ``mode=None`` → omitted-kwarg below.
+                **({"mode": salvage_mode} if salvage_mode is not None else {}),
+                base_branch=salvage_base_branch,
+            )
+        except Exception as e:
+            logger.warning(
+                "Auto-salvage failed during cleanup; proceeding with worktree deletion",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
 
         for wt_id in worktree_ids_to_clean:
             try:

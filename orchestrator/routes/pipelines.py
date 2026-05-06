@@ -82,6 +82,7 @@ except ImportError:
 
 # Import orchestrator modules - try relative import first
 try:
+    from .. import agent_salvage
     from ..container_spawner import ContainerSpawnError, SpawnFailureError, get_container_spawner
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
@@ -119,6 +120,7 @@ try:
         get_state_store,
     )
 except ImportError:
+    import agent_salvage  # type: ignore[no-redef]
     from container_spawner import (  # type: ignore
         ContainerSpawnError,
         SpawnFailureError,
@@ -2160,6 +2162,17 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # so the PATCH response returns immediately.  The DELETE handler
             # already re-runs cleanup_pipeline() as a safety net, so it will
             # catch anything the background thread hasn't finished.
+            #
+            # Compute the salvage mode + base branch up front (in the
+            # request thread, where ``pipeline`` is still in scope) so the
+            # background thread can pass them to ``cleanup_pipeline``
+            # without re-loading state. Using the wrong mode here would
+            # mismatch the policy the rest of the pipeline ran under and
+            # the launcher-auth push could be rejected — see #2429
+            # review.
+            _bg_salvage_mode, _ = _compute_gateway_mode(pipeline)
+            _bg_salvage_base_branch = pipeline.base_branch
+
             def _background_cleanup(pid: str, status_value: str) -> None:
                 try:
                     spawner = _get_spawner()
@@ -2170,6 +2183,8 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         pid,
                         force=True,
                         preserve_worktrees=(status_value == "cancelled"),
+                        salvage_mode=_bg_salvage_mode,
+                        salvage_base_branch=_bg_salvage_base_branch,
                     )
                     if removed > 0:
                         logger.info(
@@ -2336,7 +2351,16 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
         # Clean up any running containers for this pipeline
         try:
             spawner = _get_spawner()
-            removed = spawner.cleanup_pipeline(pipeline_id, force=True)
+            # Pass the running pipeline's gateway mode + base branch so the
+            # auto-salvage hook in cleanup_pipeline pushes recovery refs
+            # under the same policy the pipeline ran under (#2429 review).
+            _delete_salvage_mode, _ = _compute_gateway_mode(_pipeline)
+            removed = spawner.cleanup_pipeline(
+                pipeline_id,
+                force=True,
+                salvage_mode=_delete_salvage_mode,
+                salvage_base_branch=_pipeline.base_branch,
+            )
             if removed > 0:
                 logger.info(
                     "Cleaned up pipeline containers",
@@ -3126,6 +3150,245 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         data={
             "phase": phase,
             "agents_to_restart": agents_to_restart,
+        },
+    )
+
+
+def _filter_salvage_worktrees(
+    worktrees: list[Any],
+    *,
+    agent_role: str | None,
+    slice_id: str | None,
+) -> list[Any]:
+    """Filter ``enumerate_agent_worktrees`` output by role / slice scope.
+
+    ``agent_role`` and ``slice_id`` may both be ``None`` (return all) or
+    set together to scope down to one specific worktree. ``agent_role``
+    set with ``slice_id=None`` matches non-slice per-agent worktrees.
+    The pipeline-level worktree (``agent_role=None`` on the worktree)
+    is included only when the caller did not specify ``agent_role``.
+    """
+    out = []
+    for wt in worktrees:
+        if agent_role is not None and wt.agent_role != agent_role:
+            continue
+        if slice_id is not None and wt.slice_id != slice_id:
+            continue
+        out.append(wt)
+    return out
+
+
+def _serialize_commit_report(report: Any) -> dict[str, Any]:
+    """Convert a ``WorktreeCommitReport`` to a JSON-safe dict."""
+    return {
+        "worktree_id": report.worktree.worktree_id,
+        "agent_role": report.worktree.agent_role,
+        "slice_id": report.worktree.slice_id,
+        "local_branch": report.worktree.local_branch,
+        "assigned_branch": report.assigned_branch,
+        "anchor_ref": report.anchor_ref,
+        "commits": [
+            {
+                "sha": c.sha,
+                "summary": c.summary,
+                "author": c.author,
+                "authored_at": c.authored_at,
+                "files_changed": c.files_changed,
+            }
+            for c in report.commits
+        ],
+        "error": report.error,
+    }
+
+
+def _serialize_salvage_result(result: Any) -> dict[str, Any]:
+    """Convert a ``SalvageResult`` to a JSON-safe dict."""
+    return {
+        "worktree_id": result.worktree_id,
+        "agent_role": result.agent_role,
+        "slice_id": result.slice_id,
+        "recovery_ref": result.recovery_ref,
+        "head_sha": result.head_sha,
+        "n_commits": result.n_commits,
+        "ok": result.ok,
+        "error": result.error,
+    }
+
+
+@pipelines_bp.route("/<pipeline_id>/local-commits", methods=["GET"])
+def list_pipeline_local_commits(pipeline_id: str) -> tuple[Response, int]:
+    """List unpushed commits across this pipeline's per-agent worktrees.
+
+    Inspects every per-agent worktree on disk
+    (``{pipeline_id}``, ``{pipeline_id}-{role}``,
+    ``{pipeline_id}-slice-{N}-{role}``) and reports the commits on its
+    local ``egg/{worktree_id}/work`` branch that are not reachable from
+    ``origin/<assigned_branch>`` (or ``origin/<base_branch>`` as a
+    fallback). Read-only — no fetch, no push.
+
+    Query string (optional):
+        agent_role: Filter to a single agent role (e.g. ``coder``).
+        slice_id: Filter to a single slice scope (e.g. ``slice-2``).
+
+    Response:
+        {
+            "success": true,
+            "data": {
+                "pipeline_id": "issue-2261-v9",
+                "worktrees": [
+                    {
+                        "worktree_id": "issue-2261-v9-slice-2-coder",
+                        "agent_role": "coder",
+                        "slice_id": "slice-2",
+                        "local_branch": "egg/issue-2261-v9-slice-2-coder/work",
+                        "assigned_branch": "egg/issue-2261-v9/slice-2",
+                        "anchor_ref": "refs/remotes/origin/egg/issue-2261-v9/slice-2",
+                        "commits": [
+                            {"sha": "...", "summary": "...", "author": "...",
+                             "authored_at": "...", "files_changed": 3}
+                        ],
+                        "error": null
+                    }
+                ]
+            }
+        }
+    """
+    repo_path = get_repo_path()
+
+    try:
+        _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+    except InvalidPipelineIdError:
+        return make_error_response(f"Invalid pipeline ID format: {pipeline_id}", status_code=400)
+    except PipelineNotFoundError:
+        return make_error_response(f"Pipeline {pipeline_id} not found", status_code=404)
+
+    agent_role = request.args.get("agent_role") or None
+    if agent_role is not None:
+        try:
+            AgentRole(agent_role)
+        except ValueError:
+            return make_error_response(f"Invalid agent role: {agent_role}", status_code=400)
+
+    raw_slice_id = request.args.get("slice_id")
+    try:
+        slice_id = extract_slice_id({"slice_id": raw_slice_id} if raw_slice_id is not None else {})
+    except ValueError as e:
+        return make_error_response(str(e), status_code=400)
+
+    worktrees = _filter_salvage_worktrees(
+        agent_salvage.enumerate_agent_worktrees(pipeline_id),
+        agent_role=agent_role,
+        slice_id=slice_id,
+    )
+    reports = [
+        agent_salvage.list_unpushed_commits(wt, base_branch=pipeline.base_branch)
+        for wt in worktrees
+    ]
+
+    return make_success_response(
+        f"Listed local commits for pipeline {pipeline_id}",
+        data={
+            "pipeline_id": pipeline_id,
+            "worktrees": [_serialize_commit_report(r) for r in reports],
+        },
+    )
+
+
+@pipelines_bp.route("/<pipeline_id>/salvage", methods=["POST"])
+@require_lifecycle_secret
+def salvage_pipeline_local_commits(pipeline_id: str) -> tuple[Response, int]:
+    """Push unpushed agent commits to recovery refs (#2429).
+
+    For every matching per-agent worktree, push its HEAD to
+    ``egg/recovered/<pipeline_id>/<scope>/<short_sha>`` via the gateway's
+    launcher-auth path. Launcher auth bypasses the agent-targeted
+    branch-allowlist check so this works even when the agent's own
+    pushes were rejected for the wrong-branch reason this verb exists
+    to recover from.
+
+    Query string (optional):
+        agent_role: Salvage only this role's worktree.
+        slice_id: Salvage only this slice scope.
+
+    Response (always ``success: true`` when the request was well-formed
+    — per-worktree failures are reported in ``data.results``):
+        {
+            "success": true,
+            "data": {
+                "pipeline_id": "issue-2261-v9",
+                "results": [
+                    {"worktree_id": "...", "agent_role": "coder", "slice_id": "slice-2",
+                     "recovery_ref": "egg/recovered/issue-2261-v9/slice-2-coder/9665f37a6...",
+                     "head_sha": "9665f37a6...", "n_commits": 14, "ok": true, "error": null}
+                ]
+            }
+        }
+    """
+    repo_path = get_repo_path()
+
+    try:
+        _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+    except InvalidPipelineIdError:
+        return make_error_response(f"Invalid pipeline ID format: {pipeline_id}", status_code=400)
+    except PipelineNotFoundError:
+        return make_error_response(f"Pipeline {pipeline_id} not found", status_code=404)
+
+    agent_role = request.args.get("agent_role") or None
+    if agent_role is not None:
+        try:
+            AgentRole(agent_role)
+        except ValueError:
+            return make_error_response(f"Invalid agent role: {agent_role}", status_code=400)
+
+    raw_slice_id = request.args.get("slice_id")
+    try:
+        slice_id = extract_slice_id({"slice_id": raw_slice_id} if raw_slice_id is not None else {})
+    except ValueError as e:
+        return make_error_response(str(e), status_code=400)
+
+    worktrees = _filter_salvage_worktrees(
+        agent_salvage.enumerate_agent_worktrees(pipeline_id),
+        agent_role=agent_role,
+        slice_id=slice_id,
+    )
+
+    gateway_mode, _vis = _compute_gateway_mode(pipeline)
+    gateway = get_gateway_client()
+
+    results = []
+    for wt in worktrees:
+        try:
+            result = agent_salvage.salvage_worktree(
+                gateway,
+                wt,
+                base_branch=pipeline.base_branch,
+                mode=gateway_mode,
+            )
+        except Exception as e:  # noqa: BLE001 — must always return a result row
+            logger.warning(
+                "Salvage raised unexpectedly",
+                pipeline_id=pipeline_id,
+                worktree_id=wt.worktree_id,
+                error=str(e),
+            )
+            result = agent_salvage.SalvageResult(
+                worktree_id=wt.worktree_id,
+                agent_role=wt.agent_role,
+                slice_id=wt.slice_id,
+                recovery_ref=None,
+                head_sha=None,
+                n_commits=0,
+                ok=False,
+                error=str(e),
+            )
+        results.append(result)
+
+    return make_success_response(
+        f"Salvaged {sum(1 for r in results if r.ok and r.recovery_ref)} of "
+        f"{len(results)} per-agent worktrees for pipeline {pipeline_id}",
+        data={
+            "pipeline_id": pipeline_id,
+            "results": [_serialize_salvage_result(r) for r in results],
         },
     )
 
@@ -17015,10 +17278,15 @@ def _run_pipeline(
         # new thread's containers are not killed.  See #1386, #1638.
         if not pipeline_was_restarted:
             try:
+                # ``gateway_mode`` is the mode this pipeline ran under;
+                # the auto-salvage hook needs it to push recovery refs
+                # under the same policy (#2429 review).
                 removed = _spawner.cleanup_pipeline(
                     pipeline_id,
                     force=True,
                     preserve_worktrees=skip_cleanup,
+                    salvage_mode=gateway_mode,
+                    salvage_base_branch=pipeline.base_branch,
                 )
                 if removed > 0:
                     logger.info(

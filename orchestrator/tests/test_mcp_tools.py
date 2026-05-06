@@ -893,6 +893,9 @@ class TestToolRouting:
             "validate_network_isolation",
             "rebuild_and_rollout",
             "get_service_logs",
+            # Agent-salvage tools (#2429)
+            "list_agent_local_commits",
+            "salvage_agent_commits",
         }
         assert tool_names == expected
 

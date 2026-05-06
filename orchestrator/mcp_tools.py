@@ -704,6 +704,81 @@ PIPELINE_TOOLS = [
             "required": ["task_id", "phase"],
         },
     },
+    # --- Salvage tools (#2429) ---
+    {
+        "name": "list_agent_local_commits",
+        "description": (
+            "List unpushed commits sitting in this pipeline's per-agent worktrees. "
+            "Use to triage whether wedged agents have local work that would be "
+            "lost on cleanup — for example after a gateway branch-allowlist "
+            "rejection (#2428) or a restart-reconciliation false-failure (#2411). "
+            "Read-only: inspects each worktree's git log against "
+            "origin/<assigned_branch> (with origin/<base_branch> fallback) and "
+            "reports commits that are not yet on the remote. No fetch, no push. "
+            "Pair with `salvage_agent_commits` to push the work to a recovery ref."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "agent_role": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Restrict to a single agent role (e.g. 'coder'). "
+                        "Omit to enumerate every per-agent worktree for the pipeline."
+                    ),
+                },
+                "slice_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Restrict to a single slice scope "
+                        "(e.g. 'slice-2'). Omit to include all scopes."
+                    ),
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "salvage_agent_commits",
+        "description": (
+            "Push unpushed agent commits to recovery refs under "
+            "egg/recovered/<pipeline>/<scope>/<short_sha>. Authenticates with the "
+            "orchestrator's launcher secret, which bypasses the agent-targeted "
+            "branch-allowlist check that rejected the original push — so this "
+            "works to recover work even when the agent's own pushes were the "
+            "thing that wedged. The recovery ref name embeds the HEAD SHA so "
+            "re-salvages produce immutable refs instead of force-overwriting "
+            "earlier ones. After salvage, fetch and cherry-pick onto the "
+            "intended branch. Always returns per-worktree results — failure of "
+            "one worktree never blocks others."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "agent_role": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Salvage only this agent role's worktree "
+                        "(e.g. 'coder'). Omit to salvage every per-agent "
+                        "worktree for the pipeline."
+                    ),
+                },
+                "slice_id": {
+                    "type": "string",
+                    "description": ("Optional. Salvage only this slice scope (e.g. 'slice-2')."),
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
     # --- Phase management tools ---
     {
         "name": "advance_phase",
@@ -1132,6 +1207,8 @@ class PipelineToolHandler:
             "validate_config": self._handle_validate_config,
             "restart_agent": self._handle_restart_agent,
             "restart_phase": self._handle_restart_phase,
+            "list_agent_local_commits": self._handle_list_agent_local_commits,
+            "salvage_agent_commits": self._handle_salvage_agent_commits,
             "advance_phase": self._handle_advance_phase,
             "start_pipeline": self._handle_start_pipeline,
             "start_phase": self._handle_start_phase,
@@ -2584,6 +2661,66 @@ class PipelineToolHandler:
             }
         except Exception as e:
             return {"error": f"Failed to restart phase: {e}"}
+
+    def _handle_list_agent_local_commits(self, args: dict[str, Any]) -> dict[str, Any]:
+        """List unpushed commits in this pipeline's per-agent worktrees (#2429)."""
+        task_id = quote(args["task_id"], safe="")
+        params: list[str] = []
+        if args.get("agent_role"):
+            params.append(f"agent_role={quote(args['agent_role'], safe='')}")
+        if args.get("slice_id"):
+            params.append(f"slice_id={quote(args['slice_id'], safe='')}")
+        suffix = f"?{'&'.join(params)}" if params else ""
+        try:
+            result = self._make_request(
+                f"/api/v1/pipelines/{task_id}/local-commits{suffix}",
+            )
+        except Exception as e:
+            return {"error": f"Failed to list local commits: {e}"}
+
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        worktrees = data.get("worktrees", [])
+        n_commits = sum(len(wt.get("commits") or []) for wt in worktrees)
+        return {
+            "pipeline_id": data.get("pipeline_id", args["task_id"]),
+            "n_worktrees": len(worktrees),
+            "n_commits": n_commits,
+            "worktrees": worktrees,
+        }
+
+    def _handle_salvage_agent_commits(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Push unpushed agent commits to recovery refs (#2429)."""
+        task_id = quote(args["task_id"], safe="")
+        params: list[str] = []
+        if args.get("agent_role"):
+            params.append(f"agent_role={quote(args['agent_role'], safe='')}")
+        if args.get("slice_id"):
+            params.append(f"slice_id={quote(args['slice_id'], safe='')}")
+        suffix = f"?{'&'.join(params)}" if params else ""
+        try:
+            result = self._make_request(
+                f"/api/v1/pipelines/{task_id}/salvage{suffix}",
+                method="POST",
+                data={},
+                # Push goes through the gateway with launcher auth and may
+                # block on git for a few seconds per worktree.
+                timeout=120,
+            )
+        except Exception as e:
+            return {"error": f"Failed to salvage commits: {e}"}
+
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        results = data.get("results", [])
+        salvaged = [r for r in results if r.get("ok") and r.get("recovery_ref")]
+        failed = [r for r in results if not r.get("ok")]
+        return {
+            "pipeline_id": data.get("pipeline_id", args["task_id"]),
+            "n_worktrees": len(results),
+            "n_salvaged": len(salvaged),
+            "n_failed": len(failed),
+            "recovery_refs": [r["recovery_ref"] for r in salvaged],
+            "results": results,
+        }
 
     def _handle_advance_phase(self, args: dict[str, Any]) -> dict[str, Any]:
         """Advance pipeline to a target phase.

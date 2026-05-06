@@ -239,6 +239,51 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILE
 
 The optional `context` parameter injects additional guidance into the respawned agents (e.g., "Previous attempt stalled during BRC convergence — focus on completing reviews first").
 
+## Salvaging Unpushed Local Commits
+
+Source: `orchestrator/agent_salvage.py`
+
+When an agent's pushes to its assigned branch are wedged — gateway branch-allowlist rejection from a wrong-branch spawn-time env var ([#2428](https://github.com/jwbron/egg/issues/2428)), restart-reconciliation marking a still-running pipeline `failed` ([#2411](https://github.com/jwbron/egg/issues/2411)), or any other class of in-flight failure that leaves work committed locally but unreachable from origin — the orchestrator's per-agent worktree at `/home/egg/.egg-worktrees/{worktree_id}/{repo_short}` still holds the work on its local `egg/{worktree_id}/work` branch. Without recovery, `cleanup_pipeline` later deletes that worktree and the work is silently lost. Salvage closes that gap ([#2429](https://github.com/jwbron/egg/issues/2429)).
+
+### How It Works
+
+1. **Enumeration** scans `WORKTREE_BASE_DIR` for the pipeline's worktrees — pipeline-level (`{pipeline_id}`), per-role (`{pipeline_id}-{role}`), and slice-scoped (`{pipeline_id}-slice-{N}-{role}`). Same parsing rules as `cleanup_pipeline`, so salvage covers exactly the worktrees cleanup is about to delete.
+2. **Diff** runs `git log {local_branch} ^origin/{assigned_branch}` against the worktree, falling back to `^origin/{base_branch}` when the assigned-branch tracking ref is absent. No fetch — over-including already-pushed commits is harmless because the receiver dedupes when cherry-picking, but trimming a real commit would be silent loss.
+3. **Push to recovery ref** sends the worktree's HEAD to `egg/recovered/{pipeline_id}/{scope}/{short_sha}` via `gateway.push_worktree_branch(...)` with launcher auth. Launcher auth bypasses the agent-targeted branch-allowlist check, so this works to recover work even when the agent's own pushes were the thing that wedged.
+4. The recovery-ref name embeds the HEAD short SHA, so re-salvages produce immutable refs instead of force-overwriting earlier ones.
+
+### Triggering Salvage
+
+| Method | How |
+|--------|-----|
+| **API (read)** | `GET /api/v1/pipelines/{id}/local-commits[?agent_role=&slice_id=]` — list unpushed commits per worktree (read-only) |
+| **API (write)** | `POST /api/v1/pipelines/{id}/salvage[?agent_role=&slice_id=]` — push HEAD to `egg/recovered/...` |
+| **MCP tool** | `list_agent_local_commits(task_id, agent_role?, slice_id?)` and `salvage_agent_commits(task_id, agent_role?, slice_id?)` |
+| **Auto-salvage** | Best-effort, automatic — runs from `kubernetes_spawner.cleanup_pipeline` before worktree deletion. Skipped when `preserve_worktrees=True` (the worktree survives, no need to mirror it). Failures are logged and never block cleanup |
+
+### Recovery Workflow
+
+After salvage, the unpushed work is reachable from origin under the recovery namespace. To replay it onto an intended branch:
+
+```bash
+# Find every recovery ref for a pipeline
+git ls-remote origin 'refs/heads/egg/recovered/<pipeline-id>/*'
+
+# Fetch the recovered ref into a local branch
+git fetch origin egg/recovered/<pipeline-id>/<scope>/<short-sha>:recovered/<scope>
+
+# Cherry-pick onto the intended branch (de-dupes already-pushed commits)
+git switch <target-branch>
+git cherry-pick <recovered-base>..recovered/<scope>
+```
+
+The orchestrator never deletes `egg/recovered/*` refs — they outlive the pipeline they belong to. Operators clean up after replay (`git push origin --delete <ref>`).
+
+### What Salvage Does Not Do
+
+- **No exec into the container.** Agent commits land in the orchestrator-side worktree, not the container's filesystem, so no `kubectl exec` is needed. Containers may already be terminated when salvage runs.
+- **No re-targeting of pending pushes.** The original push is still rejected; salvage produces a separate, recoverable record. To stop new rejections, fix the upstream branch-resolution bug.
+
 ## When Recovery Is Triggered vs. HITL Escalation
 
 | Scenario | Behavior |

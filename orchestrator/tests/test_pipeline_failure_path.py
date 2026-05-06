@@ -1802,10 +1802,16 @@ class TestSafetyNetContainerCleanup:
         # cleanup_pipeline should have been called as safety net.  When the
         # pipeline ended in FAILED, the caller also passes
         # preserve_worktrees=True so a retry can reuse the worktrees
-        # (#1878).
+        # (#1878).  Salvage kwargs (#2429) are threaded through so the
+        # auto-salvage hook pushes recovery refs under the same gateway
+        # mode the pipeline ran under.
         mock_spawner = mock_get_spawner.return_value
         mock_spawner.cleanup_pipeline.assert_called_with(
-            "issue-42", force=True, preserve_worktrees=True
+            "issue-42",
+            force=True,
+            preserve_worktrees=True,
+            salvage_mode="public",
+            salvage_base_branch=None,
         )
 
 
