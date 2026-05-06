@@ -38,6 +38,7 @@ from message_store import (
     get_message_store,
 )
 from routes import get_state_store_for_pipeline
+from slice_id_validation import extract_slice_id as _extract_slice_id
 from state_store import InvalidPipelineIdError, PipelineNotFoundError
 
 logger = get_logger("orchestrator.messages")
@@ -578,6 +579,16 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
             "state=WAITING_ON_ROLE requires waiting_on (the role this agent is waiting on)."
         )
 
+    # Optional slice scope (#2451): slice-scoped agents forward
+    # ``EGG_SLICE_ID`` so the gateway-session fan-out can reconstruct
+    # the slice-scoped container_id that ``kubernetes_spawner``
+    # registered. Pipeline-level agents send no ``slice_id`` and this
+    # resolves to ``None``.
+    try:
+        slice_id = _extract_slice_id(body)
+    except ValueError as exc:
+        return _make_error(f"Invalid slice_id: {exc}")
+
     # Validate pipeline.
     try:
         _store, pipeline = get_state_store_for_pipeline(pipeline_id)
@@ -606,7 +617,7 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     if state not in _DEDUP_EXEMPT_HEARTBEAT_STATES and coordinator.is_duplicate(
         pipeline_id, from_role, state, waiting_on
     ):
-        _refresh_gateway_session(pipeline_id, from_role)
+        _refresh_gateway_session(pipeline_id, from_role, slice_id)
         return _make_success(
             "HEARTBEAT deduped (unchanged state)",
             data={"deduped": True},
@@ -644,7 +655,7 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     # Best-effort: the gateway may be unreachable (tests, dev runs
     # without a gateway) and a missing session is a 404; never fail the
     # heartbeat on this path.
-    _refresh_gateway_session(pipeline_id, from_role)
+    _refresh_gateway_session(pipeline_id, from_role, slice_id)
 
     # Emit as a normal HEARTBEAT message on the bus so downstream
     # consumers (HealthMonitor, overseer, UI) see it.
@@ -686,7 +697,7 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     )
 
 
-def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
+def _refresh_gateway_session(pipeline_id: str, from_role: str, slice_id: str | None = None) -> None:
     """Best-effort POST to the gateway so the BRC heartbeat counts as session liveness.
 
     Container-id normalization: k8s names are RFC-1123 labels (no
@@ -698,6 +709,15 @@ def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
     registered session and the gateway returns 404.  See
     ``orchestrator/kubernetes_spawner.py:370-375`` for the reference
     pattern.
+
+    Slice scope (#2451): slice-scoped agents register sessions under
+    ``egg-agent-{pid}-{slice_id}-{role}`` (``JOB_NAME_FORMAT_SLICE``);
+    pipeline-level agents register under ``egg-agent-{pid}-{role}``.
+    When ``slice_id`` is supplied (forwarded from the heartbeat body
+    via ``EGG_SLICE_ID``) the slice segment is embedded so the lookup
+    matches; without it every slice-scoped agent's heartbeat fan-out
+    would silently 404. The throttle key is also slice-aware so a
+    sibling slice's fan-out does not suppress this slice's refresh.
 
     Trust model: ``from_role`` is taken at face value from the request
     body and is **not** correlated against the calling container's
@@ -716,8 +736,14 @@ def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
     expiry under any realistic heartbeat cadence.
     """
     coordinator = get_heartbeat_coordinator()
+    # Compose the throttle role with the slice scope so concurrent
+    # slices that share a role (e.g. two reviewer-code agents in
+    # different slices of the same wave) do not suppress each other's
+    # fan-outs. The coordinator key is opaque to the throttle, so
+    # scoping at the call site keeps the coordinator API unchanged.
+    throttle_role = f"{slice_id}/{from_role}" if slice_id else from_role
     if not coordinator.should_fan_out_gateway_session(
-        pipeline_id, from_role, _GATEWAY_FANOUT_MIN_INTERVAL_SECONDS
+        pipeline_id, throttle_role, _GATEWAY_FANOUT_MIN_INTERVAL_SECONDS
     ):
         return
     try:
@@ -732,13 +758,17 @@ def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
         # — k8s labels disallow underscores, so the registered
         # container_id uses hyphens.
         normalized_role = from_role.replace("_", "-")
-        container_id = f"egg-agent-{pipeline_id}-{normalized_role}"
+        if slice_id:
+            container_id = f"egg-agent-{pipeline_id}-{slice_id}-{normalized_role}"
+        else:
+            container_id = f"egg-agent-{pipeline_id}-{normalized_role}"
         get_gateway_client().heartbeat_session_by_container(container_id)
     except Exception as exc:  # pragma: no cover - logging only
         logger.warning(
             "Gateway session heartbeat fan-out failed",
             pipeline_id=pipeline_id,
             from_role=from_role,
+            slice_id=slice_id,
             error=str(exc),
         )
 

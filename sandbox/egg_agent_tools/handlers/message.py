@@ -16,6 +16,7 @@ structured dict directly and classify ``matched``/``ok`` themselves.
 from __future__ import annotations
 
 import datetime as _datetime
+import re
 import threading
 import time as _time
 from collections.abc import Callable
@@ -24,6 +25,7 @@ from typing import Any
 from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_pipeline_id,
+    get_slice_id,
     orchestrator_request,
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -35,6 +37,28 @@ _HEARTBEAT_STATES = {
     "PROPOSED",
     "IDLE",
 }
+
+_SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
+
+
+def _maybe_attach_slice_id(req: dict[str, Any], data: dict[str, Any]) -> None:
+    """Forward ``slice_id`` from the request or env onto the heartbeat body.
+
+    Mirrors ``brc._maybe_attach_slice_id`` and ``progress._maybe_attach_slice_id``
+    so the orchestrator's gateway-session fan-out (#2068) can reconstruct
+    the slice-scoped container_id (``egg-agent-{pid}-{slice}-{role}``)
+    that ``kubernetes_spawner.JOB_NAME_FORMAT_SLICE`` registered. Without
+    this, slice-scoped agents emit heartbeats whose fan-out always 404s
+    against the gateway because the orchestrator falls back to the
+    pipeline-level shape ``egg-agent-{pid}-{role}``. See #2451.
+    """
+    slice_id = req.get("slice_id") or get_slice_id()
+    if not slice_id:
+        return
+    if not isinstance(slice_id, str) or not _SLICE_ID_PATTERN.fullmatch(slice_id):
+        raise HandlerError(f"Invalid slice_id {slice_id!r}: must match 'slice-<N>'")
+    data["slice_id"] = slice_id
+
 
 # Interval between ``WAITING_FOR_EVENT`` keep-alive heartbeats emitted by
 # ``message_wait_loop`` while blocked. Needs to be well under the
@@ -401,6 +425,7 @@ def message_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
         body["since"] = req["since"]
     if req.get("body"):
         body["body"] = req["body"]
+    _maybe_attach_slice_id(req, body)
 
     result = orchestrator_request(
         f"/api/v1/pipelines/{pid}/heartbeat",
