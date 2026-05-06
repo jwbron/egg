@@ -172,6 +172,18 @@ def _make_gateway_stub_with_real_git(worktree: Path) -> MagicMock:
     * ``push_worktree_branch`` returns a ``PushResult`` (truthy on
       success).  The gateway uses the ``HEAD:refs/heads/{branch}``
       refspec form, so the stub does the same.
+
+    Limitation: ``real_push`` does NOT replicate
+    ``push_worktree_branch``'s ``_reconcile_and_retry_push`` retry
+    logic (``gateway_client.py``).  Neither test in this file
+    exercises a push that fails — the positive test returns early
+    after rebase and the negative test goes through the local-behind
+    reset path — so the gap doesn't matter here.  If this helper is
+    ever lifted into a shared fixture for tests that DO exercise
+    local-ahead-push-failed, the stub will return a single
+    ``PushResult(ok=False, ...)`` rather than the post-reconcile
+    result production would emit, and the retry behaviour would need
+    to be added.
     """
     spawner = MagicMock()
 
