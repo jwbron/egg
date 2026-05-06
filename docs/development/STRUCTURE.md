@@ -123,6 +123,8 @@ orchestrator/
 ├── models.py               # Pydantic models for pipelines
 ├── redis_message_store.py  # Redis Streams-backed message store implementation
 ├── resilience.py           # Retry and error recovery
+├── agent_salvage.py        # Salvage unpushed local commits to egg/recovered/* refs before worktree deletion (#2429)
+├── agent_salvage_cleanup.py # Periodic TTL-based pruning of stale egg/recovered/* refs (#2446); driven by RecoveryRefCleaner background thread
 ├── review_graph.py         # Asymmetric review graph topology for BRC consensus
 ├── sandbox_template.py     # Sandbox container template
 ├── sse.py                  # Server-Sent Events streaming for pipeline visualization
