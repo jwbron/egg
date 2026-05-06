@@ -86,30 +86,53 @@ def test_main_and_worktree_share_one_lock(tmp_path: Path) -> None:
     The kernel flock keys on inode, and our state cache keys on the
     resolved main-repo path — so worktree and main-repo callers must
     share one ``_RepoLockState`` (RLock + fd), not two.
+
+    The ``t1_holding`` event forces actual contention: t2 only attempts
+    acquisition after t1 is inside the critical section, so the test
+    asserts the worktree caller was *blocked* by the main-repo caller,
+    not just that the two threads happened to run sequentially.
     """
     main_repo, worktree = _make_main_and_worktree(tmp_path)
 
     in_section: list[str] = []
     overlap = threading.Event()
+    t1_holding = threading.Event()
+    t2_acquired = threading.Event()
 
-    def hold(path: Path, label: str, duration: float) -> None:
-        with bare_repo_lock(path):
-            if in_section:
-                overlap.set()
-            in_section.append(label)
+    def first_holder() -> None:
+        with bare_repo_lock(main_repo):
+            in_section.append("main")
+            t1_holding.set()
             try:
-                time.sleep(duration)
+                # Hold long enough that t2's acquisition would observe
+                # the overlap if the locks were independent.
+                time.sleep(0.1)
+                if t2_acquired.is_set():
+                    overlap.set()
             finally:
                 in_section.pop()
 
-    t1 = threading.Thread(target=hold, args=(main_repo, "main", 0.05))
-    t2 = threading.Thread(target=hold, args=(worktree, "wt", 0.05))
+    def second_holder() -> None:
+        assert t1_holding.wait(timeout=5), "t1 never reported holding the lock"
+        with bare_repo_lock(worktree):
+            t2_acquired.set()
+            if in_section:
+                overlap.set()
+            in_section.append("wt")
+            try:
+                pass
+            finally:
+                in_section.pop()
+
+    t1 = threading.Thread(target=first_holder)
+    t2 = threading.Thread(target=second_holder)
     t1.start()
     t2.start()
     t1.join(timeout=5)
     t2.join(timeout=5)
 
     assert not overlap.is_set(), "main-repo and worktree callers were not serialised"
+    assert t2_acquired.is_set(), "worktree caller never acquired — test did not run to completion"
 
 
 def test_acquiring_creates_lock_file(repo: Path) -> None:

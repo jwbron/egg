@@ -54,6 +54,14 @@ def _resolve_main_repo(repo_path: Path) -> Path:
     (``.git`` is a directory) or if the ``.git`` file cannot be parsed.
     The latter is intentional — the subsequent ``mkdir`` will fail with
     a clear error rather than silently locking the wrong inode.
+
+    Assumes the standard ``git worktree add`` layout where ``gitdir:``
+    points at ``<main>/.git/worktrees/<name>``.  A repo created with
+    ``git init --separate-git-dir`` produces a ``.git`` file pointing
+    outside ``<main>/.git/``, so this helper falls through and returns
+    ``repo_path`` unchanged — fine for the egg gateway (which never uses
+    ``--separate-git-dir``), but a future caller in that context should
+    not expect resolution to succeed.
     """
     git = repo_path / ".git"
     if not git.is_file():
