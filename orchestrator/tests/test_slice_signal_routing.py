@@ -124,14 +124,25 @@ def _pipeline_arg_from_call(call) -> str | None:
 
 
 class TestSliceSpawnEnvShape:
-    """``EGG_PIPELINE_ID`` stays canonical; slice scope rides on ``EGG_SLICE_ID``."""
+    """``EGG_PIPELINE_ID`` stays canonical; slice scope rides on ``EGG_SLICE_ID``.
+
+    Single-source-of-truth (#2410 v2 review): ``EGG_SLICE_ID`` is injected
+    by ``KubernetesSpawner.spawn_agent_job`` from the ``slice_id`` parameter
+    that already drives Job naming and worktree id, and the key is in
+    ``_PROTECTED_ENV_KEYS`` so ``extra_env`` cannot smuggle a mismatched
+    value. These tests pin the wrapper-side contract: ``slice_id`` must
+    flow through ``create_concurrent_spawn_fn`` as a kwarg, and
+    ``sandbox_env`` must not carry ``EGG_SLICE_ID`` (a duplicate setter
+    here would just trip the protected-key warning every spawn).
+    ``test_kubernetes_spawner.py`` covers the spawner-side env injection.
+    """
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic", return_value=0.0)
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_slice_scope_sets_egg_slice_id_and_keeps_egg_pipeline_id_bare(
+    def test_slice_scope_forwards_slice_id_and_keeps_egg_pipeline_id_bare(
         self, MockExecutor, mock_prompt, mock_lock, _mono, _sleep
     ):
         executions = [_make_execution(AgentRole.CODER, "coder-1")]
@@ -159,20 +170,24 @@ class TestSliceSpawnEnvShape:
             **_CALL_ARGS,
         )
 
-        # ``create_concurrent_spawn_fn`` is the seam where the env is
-        # frozen for the spawn closure.
+        # ``create_concurrent_spawn_fn`` is the seam where the slice scope
+        # is frozen for the spawn closure.
         kwargs = mock_spawner.create_concurrent_spawn_fn.call_args.kwargs
         assert kwargs["pipeline_id"] == "issue-2403"
+        # Slice scope rides on the ``slice_id`` kwarg, not on
+        # ``sandbox_env``. The spawner sets ``EGG_SLICE_ID`` itself from
+        # this parameter (single source of truth).
+        assert kwargs["slice_id"] == "slice-2"
         env = kwargs["sandbox_env"]
-        # The bare pipeline id MUST pass the orchestrator's validator —
-        # otherwise every ``/api/v1/pipelines/{pid}/...`` round-trip 404s.
-        assert env.get("EGG_SLICE_ID") == "slice-2"
+        # ``sandbox_env`` must NOT carry ``EGG_SLICE_ID`` — the key is
+        # protected and a duplicate would log the override every spawn.
+        assert "EGG_SLICE_ID" not in env
         # Agent CLIs read EGG_PIPELINE_ID via ``get_pipeline_id`` — only
         # set if the caller seeded it. We assert here that the function
         # didn't smuggle a slashed value into it.
         if "EGG_PIPELINE_ID" in env:
             assert PIPELINE_ID_PATTERN.match(env["EGG_PIPELINE_ID"]) is not None
-        # Pre-existing keys must survive the slice-aware mutation.
+        # Pre-existing keys must survive the slice-aware path.
         assert env["PRESERVED"] == "yes"
 
     @patch("routes.pipelines.time.sleep")
@@ -208,7 +223,9 @@ class TestSliceSpawnEnvShape:
             **_CALL_ARGS,
         )
 
-        env = mock_spawner.create_concurrent_spawn_fn.call_args.kwargs["sandbox_env"]
+        kwargs = mock_spawner.create_concurrent_spawn_fn.call_args.kwargs
+        assert kwargs.get("slice_id") is None
+        env = kwargs["sandbox_env"]
         assert "EGG_SLICE_ID" not in env
 
 

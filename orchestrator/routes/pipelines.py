@@ -107,6 +107,7 @@ try:
         PipelineStatus,
         ReviewVerdict,
     )
+    from ..slice_id_validation import extract_slice_id
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -153,6 +154,7 @@ except ImportError:
         PipelineStatus,
         ReviewVerdict,
     )
+    from slice_id_validation import extract_slice_id  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -2270,9 +2272,17 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         pipeline_id: Pipeline ID
         agent_role: Agent role to restart (e.g. "coder", "tester")
 
+    Query string (optional):
+        slice_id: Slice scope (``slice-<N>``). When supplied, the
+            slice-scoped Job and worktree are restarted, ``EGG_SLICE_ID``
+            is propagated to the new Job, and consensus reset targets
+            the per-slice tracker. Pipeline-level agents omit it.
+            ``slice_id`` may also be supplied via the JSON body.
+
     Request body (optional):
         {
-            "reason": "Human-readable reason for the restart"
+            "reason": "Human-readable reason for the restart",
+            "slice_id": "slice-2"
         }
 
     Response:
@@ -2316,6 +2326,16 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
 
     body = request.get_json(silent=True) or {}
     reason = body.get("reason", "Manual restart via API")
+
+    # Slice scope (#2410): query param wins over body so the URL
+    # form is unambiguous; both forms validate against the canonical
+    # ``slice-<N>`` shape via ``extract_slice_id``.
+    raw_slice_id = request.args.get("slice_id")
+    slice_payload = {"slice_id": raw_slice_id} if raw_slice_id is not None else body
+    try:
+        slice_id = extract_slice_id(slice_payload)
+    except ValueError as e:
+        return make_error_response(str(e), status_code=400)
 
     # Restart the container via spawner
     spawner = _get_spawner()
@@ -2423,6 +2443,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             reason=reason,
             spawn_max_retries=pipeline.config.spawn_max_retries,
             spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
+            slice_id=slice_id,
         )
     except (ContainerSpawnError, KubernetesSpawnError) as e:
         # Revert early status update — the agent is not actually running.
@@ -2442,6 +2463,8 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # Spawn succeeded — now reset consensus state for this agent.
     # If consensus reset fails, log a warning but don't fail the restart:
     # the restarted agent will re-enter consensus on its own.
+    # Slice-scoped restarts (#2410) target the per-slice tracker; the
+    # pipeline-level tracker has no record of the slice agent.
     try:
         try:
             from peer_consensus import get_peer_consensus_tracker
@@ -2450,13 +2473,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 get_peer_consensus_tracker,  # type: ignore[import-not-found]
             )
 
-        tracker = get_peer_consensus_tracker(pipeline_id)
+        tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
         if tracker:
             tracker.remove_agent(agent_role)
             logger.info(
                 "Reset consensus state for agent",
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
+                slice_id=slice_id,
             )
     except ImportError:
         pass
@@ -2465,6 +2489,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             "Failed to reset consensus state (agent will re-enter consensus)",
             pipeline_id=pipeline_id,
             agent_role=agent_role,
+            slice_id=slice_id,
             error=str(e),
         )
 
@@ -2554,7 +2579,13 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         pipeline.updated_at = datetime.now(UTC)
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
-    restart_count = spawner.get_restart_count(pipeline_id, agent_role)
+    # Slice-scoped restarts (#2410) bumped the per-slice budget bucket
+    # ``(pipeline_id, agent_role, slice_id)``; the pipeline-level
+    # ``(pipeline_id, agent_role, None)`` bucket is untouched. Reading
+    # without ``slice_id`` here would return the pipeline-level count
+    # (typically zero) and the audit log + JSON response below would
+    # misreport the operator's "you've burned N of M restarts" telemetry.
+    restart_count = spawner.get_restart_count(pipeline_id, agent_role, slice_id=slice_id)
 
     logger.info(
         "Agent restarted",
@@ -11597,13 +11628,13 @@ def _run_concurrent_phase(
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
     # Slice-aware sandbox env (#2137 TASK-4-3 / #2403): when running a
-    # per-slice team, expose the slice id via ``EGG_SLICE_ID`` and
-    # leave ``EGG_PIPELINE_ID`` as the bare pipeline id. An earlier
-    # shape encoded the slice into ``EGG_PIPELINE_ID`` itself
-    # (``{pipeline_id}/{slice_id}``) so the orchestrator's
-    # ``_tracker_key`` would route CONSENSUS_* to the slice tracker
-    # without an extra signal-level field. That broke every agent →
-    # orchestrator round-trip:
+    # per-slice team, the spawner exposes the slice id via
+    # ``EGG_SLICE_ID`` and leaves ``EGG_PIPELINE_ID`` as the bare
+    # pipeline id. An earlier shape encoded the slice into
+    # ``EGG_PIPELINE_ID`` itself (``{pipeline_id}/{slice_id}``) so the
+    # orchestrator's ``_tracker_key`` would route CONSENSUS_* to the
+    # slice tracker without an extra signal-level field. That broke
+    # every agent → orchestrator round-trip:
     #
     #   * the orchestrator-side ``PIPELINE_ID_PATTERN`` and the agent
     #     handler validator (``[a-zA-Z0-9_-]+``) both reject the slash,
@@ -11624,9 +11655,13 @@ def _run_concurrent_phase(
     # pipeline-level fan-out for OVERSEER_ALERT mentioned in earlier
     # comments here is tracked alongside the per-slice MCP control
     # verbs in #2199.
-    if slice_id is not None:
-        sandbox_env = dict(sandbox_env)
-        sandbox_env["EGG_SLICE_ID"] = slice_id
+    #
+    # Single source of truth (#2410 v2 review): ``EGG_SLICE_ID`` is
+    # injected by ``KubernetesSpawner.spawn_agent_job`` from the same
+    # ``slice_id`` parameter that drives Job naming and worktree id, so
+    # there is no need to also stuff it into ``sandbox_env`` here. The
+    # key is in ``_PROTECTED_ENV_KEYS`` so any future caller that does
+    # supply a value via ``extra_env`` is logged and overridden.
 
     # Build per-role prompts for concurrent phase execution.
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase

@@ -94,6 +94,14 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         # /resolve. Blocking the key here is defense in depth; the base
         # spawner env below never sets it to begin with.
         "EGG_LIFECYCLE_SECRET",
+        # Slice scope (#2410, v2 review follow-up). The spawner is the
+        # single source of truth: ``EGG_SLICE_ID`` is derived from the
+        # ``slice_id`` parameter that already drives Job naming and
+        # worktree id. Protecting the key prevents a future caller from
+        # silently shipping a mismatched value via ``extra_env`` —
+        # without this, the agent's signals could land on a different
+        # slice than its Job/worktree, with no warning.
+        "EGG_SLICE_ID",
     }
 )
 
@@ -323,11 +331,15 @@ class KubernetesSpawner:
         self._k8s = k8s_client
         self._gateway = gateway_client
         self._namespace = namespace
-        # Track restart counts per (pipeline_id, agent_role) pair
-        self._restart_counts: dict[tuple[str, str], int] = {}
-        # Per-(pipeline_id, agent_role) locks for serialising concurrent restarts.
-        # Protected by _restart_locks_lock (same pattern as state_store.py).
-        self._restart_locks: dict[tuple[str, str], threading.Lock] = {}
+        # Track restart counts per (pipeline_id, agent_role, slice_id) tuple.
+        # ``slice_id`` is ``None`` for pipeline-level agents and
+        # ``"slice-<N>"`` for slice-scoped agents (#2410), so concurrent
+        # slices each get an independent budget.
+        self._restart_counts: dict[tuple[str, str, str | None], int] = {}
+        # Per-(pipeline_id, agent_role, slice_id) locks for serialising
+        # concurrent restarts. Protected by _restart_locks_lock (same
+        # pattern as state_store.py).
+        self._restart_locks: dict[tuple[str, str, str | None], threading.Lock] = {}
         self._restart_locks_lock = threading.Lock()
 
     @property
@@ -356,8 +368,8 @@ class KubernetesSpawner:
             self._gateway = get_gateway_client()
         return self._gateway
 
-    def _get_restart_lock(self, key: tuple[str, str]) -> threading.Lock:
-        """Get or create a per-(pipeline_id, agent_role) restart lock."""
+    def _get_restart_lock(self, key: tuple[str, str, str | None]) -> threading.Lock:
+        """Get or create a per-(pipeline_id, agent_role, slice_id) restart lock."""
         with self._restart_locks_lock:
             if key not in self._restart_locks:
                 self._restart_locks[key] = threading.Lock()
@@ -731,6 +743,23 @@ class KubernetesSpawner:
             elif pipeline_id:
                 environment["EGG_BRANCH"] = f"egg/{pipeline_id}/work"
 
+            # Slice scope (#2403, #2410): when this spawn is for a per-slice
+            # agent, propagate ``EGG_SLICE_ID`` so the agent's BRC handlers
+            # tag CONSENSUS_* signals with the slice and the orchestrator
+            # routes them to the per-slice tracker. Without this, the
+            # ``slice_id`` parameter only drove naming + worktree id and the
+            # restarted Job came up with no slice scope in its env — its
+            # signals would land on the pipeline-level tracker, which has
+            # no record of the agent (failure mode #3 from #2410).
+            #
+            # Single source of truth (v2 review follow-up): the spawner is
+            # the only writer; ``EGG_SLICE_ID`` is in ``_PROTECTED_ENV_KEYS``
+            # so any ``extra_env`` value is logged and dropped, guaranteeing
+            # the env stays consistent with the Job name + worktree id that
+            # are also derived from this same ``slice_id`` parameter.
+            if slice_id is not None:
+                environment["EGG_SLICE_ID"] = slice_id
+
             # Caller's extra_env overrides defaults, except protected keys
             if extra_env:
                 for key, value in extra_env.items():
@@ -1044,6 +1073,7 @@ class KubernetesSpawner:
         reason: str = "",
         spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
         spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
+        slice_id: str | None = None,
     ) -> SpawnedContainer:
         """Restart an agent Job: delete and respawn preserving worktree.
 
@@ -1067,6 +1097,13 @@ class KubernetesSpawner:
                 during worktree creation (forwarded to ``spawn_agent_job``).
             spawn_retry_initial_backoff_seconds: Initial backoff for spawn
                 retries (forwarded to ``spawn_agent_job``).
+            slice_id: Optional slice scope (#2410). When supplied, the
+                slice-scoped Job name (``egg-agent-{pid}-{slice_id}-{role}``)
+                is the one deleted and respawned, the slice-scoped worktree
+                id is preserved, and ``EGG_SLICE_ID`` is propagated so the
+                restarted agent re-enters the per-slice consensus tracker.
+                The restart-budget key includes the slice scope so each
+                slice gets an independent budget.
 
         Returns:
             SpawnedContainer with new Job info.
@@ -1078,7 +1115,11 @@ class KubernetesSpawner:
         if mode is None:
             raise ValueError("mode must be explicitly provided ('public' or 'private')")
 
-        restart_key = (pipeline_id, agent_role.value)
+        # Slice scope is part of the restart key so concurrent slice-N
+        # and slice-M agents of the same role each get an independent
+        # restart budget and lock. ``reset_restart_counts(pipeline_id)``
+        # still clears all of them because it filters on ``k[0]``.
+        restart_key = (pipeline_id, agent_role.value, slice_id)
         lock = self._get_restart_lock(restart_key)
 
         # Timeout prevents indefinite blocking if a concurrent restart of the
@@ -1106,7 +1147,12 @@ class KubernetesSpawner:
             # spawn time (hyphenated, no JOB_PREFIX); ``actual_k8s_job_name``
             # is the real k8s Job name. Using the wrong form for either side
             # broke restart for every role with an underscore — see #2070.
-            job_name, actual_k8s_job_name = self._build_k8s_job_names(pipeline_id, agent_role)
+            # Slice scope (#2410) must be threaded through here so the
+            # delete + respawn target the slice-scoped Job name, not the
+            # pipeline-level one.
+            job_name, actual_k8s_job_name = self._build_k8s_job_names(
+                pipeline_id, agent_role, slice_id=slice_id
+            )
 
             logger.info(
                 "Restarting agent Job",
@@ -1148,7 +1194,10 @@ class KubernetesSpawner:
                     error=str(e),
                 )
 
-            # Respawn — gateway's create_worktrees() is idempotent
+            # Respawn — gateway's create_worktrees() is idempotent.
+            # ``slice_id`` is forwarded so spawn_agent_job builds the
+            # slice-scoped Job + worktree id and sets ``EGG_SLICE_ID``
+            # on the new Job (#2410).
             spawned = self.spawn_agent_job(
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
@@ -1167,6 +1216,7 @@ class KubernetesSpawner:
                 preserve_worktree_on_failure=True,
                 spawn_max_retries=spawn_max_retries,
                 spawn_retry_initial_backoff_seconds=spawn_retry_initial_backoff_seconds,
+                slice_id=slice_id,
             )
 
             logger.info(
@@ -1181,17 +1231,26 @@ class KubernetesSpawner:
         finally:
             lock.release()
 
-    def get_restart_count(self, pipeline_id: str, agent_role: str) -> int:
+    def get_restart_count(
+        self,
+        pipeline_id: str,
+        agent_role: str,
+        slice_id: str | None = None,
+    ) -> int:
         """Get the current restart count for an agent.
 
         Args:
             pipeline_id: Pipeline ID.
             agent_role: Agent role value string.
+            slice_id: Optional slice scope (#2410). Pipeline-level callers
+                pass ``None``; slice-aware callers pass the same
+                ``slice-<N>`` string they used at restart time so each
+                slice's budget is reported independently.
 
         Returns:
             Number of times the agent has been restarted.
         """
-        key = (pipeline_id, agent_role)
+        key = (pipeline_id, agent_role, slice_id)
         lock = self._get_restart_lock(key)
         with lock:
             return self._restart_counts.get(key, 0)
@@ -1218,19 +1277,33 @@ class KubernetesSpawner:
         self,
         pipeline_id: str,
         agent_role: str,
+        slice_id: str | None = None,
     ) -> dict | None:
         """Detect uncommitted changes in an agent's worktree after Job exit.
 
         Checks the agent's worktree directly on the filesystem for uncommitted
         changes. Per-agent worktrees are at:
-        /home/egg/.egg-worktrees/{pipeline_id}-{role}/{repo}/
+        /home/egg/.egg-worktrees/{pipeline_id}-{role}/{repo}/ (pipeline-level)
+        /home/egg/.egg-worktrees/{pipeline_id}-{slice_id}-{role}/{repo}/
+        (slice-scoped, #2410).
+
+        Args:
+            pipeline_id: Pipeline ID.
+            agent_role: Agent role value string.
+            slice_id: Optional slice scope. When supplied, the slice-scoped
+                worktree id is inspected; pipeline-level callers omit this.
 
         Returns:
             Dict with change info if uncommitted changes found, None otherwise.
         """
         import subprocess
 
-        agent_worktree_id = f"{pipeline_id}-{agent_role}"
+        # Mirrors ``_build_agent_worktree_id`` so a slice-scoped restart
+        # path can detect uncommitted work in the slice's worktree, not
+        # the (possibly absent) pipeline-level one.
+        agent_worktree_id = (
+            f"{pipeline_id}-{slice_id}-{agent_role}" if slice_id else f"{pipeline_id}-{agent_role}"
+        )
         worktree_base = WORKTREE_BASE_DIR / agent_worktree_id
 
         if not worktree_base.exists():
@@ -1269,6 +1342,7 @@ class KubernetesSpawner:
                         event_type="agent_uncommitted_changes",
                         pipeline_id=pipeline_id,
                         agent_role=agent_role,
+                        slice_id=slice_id,
                         worktree_path=str(repo_dir),
                         file_count=len(files),
                         changed_files=files[:20],
@@ -1276,6 +1350,7 @@ class KubernetesSpawner:
                     return {
                         "pipeline_id": pipeline_id,
                         "agent_role": agent_role,
+                        "slice_id": slice_id,
                         "worktree_id": agent_worktree_id,
                         "worktree_path": str(repo_dir),
                         "file_count": len(files),

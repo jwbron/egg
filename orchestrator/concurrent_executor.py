@@ -41,6 +41,7 @@ from peer_consensus import (
     get_peer_consensus_tracker,
 )
 from review_graph import ReviewGraph, get_review_graph_for_phase
+from slice_id_validation import SLICE_ID_PATTERN
 
 logger = get_logger("orchestrator.concurrent_executor")
 
@@ -293,10 +294,10 @@ class ConcurrentPhaseExecutor:
             # validation must not be able to smuggle path separators
             # or shell metacharacters in via this seam (per the
             # security reviewer's defense-in-depth suggestion on the
-            # v1 BRC review).
-            import re
-
-            if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
+            # v1 BRC review). The pattern is the canonical one shared
+            # with the signal handlers (#2403) and the operator restart
+            # route (#2410) — see ``slice_id_validation``.
+            if not SLICE_ID_PATTERN.fullmatch(normalised_slice):
                 raise ValueError(
                     f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
                 )
@@ -331,9 +332,7 @@ class ConcurrentPhaseExecutor:
         if issue_branch.count("/") >= 2 and issue_branch.rsplit("/", 1)[1] == "work":
             issue_branch = issue_branch.rsplit("/", 1)[0]
         normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
-        import re
-
-        if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
+        if not SLICE_ID_PATTERN.fullmatch(normalised_slice):
             raise ValueError(
                 f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
             )
