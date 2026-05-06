@@ -47,13 +47,16 @@ Semantics:
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
+import queue
 import re
 import subprocess
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -162,6 +165,218 @@ def _validate_pipeline_id(pipeline_id: str) -> str:
     return pid
 
 
+# ---------------------------------------------------------------------------
+# State-branch git commit (inline + async background flusher)
+# ---------------------------------------------------------------------------
+
+# Polling interval for the background flusher's ``queue.get`` call.  The
+# value only bounds shutdown latency — items are picked up immediately on
+# arrival because ``queue.get`` returns as soon as a producer puts.
+_FLUSHER_POLL_SECONDS = 0.5
+
+# Time budget the atexit hook gives any in-flight flusher to drain.
+_FLUSHER_ATEXIT_TIMEOUT_SECONDS = 5.0
+
+
+def _commit_one_shard_inline(
+    state_store: Any,
+    path: Path,
+    entries: list[tuple[str, str, str]],
+) -> None:
+    """Stage ``path`` and commit the result through ``state_store``.
+
+    ``entries`` is a list of ``(sha, role, pipeline_id)`` triples that
+    contributed to this shard's current contents — used to compose a
+    descriptive commit message.  An empty list is treated as
+    "no message context", which only happens in defensive code paths.
+    """
+    wt = state_store.worktree
+    try:
+        rel = str(path.relative_to(wt))
+    except ValueError:
+        # If the shard lives outside the state worktree (shouldn't
+        # happen in production, but can in tests that point
+        # ``worktree_dir`` elsewhere), skip the commit silently.
+        return
+    sha = entries[0][0] if entries else "?"
+    role = entries[0][1] if entries else "?"
+    pipeline_id = entries[0][2] if entries else "?"
+    try:
+        state_store._run_git("add", rel, cwd=wt)
+        diff = state_store._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+        if diff.returncode == 0:
+            return
+        msg = f"commit-authorship: register {sha[:12]} as {role} (pipeline={pipeline_id})"
+        state_store._run_git("commit", "--no-verify", "-m", msg, cwd=wt)
+        try:
+            state_store._sync_to_remote_async()
+        except Exception:
+            logger.debug("authorship_state_branch_push_deferred", exc_info=True)
+    except subprocess.CalledProcessError:
+        logger.warning(
+            "authorship_state_branch_commit_failed sha=%s pipeline_id=%s",
+            sha,
+            pipeline_id,
+            exc_info=True,
+        )
+    except Exception:
+        # Store-level errors (GitOperationError, etc.) must not
+        # poison the registration — the shard is already on disk.
+        logger.warning(
+            "authorship_state_branch_commit_failed sha=%s pipeline_id=%s",
+            sha,
+            pipeline_id,
+            exc_info=True,
+        )
+
+
+def _commit_batch_inline(
+    state_store: Any,
+    batch: list[tuple[Path, str, str, str]],
+) -> None:
+    """Stage every distinct shard path in ``batch`` and create one commit.
+
+    Coalescing N registers into one commit cuts the number of
+    ``git add`` + ``git commit`` cycles per flusher tick from N to 1,
+    which is the whole point of the async path (#2453).
+    """
+    if not state_store or not batch:
+        return
+    wt = state_store.worktree
+    rel_to_entries: dict[str, list[tuple[str, str, str]]] = {}
+    rel_order: list[str] = []
+    for path, sha, role, pipeline_id in batch:
+        try:
+            rel = str(path.relative_to(wt))
+        except ValueError:
+            continue
+        if rel not in rel_to_entries:
+            rel_to_entries[rel] = []
+            rel_order.append(rel)
+        rel_to_entries[rel].append((sha, role, pipeline_id))
+    if not rel_order:
+        return
+    if len(rel_order) == 1 and len(rel_to_entries[rel_order[0]]) == 1:
+        # Singleton path keeps the original per-sha commit message so log
+        # consumers and audit tools see the familiar format.
+        rel = rel_order[0]
+        sha, role, pipeline_id = rel_to_entries[rel][0]
+        path = wt / rel
+        _commit_one_shard_inline(state_store, path, [(sha, role, pipeline_id)])
+        return
+    try:
+        for rel in rel_order:
+            state_store._run_git("add", rel, cwd=wt)
+        diff = state_store._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+        if diff.returncode == 0:
+            return
+        total_entries = sum(len(v) for v in rel_to_entries.values())
+        msg = (
+            f"commit-authorship: batch register "
+            f"({total_entries} entries across {len(rel_order)} shard(s))"
+        )
+        state_store._run_git("commit", "--no-verify", "-m", msg, cwd=wt)
+        try:
+            state_store._sync_to_remote_async()
+        except Exception:
+            logger.debug("authorship_state_branch_push_deferred", exc_info=True)
+    except subprocess.CalledProcessError:
+        logger.warning(
+            "authorship_state_branch_commit_failed batch_size=%d",
+            len(batch),
+            exc_info=True,
+        )
+    except Exception:
+        logger.warning(
+            "authorship_state_branch_commit_failed batch_size=%d",
+            len(batch),
+            exc_info=True,
+        )
+
+
+class _AuthorshipFlusher:
+    """Background worker that absorbs state-branch git commits.
+
+    The single worker design matches the cross-process ``flock`` the
+    state-store already holds on the bare repo — concurrent commits
+    serialise on that lock anyway, so an in-process pool would only add
+    contention.  Each tick drains the queue completely and folds every
+    pending shard into one ``git add`` + ``git commit`` (see
+    ``_commit_batch_inline``).
+    """
+
+    def __init__(self, state_store: Any) -> None:
+        self._state_store = state_store
+        self._queue: queue.Queue[tuple[Path, str, str, str]] = queue.Queue()
+        self._stop = threading.Event()
+        # ``_idle`` is set when the worker is between ticks (queue empty
+        # and no tick in progress).  ``flush()`` waits for both
+        # ``queue.empty()`` and ``_idle.is_set()`` to be true to avoid a
+        # race where the worker has dequeued an item but not yet
+        # processed it.
+        self._idle = threading.Event()
+        self._idle.set()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="authorship-flusher",
+            daemon=True,
+        )
+        self._thread.start()
+        atexit.register(self._atexit_drain)
+
+    def enqueue(self, path: Path, sha: str, role: str, pipeline_id: str) -> None:
+        if self._stop.is_set():
+            # The flusher has been shut down; fall back to inline so the
+            # caller still gets state-branch replication for this commit.
+            _commit_one_shard_inline(self._state_store, path, [(sha, role, pipeline_id)])
+            return
+        self._queue.put((path, sha, role, pipeline_id))
+
+    def flush(self, timeout: float | None = None) -> bool:
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        while True:
+            if self._queue.empty() and self._idle.is_set():
+                return True
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
+
+    def shutdown(self, *, timeout: float = 5.0) -> None:
+        self._stop.set()
+        self.flush(timeout=timeout)
+        # Wake the worker out of its blocking ``queue.get`` if needed so
+        # it observes ``_stop`` promptly.
+        self._thread.join(timeout=timeout)
+
+    def _atexit_drain(self) -> None:
+        # Best-effort: give in-flight registrations a short window to
+        # land on the state branch before the process exits.
+        try:
+            self.flush(timeout=_FLUSHER_ATEXIT_TIMEOUT_SECONDS)
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("authorship_flusher_atexit_failed", exc_info=True)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                first = self._queue.get(timeout=_FLUSHER_POLL_SECONDS)
+            except queue.Empty:
+                continue
+            self._idle.clear()
+            try:
+                batch: list[tuple[Path, str, str, str]] = [first]
+                while True:
+                    try:
+                        batch.append(self._queue.get_nowait())
+                    except queue.Empty:
+                        break
+                _commit_batch_inline(self._state_store, batch)
+            except Exception:  # pragma: no cover - defensive
+                logger.warning("authorship_flusher_tick_failed", exc_info=True)
+            finally:
+                self._idle.set()
+
+
 class CommitAuthorshipStore:
     """Git-backed, pipeline-sharded commit-authorship store.
 
@@ -170,6 +385,12 @@ class CommitAuthorshipStore:
     remote-sync daemon.  The state-store reference is optional so this
     module can be exercised in unit tests without standing up a full
     ``StateStore`` (the tests pass an explicit ``worktree_dir``).
+
+    Git replication of new shard contents to the ``egg/pipeline-state``
+    branch is dispatched to a background ``_AuthorshipFlusher`` thread so
+    ``register()`` returns as soon as the disk write completes.  Lookups
+    only ever read disk, so they remain correct even before the git
+    commit lands.  See issue #2453.
     """
 
     # Process-wide lock to serialize in-memory read-modify-write of the
@@ -182,6 +403,7 @@ class CommitAuthorshipStore:
         *,
         state_store: StateStore | None = None,
         worktree_dir: Path | None = None,
+        synchronous: bool = False,
     ) -> None:
         """Initialize the store.
 
@@ -194,11 +416,19 @@ class CommitAuthorshipStore:
             worktree_dir: Explicit worktree path.  Required when
                 ``state_store`` is None.  Ignored otherwise (the state
                 store's worktree wins).
+            synchronous: When True, run state-branch git work inline in
+                ``register()`` instead of dispatching to the background
+                flusher.  Intended for unit tests that want to assert on
+                git activity without driving a worker thread.  Defaults
+                to False (the production async path).
         """
         if state_store is None and worktree_dir is None:
             raise ValueError("Provide either state_store or worktree_dir")
         self._state_store = state_store
         self._worktree_dir = worktree_dir
+        self._synchronous = synchronous
+        self._flusher: _AuthorshipFlusher | None = None
+        self._flusher_lock = threading.Lock()
 
     # -- worktree resolution ----------------------------------------------
 
@@ -441,49 +671,59 @@ class CommitAuthorshipStore:
     def _commit_shard_to_state_branch(
         self, path: Path, sha: str, role: str, pipeline_id: str
     ) -> None:
-        """Commit the shard change through the state store's worktree."""
+        """Replicate the shard change to the state branch.
+
+        In the default (async) mode the work is enqueued onto the
+        process-wide flusher so ``register()`` returns within
+        microseconds.  In synchronous mode (tests) the git commit runs
+        inline.
+        """
         assert self._state_store is not None
-        wt = self._state_store.worktree
-        try:
-            rel = str(path.relative_to(wt))
-        except ValueError:
-            # If the shard lives outside the state worktree (shouldn't
-            # happen in production, but can in tests that point
-            # ``worktree_dir`` elsewhere), skip the commit silently.
+        if self._synchronous:
+            _commit_one_shard_inline(self._state_store, path, [(sha, role, pipeline_id)])
             return
-        try:
-            self._state_store._run_git("add", rel, cwd=wt)
-            # Skip commit if no changes staged (e.g., concurrent writer
-            # already flushed the same content).
-            diff = self._state_store._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
-            if diff.returncode == 0:
-                return
-            msg = f"commit-authorship: register {sha[:12]} as {role} (pipeline={pipeline_id})"
-            self._state_store._run_git("commit", "--no-verify", "-m", msg, cwd=wt)
-            # Best-effort async push; never block the caller on network.
-            try:
-                self._state_store._sync_to_remote_async()
-            except Exception:
-                logger.debug(
-                    "authorship_state_branch_push_deferred",
-                    exc_info=True,
-                )
-        except subprocess.CalledProcessError:
-            logger.warning(
-                "authorship_state_branch_commit_failed sha=%s pipeline_id=%s",
-                sha,
-                pipeline_id,
-                exc_info=True,
-            )
-        except Exception:
-            # Store-level errors (GitOperationError, etc.) must not
-            # poison the registration — the shard is already on disk.
-            logger.warning(
-                "authorship_state_branch_commit_failed sha=%s pipeline_id=%s",
-                sha,
-                pipeline_id,
-                exc_info=True,
-            )
+        flusher = self._get_or_start_flusher()
+        flusher.enqueue(path, sha, role, pipeline_id)
+
+    def _get_or_start_flusher(self) -> _AuthorshipFlusher:
+        """Lazily instantiate the flusher on first registration.
+
+        Lazy construction means tests that only exercise the
+        pure-filesystem mode never spin up a worker thread, and the
+        process-wide singleton starts the flusher exactly once.
+        """
+        with self._flusher_lock:
+            if self._flusher is None:
+                assert self._state_store is not None
+                self._flusher = _AuthorshipFlusher(self._state_store)
+            return self._flusher
+
+    def flush(self, timeout: float | None = None) -> bool:
+        """Block until any pending state-branch commits have landed.
+
+        Returns True when the queue drained within ``timeout`` seconds
+        (or unconditionally when no flusher has been started).  Tests
+        that need to observe state-branch state after ``register()`` use
+        this to avoid races; production callers usually do not need it.
+        """
+        with self._flusher_lock:
+            flusher = self._flusher
+        if flusher is None:
+            return True
+        return flusher.flush(timeout=timeout)
+
+    def _shutdown_flusher(self, *, timeout: float = 5.0) -> None:
+        """Stop the background flusher after one final drain attempt.
+
+        Exposed for tests / ``reset_singleton``; callers should not need
+        it during normal operation (the daemon thread exits with the
+        process and ``atexit`` flushes pending work).
+        """
+        with self._flusher_lock:
+            flusher = self._flusher
+            self._flusher = None
+        if flusher is not None:
+            flusher.shutdown(timeout=timeout)
 
 
 _singleton: CommitAuthorshipStore | None = None
@@ -582,4 +822,10 @@ def reset_singleton() -> None:
     """Drop the process-wide singleton.  Intended for tests only."""
     global _singleton
     with _singleton_lock:
+        existing = _singleton
         _singleton = None
+    if existing is not None:
+        try:
+            existing._shutdown_flusher(timeout=2.0)
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("authorship_flusher_reset_shutdown_failed", exc_info=True)
