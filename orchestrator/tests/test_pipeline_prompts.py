@@ -2845,6 +2845,80 @@ class TestRefinePromptHonorsAdditionalContext:
         assert "### Resolved in Pre-Refine" in prompt
 
 
+class TestRefinePromptTemplateFenceSeparation:
+    """Refine prompt must keep template literal and meta-instructions separate.
+
+    Regression for #2500: the refiner used to see a single ```markdown fence
+    that mixed the analysis-document skeleton with meta-guidance about how to
+    register questions via `egg-contract`. The risk is the agent transcribes
+    the meta-paragraphs (e.g. the `egg-contract add-decision` bash example,
+    the **DO NOT:** list, the "Skip already-resolved questions" guidance)
+    verbatim into its analysis document. The fix splits the prompt: only the
+    template skeleton lives inside the fence; the registration protocol
+    lives in a clearly-labelled `## How to Populate Open Questions` section
+    after the fence closes.
+    """
+
+    @staticmethod
+    def _refine_prompt() -> str:
+        return _build_phase_prompt(
+            phase="refine",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Analyze this issue.",
+            issue_number=100,
+        )
+
+    @staticmethod
+    def _template_fence_body(prompt: str) -> str:
+        # The template uses a four-backtick fence so its inner code blocks
+        # (if any) don't terminate it. Find the body between the opening
+        # ````markdown line and the next standalone ```` line.
+        open_marker = "````markdown"
+        open_idx = prompt.find(open_marker)
+        assert open_idx != -1, "expected ````markdown opening fence in refine prompt"
+        body_start = open_idx + len(open_marker)
+        close_idx = prompt.find("\n````", body_start)
+        assert close_idx != -1, "expected ```` closing fence after template body"
+        return prompt[body_start:close_idx]
+
+    def test_template_fence_holds_only_skeleton(self):
+        body = self._template_fence_body(self._refine_prompt())
+        # Skeleton headings stay inside the fence.
+        assert "# Analysis: [Issue Title]" in body
+        assert "## Problem Statement" in body
+        assert "## Open Questions" in body
+        assert "*Authored-by: egg*" in body
+
+    def test_meta_instructions_live_outside_template_fence(self):
+        prompt = self._refine_prompt()
+        body = self._template_fence_body(prompt)
+        # Meta-paragraphs (and the bash examples) must NOT live inside the
+        # template fence — that is what tempts the refiner to transcribe
+        # them. They must still appear elsewhere in the prompt.
+        for needle in (
+            "egg-contract add-decision",
+            "egg-contract add-feedback",
+            "**DO NOT:**",
+            "Skip already-resolved questions",
+        ):
+            assert needle not in body, (
+                f"meta-instruction {needle!r} leaked into template fence — "
+                "the refiner may transcribe it into its analysis document"
+            )
+            assert needle in prompt, f"meta-instruction {needle!r} missing from prompt entirely"
+
+    def test_prompt_labels_meta_section_distinctly(self):
+        prompt = self._refine_prompt()
+        # A clearly-named section header for the meta-guidance lets the
+        # refiner tell template content from registration protocol.
+        assert "## How to Populate Open Questions" in prompt
+        # The Open Questions placeholder inside the template should point
+        # the refiner at that section instead of restating the protocol.
+        body = self._template_fence_body(prompt)
+        assert "How to Populate Open Questions" in body
+
+
 class TestReviewerBrcPreamble:
     """Tests that reviewer agents receive BRC preamble in concurrent mode."""
 
