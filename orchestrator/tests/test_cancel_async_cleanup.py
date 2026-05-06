@@ -586,7 +586,9 @@ class TestCleanupBackgroundThreadBehavior:
 
         cleanup_called = threading.Event()
 
-        def cleanup_raises_docker_error(pipeline_id, force=False, preserve_worktrees=False, **kwargs):
+        def cleanup_raises_docker_error(
+            pipeline_id, force=False, preserve_worktrees=False, **kwargs
+        ):
             cleanup_called.set()
             raise DockerException("Container not found")
 
