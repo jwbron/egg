@@ -1,5 +1,12 @@
 {
   "entries": {
+    "10b5345045e8f51b8e3ea6f5d9bc4795306e0831": {
+      "branch": "egg/issue-2261-v9/slice-3",
+      "pipeline_id": "issue-2261-v9",
+      "registered_at": "2026-05-06T01:20:51.052032+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code_holistic"
+    },
     "11bc7308ae653b60087368d0ca86602f767bb8d3": {
       "branch": "egg/issue-2261-v9/slice-2",
       "pipeline_id": "issue-2261-v9",
