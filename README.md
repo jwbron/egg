@@ -187,7 +187,7 @@ The orchestrator exposes an MCP server (port 9850) for controlling pipelines fro
 - `list_containers` / `get_container_logs`: debugging
 - `send_message` / `get_consensus_status`: agent coordination
 - `validate_config`: validate a pipeline config without creating a pipeline
-- `start_pipeline`: recover a non-RUNNING pipeline (FAILED or AWAITING_HUMAN with resolved decisions)
+- `start_pipeline`: recover a non-RUNNING pipeline (FAILED, AWAITING_HUMAN with resolved decisions, or PENDING)
 - `advance_phase` / `start_phase` / `complete_phase`: phase management
 - `populate_contract`: populate SDLC contract from plan draft
 
