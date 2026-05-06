@@ -322,3 +322,76 @@ class TestStatusWaitRoute:
             assert ok is True
             assert got_msg == msg_id
             assert got_seq == evt_seq
+
+
+class TestStaleSinceIdSignal:
+    """Issue #2464 — ``/status/wait`` no longer re-emits a stale
+    ``msg_since_id`` when the message store is empty (post-phase-clear),
+    and surfaces ``since_id_stale: true`` so consumers can drop cached
+    cursors instead of feeding the dead value back forever.
+    """
+
+    def test_timeout_after_clear_drops_stale_msg_half(
+        self,
+        client,
+        mock_pipeline_resolver,
+        isolated_event_bus,
+    ) -> None:
+        """A request whose ``since`` cursor refers to a wiped message
+        must return a cursor with an EMPTY ``msg:`` half AND
+        ``since_id_stale: true``. Pre-fix the route would happily
+        re-emit the dead msg id forever as long as the store stayed
+        empty."""
+        store = MessageStore()
+        anchor = Message(
+            pipeline_id="issue-1932-e2e",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="pre-clear",
+        )
+        store.add_message(anchor)
+        # Phase-boundary clear wipes the cursor.
+        store.clear("issue-1932-e2e")
+        stale_cursor = _build_status_wait_cursor(anchor.id, 0)
+
+        with patch("routes.pipelines._get_message_store", return_value=lambda: store):
+            envelope = _wait(client, wait=1, since=stale_cursor)
+
+        assert envelope["no_change"] is True
+        assert envelope.get("since_id_stale") is True
+        # Critical regression guard: the response cursor must NOT carry
+        # the dead msg id forward — otherwise the consumer just feeds
+        # it back next call and the warning fires forever.
+        ok, got_msg, _got_seq = _parse_status_wait_cursor(envelope["cursor"])
+        assert ok is True
+        assert got_msg is None, (
+            f"expected empty msg half after clear, got {got_msg!r} — "
+            "this is the #2464 re-emission bug"
+        )
+
+    def test_fresh_cursor_does_not_set_flag(
+        self,
+        client,
+        mock_pipeline_resolver,
+        isolated_event_bus,
+    ) -> None:
+        """A request with a still-resolvable ``since`` does NOT carry
+        the staleness flag — pins the byte-shape contract so legacy
+        consumers see no extra fields in the common case."""
+        store = MessageStore()
+        anchor = Message(
+            pipeline_id="issue-1932-e2e",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="anchor",
+        )
+        store.add_message(anchor)
+        cursor = _build_status_wait_cursor(anchor.id, 0)
+
+        with patch("routes.pipelines._get_message_store", return_value=lambda: store):
+            envelope = _wait(client, wait=1, since=cursor)
+
+        # Cursor was resolvable; flag must be absent.
+        assert "since_id_stale" not in envelope

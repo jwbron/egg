@@ -29,6 +29,7 @@ if str(_orchestrator_path) not in sys.path:
 
 from message_store import (  # noqa: E402
     HEARTBEAT_STATES,
+    GetMessagesMeta,
     Message,
     MessageStore,
     MessageType,
@@ -584,6 +585,118 @@ class TestStaleSinceIdInBlockingWait:
             since_id="nonexistent-cursor-xyz",
         )
         assert len(msgs) == 2
+
+
+class TestGetMessagesWithMeta:
+    """``get_messages_with_meta`` (issue #2464) returns a structured
+    staleness signal alongside the message list so consumers can drop
+    cached cursors instead of re-passing dead values forever.
+    """
+
+    def test_meta_signals_stale_cursor(self, store: MessageStore) -> None:
+        """An unknown ``since_id`` produces ``since_id_stale=True`` and
+        the message list still falls back to full history (existing
+        contract)."""
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+
+        msgs, meta = store.get_messages_with_meta(
+            "test-pipeline",
+            since_id="cursor-the-store-never-saw",
+        )
+        assert isinstance(meta, GetMessagesMeta)
+        assert meta.since_id_stale is True
+        # Full-history fallback still in effect — the bug-fix preserves
+        # delivery, only changes whether we *advertise* the staleness.
+        assert len(msgs) == 1
+
+    def test_meta_clean_when_cursor_known(self, store: MessageStore) -> None:
+        """A resolvable ``since_id`` produces ``since_id_stale=False``
+        and only newer messages come back."""
+        anchor = store.add_message(_make_message(message_type=MessageType.PROGRESS))
+        store.add_message(_make_message(message_type=MessageType.CONSENSUS_CONFIRMED))
+
+        msgs, meta = store.get_messages_with_meta(
+            "test-pipeline",
+            since_id=anchor.id,
+        )
+        assert meta.since_id_stale is False
+        assert len(msgs) == 1
+        assert msgs[0].message_type == MessageType.CONSENSUS_CONFIRMED
+
+    def test_meta_clean_when_no_since_id(self, store: MessageStore) -> None:
+        """No ``since_id`` passed → never stale (there is no cursor to
+        resolve)."""
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+
+        _msgs, meta = store.get_messages_with_meta("test-pipeline")
+        assert meta.since_id_stale is False
+
+    def test_meta_signals_stale_after_phase_clear(self, store: MessageStore) -> None:
+        """Pin the original-bug shape: a cursor that resolved fine
+        before a ``clear()`` is reported stale on the next call. This
+        is the exact post-phase-boundary path #2464 unblocks."""
+        anchor = store.add_message(_make_message(message_type=MessageType.PROGRESS))
+        # Cursor is currently fine.
+        _, meta_before = store.get_messages_with_meta("test-pipeline", since_id=anchor.id)
+        assert meta_before.since_id_stale is False
+
+        store.clear("test-pipeline")
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+
+        _, meta_after = store.get_messages_with_meta("test-pipeline", since_id=anchor.id)
+        assert meta_after.since_id_stale is True
+
+    def test_get_messages_drops_meta_for_legacy_callers(self, store: MessageStore) -> None:
+        """``get_messages`` is now a thin wrapper around the meta variant
+        so existing callers see no signature change."""
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+        result = store.get_messages("test-pipeline", since_id="bogus")
+        # Just a list of messages, no tuple.
+        assert isinstance(result, list)
+        assert len(result) == 1
+
+    def test_suppress_stale_warning_silences_log_but_keeps_meta(
+        self, store: MessageStore, caplog
+    ) -> None:
+        """``_suppress_stale_warning=True`` (used by ``/status/wait``'s
+        synchronous probe) silences the ``since_id not found in store``
+        log line on a stale cursor but still populates the structured
+        ``meta.since_id_stale`` flag — reviewer note #2 on PR #2485."""
+        import logging
+
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+
+        # Probe-shape call: limit=1, wait=0, with the suppression flag.
+        with caplog.at_level(logging.WARNING, logger="orchestrator.message_store"):
+            _msgs, meta = store.get_messages_with_meta(
+                "test-pipeline",
+                since_id="cursor-the-store-never-saw",
+                limit=1,
+                wait=0,
+                _suppress_stale_warning=True,
+            )
+
+        # Structured signal still set — consumers can still detect.
+        assert meta.since_id_stale is True
+        # Warning log line is silenced.
+        assert not any("since_id not found in store" in rec.getMessage() for rec in caplog.records)
+
+    def test_default_emits_stale_warning(self, store: MessageStore, caplog) -> None:
+        """Pin the regression boundary: without the suppression flag
+        the warning still fires (the daemon's later call relies on this
+        to preserve pre-PR cadence of one warning per request)."""
+        import logging
+
+        store.add_message(_make_message(message_type=MessageType.PROGRESS))
+
+        with caplog.at_level(logging.WARNING, logger="orchestrator.message_store"):
+            _msgs, meta = store.get_messages_with_meta(
+                "test-pipeline",
+                since_id="cursor-the-store-never-saw",
+            )
+
+        assert meta.since_id_stale is True
+        assert any("since_id not found in store" in rec.getMessage() for rec in caplog.records)
 
 
 class TestGetLatestId:

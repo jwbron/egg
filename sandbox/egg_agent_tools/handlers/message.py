@@ -138,11 +138,18 @@ def message_wait(req: dict[str, Any]) -> dict[str, Any]:
     messages = list(data.get("messages", []) or [])
     matched = bool(data.get("matched")) or bool(messages)
     cursor = data.get("cursor")
+    # Issue #2464: server signals when ``since_id`` resolved to no
+    # known message in the store (typically because a phase-boundary
+    # ``clear`` wiped the cursor). The CLI uses this to drop its on-disk
+    # cursor file so the next wait re-snaps to tip instead of feeding
+    # the dead cursor back forever.
+    since_id_stale = bool(data.get("since_id_stale"))
     return {
         "ok": True,
         "matched": matched,
         "messages": messages,
         "cursor": cursor,
+        "since_id_stale": since_id_stale,
         "role": role,
         "for_types": for_types,
         "raw": result,
@@ -312,6 +319,19 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
         }
     }
     last_resp: dict[str, Any] = {}
+    # Issue #2464 follow-up: the staleness flag from the *server* only
+    # appears on iterations whose ``inner["since"]`` is non-None. Once
+    # iteration 1 sees ``since_id_stale: True`` we drop ``inner["since"]``,
+    # so iteration 2+ have nothing for the server to flag and the response
+    # comes back with no flag (or false). That left the CLI's
+    # ``if resp.get("since_id_stale"): _delete_cursor_file`` branch
+    # depending on the *last* iteration's flag — which would miss the
+    # safety-cap exit case where iteration 1 saw staleness but the loop
+    # exhausted ``--max-iterations`` before matching. Track "did the loop
+    # ever observe staleness" and propagate it on the final response so
+    # the CLI's unlink branch fires regardless of which iteration tripped
+    # it.
+    loop_saw_stale = False
     try:
         for i in range(1, max_iter + 1):
             try:
@@ -326,6 +346,13 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
                 backoff = min(backoff * 2, 5.0)
                 continue
             last_resp = resp
+            # Issue #2464: if the server flagged the previous ``since``
+            # as unresolvable (post-phase-clear cursor) drop it before
+            # threading the new cursor — otherwise a server-side tip of
+            # ``None`` would let the dead cursor live another iteration.
+            if resp.get("since_id_stale"):
+                loop_saw_stale = True
+                inner.pop("since", None)
             # Thread the server cursor into the next wait's ``since`` so
             # events that arrive between this response and the next call
             # can't slip through the gap (issue #1995). A cursor of ``None``
@@ -337,6 +364,8 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
             if resp.get("matched"):
                 resp_out = dict(resp)
                 resp_out["iterations"] = i
+                if loop_saw_stale:
+                    resp_out["since_id_stale"] = True
                 return resp_out
             # Timeout with no match — reset backoff and loop.
             backoff = 1.0
@@ -345,6 +374,8 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
         capped.setdefault("ok", True)
         capped["matched"] = False
         capped["iterations"] = max_iter
+        if loop_saw_stale:
+            capped["since_id_stale"] = True
         return capped
     finally:
         stop_hb()

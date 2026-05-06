@@ -1444,6 +1444,30 @@ def _read_cursor_file(path: str | None) -> str | None:
     return value or None
 
 
+def _delete_cursor_file(path: str | None) -> None:
+    """Remove a stale cursor file (issue #2464).
+
+    Called when the server signals ``since_id_stale: true`` — i.e. the
+    cached cursor pointed at a message the store no longer indexes
+    (typically because a phase-boundary ``clear`` wiped it). Dropping
+    the file causes the next wait to re-snap to tip instead of feeding
+    the dead cursor back forever.
+
+    Best-effort: a missing file is the desired post-state and any other
+    OSError just leaves the file in place — the next call will redo the
+    full-history fallback once and write a fresh cursor on success,
+    which clears the staleness on its own.
+    """
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return
+    except OSError as err:  # pragma: no cover - filesystem-dependent
+        print(f"Warning: could not unlink stale cursor file {path}: {err}", file=sys.stderr)
+
+
 def _write_cursor_file(path: str | None, cursor: str | None) -> None:
     """Atomically persist *cursor* under *path*.
 
@@ -1571,6 +1595,15 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     messages = list(resp.get("messages") or [])
     matched = bool(resp.get("matched"))
 
+    # Issue #2464: when the server flagged the request's ``since`` as
+    # stale, drop the cached cursor file before deciding whether to
+    # write a new one. The fresh cursor below replaces it on the
+    # common path (server returns the new tip on every response); the
+    # explicit unlink covers the rare case where the server returns a
+    # null cursor on the same response (empty stream after clear) so
+    # the dead value doesn't survive into the next wait.
+    if resp.get("since_id_stale"):
+        _delete_cursor_file(cursor_file)
     # Persist the response cursor on every successful round-trip
     # (match OR timeout). The server returns the latest stream tip on
     # timeout so the next call resumes strictly after what this one
@@ -1680,6 +1713,14 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
         print(f"Error: {err.message}", file=sys.stderr)
         return 1
 
+    # Issue #2464: drop the cached cursor before re-writing if the
+    # final inner iteration's response flagged staleness. The handler
+    # already drops ``inner["since"]`` mid-loop when it sees the flag,
+    # but we still need to make sure a later call doesn't re-read the
+    # dead cursor off disk if the server happened to return a null
+    # tip on the staleness response.
+    if resp.get("since_id_stale"):
+        _delete_cursor_file(cursor_file)
     # Persist the response cursor whenever we have one (match OR
     # safety-cap exit). The handler threads cursors internally between
     # inner iterations, so ``resp["cursor"]`` is the latest tip the

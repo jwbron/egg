@@ -29,7 +29,7 @@ except ImportError:
 
 
 import redis
-from message_store import Message, coerce_deprecated_message_type
+from message_store import GetMessagesMeta, Message, coerce_deprecated_message_type
 
 logger = get_logger("orchestrator.redis_message_store")
 
@@ -169,6 +169,10 @@ class RedisMessageStore:
     ) -> list[Message]:
         """Get messages from the Redis Stream.
 
+        Thin wrapper around :meth:`get_messages_with_meta` that drops the
+        meta tuple. Existing callers that don't care about cursor staleness
+        continue to use this signature unchanged (issue #2464).
+
         Args:
             pipeline_id: Pipeline ID to query.
             role: If set, return messages where to_role is this role or 'all'.
@@ -196,10 +200,55 @@ class RedisMessageStore:
                 contract (issue #1925) — without it, a repeated wait-loop
                 call returns the same already-seen event on every invocation.
         """
+        messages, _meta = self.get_messages_with_meta(
+            pipeline_id,
+            role=role,
+            since_id=since_id,
+            limit=limit,
+            wait=wait,
+            wait_for_types=wait_for_types,
+            from_role=from_role,
+            from_tip=from_tip,
+        )
+        return messages
+
+    def get_messages_with_meta(
+        self,
+        pipeline_id: str,
+        *,
+        role: str | None = None,
+        since_id: str | None = None,
+        limit: int = 100,
+        wait: int = 0,
+        wait_for_types: Sequence[str] | None = None,
+        from_role: str | None = None,
+        from_tip: bool = False,
+        _suppress_stale_warning: bool = False,
+    ) -> tuple[list[Message], GetMessagesMeta]:
+        """Same as :meth:`get_messages` but also returns staleness metadata.
+
+        ``meta.since_id_stale`` is ``True`` iff the caller supplied a
+        non-None ``since_id`` that did not resolve to any stream entry
+        (cache miss + paginated scan miss). The full-history fallback
+        contract is preserved (returns from ``0-0``); the meta lets
+        consumers clear cached cursors instead of re-passing the dead
+        value forever (issue #2464). A transient ``RedisError`` raised
+        from the scan fallback (e.g., a connection blip during
+        ``XRANGE``) is caught here and treated as "preserve cursor,
+        degrade to full history" — ``meta.since_id_stale`` stays
+        ``False`` in that case so a polling consumer doesn't drop a
+        live cursor on a momentary connectivity hiccup.
+
+        ``_suppress_stale_warning`` mirrors the in-memory backend's
+        kwarg for API symmetry. The Redis path does not log on stale
+        resolution today, so the flag is a no-op here; it is accepted
+        so callers can pass the same kwargs through both backends.
+        """
         key = _stream_key(pipeline_id)
 
         # Resolve since_id (message UUID) to Redis stream ID
         start_id = "0-0"
+        since_id_stale = False
         if from_tip and not since_id and wait > 0:
             # Redis XREAD treats ``$`` as "only entries with an ID greater
             # than the greatest ID in the stream at call time" — i.e., a
@@ -213,9 +262,32 @@ class RedisMessageStore:
             if stream_id:
                 start_id = stream_id
             else:
-                # Fallback: scan the stream to find this message ID
-                start_id = self._find_stream_id_by_message_id(pipeline_id, since_id) or "0-0"
+                # Fallback: scan the stream to find this message ID. If
+                # the scan also misses, the cursor is genuinely unknown —
+                # signal staleness so the consumer can clear it (#2464).
+                # A RedisError during the scan is *transient* (connection
+                # blip mid-XRANGE), not a "scan miss" — preserving the
+                # consumer's cursor through the blip is preferable to
+                # telling them to drop it. Degrade to the pre-PR
+                # full-history fallback without flagging staleness.
+                try:
+                    resolved = self._find_stream_id_by_message_id(pipeline_id, since_id)
+                except redis.RedisError as exc:
+                    logger.warning(
+                        "since_id scan failed transiently; degrading to full history",
+                        pipeline_id=pipeline_id,
+                        error=str(exc),
+                    )
+                    resolved = None
+                    start_id = "0-0"
+                else:
+                    if resolved:
+                        start_id = resolved
+                    else:
+                        since_id_stale = True
+                        start_id = "0-0"
 
+        meta = GetMessagesMeta(since_id_stale=since_id_stale)
         want_types = set(wait_for_types) if wait_for_types else None
 
         def _read_once(
@@ -279,7 +351,8 @@ class RedisMessageStore:
                 messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
             if from_role:
                 messages = [m for m in messages if m.from_role == from_role]
-            return messages[-limit:] if len(messages) > limit else messages
+            out_msgs = messages[-limit:] if len(messages) > limit else messages
+            return out_msgs, meta
 
         # wait_for_types: re-block on remaining time budget until we find a
         # matching row or the deadline elapses. Cap the inner loop so a
@@ -290,7 +363,7 @@ class RedisMessageStore:
         while True:
             remaining = deadline - time.monotonic() if wait > 0 else 0.0
             if wait > 0 and remaining <= 0:
-                return []
+                return [], meta
 
             block_ms: int | None
             if wait > 0:
@@ -306,12 +379,13 @@ class RedisMessageStore:
 
             matching = [m for m in messages if m.message_type in want_types]
             if matching:
-                return matching[-limit:] if len(matching) > limit else matching
+                out_msgs = matching[-limit:] if len(matching) > limit else matching
+                return out_msgs, meta
 
             # No match. If wait=0, bail out. Otherwise advance the cursor
             # past what we just read and keep blocking.
             if wait <= 0:
-                return []
+                return [], meta
 
             if last_sid is not None:
                 # Advance exclusively past the last sid so we don't re-read
@@ -326,7 +400,7 @@ class RedisMessageStore:
                     cap=self._WAIT_FOR_TYPES_MAX_INNER_LOOPS,
                     type_filter=list(want_types),
                 )
-                return []
+                return [], meta
 
     def get_latest_id(self, pipeline_id: str) -> str | None:
         """Return the ID of the most recent message for *pipeline_id*, or ``None``.
@@ -404,37 +478,42 @@ class RedisMessageStore:
         """Scan the stream to find a message by its UUID. Fallback for cache miss.
 
         Uses paginated XRANGE with count=500 to avoid unbounded scans on large streams.
+
+        Returns ``None`` for a *genuine* miss (the scan completed and no
+        entry matched). Re-raises :class:`redis.RedisError` so the
+        caller can distinguish a transient connection failure from a
+        completed-but-empty scan and act accordingly (the staleness
+        signal in :meth:`get_messages_with_meta` is suppressed on the
+        transient path so a momentary blip does not tell the consumer
+        to drop a still-live cursor — issue #2464 reviewer note #3).
         """
         key = _stream_key(pipeline_id)
         batch_size = 500
         cursor = "-"
-        try:
-            while True:
-                entries = self._redis.xrange(key, min=cursor, count=batch_size)
-                if not entries:
-                    break
-                for stream_id, fields in entries:
-                    if isinstance(stream_id, bytes):
-                        stream_id = stream_id.decode("utf-8")
-                    msg_id = fields.get(b"id", fields.get("id", b""))
-                    if isinstance(msg_id, bytes):
-                        msg_id = msg_id.decode("utf-8")
-                    if msg_id == message_id:
-                        # Cache it for next time
-                        with self._lock:
-                            if pipeline_id not in self._id_to_stream_id:
-                                self._id_to_stream_id[pipeline_id] = {}
-                            self._id_to_stream_id[pipeline_id][message_id] = stream_id
-                        return stream_id
-                # Advance cursor past the last entry in this batch
-                last_id = entries[-1][0]
-                if isinstance(last_id, bytes):
-                    last_id = last_id.decode("utf-8")
-                cursor = self._increment_stream_id(last_id)
-                if len(entries) < batch_size:
-                    break
-        except redis.RedisError:
-            pass
+        while True:
+            entries = self._redis.xrange(key, min=cursor, count=batch_size)
+            if not entries:
+                break
+            for stream_id, fields in entries:
+                if isinstance(stream_id, bytes):
+                    stream_id = stream_id.decode("utf-8")
+                msg_id = fields.get(b"id", fields.get("id", b""))
+                if isinstance(msg_id, bytes):
+                    msg_id = msg_id.decode("utf-8")
+                if msg_id == message_id:
+                    # Cache it for next time
+                    with self._lock:
+                        if pipeline_id not in self._id_to_stream_id:
+                            self._id_to_stream_id[pipeline_id] = {}
+                        self._id_to_stream_id[pipeline_id][message_id] = stream_id
+                    return stream_id
+            # Advance cursor past the last entry in this batch
+            last_id = entries[-1][0]
+            if isinstance(last_id, bytes):
+                last_id = last_id.decode("utf-8")
+            cursor = self._increment_stream_id(last_id)
+            if len(entries) < batch_size:
+                break
         return None
 
     @staticmethod
