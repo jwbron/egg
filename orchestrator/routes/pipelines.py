@@ -13706,7 +13706,7 @@ def _populate_contract_from_plan(
                         to_phase=current_phase.value,
                         reason=(
                             "populator advanced contract.current_phase "
-                            "(start_phase bypassed plan; #2427)"
+                            "(no apply_mutation caller for this pipeline; #2427)"
                         ),
                     )
                 )
@@ -14841,6 +14841,10 @@ def _run_pipeline(
                 # ever supports values other than 'implement'.  The
                 # populator enforces forward-only advancement, so a
                 # respawn during the PR phase cannot demote the contract.
+                # Note: the *outer* guard above remains hardcoded to
+                # ``"implement"``; widening it to other start_phase values
+                # is a two-line change (this guard plus the matching
+                # ``initial_phase`` mapping in start_pipeline).
                 _populate_contract_from_plan(
                     worktree_repo_path,
                     pipeline_id,
