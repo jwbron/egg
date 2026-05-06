@@ -226,7 +226,7 @@ def _skip_worktree_disk_check(monkeypatch):
 def _reset_heartbeat_coordinator():
     """Reset the heartbeat coordinator singleton between every orchestrator test.
 
-    The coordinator carries per-(pipeline, role) dedup, rate-limit, and
+    The coordinator carries per-(pipeline, slice, role) dedup, rate-limit, and
     gateway-fan-out throttle state. Without resetting it, tests that
     share role names can observe contaminated state across files. As
     new coordinator surfaces are added, this single fixture covers them
