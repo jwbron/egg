@@ -345,15 +345,28 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                                 if agent.status == AgentExecutionStatus.RUNNING:
                                     agent.status = AgentExecutionStatus.COMPLETE
                                     agent.completed_at = datetime.now(UTC)
-                            # TODO(#2441): phase-level mutations are
-                            # unconditional even though the agent walk above
-                            # is slice-scoped (only pipeline-level agents
-                            # flipped). Marks the whole phase COMPLETE even
-                            # if per-slice trackers are still RUNNING; safe
-                            # today because per-slice tracker reconstruction
-                            # isn't wired in here yet.
-                            phase_exec.status = PipelineStatus.COMPLETE
-                            phase_exec.completed_at = datetime.now(UTC)
+                            # Phase-level mutations are scoped to "no
+                            # other slice still active": the
+                            # reconstructed tracker is the pipeline-level
+                            # one, so only ``slice_id is None`` agents
+                            # were flipped above. If sibling slice-scoped
+                            # agents are still non-terminal, their
+                            # per-slice trackers haven't been
+                            # reconstructed here yet — leave the phase
+                            # RUNNING so they aren't prematurely marked
+                            # COMPLETE (#2441).
+                            other_slice_active = any(
+                                getattr(agent, "slice_id", None) is not None
+                                and agent.status
+                                not in (
+                                    AgentExecutionStatus.COMPLETE,
+                                    AgentExecutionStatus.FAILED,
+                                )
+                                for agent in phase_exec.agents
+                            )
+                            if not other_slice_active:
+                                phase_exec.status = PipelineStatus.COMPLETE
+                                phase_exec.completed_at = datetime.now(UTC)
                             store.save_pipeline(pipeline)
                 except Exception as eval_err:
                     logger.warning(
