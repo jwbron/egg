@@ -283,6 +283,33 @@ class TestApplyMutation:
             warnings.simplefilter("error", PydanticSerializationUnexpectedValue)
             result.contract.model_dump(mode="json")
 
+    def test_invalid_enum_value_returns_failed_mutation(self, sample_contract):
+        """Out-of-domain enum strings return ``success=False`` instead of raising.
+
+        With ``validate_assignment=True`` on ``Contract`` (added for
+        #2465), ``setattr(contract, "current_phase", "garbage")`` raises
+        ``pydantic.ValidationError`` from inside the assignment.
+        ``apply_mutation`` must catch that and surface it through the
+        existing ``MutationResult(success=False, ...)`` channel so the
+        contract /mutate route returns a structured 4xx instead of an
+        opaque 500.
+        """
+        sample_contract.current_phase = PipelinePhase.REFINE
+
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.HUMAN,
+            actor="human-reviewer",
+            field_path="current_phase",
+            new_value="invalid_phase_value",
+        )
+
+        assert result.success is False
+        assert result.message is not None
+        assert "current_phase" in result.message
+        # The original value is unchanged.
+        assert sample_contract.current_phase is PipelinePhase.REFINE
+
     def test_non_current_phase_field_still_emits_update_action(self, sample_contract):
         """Non-current_phase fields continue to emit AuditAction.UPDATE."""
         result = apply_mutation(
