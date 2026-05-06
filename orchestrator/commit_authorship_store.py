@@ -177,19 +177,23 @@ _FLUSHER_POLL_SECONDS = 0.5
 # Time budget the atexit hook gives any in-flight flusher to drain.
 _FLUSHER_ATEXIT_TIMEOUT_SECONDS = 5.0
 
+# Upper bound on the flusher's pending queue.  Each item is a small
+# tuple, so the memory ceiling is well under 10 MiB even at full
+# capacity.  When the worker falls this far behind (e.g. the gateway is
+# holding the bare-repo flock for an extended push), ``enqueue`` falls
+# back to inline replication rather than letting the queue grow without
+# bound.
+_FLUSHER_QUEUE_MAX = 10_000
+
 
 def _commit_one_shard_inline(
     state_store: Any,
     path: Path,
-    entries: list[tuple[str, str, str]],
+    sha: str,
+    role: str,
+    pipeline_id: str,
 ) -> None:
-    """Stage ``path`` and commit the result through ``state_store``.
-
-    ``entries`` is a list of ``(sha, role, pipeline_id)`` triples that
-    contributed to this shard's current contents — used to compose a
-    descriptive commit message.  An empty list is treated as
-    "no message context", which only happens in defensive code paths.
-    """
+    """Stage ``path`` and commit the result through ``state_store``."""
     wt = state_store.worktree
     try:
         rel = str(path.relative_to(wt))
@@ -198,9 +202,6 @@ def _commit_one_shard_inline(
         # happen in production, but can in tests that point
         # ``worktree_dir`` elsewhere), skip the commit silently.
         return
-    sha = entries[0][0] if entries else "?"
-    role = entries[0][1] if entries else "?"
-    pipeline_id = entries[0][2] if entries else "?"
     try:
         state_store._run_git("add", rel, cwd=wt)
         diff = state_store._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
@@ -240,7 +241,7 @@ def _commit_batch_inline(
     ``git add`` + ``git commit`` cycles per flusher tick from N to 1,
     which is the whole point of the async path (#2453).
     """
-    if not state_store or not batch:
+    if not batch:
         return
     wt = state_store.worktree
     rel_to_entries: dict[str, list[tuple[str, str, str]]] = {}
@@ -262,7 +263,7 @@ def _commit_batch_inline(
         rel = rel_order[0]
         sha, role, pipeline_id = rel_to_entries[rel][0]
         path = wt / rel
-        _commit_one_shard_inline(state_store, path, [(sha, role, pipeline_id)])
+        _commit_one_shard_inline(state_store, path, sha, role, pipeline_id)
         return
     try:
         for rel in rel_order:
@@ -305,48 +306,87 @@ class _AuthorshipFlusher:
     ``_commit_batch_inline``).
     """
 
+    # Sentinel pushed onto the queue to wake the worker out of its
+    # blocking ``queue.get`` during shutdown.  ``None`` is unambiguous
+    # because every real item is a 4-tuple.
+    _SHUTDOWN_SENTINEL: Any = None
+
     def __init__(self, state_store: Any) -> None:
         self._state_store = state_store
-        self._queue: queue.Queue[tuple[Path, str, str, str]] = queue.Queue()
+        self._queue: queue.Queue[Any] = queue.Queue(maxsize=_FLUSHER_QUEUE_MAX)
         self._stop = threading.Event()
-        # ``_idle`` is set when the worker is between ticks (queue empty
-        # and no tick in progress).  ``flush()`` waits for both
-        # ``queue.empty()`` and ``_idle.is_set()`` to be true to avoid a
-        # race where the worker has dequeued an item but not yet
-        # processed it.
-        self._idle = threading.Event()
-        self._idle.set()
         self._thread = threading.Thread(
             target=self._run,
             name="authorship-flusher",
             daemon=True,
         )
         self._thread.start()
-        atexit.register(self._atexit_drain)
+        # Bind the atexit hook once so ``atexit.unregister`` can match
+        # the same callable in ``shutdown()`` — bound-method objects
+        # compare by identity in atexit's registry, and re-binding via
+        # ``self._atexit_drain`` would create a fresh object that
+        # ``unregister`` can't find.
+        self._atexit_hook = self._atexit_drain
+        atexit.register(self._atexit_hook)
 
     def enqueue(self, path: Path, sha: str, role: str, pipeline_id: str) -> None:
         if self._stop.is_set():
             # The flusher has been shut down; fall back to inline so the
             # caller still gets state-branch replication for this commit.
-            _commit_one_shard_inline(self._state_store, path, [(sha, role, pipeline_id)])
+            _commit_one_shard_inline(self._state_store, path, sha, role, pipeline_id)
             return
-        self._queue.put((path, sha, role, pipeline_id))
+        try:
+            self._queue.put_nowait((path, sha, role, pipeline_id))
+        except queue.Full:
+            # Worker has fallen far enough behind that the bounded queue
+            # is full.  Degrade gracefully by running this commit inline
+            # rather than blocking the caller or growing memory without
+            # bound.
+            logger.warning(
+                "authorship_flusher_queue_full sha=%s pipeline_id=%s "
+                "(falling back to inline commit)",
+                sha,
+                pipeline_id,
+            )
+            _commit_one_shard_inline(self._state_store, path, sha, role, pipeline_id)
 
     def flush(self, timeout: float | None = None) -> bool:
+        """Block until every enqueued item has been processed.
+
+        Implemented by polling ``Queue.unfinished_tasks`` rather than
+        rolling our own idle flag — the counter is incremented inside
+        ``Queue.put`` and decremented in ``Queue.task_done``, so the
+        "item dequeued but not yet processed" state is observable
+        race-free.
+        """
         deadline = time.monotonic() + timeout if timeout is not None else None
-        while True:
-            if self._queue.empty() and self._idle.is_set():
-                return True
+        while self._queue.unfinished_tasks > 0:
             if deadline is not None and time.monotonic() >= deadline:
                 return False
             time.sleep(0.01)
+        return True
 
     def shutdown(self, *, timeout: float = 5.0) -> None:
         self._stop.set()
         self.flush(timeout=timeout)
-        # Wake the worker out of its blocking ``queue.get`` if needed so
-        # it observes ``_stop`` promptly.
+        # Wake the worker out of its blocking ``queue.get`` so it
+        # observes ``_stop`` immediately rather than waiting up to
+        # ``_FLUSHER_POLL_SECONDS`` on the next poll.
+        try:
+            self._queue.put_nowait(self._SHUTDOWN_SENTINEL)
+        except queue.Full:  # pragma: no cover - defensive
+            # If the queue is somehow still full, the poll-timeout
+            # fallback in ``_run`` will catch ``_stop`` shortly.
+            pass
         self._thread.join(timeout=timeout)
+        # Drop the atexit registration so the hook (and the bound
+        # ``self`` it pins) can be garbage-collected.  Without this,
+        # every ``reset_singleton`` cycle would accumulate a hook for
+        # the lifetime of the process.
+        try:
+            atexit.unregister(self._atexit_hook)
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("authorship_flusher_atexit_unregister_failed", exc_info=True)
 
     def _atexit_drain(self) -> None:
         # Best-effort: give in-flight registrations a short window to
@@ -362,19 +402,32 @@ class _AuthorshipFlusher:
                 first = self._queue.get(timeout=_FLUSHER_POLL_SECONDS)
             except queue.Empty:
                 continue
-            self._idle.clear()
+            if first is self._SHUTDOWN_SENTINEL:
+                # Shutdown wake-up.  Ack the sentinel so the
+                # unfinished-task counter stays in sync, then exit.
+                self._queue.task_done()
+                return
+            batch: list[tuple[Path, str, str, str]] = [first]
             try:
-                batch: list[tuple[Path, str, str, str]] = [first]
                 while True:
                     try:
-                        batch.append(self._queue.get_nowait())
+                        item = self._queue.get_nowait()
                     except queue.Empty:
                         break
+                    if item is self._SHUTDOWN_SENTINEL:
+                        # Don't fold the sentinel into the work batch;
+                        # ack it separately so unfinished_tasks balances.
+                        self._queue.task_done()
+                        continue
+                    batch.append(item)
                 _commit_batch_inline(self._state_store, batch)
             except Exception:  # pragma: no cover - defensive
                 logger.warning("authorship_flusher_tick_failed", exc_info=True)
             finally:
-                self._idle.set()
+                # Mark every real item we dequeued as done so
+                # ``unfinished_tasks`` returns to zero.
+                for _ in batch:
+                    self._queue.task_done()
 
 
 class CommitAuthorshipStore:
@@ -680,7 +733,7 @@ class CommitAuthorshipStore:
         """
         assert self._state_store is not None
         if self._synchronous:
-            _commit_one_shard_inline(self._state_store, path, [(sha, role, pipeline_id)])
+            _commit_one_shard_inline(self._state_store, path, sha, role, pipeline_id)
             return
         flusher = self._get_or_start_flusher()
         flusher.enqueue(path, sha, role, pipeline_id)

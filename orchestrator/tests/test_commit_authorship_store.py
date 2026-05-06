@@ -527,8 +527,18 @@ class TestAsyncFlusher:
         store = CommitAuthorshipStore(worktree_dir=worktree)
         assert store.flush(timeout=0) is True
 
-    def test_burst_coalesces_into_one_commit(self, worktree: Path):
-        """Multiple registers queued before the worker drains share one commit."""
+    def test_burst_coalesces_into_at_most_two_commits(self, worktree: Path):
+        """A burst of N registers fans out to a small constant number of commits.
+
+        The worker dequeues item 1 and immediately enters its first git
+        tick (gated below); items 2-5 land while the gate is held, so
+        they batch into a single follow-up tick.  Result: 1 singleton
+        commit + 1 batch commit = 2 total, which is the upper bound this
+        test pins.  The "1 commit for all 5" outcome would require
+        gating ``queue.get`` itself rather than the per-tick git call,
+        and is exercised separately by the unit-level tests on
+        ``_commit_batch_inline``.
+        """
         stub = _StubStateStore(worktree)
         # Block the worker until we've enqueued the whole batch so they
         # land in a single tick.
@@ -553,15 +563,37 @@ class TestAsyncFlusher:
             assert store.flush(timeout=5) is True
             cmds = [args[0] for args, _kwargs in stub.run_git_calls]
             # All 5 disk writes target the same shard (issue-1882.json), so
-            # the worker should issue exactly one commit covering the lot.
-            # Worst case (the worker briefly woke before all 5 enqueued)
-            # we still expect well below 5 commits.
+            # the worker should issue at most 2 commits (singleton + batch)
+            # rather than one per register.  The point of the async path is
+            # N → constant, not necessarily N → 1.
             assert cmds.count("commit") <= 2, (
                 f"expected coalesced commit(s) for a 5-write burst, got {cmds.count('commit')}"
             )
         finally:
             gate.set()
             store._shutdown_flusher(timeout=2.0)
+
+    def test_batch_inline_collapses_n_to_one_commit(self, worktree: Path):
+        """``_commit_batch_inline`` itself folds N entries into one commit."""
+        from commit_authorship_store import (  # type: ignore[import-not-found]
+            _commit_batch_inline,
+        )
+
+        stub = _StubStateStore(worktree)
+        shard_dir = worktree / SUBSTORE_DIR
+        shard_dir.mkdir(parents=True, exist_ok=True)
+        shard = shard_dir / "issue-1882.json"
+        shard.write_text("{}")
+        # 5 entries against the same shard should produce exactly one
+        # commit when the inline batcher is exercised directly.
+        batch = [(shard, f"{i:x}".rjust(40, "0"), "coder", "issue-1882") for i in range(5)]
+        _commit_batch_inline(stub, batch)  # type: ignore[arg-type]
+        cmds = [args[0] for args, _kwargs in stub.run_git_calls]
+        assert cmds.count("commit") == 1
+        # And the commit message reflects the batch shape rather than a
+        # single sha (the singleton path is not taken for N>1).
+        commit_calls = [args for args, _kwargs in stub.run_git_calls if args[0] == "commit"]
+        assert "batch register" in " ".join(str(arg) for arg in commit_calls[0])
 
     def test_flusher_swallows_git_errors_and_keeps_running(self, worktree: Path):
         """A failing tick must not poison subsequent registrations."""
