@@ -197,7 +197,7 @@ Research (CONSENSAGENT, ACL 2025) shows LLM agents exhibit strong sycophancy in 
 
 2. **Delphi ordering.** Reviewers form independent judgments from git artifacts before seeing the producer's self-assessment.
 
-3. **Critical thinking prompt.** Every proposal/review must include "one risk I considered." This is a secondary measure — easy to satisfy with generic output and should not be weighted equally.
+3. **Critical thinking prompt.** Every proposal/review should articulate "one risk I considered." This is a secondary measure — advisory rather than enforced, easy to satisfy with generic output and not weighted equally with structured claims.
 
 4. **Dynamic prompt refinement.** Evolve prompts based on observed rubber-stamping patterns rather than relying solely on procedural rules.
 
