@@ -51,6 +51,15 @@ spec:
             - name: mcp
               containerPort: 9850
               protocol: TCP
+            # Standalone listener for kubelet probes (#2414). Isolated
+            # from waitress's worker pool so probe latency is decoupled
+            # from request-path saturation; otherwise heartbeat fan-in
+            # under high agent load can starve /api/v1/live and trigger
+            # a SIGKILL (root cause in #2413). Override with
+            # EGG_ORCH_PROBE_LISTENER_PORT.
+            - name: probe
+              containerPort: 9851
+              protocol: TCP
           env:
             # Explicit runtime selector — the orchestrator code falls
             # back to auto-detection via KUBERNETES_SERVICE_HOST when
@@ -93,19 +102,24 @@ spec:
             # (`egg-sandbox:latest`), and nothing exists at docker.io/egg.
             - name: EGG_SANDBOX_IMAGE
               value: "egg-sandbox:latest"
-          # Probes target the cheap, cache-backed endpoints introduced
-          # in #2191. ``/api/v1/live`` is a pure JSON return — restart
-          # signal only. ``/api/v1/ready`` reads the background
-          # state-store probe cache (see orchestrator/state_store_probe.py)
-          # — traffic-routing signal that flips when the cache is stale
-          # or unhealthy. Neither endpoint runs ``git`` or holds locks,
-          # so probe latency is decoupled from waitress thread-pool
-          # pressure under burst load. The rich operator payload moved
-          # to ``/api/v1/health`` (also cache-backed).
+          # Probes target the standalone HTTP listener on the ``probe``
+          # port (#2414). #2191 made the probe handlers cache-backed so
+          # they did not run ``git`` on the request path, but they still
+          # shared waitress's worker pool with the rest of the API; under
+          # high agent load (heartbeat fan-in, dozens of long polls) a
+          # cheap O(1) handler still has to wait its turn and the 3s
+          # timeout × 3 failureThreshold window is not enough to clear
+          # the queue. The listener runs in its own daemon thread with
+          # its own server socket, so probe latency is bounded by
+          # interpreter scheduling rather than waitress pressure. The
+          # Flask routes at /api/v1/live and /api/v1/ready remain on
+          # the ``api`` port for in-cluster operator clients (dashboards,
+          # mcp__egg__check_health, the orchestrator CLI's `health`
+          # command).
           livenessProbe:
             httpGet:
               path: /api/v1/live
-              port: api
+              port: probe
             initialDelaySeconds: 10
             periodSeconds: 15
             timeoutSeconds: 3
@@ -113,7 +127,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /api/v1/ready
-              port: api
+              port: probe
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 3
@@ -128,7 +142,7 @@ spec:
           startupProbe:
             httpGet:
               path: /api/v1/live
-              port: api
+              port: probe
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

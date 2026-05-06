@@ -144,6 +144,61 @@ def get_waitress_threads() -> int:
 
 
 # -----------------------------------------------------------------
+# EGG_ORCH_PROBE_LISTENER_PORT — port for the standalone HTTP listener
+# that serves kubelet liveness/readiness probes (see #2414 and
+# ``orchestrator/probe_listener.py``). The listener runs in its own
+# daemon thread, isolated from waitress's worker pool, so probe latency
+# is decoupled from request-path saturation. The Flask routes at
+# ``/api/v1/live`` and ``/api/v1/ready`` are kept on the API port for
+# in-cluster operator clients (dashboards, ``mcp__egg__check_health``).
+#
+# WARNING: this value is coupled to the ``probe`` ``containerPort`` in
+# ``k8s/base/orchestrator-deployment.yaml``. Setting this env var
+# without a matching deployment-side patch silently breaks all kubelet
+# probes — kubelet keeps probing the manifest's containerPort while
+# the listener binds the new value and never receives a probe request.
+# A `make test` consistency check (``test_default_port_matches_k8s_manifest``
+# in ``test_probe_listener.py``) locks the *default* port to the
+# manifest, but operator overrides require manual coordination.
+# -----------------------------------------------------------------
+
+DEFAULT_PROBE_LISTENER_PORT = 9851
+
+
+def get_probe_listener_port() -> int:
+    """Return the port for the kubelet-probe listener (default 9851).
+
+    Out-of-range or non-integer values fall back to the default with a
+    warning. Bind failure is logged but does not abort startup; see
+    :func:`orchestrator.cli.cmd_serve` for the operator-facing
+    consequences (the manifest retargets all kubelet probes at this
+    port, so a failed bind means probes hit nothing — not a graceful
+    degradation onto the Flask routes on the API port, which kubelet
+    no longer reaches).
+    """
+    raw = os.environ.get("EGG_ORCH_PROBE_LISTENER_PORT", "").strip()
+    if not raw:
+        return DEFAULT_PROBE_LISTENER_PORT
+    try:
+        val = int(raw)
+    except TypeError, ValueError:
+        logger.warning(
+            "EGG_ORCH_PROBE_LISTENER_PORT=%r is not an integer; falling back to %d",
+            raw,
+            DEFAULT_PROBE_LISTENER_PORT,
+        )
+        return DEFAULT_PROBE_LISTENER_PORT
+    if val <= 0 or val > 65535:
+        logger.warning(
+            "EGG_ORCH_PROBE_LISTENER_PORT=%d out of range; falling back to %d",
+            val,
+            DEFAULT_PROBE_LISTENER_PORT,
+        )
+        return DEFAULT_PROBE_LISTENER_PORT
+    return val
+
+
+# -----------------------------------------------------------------
 # EGG_HEARTBEAT_RATE_LIMIT — per (pipeline_id, role) HEARTBEAT rate
 # cap.  Exceeding the cap produces HTTP 429 with a ``retry_after``
 # body field.  See plan TASK-3-4 and

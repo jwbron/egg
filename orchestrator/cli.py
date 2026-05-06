@@ -129,6 +129,42 @@ def cmd_serve(args: argparse.Namespace) -> int:
         host_repo_map=host_repo_map,
     )
 
+    # Start the standalone HTTP listener for kubelet liveness/readiness
+    # probes on its own port (#2414) BEFORE any slow synchronous startup
+    # work. Startup reconciliation, container monitor init, the per-RUNNING
+    # pipeline STARTUP health-check loop, and even ``waitress.serve()``
+    # can each take seconds-to-minutes on a busy cluster; if the listener
+    # came up after them, the kubelet's startupProbe window (60 s by
+    # default) would still bound restart latency on a cold pod and the
+    # whole point of the standalone listener — probe latency independent
+    # of orchestrator activity — would only partially apply. With the
+    # listener up first, ``/api/v1/live`` answers ``{"alive": true}`` from
+    # request one and ``/api/v1/ready`` returns 503 (un-primed cache)
+    # until the BG state-store probe records its first observation, which
+    # is exactly the kubelet contract for a still-starting pod.
+    #
+    # Bind failure is logged but non-fatal at this point in startup —
+    # however operators should treat the warning as actionable: the
+    # k8s manifest retargets all three kubelet probes (liveness /
+    # readiness / startup) at the ``probe`` containerPort, so if this
+    # listener fails to bind, kubelet probe traffic hits nothing and
+    # the pod CrashLoopBackOffs after the configured failureThreshold.
+    # This is NOT a graceful degradation onto the Flask routes on the
+    # API port — kubelet probes do not reach those any more. The Flask
+    # routes only help in-cluster operator clients (dashboards,
+    # ``mcp__egg__check_health``, the orchestrator CLI's `health`
+    # command).
+    try:
+        from env_config import get_probe_listener_port
+        from probe_listener import start_probe_listener
+
+        start_probe_listener(port=get_probe_listener_port())
+    except Exception:
+        logger.exception(
+            "Probe listener startup failed — kubelet probes will hit no listener "
+            "and the pod will fail liveness checks; manual intervention required"
+        )
+
     if repo_path != "not set":
         from state_store import StateStore, discover_repo_paths, get_state_store
 
