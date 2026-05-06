@@ -656,8 +656,10 @@ wedged.
 The slicing design was driven by 18 HITL decisions plus a feedback round
 during refine. The most consequential are referenced inline above:
 
-- **decision-5** — concurrency: unbounded per wave; `max_parallel_slices=2`
-  is an operator-tunable soft cap.
+- **decision-5** — concurrency: unbounded per wave; `max_parallel_slices`
+  is an operator-tunable soft cap. Initial cap was 5; lowered to 2 in
+  #2466 to constrain container/gateway resource pressure during the
+  implement phase.
 - **decision-7** — schema rename ships with a one-version load-time
   migration; legacy `phases[]` JSON keeps loading.
 - **decision-9** — two-tier `max_cycles` (local 3, global 10).
