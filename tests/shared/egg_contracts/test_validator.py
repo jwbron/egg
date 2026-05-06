@@ -247,7 +247,6 @@ class TestApplyMutation:
         # compare equal to "implement" even without normalisation.
         assert type(result.audit_entry.old_value) is str
         assert type(result.audit_entry.new_value) is str
-        assert not isinstance(result.audit_entry.new_value, PipelinePhase)
         assert result.audit_entry.old_value == "plan"
         assert result.audit_entry.new_value == "implement"
 
