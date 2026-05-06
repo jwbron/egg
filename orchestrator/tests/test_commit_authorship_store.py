@@ -419,7 +419,7 @@ class TestStateBranchCommitOnWrite:
     def test_register_triggers_git_add_and_commit(self, worktree: Path):
         """A successful register triggers ``git add`` + ``git commit`` through the StateStore."""
         stub = _StubStateStore(worktree)
-        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        store = CommitAuthorshipStore(state_store=stub, synchronous=True)  # type: ignore[arg-type]
         store.register(_VALID_SHA, "coder", "issue-1882")
         cmds = [args[0] for args, _kwargs in stub.run_git_calls]
         assert "add" in cmds
@@ -431,7 +431,7 @@ class TestStateBranchCommitOnWrite:
     def test_idempotent_reregister_skips_commit(self, worktree: Path):
         """When the diff probe reports no changes, no commit is made."""
         stub = _StubStateStore(worktree)
-        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        store = CommitAuthorshipStore(state_store=stub, synchronous=True)  # type: ignore[arg-type]
         store.register(_VALID_SHA, "coder", "issue-1882")
         stub.run_git_calls.clear()
         stub.sync_called = False
@@ -444,7 +444,7 @@ class TestStateBranchCommitOnWrite:
     def test_commit_false_skips_git(self, worktree: Path):
         """Passing ``commit=False`` suppresses the state-branch writeback."""
         stub = _StubStateStore(worktree)
-        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        store = CommitAuthorshipStore(state_store=stub, synchronous=True)  # type: ignore[arg-type]
         store.register(_VALID_SHA, "coder", "issue-1882", commit=False)
         assert stub.run_git_calls == []
         assert stub.sync_called is False
@@ -459,10 +459,203 @@ class TestStateBranchCommitOnWrite:
             raise _sp.CalledProcessError(1, ["git", "commit"])
 
         stub._run_git = boom  # type: ignore[assignment]
-        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        store = CommitAuthorshipStore(state_store=stub, synchronous=True)  # type: ignore[arg-type]
         # Must not raise — the registration still succeeded on disk.
         store.register(_VALID_SHA, "coder", "issue-1882")
         assert store.lookup(_VALID_SHA) == "coder"
+
+
+# ---------------------------------------------------------------------------
+# Async flusher (issue #2453)
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncFlusher:
+    """The default (non-synchronous) path defers state-branch git work to a
+    background ``_AuthorshipFlusher`` thread so ``register()`` is no longer
+    gated on the state-store flock + 3 git subprocess calls.
+
+    Each test drains via ``store.flush()`` to avoid sleep-based races; the
+    autouse ``_reset_store_singleton`` fixture tears down any leftover
+    flusher thread between tests.
+    """
+
+    def test_register_returns_before_git_commit_runs(self, worktree: Path):
+        """``register()`` must not block on git work in the default mode."""
+        slow_release = threading.Event()
+        in_git = threading.Event()
+        stub = _StubStateStore(worktree)
+        original_run_git = stub._run_git
+
+        def slow_git(*args, **kwargs):
+            in_git.set()
+            slow_release.wait(timeout=5)
+            return original_run_git(*args, **kwargs)
+
+        stub._run_git = slow_git  # type: ignore[assignment]
+        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        try:
+            # register returns immediately, even though git will take seconds
+            store.register(_VALID_SHA, "coder", "issue-1882")
+            assert store.lookup(_VALID_SHA) == "coder"
+            # The worker has either entered the slow git call or is about to;
+            # wait briefly to confirm the work is dispatched out-of-band.
+            assert in_git.wait(timeout=2), "flusher never picked up the job"
+            slow_release.set()
+            assert store.flush(timeout=5) is True
+            cmds = [args[0] for args, _kwargs in stub.run_git_calls]
+            assert "commit" in cmds
+        finally:
+            slow_release.set()
+            store._shutdown_flusher(timeout=2.0)
+
+    def test_flush_drains_pending_writes(self, worktree: Path):
+        """A successful ``flush()`` guarantees the git commit has run."""
+        stub = _StubStateStore(worktree)
+        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        try:
+            store.register(_VALID_SHA, "coder", "issue-1882")
+            assert store.flush(timeout=5) is True
+            cmds = [args[0] for args, _kwargs in stub.run_git_calls]
+            assert cmds.count("commit") == 1
+            assert stub.sync_called is True
+        finally:
+            store._shutdown_flusher(timeout=2.0)
+
+    def test_flush_with_no_flusher_returns_true(self, worktree: Path):
+        """Stores in pure-filesystem mode never start a flusher; flush is a no-op."""
+        store = CommitAuthorshipStore(worktree_dir=worktree)
+        assert store.flush(timeout=0) is True
+
+    def test_burst_coalesces_into_at_most_two_commits(self, worktree: Path):
+        """A burst of N registers fans out to a small constant number of commits.
+
+        The worker dequeues item 1 and immediately enters its first git
+        tick (gated below); items 2-5 land while the gate is held, so
+        they batch into a single follow-up tick.  Result: 1 singleton
+        commit + 1 batch commit = 2 total, which is the upper bound this
+        test pins.  The "1 commit for all 5" outcome would require
+        gating ``queue.get`` itself rather than the per-tick git call,
+        and is exercised separately by the unit-level tests on
+        ``_commit_batch_inline``.
+        """
+        stub = _StubStateStore(worktree)
+        # Block the worker until we've enqueued the whole batch so they
+        # land in a single tick.
+        gate = threading.Event()
+        original_run_git = stub._run_git
+        first_call = threading.Event()
+
+        def gated_git(*args, **kwargs):
+            if not first_call.is_set():
+                first_call.set()
+                gate.wait(timeout=5)
+            return original_run_git(*args, **kwargs)
+
+        stub._run_git = gated_git  # type: ignore[assignment]
+        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        try:
+            shas = [f"{i:x}".rjust(40, "0") for i in range(5)]
+            for sha in shas:
+                store.register(sha, "coder", "issue-1882")
+            # Let the worker finish the first tick (which should batch all 5).
+            gate.set()
+            assert store.flush(timeout=5) is True
+            cmds = [args[0] for args, _kwargs in stub.run_git_calls]
+            # All 5 disk writes target the same shard (issue-1882.json), so
+            # the worker should issue at most 2 commits (singleton + batch)
+            # rather than one per register.  The point of the async path is
+            # N → constant, not necessarily N → 1.
+            assert cmds.count("commit") <= 2, (
+                f"expected coalesced commit(s) for a 5-write burst, got {cmds.count('commit')}"
+            )
+        finally:
+            gate.set()
+            store._shutdown_flusher(timeout=2.0)
+
+    def test_batch_inline_collapses_n_to_one_commit(self, worktree: Path):
+        """``_commit_batch_inline`` itself folds N entries into one commit."""
+        from commit_authorship_store import (  # type: ignore[import-not-found]
+            _commit_batch_inline,
+        )
+
+        stub = _StubStateStore(worktree)
+        shard_dir = worktree / SUBSTORE_DIR
+        shard_dir.mkdir(parents=True, exist_ok=True)
+        shard = shard_dir / "issue-1882.json"
+        shard.write_text("{}")
+        # 5 entries against the same shard should produce exactly one
+        # commit when the inline batcher is exercised directly.
+        batch = [(shard, f"{i:x}".rjust(40, "0"), "coder", "issue-1882") for i in range(5)]
+        _commit_batch_inline(stub, batch)  # type: ignore[arg-type]
+        cmds = [args[0] for args, _kwargs in stub.run_git_calls]
+        assert cmds.count("commit") == 1
+        # And the commit message reflects the batch shape rather than a
+        # single sha (the singleton path is not taken for N>1).
+        commit_calls = [args for args, _kwargs in stub.run_git_calls if args[0] == "commit"]
+        assert "batch register" in " ".join(str(arg) for arg in commit_calls[0])
+
+    def test_flusher_swallows_git_errors_and_keeps_running(self, worktree: Path):
+        """A failing tick must not poison subsequent registrations."""
+        import subprocess as _sp
+
+        stub = _StubStateStore(worktree)
+        fail_first_tick = {"armed": True}
+        original_run_git = stub._run_git
+
+        def flaky_git(*args, **kwargs):
+            # Fail the first ``git add`` we see, then disarm so every
+            # later call (this same tick's commit included if reached, and
+            # all subsequent ticks) succeeds.  This models a transient
+            # state-store failure rather than a permanent break.
+            if fail_first_tick["armed"] and args[:1] == ("add",):
+                fail_first_tick["armed"] = False
+                raise _sp.CalledProcessError(1, ["git", *list(args)])
+            return original_run_git(*args, **kwargs)
+
+        stub._run_git = flaky_git  # type: ignore[assignment]
+        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        try:
+            store.register(_VALID_SHA, "coder", "issue-1882")
+            assert store.flush(timeout=5) is True
+            # First tick aborted on the add; no commit yet.
+            cmds_after_first = [args[0] for args, _kwargs in stub.run_git_calls]
+            assert "commit" not in cmds_after_first
+
+            store.register(_OTHER_SHA, "tester", "issue-1882")
+            assert store.flush(timeout=5) is True
+            cmds = [args[0] for args, _kwargs in stub.run_git_calls]
+            # The second register's commit must have landed — that's the
+            # "keeps running" check.
+            assert "commit" in cmds
+            # Both registrations are visible on disk regardless of git.
+            assert store.lookup(_VALID_SHA) == "coder"
+            assert store.lookup(_OTHER_SHA) == "tester"
+        finally:
+            store._shutdown_flusher(timeout=2.0)
+
+    def test_enqueue_after_shutdown_falls_back_to_inline(self, worktree: Path):
+        """Once the flusher has shut down, late registrations still replicate."""
+        stub = _StubStateStore(worktree)
+        store = CommitAuthorshipStore(state_store=stub)  # type: ignore[arg-type]
+        # Force the flusher to start, drain it, then shut it down.
+        store.register(_VALID_SHA, "coder", "issue-1882")
+        assert store.flush(timeout=5) is True
+        flusher = store._flusher
+        assert flusher is not None
+        flusher.shutdown(timeout=2.0)
+        stub.run_git_calls.clear()
+        stub.sync_called = False
+        # A second registration after shutdown should still cause a commit
+        # by falling back to the inline path.
+        flusher.enqueue(
+            store._shard_path("issue-1882"),
+            _OTHER_SHA,
+            "tester",
+            "issue-1882",
+        )
+        cmds = [args[0] for args, _kwargs in stub.run_git_calls]
+        assert "commit" in cmds
 
 
 # ---------------------------------------------------------------------------
