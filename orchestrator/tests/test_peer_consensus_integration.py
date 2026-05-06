@@ -658,7 +658,7 @@ class TestAttestationSchemas:
         """Without no_doc_changes_needed, empty sections_updated is still rejected (#2444)."""
         from attestation_schemas import AttestationStrictness, validate_attestation
 
-        with pytest.raises(ValueError, match="sections updated"):
+        with pytest.raises(ValueError, match="section updated"):
             validate_attestation(
                 "documenter",
                 {},
