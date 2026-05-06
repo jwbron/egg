@@ -203,7 +203,21 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             pipeline_live_containers = docker_client.list_containers(  # type: ignore[attr-defined]
                 labels={_LABEL_PIPELINE_ID: pipeline_id},
             )
-            pipeline_live_ids: set[str] = {ci.container_id for ci in pipeline_live_containers}
+            # Filter to genuinely live pods (Pending / Creating / Running).
+            # ``list_containers`` returns pods regardless of phase, so a
+            # ``Failed`` / ``Succeeded`` pod still inside its Job's
+            # ``ttlSecondsAfterFinished`` window (default 600s) would otherwise
+            # mask a genuinely orphaned pipeline.  Mirrors
+            # ``routes/pipelines._count_live_pods_for_pipeline`` so both
+            # label-scoped checks agree on what "live" means (#2420).
+            _live_statuses = (
+                ContainerStatus.PENDING,
+                ContainerStatus.CREATING,
+                ContainerStatus.RUNNING,
+            )
+            pipeline_live_ids: set[str] = {
+                ci.container_id for ci in pipeline_live_containers if ci.status in _live_statuses
+            }
         except Exception as e:
             logger.warning(
                 "Startup reconciliation: pipeline-scoped container query failed, "

@@ -1005,6 +1005,169 @@ class TestStartPipelineLivePodGuard:
         assert resp.status_code == 200
 
 
+class TestCountLivePodsForPipelinePredicate:
+    """Exercise ``_count_live_pods_for_pipeline`` against a stubbed spawner
+    backend (rather than the routes that wrap it) so the predicate's filter
+    is covered directly.  The guard's whole point is "ignore pods that have
+    already exited" — an unfiltered count would 409 on a pod still inside
+    its Job's ``ttlSecondsAfterFinished`` window even though the reset
+    orphans no work tied to it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _zero_live_pods(self):
+        """Override the module-level ``_zero_live_pods`` autouse fixture
+        (same name → closer scope wins) so these tests call the *real*
+        ``_count_live_pods_for_pipeline``.  The module-level fixture
+        short-circuits the helper to ``0`` for every other test in the
+        file."""
+        yield
+
+    @staticmethod
+    def _make_container_info(container_id: str, status):
+        from models import ContainerInfo
+
+        return ContainerInfo(
+            container_id=container_id,
+            container_name=f"egg-{container_id}",
+            status=status,
+        )
+
+    def _patched_spawner(self, returned_pods):
+        """Patch ``_get_spawner`` to return a backend whose ``list_containers``
+        yields the given pods. Returns the patch context manager."""
+        backend = MagicMock()
+        backend.list_containers.return_value = returned_pods
+        spawner = MagicMock()
+        spawner.backend = backend
+        return patch("routes.pipelines._get_spawner", return_value=spawner)
+
+    def test_counts_only_pending_creating_running(self):
+        from models import ContainerStatus
+        from routes.pipelines import _count_live_pods_for_pipeline
+
+        pods = [
+            self._make_container_info("p1", ContainerStatus.PENDING),
+            self._make_container_info("c1", ContainerStatus.CREATING),
+            self._make_container_info("r1", ContainerStatus.RUNNING),
+            self._make_container_info("r2", ContainerStatus.RUNNING),
+            # These should NOT be counted — they have already exited and
+            # the start_pipeline reset orphans no work tied to them.
+            self._make_container_info("f1", ContainerStatus.FAILED),
+            self._make_container_info("e1", ContainerStatus.EXITED),
+            self._make_container_info("rm1", ContainerStatus.REMOVED),
+        ]
+
+        with self._patched_spawner(pods):
+            count = _count_live_pods_for_pipeline("issue-42")
+
+        assert count == 4
+
+    def test_zero_when_only_terminal_pods(self):
+        """The exact false-positive the unfiltered predicate produced (#2420
+        review item 1): a Failed pod still inside its Job's TTL window must
+        NOT count as live."""
+        from models import ContainerStatus
+        from routes.pipelines import _count_live_pods_for_pipeline
+
+        pods = [
+            self._make_container_info("f1", ContainerStatus.FAILED),
+            self._make_container_info("e1", ContainerStatus.EXITED),
+        ]
+
+        with self._patched_spawner(pods):
+            count = _count_live_pods_for_pipeline("issue-42")
+
+        assert count == 0
+
+    def test_zero_when_no_pods(self):
+        from routes.pipelines import _count_live_pods_for_pipeline
+
+        with self._patched_spawner([]):
+            count = _count_live_pods_for_pipeline("issue-42")
+
+        assert count == 0
+
+    def test_returns_none_on_backend_error(self):
+        """Label-query failure returns ``None`` (not 0) so the route can
+        distinguish "verified zero" from "unknown" and fail-safe accordingly."""
+        from routes.pipelines import _count_live_pods_for_pipeline
+
+        backend = MagicMock()
+        backend.list_containers.side_effect = RuntimeError("k8s api unreachable")
+        spawner = MagicMock()
+        spawner.backend = backend
+
+        with patch("routes.pipelines._get_spawner", return_value=spawner):
+            result = _count_live_pods_for_pipeline("issue-42")
+
+        assert result is None
+
+
+class TestStartPipelineForceBooleanStrictness:
+    """``force`` is a strict-boolean check: ``body.get("force") is True``.
+    Truthy non-boolean values (``"true"``, ``1``, ``[]``, ``{}``) must NOT
+    silently flip the predicate (#2420 review item 2)."""
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_force_string_true_is_rejected_by_guard(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """``"force": "true"`` (string) is NOT ``is True`` and must be
+        treated as ``False`` — the guard must still fire when live pods
+        are present."""
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with patch(
+            "routes.pipelines._count_live_pods_for_pipeline",
+            return_value=2,
+        ):
+            resp = client.post(
+                "/api/v1/pipelines/issue-42/start",
+                json={"force": "true"},
+            )
+
+        assert resp.status_code == 409
+        data = json.loads(resp.data)
+        assert data["reason"] == "live_pods_present"
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_force_int_one_is_rejected_by_guard(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """``"force": 1`` is NOT ``is True`` (it's int, not bool)."""
+        pipeline = _make_pipeline(
+            PipelineStatus.FAILED,
+            phase=PipelinePhase.REFINE,
+            phase_status=PipelineStatus.FAILED,
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        with patch(
+            "routes.pipelines._count_live_pods_for_pipeline",
+            return_value=2,
+        ):
+            resp = client.post(
+                "/api/v1/pipelines/issue-42/start",
+                json={"force": 1},
+            )
+
+        assert resp.status_code == 409
+        data = json.loads(resp.data)
+        assert data["reason"] == "live_pods_present"
+
+
 # -----------------------------------------------------------------------------
 # Issue #1556 — Jira ticket plumbing
 # -----------------------------------------------------------------------------

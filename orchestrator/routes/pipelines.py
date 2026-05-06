@@ -916,19 +916,44 @@ def _get_spawner():
     return get_container_spawner()
 
 
-def _count_live_pods_for_pipeline(pipeline_id: str) -> int | None:
-    """Count live pods labeled to this pipeline.
+# Container statuses that count as "live" for the purposes of the
+# orphan guard — a pod whose status maps to one of these is still
+# bound to the pipeline and would be orphaned by clearing
+# ``containers`` / ``agents`` / ``artifacts``.  Pods in terminal
+# phases (``Failed``/``Succeeded`` → ``ContainerStatus.FAILED`` /
+# ``EXITED``) have already exited and the reset orphans no work.
+# This matters because k8s Jobs default to ``ttlSecondsAfterFinished=600``
+# so a Failed pod object survives in the cluster for up to 10 minutes
+# after the pod itself has terminated — which is exactly the window
+# where ``start_pipeline`` is most commonly called for recovery.
+# ``startup_reconciliation.py`` applies the same filter so the two
+# label-scoped pod checks agree on what "live" means.
+_LIVE_POD_STATUSES: tuple[ContainerStatus, ...] = (
+    ContainerStatus.PENDING,
+    ContainerStatus.CREATING,
+    ContainerStatus.RUNNING,
+)
 
-    Returns the number of pods, or ``None`` if the label query failed —
+
+def _count_live_pods_for_pipeline(pipeline_id: str) -> int | None:
+    """Count live pods labeled to this pipeline (#2420).
+
+    Live = ``ContainerStatus`` in :data:`_LIVE_POD_STATUSES` (Pending /
+    Creating / Running). Pods in terminal phases (``Failed`` / ``Succeeded``
+    → ``ContainerStatus.FAILED`` / ``EXITED``) are excluded — they have
+    already exited and the start_pipeline reset orphans no work tied to
+    them.
+
+    Returns the number of live pods, or ``None`` if the label query failed —
     callers must distinguish "verified zero" from "unknown" because the
-    start_pipeline reset would orphan any pods we couldn't see (#2420).
+    start_pipeline reset would orphan any pods we couldn't see.
     """
     try:
         spawner = _get_spawner()
         pods = spawner.backend.list_containers(
             labels={LABEL_PIPELINE_ID: pipeline_id},
         )
-        return len(pods)
+        return sum(1 for p in pods if p.status in _LIVE_POD_STATUSES)
     except Exception as e:
         logger.warning(
             "start_pipeline live-pod check failed",
@@ -952,13 +977,32 @@ def _guard_live_pods_or_force(
     """
     if force:
         live = _count_live_pods_for_pipeline(pipeline_id)
-        logger.warning(
-            "start_pipeline force=true override; phase reset will proceed "
-            "even if live pods are labeled to the pipeline",
-            pipeline_id=pipeline_id,
-            live_pod_count=live,
-            force_reason=force_reason,
-        )
+        # Template the audit log so the static message reflects what the
+        # override actually did. ``live == 0`` means the override was a
+        # no-op — log at ``info`` so it doesn't read like a near-miss.
+        if live is None:
+            logger.warning(
+                "start_pipeline force=true override; live-pod check failed, "
+                "phase reset will proceed regardless",
+                pipeline_id=pipeline_id,
+                live_pod_count=None,
+                force_reason=force_reason,
+            )
+        elif live > 0:
+            logger.warning(
+                "start_pipeline force=true override; phase reset will proceed "
+                "and orphan live pods labeled to the pipeline",
+                pipeline_id=pipeline_id,
+                live_pod_count=live,
+                force_reason=force_reason,
+            )
+        else:
+            logger.info(
+                "start_pipeline force=true override applied (no live pods present)",
+                pipeline_id=pipeline_id,
+                live_pod_count=0,
+                force_reason=force_reason,
+            )
         return None
 
     live = _count_live_pods_for_pipeline(pipeline_id)
@@ -16733,7 +16777,10 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
     # is recorded in the structured warning log, mirroring the
     # complete_phase audit pattern.
     body = request.get_json(silent=True) or {}
-    force = bool(body.get("force", False))
+    # Strict boolean — `body.get("force") is True` rather than
+    # `bool(body.get("force"))` so non-boolean truthy values
+    # (`"false"`, `[]`, `{}`, `1`) don't silently flip the predicate.
+    force = body.get("force") is True
     force_reason = body.get("force_reason")
     if force_reason is not None and not isinstance(force_reason, str):
         return make_error_response(

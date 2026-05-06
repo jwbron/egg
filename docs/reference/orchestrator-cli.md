@@ -266,8 +266,8 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
 | `advance_phase` | `invalid_phase_transition` | 400 | Not a valid transition from the current phase; change target or pass `force=true` |
 | `advance_phase` | `previous_phase_not_complete` | 400 | Current phase still running or failed; call `complete_phase` first, or pass `force=true` |
 | `advance_phase` | `health_checks_failed` | 409 | Tier 1/2 health checks returned `FAIL_PIPELINE`; `details.health_results` lists failing checks. Resolve the underlying issue or pass `force=true` |
-| `start_pipeline` | `live_pods_present` | 409 | Pods labeled to the pipeline are still alive; the reset would orphan them. Cancel them first (`cancel_task(cleanup=true)`) or pass `force=true`. `details.live_pod_count` carries the count |
-| `start_pipeline` | `live_pod_check_failed` | 409 | Label query for live pods failed; pass `force=true` after manual verification |
+| `start_pipeline` | `live_pods_present` | 409 | Pods labeled to the pipeline are in a live phase (`Pending` / `Running`; pods in terminal `Failed` / `Succeeded` phases are excluded since they have already exited and the reset orphans no work tied to them); the reset would orphan them. Cancel them first (`cancel_task(cleanup=true)`) or pass `force=true`. `details.live_pod_count` carries the count of pods in live phases |
+| `start_pipeline` | `live_pod_check_failed` | 409 | Label query for live pods failed (k8s API error); pass `force=true` after manual verification. **No `details.live_pod_count`** is included — the count is unknown by definition |
 | `start_pipeline` | `invalid_force_reason` | 400 | `force_reason` must be a string |
 | `start_phase` | `phase_already_running` | 400 | Phase is already in `RUNNING` status; no action needed |
 | `complete_phase` | `unresolved_hitl_decisions` | 409 | Phase has pending HITL decisions; `details.unresolved_decision_ids` lists them. Resolve or pass `force=true` |

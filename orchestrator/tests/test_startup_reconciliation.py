@@ -82,6 +82,7 @@ def _make_store(pipeline: Pipeline) -> MagicMock:
 def _make_docker_client(
     live_ids: list[str],
     pipeline_live_map: dict[str, list[str]] | None = None,
+    pipeline_live_status: ContainerStatus = ContainerStatus.RUNNING,
 ) -> MagicMock:
     """Build a mock docker client.
 
@@ -96,6 +97,13 @@ def _make_docker_client(
             strict subset of the un-scoped query and an unknown label
             value yields an empty list.  Tests that need a pipeline to
             be observed as having live pods must set this explicitly.
+        pipeline_live_status: ContainerStatus assigned to the mocked pods
+            returned by label-scoped queries.  Defaults to ``RUNNING`` —
+            ``startup_reconciliation`` filters to "live" statuses
+            (``Pending``/``Creating``/``Running``) so terminal pods inside
+            the Job's TTL window are not mistaken for live work (#2420).
+            Tests exercising terminal-phase pods pass ``FAILED`` / ``EXITED``
+            explicitly.
     """
     docker_client = MagicMock()
 
@@ -103,7 +111,7 @@ def _make_docker_client(
         if labels and "egg.pipeline.id" in labels:
             pid = labels["egg.pipeline.id"]
             ids = (pipeline_live_map or {}).get(pid, [])
-            return [MagicMock(container_id=cid) for cid in ids]
+            return [MagicMock(container_id=cid, status=pipeline_live_status) for cid in ids]
         return [MagicMock(container_id=cid) for cid in live_ids]
 
     docker_client.list_containers.side_effect = _dispatch
@@ -438,6 +446,34 @@ class TestReconcileStaleContainers:
 
         result = reconcile_stale_containers(store, docker_client)
 
+        assert result == 1
+        assert pipeline.status == PipelineStatus.FAILED
+
+    def test_terminal_phase_pods_do_not_mask_orphaned_pipeline(self):
+        """Pods in terminal phases (Failed/Succeeded) inside the Job's TTL
+        window must NOT be counted as live (#2420 review item 1).
+
+        Without the filter, a Failed pod still surviving in the cluster within
+        ``ttlSecondsAfterFinished`` (default 600s) would be returned by the
+        label query and cause the reconciler to leave a genuinely-orphaned
+        pipeline RUNNING.  The filter must classify it as terminal so the
+        pipeline is correctly marked FAILED.
+        """
+        pipeline = _make_pipeline_with_running_agent("dead_xyz")
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client(
+            live_ids=[],
+            # Label query returns a pod, but that pod is in a terminal phase
+            # — the mock helper assigns `pipeline_live_status` as the
+            # ContainerStatus.  This simulates the post-failure-within-TTL
+            # window the reviewer flagged.
+            pipeline_live_map={pipeline.id: ["dead_xyz"]},
+            pipeline_live_status=ContainerStatus.FAILED,
+        )
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        # The terminal-phase pod must NOT mask the orphan: pipeline gets FAILED.
         assert result == 1
         assert pipeline.status == PipelineStatus.FAILED
 
