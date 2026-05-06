@@ -140,17 +140,20 @@ This is a conditional redaction on one message type to one role category — a c
 
 ### Reasoning: Evidence-Backed Deliberation
 
-The reasoning layer ensures agents don't just signal states — they make **structured claims** that peers evaluate. This draws on Habermasian discourse theory, signaling theory, and sycophancy mitigation research.
+The reasoning layer combines two complementary mechanisms with different purposes:
+
+1. **Structured claims** — concrete artifact references (commit SHAs, file paths, test counts, `checks_passed` lists, sections updated) whose value is downstream: peers cross-verify them against the repo. The orchestrator enforces shape checks on the load-bearing ones at the message boundary (`orchestrator/attestation_schemas.py`); reviewers cover the rest by inspection. These are costly signals — hard to fabricate without doing the work — and draw on Habermasian discourse theory, signaling theory, and sycophancy mitigation research.
+2. **Reflection prompts** — open-ended fields (`risk_considered`, `concern_considered`) whose value is upstream: they exist to make the producing agent slow down and articulate at least one concern during composition. The orchestrator does **not** enforce non-emptiness, and reviewers treat them as advisory rather than audit-grade claims. They are metacognitive scaffolding for the producer, not a structured claim peers grade.
 
 #### Per-Role Attestations
 
 **Producer proposals (`CONSENSUS_PROPOSE`):**
 
-| Role | Required attestation |
-|------|---------------------|
-| Coder | Commit SHAs, files changed, test pass/fail summary, one risk considered |
-| Tester | Tests written/run count, coverage delta, edge cases covered, one concern considered, `checks_passed` list of all configured checks that passed (see notes below; refactor / doc-only slices use the no-op propose path — see "Tester no-op propose" callout) |
-| Documenter | Sections updated, links verified, one concern considered (refactor / test-only / no-doc-surface slices use the no-op propose path — see "Documenter no-op propose" callout) |
+| Role | Structured claims (peer-verifiable) | Reflection prompt (advisory) |
+|------|---------------------|------|
+| Coder | Commit SHAs, files changed, test pass/fail summary | One risk considered |
+| Tester | Tests written/run count, coverage delta, edge cases covered, `checks_passed` list of all configured checks that passed (see notes below; refactor / doc-only slices use the no-op propose path — see "Tester no-op propose" callout) | One concern considered |
+| Documenter | Sections updated, links verified (refactor / test-only / no-doc-surface slices use the no-op propose path — see "Documenter no-op propose" callout) | One concern considered |
 
 > **Tester blocked-execution attestation:** If tests could not execute (e.g., private network mode blocks dependency downloads), the Tester must set `tests_execution_blocked: true` with a `tests_execution_blocked_reason` explaining why. The orchestrator accepts this in place of a passing test count.
 
@@ -164,10 +167,10 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 
 **Reviewer evaluations (`CONSENSUS_ACK/NACK`):**
 
-| Role | Required attestation |
-|------|---------------------|
-| Reviewer (code) | Files reviewed (specific paths), issues found + resolved count, one risk considered |
-| Reviewer (contract) | Tasks verified (specific IDs), acceptance criteria checked, gaps identified |
+| Role | Structured claims (peer-verifiable) | Reflection prompt (advisory) |
+|------|---------------------|------|
+| Reviewer (code) | Files reviewed (specific paths), issues found + resolved count | One risk considered |
+| Reviewer (contract) | Tasks verified (specific IDs), acceptance criteria checked, gaps identified | — |
 
 #### Cheap Talk vs Costly Signals
 
