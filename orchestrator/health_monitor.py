@@ -72,6 +72,12 @@ ThrottleCallback = Callable[[dict[str, Any]], None]
 # float counts as never-seen. See `_has_recent_activity` (#2190).
 _NEVER_SEEN_ACTIVITY: float = 0.0
 
+# Canonical agent_id for the overseer. The watchdog's silence is the signal
+# we most need to surface, so the alive-signal gates and the escalation
+# router both special-case it. Matches AgentRole.OVERSEER.value but kept
+# literal here to avoid pulling shared/egg_contracts into health_monitor.
+_OVERSEER_AGENT_ID: str = "overseer"
+
 
 @dataclass
 class AgentState:
@@ -701,18 +707,23 @@ class HealthMonitor:
             # catches the case where the broader pipeline is clearly alive
             # via BRC bus signals or peer heartbeats. Don't set
             # heartbeat_escalated on defer — the next poll re-checks.
-            defer, gate_reason = self._has_recent_activity(agent_id, now)
-            if not defer:
-                defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
-            if defer:
-                logger.info(
-                    "Heartbeat alert deferred by alive-signal gate",
-                    pipeline_id=self._pipeline_id,
-                    agent_id=agent_id,
-                    elapsed_seconds=int(elapsed),
-                    reason=gate_reason,
-                )
-                continue
+            #
+            # Overseer exemption (#2430): the watchdog's silence is the
+            # signal regardless of peer activity. Without this, a healthy
+            # BRC roster defers overseer escalations indefinitely.
+            if agent_id != _OVERSEER_AGENT_ID:
+                defer, gate_reason = self._has_recent_activity(agent_id, now)
+                if not defer:
+                    defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
+                if defer:
+                    logger.info(
+                        "Heartbeat alert deferred by alive-signal gate",
+                        pipeline_id=self._pipeline_id,
+                        agent_id=agent_id,
+                        elapsed_seconds=int(elapsed),
+                        reason=gate_reason,
+                    )
+                    continue
 
             action = {
                 "action": "escalate",
@@ -722,7 +733,7 @@ class HealthMonitor:
             }
             actions.append(action)
 
-            escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+            escalation_type = self._resolve_escalation_target(agent_id)
             escalation = {
                 "type": escalation_type,
                 "agent_id": agent_id,
@@ -800,18 +811,22 @@ class HealthMonitor:
             # Focal-agent activity gate (#2190) OR alive-signal peer-progress
             # gate (#2242): same OR pattern as check_heartbeats — defer when
             # either fires.
-            defer, gate_reason = self._has_recent_activity(agent_id, now)
-            if not defer:
-                defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
-            if defer:
-                logger.info(
-                    "Progress alert deferred by alive-signal gate",
-                    pipeline_id=self._pipeline_id,
-                    agent_id=agent_id,
-                    elapsed_seconds=int(elapsed),
-                    reason=gate_reason,
-                )
-                continue
+            #
+            # Overseer exemption (#2430): see check_heartbeats — the
+            # watchdog's silence must surface even when peers are alive.
+            if agent_id != _OVERSEER_AGENT_ID:
+                defer, gate_reason = self._has_recent_activity(agent_id, now)
+                if not defer:
+                    defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
+                if defer:
+                    logger.info(
+                        "Progress alert deferred by alive-signal gate",
+                        pipeline_id=self._pipeline_id,
+                        agent_id=agent_id,
+                        elapsed_seconds=int(elapsed),
+                        reason=gate_reason,
+                    )
+                    continue
 
             action = {
                 "action": "escalate",
@@ -821,7 +836,7 @@ class HealthMonitor:
             }
             actions.append(action)
 
-            escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+            escalation_type = self._resolve_escalation_target(agent_id)
             escalation = {
                 "type": escalation_type,
                 "agent_id": agent_id,
@@ -857,9 +872,21 @@ class HealthMonitor:
     # Escalation helpers
     # -----------------------------------------------------------------
 
+    def _resolve_escalation_target(self, agent_id: str) -> str:
+        """Return the escalation route for an alert about ``agent_id``.
+
+        The overseer's own escalations always go to HITL — routing them to
+        the agent that is itself the problem would silently swallow them
+        (#2430). All other agents go to the overseer when enabled, HITL
+        otherwise.
+        """
+        if agent_id == _OVERSEER_AGENT_ID:
+            return "hitl"
+        return "overseer" if self._config.overseer_enabled else "hitl"
+
     def _escalate_error(self, agent_id: str, error_msg: str, count: int) -> None:
         """Escalate repeated identical errors."""
-        escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+        escalation_type = self._resolve_escalation_target(agent_id)
         escalation = {
             "type": escalation_type,
             "agent_id": agent_id,
@@ -1120,7 +1147,7 @@ class HealthMonitor:
                     timeout_seconds=timeout,
                 )
 
-                escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
+                escalation_type = self._resolve_escalation_target(producer)
                 escalation = {
                     "type": escalation_type,
                     "agent_id": producer,
