@@ -1413,7 +1413,9 @@ class TestRestartAgentEndpointBaseBranch:
         mock_store.load_pipeline.return_value = pipeline
         mock_resolve.return_value = (mock_store, pipeline)
 
-        mock_load_contract.side_effect = ContractNotFoundError("not populated yet")
+        mock_load_contract.side_effect = ContractNotFoundError(
+            "issue-100", Path("/repo/.egg-state/contracts/issue-100.json")
+        )
 
         mock_spawner = MagicMock()
         new_container = SpawnedContainer(
