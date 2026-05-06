@@ -13525,11 +13525,21 @@ def _populate_contract_from_plan(
     Extracts task structure from markdown headers in the plan draft
     and writes tasks + acceptance criteria to the contract.
 
-    When ``current_phase`` is provided, also advances the contract's
-    ``current_phase`` to that value. This is needed when the populator
-    runs outside the natural plan-completion hook (e.g.
-    ``start_phase=implement``, which skips plan and never fires the
-    plan-completion advance — #2427 sub-bug).
+    When ``current_phase`` is provided, the contract's
+    ``current_phase`` is advanced to that value **only if it would move
+    the phase forward** (REFINE → PLAN → IMPLEMENT → PR).  Backward
+    transitions are silently ignored so a respawn of the safety-net
+    populator (e.g. when a ``start_phase=implement`` pipeline progresses
+    to PR and re-enters ``_run_pipeline``) cannot demote the contract.
+    The advance also appends a ``create_transition_entry`` audit log
+    entry so operators inspecting the audit trail see the transition.
+
+    This parameter is needed because the natural plan-completion path
+    advances ``pipeline.current_phase`` (orchestrator-side) but leaves
+    ``contract.current_phase`` for the reviewer agent / gateway phase
+    API to advance via ``apply_mutation``.  When ``start_phase=implement``
+    no plan reviewer runs, so the populator nudges the contract itself
+    (#2427 sub-bug).
     """
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -13668,8 +13678,40 @@ def _populate_contract_from_plan(
             changed = True
 
         if current_phase is not None and contract.current_phase != current_phase:
-            contract.current_phase = current_phase
-            changed = True
+            # Forward-only: never demote.  Without this guard a respawn
+            # of _run_pipeline (e.g. when a start_phase=implement pipeline
+            # progresses to the PR phase and re-enters the safety-net
+            # call site) would silently roll contract.current_phase back
+            # from PR/IMPLEMENT to whatever the call site hardcoded.
+            _phase_order = (
+                PipelinePhase.REFINE,
+                PipelinePhase.PLAN,
+                PipelinePhase.IMPLEMENT,
+                PipelinePhase.PR,
+            )
+            if (
+                contract.current_phase in _phase_order
+                and current_phase in _phase_order
+                and _phase_order.index(current_phase) > _phase_order.index(contract.current_phase)
+            ):
+                from egg_contracts.audit import create_transition_entry
+                from egg_contracts.models import AuditRole
+
+                old_phase = contract.current_phase
+                contract.audit_log.append(
+                    create_transition_entry(
+                        actor="orchestrator",
+                        role=AuditRole.SYSTEM,
+                        from_phase=old_phase.value,
+                        to_phase=current_phase.value,
+                        reason=(
+                            "populator advanced contract.current_phase "
+                            "(start_phase bypassed plan; #2427)"
+                        ),
+                    )
+                )
+                contract.current_phase = current_phase
+                changed = True
 
         if changed:
             save_contract(contract, repo_path)
@@ -14789,16 +14831,22 @@ def _run_pipeline(
             )
             if plan_draft_rel and (worktree_repo_path / plan_draft_rel).exists():
                 # Advance contract.current_phase alongside slice/PR
-                # ingestion: the plan-completion hook that normally
-                # advances the contract is skipped when start_phase
-                # bypasses plan, so the contract would otherwise stay
-                # at REFINE forever (#2427 sub-bug).
+                # ingestion.  In the natural flow contract.current_phase
+                # is mutated by the plan reviewer agent (or the gateway
+                # phase API) via apply_mutation; with start_phase=implement
+                # no such reviewer ever runs, so the contract would stay
+                # at REFINE forever (#2427 sub-bug).  We pass
+                # pipeline.current_phase rather than a hardcoded literal
+                # so the right value follows automatically if start_phase
+                # ever supports values other than 'implement'.  The
+                # populator enforces forward-only advancement, so a
+                # respawn during the PR phase cannot demote the contract.
                 _populate_contract_from_plan(
                     worktree_repo_path,
                     pipeline_id,
                     pipeline_mode,
                     pipeline.issue_number,
-                    current_phase=PipelinePhase.IMPLEMENT,
+                    current_phase=pipeline.current_phase,
                 )
 
         # Check for feedback preserved by the recovery path in start_pipeline
