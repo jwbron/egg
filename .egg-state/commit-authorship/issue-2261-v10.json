@@ -14,6 +14,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
     },
+    "1f34f17ca162b338afd8276eb650009cfd0179f8": {
+      "branch": "egg/issue-2261-v10/slice-5",
+      "pipeline_id": "issue-2261-v10",
+      "registered_at": "2026-05-06T20:30:08.181856+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "289bd508f06c643fc36173c86d9e07ce7e3716be": {
       "branch": "egg/issue-2261-v10/slice-3",
       "pipeline_id": "issue-2261-v10",
