@@ -999,3 +999,25 @@ class TestSandboxJiraEnvBuilderSourceSnippet:
                 "sandbox_env; this violates the zero-credential invariant "
                 "(issue #1556 risk R7)."
             )
+
+    def test_source_never_exports_egg_branch(self):
+        """The run loop must not stuff ``EGG_BRANCH`` into ``sandbox_env`` (#2428).
+
+        The spawner is the single source of truth for the agent's
+        assigned branch — it derives ``EGG_BRANCH`` from its ``branch``
+        parameter, which the slice scheduler populates with the slice
+        integration branch via
+        ``ConcurrentPhaseExecutor.get_worktree_branch``. Writing
+        ``EGG_BRANCH`` into ``sandbox_env`` here threads it into
+        ``extra_env``, where the spawner's override loop runs after
+        the default-from-``branch`` assignment — deterministic
+        precedence — so the pipeline-level value silently wins and
+        slice agents are downgraded to the pipeline tip, breaking
+        every slice-coder push (the original bug).
+        """
+        src = (Path(__file__).parent.parent / "routes" / "pipelines.py").read_text()
+        assert 'sandbox_env["EGG_BRANCH"]' not in src, (
+            "orchestrator/routes/pipelines.py writes EGG_BRANCH into "
+            "sandbox_env; the spawner is the single source of truth and "
+            "this re-introduces the slice-coder push bug fixed in #2428."
+        )

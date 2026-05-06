@@ -107,7 +107,7 @@ try:
         PipelineStatus,
         ReviewVerdict,
     )
-    from ..slice_id_validation import extract_slice_id
+    from ..slice_id_validation import SLICE_ID_PATTERN, extract_slice_id
     from ..state_store import (
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -154,7 +154,7 @@ except ImportError:
         PipelineStatus,
         ReviewVerdict,
     )
-    from slice_id_validation import extract_slice_id  # type: ignore
+    from slice_id_validation import SLICE_ID_PATTERN, extract_slice_id  # type: ignore
     from state_store import (  # type: ignore
         InvalidPipelineIdError,
         PipelineNotFoundError,
@@ -2378,8 +2378,20 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             else f"egg/{pipeline_id}/work"
         )
         _issue_branch = _slice_namespace_root(_pipeline_branch)
-        _normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
-        agent_branch = f"{_issue_branch}/{_normalised_slice}"
+        # Defense-in-depth: re-validate the slice id shape before
+        # embedding it in a git ref. ``extract_slice_id`` (above)
+        # already enforces ``^slice-[0-9]+$`` on the request payload,
+        # but the helper is part of the gateway-facing surface — a
+        # future caller that forgets upstream validation must not be
+        # able to smuggle path separators or shell metacharacters in
+        # via this seam. Mirrors the check at
+        # ``concurrent_executor.get_worktree_branch`` so both spawn
+        # entrypoints share the same canonical pattern.
+        if not SLICE_ID_PATTERN.fullmatch(slice_id):
+            raise ValueError(
+                f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
+            )
+        agent_branch = f"{_issue_branch}/{slice_id}"
     else:
         agent_branch = pipeline.branch
 
@@ -15054,11 +15066,14 @@ def _run_pipeline(
             # which the slice scheduler populates with the slice
             # integration branch via
             # ``ConcurrentPhaseExecutor.get_worktree_branch``. Stuffing
-            # ``pipeline.branch`` into ``sandbox_env`` here used to win
-            # the env-var override race in the spawner and silently
-            # downgrade slice agents to the pipeline tip, breaking
-            # every slice-coder push. The branch persistence below is
-            # the only side-effect the run loop still needs.
+            # ``pipeline.branch`` into ``sandbox_env`` here used to be
+            # threaded through ``extra_env``, where the spawner's
+            # override loop runs after the default-from-``branch``
+            # assignment — deterministic precedence, not a race — so
+            # the pipeline-level value silently won and slice agents
+            # were downgraded to the pipeline tip, breaking every
+            # slice-coder push. The branch persistence below is the
+            # only side-effect the run loop still needs.
             if not pipeline.branch:
                 generated_branch = f"egg/{pipeline_id}/work"
                 # Persist the generated branch so the PR phase can use it
