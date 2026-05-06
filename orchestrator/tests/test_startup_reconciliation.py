@@ -79,10 +79,34 @@ def _make_store(pipeline: Pipeline) -> MagicMock:
     return store
 
 
-def _make_docker_client(live_ids: list[str]) -> MagicMock:
+def _make_docker_client(
+    live_ids: list[str],
+    pipeline_live_map: dict[str, list[str]] | None = None,
+) -> MagicMock:
+    """Build a mock docker client.
+
+    Args:
+        live_ids: Cluster-wide live container IDs returned for the un-scoped
+            ``list_containers(all=False)`` call.
+        pipeline_live_map: Per-pipeline mapping from pipeline_id to the list
+            of live container IDs returned for label-scoped queries
+            (``list_containers(labels={"egg.pipeline.id": <id>})``).  When
+            omitted, label-scoped queries default to ``[]`` for any
+            pipeline_id — matching real k8s, where label scoping is a
+            strict subset of the un-scoped query and an unknown label
+            value yields an empty list.  Tests that need a pipeline to
+            be observed as having live pods must set this explicitly.
+    """
     docker_client = MagicMock()
-    live_containers = [MagicMock(container_id=cid) for cid in live_ids]
-    docker_client.list_containers.return_value = live_containers
+
+    def _dispatch(all=True, labels=None):
+        if labels and "egg.pipeline.id" in labels:
+            pid = labels["egg.pipeline.id"]
+            ids = (pipeline_live_map or {}).get(pid, [])
+            return [MagicMock(container_id=cid) for cid in ids]
+        return [MagicMock(container_id=cid) for cid in live_ids]
+
+    docker_client.list_containers.side_effect = _dispatch
     return docker_client
 
 
@@ -124,7 +148,10 @@ class TestReconcileStaleContainers:
         pipeline = _make_pipeline_with_running_agent(container_id)
 
         store = _make_store(pipeline)
-        docker_client = _make_docker_client([container_id])  # still running
+        docker_client = _make_docker_client(
+            live_ids=[container_id],
+            pipeline_live_map={pipeline.id: [container_id]},
+        )
 
         result = reconcile_stale_containers(store, docker_client)
 
@@ -238,8 +265,16 @@ class TestReconcileStaleContainers:
         assert p1.status == PipelineStatus.FAILED
         assert p2.status == PipelineStatus.FAILED
 
-    def test_alive_container_not_disturbed_alongside_dead_one(self):
-        """Only stale containers/agents are touched; live ones are left alone."""
+    def test_pipeline_with_any_live_pod_left_running(self):
+        """A pipeline with at least one live pod (per label query) stays RUNNING.
+
+        Pre-#2411 behavior was to mark the whole pipeline FAILED whenever any
+        in-memory record had a stale container_id, even if other records were
+        still backed by live pods. That false-positive divorced the
+        orchestrator from healthy pipelines after a restart, since persisted
+        container_ids can drift from the new orch process's view of the
+        cluster (#2411).
+        """
         pipeline = Pipeline(
             id="issue-mixed",
             issue_number=100,
@@ -275,22 +310,136 @@ class TestReconcileStaleContainers:
             )
 
         store = _make_store(pipeline)
-        docker_client = _make_docker_client([live_id])
+        docker_client = _make_docker_client(
+            live_ids=[live_id],
+            pipeline_live_map={pipeline.id: [live_id]},
+        )
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        # Pipeline has at least one live pod under its label, so the whole
+        # pipeline is left RUNNING.  Stale records aren't touched here —
+        # the running orchestrator's reconciliation handles record drift,
+        # not startup.
+        assert result == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+        store.save_pipeline.assert_not_called()
+        for ci in phase.containers:
+            assert ci.status == ContainerStatus.RUNNING
+        for agent in phase.agents:
+            assert agent.status == AgentExecutionStatus.RUNNING
+
+    def test_record_drift_does_not_fail_pipeline_when_pods_alive(self):
+        """Persisted container_id drift after orch restart leaves pipeline RUNNING.
+
+        The exact #2411 scenario: after the orch pod restarts, agents have
+        been re-recorded under new container_ids that don't match what was
+        persisted before the restart.  The label-scoped k8s query reflects
+        ground truth (alive pods exist for the pipeline), so the pipeline
+        stays RUNNING — even though no in-memory ``container_id`` matches
+        the global live-id set.
+        """
+        pipeline = _make_pipeline_with_running_agent("stale-id-from-before-restart")
+        # k8s reports a different container_id for the same pipeline
+        # (e.g. pod was recreated and got a new uid).
+        new_pod_id = "new-pod-uid-after-restart"
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client(
+            live_ids=[new_pod_id],
+            pipeline_live_map={pipeline.id: [new_pod_id]},
+        )
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+        store.save_pipeline.assert_not_called()
+
+    def test_label_query_failure_leaves_pipeline_running(self):
+        """If the per-pipeline label query raises, fail-safe and leave RUNNING.
+
+        Pre-#2411 behavior was to mark the pipeline FAILED whenever any
+        in-memory record had a stale container_id.  After #2411 we trust
+        the label-scoped query as ground truth, but that means a failure
+        in *just* the label query would silently fall back to the buggy
+        behavior the PR is fixing.  The chosen trade-off is to fail-safe
+        on the rare case where the global query succeeded but the
+        label-scoped query errored — defer to the running orchestrator's
+        reconciliation rather than re-introduce the #2411 false-positive
+        on a misbehaving cluster.
+        """
+        pipeline = _make_pipeline_with_running_agent("dead_xyz")
+        store = _make_store(pipeline)
+
+        docker_client = MagicMock()
+        global_live = [MagicMock(container_id="some_other_pipeline_id")]
+
+        def _list_containers(all=True, labels=None):
+            if labels and "egg.pipeline.id" in labels:
+                raise RuntimeError("simulated k8s flake on label query")
+            return global_live
+
+        docker_client.list_containers.side_effect = _list_containers
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+        store.save_pipeline.assert_not_called()
+
+    def test_label_query_failure_with_id_drift_does_not_mark_failed(self):
+        """The exact #2411 drift case under label-query failure stays RUNNING.
+
+        Persisted ``container_id=stale-from-before-restart`` and the global
+        live-id set contains only the new post-restart pod uid (i.e. the
+        records have drifted).  If the per-pipeline label query then
+        errors, the pre-#2411 fallback would have marked the pipeline
+        FAILED — exactly the bug this PR exists to prevent.  Pin the
+        fail-safe behavior with a test so a future maintainer cannot
+        accidentally re-introduce the bait-and-switch.
+        """
+        pipeline = _make_pipeline_with_running_agent("stale-from-before-restart")
+        new_pod_id = "new-pod-uid-after-restart"
+        store = _make_store(pipeline)
+
+        docker_client = MagicMock()
+        global_live = [MagicMock(container_id=new_pod_id)]
+
+        def _list_containers(all=True, labels=None):
+            if labels and "egg.pipeline.id" in labels:
+                raise RuntimeError("simulated k8s flake on label query")
+            return global_live
+
+        docker_client.list_containers.side_effect = _list_containers
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+        store.save_pipeline.assert_not_called()
+
+    def test_label_query_returns_empty_marks_pipeline_failed(self):
+        """When k8s reports zero pods for the pipeline, it is marked FAILED.
+
+        This is the genuinely-orphaned case: the pipeline shows RUNNING in
+        the persisted state, but no pod with ``egg.pipeline.id=<id>`` is
+        alive in the cluster.  The pipeline is correctly marked FAILED so
+        operators see something actionable.
+        """
+        pipeline = _make_pipeline_with_running_agent("dead_xyz")
+        store = _make_store(pipeline)
+        # Other pipelines have live pods globally, but none are labeled to
+        # this pipeline.
+        docker_client = _make_docker_client(
+            live_ids=["other_pipeline_pod"],
+            pipeline_live_map={pipeline.id: []},
+        )
 
         result = reconcile_stale_containers(store, docker_client)
 
         assert result == 1
         assert pipeline.status == PipelineStatus.FAILED
-
-        live_ci = next(ci for ci in phase.containers if ci.container_id == live_id)
-        dead_ci = next(ci for ci in phase.containers if ci.container_id == dead_id)
-        assert live_ci.status == ContainerStatus.RUNNING
-        assert dead_ci.status == ContainerStatus.FAILED
-
-        live_agent = next(a for a in phase.agents if a.container_id == live_id)
-        dead_agent = next(a for a in phase.agents if a.container_id == dead_id)
-        assert live_agent.status == AgentExecutionStatus.RUNNING
-        assert dead_agent.status == AgentExecutionStatus.FAILED
 
     def test_reconciles_running_container_in_completed_phase(self):
         """A RUNNING agent in the current phase (marked COMPLETE) with a dead container is FAILED.
@@ -376,7 +525,10 @@ class TestReconcileStaleContainers:
         )
 
         store = _make_store(pipeline)
-        docker_client = _make_docker_client(["plan_live_xyz"])  # only plan container alive
+        docker_client = _make_docker_client(
+            live_ids=["plan_live_xyz"],
+            pipeline_live_map={pipeline.id: ["plan_live_xyz"]},
+        )
 
         result = reconcile_stale_containers(store, docker_client)
 
@@ -536,7 +688,10 @@ class TestReconcileOrphanedPendingPhase:
         )
 
         store = _make_store(pipeline)
-        docker_client = _make_docker_client(["live_abc"])
+        docker_client = _make_docker_client(
+            live_ids=["live_abc"],
+            pipeline_live_map={pipeline.id: ["live_abc"]},
+        )
 
         result = reconcile_stale_containers(store, docker_client)
 
@@ -714,7 +869,10 @@ class TestStartupConsensusReconstruction:
         )
 
         store = _make_store(pipeline)
-        docker_client = _make_docker_client(["live123"])
+        docker_client = _make_docker_client(
+            live_ids=["live123"],
+            pipeline_live_map={pipeline.id: ["live123"]},
+        )
 
         # The startup_reconciliation imports these functions locally, so we
         # patch them at their source modules.
@@ -768,7 +926,10 @@ class TestStartupConsensusReconstruction:
         )
 
         store = _make_store(pipeline)
-        docker_client = _make_docker_client(["live123"])
+        docker_client = _make_docker_client(
+            live_ids=["live123"],
+            pipeline_live_map={pipeline.id: ["live123"]},
+        )
 
         mock_tracker = MagicMock()
         mock_tracker.evaluate.return_value = {"is_complete": True}

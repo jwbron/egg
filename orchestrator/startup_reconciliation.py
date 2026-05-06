@@ -26,15 +26,26 @@ except ImportError:
 
 logger = get_logger("orchestrator.startup_reconciliation")
 
+# K8s label that scopes a pod to a specific pipeline.  Imported from
+# ``kubernetes_client`` so the literal lives in exactly one place.  Safe at
+# import time because ``kubernetes_client`` only imports the ``kubernetes``
+# pip package inside method bodies, so this module stays importable even
+# in test environments that don't install it.
+from kubernetes_client import LABEL_PIPELINE_ID as _LABEL_PIPELINE_ID
+
 
 def reconcile_stale_containers(store: object, docker_client: object) -> int:
     """Detect and recover pipelines whose running containers are gone.
 
     Called once at orchestrator startup before serving requests.  For each
-    pipeline that shows status=RUNNING, any agent/container whose container_id
-    is absent from the live Docker container set is marked FAILED.  If at
-    least one such stale entry is found the pipeline itself is marked FAILED
-    so that operators can restart it via POST /pipelines/{id}/start.
+    pipeline that shows status=RUNNING, the reconciler queries k8s for live
+    pods labeled ``egg.pipeline.id=<id>``.  If any pods are alive for the
+    pipeline, the pipeline is left RUNNING — record drift between the
+    persisted in-memory state and the new orch process's view of the pods is
+    expected after a restart and is reconciled by the running orchestrator,
+    not at startup (#2411).  Only when the pipeline has zero live pods do we
+    fall back to the older "any stale record fails the pipeline" behavior so
+    that genuinely orphaned pipelines still surface as FAILED.
 
     Args:
         store: StateStore instance (already bound to the correct repo path).
@@ -168,6 +179,47 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
                     pipeline_id=pipeline_id,
                     error=str(e),
                 )
+            continue
+
+        # Query k8s for pods labeled to this pipeline.  When any are alive
+        # the pipeline is not dead — even if individual ``container_id``s in
+        # the persisted state don't match the new orch process's view of
+        # the pods (e.g. a pod was recreated and its uid changed, or the
+        # record was written before the latest pod uid was observed),
+        # treat that drift as a problem the running orchestrator will
+        # reconcile naturally instead of terminating the pipeline at
+        # startup (#2411).
+        #
+        # On failure we fail-safe (leave the pipeline RUNNING and skip).
+        # In practice both queries route through the same
+        # ``KubernetesClient.list_containers`` → ``list_namespaced_pod`` —
+        # if the global query at line 63 already succeeded, a per-pipeline
+        # failure is rare enough that the safe choice is to defer to the
+        # running orchestrator's reconciliation rather than risk repeating
+        # the #2411 false-positive on misbehaving clusters.  The genuinely
+        # orphaned case (zero live pods) is rare and surfaceable elsewhere
+        # — drift cases are the active concern here.
+        try:
+            pipeline_live_containers = docker_client.list_containers(  # type: ignore[attr-defined]
+                labels={_LABEL_PIPELINE_ID: pipeline_id},
+            )
+            pipeline_live_ids: set[str] = {ci.container_id for ci in pipeline_live_containers}
+        except Exception as e:
+            logger.warning(
+                "Startup reconciliation: pipeline-scoped container query failed, "
+                "leaving pipeline RUNNING (deferring to running orchestrator's "
+                "reconciliation rather than risk a #2411-style false positive)",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+            continue
+
+        if pipeline_live_ids:
+            logger.info(
+                "Startup reconciliation: pipeline has live pods, leaving RUNNING",
+                pipeline_id=pipeline_id,
+                live_pod_count=len(pipeline_live_ids),
+            )
             continue
 
         for container_info in phase_execution.containers:

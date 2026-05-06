@@ -763,6 +763,55 @@ PIPELINE_TOOLS = [
         },
     },
     {
+        "name": "start_pipeline",
+        "description": (
+            "Recover a non-RUNNING pipeline by calling "
+            "``POST /api/v1/pipelines/{id}/start``.  Targets pipeline-level "
+            "state — distinct from ``start_phase``, which only flips the "
+            "current phase.  Intended for the FAILED + RUNNING-phase combo "
+            "that startup reconciliation can produce (#2411): the route "
+            "**unconditionally** resets the failed phase to PENDING "
+            "(clears ``containers``, ``agents``, ``artifacts`` regardless "
+            "of whether the records are verifiably stale), bumps "
+            "``run_epoch``, sets ``pipeline.status = RUNNING``, and "
+            "re-launches the ``_run_pipeline`` thread.  Also handles "
+            "AWAITING_HUMAN recovery when all decisions are resolved, and "
+            "starts PENDING pipelines (no early-return for PENDING in the "
+            "route).\n\n"
+            "Note: the reset is unconditional — there is no programmatic "
+            "check for live pods.  If pods labeled to the pipeline still "
+            "exist (e.g. orch restarted but pods are healthy), they will "
+            "be orphaned.  This footgun applies to **all** non-RUNNING "
+            "states the route accepts, not just the FAILED + RUNNING-phase "
+            "combo: AWAITING_HUMAN-with-resolved-decisions also flows "
+            "through a phase-reset branch (when the resolution is "
+            "request_changes / change_approach), and startup "
+            "reconciliation's AWAITING_HUMAN→FAILED transition runs "
+            "*before* the new live-pod safety net (so the live-pod-orphan "
+            "case can apply on the AWAITING_HUMAN recovery path too).  "
+            "Use ``cancel_task(cleanup=true)`` first or rely on the "
+            "running orchestrator's reconciliation if the pipeline is "
+            "genuinely alive.  See #2420 for the tracking issue on "
+            "adding a defensive route-level guard.\n\n"
+            "Error responses include a machine-readable ``reason`` code "
+            "(#1939). Note: reason codes are only visible to direct HTTP "
+            "callers; the MCP handler layer does not yet surface them.\n"
+            "- 409 — pipeline already RUNNING / COMPLETE / CANCELLED, or "
+            "AWAITING_HUMAN with pending decisions\n"
+            "- ``invalid_pipeline_id`` (400), ``pipeline_not_found`` (404)"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
         "name": "start_phase",
         "description": (
             "Flip the current phase's execution status to RUNNING. Mutates: "
@@ -1069,6 +1118,7 @@ class PipelineToolHandler:
             "restart_agent": self._handle_restart_agent,
             "restart_phase": self._handle_restart_phase,
             "advance_phase": self._handle_advance_phase,
+            "start_pipeline": self._handle_start_pipeline,
             "start_phase": self._handle_start_phase,
             "complete_phase": self._handle_complete_phase,
             "populate_contract": self._handle_populate_contract,
@@ -2587,6 +2637,21 @@ class PipelineToolHandler:
         if failed_containers:
             result["failed_containers"] = failed_containers
         return result
+
+    def _handle_start_pipeline(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Recover a non-RUNNING pipeline (#2411).
+
+        Targets the pipeline-level recovery route ``POST
+        /api/v1/pipelines/{id}/start``.  See the ``start_pipeline`` tool
+        definition in :data:`PIPELINE_TOOLS` for the full contract,
+        including the FAILED + RUNNING-phase combo from startup
+        reconciliation that this verb exists to recover from.
+        """
+        task_id = quote(args["task_id"], safe="")
+        return self._make_request(
+            f"/api/v1/pipelines/{task_id}/start",
+            method="POST",
+        )
 
     def _handle_start_phase(self, args: dict[str, Any]) -> dict[str, Any]:
         """Start execution of the current phase."""
