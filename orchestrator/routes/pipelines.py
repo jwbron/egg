@@ -245,6 +245,16 @@ def _track_host_wait_end() -> None:
 # -----------------------------------------------------------------
 _STATUS_WAIT_CURSOR_RE = re.compile(r"^msg:([^|]*)\|evt:(-?\d*)$")
 
+# Slice-or-phase id shape used when reading the parent edge from the
+# contract for the restart route's ``base_branch`` derivation (#2439).
+# ``Slice.id`` permits either ``slice-<N>`` (canonical) or ``phase-<N>``
+# (legacy, pre-#2137) and the contract migration shim only normalises
+# the typical case where the input has a top-level ``phases`` key. A
+# directly-loaded ``slices`` field with legacy ids is rare but allowed
+# by the model — accept either shape here so the gate doesn't false-
+# reject a legitimate restart on a long-lived contract.
+_SLICE_OR_PHASE_ID_PATTERN = re.compile(r"^(?:slice|phase)-[0-9]+$")
+
 # Event allowlist for ``/status/wait`` (issue #1932 locked in
 # refine HITL decision 2).  The route returns early when an event
 # matching any of these types is published.  ``DECISION_RESOLVED``
@@ -2505,6 +2515,11 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # silently if the contract can't be loaded (worktree pruned,
     # contract not yet populated, filesystem error) so we don't
     # regress legitimate restarts on the existing pipeline-level path.
+    #
+    # The contract is also consulted to resolve the slice's parent
+    # edge (#2439) so the spawner's ``base_branch`` matches the
+    # parent slice's integration branch on a worktree-absent restart.
+    parent_slice_id: str | None = None
     if slice_id is not None:
         if not pipeline.has_contract:
             return make_error_response(
@@ -2565,6 +2580,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                             "known_slices": sorted(known_slice_ids),
                         },
                     )
+                # Resolve the slice's parent edge (#2439). The forest
+                # constraint enforced by contract ingestion guarantees
+                # at most one DAG parent per slice, so taking the first
+                # dependency is sufficient. Root slices (no parent)
+                # leave ``parent_slice_id`` as ``None``.
+                slice_obj = next((s for s in contract.slices if s.id == slice_id), None)
+                if slice_obj is not None and slice_obj.dependencies:
+                    parent_slice_id = slice_obj.dependencies[0]
 
     # Restart the container via spawner
     spawner = _get_spawner()
@@ -2600,6 +2623,22 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # derivation in :func:`_run_implement_phase_slices` so a restarted
     # slice agent lands on the same integration branch its peers are
     # using.
+    #
+    # The spawner's ``base_branch`` is the ref the per-agent worktree
+    # is forked off of when the worktree must be (re)created (#2439).
+    # ``pipeline.branch`` (the integration tip) is the wrong target —
+    # if the worktree is absent at restart time, forking from the
+    # pipeline tip pulls sibling slices' commits into the rebuilt
+    # worktree. The right base depends on context:
+    #   - Pipeline-level restart: ``pipeline.base_branch`` (matches
+    #     the rest of the codebase: every other call site uses
+    #     ``pipeline.base_branch`` for spawner ``base_branch``).
+    #   - Slice restart with a parent in the contract's slice forest:
+    #     the parent slice's integration branch
+    #     (``<root>/<parent_slice_id>``), mirroring ``parent_branch``
+    #     in :func:`_run_one_slice_inner`.
+    #   - Root-slice restart, or slice restart when the contract
+    #     can't be loaded: ``pipeline.base_branch`` (fallback).
     if slice_id is not None:
         _pipeline_branch = pipeline.branch or (
             f"egg/issue-{pipeline.issue_number}/work"
@@ -2621,8 +2660,25 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
             )
         agent_branch = f"{_issue_branch}/{slice_id}"
+        if parent_slice_id is not None:
+            # Defense-in-depth: ``parent_slice_id`` came from the
+            # contract loader (whose ``Slice.id`` regex permits both
+            # canonical ``slice-<N>`` and legacy ``phase-<N>``), so
+            # accept either shape before embedding into a git ref.
+            # Anything outside that envelope is a corrupt-contract
+            # smell — fail loudly rather than synthesising a malformed
+            # ref the gateway would reject anyway.
+            if not _SLICE_OR_PHASE_ID_PATTERN.fullmatch(parent_slice_id):
+                raise ValueError(
+                    f"parent_slice_id={parent_slice_id!r} does not match "
+                    f"the canonical shape ``slice-<N>`` (or legacy ``phase-<N>``)"
+                )
+            base_branch_for_restart = f"{_issue_branch}/{parent_slice_id}"
+        else:
+            base_branch_for_restart = pipeline.base_branch
     else:
         agent_branch = pipeline.branch
+        base_branch_for_restart = pipeline.base_branch
 
     # Reconstruct command and extra_env for concurrent agents.
     # In concurrent mode, agents need a consensus-wrapped prompt command
@@ -2701,7 +2757,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             phase=current_phase,
             command=command,
             branch=agent_branch,
-            base_branch=pipeline.branch,
+            base_branch=base_branch_for_restart,
             reason=reason,
             spawn_max_retries=pipeline.config.spawn_max_retries,
             spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,

@@ -1176,6 +1176,272 @@ class TestRestartAgentEndpointSliceScope:
 
 
 # ---------------------------------------------------------------------------
+# Issue #2439: spawner ``base_branch`` matches the slice forest's parent edge
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartAgentEndpointBaseBranch:
+    """Restart route forwards the right ``base_branch`` to the spawner (#2439).
+
+    ``gateway.create_worktrees`` is idempotent and ``restart_agent_job``
+    passes ``preserve_worktree_on_failure=True``, so most restarts hit a
+    pre-existing worktree and the wrong ``base_branch`` is never
+    consulted — but a worktree-absent restart (cleanup race, manual
+    gateway prune, container hostpath wiped) reaches the worktree
+    creation path. Forking from ``pipeline.branch`` (the integration
+    tip) at that point pulls sibling slices' commits into the rebuilt
+    worktree.
+    """
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_pipeline_level_restart_uses_pipeline_base_branch(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Pipeline-level restart forwards ``pipeline.base_branch`` (not ``pipeline.branch``).
+
+        Every other call site in the codebase uses ``pipeline.base_branch``
+        for spawner ``base_branch``; the operator-triggered restart route
+        was the lone outlier (#2439).
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.base_branch = "main"
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={"reason": "Pipeline-level restart"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["base_branch"] == "main"
+        # Defensive: the integration tip must NEVER be forwarded as
+        # ``base_branch``. If the worktree is rebuilt, forking from
+        # the tip leaks tip commits into the per-agent worktree.
+        assert restart_call.kwargs["base_branch"] != pipeline.branch
+
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_root_slice_restart_uses_pipeline_base_branch(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_load_contract,
+        client,
+    ):
+        """A root slice (no parent in the slice forest) falls back to ``pipeline.base_branch``."""
+        from egg_contracts.models import Contract, Slice
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.branch = "egg/issue-100/work"
+        pipeline.base_branch = "main"
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_load_contract.return_value = Contract(
+            pipeline_id="issue-100",
+            # slice-1 has no dependencies → root of the forest.
+            slices=[Slice(id="slice-1", name="Root slice")],
+        )
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-1-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-1",
+            json={"reason": "Root slice agent stalled"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["base_branch"] == "main"
+
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_child_slice_restart_uses_parent_slice_integration_branch(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_load_contract,
+        client,
+    ):
+        """A child slice's restart forks from its parent slice's integration branch.
+
+        Mirrors :func:`_run_one_slice_inner`'s ``parent_branch``
+        derivation: when ``slice-2`` lists ``slice-1`` as its
+        dependency, the parent integration branch is
+        ``<namespace_root>/slice-1``. Without this, a worktree-absent
+        restart of ``slice-2`` would re-fork from the pipeline tip
+        and pull sibling-slice commits into ``slice-2``'s rebuilt
+        worktree (#2439).
+        """
+        from egg_contracts.models import Contract, Slice
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.branch = "egg/issue-100/work"
+        pipeline.base_branch = "main"
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_load_contract.return_value = Contract(
+            pipeline_id="issue-100",
+            slices=[
+                Slice(id="slice-1", name="Parent slice"),
+                Slice(
+                    id="slice-2",
+                    name="Child slice",
+                    dependencies=["slice-1"],
+                ),
+            ],
+        )
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
+            json={"reason": "Child slice agent stalled"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        # The agent's assigned branch is still its OWN integration
+        # branch (slice-2). It's the spawner's ``base_branch`` — the
+        # ref the per-agent worktree is forked off of when rebuilt —
+        # that should reference the parent slice's integration branch.
+        assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
+        assert restart_call.kwargs["base_branch"] == "egg/issue-100/slice-1"
+
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_slice_restart_with_unloadable_contract_falls_back_to_pipeline_base(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_lock_fn,
+        mock_load_contract,
+        client,
+    ):
+        """When the contract can't be loaded, slice restart falls back to ``pipeline.base_branch``.
+
+        The slice-id existence check (#2421) intentionally falls
+        through silently when the contract can't be loaded so legitimate
+        restarts on a pruned worktree aren't gated. The base-branch
+        fix (#2439) inherits that policy: with no contract to consult
+        for the parent edge, the spawner gets ``pipeline.base_branch``
+        — the same fallback the other call sites use.
+        """
+        from egg_contracts.loader import ContractNotFoundError
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.branch = "egg/issue-100/work"
+        pipeline.base_branch = "main"
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_load_contract.side_effect = ContractNotFoundError("not populated yet")
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart?slice_id=slice-2",
+            json={"reason": "Slice restart with no contract"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["base_branch"] == "main"
+
+
+# ---------------------------------------------------------------------------
 # Issue #2422: in-place agent-state mutation matches on (role, slice_id)
 # ---------------------------------------------------------------------------
 
