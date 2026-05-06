@@ -15,9 +15,11 @@ from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "sandbox"))
+sys.path.insert(0, str(ROOT / "shared"))
 
-from egg_lib import orch_cli
+from egg_lib import orch_cli  # noqa: E402
 
 
 class TestResolveSliceId:
