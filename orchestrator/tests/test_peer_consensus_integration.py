@@ -608,6 +608,64 @@ class TestAttestationSchemas:
             is_producer=True,
         )
 
+    def test_documenter_strict_allows_no_doc_changes_needed_with_reason(self):
+        """Documenter accepts empty sections_updated when no_doc_changes_needed=true with a reason (#2444)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        # Should not raise — refactor / test-only / no-doc-surface no-op propose path.
+        validate_attestation(
+            "documenter",
+            {
+                "no_doc_changes_needed": True,
+                "no_doc_changes_reason": (
+                    "slice-3 is a pure decomposition: symbol moves between "
+                    "submodules, no surfaced API change; no README / docs/ / "
+                    "docstring surface impacted"
+                ),
+            },
+            AttestationStrictness.STRICT,
+            is_producer=True,
+        )
+
+    def test_documenter_strict_rejects_no_doc_changes_needed_without_reason(self):
+        """no_doc_changes_needed=true without reason is rejected (#2444)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="no_doc_changes_reason"):
+            validate_attestation(
+                "documenter",
+                {"no_doc_changes_needed": True},
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
+    def test_documenter_strict_rejects_no_doc_changes_needed_with_blank_reason(self):
+        """no_doc_changes_reason whitespace-only is rejected (#2444)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="no_doc_changes_reason"):
+            validate_attestation(
+                "documenter",
+                {
+                    "no_doc_changes_needed": True,
+                    "no_doc_changes_reason": "   \n\t  ",
+                },
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
+    def test_documenter_strict_rejects_empty_sections_without_no_op_flag(self):
+        """Without no_doc_changes_needed, empty sections_updated is still rejected (#2444)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="section updated"):
+            validate_attestation(
+                "documenter",
+                {},
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
+
 
 class TestScaledReEvaluation:
     """Test scoped re-evaluation at roster scale (6+ agents).

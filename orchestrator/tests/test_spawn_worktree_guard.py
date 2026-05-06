@@ -471,9 +471,11 @@ class TestRestartWorktreeIntegration:
     ):
         """restart_agent_container should forward base_branch to spawn_agent_container.
 
-        The restart path uses pipeline.branch as base_branch so the gateway
-        bases the worktree on the existing working branch rather than the
-        remote default.
+        Whatever ``base_branch`` the route chooses (``pipeline.base_branch``
+        for pipeline-level / root-slice restarts, the parent slice's
+        integration branch for child-slice restarts; see #2439) must
+        propagate through to the gateway worktree-create call, otherwise
+        the worktree-absent restart path forks from the wrong ref.
         """
         mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(
             "already removed"

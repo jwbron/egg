@@ -8,9 +8,16 @@ orchestrator's state-store commit on ``.git/config.lock`` (#2311).
 
 This module wraps that file with an ``fcntl.flock`` so both processes
 serialise on the same inode.  The lock file lives at
-``<repo_path>/.git/.egg-cross-process.lock`` — inside the resource being
+``<main_repo>/.git/.egg-cross-process.lock`` — inside the resource being
 protected, on the shared mount, so any process that can run git against
 the repo can also see and acquire the lock.
+
+Worktree paths (where ``.git`` is a file pointing at
+``<main>/.git/worktrees/<name>``) are accepted and silently collapsed
+onto the underlying main repo, so all worktrees of the same repo share
+one lock — the racing resource is the main repo's
+``.git/config.lock``, regardless of which worktree triggered the git
+operation (#2452).
 
 Reentrancy: nested ``with bare_repo_lock(repo)`` blocks in the same
 process do not block — the inner acquisitions just bump a depth counter.
@@ -32,15 +39,58 @@ from typing import Final
 LOCK_FILENAME: Final = ".egg-cross-process.lock"
 
 
+def _resolve_main_repo(repo_path: Path) -> Path:
+    """Resolve a worktree path to its main repo path.
+
+    A worktree's ``.git`` is a *file* whose contents are
+    ``gitdir: <main>/.git/worktrees/<name>``.  The main repo is the
+    grand-grandparent of that admin dir.  This lets ``bare_repo_lock``
+    accept either a main-repo path or any of its worktrees and end up
+    flocking the same inode under the main repo's ``.git/`` — which is
+    exactly the cross-process serialisation we want, because all
+    worktrees share the same ``.git/config.lock`` (#2452).
+
+    Returns ``repo_path`` unchanged if it is already a main repo
+    (``.git`` is a directory) or if the ``.git`` file cannot be parsed.
+    The latter is intentional — the subsequent ``mkdir`` will fail with
+    a clear error rather than silently locking the wrong inode.
+
+    Assumes the standard ``git worktree add`` layout where ``gitdir:``
+    points at ``<main>/.git/worktrees/<name>``.  A repo created with
+    ``git init --separate-git-dir`` produces a ``.git`` file pointing
+    outside ``<main>/.git/``, so this helper falls through and returns
+    ``repo_path`` unchanged — fine for the egg gateway (which never uses
+    ``--separate-git-dir``), but a future caller in that context should
+    not expect resolution to succeed.
+    """
+    git = repo_path / ".git"
+    if not git.is_file():
+        return repo_path
+    try:
+        content = git.read_text().strip()
+    except OSError:
+        return repo_path
+    if not content.startswith("gitdir:"):
+        return repo_path
+    gitdir = Path(content.split("gitdir:", 1)[1].strip())
+    if not gitdir.is_absolute():
+        gitdir = (repo_path / gitdir).resolve()
+    # gitdir = <main>/.git/worktrees/<name>; main = gitdir.parent.parent.parent
+    if gitdir.parent.name == "worktrees" and gitdir.parent.parent.name == ".git":
+        return gitdir.parent.parent.parent
+    return repo_path
+
+
 def lock_path_for_repo(repo_path: Path | str) -> Path:
     """Return the cross-process lock path for ``repo_path``.
 
-    The path is ``<repo_path>/.git/<LOCK_FILENAME>``.  ``repo_path`` must
-    be the main repo (with ``.git`` as a directory).  Worktree paths
-    (where ``.git`` is a file) are not valid arguments — callers should
-    resolve to the main repo first.
+    The path is ``<main_repo>/.git/<LOCK_FILENAME>``.  Both main-repo
+    paths (with ``.git`` as a directory) and worktree paths (where
+    ``.git`` is a file) are accepted; worktrees are resolved to the
+    underlying main repo so all worktrees of the same repo lock against
+    the same inode.
     """
-    return Path(repo_path) / ".git" / LOCK_FILENAME
+    return _resolve_main_repo(Path(repo_path)) / ".git" / LOCK_FILENAME
 
 
 class _RepoLockState:
@@ -62,6 +112,14 @@ _per_repo_state: dict[str, _RepoLockState] = {}
 
 
 def _get_state(repo_path: Path) -> _RepoLockState:
+    # Worktree paths (.git is a file) collapse onto their main repo so
+    # every worktree of the same repo shares one lock — the kernel
+    # flock is inode-keyed, and the main repo's ``.git/config.lock`` is
+    # what we are actually racing.  Without this, ``mkdir`` below would
+    # fail with EEXIST because a worktree's ``.git`` is a regular file
+    # and ``mkdir(exist_ok=True)`` only ignores existing *directories*
+    # (#2452).
+    repo_path = _resolve_main_repo(repo_path)
     # Resolve so two equivalent path forms (abs vs rel, with/without
     # trailing slash, symlinks) hit the same cache entry.  flock keys
     # on the inode regardless, but a single fd avoids redundant state

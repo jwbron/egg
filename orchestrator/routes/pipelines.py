@@ -245,6 +245,16 @@ def _track_host_wait_end() -> None:
 # -----------------------------------------------------------------
 _STATUS_WAIT_CURSOR_RE = re.compile(r"^msg:([^|]*)\|evt:(-?\d*)$")
 
+# Slice-or-phase id shape used when reading the parent edge from the
+# contract for the restart route's ``base_branch`` derivation (#2439).
+# ``Slice.id`` permits either ``slice-<N>`` (canonical) or ``phase-<N>``
+# (legacy, pre-#2137) and the contract migration shim only normalises
+# the typical case where the input has a top-level ``phases`` key. A
+# directly-loaded ``slices`` field with legacy ids is rare but allowed
+# by the model — accept either shape here so the gate doesn't false-
+# reject a legitimate restart on a long-lived contract.
+_SLICE_OR_PHASE_ID_PATTERN = re.compile(r"^(?:slice|phase)-[0-9]+$")
+
 # Event allowlist for ``/status/wait`` (issue #1932 locked in
 # refine HITL decision 2).  The route returns early when an event
 # matching any of these types is published.  ``DECISION_RESOLVED``
@@ -2505,6 +2515,22 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # silently if the contract can't be loaded (worktree pruned,
     # contract not yet populated, filesystem error) so we don't
     # regress legitimate restarts on the existing pipeline-level path.
+    #
+    # The contract is also consulted to resolve the slice's parent
+    # edge (#2439) so the spawner's ``base_branch`` matches the
+    # parent slice's integration branch on a worktree-absent restart.
+    parent_slice_id: str | None = None
+    # ``parent_branch_recorded`` captures ``Slice.parent_branch_at_creation``
+    # — the literal branch the parent slice's integration branch was forked
+    # off of when its worktree was provisioned (#2137 TASK-4-2). Preferring
+    # the recorded value over reconstructing
+    # ``f"{_issue_branch}/{parent_slice_id}"`` is more robust: if a future
+    # qualifier-suffix or namespacing change lands in
+    # ``_run_one_slice_inner`` but not here, the reconstruction would
+    # silently drift while the recorded value would not (#2460 review).
+    # ``None`` for slices whose worktree has not been provisioned yet, in
+    # which case we fall through to reconstruction.
+    parent_branch_recorded: str | None = None
     if slice_id is not None:
         if not pipeline.has_contract:
             return make_error_response(
@@ -2554,17 +2580,28 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     error=str(exc),
                 )
             if contract is not None:
-                known_slice_ids = {s.id for s in contract.slices}
-                if slice_id not in known_slice_ids:
+                # Single-pass slice lookup: the existence check and the
+                # parent-edge read both need the same record, so do them
+                # together (#2460 review observation 4).
+                slice_obj = next((s for s in contract.slices if s.id == slice_id), None)
+                if slice_obj is None:
                     return make_error_response(
                         f"slice_id {slice_id!r} does not match any slice in "
                         f"pipeline {pipeline_id}'s contract",
                         status_code=404,
                         details={
                             "slice_id": slice_id,
-                            "known_slices": sorted(known_slice_ids),
+                            "known_slices": sorted(s.id for s in contract.slices),
                         },
                     )
+                # Resolve the slice's parent edge (#2439). The forest
+                # constraint enforced by contract ingestion guarantees
+                # at most one DAG parent per slice, so taking the first
+                # dependency is sufficient. Root slices (no parent)
+                # leave ``parent_slice_id`` as ``None``.
+                if slice_obj.dependencies:
+                    parent_slice_id = slice_obj.dependencies[0]
+                    parent_branch_recorded = slice_obj.parent_branch_at_creation
 
     # Restart the container via spawner
     spawner = _get_spawner()
@@ -2600,6 +2637,32 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # derivation in :func:`_run_implement_phase_slices` so a restarted
     # slice agent lands on the same integration branch its peers are
     # using.
+    #
+    # The spawner's ``base_branch`` is the ref the per-agent worktree
+    # is forked off of when the worktree must be (re)created (#2439).
+    # ``pipeline.branch`` (the integration tip) is the wrong target —
+    # if the worktree is absent at restart time, forking from the
+    # pipeline tip pulls sibling slices' commits into the rebuilt
+    # worktree. The right base depends on context:
+    #   - Pipeline-level restart: ``pipeline.base_branch`` (matches
+    #     the rest of the codebase: every other call site uses
+    #     ``pipeline.base_branch`` for spawner ``base_branch``).
+    #   - Slice restart with a parent in the contract's slice forest:
+    #     the parent slice's integration branch
+    #     (``<root>/<parent_slice_id>``), mirroring ``parent_branch``
+    #     in :func:`_run_one_slice_inner`.
+    #   - Root-slice restart, or slice restart when the contract
+    #     can't be loaded: ``pipeline.base_branch`` (fallback).
+    #
+    # Note: this intentionally diverges from the initial-spawn path at
+    # :func:`_run_concurrent_phase` (line ~12398), which always passes
+    # ``base_branch=pipeline.base_branch`` regardless of slice forest
+    # position. #2439 specifically asks for the parent-slice fork on
+    # the *restart* path so a worktree-absent restart of a child slice
+    # rebuilds atop its parent slice rather than re-forking from
+    # ``pipeline.base_branch`` and losing the parent's commits. Don't
+    # "fix" this asymmetry by aligning the two paths without first
+    # re-reading #2439.
     if slice_id is not None:
         _pipeline_branch = pipeline.branch or (
             f"egg/issue-{pipeline.issue_number}/work"
@@ -2621,8 +2684,42 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
             )
         agent_branch = f"{_issue_branch}/{slice_id}"
+        if parent_slice_id is not None:
+            if parent_branch_recorded:
+                # Prefer the literal branch the parent slice was
+                # provisioned against (#2460 review observation 2).
+                # Set by ``_run_one_slice_inner`` at slice creation
+                # time; per the docstring on
+                # ``Slice.parent_branch_at_creation``, it is *the*
+                # recorded fact about how the slice was provisioned.
+                # We trust our own writer here — no extra ref-shape
+                # validation, just the gateway's per-repo ``git
+                # fetch`` will surface a malformed value.
+                base_branch_for_restart = parent_branch_recorded
+            else:
+                # Fallback: contract has the dependency edge but no
+                # provisioning record. Reconstruct from the slice
+                # namespace root and the parent's id.
+                #
+                # Defense-in-depth: ``parent_slice_id`` came from the
+                # contract loader (whose ``Slice.id`` regex permits
+                # both canonical ``slice-<N>`` and legacy
+                # ``phase-<N>``), so accept either shape before
+                # embedding into a git ref. Anything outside that
+                # envelope is a corrupt-contract smell — fail loudly
+                # rather than synthesising a malformed ref the
+                # gateway would reject anyway.
+                if not _SLICE_OR_PHASE_ID_PATTERN.fullmatch(parent_slice_id):
+                    raise ValueError(
+                        f"parent_slice_id={parent_slice_id!r} does not match "
+                        f"the canonical shape ``slice-<N>`` (or legacy ``phase-<N>``)"
+                    )
+                base_branch_for_restart = f"{_issue_branch}/{parent_slice_id}"
+        else:
+            base_branch_for_restart = pipeline.base_branch
     else:
         agent_branch = pipeline.branch
+        base_branch_for_restart = pipeline.base_branch
 
     # Reconstruct command and extra_env for concurrent agents.
     # In concurrent mode, agents need a consensus-wrapped prompt command
@@ -2701,7 +2798,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             phase=current_phase,
             command=command,
             branch=agent_branch,
-            base_branch=pipeline.branch,
+            base_branch=base_branch_for_restart,
             reason=reason,
             spawn_max_retries=pipeline.config.spawn_max_retries,
             spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
@@ -9468,8 +9565,11 @@ _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "commits with source files, tests may be included",
     ),
     "tester": (
-        "Writes and runs tests (dual role: also reviews coder)",
-        "test files, coverage reports, test pass/fail results",
+        "Writes comprehensive regression tests AND adversarially probes the "
+        "coder's implementation for bugs and edge cases (dual role: also "
+        "reviews coder)",
+        "test files (including failing tests that demonstrate bugs), check "
+        "results, gap reports back to the coder",
     ),
     "documenter": (
         "Updates documentation for changes",
@@ -9605,7 +9705,14 @@ def _build_reviewer_preparation(
                 "If the tester reports `no_test_changes_needed: true`, walk the "
                 "diff and confirm it is genuinely behavior-preserving (symbol "
                 "moves, doc-only, etc.) before ACKing — the no-op propose path "
-                "is only valid when the slice truly warrants no new tests (#2431)."
+                "is only valid when the slice truly warrants no new tests (#2431). "
+                "If the documenter reports `no_doc_changes_needed: true`, walk "
+                "the diff and confirm there is genuinely no documented-surface "
+                "impact (no public API signature change, no behavior change a "
+                "user-facing doc describes, no new feature/flag in README or "
+                "docs/, no docstring contract drift) before ACKing — the "
+                "documenter's no-op path is only valid when the slice truly "
+                "warrants no doc updates (#2444)."
             )
         if role_value == "reviewer_code_holistic":
             return (
@@ -9668,7 +9775,14 @@ def _build_reviewer_preparation(
                 "If the tester reports `no_test_changes_needed: true`, walk the diff "
                 "and confirm it is genuinely behavior-preserving (symbol moves, "
                 "doc-only, etc.) before ACKing — the no-op propose path is only "
-                "valid when the slice truly warrants no new tests (#2431)."
+                "valid when the slice truly warrants no new tests (#2431). "
+                "If the documenter reports `no_doc_changes_needed: true`, walk "
+                "the diff and confirm there is genuinely no documented-surface "
+                "impact (no public API signature change, no behavior change a "
+                "user-facing doc describes, no new feature/flag in README or "
+                "docs/, no docstring contract drift) before ACKing — the "
+                "documenter's no-op path is only valid when the slice truly "
+                "warrants no doc updates (#2444)."
             )
         elif role_value == "reviewer_code_holistic":
             return (
@@ -9869,6 +9983,11 @@ def _build_producer_orientation(
                 "being implemented. Check the existing test infrastructure — "
                 "test frameworks, fixtures, conftest files, and naming conventions. "
                 "Identify edge cases from the requirements before writing tests. "
+                "**Your mandate is two-fold**: comprehensive regression "
+                "coverage AND adversarial probing for bugs the coder missed "
+                "— see the *Your Task* → mandate block for the full "
+                "instruction (including the failing-test → NACK → HANDOFF "
+                "workflow when you catch a coder-side bug). "
                 "**Scaffold-first while the coder is producing**: draft test "
                 "scaffolding from the plan alone — test file paths from "
                 "`tasks[].files`, function signatures from each task's acceptance "
@@ -9900,7 +10019,17 @@ def _build_producer_orientation(
                 "being implemented. Check existing documentation structure — "
                 "README files, doc directories, inline documentation patterns. "
                 "Identify which docs will need updating once the implementation "
-                "is complete." + sync_note + reviewer_awareness
+                "is complete. "
+                "**You MUST propose** even when the slice warrants no doc "
+                "updates (pure refactor / test-only / internal-only with no "
+                "documented-surface impact): the BRC consensus blocks until "
+                "every producer has proposed (#2444, mirror of #2431). For "
+                "that case, walk the coder's diff to confirm there is no "
+                "doc surface impacted, then use the no-op propose path — "
+                "set `attestation.no_doc_changes_needed=true` with a "
+                "non-empty `no_doc_changes_reason`. Do NOT just heartbeat "
+                "indefinitely waiting for doc work that isn't there — that "
+                "deadlocks the slice." + sync_note + reviewer_awareness
             )
     elif phase == "plan":
         if role_value == "architect":
@@ -10143,8 +10272,26 @@ def _build_agent_prompt(
                 "implementation, run checks, and report gaps. If the coder hasn't committed yet, "
                 "wait — do not implement the solution yourself.",
                 "",
-                "Validate the changes and find gaps in the CODER agent's implementation. "
-                "You are responsible for both **testing** and **lint/type-check validation**.",
+                "**Your mandate is two-fold**:",
+                "",
+                "1. **Comprehensive coverage** — write tests that prevent "
+                "regressions, covering the happy path and realistic alternative "
+                "paths through every changed area. New behavior gets new tests; "
+                "modified behavior gets updated tests; nothing the coder changed "
+                "should silently lose coverage.",
+                "2. **Adversarial probing** — actively probe the coder's "
+                "implementation for bugs and edge cases they missed. Treat the "
+                "implementation as suspect until you have tried to break it. "
+                "Write tests that target suspected weaknesses. When a test "
+                "fails because of a coder-side bug, **the committed failing "
+                "test is evidence — the NACK is the bug report**. Pair every "
+                "failing test with an explicit NACK on the coder's proposal "
+                "that names the failing test in its rationale; otherwise the "
+                "bug is easy for the coder to miss. Also list the bug in "
+                "`gaps_found` and HANDOFF to coder with the failure output. "
+                "The coder owns the fix; you own surfacing the bug.",
+                "",
+                "You are also responsible for **lint/type-check validation**.",
                 "",
                 "### When the slice warrants no new tests (#2431)",
                 "",
@@ -10179,17 +10326,39 @@ def _build_agent_prompt(
                 "### Testing",
                 "",
                 "1. Review the changed files (available in handoff data or via git diff)",
-                "2. Identify gaps: missing error handling, boundary conditions, uncovered branches",
-                "3. Write or update tests targeting identified gaps and new/changed code",
-                "4. Run all tests and record which pass and which fail",
-                "5. Document gaps found in your handoff output (`gaps_found` field)",
-                "6. Commit test files with descriptive messages",
+                "2. Build coverage tests for the happy path and realistic "
+                "alternative paths in every changed area",
+                "3. **Adversarially probe** the implementation: identify "
+                "suspected bugs and untested edge cases, then write tests that "
+                "target them",
+                "4. Run all tests. Tests that pass demonstrate coverage; "
+                "**tests that fail demonstrate bugs you have found** — keep them",
+                "5. For every failing test caused by a coder-side bug: "
+                "commit the failing test AND **NACK the coder's proposal, "
+                "explicitly naming the failing test in the NACK rationale**. "
+                "The committed test alone is not sufficient — the NACK is "
+                "what surfaces the bug to the coder. Also list the bug in "
+                "`gaps_found` and HANDOFF to the coder with the failure "
+                "output. Your `test` configured check will fail until the "
+                "coder pushes a fix — that is expected; do NOT propose "
+                "consensus until every configured check passes per the "
+                "*Configured Checks* section below",
+                "6. Commit all test files with descriptive messages",
                 "",
-                "Gap-finding focus:",
+                "Adversarial probing — actively try to break the implementation:",
                 "- Missing error handling and input validation",
-                "- Boundary conditions and edge cases",
-                "- Uncovered code paths and branches",
-                "- Integration gaps between components",
+                "- Boundary conditions, off-by-one, empty/null/oversized inputs",
+                "- Uncovered code paths and branches (especially error paths)",
+                "- Concurrency: races, partial failures, retry behavior, ordering assumptions",
+                "- Contract violations: does the code actually match the "
+                "acceptance criteria, or just the happy path of them?",
+                "- Integration gaps between components and unstated interface assumptions",
+                "",
+                "Gap-finding focus (still report these in `gaps_found` even "
+                "when you cannot write a test for them):",
+                "- Logic errors that would require design changes to fix",
+                "- Inconsistencies between the implementation and the plan/contract",
+                "- Missing test infrastructure that prevents adequate coverage",
                 "",
                 "### Configured Checks (MANDATORY)",
                 "",
@@ -10391,6 +10560,35 @@ def _build_agent_prompt(
                 "",
                 "Find all changed files across agents:",
                 "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`",
+                "",
+                "### When the slice warrants no doc updates (#2444)",
+                "",
+                "Pure refactors (symbol moves, decompositions with no "
+                "surfaced API change), test-only slices, and internal-only "
+                "slices that don't touch any documented surface still "
+                "require you to **propose** — BRC consensus blocks until "
+                "every producer has proposed at least once. **Don't just "
+                "heartbeat and wait for work that isn't coming.** Instead:",
+                "",
+                "1. Walk the coder's diff and confirm there is no "
+                "documented-surface impact: no public API signature "
+                "changes, no behavior changes a user-facing doc describes, "
+                "no new feature or flag mentioned in README / docs/, no "
+                "docstring contracts that drift.",
+                "2. Propose with the no-op attestation:",
+                "   - `attestation.no_doc_changes_needed: true`",
+                "   - `attestation.no_doc_changes_reason`: a concrete "
+                "sentence explaining why no doc updates are warranted "
+                '(e.g. "slice-3 is a pure decomposition: symbol moves '
+                "between submodules, no surfaced API change; no README / "
+                'docs/ / docstring surface impacted").',
+                '3. Make sure your propose `summary` says "no doc '
+                'updates warranted: <reason>" so reviewers can verify '
+                "the diff really has no doc impact.",
+                "",
+                "If the slice **does** have doc impact (any of the bullets "
+                "above), do NOT use the no-op path — author doc changes as "
+                "usual.",
                 "",
             ]
         )

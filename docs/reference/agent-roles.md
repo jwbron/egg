@@ -194,7 +194,7 @@ separate surface (phase mounts, not role restrictions) and is kept in sync with
 
 Do **not** call `wait-loop` on the coder's `CONSENSUS_PROPOSE` before drafting these scaffolds; propose-ready iteration should start at the coder's first commit, not their first propose. This is specified in the producer-orientation prompt at `orchestrator/routes/pipelines.py::_build_producer_orientation` (#2249) and is a directive, not a programmatic gate — `scripts/scaffold_first_telemetry.py` reports compliance as a proxy signal but does not enforce it.
 
-Once coder commits land, finalize tests, run linters and type checkers, find gaps in the implementation, and report issues for the coder to fix.
+Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive regression coverage** — tests for the happy path and realistic alternative paths through every changed area; and **(2) adversarial probing** — actively trying to break the coder's implementation by targeting suspected weaknesses (boundary conditions, off-by-one, empty/null/oversized inputs, error paths, concurrency issues, and contract violations). When a test fails because of a coder-side bug, the tester commits the failing test and issues a NACK on the coder's proposal that explicitly names the failing test in its rationale — the committed test is evidence; the NACK is the bug report. The tester also runs linters and type checkers and reports all gaps via `gaps_found`.
 
 **File access**:
 - Owned scope (allowed writes): **test files and test infrastructure only.**
