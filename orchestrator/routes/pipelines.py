@@ -13437,6 +13437,7 @@ def _populate_contract_from_plan_safe(
     *,
     source: Literal["plan_complete", "advance_phase_force"] = "advance_phase_force",
     branch: str | None = None,
+    current_phase: PipelinePhase | None = None,
 ) -> None:
     """Run :func:`_populate_contract_from_plan` without propagating failures.
 
@@ -13479,7 +13480,13 @@ def _populate_contract_from_plan_safe(
                 )
 
     try:
-        _populate_contract_from_plan(repo_path, pipeline_id, pipeline_mode, issue_number)
+        _populate_contract_from_plan(
+            repo_path,
+            pipeline_id,
+            pipeline_mode,
+            issue_number,
+            current_phase=current_phase,
+        )
     except ForestValidationError as forest_err:
         # Forest-validation rejection is the expected #2137 NACK
         # path — log structurally so the discriminator shows up in
@@ -13510,11 +13517,19 @@ def _populate_contract_from_plan(
     pipeline_id: str,
     pipeline_mode: str = "issue",
     issue_number: int | None = None,
+    *,
+    current_phase: PipelinePhase | None = None,
 ) -> None:
     """Read the plan draft and populate the contract with tasks.
 
     Extracts task structure from markdown headers in the plan draft
     and writes tasks + acceptance criteria to the contract.
+
+    When ``current_phase`` is provided, also advances the contract's
+    ``current_phase`` to that value. This is needed when the populator
+    runs outside the natural plan-completion hook (e.g.
+    ``start_phase=implement``, which skips plan and never fires the
+    plan-completion advance — #2427 sub-bug).
     """
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -13650,6 +13665,10 @@ def _populate_contract_from_plan(
                 test_plan=result.pr_test_plan or "",
                 manual_steps=result.pr_manual_steps or "",
             )
+            changed = True
+
+        if current_phase is not None and contract.current_phase != current_phase:
+            contract.current_phase = current_phase
             changed = True
 
         if changed:
@@ -14769,11 +14788,17 @@ def _run_pipeline(
                 pipeline_id=pipeline.id,
             )
             if plan_draft_rel and (worktree_repo_path / plan_draft_rel).exists():
+                # Advance contract.current_phase alongside slice/PR
+                # ingestion: the plan-completion hook that normally
+                # advances the contract is skipped when start_phase
+                # bypasses plan, so the contract would otherwise stay
+                # at REFINE forever (#2427 sub-bug).
                 _populate_contract_from_plan(
                     worktree_repo_path,
                     pipeline_id,
                     pipeline_mode,
                     pipeline.issue_number,
+                    current_phase=PipelinePhase.IMPLEMENT,
                 )
 
         # Check for feedback preserved by the recovery path in start_pipeline

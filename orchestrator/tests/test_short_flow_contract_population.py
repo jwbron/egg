@@ -600,6 +600,63 @@ class TestStartPhaseImplementContractPopulation:
         assert len(contract.phases) == 1
         assert len(contract.phases[0].tasks) == 2
 
+    def test_current_phase_advanced_when_explicitly_provided(self, tmp_path: Path):
+        """Regression for #2427 sub-bug: when start_phase=implement, the
+        plan-completion hook never fires, so the safety-net populator must
+        advance ``contract.current_phase`` itself. Without this, the contract
+        sticks at ``refine`` while the pipeline is actually in implement,
+        triggering false "phase tracking mismatch" alerts.
+        """
+        from egg_contracts.loader import create_contract, load_contract
+        from egg_contracts.models import PipelinePhase
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-phase-advance"
+
+        # Default initial_phase is REFINE.
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(
+            tmp_path,
+            pipeline_id,
+            "local",
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.current_phase == PipelinePhase.IMPLEMENT
+        # And slices/tasks were still populated.
+        assert len(contract.phases) == 1
+
+    def test_current_phase_unchanged_when_not_provided(self, tmp_path: Path):
+        """Default behaviour is preserved: callers that don't pass
+        ``current_phase`` (e.g. the natural plan-completion hook, which has
+        already advanced the pipeline elsewhere) leave the contract's
+        current_phase alone.
+        """
+        from egg_contracts.loader import create_contract, load_contract
+        from egg_contracts.models import PipelinePhase
+        from routes.pipelines import _get_draft_path, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-phase-untouched"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        draft_rel = _get_draft_path("plan", pipeline_id=pipeline_id)
+        draft_path = tmp_path / draft_rel
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(SAMPLE_PLAN)
+
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.current_phase == PipelinePhase.REFINE
+
 
 class TestSourceBranchArtifactWriteToDisk:
     """Source-branch artifacts are written to disk after _read_source_branch_artifacts.
