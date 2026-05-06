@@ -177,7 +177,7 @@ def _parse_http_error(exc: HTTPError) -> GatewayError:
         body = json.loads(exc.read().decode())
         message = body.get("message", str(exc))
         details = body.get("details") or body.get("data") or {}
-    except json.JSONDecodeError, Exception:
+    except Exception:
         message = str(exc)
         details = {}
     return GatewayError(
