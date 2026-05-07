@@ -376,11 +376,7 @@ shared/
 ```
 integration_tests/
 ├── conftest.py                    # Shared fixtures for all integration tests
-├── docker-compose.yml             # Test environment setup
-├── agent_findings.py              # Security findings for agent security fuzz tests
-├── test_agent_security_fuzz.py    # Agent security fuzzing tests
 ├── test_credential_security.py    # Credential isolation verification
-├── test_e2e_workflow.py           # End-to-end workflow tests
 ├── test_error_recovery.py         # Error handling and recovery tests
 ├── test_fail_closed.py            # Fail-closed security property tests
 ├── test_gateway_auth.py           # Gateway authentication tests
