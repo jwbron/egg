@@ -917,6 +917,137 @@ def _validate_tester_check_coverage(
         )
 
 
+def _validate_planner_role_alignment(
+    pipeline_id: str,
+    payload: dict[str, Any],
+    repo_path: Path,
+    *,
+    pipeline_state: Any | None = None,
+    worktree_path: Path | None = None,
+) -> None:
+    """Validate task role↔files alignment for a planner proposal (#2527).
+
+    Reads the plan draft at the proposed commit via ``git show`` against
+    the orchestrator's pipeline worktree and runs
+    ``validate_task_role_alignment``. Raises ``ValueError`` if any task
+    is assigned to a role that cannot push its files — the caller's
+    ``handle_consensus_propose_signal`` ``except`` block then returns 400
+    to the planner before the proposal is recorded on the tracker, so no
+    reviewer cycle is wasted on a structurally-broken plan.
+
+    The check mirrors the gateway's push-time blocked-pattern logic
+    (``gateway/phase_filter.py::FileRestriction.is_file_blocked``), so a
+    rejection here predicts a push-time ``403 restricted_path_modified``
+    in the implement phase. Caught here it costs the planner one
+    re-propose; caught at push time it costs a full producer cycle.
+
+    Graceful degradation: when the plan file doesn't exist at the
+    proposed commit, ``git show`` fails, parsing fails, or the validator
+    raises, this function returns silently. The push-time gateway check
+    remains the backstop, and the existing forest-validation pass at
+    plan-ingestion time still runs.
+
+    ``pipeline_state`` and ``worktree_path`` should be passed in by
+    ``handle_consensus_propose_signal`` so the state-store + worktree
+    lookups it has already performed for ``_verify_commit_on_branch``
+    aren't duplicated. The function falls back to loading them itself
+    when called directly (e.g. from unit tests), preserving backward
+    compatibility with patches on ``get_state_store`` / ``resolve_worktree_path``.
+    """
+    commit_sha = (payload.get("commit_sha") or "").strip()
+    if not commit_sha:
+        return
+
+    if pipeline_state is None:
+        try:
+            pipeline_state = get_state_store(repo_path).load_pipeline(pipeline_id)
+        except StateStoreError:
+            return
+
+    if not pipeline_state.branch:
+        return
+
+    # Build the plan draft path. Imported lazily to avoid pulling the
+    # 16k-line ``routes.pipelines`` module into ``signals`` import time.
+    try:
+        from routes.pipelines import _get_draft_path
+    except ImportError:
+        try:
+            from .pipelines import _get_draft_path  # type: ignore[no-redef]
+        except ImportError:
+            return
+    plan_rel = _get_draft_path(
+        "plan",
+        issue_number=pipeline_state.issue_number,
+        pipeline_id=pipeline_id,
+        mode=getattr(pipeline_state, "mode", None),
+    )
+    if not plan_rel:
+        return
+
+    if worktree_path is None:
+        worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+
+    # Read plan content as committed at the proposed SHA so a stale
+    # local checkout cannot mask a real misassignment. The preceding
+    # ``_verify_commit_on_branch`` call has already done a ``git fetch``,
+    # making the commit reachable in the worktree.
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(worktree_path), "show", f"{commit_sha}:{plan_rel}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if result.returncode != 0:
+            return  # Plan not present at this commit — nothing to validate.
+        plan_text = result.stdout
+    except Exception as exc:
+        logger.warning(
+            "plan role-alignment validation: git show failed (non-blocking)",
+            pipeline_id=pipeline_id,
+            commit_sha=commit_sha,
+            error=str(exc),
+        )
+        return
+
+    try:
+        from egg_contracts.plan_parser import (
+            parse_plan,
+            validate_task_role_alignment,
+        )
+    except ImportError:
+        return
+
+    try:
+        parsed = parse_plan(plan_text)
+        if not parsed.success:
+            return
+        slices = parsed.to_contract_slices()
+        errors = validate_task_role_alignment(slices)
+    except Exception as exc:
+        logger.warning(
+            "plan role-alignment validation: validator raised (non-blocking)",
+            pipeline_id=pipeline_id,
+            commit_sha=commit_sha,
+            error=str(exc),
+        )
+        return
+
+    if not errors:
+        return
+
+    bullet_list = "\n".join(f"  - {e}" for e in errors)
+    raise ValueError(
+        "Plan proposal rejected: task role↔files alignment violations.\n"
+        "The following tasks are assigned to roles whose blocklist "
+        "forbids their files (would 403 at push time per "
+        "shared/egg_restrictions/patterns.py). Update the affected "
+        "tasks' 'role' field and re-propose:\n" + bullet_list
+    )
+
+
 def _resolve_pipeline_phase(pipeline_id: str, repo_path: Path) -> str:
     """Resolve the current phase for a pipeline, with graceful fallback.
 
@@ -1062,28 +1193,35 @@ def handle_consensus_propose_signal(
     # Verify commit SHA exists on the expected branch before accepting
     # the proposal (#1473).  Reuses _verify_commit_on_branch() from the
     # completion handler — graceful degradation on network errors (None).
+    #
+    # ``pipeline_state`` and ``worktree_path`` are loaded once here and
+    # threaded into ``_validate_planner_role_alignment`` below so the
+    # validator's dependency on this block is explicit and the
+    # state-store + worktree lookups aren't duplicated.
     commit_sha = payload.get("commit_sha", "")
+    pipeline_state = None
+    worktree_path = None
     if commit_sha:
         try:
             store_mod = get_state_store(repo_path)
-            pipeline = store_mod.load_pipeline(pipeline_id)
-            if pipeline.branch:
+            pipeline_state = store_mod.load_pipeline(pipeline_id)
+            if pipeline_state.branch:
                 worktree_path = resolve_worktree_path(pipeline_id, repo_path)
                 branch_verified = _verify_commit_on_branch(
                     commit_sha,
-                    pipeline.branch,
+                    pipeline_state.branch,
                     worktree_path,
                     pipeline_id,
                 )
                 if branch_verified is False:
                     return make_error_response(
                         f"Proposal rejected: commit {commit_sha} not found on "
-                        f"expected branch {pipeline.branch}. Push your work before "
-                        f"proposing consensus.",
+                        f"expected branch {pipeline_state.branch}. Push your "
+                        f"work before proposing consensus.",
                         status_code=409,
                         details={
                             "commit_sha": commit_sha,
-                            "expected_branch": pipeline.branch,
+                            "expected_branch": pipeline_state.branch,
                             "pipeline_id": pipeline_id,
                         },
                     )
@@ -1101,6 +1239,17 @@ def handle_consensus_propose_signal(
         # rejected proposals.
         if agent_role == "tester":
             _validate_tester_check_coverage(pipeline_id, payload, repo_path)
+        # Validate task_planner proposals don't misassign tasks to roles
+        # whose blocklist forbids their files (#2527). Same placement
+        # rule: BEFORE handle_propose so the tracker isn't mutated.
+        elif agent_role == "task_planner":
+            _validate_planner_role_alignment(
+                pipeline_id,
+                payload,
+                repo_path,
+                pipeline_state=pipeline_state,
+                worktree_path=worktree_path,
+            )
 
         # Check if this is a re-proposal
         changed_artifacts = data.get("changed_artifacts")
