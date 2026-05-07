@@ -221,6 +221,17 @@ TESTER_PATTERNS = AgentFilePattern(
         "**/*.md",
         # Contracts
         ".egg-state/contracts/",
+        # Issue #2508: branch-protection invariant — even a
+        # tester-applied auto-fix to `.github/workflows/*.yml` must
+        # go through the `.github-staging/` convention so a human
+        # reviewer moves it in before merge. The tester's
+        # ``allowed_patterns`` above already excludes `.github/`
+        # (test files, conftest, pin files, agent-outputs only), so
+        # this block is defense-in-depth: it keeps `patterns.py` and
+        # ``TESTER_ROLE.blocked_write`` in ``agent_roles.py`` in
+        # lockstep (issue #2521) and stays load-bearing if the
+        # allowlist ever widens.
+        ".github/",
     ],
 )
 

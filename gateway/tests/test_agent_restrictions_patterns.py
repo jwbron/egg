@@ -617,6 +617,19 @@ class TestTesterRole:
         """Tester can write .python-version (needed for test environment setup)."""
         assert pattern.can_write(".python-version") is True
 
+    def test_cannot_write_github_dir(self, pattern):
+        """Tester is blocked from `.github/` (issues #2508, #2521).
+
+        The tester's ``allowed_patterns`` already excludes `.github/`
+        (test files, conftest, pin files, agent-outputs only), so the
+        explicit `.github/` blocked entry is defense-in-depth that
+        keeps ``TESTER_PATTERNS.blocked_patterns`` in lockstep with
+        ``TESTER_ROLE.blocked_write`` in ``agent_roles.py`` and stays
+        load-bearing if the allowlist ever widens.
+        """
+        assert pattern.can_write(".github/CODEOWNERS") is False
+        assert pattern.can_write(".github/PULL_REQUEST_TEMPLATE.md") is False
+
 
 class TestDocumenterRole:
     """Verify documenter agent can/cannot write expected files."""
