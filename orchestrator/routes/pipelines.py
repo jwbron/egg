@@ -169,11 +169,13 @@ except ImportError:
         get_state_store,
     )
 
+from egg_contracts.orchestrator import load_agent_output, save_agent_output
 from egg_git.default_branch import get_default_branch
 from lifecycle_auth import require_lifecycle_secret
 
 if TYPE_CHECKING:
     from egg_container import MountSpec
+    from egg_contracts.agent_roles import AgentRole as ContractAgentRole
 
     try:
         from ..container_spawner import ContainerSpawner
@@ -12887,7 +12889,7 @@ def _run_implement_phase_slices(
 def _clear_stale_impasses_for_producers(
     repo_path: Path,
     pipeline_id: str,
-    producer_roles: list,
+    producer_roles: "list[ContractAgentRole]",  # noqa: UP037
     *,
     cleanup_reason: str,
 ) -> None:
@@ -12910,14 +12912,6 @@ def _clear_stale_impasses_for_producers(
     the agent output (``handoff_data``, ``role``, anything else) are
     preserved.
     """
-    try:
-        from egg_contracts.orchestrator import load_agent_output, save_agent_output
-    except ImportError:  # pragma: no cover - import seam parity
-        from shared.egg_contracts.orchestrator import (  # type: ignore[no-redef]
-            load_agent_output,
-            save_agent_output,
-        )
-
     for role_enum in producer_roles:
         try:
             existing = load_agent_output(repo_path, role_enum, identifier=pipeline_id)
