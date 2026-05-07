@@ -1357,7 +1357,7 @@ class TestCreateSlicePR:
 
     def test_no_contract_pr_falls_back_to_auto_generated_title_and_body(self, gateway_client):
         """When ``contract.pr`` is missing (no ``program_title``), every slice
-        — terminal or not — falls back to the deterministic ``slice <id>:
+        — terminal or not — falls back to the deterministic ``<slice_id>:
         <name>`` title and a bulleted task body. No narrative to render."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
@@ -1370,7 +1370,7 @@ class TestCreateSlicePR:
                 head="egg/issue-42/slice-1",
                 base="egg/issue-42",
             )
-        assert captured["title"] == "slice slice-1: Pattern adoption"
+        assert captured["title"] == "slice-1: Pattern adoption"
         assert "Pattern adoption" in captured["body"]
         assert "Tasks in this slice:" in captured["body"]
         assert "- task-1-1: Add the barrel re-export" in captured["body"]

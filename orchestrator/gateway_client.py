@@ -1234,7 +1234,7 @@ class GatewayClient:
           GitHub PR list stays scannable when several stacked PRs are
           open at once. When ``program_title`` is empty (older contracts
           / planner skipped the field), every slice falls back to the
-          deterministic ``slice {slice_id}: {slice_name}`` form.
+          deterministic ``{slice_id}: {slice_name}`` form (#2539).
         * **Body.** Program description → ``## This slice`` (slice name
           and task bullets) → ``## Test Plan`` → ``## Manual Steps`` →
           stack footer. The terminal slice prepends a "merge gate /
@@ -1293,7 +1293,7 @@ class GatewayClient:
                     "program_deferred_actions must be None on non-terminal slices; "
                     "obligations belong on the umbrella PR only"
                 )
-            title = f"slice {slice_id}: {slice_name}".strip()
+            title = f"{slice_id}: {slice_name}".strip()
         if len(title) > 70:
             title = title[:67] + "..."
 

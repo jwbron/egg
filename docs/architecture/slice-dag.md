@@ -457,7 +457,7 @@ only task bullets.
   scannable when several stacked PRs are open at once. When
   `program_title` is empty (older contracts / planner skipped the
   field), every slice falls back to the deterministic
-  `slice {slice_id}: {slice_name}` form.
+  `{slice_id}: {slice_name}` form (#2539).
 - **Body.** Program description → (terminal-only) `## ⚠️ Pre-merge
   Obligations` / `## ✅ Resolved within this PR` section from
   `contract.pr.deferred_actions` (rendered by
