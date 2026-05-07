@@ -8,7 +8,342 @@
   "pipeline_id": "issue-2548",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Contract schema delta + planner prompt",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Extend `PRMetadata` in `shared/egg_contracts/models.py` with four\nnew optional fields:\n- `context_title: str | None = None` \u2014 title for the context PR\n  (the planner-emitted \"Strategic plan for #N\" framing).\n- `context_description: str | None = None` \u2014 body for the context\n  PR.\n- `context_branch: str | None = None` \u2014 branch name `egg/<id>/context`\n  once the orchestrator has created it. Persisted by slice-3.\n- `context_pr_number: int | None = None` \u2014 GitHub PR number once the\n  context PR has been opened. Persisted by slice-3.\nBump the contract `schemaVersion` default from `\"1.0\"` to `\"1.1\"`\n(in the `EggContract` root model). Add a model-level migration so\ncontracts loaded with `schemaVersion=\"1.0\"` still parse cleanly with\nthe new optional fields defaulted to `None`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `from shared.egg_contracts.models import PRMetadata` exposes the\n  four new fields with `None` defaults.\n- Loading a 1.0 contract round-trips through the new model with the\n  new fields defaulted to `None`.\n- `make lint` and `make test` (changeset-aware) pass.",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add unit tests under `shared/egg_contracts/tests/` covering the new\n`PRMetadata.context_*` fields:\n- Round-trip a `PRMetadata` with all four context fields populated.\n- Round-trip a `PRMetadata` with all four context fields omitted\n  (must default to `None`).\n- Round-trip a contract serialised with `schemaVersion=\"1.0\"` and\n  no context fields, and confirm migration to `1.1` populates the\n  defaults.\n- Confirm `context_pr_number=0` and negative values are rejected if\n  we add a `ge=1` validator (apply a sensible validator).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- The new tests pass under `make test`.\n- Coverage on the new code paths is non-zero.",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_pr_metadata.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-1-3",
+          "description": "Update the task_planner prompt in `orchestrator/routes/pipelines.py`\n(block starting at line ~11046, anchor \"Decompose the architecture\nanalysis into a single-PR implementation plan.\") so the YAML\nexample and prose:\n- Document the new `pr.context_title` and `pr.context_description`\n  fields and recommend when to use them (\"framing for the strategic\n  plan PR; defaults to `pr.title` / `pr.description` if omitted\").\n- Update the `# yaml-tasks` example to include `context_title:` and\n  `context_description:` block scalars.\n- Note that `pr.context_branch` and `pr.context_pr_number` are\n  populated by the orchestrator (not the planner) and should NOT be\n  emitted by the planner.\nAlso update the YAML ingestion path in\n`.github/scripts/checks/plan_yaml_check.py` and any matching\ningestion under `orchestrator/routes/phases.py` (search for\n`yaml-tasks` in pipelines.py / phases.py per the survey) so the\nnew keys are accepted (but optional).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- A planner-emitted YAML containing `context_title:` and\n  `context_description:` is parsed without error and the values\n  land on `contract.pr.context_title` / `pr.context_description`.\n- A planner-emitted YAML omitting the new keys still parses and\n  both context fields default to `None`.\n- `plan_yaml_check.py` runs cleanly on both inputs.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/routes/phases.py",
+            ".github/scripts/checks/plan_yaml_check.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Per-slice implement-phase BRC history",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Refactor `_write_brc_history()` (`orchestrator/routes/pipelines.py`\n~line 8110-8228) so that when `phase == \"implement\"` and a slice\ncontext is in scope, it writes\n`.egg-state/brc-history/<identifier>-implement-slice-<slice_id>.{json,md}`\ninstead of `<identifier>-implement.{json,md}`. Implement-phase BRC\nmessages are partitioned by their slice scope (the orchestrator\nattaches a `slice_id` to each implement-phase BRC message; if the\nmessage lacks a slice_id, log a warning and skip it \u2014 the\npartitioning is mandatory under D4).\nRefine, plan, and pr phases continue to write the aggregate\n`<identifier>-{phase}.{json,md}` filename \u2014 only implement is\nper-slice.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- For a pipeline with N slices, `_write_brc_history(phase=\"implement\")`\n  produces N files named `<id>-implement-slice-1.{json,md}` \u2026\n  `<id>-implement-slice-N.{json,md}` and zero\n  `<id>-implement.{json,md}` files.\n- For phases other than implement, behavior is unchanged.\n- `make lint` passes.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-2-2",
+          "description": "Update `_rewrite_brc_history_for_pr()` (lines ~8265-8330) and\n`_persist_phase_brc_history()` (~8355-8392) callers so that:\n- Implement-phase persistence iterates all known slices and persists\n  one file per slice.\n- The PR-rewrite path (used by babysit_pr) finds and rewrites the\n  per-slice files instead of the aggregate file.\n- Any callers that previously read `<id>-implement.{json,md}` are\n  updated to enumerate the per-slice files (search for the\n  `-implement.json` and `-implement.md` literals).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `grep -n \"<id>-implement\\\\.\\\\(json\\\\|md\\\\)\" orchestrator/` (or\n  equivalent) returns no remaining direct references to the\n  aggregate file in production code paths.\n- `_persist_phase_brc_history()` and `_rewrite_brc_history_for_pr()`\n  still complete cleanly and idempotently for refine/plan/pr phases.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add and update tests in `orchestrator/tests/test_brc_history.py`\n(and `test_brc_history_identifier_babysit_pr.py` if relevant) that:\n- Exercise the per-slice implement-phase writer end-to-end.\n- Assert no aggregate `<id>-implement.{json,md}` file is produced\n  for an implement-phase pipeline run with multiple slices.\n- Cover the case where an implement-phase BRC message lacks a\n  slice_id (writer logs a warning and skips it).\n- Existing tests that asserted on the aggregate filename are\n  rewritten to assert on the per-slice filenames (hard switchover \u2014\n  no aggregate-file test path remains).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- `make test` (changeset-aware) green on the BRC-history test\n  modules.\n- The aggregate-file assertion no longer appears in the test suite.",
+          "files_affected": [
+            "orchestrator/tests/test_brc_history.py",
+            "orchestrator/tests/test_brc_history_identifier_babysit_pr.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Context branch + doc-only context PR",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add a new gateway primitive `create_context_branch()` to\n`orchestrator/gateway_client.py` modeled on\n`create_slice_integration_branch()` (lines 1696-1760). It must:\n- Resolve the parent SHA via `git ls-remote <repo> refs/heads/<base_branch>`.\n- Create a remote branch `egg/<pipeline_id>/context` pointing at\n  that SHA via a synthetic gateway session push.\n- Be idempotent: if the branch already exists at the same SHA,\n  return success; if it exists at a different SHA, raise.\n- Use `pipeline.base_branch` (NOT a hardcoded `main`) as the parent\n  ref.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Calling `create_context_branch(pipeline_id, base_branch=\"main\")`\n  on a clean test fixture produces an `egg/<pipeline_id>/context`\n  ref pointing at the same SHA as `main`.\n- Calling it twice in a row is idempotent.\n- Calling it when the branch exists at a different SHA raises.",
+          "files_affected": [
+            "orchestrator/gateway_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add an orchestrator hook that runs **after plan_gate approval and\nbefore slice-1 provisioning**. It must:\n1. Call `create_context_branch(pipeline_id, pipeline.base_branch)`.\n2. Check out the context branch into a temporary worktree.\n3. Copy the following files from the pipeline work branch onto the\n   context worktree:\n   - `.egg-state/drafts/<identifier>-analysis.md`\n   - `.egg-state/drafts/<identifier>-plan.md`\n   - `.egg-state/brc-history/<identifier>-refine.json`\n   - `.egg-state/brc-history/<identifier>-refine.md`\n   - `.egg-state/brc-history/<identifier>-plan.json`\n   - `.egg-state/brc-history/<identifier>-plan.md`\n   - All `.egg-state/agent-outputs/<identifier>-refine-*.{md,json}`\n   - All `.egg-state/agent-outputs/<identifier>-plan-*.{md,json}`\n4. Commit (orchestrator-authored, `--no-verify`) and push using the\n   same primitive `_commit_statefiles_to_worktree()` follows.\n5. Open a PR with `base = pipeline.base_branch`, `head =\n   egg/<pipeline_id>/context`, `title = contract.pr.context_title or\n   contract.pr.title`, `body = contract.pr.context_description or\n   contract.pr.description`. PR is opened **doc-only auto-open**:\n   the orchestrator does not block on its merge before slicing\n   (D3).\n6. Persist the branch name and PR number on\n   `contract.pr.context_branch` and `contract.pr.context_pr_number`\n   via the standard contract-write path.\nThe hook MUST guard against double-opening (idempotent on retry).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- On a fresh pipeline, after plan_gate approves, the context PR is\n  opened against the configured base branch and `contract.pr.{context_branch,context_pr_number}`\n  are populated.\n- The PR diff contains analysis.md, plan.md, refine/plan BRC\n  files, and refine/plan agent transcripts.\n- Re-running the hook is a no-op (idempotent).\n- Slice-1 provisioning is **not** blocked on context-PR merge (D3).",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add tests covering the new gateway primitive and orchestrator hook:\n- `orchestrator/tests/test_create_context_branch.py` (new) \u2014\n  primitive-level tests: idempotency, branch-already-exists-at-different-SHA\n  error, base_branch is honored (not hardcoded main).\n- `orchestrator/tests/test_context_pr.py` (new) \u2014 orchestrator\n  hook tests using existing pipeline-fixture infra: assert the PR\n  is opened with the right base/head/title/body, the diff contains\n  the expected files, and `contract.pr.{context_branch,context_pr_number}`\n  are persisted.\n- Integration-style test that the slice-1 spawn that follows does\n  **not** block on context-PR merge (D3).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- All new tests pass under `make test`.\n- Test files do not introduce any read of an aggregate\n  `<id>-implement.{json,md}` file.",
+          "files_affected": [
+            "orchestrator/tests/test_create_context_branch.py",
+            "orchestrator/tests/test_context_pr.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Slice-1 base wiring + per-slice BRC commit + reconciler fallback",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "In `_run_one_slice_inner()` (`orchestrator/routes/pipelines.py`\n~line 12405-12454), change the slice-1 (root) `parent_branch`\nresolution: instead of `parent_branch = pipeline_branch`, use\n`parent_branch = contract.pr.context_branch or pipeline_branch`\n(the `or pipeline_branch` is a defensive fallback only \u2014 under D4\nthe context branch must always be present by the time slice-1\nprovisions; log a warning if the fallback fires).\nSlice-N>1 logic is unchanged (`f\"{issue_branch}/{parent_slice_id}\"`).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- With a populated `contract.pr.context_branch`, slice-1's\n  integration branch is created from that branch (verifiable via\n  `git merge-base` in a fixture).\n- With the field absent, the warning fires and slice-1 falls back\n  to `pipeline_branch` for legacy fixtures (covered by a single\n  regression test).",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-4-2",
+          "description": "After each slice's implement-phase BRC reaches consensus and before\n`create_slice_pr()` is called (~line 12631-12648), commit the\nslice's `.egg-state/brc-history/<identifier>-implement-slice-<N>.{json,md}`\nfiles onto the slice's integration branch as a final\norchestrator-authored commit. Reuse `_commit_statefiles_to_worktree()`\n(lines ~7179-7318), narrowing the file glob to the per-slice files\nvia the existing `pipeline_identifier`-scoped pattern.\nThe commit must be:\n- Orchestrator-authored (default committer; matches existing\n  `_commit_statefiles_to_worktree()` semantics, addressing Q4).\n- Idempotent (re-running mid-flight produces no new commit if the\n  files match HEAD).\n- Pushed to the slice integration branch before the slice PR is\n  opened so the BRC files are part of the PR's diff.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- On a multi-slice pipeline, each slice PR's \"Files changed\" tab\n  includes its own `<id>-implement-slice-<N>.{json,md}` files.\n- No slice PR contains another slice's BRC files.\n- Re-running the per-slice commit step is a no-op when the files\n  already match.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-4-3",
+          "description": "Update `_resolve_extant_new_base()` in\n`orchestrator/stacked_pr_reconciler.py` (~line 87-132) so the\nlast-resort fallback prefers `contract.pr.context_branch` when set\nand falls back to `pipeline_branch` only if the context branch is\nabsent or has been deleted. The new ordering:\n  1. Walk slice DAG via `dependencies[0]` until extant branch found.\n  2. If the chain is exhausted, return `contract.pr.context_branch`\n     when present and extant on the remote.\n  3. Final fallback: `pipeline_branch` (current behavior).\nDocument the new ordering in a code comment.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- With `contract.pr.context_branch` populated and extant, the\n  reconciler returns it as the orphan-rebase target.\n- With the context branch missing, the reconciler falls back to\n  `pipeline_branch` (regression test).",
+          "files_affected": [
+            "orchestrator/stacked_pr_reconciler.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add and update tests covering the slice-1 base rewiring, per-slice\nBRC commit, and reconciler fallback:\n- `orchestrator/tests/test_pipeline_*.py` \u2014 slice-1 base resolution\n  asserts `parent_branch == egg/<id>/context` when the context\n  branch is set.\n- `orchestrator/tests/test_stacked_pr_reconciler.py` \u2014 fallback\n  prefers `egg/<id>/context` over `pipeline_branch`; missing-context\n  regression covered.\n- `orchestrator/tests/test_brc_history.py` (or a new\n  `test_per_slice_brc_commit.py`) \u2014 integration-style: the per-slice\n  BRC files land on the slice integration branch before the slice\n  PR is opened.\n- End-to-end smoke test (existing `test_auto_pr.py` or equivalent)\n  verifies a multi-slice pipeline produces:\n    * 1 context PR with refine/plan artifacts\n    * N slice PRs each with their own `-implement-slice-<N>.{json,md}`\n    * No aggregate `-implement.{json,md}` file anywhere\n    * Slice-1 base = `egg/<id>/context`\n    * Slice-N>1 base = `egg/<id>/slice-<N-1>` (unchanged)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- All new and updated tests pass under `make test-all` on this\n  terminal-code slice.",
+          "files_affected": [
+            "orchestrator/tests/test_stacked_pr_reconciler.py",
+            "orchestrator/tests/test_per_slice_brc_commit.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Documentation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Update the following docs to describe the context PR, the\nper-slice implement BRC layout, and slice-1's new base resolution:\n- `docs/guides/concurrent-execution.md` \u2014 PR-stack diagram + an\n  explicit \"Context PR is opened first\" subsection.\n- `docs/architecture/orchestrator.md` \u2014 slice-DAG diagram updated\n  to show context branch as the new root, BRC-history file naming\n  section updated to call out the per-slice implement files.\n- `docs/reference/orchestrator-cli.md` \u2014 if any `egg-orch` commands\n  surface the context PR (e.g. status output), document the field.\n- `docs/guides/babysit-pr.md` \u2014 note that babysit_pr now reads\n  per-slice implement BRC files, not the aggregate file.\nCross-reference issue #2548 in each affected doc.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- All four docs render cleanly (`make lint` includes markdown\n  checks).\n- Search for the literal string `<id>-implement.json` (or `.md`)\n  in the docs: zero remaining matches outside changelog/historical\n  references.",
+          "files_affected": [
+            "docs/guides/concurrent-execution.md",
+            "docs/architecture/orchestrator.md",
+            "docs/reference/orchestrator-cli.md",
+            "docs/guides/babysit-pr.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -206,6 +541,18 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Retry phase\"}",
       "resolved_by": "human",
       "resolved_at": "2026-05-07T17:40:20.736368Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"In scope \u2014 fix as part of #2548. The work\u2192main gap is the deeper problem; closing it via the context PR mechanism is on-scope.\", \"Q2\": \"Add separate contract.pr.context_title / pr.context_description fields. Lets context framing differ from slice framing.\", \"Q3\": \"Include agent transcripts as well (.egg-state/agent-outputs/<id>-refine-*.md and similar). Maximum transparency.\", \"Q4\": \"Orchestrator-authored. Matches existing _commit_statefiles_to_worktree pattern; coder/tester gateway boundaries forbid them from pushing under .egg-state/brc-history/ anyway.\", \"Q5\": \"Per-slice BRC only \u2014 each slice PR carries its own; no cross-slice aggregate file (consistent with decision-4).\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-07T18:26:48.933152Z",
       "debounce_until": null
     }
   ],
@@ -482,7 +829,13 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Add context PR + per-slice BRC history (closes #2548)",
+    "description": "## Context\n\nSlice PRs today review only their own code diff against `egg/<id>/work`.\nReviewers cannot see the refine-phase analysis, the plan-phase plan, or any\nBRC consensus history for the changes they are reviewing \u2014 those artifacts\nlive on a side branch (`egg/<id>/work`) that is never part of any slice PR's\nreview surface against `main`. As a result the strategic narrative and the\nconsensus that approved each artifact never reach `main` at all.\n\n## Changes\n\n1. **New `pr.context_*` contract fields.** `PRMetadata` grows\n   `context_title`, `context_description`, `context_branch`, and\n   `context_pr_number`. The planner prompt now emits the new fields so the\n   context PR can be framed independently from the slice PRs.\n2. **Per-slice implement-phase BRC history.** `_write_brc_history()` now\n   writes `.egg-state/brc-history/<id>-implement-slice-<N>.{json,md}` (one\n   file per slice). The aggregate `<id>-implement.{json,md}` file is\n   removed \u2014 hard switchover, no backwards-compat (D4).\n3. **Context branch + context PR.** A new gateway primitive creates\n   `egg/<id>/context` from the pipeline's base branch (NOT hardcoded\n   `main`). After plan_gate approval the orchestrator commits\n   `analysis.md`, `plan.md`, refine/plan BRC files, and refine/plan agent\n   transcripts onto that branch, then opens a doc-only auto-open PR\n   targeting the configured base branch.\n4. **Slice-1 stacks on context.** Slice-1's `parent_branch` resolves to\n   `egg/<id>/context` instead of `egg/<id>/work`. Each slice's\n   implement-phase BRC `.json`/`.md` is committed to the slice integration\n   branch as a final orchestrator-authored commit before the slice PR is\n   opened. The stacked-PR reconciler's last-resort fallback prefers the\n   context branch over `pipeline_branch`.\n5. **Docs refresh.** Reference and guide pages that describe the PR-stack\n   shape, BRC-history file layout, and slice-1 base resolution are updated\n   to match the new behavior.\n\n## Impact\n\nReviewers approaching any PR see the consensus history that produced it.\n`git log -- .egg-state/drafts/` and `git log -- .egg-state/brc-history/` on\n`main` produce a real audit trail once the context PR merges. The\nwork-branch-as-permanent-base gap (Q1) is closed. The change is a hard\nswitchover; in-flight pipelines are not backfilled (D4).",
+    "test_plan": "- Automated:\n  - `shared/egg_contracts/tests/` \u2014 new `PRMetadata.context_*` field tests\n    and schema-1.1 round-trip.\n  - `orchestrator/tests/test_brc_history.py` \u2014 per-slice implement-phase\n    writer; assert no aggregate file is produced.\n  - `orchestrator/tests/test_create_slice_integration_branch.py` plus new\n    `test_create_context_branch.py` \u2014 gateway primitive for context branch.\n  - `orchestrator/tests/test_context_pr.py` (new) \u2014 orchestrator hook that\n    opens the context PR with correct base, head, title, body, and files.\n  - `orchestrator/tests/test_stacked_pr_reconciler.py` \u2014 fallback prefers\n    the context branch over the work branch.\n  - `orchestrator/tests/test_pipeline_*.py` \u2014 slice-1 base-resolution\n    tests assert `parent_branch == egg/<id>/context`.\n  - `make test` (changeset-aware) on every slice; `make test-all` on the\n    terminal slice.\n- Manual:\n  - Run a fresh pipeline against a throwaway issue and confirm the context\n    PR is opened against the configured base branch with `analysis.md`,\n    `plan.md`, refine/plan BRC `.json`/`.md`, and refine/plan agent\n    transcripts in the diff.\n  - Confirm slice-1's PR has `base = egg/<id>/context`.\n  - Confirm each slice PR's diff includes its own\n    `.egg-state/brc-history/<id>-implement-slice-<N>.{json,md}` and no\n    aggregate `<id>-implement.{json,md}` exists anywhere.\n  - Merge the context PR; confirm slice-1 retargets onto the base branch\n    and the orphan reconciler completes the rebase cleanly.",
+    "manual_steps": "Pre-merge: none beyond standard PR review. If any `.github/` workflow\nchanges turn out to be required, the coder will stage them under\n`.github-staging/` and the merge reviewer should `git mv` them into place\nbefore merging (per the existing convention).\n\nPost-merge: hard switchover \u2014 no migration, no feature flag, no\nbackwards-compat shim (per D4). Existing in-flight pipelines\n(e.g. issue-2474-v2) will NOT be backfilled.",
+    "deferred_actions": []
+  },
   "feedback": {
     "id": "feedback-1",
     "phase": "refine",
