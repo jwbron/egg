@@ -23,12 +23,18 @@ The reconciler runs on a fixed cadence (default 30 s, env var
 3. Calls ``GatewayClient.rebase_onto`` (orchestrator-side bridge
    in :mod:`orchestrator.gateway_client`) which forwards the
    request through the gateway's existing per-agent allowlist
-   plumbing — internally constructed via
-   :func:`gateway.git_client.build_rebase_onto_args` and submitted
-   through the same ``/api/v1/git/execute`` endpoint that
-   authorised agents use today. No new privileged
-   orchestrator-role endpoint is introduced (refine-phase
-   decision-15).
+   plumbing — argv is built client-side by
+   :func:`orchestrator.gateway_client._build_rebase_onto_args`
+   (an inlined copy of
+   :func:`gateway.git_client.build_rebase_onto_args` so the
+   orchestrator image, which does not ship ``gateway/``, has no
+   import-time dependency on the gateway package — see #2535)
+   and submitted through the same ``/api/v1/git/execute``
+   endpoint that authorised agents use today. The gateway server
+   re-validates the argv via the same allowlist, so dropping the
+   client-side ``validate_git_args`` call doesn't reduce the
+   security floor. No new privileged orchestrator-role endpoint
+   is introduced (refine-phase decision-15).
 
 This module is pure-Python and side-effect-free at import time —
 the orchestrator's pipeline run loop wires up an async timer that

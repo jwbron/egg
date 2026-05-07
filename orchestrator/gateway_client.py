@@ -57,13 +57,22 @@ def _build_rebase_onto_args(
 ) -> tuple[list[str], bool, str]:
     """Construct the canonical ``rebase --onto`` argv for the reconciler.
 
-    Mirrors :func:`gateway.git_client.build_rebase_onto_args`, but lives in
-    the orchestrator package so the deployed orchestrator image (which does
-    not ship ``gateway/``) can build the argv without an import-time
-    dependency on the gateway code. The gateway server's ``/git`` endpoint
-    is the authoritative allowlist boundary — it re-validates this argv on
-    every request, so this helper is purely client-side argv construction
-    plus a ref-shape sanity check that fails fast on caller mistakes.
+    Performs the same ref-shape sanity checks as
+    :func:`gateway.git_client.build_rebase_onto_args` (reject empty,
+    flag-shaped, whitespace-bearing, or non-git-ref-shaped inputs) but
+    lives in the orchestrator package so the deployed orchestrator image
+    (which does not ship ``gateway/``) can build the argv without an
+    import-time dependency on the gateway code. Two intentional
+    differences from the gateway helper:
+
+    - The argv is emitted with each ref *stripped*, so leading/trailing
+      whitespace that the regex would otherwise reject as the input is
+      normalised before the gateway round-trip.
+    - This helper does NOT call ``gateway.git_client.validate_git_args``
+      — pulling that import in would defeat the point of inlining. The
+      gateway server's ``/git`` endpoint runs the same allowlist
+      validator on every submission, so the security floor is unchanged
+      (audit boundary is the server, not the client-side helper).
     """
     if not isinstance(branch, str) or not branch.strip():
         return [], False, "branch must be a non-empty string"

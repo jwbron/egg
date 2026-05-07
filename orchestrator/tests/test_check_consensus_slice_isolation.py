@@ -45,11 +45,7 @@ from review_graph import get_review_graph_for_phase  # noqa: E402
 
 
 def _make_pipeline(pipeline_id: str = "issue-2535-test") -> Pipeline:
-    config = PipelineConfig()
-    try:
-        config.concurrent_execution = True  # type: ignore[attr-defined]
-    except AttributeError, ValueError:
-        config.__dict__["concurrent_execution"] = True
+    config = PipelineConfig(concurrent_execution=True)
     return Pipeline(
         id=pipeline_id,
         repo="test/repo",

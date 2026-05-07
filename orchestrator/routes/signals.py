@@ -1465,6 +1465,7 @@ def _existing_confirmed_for_role(
     pipeline_id: str,
     agent_role: str,
     phase: str | None,
+    slice_id: str | None = None,
 ) -> tuple[bool, bool]:
     """Return (has_final, has_pending_acks) for prior CONFIRMED messages.
 
@@ -1475,6 +1476,17 @@ def _existing_confirmed_for_role(
 
     - ``has_final``: a non-pending_acks CONFIRMED message already exists.
     - ``has_pending_acks``: a pending_acks CONFIRMED message exists.
+
+    ``slice_id`` scopes the check to a single slice. The message store
+    keys messages by bare ``pipeline_id``, so without scoping a fresh
+    slice-N coder would falsely appear "already confirmed" because
+    slice-(N-1)'s coder wrote a CONFIRMED message under the same
+    pipeline_id (#2535). Filtering on ``metadata["slice_id"]`` (written
+    by the per-slice tracker path below) confines the lookup to the
+    same slice. Pipeline-scoped (``slice_id is None``) callers continue
+    to see only messages with no ``slice_id`` in metadata, preserving
+    the legacy non-slice behaviour. Tracked under #2409 as part of
+    end-to-end slice-scoped message routing.
     """
     try:
         from message_store import get_message_store
@@ -1510,6 +1522,12 @@ def _existing_confirmed_for_role(
         if phase is not None and msg_phase is not None and msg_phase != phase:
             continue
         metadata = getattr(m, "metadata", None) or {}
+        # Scope idempotency check to the same slice. A None slice_id on
+        # either side (caller or message) only matches the same; this
+        # cleanly separates slice-N from slice-M and from pipeline-level
+        # confirms.
+        if metadata.get("slice_id") != slice_id:
+            continue
         if metadata.get("pending_acks"):
             has_pending = True
         else:
@@ -1669,9 +1687,16 @@ def handle_consensus_confirmed_signal(
         # check_consensus() can detect when all agents have *attempted*
         # confirmation even if the tracker rejected some (#1615).
         current_phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        # Pass slice_id so the idempotency probe doesn't see sibling-slice
+        # CONFIRMs as "already confirmed for this role" (#2535).
         has_final, has_pending = _existing_confirmed_for_role(
-            pipeline_id, agent_role, current_phase
+            pipeline_id, agent_role, current_phase, slice_id=slice_id
         )
+
+        # Common metadata tag so future _existing_confirmed_for_role probes
+        # can scope by slice (None for pipeline-level callers, matching the
+        # legacy behaviour exactly).
+        _slice_meta = {"slice_id": slice_id} if slice_id is not None else {}
 
         if result.get("status") == "pending_acks":
             # Dedupe pending_acks writes once an agent has already emitted one
@@ -1690,7 +1715,7 @@ def handle_consensus_confirmed_signal(
                         subject=f"Confirmed by {agent_role} (pending_acks)",
                         body=result.get("message", ""),
                         phase=current_phase,
-                        metadata={"pending_acks": True},
+                        metadata={"pending_acks": True, **_slice_meta},
                     )
                 )
             return make_success_response(result["message"], data=result, status_code=202)
@@ -1711,7 +1736,10 @@ def handle_consensus_confirmed_signal(
                     subject=f"Confirmed by {agent_role}",
                     body="",
                     phase=current_phase,
-                    metadata={"consensus_reached": result.get("consensus_reached", False)},
+                    metadata={
+                        "consensus_reached": result.get("consensus_reached", False),
+                        **_slice_meta,
+                    },
                 )
             )
 
