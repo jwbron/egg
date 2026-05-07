@@ -912,13 +912,22 @@ class TestValidateAssignmentSiblingModels:
         assert feedback.phase is PipelinePhase.PLAN
 
     def test_pr_metadata_invalid_deferred_actions_raises(self):
-        """Field validation re-runs on assignment for nested-model fields too."""
+        """Field validation re-runs on assignment for nested-model fields too.
+
+        Assigning a raw dict — rather than a pre-constructed
+        ``DeferredAction(...)`` — is what actually exercises pydantic's
+        list-element coercion path on the parent ``PRMetadata.deferred_actions``
+        setattr. (A pre-constructed inner instance is not deeply
+        revalidated under pydantic's default ``revalidate_instances="never"``,
+        so wrapping the bad value in ``DeferredAction(...)`` would raise
+        from the inner constructor, not from the outer assignment.)
+        """
         pr = PRMetadata(title="t")
         pr.deferred_actions = [DeferredAction(reviewer="r", condition="cond")]
         with pytest.raises(ValidationError):
             # ``resolved_in_diff`` has a hex-only pattern; non-hex must be rejected.
             pr.deferred_actions = [
-                DeferredAction(reviewer="r", condition="cond", resolved_in_diff="not-hex!")
+                {"reviewer": "r", "condition": "cond", "resolved_in_diff": "not-hex!"}
             ]
 
     def test_no_unexpected_serialization_warnings_after_sibling_assignments(self):

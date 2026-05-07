@@ -121,12 +121,16 @@ def apply_mutation(
             message=f"Failed to apply mutation: {e}",
         )
     except ValidationError as e:
-        # ``Contract.model_config = ConfigDict(validate_assignment=True)``
-        # (added for #2465) makes ``setattr`` raise pydantic
-        # ``ValidationError`` for out-of-domain values (e.g. an
-        # arbitrary string for an enum field). Surface that through the
-        # existing ``MutationResult`` channel so the contract /mutate
-        # route returns a structured 4xx instead of an opaque 500.
+        # ``EggContractBaseModel.model_config = ConfigDict(validate_assignment=True)``
+        # (added for #2465 on ``Contract``, lifted to the shared base in
+        # #2490) makes ``setattr`` raise pydantic ``ValidationError`` for
+        # out-of-domain values (e.g. an arbitrary string for an enum
+        # field) on ``Contract`` *and* on every sibling model in the
+        # contract object graph (``Task.status = "garbage"``,
+        # ``Slice.status = "garbage"``, ``Decision.type = "garbage"``,
+        # …). Surface that through the existing ``MutationResult``
+        # channel so the contract /mutate route returns a structured
+        # 4xx instead of an opaque 500.
         return MutationResult(
             success=False,
             message=f"Invalid value for {field_path}: {e}",
