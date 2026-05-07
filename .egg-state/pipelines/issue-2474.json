@@ -5,7 +5,7 @@
   "branch": "egg/issue-2474/work",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -308,10 +308,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-05-07T01:03:59.279520Z",
       "work_started_at": "2026-05-07T01:03:59.621341Z",
-      "completed_at": null,
+      "completed_at": "2026-05-07T01:05:02.631235Z",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
@@ -320,12 +320,12 @@
         {
           "cycle": 0,
           "started_at": "2026-05-07T01:03:59.621341Z",
-          "completed_at": null,
+          "completed_at": "2026-05-07T01:05:02.631184Z",
           "commit_sha": "8a76c30d3cc1628601432b91c76bb0f118b91bcc"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- slice slice-1 ---\nslice slice-1: integration branch egg/issue-2474/slice-1 could not be created from egg/issue-2474/work",
       "hitl_feedback": null,
       "phase_start_sha": "8a76c30d3cc1628601432b91c76bb0f118b91bcc",
       "agent_exits": [
@@ -1030,7 +1030,7 @@
     }
   ],
   "created_at": "2026-05-06T21:55:24.190816Z",
-  "updated_at": "2026-05-07T01:03:59.624755Z",
+  "updated_at": "2026-05-07T01:05:02.631530Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1038,12 +1038,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- slice slice-1 ---\nslice slice-1: integration branch egg/issue-2474/slice-1 could not be created from egg/issue-2474/work",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-07T01:03:58.058078Z",
-  "version": 127,
+  "version": 128,
   "jira_ticket": null
 }
