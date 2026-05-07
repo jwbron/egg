@@ -3188,7 +3188,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 except Exception as exc:  # noqa: BLE001
                     # Catch derivation failures so the route returns 400
                     # rather than 500 — deliberate divergence from
-                    # ``_run_concurrent_phase`` (``pipelines.py:12808-12833``),
+                    # ``_run_concurrent_phase`` (``pipelines.py:12813-12840``),
                     # which lets the same failure propagate up the worker
                     # thread. In a synchronous HTTP context an honest 400
                     # ("No agents found") is more useful to the operator
