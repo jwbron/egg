@@ -1,9 +1,13 @@
 """Tests for egg_contracts.models module."""
 
+import warnings
 from datetime import UTC, datetime
 
 import pytest
 from egg_contracts.models import (
+    AgentExecutionModel,
+    AgentExecutionStatus,
+    AgentRoleType,
     AuditAction,
     AuditEntry,
     AuditRole,
@@ -13,16 +17,25 @@ from egg_contracts.models import (
     Contract,
     Decision,
     DecisionType,
+    DeferredAction,
+    EggContractBaseModel,
+    Feedback,
+    FeedbackQuestion,
     HumanReviewMechanism,
     IssueInfo,
     Phase,
     PhaseConfig,
     PhaseStatus,
     PipelinePhase,
+    PRMetadata,
+    ReviewFeedback,
+    Slice,
+    SliceStatus,
     Task,
     TaskStatus,
 )
 from pydantic import ValidationError
+from pydantic_core import PydanticSerializationUnexpectedValue
 
 
 class TestIssueInfo:
@@ -764,3 +777,186 @@ class TestContractWithPhaseConfigs:
         }
         contract = Contract.model_validate(data)
         assert contract.phase_configs is None
+
+
+class TestValidateAssignmentSiblingModels:
+    """Regression tests for #2490 — ``validate_assignment=True`` extended
+    from ``Contract`` to every sibling model in the contract object graph
+    via the shared ``EggContractBaseModel``.
+
+    Each test asserts the two halves of the acceptance criterion: a
+    string-compatible enum value coerces to the declared type, and an
+    out-of-domain value raises ``pydantic.ValidationError`` (which
+    ``apply_mutation`` then surfaces as ``MutationResult(success=False)``
+    via the catch added in #2484).
+    """
+
+    def test_base_class_sets_validate_assignment(self):
+        """The shared base flips ``validate_assignment`` on for everyone."""
+        assert EggContractBaseModel.model_config.get("validate_assignment") is True
+        # And every concrete model inherits the config — spot-check a
+        # representative sample across enum / nested-model / scalar
+        # field shapes.
+        for cls in (
+            Task,
+            Slice,
+            Decision,
+            AgentExecutionModel,
+            PRMetadata,
+            Feedback,
+            Contract,
+        ):
+            assert issubclass(cls, EggContractBaseModel)
+            assert cls.model_config.get("validate_assignment") is True
+
+    def test_task_status_string_coerces_to_enum(self):
+        task = Task(id="task-1", description="x")
+        # ``setattr`` (not ``=``) — this is the path ``apply_mutation``
+        # / ``_set_value`` ultimately takes, and avoids tripping mypy on
+        # str-to-enum assignments that are only legal at runtime thanks
+        # to ``validate_assignment=True``.
+        setattr(task, "status", "in_progress")  # noqa: B010
+        assert type(task.status) is TaskStatus
+        assert task.status is TaskStatus.IN_PROGRESS
+
+    def test_task_invalid_status_raises(self):
+        task = Task(id="task-1", description="x")
+        with pytest.raises(ValidationError):
+            setattr(task, "status", "garbage")  # noqa: B010
+        # Original value unchanged.
+        assert task.status is TaskStatus.PENDING
+
+    def test_slice_status_string_coerces_to_enum(self):
+        slice_ = Slice(id="slice-1", name="one")
+        setattr(slice_, "status", "in_progress")  # noqa: B010
+        assert type(slice_.status) is SliceStatus
+        assert slice_.status is SliceStatus.IN_PROGRESS
+
+    def test_slice_invalid_status_raises(self):
+        slice_ = Slice(id="slice-1", name="one")
+        with pytest.raises(ValidationError):
+            setattr(slice_, "status", "garbage")  # noqa: B010
+        assert slice_.status is SliceStatus.PENDING
+
+    def test_decision_type_string_coerces_to_enum(self):
+        decision = Decision(id="decision-1", question="q?", type=DecisionType.HITL)
+        setattr(decision, "type", "auto")  # noqa: B010
+        assert type(decision.type) is DecisionType
+        assert decision.type is DecisionType.AUTO
+
+    def test_decision_invalid_type_raises(self):
+        decision = Decision(id="decision-1", question="q?", type=DecisionType.HITL)
+        with pytest.raises(ValidationError):
+            setattr(decision, "type", "garbage")  # noqa: B010
+        assert decision.type is DecisionType.HITL
+
+    def test_agent_execution_status_string_coerces_to_enum(self):
+        execution = AgentExecutionModel(role=AgentRoleType.CODER)
+        setattr(execution, "status", "running")  # noqa: B010
+        assert type(execution.status) is AgentExecutionStatus
+        assert execution.status is AgentExecutionStatus.RUNNING
+
+    def test_agent_execution_invalid_status_raises(self):
+        execution = AgentExecutionModel(role=AgentRoleType.CODER)
+        with pytest.raises(ValidationError):
+            setattr(execution, "status", "garbage")  # noqa: B010
+        assert execution.status is AgentExecutionStatus.PENDING
+
+    def test_agent_execution_invalid_role_raises(self):
+        execution = AgentExecutionModel(role=AgentRoleType.CODER)
+        with pytest.raises(ValidationError):
+            setattr(execution, "role", "not-a-real-role")  # noqa: B010
+        assert execution.role is AgentRoleType.CODER
+
+    def test_review_feedback_status_string_coerces_to_enum(self):
+        review = ReviewFeedback(
+            timestamp=datetime.now(UTC),
+            task_id="task-1",
+            feedback="needs work",
+        )
+        setattr(review, "status", "complete")  # noqa: B010
+        assert type(review.status) is TaskStatus
+        assert review.status is TaskStatus.COMPLETE
+
+    def test_phase_config_human_review_mechanism_coerces_to_enum(self):
+        config = PhaseConfig()
+        setattr(config, "human_review_mechanism", "PR_REVIEW")  # noqa: B010
+        assert type(config.human_review_mechanism) is HumanReviewMechanism
+        assert config.human_review_mechanism is HumanReviewMechanism.PR_REVIEW
+
+    def test_check_result_status_string_coerces_to_enum(self):
+        result = CheckResult(check_id="check-lint", status=CheckStatus.PASS)
+        setattr(result, "status", "fail")  # noqa: B010
+        assert type(result.status) is CheckStatus
+        assert result.status is CheckStatus.FAIL
+
+    def test_audit_entry_invalid_action_raises(self):
+        entry = AuditEntry(
+            timestamp=datetime.now(UTC),
+            actor="actor",
+            role=AuditRole.HUMAN,
+            action=AuditAction.UPDATE,
+            field_path="x",
+        )
+        with pytest.raises(ValidationError):
+            setattr(entry, "action", "garbage")  # noqa: B010
+        assert entry.action is AuditAction.UPDATE
+
+    def test_feedback_phase_string_coerces_to_enum(self):
+        feedback = Feedback(
+            id="feedback-1",
+            questions=[FeedbackQuestion(id="Q1", question="q?")],
+        )
+        setattr(feedback, "phase", "plan")  # noqa: B010
+        assert type(feedback.phase) is PipelinePhase
+        assert feedback.phase is PipelinePhase.PLAN
+
+    def test_pr_metadata_invalid_deferred_actions_raises(self):
+        """Field validation re-runs on assignment for nested-model fields too.
+
+        Assigning a raw dict — rather than a pre-constructed
+        ``DeferredAction(...)`` — is what actually exercises pydantic's
+        list-element coercion path on the parent ``PRMetadata.deferred_actions``
+        setattr. (A pre-constructed inner instance is not deeply
+        revalidated under pydantic's default ``revalidate_instances="never"``,
+        so wrapping the bad value in ``DeferredAction(...)`` would raise
+        from the inner constructor, not from the outer assignment.)
+        """
+        pr = PRMetadata(title="t")
+        pr.deferred_actions = [DeferredAction(reviewer="r", condition="cond")]
+        with pytest.raises(ValidationError):
+            # ``resolved_in_diff`` has a hex-only pattern; non-hex must be rejected.
+            pr.deferred_actions = [
+                {"reviewer": "r", "condition": "cond", "resolved_in_diff": "not-hex!"}
+            ]
+
+    def test_no_unexpected_serialization_warnings_after_sibling_assignments(self):
+        """Round-trip after sibling-model setattrs emits no PydanticSerializationUnexpectedValue.
+
+        Mirror of the second acceptance criterion: existing tests that
+        round-trip a contract must not start emitting
+        ``PydanticSerializationUnexpectedValue`` warnings after the
+        sibling models adopt ``validate_assignment=True``.
+        """
+        contract = Contract(
+            issue=IssueInfo(
+                number=1,
+                title="t",
+                url="https://github.com/o/r/issues/1",
+            ),
+            slices=[
+                Slice(
+                    id="slice-1",
+                    name="one",
+                    tasks=[Task(id="task-1", description="x")],
+                )
+            ],
+            decisions=[Decision(id="decision-1", question="q?", type=DecisionType.HITL)],
+        )
+        setattr(contract.slices[0].tasks[0], "status", "complete")  # noqa: B010
+        setattr(contract.slices[0], "status", "complete")  # noqa: B010
+        setattr(contract.decisions[0], "type", "auto")  # noqa: B010
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", PydanticSerializationUnexpectedValue)
+            contract.model_dump(mode="json")
