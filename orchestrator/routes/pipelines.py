@@ -9415,7 +9415,11 @@ def _build_phase_prompt(
                 "every implement-phase BRC already runs those agents alongside the "
                 "coder. Distribute documentation and test work across the slices that "
                 "introduce the behaviour they describe; producer-only slices are "
-                "rejected at propose time.",
+                "rejected at propose time. **Escape hatch**: if a slice genuinely "
+                "needs to be only docs or tests (e.g. backfilling test coverage for "
+                "already-merged code, or a docs-only update with no code change), "
+                "omit the ``role`` field on those tasks — they default to ``coder`` "
+                "and the slice passes.",
                 "",
                 f"Write your plan to `{plan_path}`.",
                 "Commit and push the draft when done.",
@@ -11271,7 +11275,11 @@ def _build_agent_prompt(
                 "missing doc/test coverage at the moment it is reviewable. "
                 "Producer-only slices are rejected at propose time (HTTP "
                 "400, before the tracker is mutated and before any reviewer "
-                "sees the proposal).",
+                "sees the proposal). **Escape hatch**: if a slice genuinely "
+                "needs to be only docs or tests (e.g. backfilling test "
+                "coverage for already-merged code, or a docs-only update "
+                "with no code change), omit the ``role`` field on those "
+                "tasks — they default to ``coder`` and the slice passes.",
                 "",
                 "**Auto-serialization rule for would-be multi-parent slices**: "
                 "when you identify a slice that would naturally have >1 "

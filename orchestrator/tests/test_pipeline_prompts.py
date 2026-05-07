@@ -2582,7 +2582,7 @@ class TestPlannerProducerOnlySliceValidation:
 
         msg = str(excinfo.value)
         assert "Slice composition violations (#2565)" in msg
-        assert "slice-2" in msg or "slice-5" in msg
+        assert "slice-5" in msg
         assert "documenter" in msg
         assert "no coder task" in msg
 
@@ -2601,6 +2601,7 @@ class TestPlannerProducerOnlySliceValidation:
 
         msg = str(excinfo.value)
         assert "Slice composition violations (#2565)" in msg
+        assert "slice-2" in msg
         assert "tester" in msg
 
     def test_bundles_both_violations_into_one_rejection(self):

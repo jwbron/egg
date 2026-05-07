@@ -1458,7 +1458,7 @@ def validate_producer_only_slices(slices: list[Slice]) -> list[str]:
     """
     errors: list[str] = []
     for slice_ in slices:
-        tasks = list(slice_.tasks or [])
+        tasks = list(slice_.tasks)
         if not tasks:
             # Empty-task slices are handled elsewhere — the parser
             # injects a placeholder coder task for any phase it can't
