@@ -308,8 +308,8 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "pending",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-05-07T02:40:44.942685Z",
       "work_started_at": null,
       "completed_at": null,
       "containers": [],
@@ -1030,7 +1030,7 @@
     }
   ],
   "created_at": "2026-05-06T21:55:24.190816Z",
-  "updated_at": "2026-05-07T02:40:43.188450Z",
+  "updated_at": "2026-05-07T02:40:44.942935Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1044,6 +1044,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-07T02:40:43.188058Z",
-  "version": 130,
+  "version": 131,
   "jira_ticket": null
 }
