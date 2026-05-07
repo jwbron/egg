@@ -585,18 +585,22 @@ def _send_brc_confirmation_nudge(
     it directly to the stuck producer rather than relying on the
     overseer agent's discretion.
 
-    Uses ``OVERSEER_ALERT`` (not ``STATUS`` or ``NUDGE``) because it is
-    the only message type that appears in **both** the producer's
-    pre-confirm wait_loop filter
-    (``CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT``)
-    and post-confirm wait_loop filter
-    (``CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT``), so it
-    wakes the producer regardless of which wait they are blocked on.
-    A wedged producer is in the ``fully_acked but not confirmed`` set,
-    which means they are most likely blocked on the pre-confirm wait.
-    The subject calls out that the alert originated from the
-    orchestrator's deterministic detector rather than the overseer
-    agent.
+    Uses ``OVERSEER_ALERT`` (not ``STATUS`` or ``NUDGE``) because it
+    appears in **both** the producer's pre-confirm wait_loop filter
+    (``CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT``,
+    post-#2531) and post-confirm wait_loop filter
+    (``CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT``) and has
+    no protocol-specific semantics that would conflict with a producer
+    nudge — ``CONSENSUS_RE_REVIEW`` is also in both filters but means
+    "a peer re-proposed; re-review their artifact," not "you are
+    wedged; confirm." ``STATUS`` is in the pre-confirm filter (it
+    carries the orchestrator's *Ready to confirm* nudge) but not the
+    post-confirm filter, so it wouldn't reach a producer wedged after
+    a successful confirm. A wedged producer is in the
+    ``fully_acked but not confirmed`` set, which means they are most
+    likely blocked on the pre-confirm wait. The subject calls out
+    that the alert originated from the orchestrator's deterministic
+    detector rather than the overseer agent.
 
     Returns True when a message was posted, False otherwise (wrong
     alert type, missing fields, message store unavailable, send error).
@@ -9657,12 +9661,23 @@ def _build_brc_preamble(
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers with "
                 "`egg-orch message wait-loop --for CONSENSUS_ACK "
                 "--for CONSENSUS_NACK --for CONSENSUS_RE_REVIEW "
-                "--for OVERSEER_ALERT`. Do **not** include "
+                "--for STATUS --for OVERSEER_ALERT`. Do **not** include "
                 "`CONSENSUS_CONFIRMED` in this pre-confirm wait — your own "
                 "confirm is part of what generates that signal, so the "
                 "orchestrator rejects the wait with HTTP 400 "
                 "(#2064, #2482); the confirmed event belongs only in step "
                 "6 STAY ALIVE, after your confirm has succeeded. "
+                "`STATUS` is required so the orchestrator's directed "
+                "**Ready to confirm — all confirm preconditions satisfied** "
+                "nudge wakes you (#2531): when every reviewer has already "
+                "ACKed the current version, no further `CONSENSUS_ACK` / "
+                "`CONSENSUS_NACK` will arrive, and the directed `STATUS` "
+                "(metadata `ready_to_confirm: true`) is the only signal "
+                "that the global confirm preconditions cleared. On wake, "
+                "if the message is the directed *Ready to confirm* nudge, "
+                "go straight to step 5 **CONFIRM**; other `STATUS` wakeups "
+                "(e.g. *Producer X excused from consensus*) are "
+                "informational — re-enter the wait. "
                 "On the first NACK, start fixing "
                 "immediately — don't wait. **Aggregation is enforced by the "
                 "orchestrator, not by you (#2142):** when **two or more distinct "
