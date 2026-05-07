@@ -138,6 +138,7 @@ class StateStoreProbe:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._probe_in_flight = False
+        self._probe_started_at_monotonic: float | None = None
         self._on_observation = on_observation
 
     @property
@@ -178,6 +179,7 @@ class StateStoreProbe:
                 healthy = bool(self._healthy) if self._healthy is not None else False
                 return healthy, self._message
             self._probe_in_flight = True
+            self._probe_started_at_monotonic = time.monotonic()
 
         try:
             base_path = _resolve_base_path()
@@ -202,6 +204,7 @@ class StateStoreProbe:
         finally:
             with self._lock:
                 self._probe_in_flight = False
+                self._probe_started_at_monotonic = None
 
         if callback is not None:
             try:
@@ -223,7 +226,31 @@ class StateStoreProbe:
           ``{"status": "error", "error": "..."}``. Empty when the probe
           was skipped or has not yet run (#2176).
         - ``fresh``: bool — whether the most recent probe is within the
-          staleness window (``interval * stale_multiplier``).
+          staleness window (``interval * stale_multiplier``). When a
+          probe is currently in flight the window is extended for the
+          duration of that probe (up to one additional staleness window),
+          so a single slow-but-completing probe doesn't trigger a
+          spurious unhealthy flip on the request path while the BG
+          callback later records healthy from the same probe (#2501).
+          A wedged probe (in-flight indefinitely) still surfaces as
+          stale once its in-flight age exceeds the staleness window.
+          Worst-case wedge detection latency is therefore bounded at
+          ``stale_window + interval`` after the last good probe — the
+          existing cache stays fresh for ``stale_window``, then the
+          next BG probe starts (within ``interval`` seconds of the
+          last completion) and the in-flight grace extends freshness
+          until that probe's own age exceeds ``stale_window``. With
+          the defaults (``interval=15s``, ``stale_multiplier=2.0`` →
+          ``stale_window=30s``) that's ~45s of blindness in the
+          pathological case, versus ~``stale_window`` (30s) before
+          #2501 — the documented trade-off for eliminating the
+          dual-write flap. The looser ``2 * stale_window`` upper bound
+          only saturates when ``stale_multiplier=1.0`` (interval
+          equals stale_window).
+          During the grace, ``fresh=True`` is reported even though
+          ``age_seconds`` may exceed ``stale_window``; operators
+          inspecting ``/api/v1/health`` mid-grace will see a
+          "fresh-but-old" response, which is intentional.
         - ``age_seconds``: float | None — seconds since the most recent
           probe, ``None`` if the BG thread has not run yet.
         """
@@ -232,6 +259,8 @@ class StateStoreProbe:
             message = self._message
             repos = dict(self._repos)
             last = self._last_check_monotonic
+            in_flight = self._probe_in_flight
+            started = self._probe_started_at_monotonic
 
         if last is None:
             return {
@@ -242,8 +271,24 @@ class StateStoreProbe:
                 "age_seconds": None,
             }
 
-        age = time.monotonic() - last
-        fresh = age <= self._interval * self._stale_multiplier
+        now = time.monotonic()
+        age = now - last
+        stale_window = self._interval * self._stale_multiplier
+        fresh = age <= stale_window
+        if not fresh and in_flight and started is not None:
+            # Don't penalize the cache for a probe that's still in
+            # progress: the BG callback will record the result from this
+            # same probe shortly (this is "fix #1" of the #2501 dual-
+            # write race — addressing the symptom on the snapshot side
+            # so the request path doesn't observe a transient unhealthy
+            # state from the same probe the BG thread will record as
+            # healthy seconds later). Bound the grace by the staleness
+            # window so a wedged probe (in-flight forever) still flips
+            # stale — without this bound the cache would become a
+            # permanent lie on a real wedge.
+            in_flight_age = now - started
+            if in_flight_age <= stale_window:
+                fresh = True
         return {
             "healthy": bool(healthy) if fresh else False,
             "message": message if fresh else f"stale (age={age:.1f}s): {message}",
