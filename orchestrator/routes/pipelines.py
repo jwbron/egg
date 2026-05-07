@@ -4577,7 +4577,24 @@ def _get_plan_review_criteria() -> str:
         "### 7. Completeness\n"
         "- Does the plan cover all aspects of the original request?\n"
         "- Are documentation updates included where needed?\n"
-        "- Are there any obvious gaps or missing tasks?\n"
+        "- Are there any obvious gaps or missing tasks?\n\n"
+        "### 8. Task Role ↔ Files Alignment (deterministic, see #2527)\n"
+        "- Task role↔files alignment is enforced **orchestrator-side** at "
+        "`CONSENSUS_PROPOSE`: a planner proposal whose task `role:` "
+        "assignments cannot push their `files:` (per "
+        "`shared/egg_restrictions/patterns.py`, the same blocklist the "
+        "gateway uses) is rejected with HTTP 400 before the proposal "
+        "reaches you. By the time you act on a `CONSENSUS_PROPOSE`, "
+        "structural role↔files alignment is therefore already validated — "
+        "no manual check is required for this dimension.\n"
+        "- If you want belt-and-suspenders verification, you can run the "
+        "validator yourself against the proposed plan: "
+        '`python3 -c "from egg_contracts.plan_parser import parse_plan_file, '
+        "validate_task_role_alignment as v; r = parse_plan_file('<plan-path>'); "
+        "print('\\n'.join(v(r.to_contract_slices())))\"`. "
+        "Errors here would predict a push-time `403 "
+        "restricted_path_modified` — NACK the planner and quote the "
+        "structured errors verbatim if any surface.\n"
     )
 
 
