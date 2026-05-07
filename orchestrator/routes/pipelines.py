@@ -3186,6 +3186,13 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                         except ValueError:
                             continue
                 except Exception as exc:  # noqa: BLE001
+                    # Catch derivation failures so the route returns 400
+                    # rather than 500 — deliberate divergence from
+                    # ``_run_concurrent_phase`` (``pipelines.py:12808-12833``),
+                    # which lets the same failure propagate up the worker
+                    # thread. In a synchronous HTTP context an honest 400
+                    # ("No agents found") is more useful to the operator
+                    # than a 500.
                     logger.warning(
                         "restart_phase: failed to derive default roster fallback",
                         pipeline_id=pipeline_id,
