@@ -723,9 +723,7 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
         # hypothetical "fetched the integration branch instead of the
         # parent" regression that a substring check on ``"egg/issue-1"``
         # (a prefix of ``"egg/issue-1/slice-1"``) wouldn't catch.
-        assert fetch_calls[0][0] == (
-            "+refs/heads/egg/issue-1:refs/remotes/origin/egg/issue-1"
-        )
+        assert fetch_calls[0][0] == ("+refs/heads/egg/issue-1:refs/remotes/origin/egg/issue-1")
 
 
 class TestShaIsAncestor:
