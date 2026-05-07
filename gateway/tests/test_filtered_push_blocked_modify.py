@@ -22,7 +22,6 @@ import git_client
 import pytest
 import session_manager
 from git_client import AttributedFile, AttributedPushRange
-from phase_filter import FileRestrictionResult
 from policy import PolicyResult
 from private_repo_policy import PrivateRepoPolicyResult
 from session_manager import SessionValidationResult
@@ -62,7 +61,17 @@ def _attributed(files_per_sha: list[tuple[str, list[str], str]]) -> AttributedPu
 
 def _push_patches(session, attributed: AttributedPushRange, changed_files: list[str]):
     """Patch the surrounding gateway machinery so the push reaches the
-    auto-filter branch with the supplied attribution."""
+    auto-filter branch with the supplied attribution.
+
+    Note: after #2489 the gateway no longer calls
+    ``check_file_restrictions`` from ``git_push`` — the attribution-
+    aware path is the sole agent-role enforcer.  We therefore do NOT
+    patch ``gateway.check_file_restrictions`` here; if a regression
+    re-introduced the legacy whole-push-diff call, the
+    ``TestPulledCommitsDoNotTrigger403`` regression test would catch
+    it (architect-authored ``docs/`` and ``gateway/`` paths in the
+    diff range would block the risk_analyst push).
+    """
     import auth
 
     auth._session_manager = None
@@ -117,9 +126,6 @@ def _push_patches(session, attributed: AttributedPushRange, changed_files: list[
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=(changed_files, None)),
-        patch.object(
-            gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-        ),
         patch.object(
             git_client,
             "get_attributed_changed_files_in_push",
@@ -315,3 +321,67 @@ class TestNoRoleSkipsCheck:
             stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
             response = _do_push(client)
         assert response.status_code == 200, response.data
+
+
+class TestPulledCommitsDoNotTrigger403:
+    """Regression for #2489: when the diff range contains commits authored
+    by *other* roles (e.g. an agent's per-role branch picked up upstream
+    work from the shared work branch), those commits' file paths must NOT
+    count against the pushing role's allowlist.  Only the role's own
+    commits' paths can trigger the rejection.
+
+    Before #2489 a duplicate naive ``check_file_restrictions`` call ran
+    before the attribution-aware path and rejected any restricted path
+    in the whole-push diff, which trapped role-restricted producers
+    (e.g. risk_analyst) whose branches inherited unrelated upstream
+    commits — the role had no sanctioned recovery path.
+    """
+
+    def test_pulled_blocked_paths_do_not_block_push(self, client):
+        """risk_analyst pushes its own clean commit; the diff range also
+        contains an upstream commit (authored by ``architect``) that
+        touches ``docs/`` and ``gateway/``.  The push must succeed —
+        pulled commits are exempt from the pushing role's allowlist."""
+        session = _make_session("risk_analyst")
+        attributed = _attributed(
+            [
+                # Inherited upstream commit authored by another role —
+                # touches paths that risk_analyst cannot write.
+                (
+                    _FAKE_SHA,
+                    [
+                        "docs/architecture/orchestrator.md",
+                        "gateway/checkpoint_handler.py",
+                    ],
+                    "architect",
+                ),
+                # The risk_analyst's own commit — only touches its
+                # allowlist (``.egg-state/agent-outputs/``).
+                (
+                    _FAKE_SHA_2,
+                    [".egg-state/agent-outputs/2474-risk_analyst-output.json"],
+                    "risk_analyst",
+                ),
+            ]
+        )
+        patches = _push_patches(
+            session,
+            attributed,
+            [
+                "docs/architecture/orchestrator.md",
+                "gateway/checkpoint_handler.py",
+                ".egg-state/agent-outputs/2474-risk_analyst-output.json",
+            ],
+        )
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            response = _do_push(client)
+        assert response.status_code == 200, response.data
+        body = json.loads(response.data)
+        assert body["success"] is True, body
+        # Pulled cross-role commits are surfaced for observability.
+        data = body.get("data") or {}
+        pulled = data.get("pulled_commits") or []
+        assert any(p.get("author_role") == "architect" for p in pulled), body

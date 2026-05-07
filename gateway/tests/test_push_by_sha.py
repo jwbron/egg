@@ -112,11 +112,9 @@ def _push_context(mock_session: MagicMock, captured_cmd: list[list[str]]):
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
-        patch.object(
-            gateway,
-            "check_file_restrictions",
-            return_value=MagicMock(allowed=True, blocked=False),
-        ),
+        # Legacy ``gateway.check_file_restrictions`` patch removed in
+        # #2489 — the gateway no longer calls that function from
+        # ``git_push`` (see ``test_filtered_push_blocked_modify``).
         patch.object(
             gateway,
             "check_agent_restrictions",
@@ -148,7 +146,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,
@@ -175,7 +172,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,
@@ -203,7 +199,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,
@@ -232,7 +227,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,
@@ -265,7 +259,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,
@@ -302,7 +295,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,
@@ -341,7 +333,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,
@@ -374,7 +365,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,
@@ -410,7 +400,6 @@ class TestCommitShaPush:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             response = _post(
                 client,

@@ -124,9 +124,10 @@ def _push_context(mock_session, file_paths: list[str]):
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
         patch.object(gateway, "get_changed_files_in_push", return_value=(file_paths, None)),
-        patch.object(
-            gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-        ),
+        # Legacy ``gateway.check_file_restrictions`` patch removed in
+        # #2489 — the gateway no longer calls that function from
+        # ``git_push`` (the attribution-aware path is the sole agent-
+        # role enforcer).  See ``test_filtered_push_blocked_modify``.
         patch.object(
             git_client,
             "get_attributed_changed_files_in_push",
@@ -177,7 +178,6 @@ class TestRestrictedPathRejection:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -197,7 +197,6 @@ class TestRestrictedPathRejection:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -215,7 +214,6 @@ class TestRestrictedPathRejection:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -244,7 +242,6 @@ class TestAllAllowedResponse:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -264,7 +261,6 @@ class TestAllAllowedResponse:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -282,7 +278,6 @@ class TestAllAllowedResponse:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -309,7 +304,6 @@ class TestWarnOnlyPassthrough:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
                 response = _do_push(client)
@@ -390,9 +384,9 @@ class TestPulledCommitsField:
                 "get_changed_files_in_push",
                 return_value=(["src/main.py", "tests/test_main.py"], None),
             ),
-            patch.object(
-                gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
-            ),
+            # Legacy ``gateway.check_file_restrictions`` patch removed in
+            # #2489 — the gateway no longer calls that function from
+            # ``git_push`` (see ``test_filtered_push_blocked_modify``).
             patch.object(
                 git_client,
                 "get_attributed_changed_files_in_push",
@@ -429,7 +423,6 @@ class TestNoAgentRole:
             patches[4],
             patches[5],
             patches[6],
-            patches[7],
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
@@ -446,17 +439,26 @@ class TestFileRestrictionsThreeRoleEnrichment1901:
     (coder/tester/documenter) in .egg/phase-permissions.json must produce
     the correct enriched error response when violated.
 
-    These tests drive the real ``check_file_restrictions`` path (NOT the
-    agent_restrictions path) because the file_restrictions array is
-    enforced by gateway.gateway → phase_filter.check_file_restrictions
-    BEFORE agent_restrictions runs.
+    Originally these tests drove the legacy ``check_file_restrictions``
+    path that ran before the attribution-aware enforcement.  That naive
+    whole-push-diff check was removed in #2489 because it falsely
+    rejected role-restricted producers whose branches inherited
+    upstream commits authored by other roles.  The attribution-aware
+    path (#2039) is now the canonical agent-role enforcer; when
+    attribution lookup returns no commits the handler fails closed and
+    treats every file in the diff as own-authored, so these three
+    role/path combinations still produce a 403 — under the
+    ``restricted_path_modified`` shape rather than the old
+    ``Path allowlist violation`` shape.
     """
 
     def _push_context_real_file_restrictions(self, mock_session, blocked_files):
         """Push context that does NOT mock check_file_restrictions — the
-        real phase-permissions.json file_restrictions array drives the
-        decision.  check_agent_restrictions is mocked to allow so we can
-        exercise the file_restrictions branch in isolation.
+        attribution-aware path's fail-closed branch (empty commit list →
+        every file treated as own-authored, partition_files_by_role
+        consulted directly against AGENT_PATTERNS) drives the decision.
+        check_agent_restrictions is mocked to allow so we can exercise
+        the agent-role branch in isolation.
         """
         import auth
 
@@ -538,13 +540,14 @@ class TestFileRestrictionsThreeRoleEnrichment1901:
                 response = _do_push(client)
                 assert response.status_code == 403
                 data = json.loads(response.data)
-                # Top-level message uses gateway phase_filter's
-                # "Role '<role>' cannot modify: <files>" format.
+                # Top-level message uses the canonical
+                # restricted_path_modified format (#2039).
                 assert "coder" in data["message"]
                 assert ".egg-state/contracts/foo.json" in data["message"]
                 resp_data = data.get("data", {})
+                assert resp_data.get("error") == "restricted_path_modified"
                 assert resp_data["role"] == "coder"
-                assert ".egg-state/contracts/foo.json" in resp_data["blocked_files"]
+                assert ".egg-state/contracts/foo.json" in resp_data.get("blocked_paths", [])
 
     def test_tester_role_blocked_from_contracts(self, client):
         """The tester file_restrictions entry blocks .egg-state/contracts/."""
@@ -568,8 +571,9 @@ class TestFileRestrictionsThreeRoleEnrichment1901:
                 assert "tester" in data["message"]
                 assert ".egg-state/contracts/spec.json" in data["message"]
                 resp_data = data.get("data", {})
+                assert resp_data.get("error") == "restricted_path_modified"
                 assert resp_data["role"] == "tester"
-                assert ".egg-state/contracts/spec.json" in resp_data["blocked_files"]
+                assert ".egg-state/contracts/spec.json" in resp_data.get("blocked_paths", [])
 
     def test_documenter_role_blocked_from_contracts(self, client):
         """The documenter file_restrictions entry blocks .egg-state/contracts/."""
@@ -593,5 +597,6 @@ class TestFileRestrictionsThreeRoleEnrichment1901:
                 assert "documenter" in data["message"]
                 assert ".egg-state/contracts/x.json" in data["message"]
                 resp_data = data.get("data", {})
+                assert resp_data.get("error") == "restricted_path_modified"
                 assert resp_data["role"] == "documenter"
-                assert ".egg-state/contracts/x.json" in resp_data["blocked_files"]
+                assert ".egg-state/contracts/x.json" in resp_data.get("blocked_paths", [])

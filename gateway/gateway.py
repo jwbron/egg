@@ -176,7 +176,6 @@ try:
         PipelinePhase,
         check_agent_restrictions,  # noqa: F401 — re-exported for test patching
         check_anchor_write_permission,
-        check_file_restrictions,
         check_phase_file_restrictions,
         filter_operation,
     )
@@ -324,7 +323,6 @@ except ImportError:
         PipelinePhase,
         check_agent_restrictions,  # noqa: F401 — re-exported for test patching
         check_anchor_write_permission,
-        check_file_restrictions,
         check_phase_file_restrictions,
         filter_operation,
     )
@@ -1500,14 +1498,11 @@ def git_push() -> tuple[Response, int] | Response:
             details=policy_result.details,
         )
 
-    # SECURITY: Check for protected file modifications based on agent role.
-    # File restrictions are configured in phase-permissions.json and enforced
-    # by the PhaseFilter module. This prevents certain roles from modifying
-    # specific files via git push (e.g., implementers cannot modify contract files).
-    #
-    # Note: Only configured roles are checked. The SYSTEM role is typically NOT
-    # blocked because SYSTEM never makes git pushes - it only initializes contracts
-    # via the contract API. The gateway itself runs without a role context.
+    # SECURITY: Resolve the changed-file set + fail closed if we can't.
+    # The agent-role and phase-based restriction checks below both consume
+    # ``changed_files``; computing it once here keeps the security gates
+    # consistent and lets the fail-closed branch run even if neither
+    # session has a role (the phase check still runs in that case).
     #
     # Infrastructure pushes (checkpoint branches, pipeline-state, and synthetic-
     # session slice integration-branch creation pushes; see is_infrastructure_push
@@ -1523,12 +1518,14 @@ def git_push() -> tuple[Response, int] | Response:
     # The downstream anchor/phase/agent-restriction checks already gate on
     # `not is_infrastructure_push`; this gate makes the role check symmetric.
     session_role = None
-    changed_files = None  # May be populated by role check, reused by phase check
+    changed_files = None  # populated below; reused by attribution + phase checks
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
 
     if session_role and not is_infrastructure_push:
-        # Get the list of files being pushed
+        # Get the list of files being pushed for downstream attribution-aware
+        # role enforcement (the canonical agent-role check below) and the
+        # phase-restriction check further down.
         changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
 
         # SECURITY: Fail closed - if we can't determine changed files, block the push.
@@ -1555,38 +1552,17 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-        # Check file restrictions using the PhaseFilter configuration
-        restriction_result = check_file_restrictions(session_role, changed_files)
-        if not restriction_result.allowed:
-            audit_log(
-                "push_denied_protected_files",
-                "git_push",
-                success=False,
-                details={
-                    "repo": repo,
-                    "branch": branch,
-                    "role": session_role,
-                    "blocked_files": restriction_result.blocked_files,
-                    "blocked_reason": restriction_result.blocked_reason,
-                },
-            )
-            details: dict[str, Any] = {
-                "role": session_role,
-                "blocked_files": restriction_result.blocked_files,
-                "blocked_reason": restriction_result.blocked_reason,
-            }
-            # Derive the hint from the blocked path's category so non-contract
-            # violations (CI workflows, anchors, role-scope mismatches) get
-            # actionable guidance instead of the legacy contract-only hint.
-            # See #2355.
-            hint = _derive_push_denied_hint(restriction_result.blocked_files)
-            if hint is not None:
-                details["hint"] = hint
-            return make_error(
-                f"Push denied: {restriction_result.message}. {restriction_result.blocked_reason}",
-                status_code=403,
-                details=details,
-            )
+        # Note: the legacy whole-push-diff role check that used to live here
+        # (``check_file_restrictions(session_role, changed_files)``) was
+        # removed in #2489.  It treated every file in the diff range as the
+        # pushing role's responsibility, even files modified only by pulled
+        # commits authored by other roles, which trapped role-restricted
+        # producers whose branches inherited unrelated upstream commits
+        # (the role had no sanctioned recovery path).  The attribution-
+        # aware block below partitions own-authored vs pulled files via the
+        # commit-authorship registry and is now the canonical agent-role
+        # restriction enforcer; it preserves fail-closed semantics when
+        # attribution is unavailable.
 
     # Agent-role file restrictions (#2039 restricted-path rejection).
     # The gateway partitions the push range into own-authored vs
@@ -1749,6 +1725,25 @@ def git_push() -> tuple[Response, int] | Response:
                 "human reviewer (see issue #1998 for the conditional-ACK "
                 "pattern)."
             )
+            details: dict[str, Any] = {
+                "error": "restricted_path_modified",
+                "role": session_role,
+                "blocked_paths": sorted_blocked,
+                "recommended_action": recommended_action,
+                "doc_ref": "#1998",
+                "pulled_commits": pulled_commits_summary,
+                "attribution_fallback": attribution_fallback,
+            }
+            # #2355 hint catalogue: surface category-specific guidance
+            # (e.g. "Use egg-contract CLI commands…" for contract paths,
+            # "Documentation changes belong to the documenter role." for
+            # docs/) alongside the generic conditional-ACK pointer.  The
+            # legacy whole-push-diff check used to do this; restoring it
+            # here keeps the response shape consistent with the anchor-
+            # write 403 below.
+            hint = _derive_push_denied_hint(sorted_blocked)
+            if hint is not None:
+                details["hint"] = hint
             return make_error(
                 (
                     f"Push denied: role '{session_role}' cannot modify restricted "
@@ -1756,15 +1751,7 @@ def git_push() -> tuple[Response, int] | Response:
                     f"{recommended_action}"
                 ),
                 status_code=403,
-                details={
-                    "error": "restricted_path_modified",
-                    "role": session_role,
-                    "blocked_paths": sorted_blocked,
-                    "recommended_action": recommended_action,
-                    "doc_ref": "#1998",
-                    "pulled_commits": pulled_commits_summary,
-                    "attribution_fallback": attribution_fallback,
-                },
+                details=details,
             )
         elif blocked_own and not enforce:
             # Warn-only mode: log but let the plain push proceed.
@@ -1828,9 +1815,9 @@ def git_push() -> tuple[Response, int] | Response:
                     "blocked_files": anchor_result.blocked_files,
                     "blocked_reason": anchor_result.blocked_reason,
                 }
-                # Anchor-write violations bypass check_file_restrictions (the
-                # role-level coder blocklist exempts .egg-state/agent-anchors/),
-                # so they need their own derive_hint call to deliver the
+                # Anchor-write violations bypass the role-level partition (the
+                # coder blocklist exempts .egg-state/agent-anchors/), so they
+                # need their own derive_hint call to deliver the
                 # orchestrator-API guidance from BLOCKED_HINTS. See #2355.
                 anchor_hint = _derive_push_denied_hint(anchor_result.blocked_files)
                 if anchor_hint is not None:
@@ -2277,7 +2264,12 @@ def git_execute() -> tuple[Response, int] | Response:
             if positional[0] != expected_ref:
                 denial_reason = (
                     f"git update-ref target '{positional[0]}' is not allowed. "
-                    f"Only '{expected_ref}' (your assigned branch) may be updated."
+                    f"Only '{expected_ref}' (your assigned branch) may be updated. "
+                    f"If you are trying to manually retarget your branch to drop "
+                    f"pulled upstream commits and recover from a "
+                    f"'restricted_path_modified' push 403, that is no longer "
+                    f"necessary (#2489) — pulled commits authored by other roles "
+                    f"are exempt from your role allowlist; retry the push as-is."
                 )
         if denial_reason is not None:
             audit_log(
@@ -2471,7 +2463,11 @@ def git_execute() -> tuple[Response, int] | Response:
                     f"the contamination shape from #2222. If you need to "
                     f"bring in new commits from the base, ask the operator "
                     f"to resume the pipeline so the orchestrator-side "
-                    f"rebase runs."
+                    f"rebase runs. If you were trying to drop pulled upstream "
+                    f"commits to recover from a 'restricted_path_modified' "
+                    f"push 403, that is no longer necessary (#2489) — pulled "
+                    f"commits authored by other roles are exempt from your "
+                    f"role allowlist; retry the push as-is."
                 )
                 audit_log(
                     "git_execute_blocked",
@@ -2510,7 +2506,13 @@ def git_execute() -> tuple[Response, int] | Response:
                 f"Branch switching is not allowed in pipeline sessions. "
                 f"You are locked to branch '{assigned}'. "
                 f"Use 'git checkout [<commit-ish>] -- <file>' to restore files instead "
-                f"(e.g. 'git checkout HEAD -- <file>' or 'git checkout <sha> -- <file>').",
+                f"(e.g. 'git checkout HEAD -- <file>' or 'git checkout <sha> -- <file>'). "
+                f"If you are recovering from a 'restricted_path_modified' push 403, "
+                f"note that pulled commits authored by other roles are exempt from "
+                f"your role allowlist (#2489) — only your own commits' paths trigger "
+                f"the rejection, so retry the push first; if it still rejects, drop "
+                f"the disallowed paths from your own commits and re-propose with "
+                f"--pre-merge-condition (#1998 conditional ACK).",
                 status_code=403,
             )
 
@@ -2569,7 +2571,11 @@ def git_execute() -> tuple[Response, int] | Response:
                         f"Off-lineage 'git reset' is not allowed in pipeline sessions. "
                         f"Target ref '{target_ref}' is not an ancestor of HEAD on your "
                         f"assigned branch '{assigned}'. To incorporate new commits from the "
-                        f"remote, use 'git rebase origin/{assigned}' instead.",
+                        f"remote, use 'git rebase origin/{assigned}' instead. "
+                        f"If you are trying to drop pulled upstream commits to recover "
+                        f"from a 'restricted_path_modified' push 403, that is no longer "
+                        f"necessary (#2489) — pulled commits authored by other roles are "
+                        f"exempt from your role allowlist; retry the push as-is.",
                         status_code=403,
                     )
 
@@ -2599,7 +2605,12 @@ def git_execute() -> tuple[Response, int] | Response:
         return make_error(
             "Branch switching is not allowed in pipeline worktree sessions. "
             "You are locked to your assigned branch. "
-            "Use 'git restore' for file operations instead of 'git checkout'.",
+            "Use 'git restore' for file operations instead of 'git checkout'. "
+            "If you are recovering from a 'restricted_path_modified' push 403, "
+            "note that pulled commits authored by other roles are exempt from "
+            "your role allowlist (#2489) — retry the push as-is; if it still "
+            "rejects, drop the disallowed paths from your own commits and "
+            "re-propose with --pre-merge-condition (#1998 conditional ACK).",
             status_code=403,
         )
 
