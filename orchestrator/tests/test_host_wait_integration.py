@@ -125,6 +125,29 @@ def _wait(client, *, wait: int = 5, since: str | None = None) -> dict:
     return body.get("data") if isinstance(body, dict) and "data" in body else body
 
 
+def _wait_for_route_subscriber(event_bus: EventBus, timeout: float = 2.0) -> None:
+    """Block until ``/status/wait`` registers its wildcard handler.
+
+    The route's preamble (cursor parse, terminal short-circuit, staleness
+    probe, ``current_sequence()`` snap) runs before
+    ``event_bus.subscribe(None, _on_event)`` at
+    ``orchestrator/routes/pipelines.py:3984``. A naive ``time.sleep(0.1)``
+    in the fire thread races that preamble on slow CI runners — the
+    publish lands between the seq snap and the subscribe, the event is
+    never delivered to ``_on_event``, and the wait times out. This
+    handshake polls the bus's wildcard-handler list and returns the
+    moment the route has subscribed, eliminating the race
+    deterministically.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with event_bus._lock:  # noqa: SLF001 — test-side handshake
+            if event_bus._wildcard_handlers:  # noqa: SLF001
+                return
+        time.sleep(0.005)
+    raise RuntimeError(f"/status/wait route did not subscribe a wildcard handler within {timeout}s")
+
+
 class TestStatusWaitRoute:
     """End-to-end-ish integration tests against the /status/wait route."""
 
@@ -173,7 +196,7 @@ class TestStatusWaitRoute:
         """A DECISION_CREATED event wakes with trigger='event'."""
 
         def _fire() -> None:
-            time.sleep(0.1)
+            _wait_for_route_subscriber(isolated_event_bus)
             isolated_event_bus.publish(
                 Event(
                     event_type=EventType.DECISION_CREATED,
@@ -198,7 +221,7 @@ class TestStatusWaitRoute:
         """A PHASE_STARTED event wakes with trigger='event'."""
 
         def _fire() -> None:
-            time.sleep(0.1)
+            _wait_for_route_subscriber(isolated_event_bus)
             isolated_event_bus.publish(
                 Event(
                     event_type=EventType.PHASE_STARTED,
@@ -241,7 +264,7 @@ class TestStatusWaitRoute:
 
         # --- Call 1 — wake on a published event --------------------
         def _fire_event_1() -> None:
-            time.sleep(0.1)
+            _wait_for_route_subscriber(isolated_event_bus)
             isolated_event_bus.publish(
                 Event(
                     event_type=EventType.PHASE_STARTED,
@@ -266,7 +289,7 @@ class TestStatusWaitRoute:
 
         # --- Call 3 — NEW event during the wait wakes call-3 -------
         def _fire_event_2() -> None:
-            time.sleep(0.1)
+            _wait_for_route_subscriber(isolated_event_bus)
             isolated_event_bus.publish(
                 Event(
                     event_type=EventType.DECISION_CREATED,

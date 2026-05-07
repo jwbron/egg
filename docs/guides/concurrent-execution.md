@@ -118,10 +118,10 @@ egg-orch message wait-loop \
   --for CONSENSUS_RE_REVIEW \
   --for STATUS \
   --for OVERSEER_ALERT
-# STATUS carries the directed "Ready to confirm" nudge (#2531): when every reviewer
-# has already ACKed, no further CONSENSUS_ACK/NACK arrive, so STATUS is the only
-# signal that confirms preconditions cleared. On wake: if metadata.ready_to_confirm
-# == true, go to step 5 CONFIRM; otherwise re-enter the wait.
+# `--for STATUS` is required (#2531): once every reviewer has ACKed the current version,
+# no further CONSENSUS_ACK/CONSENSUS_NACK arrive; the orchestrator emits a directed
+# STATUS (metadata.ready_to_confirm == true) as the only signal that confirms are clear.
+# On wake: if metadata.ready_to_confirm is true, go to CONFIRM; otherwise re-enter the wait.
 
 # Producer STAY ALIVE (post-confirm, step 6) — exits on consensus, re-review, or overseer alert
 egg-orch message wait-loop \
