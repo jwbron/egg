@@ -362,11 +362,16 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
                     "role": role.value,
                     "field_path": field_path,
                     "error": result.message,
+                    "error_kind": result.error_kind,
                 },
             )
+            # 403 only for authorization rejections; value/path errors
+            # are 400 so a client doesn't retry them as if a different
+            # role might succeed (#2495).
+            status_code = 403 if result.error_kind == "authorization" else 400
             return _error(
                 result.message,
-                status_code=403,
+                status_code=status_code,
                 details={"role": role.value, "field_path": field_path},
             )
 
