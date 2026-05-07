@@ -346,10 +346,12 @@ class TestTesterPatterns:
         assert not TESTER_PATTERNS.can_write(".egg-state/contracts/spec.json")
 
     def test_blocks_github_dir(self):
-        # Issue #2521: keep parity with ``TESTER_ROLE.blocked_write`` in
-        # ``agent_roles.py``. Defense-in-depth — the allowlist already
-        # excludes `.github/`, but the explicit block stays load-bearing
-        # if the allowlist ever widens.
+        # Issue #2521: parity with ``TESTER_ROLE.blocked_write``.
+        # ``.github/test_actions.py`` is the load-bearing case — it matches
+        # the tester's ``**/test_*.py`` allowlist, so only the new
+        # `.github/` blocked entry stops it. The other two are blocked
+        # by other rules even without the new entry.
+        assert not TESTER_PATTERNS.can_write(".github/test_actions.py")
         assert not TESTER_PATTERNS.can_write(".github/CODEOWNERS")
         assert not TESTER_PATTERNS.can_write(".github/PULL_REQUEST_TEMPLATE.md")
 

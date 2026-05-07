@@ -618,16 +618,20 @@ class TestTesterRole:
         assert pattern.can_write(".python-version") is True
 
     def test_cannot_write_github_dir(self, pattern):
-        """Tester is blocked from `.github/` (issues #2508, #2521).
+        """Tester is blocked from `.github/` (issue #2521).
 
-        The tester's ``allowed_patterns`` already excludes `.github/`
-        (test files, conftest, pin files, agent-outputs only), so the
-        explicit `.github/` blocked entry is defense-in-depth that
-        keeps ``TESTER_PATTERNS.blocked_patterns`` in lockstep with
-        ``TESTER_ROLE.blocked_write`` in ``agent_roles.py`` and stays
-        load-bearing if the allowlist ever widens.
+        ``.github/test_actions.py`` is the load-bearing case for the
+        explicit `.github/` block: it matches the tester's
+        ``**/test_*.py`` allowlist entry, so without the new
+        blocked-pattern line it would be writable. The two paths below
+        are blocked by other rules even without the new line — they
+        cover breadth, not regression.
         """
+        # Load-bearing: only the new `.github/` blocked entry stops this.
+        assert pattern.can_write(".github/test_actions.py") is False
+        # Breadth: blocked even without the new entry (no allowlist match).
         assert pattern.can_write(".github/CODEOWNERS") is False
+        # Breadth: blocked even without the new entry (matches `**/*.md` blocklist).
         assert pattern.can_write(".github/PULL_REQUEST_TEMPLATE.md") is False
 
 
