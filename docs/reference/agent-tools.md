@@ -25,7 +25,7 @@ The MCP tool surface is **on by default** since [#1942](https://github.com/jwbro
 
 | Flag | Effect |
 |------|--------|
-| `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Registers the 29 tools (one server per namespace) on `options.mcp_servers` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
+| `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Registers the 31 tools (one server per namespace) on `options.mcp_servers` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
 | `EGG_MCP_TOOLS=false` (or `0` / `no` / `off`) | Opt-out. Code path is byte-identical to the pre-#1765 behaviour — no `mcp_servers` registration, no prompt changes, no import cost. |
 
 Iteration 1 (#1765) shipped the flag default-off while the wire-up burned in.
@@ -39,9 +39,9 @@ Compose, or the `env` stanza on any submit-task payload. See
 (EGG_MCP_TOOLS flag)](../guides/sdlc-pipeline.md#agent-mcp-tools-egg_mcp_tools-flag)
 for the per-pipeline recipe.
 
-## Tool inventory (29 verbs)
+## Tool inventory (31 verbs)
 
-All 29 tools are registered as `@tool`-decorated wrappers in
+All 31 tools are registered as `@tool`-decorated wrappers in
 `sandbox/egg_agent_tools/tools/*.py`. The raw `@tool` name is the verb
 itself (e.g. `"propose"`, `"register_open_question"`).
 
@@ -95,6 +95,8 @@ that requires the handler docstring to explain why no CLI exists.
 | `mcp__sdlc__check_hitl_answers` | Return resolved decisions and feedback (submitted or pending) for the current contract. Without a `phase` arg, returns HITL across all phases; pass `phase` to narrow to a single phase. | `handlers.sdlc.check_hitl_answers` | — *(no CLI; new capability)* |
 | `mcp__sdlc__show_contract` | Read the current contract as a dict. Optional `fields=[…]` projection returns only the named top-level keys; an unknown field raises `HandlerError` (no silent skip). State-machine effect: **read-only**. | `handlers.sdlc.show_contract` | `egg-contract show` |
 | `mcp__sdlc__verify_criterion` | Mark an acceptance criterion verified on the contract. **REVIEWER role only** — the gateway rejects non-REVIEWER writers; the handler does not re-check (decision-7). State-machine effect: marks the criterion verified; no-op if already verified. | `handlers.sdlc.verify_criterion` | `egg-contract verify-criterion` |
+| `mcp__sdlc__check_file_restriction` | Pure-local read against `shared/egg_restrictions/patterns.py`: returns `can_write` + `alternative_role` for a path or list of paths. Producers call this before exploring a file outside their role boundary (#2529). Read-only; no gateway round-trip. | `handlers.restrictions.check_file_restriction` | — *(no CLI; pattern matching is pure CPU and the registry ships in the sandbox image — a CLI shim would just re-import the same module)* |
+| `mcp__sdlc__report_impasse` | Persist a typed `Impasse` (category, reason, suggested_role, blocked_files, evidence) under `AgentOutput.impasse` (#2529). The orchestrator reads it post-phase and either auto-delegates to `suggested_role` (first attempt, `wrong_role` only) or escalates to HITL (second attempt or non-`wrong_role`). State-machine effect: **the agent must exit cleanly without committing after this returns**. | `handlers.restrictions.report_impasse` | — *(no CLI; structured runtime signal that lives inside agent-output JSON — a parallel CLI write path would just risk drift with the MCP one)* |
 
 ### `mcp__brc__*` — Broadcast-Review-Converge consensus
 
@@ -169,7 +171,7 @@ tracked for a follow-up. The handlers import three pure helpers from
 | `mcp__checkpoint__show` | Resolve a checkpoint id → dict. Raises `HandlerError` for an unknown id. | `handlers.checkpoint.checkpoint_show` | `egg-checkpoint show` |
 | `mcp__checkpoint__search` | Substring search over checkpoint metadata; returns `{items, next_cursor}` with `limit`/`cursor` pagination (default `limit=100`). | `handlers.checkpoint.checkpoint_search` | `egg-checkpoint search` |
 
-Total: **29 tools** across 6 namespaces (`sdlc`, `brc`, `phase`,
+Total: **31 tools** across 6 namespaces (`sdlc`, `brc`, `phase`,
 `progress`, `task`, `checkpoint`) — 18 iter-1 + 12 iter-2 (#1917) = 30,
 then −2 in #2211 (`wait_for_event` + `wait_loop` removed; long-poll
 waits go through `egg-orch message wait` / `wait-loop` via Bash), then
@@ -177,7 +179,7 @@ waits go through `egg-orch message wait` / `wait-loop` via Bash), then
 HITL (decisions + feedback + answers), phase context + completion,
 progress signals + overseer alerts + status queries, task completion
 + commits + notes + coverage-gaps, and checkpoint browsing — every
-verb a pipeline agent issues on the hot path. The count (`29`) is
+verb a pipeline agent issues on the hot path. The count (`31`) is
 asserted by
 `tests/sandbox/egg_agent_tools/test_server.py::TestToolRegistry::test_tool_count_registered`
 and the namespace set (`{sdlc, brc, phase, progress, task,
@@ -288,7 +290,7 @@ namespace appears as `mcp__<ns>__` in the nudge, and
 `mcp__<ns>__` substring in the nudge corresponds to a registered
 namespace (extras in either direction fail CI). The companion
 `TestToolRegistry::test_tool_count_registered` and
-`test_namespace_set_is_six` pin `len(TOOL_REGISTRY) == 29` and
+`test_namespace_set_is_six` pin `len(TOOL_REGISTRY) == 31` and
 `set(TOOL_NAMESPACES.keys()) == {"sdlc", "brc", "phase", "progress",
 "task", "checkpoint"}` so a future iteration cannot drift the prose
 counts in this file silently.
@@ -455,7 +457,7 @@ complete shell CLI surface.
 - **`EGG_MCP_TOOLS` flag removal (decision-9 of #1917):** Kept for
   iter-2 burn-in; removal is a third follow-up.
 - **Timeouts:** The SDK's default 60 s MCP-tool timeout is sufficient
-  for all 29 verbs (none are long-running). Pagination (decision-12
+  for all 31 verbs (none are long-running). Pagination (decision-12
   of #1917) keeps `read_peer_artifact` / `checkpoint_list` /
   `checkpoint_search` page sizes well under the limit. If a future
   tool needs to exceed 60 s, it must be restructured as a
@@ -483,7 +485,7 @@ SDK release notes rather than silently breaking every sandbox.
 | `tests/sandbox/egg_agent_tools/test_handlers_*.py` | Unit tests for each handler (happy-path, missing-arg, 5xx gateway → `GatewayError`). |
 | `tests/sandbox/egg_agent_tools/handlers/test_*.py` | Per-handler unit tests for the iter-2 verbs (`show_contract`, `add_commit`, `update_notes`, `complete_phase`, `verify_criterion`, `read_peer_artifact`, `overseer_alert`, `query_status`, `checkpoint`, `mark_gap`). |
 | `tests/sandbox/egg_agent_tools/test_tools.py` | `@tool` wrappers (JSON-serialised success; `is_error=True` structured block on handler exception). |
-| `tests/sandbox/egg_agent_tools/test_server.py` | `build_sandbox_mcp_server` registers all 29 tools; `SYSTEM_PROMPT_NUDGE` symmetric drift test; derived-count assertions (`len(TOOL_REGISTRY) == 29` and the 6-namespace set). |
+| `tests/sandbox/egg_agent_tools/test_server.py` | `build_sandbox_mcp_server` registers all 31 tools; `SYSTEM_PROMPT_NUDGE` symmetric drift test; derived-count assertions (`len(TOOL_REGISTRY) == 31` and the 6-namespace set). |
 | `tests/sandbox/egg_agent_tools/test_schemas.py` | `derive_schema_from_argparse` correctness + override merge. |
 | `tests/sandbox/egg_agent_tools/test_sdk_surface.py` | SDK import smoke (fails loud on incompatible SDK upgrade). |
 | `tests/sandbox/egg_agent_tools/test_full_tool_registry.py` | Integration test: loads `TOOL_LIST` via `create_sdk_mcp_server`; asserts no registration errors and that completion/mutation verbs (`task_complete`, `phase__complete_phase`, `task__add_commit`, `sdlc__verify_criterion`) name the state-machine effect in their description. |

@@ -77,6 +77,10 @@ _ITER2_TOOL_NAMES = {
 _POST_ITER2_TOOL_NAMES = {
     # brc — #2338 in-cycle conditional-ACK obligation resolution.
     "mcp__brc__resolve_obligation",
+    # sdlc — #2529 runtime escape-hatch (file-restriction self-check
+    # + typed Impasse signal).
+    "mcp__sdlc__check_file_restriction",
+    "mcp__sdlc__report_impasse",
 }
 
 EXPECTED_TOOL_NAMES = _ITER1_TOOL_NAMES | _ITER2_TOOL_NAMES | _POST_ITER2_TOOL_NAMES
@@ -97,11 +101,13 @@ class TestToolRegistry:
         # (``wait_for_event`` + ``wait_loop`` removed — agents now use
         # the ``egg-orch message wait`` / ``wait-loop`` Bash CLI for
         # blocking waits per the transport-mismatch carve-out) = 28,
-        # then +1 in #2338 (``mcp__brc__resolve_obligation``) = 29.
+        # then +1 in #2338 (``mcp__brc__resolve_obligation``) = 29,
+        # then +2 in #2529 (``check_file_restriction`` +
+        # ``report_impasse`` — runtime escape hatch) = 31.
         # Derived assertion: trips when a future iteration drifts the
         # count without updating the prose verb-counts in
         # docs/reference/agent-tools.md.
-        assert len(TOOL_LIST) == 29
+        assert len(TOOL_LIST) == 31
 
     def test_expected_names_present(self):
         names = set(TOOL_REGISTRY.keys())

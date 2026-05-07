@@ -5705,6 +5705,46 @@ def _build_role_restrictions_section() -> str:
     )
     lines.append("")
 
+    # Runtime escape hatch (issue #2529).
+    lines.append("### Impossible task? Use the runtime escape hatch — DO NOT invent workarounds")
+    lines.append("")
+    lines.append(
+        "If you discover mid-execution that the task you've been "
+        "assigned is structurally impossible (file restrictions block "
+        "your role, the plan is buggy, an external dependency is "
+        "missing), STOP. Do not invent a workaround like staging the "
+        "files in another directory or asking another agent to do it "
+        "via a freeform handoff document — past pipelines (#2474, "
+        "#2529) wasted ~10+ min and triggered downstream NACKs that "
+        "way."
+    )
+    lines.append("")
+    lines.append("Instead, use the two MCP tools:")
+    lines.append("")
+    lines.append(
+        '1. `mcp__sdlc__check_file_restriction({path: "..."})` — '
+        "cheap pure-local read against `shared/egg_restrictions/"
+        "patterns.py`. Confirms whether your role can write the path "
+        "and returns `alternative_role` (the producer role that "
+        "*can* write it, when exactly one covers it). Call this "
+        "BEFORE exploring a file you suspect is outside your "
+        "boundary."
+    )
+    lines.append("")
+    lines.append(
+        "2. `mcp__sdlc__report_impasse({category, reason, "
+        "suggested_role, blocked_files})` — emits a typed Impasse "
+        "signal and exits cleanly. The orchestrator detects the "
+        "impasse post-phase and either delegates to "
+        "``suggested_role`` (first attempt) or escalates to HITL "
+        "(second attempt or no eligible role). Categories: "
+        "``wrong_role`` (file restrictions; auto-delegateable), "
+        "``plan_bug`` / ``external_blocker`` / ``unknown`` (always "
+        "HITL). Once you've called this tool, do NOT commit code or "
+        "call any other producer tool — just exit."
+    )
+    lines.append("")
+
     return "\n".join(lines)
 
 
@@ -12485,7 +12525,7 @@ def _run_implement_phase_slices(
                     integration_branch=integration_branch,
                 )
 
-                exit_code_inner, logs_inner = _run_concurrent_phase(
+                exit_code_inner, logs_inner = _run_concurrent_phase_with_impasse_retry(
                     pipeline_id=pipeline_id,
                     pipeline=pipeline,
                     phase="implement",
@@ -12785,6 +12825,170 @@ def _run_implement_phase_slices(
 
     aggregated = "\n".join(aggregate_logs) if aggregate_logs else "Slice loop completed."
     return overall_exit, aggregated
+
+
+def _run_concurrent_phase_with_impasse_retry(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    phase: str,
+    spawner,
+    repo_volumes: dict[str, str],
+    gateway_mode: str,
+    repos: list[str],
+    sandbox_env: dict[str, str],
+    store,
+    certs_volume: str | None,
+    worktree_repo_path: Path,
+    review_feedback: str | None = None,
+    slice_id: str | None = None,
+) -> tuple[int, str]:
+    """Run a concurrent phase, auto-delegating impasses once before HITL.
+
+    Wraps :func:`_run_concurrent_phase` with the runtime escape-hatch
+    introduced in #2529:
+
+    1. Run the BRC cycle as usual.
+    2. After it exits, scan each producer's ``AgentOutput`` for a typed
+       :class:`egg_contracts.Impasse`.
+    3. For ``WRONG_ROLE`` impasses with a single eligible alternative
+       producer role and ``task.delegation_attempts == 0``, mutate
+       ``task.role`` to the suggested role and re-run the BRC cycle
+       once. The new spawn picks up the role flip when
+       ``_build_agent_prompt`` re-reads the contract.
+    4. For everything else (second impasse, non-WRONG_ROLE category,
+       no eligible alternative role, unresolvable task_id) the helper
+       creates a HITL decision on the contract and the slice exits
+       so the operator can choose between cancel / re-plan / manual
+       resolution. ``feedback_no_auto_hitl.md``: the orchestrator
+       creates the decision; surfacing to the user is the operator
+       layer's job.
+
+    Pipeline-level (non-sliced) callers can pass ``slice_id=None``;
+    the routing helper falls back to a contract-wide search for the
+    impassed task.
+    """
+    try:
+        from impasse_routing import (
+            ImpasseAction,
+            collect_impasses,
+            route_impasses,
+        )
+    except ImportError:
+        from orchestrator.impasse_routing import (  # type: ignore[no-redef]
+            ImpasseAction,
+            collect_impasses,
+            route_impasses,
+        )
+    try:
+        from egg_contracts.agent_roles import AgentRole as ContractAgentRoleEnum
+    except ImportError:  # pragma: no cover - import seam parity
+        from shared.egg_contracts.agent_roles import (  # type: ignore[no-redef]
+            AgentRole as ContractAgentRoleEnum,
+        )
+
+    # Two attempts max: original + at most one delegated retry. The
+    # ``delegation_attempts`` counter on the contract task enforces the
+    # same bound when the slice is restarted out-of-band by an
+    # operator, so a long-lived pipeline can never escape this gate.
+    MAX_IMPASSE_ATTEMPTS = 2
+
+    last_exit = 0
+    last_logs = ""
+    for attempt in range(MAX_IMPASSE_ATTEMPTS):
+        last_exit, last_logs = _run_concurrent_phase(
+            pipeline_id=pipeline_id,
+            pipeline=pipeline,
+            phase=phase,
+            spawner=spawner,
+            repo_volumes=repo_volumes,
+            gateway_mode=gateway_mode,
+            repos=repos,
+            sandbox_env=sandbox_env,
+            store=store,
+            certs_volume=certs_volume,
+            worktree_repo_path=worktree_repo_path,
+            review_feedback=review_feedback,
+            slice_id=slice_id,
+        )
+
+        # Producer roles only — impasses are a producer concept;
+        # reviewers don't author tasks. Mirrors the producer trio in
+        # ``shared/egg_restrictions/patterns.py``.
+        producer_roles = [
+            ContractAgentRoleEnum.CODER,
+            ContractAgentRoleEnum.TESTER,
+            ContractAgentRoleEnum.DOCUMENTER,
+        ]
+
+        try:
+            impasses = collect_impasses(
+                Path(worktree_repo_path),
+                pipeline_id,
+                producer_roles,
+            )
+        except Exception as scan_err:  # noqa: BLE001
+            logger.warning(
+                "Impasse scan raised; continuing without delegation",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(scan_err),
+            )
+            return last_exit, last_logs
+
+        if not impasses:
+            return last_exit, last_logs
+
+        try:
+            decisions = route_impasses(
+                repo_path=Path(worktree_repo_path),
+                pipeline_id=pipeline_id,
+                contract_identifier=pipeline_id,
+                impasses=impasses,
+                slice_id=slice_id,
+            )
+        except Exception as route_err:  # noqa: BLE001
+            logger.error(
+                "Impasse routing raised; surfacing slice failure",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(route_err),
+            )
+            return last_exit, last_logs
+
+        all_delegated = decisions and all(d.action == ImpasseAction.DELEGATE for d in decisions)
+        if not all_delegated:
+            # Any escalation, or an empty decision list, means the
+            # operator gates the next move. Don't auto-retry.
+            for d in decisions:
+                logger.info(
+                    "Impasse decision",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    action=d.action.value,
+                    role=d.role,
+                    task_id=d.task_id,
+                    new_role=d.new_role,
+                    reason=d.reason,
+                    hitl_decision_id=d.hitl_decision_id,
+                )
+            return last_exit, last_logs
+
+        # All impasses delegated cleanly — the contract has been
+        # mutated, log the swap and let the loop respawn with the new
+        # roles. Last attempt falls through and returns whatever the
+        # second BRC cycle produced.
+        for d in decisions:
+            logger.info(
+                "Impasse delegated; retrying slice with new role",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                attempt=attempt + 1,
+                from_role=d.role,
+                to_role=d.new_role,
+                task_id=d.task_id,
+            )
+
+    return last_exit, last_logs
 
 
 def _run_concurrent_phase(
