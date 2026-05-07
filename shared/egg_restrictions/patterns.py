@@ -246,22 +246,20 @@ def _build_coder_pattern(
 def _build_tester_pattern(
     *,
     tests_globs: list[str],
-    code_globs: list[str],
+    code_globs: list[str],  # noqa: ARG001 — kept for signature parity with other builders
     docs_globs: list[str],
 ) -> AgentFilePattern:
     """Build the tester role's file pattern.
 
-    Tester writes test files plus auto-fix touches to source. Per-repo
-    knobs change the test-file allowlist + the docs blocklist.
+    Tester writes test files only — source-code edits are the coder's
+    or autofixer's job. Per-repo knobs change the test-file allowlist
+    + the docs blocklist.
     """
-    # Production code is also in tester's allow list because tester
-    # applies lint/type-check auto-fixes; ``code_globs`` extends both.
     return AgentFilePattern(
         role=AgentRole.TESTER,
         description="test files and pytest infrastructure only",
         allowed_patterns=[
             *tests_globs,
-            *code_globs,
             # Config files needed for test environment setup
             ".python-version",
             # Dependency files (test dependency management)
