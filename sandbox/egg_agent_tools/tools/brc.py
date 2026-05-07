@@ -260,7 +260,10 @@ _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
             "description": (
                 "Optional message_type filter; accepts a single type or a "
                 "list (CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, "
-                "CONSENSUS_CONFIRMED, CONSENSUS_RE_REVIEW, CONSENSUS_WITHDRAWN)"
+                "CONSENSUS_WITHDRAW, CONSENSUS_CONFIRMED, "
+                "CONSENSUS_RE_REVIEW, CONSENSUS_OBLIGATION_RESOLVED, "
+                "STATUS, HANDOFF, AGENT_FAILED, NUDGE, OVERSEER_ALERT, "
+                "HEARTBEAT)"
             ),
         },
         "limit": {

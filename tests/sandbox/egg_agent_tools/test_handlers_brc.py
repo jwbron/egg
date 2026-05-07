@@ -1245,6 +1245,34 @@ class TestBrcReadPeerArtifact:
         resp = brc.brc_read_peer_artifact({"phase": "plan"})
         assert len(resp["items"]) == 1
 
+    def test_filter_by_message_type_overseer_alert_in_unattributed(self, tmp_path, monkeypatch):
+        """Reviewers can scan cross-cutting alerts in their slice's
+        transcript by filtering on a non-CONSENSUS_* type. Regression
+        guard: the handler's ``_BRC_HISTORY_TYPES`` whitelist must include
+        the same non-CONSENSUS_* types the writer emits to the
+        ``unattributed`` sibling, otherwise this raises ``Unknown
+        message_type(s)`` even though matching records exist on disk."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        self._make_slice_history_file(
+            tmp_path,
+            "1917",
+            "slice-1",
+            _records(("coder", "CONSENSUS_PROPOSE")),
+        )
+        self._make_unattributed_history_file(
+            tmp_path,
+            "1917",
+            _records(
+                ("overseer", "OVERSEER_ALERT"),
+                ("system", "HEARTBEAT"),
+            ),
+        )
+        resp = brc.brc_read_peer_artifact({"phase": "implement", "message_type": "OVERSEER_ALERT"})
+        assert len(resp["items"]) == 1
+        assert resp["items"][0]["message_type"] == "OVERSEER_ALERT"
+        assert resp["items"][0]["from_role"] == "overseer"
+
 
 class TestBrcPipelineIdValidation:
     """Pipeline IDs are interpolated into URL paths — format validation

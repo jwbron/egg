@@ -11,11 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from egg_agent_tools.handlers._gateway import (
-    _SLICE_ID_PATTERN,
     get_agent_role,
     get_pipeline_id,
-    get_slice_id,
     orchestrator_request,
+    resolve_slice_id,
 )
 from egg_agent_tools.handlers._gateway import maybe_attach_slice_id as _maybe_attach_slice_id
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -806,9 +805,16 @@ _BRC_HISTORY_TYPES: frozenset[str] = frozenset(
         "CONSENSUS_PROPOSE",
         "CONSENSUS_ACK",
         "CONSENSUS_NACK",
+        "CONSENSUS_WITHDRAW",
         "CONSENSUS_CONFIRMED",
         "CONSENSUS_RE_REVIEW",
-        "CONSENSUS_WITHDRAWN",
+        "CONSENSUS_OBLIGATION_RESOLVED",
+        "STATUS",
+        "HANDOFF",
+        "AGENT_FAILED",
+        "NUDGE",
+        "OVERSEER_ALERT",
+        "HEARTBEAT",
     }
 )
 
@@ -1003,14 +1009,16 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
     # implement runs read the aggregate file.
     history_files: list[Path] = []
     if phase == "implement":
-        slice_id_env = get_slice_id()
+        # Defense-in-depth via the public _gateway helper: resolves
+        # EGG_SLICE_ID, validates against the canonical `^slice-<N>$`
+        # regex (same seam the orchestrator writer enforces at
+        # `pipelines.py` ~8406), and raises HandlerError on malformed
+        # values before we interpolate into the filename. Pass `{}` so
+        # caller-supplied `slice_id` is ignored — slice scope is an
+        # env-only signal here for the same cross-pipeline-read
+        # hardening as `_resolve_env_identifier_for_brc_history`.
+        slice_id_env = resolve_slice_id({})
         if slice_id_env is not None:
-            # Defense-in-depth: validate before interpolating into the
-            # filename. The same `^slice-<N>$` regex the orchestrator
-            # writer enforces (`pipelines.py` ~8406) so a malformed env
-            # value cannot smuggle path separators into the filename.
-            if not _SLICE_ID_PATTERN.fullmatch(slice_id_env):
-                raise HandlerError(f"Invalid EGG_SLICE_ID {slice_id_env!r}: must match 'slice-<N>'")
             slice_file = (history_dir / f"{identifier}-implement-{slice_id_env}.json").resolve()
             history_files.append(slice_file)
             if include_unattributed:
