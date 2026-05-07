@@ -404,6 +404,81 @@ class TestBuildPrBodyFallbackBanner:
         assert ".egg-state/drafts/42-plan.md" in body
 
 
+class TestBuildPrBodyGithubStaging:
+    """Tests for the `.github-staging/` auto-step in _build_pr_body (issue #2508).
+
+    Producer agents are blocked from `.github/` by role patterns. The
+    convention introduced in #2508 has agents stage proposed `.github/`
+    changes under top-level `.github-staging/`; the PR builder detects
+    them and emits a manual step asking the human reviewer to move the
+    files into `.github/` before merge.
+    """
+
+    def test_no_step_when_staging_dir_absent(self, tmp_path):
+        """No manual step when `.github-staging/` does not exist."""
+        pipeline = _make_pipeline()
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert ".github-staging" not in body
+        assert "Move staged" not in body
+
+    def test_no_step_when_staging_dir_empty(self, tmp_path):
+        """No manual step when `.github-staging/` exists but contains no files."""
+        pipeline = _make_pipeline()
+        (tmp_path / ".github-staging").mkdir()
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged" not in body
+
+    def test_emits_step_when_staging_dir_has_files(self, tmp_path):
+        """Manual step lists each staged file and tells reviewer to move them."""
+        pipeline = _make_pipeline()
+        staging = tmp_path / ".github-staging"
+        (staging / "workflows").mkdir(parents=True)
+        (staging / "workflows" / "test-e2e.yml").write_text("name: e2e\n")
+        (staging / "CODEOWNERS").write_text("* @team\n")
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "## Manual Steps" in body
+        assert "Move staged `.github/` changes" in body
+        assert "`.github-staging/workflows/test-e2e.yml`" in body
+        assert "`.github-staging/CODEOWNERS`" in body
+        assert "git mv" in body
+
+    def test_step_merged_with_planner_manual_steps(self, tmp_path):
+        """Planner-supplied manual_steps and the auto step share one section."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        contract = _make_contract_json()
+        contract["pr"]["manual_steps"] = "Pre-merge: run db migration."
+        (contract_dir / "42.json").write_text(json.dumps(contract))
+        staging = tmp_path / ".github-staging" / "workflows"
+        staging.mkdir(parents=True)
+        (staging / "ci.yml").write_text("name: ci\n")
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        # Both the planner step and the auto step appear under one
+        # `## Manual Steps` heading (only one heading in the body).
+        assert body.count("## Manual Steps") == 1
+        assert "Pre-merge: run db migration." in body
+        assert "Move staged `.github/` changes" in body
+        assert "`.github-staging/workflows/ci.yml`" in body
+
+    def test_ignores_subdirectories_with_no_files(self, tmp_path):
+        """Empty subdirectories under `.github-staging/` don't emit the step."""
+        pipeline = _make_pipeline()
+        (tmp_path / ".github-staging" / "workflows").mkdir(parents=True)
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged" not in body
+
+
 class TestAutoCreatePr:
     """Tests for _auto_create_pr."""
 

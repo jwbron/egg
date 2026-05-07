@@ -5561,6 +5561,26 @@ def _build_role_restrictions_section() -> str:
     )
     lines.append("")
 
+    # Staging-dir convention for `.github/` (issue #2508).
+    lines.append("### `.github/` changes — use the `.github-staging/` convention")
+    lines.append("")
+    lines.append(
+        "Every producer role is blocked from writing under `.github/` "
+        "(CI workflows, CODEOWNERS, dependabot config) — this is a "
+        "branch-protection invariant, not a planner mistake. Tasks that "
+        "need to modify those files must instead write the proposed "
+        "end-state to top-level `.github-staging/`, mirroring the "
+        "`.github/` structure (e.g. a proposed change to "
+        "`.github/workflows/ci.yml` is staged at "
+        "`.github-staging/workflows/ci.yml`). The orchestrator's PR "
+        "builder auto-detects `.github-staging/` and emits a manual "
+        "step asking the human reviewer to move the staged files into "
+        "place before merge. Assign such tasks to `role: coder` and "
+        "make the staging path explicit in the task's "
+        "`files_affected`."
+    )
+    lines.append("")
+
     return "\n".join(lines)
 
 
@@ -8464,6 +8484,69 @@ def _pr_metadata_from_plan_draft(
     )
 
 
+def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
+    """Render the auto manual-step for `.github-staging/` files (issue #2508).
+
+    Producer agents (coder, etc.) cannot push to `.github/` because the
+    gateway blocks the path as a branch-protection invariant.  When a
+    plan calls for CI workflow or CODEOWNERS changes, the agent instead
+    writes the proposed end-state to top-level `.github-staging/`,
+    mirroring the `.github/` structure.  This helper scans that
+    directory and returns a markdown step the human reviewer must
+    complete before merge: review the staged files, move them into
+    `.github/`, delete the staging dir, and push the resulting commit.
+
+    Returns an empty string when `.github-staging/` is absent or empty.
+    """
+    staging_dir = worktree_repo_path / ".github-staging"
+    if not staging_dir.is_dir():
+        return ""
+
+    staged_paths: list[str] = []
+    for path in sorted(staging_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            rel = path.relative_to(worktree_repo_path).as_posix()
+        except ValueError:
+            continue
+        staged_paths.append(rel)
+
+    if not staged_paths:
+        return ""
+
+    lines = [
+        "### Move staged `.github/` changes (auto-generated, issue #2508)",
+        "",
+        "This PR includes proposed `.github/` changes under `.github-staging/`. "
+        "Agent roles cannot push to `.github/` directly (CI workflow / CODEOWNERS "
+        "branch-protection invariant), so the agent staged the proposed "
+        "end-state for human review.",
+        "",
+        "Staged files:",
+    ]
+    for rel in staged_paths:
+        lines.append(f"- `{rel}`")
+    lines.extend(
+        [
+            "",
+            "Before merging:",
+            "",
+            "1. Review each staged file for correctness — these are proposed "
+            "CI / repo-config changes that bypass the agent's normal sandbox.",
+            "2. Move each file from `.github-staging/<path>` to `.github/<path>`. For example:",
+            "   ```",
+            "   mkdir -p .github/workflows",
+            "   git mv .github-staging/workflows/test-e2e.yml .github/workflows/test-e2e.yml",
+            "   ```",
+            "3. Remove the empty `.github-staging/` directory and commit the move.",
+            "4. Push from a context with the GitHub `workflow` scope (a normal "
+            "user push works; the bot token may not — see issue #2508 layer 2).",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
@@ -8598,9 +8681,22 @@ def _build_pr_body(
     else:
         body_parts.append("## Test Plan\n\n_No test plan provided by the planner._")
 
-    # Manual steps section (only if there are steps)
+    # Auto-generated step for `.github-staging/` (issue #2508): the
+    # gateway blocks every producer role from pushing to `.github/`,
+    # so agents drop proposed CI workflow / CODEOWNERS changes into
+    # top-level `.github-staging/` instead. Detect them here and
+    # surface a step the human reviewer must complete before merge.
+    github_staging_step = _build_github_staging_manual_step(worktree_repo_path)
+
+    # Manual steps section: planner-supplied steps and the staging-dir
+    # auto-step are rendered together so reviewers see one block.
+    manual_step_chunks: list[str] = []
     if pr_manual_steps:
-        body_parts.append(f"## Manual Steps\n\n{pr_manual_steps}")
+        manual_step_chunks.append(pr_manual_steps)
+    if github_staging_step:
+        manual_step_chunks.append(github_staging_step)
+    if manual_step_chunks:
+        body_parts.append("## Manual Steps\n\n" + "\n\n".join(manual_step_chunks))
 
     # Add pipeline context section
     if pipeline.id or pipeline.issue_number:
@@ -10248,6 +10344,24 @@ def _build_file_boundary_section(role_value: str) -> str:
         lines.append("**Allowed:** " + ", ".join(f"`{p}`" for p in fa.allowed_write))
     if fa.blocked_write:
         lines.append("**Blocked:** " + ", ".join(f"`{p}`" for p in fa.blocked_write))
+
+    # `.github/` staging-dir convention (issue #2508). Surfaced for the
+    # coder role specifically because it's the only producer whose
+    # catch-all allowlist reaches `.github-staging/`; other roles can't
+    # write the staged files even via the convention.
+    if role_value == "coder":
+        lines.append("")
+        lines.append(
+            "**`.github/` changes**: `.github/` is blocked above. If your "
+            "task requires modifying CI workflows, CODEOWNERS, dependabot "
+            "config, or anything else under `.github/`, write the proposed "
+            "end-state to top-level `.github-staging/` instead, mirroring "
+            "the `.github/` structure (e.g. stage "
+            "`.github/workflows/test-e2e.yml` as "
+            "`.github-staging/workflows/test-e2e.yml`). The PR builder "
+            "auto-emits a manual step asking the human reviewer to move "
+            "the staged files into place before merge — see issue #2508."
+        )
     lines.append("")
     return "\n".join(lines)
 

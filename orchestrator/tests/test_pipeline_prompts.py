@@ -3439,6 +3439,17 @@ class TestBuildRoleRestrictionsSection:
         section = _build_role_restrictions_section()
         assert "## Execution Role File Restrictions" in section
 
+    def test_includes_github_staging_convention(self):
+        """Section documents the `.github-staging/` staging convention (issue #2508).
+
+        Without this guidance, the planner schedules `.github/`-touching tasks
+        that no producer role can actually push, leading to silent
+        slice-failure as observed on the issue-2474 pipeline.
+        """
+        section = _build_role_restrictions_section()
+        assert ".github-staging/" in section
+        assert ".github/" in section
+
 
 class TestTaskPlannerRoleRestrictions:
     """Tests for task_planner prompt including role restrictions."""
