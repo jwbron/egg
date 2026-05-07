@@ -2190,13 +2190,43 @@ class TestPerSliceImplementBrcHistory:
 
     def test_idempotent_per_slice_write(self, tmp_path):
         """Running the writer twice with the same input produces
-        byte-identical per-slice files (idempotency invariant from #1714
-        carried over into per-slice mode)."""
+        byte-identical per-slice files AND a byte-identical
+        ``unattributed`` sibling file (idempotency invariant from #1714
+        carried over into per-slice mode + the cross-cutting sibling
+        added in the per-slice partition fix)."""
         from routes.pipelines import _write_brc_history
 
         messages = []
         for sid in ["slice-1", "slice-2"]:
             messages.extend(self._make_implement_msgs(sid))
+        # Mix in non-CONSENSUS BRC types without slice_id so the writer
+        # produces the unattributed sibling alongside the per-slice
+        # files. The sibling is committed to the branch and read by
+        # reviewers, so it is on the same idempotency contract.
+        messages.append(
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="overseer",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject="brc_confirmation_timeout",
+                body="elapsed",
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 30, 0, tzinfo=UTC),
+                slice_id=None,
+            )
+        )
+        messages.append(
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.HEARTBEAT,
+                subject="alive",
+                body="hb",
+                phase="implement",
+                timestamp=datetime(2026, 4, 8, 12, 31, 0, tzinfo=UTC),
+                slice_id=None,
+            )
+        )
 
         mock_store = MagicMock(spec=MessageStore)
         mock_store.get_messages.return_value = messages
@@ -2209,6 +2239,8 @@ class TestPerSliceImplementBrcHistory:
             first_s2_md = (history_dir / "42-implement-slice-2.md").read_text()
             first_s1_json = (history_dir / "42-implement-slice-1.json").read_text()
             first_s2_json = (history_dir / "42-implement-slice-2.json").read_text()
+            first_unattr_md = (history_dir / "42-implement-unattributed.md").read_text()
+            first_unattr_json = (history_dir / "42-implement-unattributed.json").read_text()
 
             # Second call (e.g. PR-phase safety-net rewrite).
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
@@ -2216,11 +2248,15 @@ class TestPerSliceImplementBrcHistory:
             second_s2_md = (history_dir / "42-implement-slice-2.md").read_text()
             second_s1_json = (history_dir / "42-implement-slice-1.json").read_text()
             second_s2_json = (history_dir / "42-implement-slice-2.json").read_text()
+            second_unattr_md = (history_dir / "42-implement-unattributed.md").read_text()
+            second_unattr_json = (history_dir / "42-implement-unattributed.json").read_text()
 
         assert first_s1_md == second_s1_md, "slice-1 markdown not idempotent"
         assert first_s2_md == second_s2_md, "slice-2 markdown not idempotent"
         assert first_s1_json == second_s1_json, "slice-1 JSON not idempotent"
         assert first_s2_json == second_s2_json, "slice-2 JSON not idempotent"
+        assert first_unattr_md == second_unattr_md, "unattributed sibling markdown not idempotent"
+        assert first_unattr_json == second_unattr_json, "unattributed sibling JSON not idempotent"
 
     def test_message_metadata_is_always_a_dict(self):
         """Pydantic invariant: ``Message.metadata`` is a dict[str, Any] field

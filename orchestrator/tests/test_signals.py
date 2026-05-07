@@ -1515,6 +1515,61 @@ class TestExcuseProducerHITLGate:
             f"slice_id missing from excuse-producer STATUS metadata: {stored_message.metadata}"
         )
 
+    def test_ready_to_confirm_status_carries_slice_id_metadata(self, app):
+        """Slice-scoped ``_emit_ready_to_confirm_nudges`` stamps
+        ``slice_id`` on the ready-to-confirm STATUS so the implement-phase
+        BRC writer routes the nudge into the producer's per-slice
+        transcript (#2548 follow-up; pins the metadata stamp on the
+        ready-to-confirm STATUS path that the three call sites — propose,
+        ACK, producer-push — feed)."""
+        with app.app_context():
+            from routes.signals import _emit_ready_to_confirm_nudges
+
+            mock_store_inst = MagicMock()
+            mock_tracker = MagicMock()
+
+            with patch("message_store.get_message_store", return_value=mock_store_inst):
+                _emit_ready_to_confirm_nudges(
+                    "issue-42",
+                    "implement",
+                    [{"role": "coder", "version": 3}],
+                    tracker=mock_tracker,
+                    slice_id="slice-2",
+                )
+
+        mock_store_inst.add_message.assert_called_once()
+        stored = mock_store_inst.add_message.call_args[0][0]
+        assert stored.message_type == "STATUS"
+        assert stored.metadata.get("ready_to_confirm") is True
+        assert stored.metadata.get("version") == 3
+        assert stored.metadata.get("slice_id") == "slice-2", (
+            f"slice_id missing from ready-to-confirm STATUS metadata: {stored.metadata}"
+        )
+
+    def test_ready_to_confirm_status_omits_slice_id_when_pipeline_level(self, app):
+        """Pipeline-level (non-slice) ready-to-confirm STATUS MUST NOT
+        carry a ``slice_id`` key. ``_emit_ready_to_confirm_nudges``
+        defaults the parameter to ``None``; the writer treats absence as
+        "no slice scope" so babysit_pr et al. continue to land in the
+        aggregate file."""
+        with app.app_context():
+            from routes.signals import _emit_ready_to_confirm_nudges
+
+            mock_store_inst = MagicMock()
+
+            with patch("message_store.get_message_store", return_value=mock_store_inst):
+                _emit_ready_to_confirm_nudges(
+                    "issue-42",
+                    "implement",
+                    [{"role": "coder", "version": 1}],
+                )
+
+        mock_store_inst.add_message.assert_called_once()
+        stored = mock_store_inst.add_message.call_args[0][0]
+        assert "slice_id" not in stored.metadata, (
+            f"Pipeline-level ready-to-confirm STATUS must omit slice_id, got: {stored.metadata}"
+        )
+
     def test_excuse_producer_status_omits_slice_id_when_pipeline_level(self, app):
         """Non-slice (pipeline-level) excuse-producer STATUS MUST NOT
         carry a ``slice_id`` key — the BRC writer treats absence as

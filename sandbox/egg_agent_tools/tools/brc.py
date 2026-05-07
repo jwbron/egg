@@ -272,6 +272,18 @@ _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Opaque pagination token returned by a prior call",
         },
+        "include_unattributed": {
+            "type": "boolean",
+            "default": True,
+            "description": (
+                "When reading a slice-scoped implement transcript "
+                "(EGG_SLICE_ID set + phase='implement'), also merge "
+                "records from the sibling "
+                "<identifier>-implement-unattributed.json file "
+                "(cross-cutting messages without slice scope). "
+                "Default true; set false to read only the per-slice file."
+            ),
+        },
     },
     "required": ["phase"],
     "additionalProperties": False,

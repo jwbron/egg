@@ -8153,15 +8153,26 @@ def _render_brc_history_markdown(
         generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
     else:
         generated_str = "unknown"
+    # The "unattributed" bucket is not a slice — it holds cross-cutting
+    # non-CONSENSUS messages that lack canonical slice scope (HEARTBEAT,
+    # OVERSEER_ALERT, AGENT_FAILED, …) routed to a sibling file so the
+    # audit trail stays complete. Rendering it as "Slice: unattributed"
+    # would mislead a reviewer who lands on the file via a link line —
+    # special-case the heading and metadata block instead.
+    is_unattributed = slice_id == "unattributed"
     lines: list[str] = []
-    if slice_id:
+    if is_unattributed:
+        lines.append(f"# BRC Consensus History — {phase} phase, cross-cutting (unattributed)")
+    elif slice_id:
         lines.append(f"# BRC Consensus History — {phase} phase, {slice_id}")
     else:
         lines.append(f"# BRC Consensus History — {phase} phase")
     lines.append("")
     lines.append(f"Generated: {generated_str}")
     lines.append(f"Pipeline: {pipeline_id}")
-    if slice_id:
+    if is_unattributed:
+        lines.append("Section: cross-cutting (unattributed)")
+    elif slice_id:
         lines.append(f"Slice: {slice_id}")
     lines.append("")
 
