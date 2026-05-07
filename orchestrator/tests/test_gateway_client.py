@@ -1357,7 +1357,7 @@ class TestCreateSlicePR:
 
     def test_non_terminal_slice_uses_auto_generated_title_and_body(self, gateway_client):
         """Without program_title the helper still emits the deterministic
-        ``slice <id>: <name>`` title and the bulleted task body."""
+        ``<slice_id>: <name>`` title and the bulleted task body."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
             gateway_client.create_slice_pr(
@@ -1369,7 +1369,7 @@ class TestCreateSlicePR:
                 head="egg/issue-42/slice-1",
                 base="egg/issue-42",
             )
-        assert captured["title"] == "slice slice-1: Pattern adoption"
+        assert captured["title"] == "slice-1: Pattern adoption"
         assert "Pattern adoption" in captured["body"]
         assert "Tasks in this slice:" in captured["body"]
         assert "- task-1-1: Add the barrel re-export" in captured["body"]
@@ -1394,7 +1394,7 @@ class TestCreateSlicePR:
                 base="egg/issue-42",
                 terminal_slice_id="slice-3",
             )
-        assert captured["title"] == "slice slice-1: Pattern adoption"
+        assert captured["title"] == "slice-1: Pattern adoption"
         assert "`slice-3`" in captured["body"]
         assert "program-level narrative" in captured["body"]
         assert "Program-level umbrella PR" not in captured["body"]
