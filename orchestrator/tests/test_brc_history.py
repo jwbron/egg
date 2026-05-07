@@ -1781,10 +1781,16 @@ class TestPerSliceImplementBrcHistory:
         kwargs = warning_calls[0][1]
         assert kwargs.get("dropped_count") == 2
 
-    def test_all_messages_unattributed_no_files_no_aggregate(self, tmp_path):
-        """When EVERY implement-phase BRC message lacks ``slice_id``, no
-        per-slice files are produced AND no aggregate file is produced —
-        the writer does not silently fall back to the legacy filename."""
+    def test_all_messages_unattributed_writes_aggregate_babysit_fallback(self, tmp_path):
+        """When EVERY implement-phase BRC message lacks ``slice_id``, the
+        writer falls back to the aggregate ``{identifier}-implement.{md,json}``
+        filename so non-slice pipelines (babysit_pr) keep producing the
+        artifact documented in ``skills/babysit-pr/SKILL.md``.
+
+        Surfaced as v2-NACK reviewer_code_holistic finding #2 (#2548): v2
+        dropped the entire BRC stream for babysit_pr; v3 falls back to
+        aggregate when no message carries a canonical slice_id.
+        """
         from routes.pipelines import _write_brc_history
 
         unattributed = [
@@ -1809,12 +1815,55 @@ class TestPerSliceImplementBrcHistory:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
-        # Either dir doesn't exist or it's empty — the key invariant is no
-        # implement-phase files at all.
-        files = list(history_dir.glob("42-implement*")) if history_dir.exists() else []
-        assert files == [], (
-            f"Expected no implement-phase files when all messages were unattributed, got: {files}"
+        # Babysit fallback: aggregate IS produced when no slice_id anywhere.
+        assert (history_dir / "42-implement.md").exists(), (
+            "Babysit fallback: aggregate file MUST be written when no message "
+            "carries slice_id (preserves documented babysit_pr artifact)"
         )
+        assert (history_dir / "42-implement.json").exists()
+        # And NO per-slice files were produced.
+        per_slice = list(history_dir.glob("42-implement-*.md"))
+        assert per_slice == [], (
+            f"Babysit fallback must NOT write per-slice files, got: {per_slice}"
+        )
+
+    def test_babysit_aggregate_fallback_contains_all_messages(self, tmp_path):
+        """The babysit aggregate fallback contains every (BRC-eligible)
+        implement-phase message — no message is silently dropped just
+        because no message in the bucket happened to carry slice_id."""
+        from routes.pipelines import _write_brc_history
+
+        unattributed = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Babysit-PROPOSE",
+                body="alpha",
+                phase="implement",
+                slice_id=None,
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_ACK,
+                subject="Babysit-ACK",
+                body="beta",
+                phase="implement",
+                slice_id=None,
+            ),
+        ]
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = unattributed
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        assert "alpha" in content, "Babysit aggregate dropped the PROPOSE body"
+        assert "beta" in content, "Babysit aggregate dropped the ACK body"
+        assert "Babysit-PROPOSE" in content
+        assert "Babysit-ACK" in content
 
     def test_refine_phase_keeps_aggregate_filename(self, tmp_path):
         """Regression: refine phase still writes the aggregate
@@ -1933,29 +1982,48 @@ class TestPerSliceImplementBrcHistory:
             f"Expected dropped_count=1, got warnings: {warning_calls}"
         )
 
-    def test_implement_messages_with_empty_slice_id_dropped(self, tmp_path):
-        """Empty-string slice_id is treated as missing — the writer's
-        ``if not slice_id`` guard accepts None, '' equally and drops both."""
+    def test_implement_messages_with_empty_slice_id_treated_as_unattributed(self, tmp_path):
+        """Empty-string slice_id fails ``SLICE_ID_PATTERN`` validation and is
+        treated as unattributed.
+
+        Critically, the writer must NEVER produce a file named
+        ``42-implement-.md`` (i.e. interpolating the empty string into the
+        per-slice stem) — that would be both ugly on disk and a path-shape
+        injection vector.
+
+        When mixed with at least one canonical-attributed message, the
+        empty-slice_id messages are dropped with a warning. When all
+        messages have empty slice_id, the babysit aggregate fallback
+        engages (separate test).
+        """
         from routes.pipelines import _write_brc_history
 
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Empty slice_id",
-                body="should be dropped",
-                phase="implement",
-                metadata={"slice_id": ""},  # empty string
-                slice_id=None,
-            ),
-        ]
-        # The metadata explicitly contains slice_id="" (falsy) — verify
-        # the fixture is what we expect before exercising the writer.
-        assert messages[0].metadata.get("slice_id") == ""
+        # Mix an empty-slice_id message with a canonical one so partition
+        # mode engages (otherwise we'd get the aggregate fallback path).
+        canonical = _make_brc_message(
+            pipeline_id="issue-42",
+            phase="implement",
+            from_role="coder",
+            message_type=MessageType.CONSENSUS_PROPOSE,
+            subject="Canonical",
+            body="ok",
+            slice_id="slice-1",
+        )
+        empty = _make_brc_message(
+            pipeline_id="issue-42",
+            phase="implement",
+            from_role="reviewer_code",
+            message_type=MessageType.CONSENSUS_NACK,
+            subject="Empty slice_id",
+            body="should be dropped",
+            metadata={"slice_id": ""},
+            slice_id=None,
+        )
+        # Sanity: the fixture really has empty string slice_id.
+        assert empty.metadata.get("slice_id") == ""
 
         mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
+        mock_store.get_messages.return_value = [canonical, empty]
 
         with (
             patch("message_store.get_message_store", return_value=mock_store),
@@ -1964,19 +2032,21 @@ class TestPerSliceImplementBrcHistory:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
-        # No per-slice file with empty stem (security: must not write
-        # ``42-implement-.md``).
+        # The dangerous filename MUST NOT be produced.
         assert not (history_dir / "42-implement-.md").exists(), (
-            "Empty slice_id must not be coerced into a per-slice filename"
+            "Empty slice_id must NOT be interpolated into a per-slice stem"
         )
-        # No aggregate either.
+        # The canonical slice-1 file IS produced.
+        assert (history_dir / "42-implement-slice-1.md").exists()
+        # Aggregate is NOT produced (because partition mode engaged).
         assert not (history_dir / "42-implement.md").exists()
-        # Warning was emitted.
+        # Drop warning was emitted with count=1.
         warning_calls = [
             c for c in mock_logger.warning.call_args_list
-            if "slice_id" in str(c) or "without metadata" in str(c)
+            if "slice_id" in str(c) or "without canonical" in str(c)
         ]
         assert len(warning_calls) >= 1, "Expected drop warning for empty slice_id"
+        assert any(c[1].get("dropped_count") == 1 for c in warning_calls)
 
     def test_three_slices_all_get_distinct_files(self, tmp_path):
         """N=3 slices produces 3 distinct per-slice .md/.json pairs in
@@ -2038,45 +2108,176 @@ class TestPerSliceImplementBrcHistory:
         assert first_s1_json == second_s1_json, "slice-1 JSON not idempotent"
         assert first_s2_json == second_s2_json, "slice-2 JSON not idempotent"
 
-    def test_non_dict_metadata_is_treated_as_unattributed(self, tmp_path):
-        """If a message's ``metadata`` happens to be a non-dict (e.g. None,
-        a list — defensive), the writer treats it as unattributed and drops
-        the message rather than crashing."""
+    def test_message_metadata_is_always_a_dict(self):
+        """Pydantic invariant: ``Message.metadata`` is a dict[str, Any] field
+        with ``default_factory=dict`` — the writer relies on this to skip
+        defensive None/non-dict guards (#2548 reviewer_code non-blocking).
+        Pin the invariant so a future Pydantic-config change (e.g. allowing
+        None) shows up here rather than as a runtime crash in the writer.
+        """
+        # Default construction yields an empty dict, never None.
+        m = Message(
+            pipeline_id="issue-42",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.CONSENSUS_PROPOSE,
+            subject="x",
+            body="y",
+            phase="implement",
+        )
+        assert isinstance(m.metadata, dict), (
+            f"Pydantic default for Message.metadata must be a dict, got {type(m.metadata)}"
+        )
+        assert m.metadata == {}
+        # Explicit dict is preserved.
+        m2 = Message(
+            pipeline_id="issue-42",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.CONSENSUS_PROPOSE,
+            subject="x",
+            body="y",
+            phase="implement",
+            metadata={"slice_id": "slice-1"},
+        )
+        assert isinstance(m2.metadata, dict)
+        assert m2.metadata.get("slice_id") == "slice-1"
+
+    def test_invalid_slice_id_pattern_treated_as_unattributed(self, tmp_path):
+        """slice_id values that don't match SLICE_ID_PATTERN (``^slice-[0-9]+$``)
+        are treated as unattributed — preventing path-traversal /
+        filename-injection through metadata.
+
+        This is a defense-in-depth test: SLICE_ID_PATTERN is enforced at
+        every gateway-facing seam upstream, but the writer also validates
+        locally so a future leak cannot smuggle ``../etc/passwd`` (or any
+        non-canonical value) into ``42-implement-<value>.md``.
+        """
         from routes.pipelines import _write_brc_history
 
-        msg = _make_brc_message(
+        # A canonical slice-1 message so the writer engages partition mode
+        # (otherwise it would fall back to the babysit aggregate).
+        canonical = _make_brc_message(
             pipeline_id="issue-42",
             phase="implement",
             from_role="coder",
             message_type=MessageType.CONSENSUS_PROPOSE,
-            subject="Weird metadata",
-            body="non-dict metadata",
-            slice_id=None,
+            subject="canonical",
+            body="ok",
+            slice_id="slice-1",
         )
-        # Force-replace metadata with a non-dict to exercise the
-        # ``isinstance(metadata, dict)`` guard.
-        object.__setattr__(msg, "metadata", None)
+        # Various malformed slice_id values that MUST NOT produce a file.
+        injection_payloads = [
+            "../etc/passwd",          # path traversal
+            "slice-1/extra",          # directory separator
+            "slice-1.bad",            # extra suffix
+            "slice-",                 # missing digits
+            "phase-1",                # legacy non-canonical
+            "SLICE-1",                # case mismatch
+            "slice- 1",               # whitespace
+            "slice-01a",              # non-digits
+            "slice-1\nx",             # newline injection
+        ]
+        bad_msgs = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                phase="implement",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_NACK,
+                subject=f"bad-{i}",
+                body=f"injection {payload!r}",
+                metadata={"slice_id": payload},
+                slice_id=None,  # let metadata stand
+            )
+            for i, payload in enumerate(injection_payloads)
+        ]
 
         mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = [msg]
+        mock_store.get_messages.return_value = [canonical, *bad_msgs]
 
         with (
             patch("message_store.get_message_store", return_value=mock_store),
             patch("routes.pipelines.logger") as mock_logger,
         ):
-            # Must not raise.
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
-        files = list(history_dir.glob("42-implement*")) if history_dir.exists() else []
-        assert files == [], "Non-dict metadata produced unexpected output files"
+        # Only the canonical slice-1 file exists.
+        produced = sorted(p.name for p in history_dir.glob("42-implement*"))
+        assert produced == [
+            "42-implement-slice-1.json",
+            "42-implement-slice-1.md",
+        ], f"Malformed slice_id payloads leaked into output files: {produced}"
 
-        # Drop warning was logged.
+        # The aggregate file MUST NOT exist (we have at least one canonical).
+        assert not (history_dir / "42-implement.md").exists()
+        # Path-traversal: must not have written anywhere outside brc-history.
+        # Sanity: the brc-history dir is the ONLY dir under .egg-state for
+        # this test (write would have escaped if traversal succeeded).
+        sibling_dirs = sorted(
+            p.name for p in (tmp_path / ".egg-state").iterdir() if p.is_dir()
+        )
+        assert sibling_dirs == ["brc-history"], (
+            f"Unexpected directories created: {sibling_dirs} — possible traversal"
+        )
+
+        # Drop warning was emitted with the right shape.
         warning_calls = [
             c for c in mock_logger.warning.call_args_list
-            if "slice_id" in str(c) or "without metadata" in str(c)
+            if "slice_id" in str(c) or "without canonical" in str(c)
         ]
-        assert len(warning_calls) >= 1
+        assert len(warning_calls) >= 1, (
+            f"Expected drop warning for malformed slice_ids, got: {mock_logger.warning.call_args_list}"
+        )
+        kwargs = warning_calls[0][1]
+        assert kwargs.get("dropped_count") == len(injection_payloads), (
+            f"Expected dropped_count={len(injection_payloads)}, got: {kwargs}"
+        )
+
+    def test_natural_sort_per_slice_iteration_order(self, tmp_path):
+        """Per-slice buckets iterate in natural-sort (integer-suffix) order
+        so a 12-slice pipeline writes ``slice-1, slice-2, … slice-12`` and
+        not the lexicographic ``slice-1, slice-10, slice-11, slice-12,
+        slice-2, …`` (#2548 reviewer_code non-blocking).
+
+        The current writer doesn't expose iteration order externally beyond
+        the order of ``logger.info`` "Wrote BRC history file" calls, so we
+        intercept those to assert the expected sequence.
+        """
+        from routes.pipelines import _write_brc_history
+
+        # 12 slices in deliberately shuffled input order.
+        sids = ["slice-7", "slice-1", "slice-12", "slice-2", "slice-11"]
+        messages = []
+        for sid in sids:
+            messages.extend(self._make_implement_msgs(sid))
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        wrote_calls: list[dict] = []
+
+        def capture(*args, **kwargs):
+            if args and args[0] == "Wrote BRC history file":
+                wrote_calls.append(kwargs)
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_logger.info.side_effect = capture
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        # Order of slice_ids in the "Wrote BRC history file" log entries
+        # should be sorted by integer suffix.
+        slice_ids_in_order = [c["slice_id"] for c in wrote_calls]
+        assert slice_ids_in_order == [
+            "slice-1",
+            "slice-2",
+            "slice-7",
+            "slice-11",
+            "slice-12",
+        ], f"Expected natural-sort iteration order, got {slice_ids_in_order}"
 
 
 class TestPerSliceImplementBrcHistoryRewriteForPr:
