@@ -879,7 +879,7 @@ def load_repo_pattern_override(repo: str) -> dict[str, list[str]] | None:
         from config.repo_config import get_repo_role_patterns as _loader
     except ImportError:
         try:
-            from repo_config import get_repo_role_patterns as _loader
+            from repo_config import get_repo_role_patterns as _loader  # type: ignore[no-redef]
         except ImportError:
             logger.debug(
                 "repo_config not importable; per-repo overrides disabled",
