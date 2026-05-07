@@ -2427,6 +2427,293 @@ class TestPlannerRoleAlignmentValidation:
             mock_tracker.handle_propose.assert_not_called()
 
 
+class TestPlannerProducerOnlySliceValidation:
+    """Tests for the #2565 slice-composition check bundled into
+    ``_validate_planner_role_alignment``.
+
+    The check rejects plans whose tasks for a given slice are
+    exclusively ``tester`` and/or ``documenter`` — every implement-phase
+    BRC already runs those agents alongside the coder, so a follow-up
+    producer-only slice burns ~8 agents on work the in-slice peers of
+    the code-bearing slice should have done concurrently.
+
+    Bundled into the same ``_validate_planner_role_alignment`` hook as
+    #2527's role↔files check so a planner whose plan trips both rules
+    sees them in one rejection rather than re-propose twice.
+    """
+
+    _PLAN_WITH_DOCUMENTER_ONLY_SLICE = (
+        "# Plan\n"
+        "\n"
+        "```yaml\n"
+        "# yaml-tasks\n"
+        "slices:\n"
+        "  - id: 1\n"
+        "    name: Foundations\n"
+        "    goal: scaffolding\n"
+        "    tasks:\n"
+        "      - id: TASK-1-1\n"
+        "        description: Add module\n"
+        "        acceptance: builds\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - src/foo.py\n"
+        "  - id: 5\n"
+        "    name: Documentation\n"
+        "    goal: Update docs after the code lands\n"
+        "    dependencies: [slice-1]\n"
+        "    tasks:\n"
+        "      - id: TASK-5-1\n"
+        "        description: Update guide\n"
+        "        acceptance: doc reads correctly\n"
+        "        role: documenter\n"
+        "        files:\n"
+        "          - docs/guide.md\n"
+        "```\n"
+    )
+
+    _PLAN_WITH_TESTER_ONLY_SLICE = (
+        "# Plan\n"
+        "\n"
+        "```yaml\n"
+        "# yaml-tasks\n"
+        "slices:\n"
+        "  - id: 1\n"
+        "    name: Implementation\n"
+        "    goal: code\n"
+        "    tasks:\n"
+        "      - id: TASK-1-1\n"
+        "        description: Add module\n"
+        "        acceptance: builds\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - src/foo.py\n"
+        "  - id: 2\n"
+        "    name: Write the tests\n"
+        "    goal: Land coverage for slice-1\n"
+        "    dependencies: [slice-1]\n"
+        "    tasks:\n"
+        "      - id: TASK-2-1\n"
+        "        description: Add tests for foo\n"
+        "        acceptance: pytest green\n"
+        "        role: tester\n"
+        "        files:\n"
+        "          - tests/test_foo.py\n"
+        "```\n"
+    )
+
+    _PLAN_WITH_BOTH_VIOLATIONS = (
+        # Slice-1 has a coder task assigned to a `.github/workflows/`
+        # file (blocked for coder per AGENT_PATTERNS) — trips the #2527
+        # role↔files check. Slice-2 is documenter-only — trips the
+        # #2565 slice-composition check. A single rejection should
+        # surface both.
+        "# Plan\n"
+        "\n"
+        "```yaml\n"
+        "# yaml-tasks\n"
+        "slices:\n"
+        "  - id: 1\n"
+        "    name: Workflow\n"
+        "    goal: tweak CI\n"
+        "    tasks:\n"
+        "      - id: TASK-1-1\n"
+        "        description: Edit workflow\n"
+        "        acceptance: green CI\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - .github/workflows/ci.yml\n"
+        "  - id: 2\n"
+        "    name: Documentation\n"
+        "    goal: Update docs\n"
+        "    dependencies: [slice-1]\n"
+        "    tasks:\n"
+        "      - id: TASK-2-1\n"
+        "        description: Update guide\n"
+        "        acceptance: doc reads correctly\n"
+        "        role: documenter\n"
+        "        files:\n"
+        "          - docs/guide.md\n"
+        "```\n"
+    )
+
+    @staticmethod
+    def _patched_store(issue_number: int = 2565, branch: str = "egg/issue-2565"):
+        mock_pipeline = MagicMock()
+        mock_pipeline.issue_number = issue_number
+        mock_pipeline.branch = branch
+        mock_pipeline.mode = None
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        return patch("routes.signals.get_state_store", return_value=mock_store)
+
+    @staticmethod
+    def _patched_subprocess(plan_text: str, returncode: int = 0):
+        result = subprocess.CompletedProcess(
+            args=[], returncode=returncode, stdout=plan_text, stderr=""
+        )
+        return patch("routes.signals.subprocess.run", return_value=result)
+
+    @staticmethod
+    def _patched_worktree():
+        return patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp/wt"))
+
+    def test_rejects_documenter_only_slice(self):
+        """Plan with a terminal Documentation slice is rejected at
+        propose time — the issue's exact reproduction shape."""
+        from routes.signals import _validate_planner_role_alignment
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess(self._PLAN_WITH_DOCUMENTER_ONLY_SLICE),
+        ):
+            payload = {"commit_sha": "abc1234"}
+            with pytest.raises(ValueError) as excinfo:
+                _validate_planner_role_alignment("issue-2565", payload, Path("/tmp/repo"))
+
+        msg = str(excinfo.value)
+        assert "Slice composition violations (#2565)" in msg
+        assert "slice-2" in msg or "slice-5" in msg
+        assert "documenter" in msg
+        assert "no coder task" in msg
+
+    def test_rejects_tester_only_slice(self):
+        """Plan with a 'Write the tests' follow-up slice is rejected."""
+        from routes.signals import _validate_planner_role_alignment
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess(self._PLAN_WITH_TESTER_ONLY_SLICE),
+        ):
+            payload = {"commit_sha": "abc1234"}
+            with pytest.raises(ValueError) as excinfo:
+                _validate_planner_role_alignment("issue-2565", payload, Path("/tmp/repo"))
+
+        msg = str(excinfo.value)
+        assert "Slice composition violations (#2565)" in msg
+        assert "tester" in msg
+
+    def test_bundles_both_violations_into_one_rejection(self):
+        """A plan that trips both #2527 and #2565 is rejected once,
+        with both error sections surfaced. This is the bundling
+        guarantee — a planner shouldn't have to re-propose twice
+        when both classes of violation are caught at the same hook.
+        """
+        from routes.signals import _validate_planner_role_alignment
+
+        with (
+            self._patched_store(),
+            self._patched_worktree(),
+            self._patched_subprocess(self._PLAN_WITH_BOTH_VIOLATIONS),
+        ):
+            payload = {"commit_sha": "abc1234"}
+            with pytest.raises(ValueError) as excinfo:
+                _validate_planner_role_alignment("issue-2565", payload, Path("/tmp/repo"))
+
+        msg = str(excinfo.value)
+        # Both section headers must appear.
+        assert "role↔files alignment violations" in msg
+        assert "Slice composition violations (#2565)" in msg
+        # Single rejection — the message starts with a unified header.
+        assert msg.startswith("Plan proposal rejected:")
+
+    def test_rejected_proposal_does_not_mutate_tracker(self):
+        """End-to-end: producer-only-slice plan rejected at
+        ``handle_consensus_propose_signal`` BEFORE the tracker is
+        mutated — same guarantee as the #2527 / tester-coverage
+        regression tests."""
+        from flask import Flask
+        from routes.signals import handle_consensus_propose_signal
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose = MagicMock(return_value={"version": 1})
+
+        # Three subprocess calls (matches the role-alignment test):
+        #   1. _verify_commit_on_branch's git fetch
+        #   2. _verify_commit_on_branch's git branch --contains
+        #   3. _validate_planner_role_alignment's git show
+        side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="  origin/egg/issue-2565\n",
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=self._PLAN_WITH_DOCUMENTER_ONLY_SLICE,
+                stderr="",
+            ),
+        ]
+
+        app = Flask(__name__)
+        with (
+            app.app_context(),
+            self._patched_store(),
+            self._patched_worktree(),
+            patch("routes.signals.subprocess.run", side_effect=side_effect),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+        ):
+            data = {
+                "agent_role": "task_planner",
+                "payload": {
+                    "summary": "Plan v1: code slice + terminal documenter-only slice",
+                    "artifacts": [".egg-state/drafts/2565-plan.md"],
+                    "commit_sha": "abc1234",
+                },
+            }
+            response, status_code = handle_consensus_propose_signal(
+                "issue-2565", data, Path("/tmp/repo")
+            )
+            assert status_code == 400
+            data_out = response.get_json()
+            assert "Slice composition violations (#2565)" in data_out.get("message", "")
+            mock_tracker.handle_propose.assert_not_called()
+
+
+class TestPlannerPromptProducerOnlySliceRule:
+    """Regression tests asserting the #2565 rule text appears in both
+    planner-facing prompt blocks. The validator catches the case the
+    prompt missed; the prompt prevents the case from being generated.
+    Both layers must stay in sync.
+    """
+
+    def test_task_planner_role_prompt_includes_rule(self):
+        """The concurrent-BRC ``task_planner`` prompt mentions the
+        no-producer-only-slice rule and #2565."""
+        result = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            issue_number=10,
+        )
+        assert "No producer-only slices" in result
+        assert "#2565" in result
+        # A producer-only slice is the targeted anti-pattern; the
+        # rule's remediation must name the in-slice peers.
+        assert "documenter" in result
+        assert "tester" in result
+
+    def test_phase_plan_prompt_includes_rule(self):
+        """The legacy single-agent plan prompt
+        (``_build_phase_prompt(phase='plan')``) also mentions the
+        rule — kept in sync with the canonical task_planner prompt."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="Build feature X",
+            issue_number=10,
+        )
+        assert "No producer-only slices" in result
+        assert "#2565" in result
+
+
 class TestReadTesterGapsNamespacedEdgeCases:
     """Additional edge-case tests for _read_tester_gaps with identifier."""
 

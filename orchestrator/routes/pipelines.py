@@ -9408,6 +9408,15 @@ def _build_phase_prompt(
                 "should list any pre-merge or post-merge actions required by the reviewer "
                 "or deployer; use an empty string if none.",
                 "",
+                "**No producer-only slices (HARD, #2565)**: every slice must contain "
+                "at least one ``coder`` task (a task with ``role`` omitted defaults to "
+                "``coder``). Do NOT emit a ``Documentation`` or ``Write the tests`` "
+                "slice whose tasks are exclusively ``tester`` and/or ``documenter`` — "
+                "every implement-phase BRC already runs those agents alongside the "
+                "coder. Distribute documentation and test work across the slices that "
+                "introduce the behaviour they describe; producer-only slices are "
+                "rejected at propose time.",
+                "",
                 f"Write your plan to `{plan_path}`.",
                 "Commit and push the draft when done.",
                 "",
@@ -11247,6 +11256,22 @@ def _build_agent_prompt(
                 "slice as a stacked PR with exactly one base branch. "
                 "Multi-parent slices break the stacking invariant and are "
                 "rejected at plan ingestion.",
+                "",
+                "**No producer-only slices (HARD, #2565)**: every slice must "
+                "contain at least one ``coder`` task (a task with ``role`` "
+                "omitted defaults to ``coder`` and counts). Do NOT emit a "
+                "slice whose tasks are exclusively ``tester`` and/or "
+                "``documenter`` — every implement-phase BRC already spawns a "
+                "documenter and tester agent alongside the coder, so a "
+                "follow-up ``Documentation`` or ``Write the tests`` slice "
+                "burns the full BRC roster on work the in-slice peers of the "
+                "code-bearing slice should have done concurrently. "
+                "Documentation and test work belong in the slice that "
+                "introduces the behaviour they describe; reviewers can flag "
+                "missing doc/test coverage at the moment it is reviewable. "
+                "Producer-only slices are rejected at propose time (HTTP "
+                "400, before the tracker is mutated and before any reviewer "
+                "sees the proposal).",
                 "",
                 "**Auto-serialization rule for would-be multi-parent slices**: "
                 "when you identify a slice that would naturally have >1 "

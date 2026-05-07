@@ -925,27 +925,41 @@ def _validate_planner_role_alignment(
     pipeline_state: Any | None = None,
     worktree_path: Path | None = None,
 ) -> None:
-    """Validate task role↔files alignment for a planner proposal (#2527).
+    """Validate plan structure for a planner proposal (#2527, #2565).
 
     Reads the plan draft at the proposed commit via ``git show`` against
-    the orchestrator's pipeline worktree and runs
-    ``validate_task_role_alignment``. Raises ``ValueError`` if any task
-    is assigned to a role that cannot push its files — the caller's
-    ``handle_consensus_propose_signal`` ``except`` block then returns 400
-    to the planner before the proposal is recorded on the tracker, so no
-    reviewer cycle is wasted on a structurally-broken plan.
+    the orchestrator's pipeline worktree and runs both:
 
-    The check mirrors the gateway's push-time blocked-pattern logic
-    (``gateway/phase_filter.py::FileRestriction.is_file_blocked``), so a
-    rejection here predicts a push-time ``403 restricted_path_modified``
-    in the implement phase. Caught here it costs the planner one
-    re-propose; caught at push time it costs a full producer cycle.
+    * ``validate_task_role_alignment`` (#2527) — rejects tasks whose
+      ``role`` cannot push their ``files_affected`` (would 403 at the
+      gateway's push-time blocked-pattern check).
+    * ``validate_producer_only_slices`` (#2565) — rejects slices whose
+      tasks are exclusively ``tester`` / ``documenter``, since every
+      implement-phase BRC already runs those agents alongside the coder
+      and a producer-only follow-up slice burns the full BRC roster.
+
+    Raises ``ValueError`` if either check returns errors — the caller's
+    ``handle_consensus_propose_signal`` ``except`` block then returns
+    400 to the planner before the proposal is recorded on the tracker,
+    so no reviewer cycle is wasted on a structurally-broken plan. Both
+    checks are bundled into a single rejection so a planner whose plan
+    trips both rules sees them at once rather than re-propose twice.
+
+    The role↔files check mirrors the gateway's push-time blocked-pattern
+    logic (``gateway/phase_filter.py::FileRestriction.is_file_blocked``),
+    so a rejection here predicts a push-time ``403
+    restricted_path_modified`` in the implement phase. Caught here it
+    costs the planner one re-propose; caught at push time it costs a
+    full producer cycle. The slice-composition check has no push-time
+    equivalent — the gateway can't see slice shape — so propose-time
+    rejection is the only enforcement seam (the planner-prompt rule is
+    defense-in-depth on the generation side).
 
     Graceful degradation: when the plan file doesn't exist at the
-    proposed commit, ``git show`` fails, parsing fails, or the validator
+    proposed commit, ``git show`` fails, parsing fails, or a validator
     raises, this function returns silently. The push-time gateway check
-    remains the backstop, and the existing forest-validation pass at
-    plan-ingestion time still runs.
+    remains the backstop for #2527, and the existing forest-validation
+    pass at plan-ingestion time still runs.
 
     ``pipeline_state`` and ``worktree_path`` should be passed in by
     ``handle_consensus_propose_signal`` so the state-store + worktree
@@ -1015,6 +1029,7 @@ def _validate_planner_role_alignment(
     try:
         from egg_contracts.plan_parser import (
             parse_plan,
+            validate_producer_only_slices,
             validate_task_role_alignment,
         )
     except ImportError:
@@ -1025,7 +1040,12 @@ def _validate_planner_role_alignment(
         if not parsed.success:
             return
         slices = parsed.to_contract_slices()
-        errors = validate_task_role_alignment(slices)
+        alignment_errors = validate_task_role_alignment(slices)
+        # #2565 — reject slices with no coder task. Bundled into the
+        # same propose-time hook so a planner whose plan trips both
+        # rules sees them in one rejection rather than re-propose
+        # twice.
+        composition_errors = validate_producer_only_slices(slices)
     except Exception as exc:
         logger.warning(
             "plan role-alignment validation: validator raised (non-blocking)",
@@ -1035,17 +1055,28 @@ def _validate_planner_role_alignment(
         )
         return
 
-    if not errors:
+    if not alignment_errors and not composition_errors:
         return
 
-    bullet_list = "\n".join(f"  - {e}" for e in errors)
-    raise ValueError(
-        "Plan proposal rejected: task role↔files alignment violations.\n"
-        "The following tasks are assigned to roles whose blocklist "
-        "forbids their files (would 403 at push time per "
-        "shared/egg_restrictions/patterns.py). Update the affected "
-        "tasks' 'role' field and re-propose:\n" + bullet_list
-    )
+    sections: list[str] = []
+    if alignment_errors:
+        bullets = "\n".join(f"  - {e}" for e in alignment_errors)
+        sections.append(
+            "Task role↔files alignment violations — the following "
+            "tasks are assigned to roles whose blocklist forbids their "
+            "files (would 403 at push time per "
+            "shared/egg_restrictions/patterns.py). Update the affected "
+            "tasks' 'role' field and re-propose:\n" + bullets
+        )
+    if composition_errors:
+        bullets = "\n".join(f"  - {e}" for e in composition_errors)
+        sections.append(
+            "Slice composition violations (#2565) — the following "
+            "slices have no coder task. Distribute the documentation "
+            "and test work across the slice(s) that introduce the "
+            "behaviour they describe and re-propose:\n" + bullets
+        )
+    raise ValueError("Plan proposal rejected:\n" + "\n\n".join(sections))
 
 
 def _resolve_pipeline_phase(pipeline_id: str, repo_path: Path) -> str:

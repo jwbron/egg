@@ -1413,6 +1413,79 @@ def validate_task_role_alignment(slices: list[Slice]) -> list[str]:
     return errors
 
 
+# ---------------------------------------------------------------------------
+# #2565 — reject slices with no coder task (producer-only slices)
+# ---------------------------------------------------------------------------
+
+# Producer roles other than ``coder``. A slice whose tasks are
+# exclusively assigned to these roles has no coder work and is the
+# anti-pattern #2565 rejects.
+_PRODUCER_ONLY_ROLES: frozenset[str] = frozenset({"tester", "documenter"})
+
+
+def validate_producer_only_slices(slices: list[Slice]) -> list[str]:
+    """Reject slices whose tasks are all assigned to ``tester`` and/or
+    ``documenter`` roles.
+
+    Added in #2565. Every implement-phase BRC already spawns a
+    ``documenter`` and ``tester`` agent alongside the ``coder``, so a
+    follow-up slice whose only tasks are documentation or test work
+    burns the full BRC roster (~8 agents) on work the in-slice peers
+    of the code-bearing slice should have done concurrently. The plan's
+    role distribution should match the agent roster's role
+    distribution: documentation and test work belong in the slice that
+    introduces the behaviour they describe.
+
+    A task with ``role=None`` defaults to ``coder`` at execution time
+    (see the role filter in ``_run_concurrent_phase``), so a slice
+    where every task omits ``role`` passes — the rule fires only when
+    the planner *explicitly* assigned every task in a slice to
+    ``tester`` or ``documenter``.
+
+    Out of scope (per the issue): re-shaping the role taxonomy and
+    validating that every coder task has matching tester/documenter
+    coverage (#2527's territory). This validator only rejects the
+    structural anti-pattern of a slice with no coder task.
+
+    Args:
+        slices: The slice list extracted from the contract / plan.
+
+    Returns:
+        A list of structured-error strings — one entry per offending
+        slice — naming the slice ID, slice name, the role distribution
+        that triggered the rejection, and the remediation. An empty
+        list means every slice has at least one (effective) coder task.
+    """
+    errors: list[str] = []
+    for slice_ in slices:
+        tasks = list(slice_.tasks or [])
+        if not tasks:
+            # Empty-task slices are handled elsewhere — the parser
+            # injects a placeholder coder task for any phase it can't
+            # populate (see ``parse_plan``). Nothing to validate here.
+            continue
+        # Treat ``role=None`` as effective ``coder`` — that's the
+        # execution-time default applied by the role-filtering pass
+        # in ``_run_concurrent_phase``. A slice where every task
+        # omits ``role`` therefore has implicit coder work and passes.
+        effective_roles = {(task.role or "coder") for task in tasks}
+        if effective_roles.issubset(_PRODUCER_ONLY_ROLES):
+            roles_list = sorted(effective_roles)
+            errors.append(
+                f"Slice '{slice_.id}' '{slice_.name}' has no coder task "
+                f"(task roles: {roles_list}). Every implement-phase BRC "
+                "already runs a documenter and tester agent alongside the "
+                "coder, so a slice with no coder task burns the full BRC "
+                "roster on follow-up work the in-slice peers of the "
+                "code-bearing slice should have done concurrently. Move "
+                "these tasks into the slice(s) that introduce the "
+                "behaviour they describe — documentation and test work "
+                "belong with the code that introduces it, not in a "
+                "terminal producer-only slice."
+            )
+    return errors
+
+
 __all__ = (
     "ParsedPhase",
     "ParsedTask",
@@ -1422,5 +1495,6 @@ __all__ = (
     "parse_plan",
     "parse_plan_file",
     "validate_forest",
+    "validate_producer_only_slices",
     "validate_task_role_alignment",
 )
