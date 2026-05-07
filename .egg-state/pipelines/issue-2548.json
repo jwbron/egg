@@ -511,16 +511,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-07T18:44:35.820322Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-07T18:48:57.622775Z",
+      "resolution": "{\"action\": \"approve\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-07T17:25:23.537637Z",
-  "updated_at": "2026-05-07T18:44:35.934566Z",
+  "updated_at": "2026-05-07T18:48:57.632008Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -534,6 +534,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-07T18:27:14.875380Z",
-  "version": 43,
+  "version": 44,
   "jira_ticket": null
 }
