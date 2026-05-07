@@ -564,7 +564,8 @@ reconciler is fully functional, not a no-op:
   helper intentionally diverges from the gateway version in two ways
   (documented in its docstring): each ref is `.strip()`-ed in the
   *emitted* argv (leading/trailing whitespace is normalised rather than
-  rejected; interior whitespace is still rejected by the regex shape
+  rejected; interior whitespace is still rejected client-side by the
+  explicit `isspace`/NUL check that fires before the regex shape
   check), and it does NOT call `gateway.git_client.validate_git_args` (importing
   it would defeat the point of inlining). The argv builder constructs
   the canonical `["--onto", new_base, old_base, branch]` shape and
