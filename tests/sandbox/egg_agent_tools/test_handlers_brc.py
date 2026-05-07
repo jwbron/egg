@@ -1421,3 +1421,54 @@ class TestBrcResolveObligation:
                         "producer_role": "coder",
                     }
                 )
+
+
+class TestBrcHistoryTypesDriftGuard:
+    """Regression guard locking writer/reader symmetry for the *full* BRC
+    history type set.
+
+    The writer (``orchestrator.routes.pipelines.BRC_HISTORY_TYPES``) and
+    the reader-side filter whitelist
+    (``egg_agent_tools.handlers.brc._BRC_HISTORY_TYPES``) must list the
+    same types: any type the writer emits must be filterable by the
+    reader, and any type the reader accepts must be one the writer
+    actually produces. The single-type regression test added in #2548
+    locks ``OVERSEER_ALERT`` only — this test parses the writer-side
+    literal out of the orchestrator source and asserts membership
+    equality, so future drift on either side surfaces as a test failure.
+
+    The handler module deliberately does *not* import the orchestrator
+    package (which pulls fastapi); the regex-extraction approach
+    preserves that boundary while still locking the contract.
+    """
+
+    def test_handler_whitelist_matches_writer_set(self):
+        import re
+
+        pipelines_path = ROOT / "orchestrator" / "routes" / "pipelines.py"
+        source = pipelines_path.read_text()
+        match = re.search(
+            r"^BRC_HISTORY_TYPES\s*=\s*frozenset\s*\(\s*\{(?P<body>.*?)\}\s*\)",
+            source,
+            re.MULTILINE | re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not locate ``BRC_HISTORY_TYPES = frozenset({...})`` "
+            f"literal in {pipelines_path}; the drift-guard regex needs "
+            "updating to track the new shape."
+        )
+        writer_types = frozenset(re.findall(r'"([A-Z_]+)"', match.group("body")))
+        assert writer_types, (
+            "Parsed ``BRC_HISTORY_TYPES`` literal is empty — the regex "
+            "did not capture any type names; check the literal shape."
+        )
+        handler_types = brc._BRC_HISTORY_TYPES
+        assert handler_types == writer_types, (
+            "Sandbox handler whitelist drifted from orchestrator writer "
+            "set. "
+            f"Handler-only (reader accepts but writer never emits): "
+            f"{sorted(handler_types - writer_types)}; "
+            f"Writer-only (writer emits but reader rejects): "
+            f"{sorted(writer_types - handler_types)}. "
+            "Update one or both to keep the partition symmetric."
+        )
