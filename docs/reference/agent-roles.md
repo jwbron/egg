@@ -225,7 +225,7 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
 - Test file commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data (includes lint/type-check results and gaps found)
 
-**Directed coordination**: The tester may receive `HANDOFF` messages from the coder when role boundaries prevent the coder from pushing test files. On receiving a HANDOFF, sync the worktree (`git fetch origin && git merge origin/<branch> --no-edit`), review the coder's guidance, and create the test files. Acknowledge via a `STATUS` or `PROGRESS` message back. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
+**Directed coordination**: The tester may receive `HANDOFF` messages from the coder when role boundaries prevent the coder from pushing test files. On receiving a HANDOFF, sync the worktree (`git fetch origin && git merge origin/<branch> --no-edit`), review the coder's guidance, and create the test files. Acknowledge via a `STATUS` or `PROGRESS` message back. The tester also *sends* `HANDOFF` messages to the coder in the reverse direction — when a CI fix or `.github/` change is uncovered during testing (e.g. a workflow needs a new step to run a regression), the tester describes the required end-state in the HANDOFF body and the coder stages it under `.github-staging/`. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
 
 **Prompt context**: Summarized background, coder handoff data, task list.
 
