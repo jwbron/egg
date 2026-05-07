@@ -318,9 +318,9 @@ test: sync-venv-if-uv
 	head_sha=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
 	t0=$$(date +%s%N); \
 	if [ "$$bypass" = "1" ]; then \
-		$(PYTEST) -v -m "not functional" $(PYTEST_ARGS); \
+		$(PYTEST) -v $(PYTEST_ARGS); \
 	else \
-		$(PYTEST) $$(cat "$$selected_file") -v -m "not functional" $(PYTEST_ARGS); \
+		$(PYTEST) $$(cat "$$selected_file") -v $(PYTEST_ARGS); \
 	fi; \
 	pytest_rc=$$?; \
 	t1=$$(date +%s%N); \
@@ -344,7 +344,7 @@ test: sync-venv-if-uv
 test-all: export PYTHONPATH := shared:gateway:orchestrator
 test-all: sync-venv-if-uv  ## Run the full unit-test suite + record LKG on green
 	@echo "==> Running full unit-test suite (issue #1973: this updates LKG on green)..."
-	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m "not functional" $(PYTEST_ARGS); \
+	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v $(PYTEST_ARGS); \
 	pytest_rc=$$?; \
 	if [ "$$pytest_rc" -eq 0 ]; then \
 		env -u PYTHONPATH $(PYTHON) scripts/select_tests/__main__.py --record-good \

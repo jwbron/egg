@@ -400,9 +400,7 @@ integration_tests/
 │   └── test_escalation.py         # Early-exit paths (fork, merged, empty diff) and final-push head-move escalation
 ├── local_pipeline/                # Orchestrator pipeline integration tests
 │   ├── conftest.py                # Pipeline test fixtures
-│   ├── docker-compose.yml         # Orchestrator test environment
 │   ├── helpers.py                 # Shared API helper functions for tests
-│   ├── mock-sandbox/              # Mock sandbox for testing
 │   ├── test_api_validation.py     # API input validation tests
 │   ├── test_concurrent_pipelines.py  # Concurrent pipeline execution tests
 │   ├── test_error_recovery.py     # Error recovery scenario tests

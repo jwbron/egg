@@ -117,9 +117,9 @@ The algorithm is:
    intra-file filtering.
 7. **Intersect with `PYTEST_ARGS`** (see §5 for the bypass rules).
 8. **Run pytest.** The `make test` recipe pipes stdout into
-   `pytest $(SELECTED) -v -m "not functional" $(PYTEST_ARGS)`. If
-   the selector emits zero lines, the recipe skips the pytest
-   invocation and prints `no tests selected`.
+   `pytest $(SELECTED) -v $(PYTEST_ARGS)`. If the selector emits
+   zero lines, the recipe skips the pytest invocation and prints
+   `no tests selected`.
 
 A green narrow run **does not** update the LKG sidecar — only
 `make test-all` writes LKG, because only a full-suite green proves

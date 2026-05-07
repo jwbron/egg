@@ -9,8 +9,15 @@ Provides:
   network (legacy — slated for replacement by k3s-native equivalents)
 
 Issue #2474 retired the docker-compose stack runtime; the only supported
-test runtime is k3s.  Tests that depend on the legacy docker-network
-container fixtures will skip when ``kubectl`` is unavailable.
+test runtime is k3s.
+
+The ``isolated_container`` / ``external_container`` / ``test_container``
+fixtures shell out to ``docker run --network <name>`` and only worked
+under the old docker-compose stack.  Under k3s ``egg_stack.isolated_network``
+is a Kubernetes namespace, not a docker network, so those fixtures
+``pytest.skip`` with a clear message — ``test_credential_security.py::
+TestCredentialIsolation`` (the main consumer) is currently uncovered in
+CI and needs a k3s-native replacement before it runs again.
 """
 
 import os
@@ -32,10 +39,11 @@ from tests.utils.gateway_client import (
     wait_for_healthy,
 )
 
-# Re-exported for tests that historically imported GATEWAY_PORT from this
-# module (e.g. integration_tests/test_network_security.py).  The canonical
-# source remains shared/egg_config/constants.py.
-__all__ = ["GATEWAY_PORT"]
+# Public surface re-exported by other test modules.  GATEWAY_PORT is
+# re-exported from shared/egg_config/constants.py for tests that
+# historically imported it from this module (e.g.
+# integration_tests/test_network_security.py).
+__all__ = ["EggStack", "ContainerInfo", "GATEWAY_PORT", "exec_in_container"]
 
 # Project root (one level up from integration_tests/)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -73,11 +81,18 @@ class EggStack(GatewayClientMixin):
     gateway_port: int
     proxy_port: int
     launcher_secret: str
+    # Under k3s this carries the ``k8s-<namespace>`` sentinel — legacy
+    # docker-only fixtures key off the prefix to skip cleanly.  Some tests
+    # (e.g. test_stack_lifecycle, test_worktree_integration) still consume
+    # it directly to build docker container names; those silently fail to
+    # find a container under k3s and are tracked for k3s-native rewrites.
     compose_project: str
     config_dir: str
+    # Both networks point at the same k8s namespace today; the duplicated
+    # field is retained so legacy fixtures keep their isolated/external
+    # split until the k3s-native replacements land.
     isolated_network: str
     external_network: str
-    certs_volume: str = ""  # Docker volume name for gateway CA certs (legacy)
     source_ip: str = ""  # Auto-detected: IP the gateway sees for our requests
     _containers: list[str] = field(default_factory=list)
 
@@ -397,11 +412,24 @@ def exec_in_container(
     return result.returncode, result.stdout, result.stderr
 
 
+_LEGACY_DOCKER_FIXTURE_SKIP = (
+    "legacy docker-network container fixtures are not supported under k3s — "
+    "k3s-native replacement TBD (see integration_tests/conftest.py docstring)"
+)
+
+
+def _skip_if_k8s_backed(stack: EggStack) -> None:
+    """Skip the test if the stack is k8s-backed (legacy docker fixtures only)."""
+    if stack.compose_project.startswith("k8s-"):
+        pytest.skip(_LEGACY_DOCKER_FIXTURE_SKIP)
+
+
 @pytest.fixture
 def isolated_container(
     egg_stack: EggStack,
 ) -> Generator[ContainerInfo]:
     """Function-scoped fixture: alpine container on the isolated (private) network."""
+    _skip_if_k8s_backed(egg_stack)
     container = _start_container(egg_stack.isolated_network, "isolated")
     if not container:
         pytest.skip("Could not start container on isolated network")
@@ -414,6 +442,7 @@ def external_container(
     egg_stack: EggStack,
 ) -> Generator[ContainerInfo]:
     """Function-scoped fixture: alpine container on the external (public) network."""
+    _skip_if_k8s_backed(egg_stack)
     container = _start_container(egg_stack.external_network, "external")
     if not container:
         pytest.skip("Could not start container on external network")
@@ -430,6 +459,7 @@ def test_container(egg_stack: EggStack):
             container = test_container(network="egg-test-isolated", dns="0.0.0.0")
             ...
     """
+    _skip_if_k8s_backed(egg_stack)
     containers: list[str] = []
 
     def _factory(
