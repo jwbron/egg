@@ -1570,6 +1570,55 @@ class GatewayClient:
     # #2137 — slice integration-branch creation (TASK-4-2)
     # ------------------------------------------------------------
 
+    def _sha_is_ancestor(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ancestor_sha: str,
+        descendant_sha: str,
+        *,
+        bearer_token: str | None = None,
+    ) -> bool:
+        """Return True iff ``ancestor_sha`` is an ancestor of ``descendant_sha``.
+
+        Runs ``git merge-base --is-ancestor <ancestor> <descendant>``
+        through ``/api/v1/git/execute``.  Both SHAs must already be
+        reachable in the local odb — the caller is responsible for
+        any prior fetches.
+
+        ``git merge-base --is-ancestor`` exits 0 when the relation
+        holds and 1 when it does not.  The gateway surfaces a non-zero
+        exit as a 500 with ``returncode`` in the error details, which
+        we map back to ``False``; any other failure (network, missing
+        object) is also treated as ``False`` so callers can fall
+        through to a conservative path.
+        """
+        try:
+            self._make_request(
+                "/api/v1/git/execute",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "operation": "merge-base",
+                    "args": ["--is-ancestor", ancestor_sha, descendant_sha],
+                },
+                bearer_token=bearer_token,
+            )
+            return True
+        except GatewayError as exc:
+            details = exc.details or {}
+            returncode = details.get("returncode")
+            if returncode != 1:
+                logger.warning(
+                    "merge-base --is-ancestor failed unexpectedly",
+                    pipeline_id=pipeline_id,
+                    ancestor=ancestor_sha,
+                    descendant=descendant_sha,
+                    returncode=returncode,
+                    error=str(exc),
+                )
+            return False
+
     def create_slice_integration_branch(
         self,
         pipeline_id: str,
@@ -1667,6 +1716,89 @@ class GatewayClient:
                     parent_branch=parent_branch,
                 )
                 return False
+
+            # #2512 — restart_phase recovery: if the slice integration
+            # branch already exists on origin with commits descended
+            # from the current parent tip, preserve them and short-
+            # circuit success.  This happens when a pipeline is
+            # cancelled mid-implement-phase (cleanup=false) and then
+            # restarted: the prior run's per-role commits live on
+            # the slice integration branch.  Naively pushing
+            # ``parent_sha:refs/heads/<integration_branch>`` against
+            # that tip is non-fast-forward and gets rejected by
+            # origin, which previously killed the slice (and cascaded
+            # to the whole phase) before any agent was spawned.
+            # decision-3's "Committed work is preserved on retry"
+            # wording is honored only if we treat that case as
+            # success rather than silent failure.
+            existing_sha = self.get_remote_branch_sha(
+                pipeline_id,
+                repo_path,
+                f"refs/heads/{integration_branch}",
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if existing_sha and existing_sha != parent_sha:
+                # Fetch the integration branch so its tip object is
+                # in the local odb for the merge-base check below
+                # (parent_sha was made local by the earlier
+                # fetch_branch on parent_branch).  Best-effort: if
+                # this fetch fails (gateway down, transient network,
+                # expired session), the existing tip won't be in the
+                # local odb and ``_sha_is_ancestor`` will return
+                # False, so we'll degrade to the original push-and-
+                # hope behaviour rather than mistakenly preserving
+                # prior work on an unverifiable check.  See the
+                # softened fall-through warning below.
+                self.fetch_branch(
+                    pipeline_id,
+                    repo_path,
+                    args=[
+                        f"+refs/heads/{integration_branch}:refs/remotes/origin/{integration_branch}"
+                    ],
+                    mode=mode,
+                    bearer_token=session_token,
+                )
+                if self._sha_is_ancestor(
+                    pipeline_id,
+                    repo_path,
+                    parent_sha,
+                    existing_sha,
+                    bearer_token=session_token,
+                ):
+                    logger.info(
+                        "Slice integration branch already exists "
+                        "with commits descended from parent — "
+                        "preserving prior work (#2512 restart recovery)",
+                        pipeline_id=pipeline_id,
+                        integration_branch=integration_branch,
+                        parent_branch=parent_branch,
+                        parent_sha=parent_sha,
+                        existing_sha=existing_sha,
+                    )
+                    return True
+                # Could not verify ancestry: parent_sha is either not
+                # reachable from the existing tip (genuinely diverged
+                # history) or the merge-base call itself failed
+                # (gateway down, missing object after a failed
+                # integration-branch fetch, expired session).  The
+                # inner warning emitted by ``_sha_is_ancestor`` for
+                # the second case captures the true cause; the outer
+                # message stays deliberately neutral so an operator
+                # triaging "why was my slice rejected?" doesn't latch
+                # onto "diverged history" when the real failure was
+                # an unverifiable check.  Either way: fall through
+                # to the push so the rejection surfaces rather than
+                # silently overwriting unknown work.
+                logger.warning(
+                    "Could not verify that parent is an ancestor of "
+                    "the existing slice integration tip; push may be "
+                    "rejected as non-fast-forward",
+                    pipeline_id=pipeline_id,
+                    integration_branch=integration_branch,
+                    parent_sha=parent_sha,
+                    existing_sha=existing_sha,
+                )
 
             refspec = f"{parent_sha}:refs/heads/{integration_branch}"
             self._make_request(
