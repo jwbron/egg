@@ -212,6 +212,20 @@ class Task(EggContractBaseModel):
     review_cycles: int = Field(default=0, ge=0, description="Number of review cycles")
     max_cycles: int = Field(default=3, ge=1, description="Max cycles before escalation")
     escalated: bool = Field(default=False, description="Whether escalated")
+    delegation_attempts: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Number of times this task has been delegated to a different "
+            "producer role via the runtime impasse escape hatch (#2529). "
+            "Bumped by the orchestrator when a producer emits an "
+            "``Impasse`` and the orchestrator mutates ``role`` to the "
+            "suggested alternative. A second impasse on the same task "
+            "(``delegation_attempts >= 1``) bypasses auto-delegation and "
+            "escalates to HITL instead. Loads as ``0`` for contracts "
+            "written before this field existed."
+        ),
+    )
     gaps: list[TaskGap] = Field(
         default_factory=list,
         description=(

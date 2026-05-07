@@ -31,6 +31,7 @@ from egg_contracts.agent_roles import (
 from egg_contracts.agent_roles import (
     get_role_definition,
 )
+from egg_contracts.impasse import Impasse
 from egg_contracts.orchestrator import (
     load_agent_output,
 )
@@ -101,6 +102,7 @@ class AgentOutput:
         handoff_data: dict[str, Any] | None = None,
         logs: str | None = None,
         metrics: dict[str, Any] | None = None,
+        impasse: Impasse | None = None,
     ):
         """Initialize agent output.
 
@@ -111,6 +113,10 @@ class AgentOutput:
             handoff_data: Data for dependent agents
             logs: Execution logs
             metrics: Performance metrics
+            impasse: Typed runtime escape-hatch signal (#2529). When
+                set, the producer found its task structurally
+                impossible and exited without committing; the
+                orchestrator routes the impasse post-phase.
         """
         self.role = role
         self.commit = commit
@@ -118,6 +124,7 @@ class AgentOutput:
         self.handoff_data = handoff_data or {}
         self.logs = logs
         self.metrics = metrics or {}
+        self.impasse = impasse
         self.timestamp = datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
@@ -129,12 +136,15 @@ class AgentOutput:
             "handoff_data": self.handoff_data,
             "logs": self.logs,
             "metrics": self.metrics,
+            "impasse": self.impasse.to_dict() if self.impasse else None,
             "timestamp": self.timestamp.isoformat(),
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> AgentOutput:
         """Create from dictionary representation."""
+        impasse_raw = d.get("impasse")
+        impasse = Impasse.from_dict(impasse_raw) if isinstance(impasse_raw, dict) else None
         output = cls(
             role=AgentRole(d["role"]),
             commit=d.get("commit"),
@@ -142,6 +152,7 @@ class AgentOutput:
             handoff_data=d.get("handoff_data", {}),
             logs=d.get("logs"),
             metrics=d.get("metrics", {}),
+            impasse=impasse,
         )
         if d.get("timestamp"):
             output.timestamp = datetime.fromisoformat(d["timestamp"])

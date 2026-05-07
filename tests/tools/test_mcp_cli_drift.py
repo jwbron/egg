@@ -274,6 +274,13 @@ def test_cli_less_tools_are_documented_gaps():
         # Post-iter-2 (#2338): in-cycle conditional-ACK obligation
         # resolution — net-new capability with no CLI counterpart.
         "mcp__brc__resolve_obligation",
+        # #2529 runtime escape hatch: pure-local file-restriction read
+        # and the typed Impasse signal. Both bypass the gateway round
+        # trip — the agent is mid-execution and has not yet committed
+        # anything, so a CLI fallback would just shell out and re-do
+        # what these tools already do directly.
+        "mcp__sdlc__check_file_restriction",
+        "mcp__sdlc__report_impasse",
     }
     actual_gaps = {name for name, reg in TOOL_REGISTRY.items() if reg.cli_command is None}
     assert actual_gaps == expected_gaps, (
