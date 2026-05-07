@@ -441,27 +441,39 @@ timeout / stuck-phase handler operates on the correct tracker.
 `GatewayClient.create_slice_pr(pipeline_id, repo, *, slice_id, slice_name,
 slice_tasks, head, base, program_title=None, program_description=None,
 program_test_plan=None, program_manual_steps=None,
-terminal_slice_id=None, ...)` opens one PR per slice with two body
-shapes:
+terminal_slice_id=None, ...)` opens one PR per slice. **Every** slice
+PR — terminal AND non-terminal — carries the planner-authored program
+narrative when `contract.pr` is populated, so reviewers see the
+program rationale on whichever slice they open first (#2538). Earlier
+behaviour (terminal-only narrative + a "see terminal slice's PR for
+the umbrella narrative" pointer on non-terminals) buried the
+description on the last-merged PR; reviewers approaching slice-1 saw
+only task bullets.
 
-- **Non-terminal slices** (no `program_title`) — title is
-  `"slice {slice_id}: {slice_name}"` truncated to 70 chars; body lists
-  the slice's tasks (each truncated to 300 chars), optionally followed
-  by a one-line pointer to `terminal_slice_id` so reviewers can jump
-  to the umbrella PR; footer names the slice ID, pipeline, and base.
-- **Terminal slice** (`program_title` set, sourced from the planner's
-  `# yaml-tasks` `pr` block) — title is the planner-authored
-  `contract.pr.title` (still capped to 70 chars); body opens with a
-  `> Program-level umbrella PR — terminal slice of pipeline …`
-  banner and renders `contract.pr.description`, then — when present —
-  the `## ⚠️ Pre-merge Obligations` / `## ✅ Resolved within this PR`
-  section from `contract.pr.deferred_actions` (threaded via
-  `program_deferred_actions`; same placement as the legacy
-  single-PR path, rendered by `orchestrator/pr_obligations.py` #2354),
-  then `pr.test_plan` (under `## Test Plan`) / `pr.manual_steps` (under
-  `## Manual Steps`) so the umbrella PR carries the program-level
-  reviewer narrative; the slice-context footer survives so the chain
-  position stays legible.
+- **Title.** The terminal slice gets the bare `program_title` (the
+  planner's program-level title from the `# yaml-tasks` `pr` block,
+  capped to 70 chars). Non-terminal slices get a `[<slice-id>] `
+  prefix (`[slice-1] <program_title>`) so the GitHub PR list stays
+  scannable when several stacked PRs are open at once. When
+  `program_title` is empty (older contracts / planner skipped the
+  field), every slice falls back to the deterministic
+  `slice {slice_id}: {slice_name}` form.
+- **Body.** Program description → (terminal-only) `## ⚠️ Pre-merge
+  Obligations` / `## ✅ Resolved within this PR` section from
+  `contract.pr.deferred_actions` (rendered by
+  `orchestrator/pr_obligations.py` #2354) → `## This slice` (slice
+  name + task bullets, each truncated to 300 chars) → `## Test Plan` →
+  `## Manual Steps` → stack footer naming the slice ID, pipeline, and
+  base. The terminal slice prepends a `> Program-level umbrella PR —
+  terminal slice of pipeline …` merge-gate banner; non-terminals
+  skip the banner.
+
+`program_deferred_actions` is **terminal-only** by convention — the
+merge gate is the last-to-merge PR in the stack, so obligations live
+on exactly one PR across the chain. `create_slice_pr` asserts that a
+caller passing `program_deferred_actions` also passes `program_title`
+(or `terminal_slice_id=None`); wiring obligations through to a
+non-terminal slice is a caller bug and fails fast (#2354 review nit).
 
 The implement-phase run loop (`_run_implement_phase_slices` in
 `orchestrator/routes/pipelines.py`) selects the terminal slice and
@@ -471,17 +483,23 @@ threads the kwargs:
 2. `terminal_ids = [s.id for s in contract.slices if s.id not in depended_on]`.
 3. `chosen_terminal = terminal_ids[-1]` (last in declared order — see
    the multi-terminal forest note below).
-4. For the terminal slice: pass `program_*` from `contract.pr`
-   (including `program_deferred_actions` collected via
-   `_collect_pre_merge_obligations`), `terminal_slice_id=None`.
-5. For every non-terminal slice: pass `program_*=None`
-   (`program_deferred_actions=None` — obligations belong on the
-   umbrella only),
-   `terminal_slice_id=chosen_terminal` **only if** `contract.pr.title`
-   is non-empty. When the contract has no program block (older
-   contracts, or `_populate_contract_from_plan` did not run), the
-   pointer is suppressed so reviewers are not directed to a PR with
-   no umbrella content.
+4. For **every** slice (terminal and non-terminal): pass `program_*`
+   from `contract.pr` (so the narrative reaches every slice PR).
+5. For the terminal slice only: pass `program_deferred_actions`
+   collected via `_collect_pre_merge_obligations` (live tracker
+   fallback included for parity with the legacy single-PR path); set
+   `terminal_slice_id=None`. The `None` pointer is the gateway's
+   signal for "this slice IS the terminal — bare title, umbrella
+   banner."
+6. For non-terminal slices: `program_deferred_actions=None` (the
+   merge gate is elsewhere); set `terminal_slice_id=chosen_terminal`
+   **only if** `contract.pr.title` is non-empty. When the contract
+   has no program block (older contracts, or
+   `_populate_contract_from_plan` did not run), the pointer is
+   suppressed and the slice falls back to the deterministic title
+   shape. The `terminal_slice_id` value itself is no longer rendered
+   into the body (every slice carries its own narrative now); it
+   serves purely as the gateway's title-shape signal.
 
 ### Multi-terminal-forest pointer caveat
 
@@ -489,16 +507,21 @@ The slice DAG is a forest (≤1 DAG parent per slice — see
 [Forest Validation](#plan-parser--forest-validation)) and a
 multi-tree forest can have multiple terminal slices, one per tree.
 The current behaviour picks `terminal_ids[-1]` (last declared) as
-`chosen_terminal` and points **every** non-terminal across **every**
-tree at it. This means non-terminal leaves in non-chosen trees carry
-a pointer to a PR that lives in a different subtree of the chain. The
-choice is deliberate (arbitrary but stable, deterministic across
-parallel slice runs) and matches the simplification the issue asks
-for, but operators reviewing a multi-tree pipeline should not be
-surprised by the cross-tree pointer. A future refinement could
-choose per-tree terminals and emit `terminal_slice_id` only within
-the slice's own tree; until then the umbrella PR remains a single
-roll-up at `chosen_terminal`.
+`chosen_terminal` — that's the slice that gets the bare
+`program_title` (no `[<slice-id>]` prefix) and the merge-gate
+umbrella banner; the per-merge obligations section also lives on
+exactly that PR. Other terminal leaves in non-chosen trees are
+treated as non-terminals from the gateway's perspective: they
+receive `terminal_slice_id=chosen_terminal`, get the
+`[<slice-id>] <program_title>` title shape, and skip the banner
+and obligations section. The choice is deliberate (arbitrary but
+stable, deterministic across parallel slice runs) and matches the
+simplification the issue asks for, but operators reviewing a
+multi-tree pipeline should not be surprised that the merge-gate
+PR sits in `chosen_terminal`'s subtree. Since #2538 the
+narrative itself is on every slice PR, so cross-subtree
+discoverability is no longer a concern — only the merge-gate
+marker is centralised.
 
 ## Stacked-PR rebase reconciler
 

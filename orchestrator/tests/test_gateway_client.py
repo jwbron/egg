@@ -1355,9 +1355,10 @@ class TestCreateSlicePR:
 
         return captured, patch.object(gateway_client, "create_pr", side_effect=_fake_create_pr)
 
-    def test_non_terminal_slice_uses_auto_generated_title_and_body(self, gateway_client):
-        """Without program_title the helper still emits the deterministic
-        ``slice <id>: <name>`` title and the bulleted task body."""
+    def test_no_contract_pr_falls_back_to_auto_generated_title_and_body(self, gateway_client):
+        """When ``contract.pr`` is missing (no ``program_title``), every slice
+        — terminal or not — falls back to the deterministic ``slice <id>:
+        <name>`` title and a bulleted task body. No narrative to render."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
             gateway_client.create_slice_pr(
@@ -1374,14 +1375,18 @@ class TestCreateSlicePR:
         assert "Tasks in this slice:" in captured["body"]
         assert "- task-1-1: Add the barrel re-export" in captured["body"]
         assert "Slice slice-1 of pipeline issue-42" in captured["body"]
-        # No program-umbrella banner / pointer when neither field is set.
+        # No program-umbrella banner / per-slice section when neither field is set.
         assert "Program-level umbrella PR" not in captured["body"]
-        assert "terminal slice" not in captured["body"]
+        assert "## This slice" not in captured["body"]
 
-    def test_non_terminal_slice_with_terminal_pointer_includes_pointer_line(self, gateway_client):
-        """When ``terminal_slice_id`` is supplied (and program_title is not)
-        the body adds a pointer to the umbrella PR's slice without
-        upgrading to the planner-authored shape."""
+    def test_non_terminal_slice_carries_program_narrative_with_slice_id_prefix(
+        self, gateway_client
+    ):
+        """#2538: every slice — including non-terminal ones — carries the
+        planner-authored narrative on its PR so reviewers see program
+        context on whichever slice they open first. Non-terminal slices
+        get a ``[<slice-id>] `` title prefix to disambiguate in the
+        GitHub PR list."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
             gateway_client.create_slice_pr(
@@ -1389,20 +1394,48 @@ class TestCreateSlicePR:
                 repo="owner/repo",
                 slice_id="slice-1",
                 slice_name="Pattern adoption",
-                slice_tasks=None,
+                slice_tasks=[{"id": "task-1-1", "description": "Add the barrel re-export"}],
                 head="egg/issue-42/slice-1",
                 base="egg/issue-42",
+                program_title="Decompose oversize files; ratchet allowlist",
+                program_description="The lint added in #2250 caps Python files at 1500 lines.",
+                program_test_plan="- Automated: make lint and make test-all green.",
+                program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
                 terminal_slice_id="slice-3",
             )
-        assert captured["title"] == "slice slice-1: Pattern adoption"
-        assert "`slice-3`" in captured["body"]
-        assert "program-level narrative" in captured["body"]
-        assert "Program-level umbrella PR" not in captured["body"]
+        assert captured["title"] == "[slice-1] Decompose oversize files; ratchet allowlist"
+        body = captured["body"]
+        # No "umbrella" banner on non-terminals — that's the merge-gate marker
+        # and belongs only on the terminal slice.
+        assert "Program-level umbrella PR" not in body
+        # Program narrative is present.
+        assert "The lint added in #2250" in body
+        assert "## Test Plan" in body
+        assert "make lint" in body
+        assert "## Manual Steps" in body
+        assert "seam tables" in body
+        # Per-slice scope section appears after the program description and
+        # carries the slice name + task bullets.
+        assert "## This slice" in body
+        assert "Pattern adoption" in body
+        assert "- task-1-1: Add the barrel re-export" in body
+        # Section ordering: description → This slice → Test Plan → Manual Steps.
+        assert body.index("The lint added in #2250") < body.index("## This slice")
+        assert body.index("## This slice") < body.index("## Test Plan")
+        assert body.index("## Test Plan") < body.index("## Manual Steps")
+        # Stack footer survives.
+        assert "Slice slice-1 of pipeline issue-42" in body
+        # Pointer line from the old non-terminal shape is gone — narrative is
+        # right here, no need to send reviewers elsewhere.
+        assert "program-level narrative" not in body
+        assert "carries the program-level" not in body
 
     def test_terminal_slice_uses_program_title_and_planner_authored_body(self, gateway_client):
-        """When ``program_title`` is set the helper emits the planner-authored
-        title + description / test plan / manual steps body, prefixed with
-        the umbrella banner so reviewers can tell the PR is program-level."""
+        """When ``program_title`` is set and ``terminal_slice_id`` is None
+        (the terminal slice itself), the helper emits the planner-authored
+        title + description / per-slice / test plan / manual steps body,
+        prefixed with the umbrella banner so reviewers can tell the PR is
+        the program merge gate."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
             gateway_client.create_slice_pr(
@@ -1418,11 +1451,16 @@ class TestCreateSlicePR:
                 program_test_plan="- Automated: make lint and make test-all green.",
                 program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
             )
+        # Terminal title is bare program_title (no slice-id prefix).
         assert captured["title"] == "Decompose oversize files; ratchet allowlist"
         body = captured["body"]
         assert "Program-level umbrella PR" in body
         assert "issue-42" in body
         assert "The lint added in #2250" in body
+        # Per-slice scope section + slice name/tasks present on terminal too.
+        assert "## This slice" in body
+        assert "Apply the ratchet" in body
+        assert "- task-3-1: Bump the allowlist" in body
         assert "## Test Plan" in body
         assert "make lint" in body
         assert "## Manual Steps" in body

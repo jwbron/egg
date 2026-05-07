@@ -703,19 +703,25 @@ class TestRunImplementPhaseSlices:
         # Thread.join is invoked with a bounded timeout to avoid blocking.
         fake_thread.join.assert_called_once()
 
-    def test_terminal_slice_pr_carries_program_metadata_non_terminal_does_not(
+    def test_every_slice_pr_carries_program_metadata(
         self,
     ) -> None:
-        """#2340: program-level ``contract.pr`` is threaded only into the
-        terminal slice's PR; non-terminal slices stay deterministic and
-        carry a pointer to the terminal slice's PR.
+        """#2538: program-level ``contract.pr`` is threaded into every
+        slice's PR — terminal AND non-terminal — so reviewers see
+        program rationale on whichever slice they open first. The
+        original #2340 behaviour (terminal-only narrative + pointer on
+        non-terminals) buried the program description on the
+        last-merged PR, leaving slice-1 reviewers with no context.
 
         Forest: slice-1 (root) → slice-2 (intermediate) → slice-3 (terminal).
-        slice-3 is the unique slice no other slice depends on; it should
-        receive ``program_title`` / ``program_description`` /
+        slice-3 is the unique slice no other slice depends on. All three
+        slices receive ``program_title`` / ``program_description`` /
         ``program_test_plan`` / ``program_manual_steps`` from
-        ``contract.pr``. slice-1 and slice-2 should receive ``None`` for
-        each program-* kwarg and ``terminal_slice_id="slice-3"``.
+        ``contract.pr``. The terminal gets ``terminal_slice_id=None``
+        (signalling "this is the merge gate"); non-terminals get
+        ``terminal_slice_id="slice-3"`` so the gateway switches the
+        title shape to ``[<slice-id>] <program_title>`` and skips the
+        umbrella banner.
         """
         pipeline = _make_pipeline()
         root = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
@@ -756,20 +762,22 @@ class TestRunImplementPhaseSlices:
         }
         assert set(pr_calls_by_slice) == {"slice-1", "slice-2", "slice-3"}
 
-        terminal_kwargs = pr_calls_by_slice["slice-3"]
-        assert terminal_kwargs["program_title"] == "Decompose oversize files; ratchet allowlist"
-        assert terminal_kwargs["program_description"].startswith("The lint added in #2250")
-        assert "make lint" in terminal_kwargs["program_test_plan"]
-        assert "seam tables" in terminal_kwargs["program_manual_steps"]
-        assert terminal_kwargs["terminal_slice_id"] is None
+        # Every slice — terminal and non-terminal — carries the program
+        # narrative. Title-shape disambiguation happens inside
+        # ``create_slice_pr`` based on ``terminal_slice_id``.
+        for slice_id in ("slice-1", "slice-2", "slice-3"):
+            kwargs = pr_calls_by_slice[slice_id]
+            assert kwargs["program_title"] == "Decompose oversize files; ratchet allowlist"
+            assert kwargs["program_description"].startswith("The lint added in #2250")
+            assert "make lint" in kwargs["program_test_plan"]
+            assert "seam tables" in kwargs["program_manual_steps"]
 
+        # The terminal slice gets terminal_slice_id=None (it IS the
+        # merge gate); non-terminals get the terminal id so the
+        # gateway prefixes their title with [<slice-id>].
+        assert pr_calls_by_slice["slice-3"]["terminal_slice_id"] is None
         for non_terminal_id in ("slice-1", "slice-2"):
-            kwargs = pr_calls_by_slice[non_terminal_id]
-            assert kwargs["program_title"] is None
-            assert kwargs["program_description"] is None
-            assert kwargs["program_test_plan"] is None
-            assert kwargs["program_manual_steps"] is None
-            assert kwargs["terminal_slice_id"] == "slice-3"
+            assert pr_calls_by_slice[non_terminal_id]["terminal_slice_id"] == "slice-3"
 
     def test_terminal_slice_pr_carries_program_deferred_actions(
         self,
