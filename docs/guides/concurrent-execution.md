@@ -116,7 +116,12 @@ egg-orch message wait-loop \
   --for CONSENSUS_ACK \
   --for CONSENSUS_NACK \
   --for CONSENSUS_RE_REVIEW \
+  --for STATUS \
   --for OVERSEER_ALERT
+# `--for STATUS` is required (#2531): once every reviewer has ACKed the current version,
+# no further CONSENSUS_ACK/CONSENSUS_NACK arrive; the orchestrator emits a directed
+# STATUS (metadata.ready_to_confirm == true) as the only signal that confirms are clear.
+# On wake: if metadata.ready_to_confirm is true, go to CONFIRM; otherwise re-enter the wait.
 
 # Producer STAY ALIVE (post-confirm, step 6) — exits on consensus, re-review, or overseer alert
 egg-orch message wait-loop \
