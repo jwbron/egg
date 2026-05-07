@@ -237,3 +237,47 @@ class TestMultipleSlicesAndTasks:
         assert len(errors) == 2
         assert any("slice-1" in e and "task-1-1" in e for e in errors)
         assert any("slice-2" in e and "task-2-1" in e for e in errors)
+
+
+class TestImportOrderingRegression:
+    """Guard against the egg_restrictions ↔ egg_contracts import cycle.
+
+    A clean-interpreter ``import egg_restrictions.patterns`` must succeed
+    even when nothing has pre-loaded ``egg_contracts``. Hoisting
+    ``AGENT_PATTERNS`` to module scope in ``plan_parser.py`` triggers an
+    ``ImportError: cannot import name 'AGENT_PATTERNS' from partially
+    initialized module`` because patterns.py imports
+    ``egg_contracts.agent_roles``, which runs ``egg_contracts/__init__.py``,
+    which loads ``plan_parser`` mid-cycle. The gateway production boot
+    path runs ``python3 gateway.py`` (no pytest pre-loader), so this test
+    runs the import in a subprocess to mirror that condition. See
+    ``shared/egg_restrictions/matchers.py`` docstring for context.
+    """
+
+    def test_egg_restrictions_patterns_imports_cleanly(self) -> None:
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        # Resolve the repo's ``shared/`` directory from this file's location:
+        # tests/ → egg_contracts/ → shared/. The gateway boots with
+        # ``PYTHONPATH=shared`` (see scripts/start-gateway.sh), so this
+        # mirrors that surface — no orchestrator/, no gateway/.
+        shared_dir = Path(__file__).resolve().parents[2]
+        env = {**os.environ, "PYTHONPATH": str(shared_dir)}
+
+        # Fresh interpreter — no pytest pre-loader has run, so the cycle
+        # surfaces if AGENT_PATTERNS is hoisted to module scope in
+        # plan_parser.py.
+        result = subprocess.run(
+            [sys.executable, "-c", "import egg_restrictions.patterns"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 0, (
+            f"import egg_restrictions.patterns failed in clean interpreter:\n"
+            f"stderr:\n{result.stderr}"
+        )

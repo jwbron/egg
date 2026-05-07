@@ -64,7 +64,6 @@ from typing import Any
 
 import yaml
 from egg_restrictions.matchers import match_pattern
-from egg_restrictions.patterns import AGENT_PATTERNS
 
 from .agent_roles import EXECUTION_ROLE_VALUES
 from .models import Slice, SliceStatus, Task, TaskStatus
@@ -1289,6 +1288,15 @@ def _is_file_blocked_for_role(role: str, file_path: str) -> bool:
     gateway's check intentionally consults only blocked + block-exempt
     patterns (not allowed_patterns), and so does this function.
     """
+    # AGENT_PATTERNS is imported lazily here to avoid a circular import:
+    # egg_restrictions.patterns imports egg_contracts.agent_roles, which
+    # triggers egg_contracts/__init__.py, which imports this module. A
+    # module-scope import would deadlock that cycle and break the gateway
+    # production boot path. egg_restrictions.matchers.match_pattern is
+    # deliberately split out of patterns.py for safe module-scope use
+    # (see matchers.py docstring); only AGENT_PATTERNS needs to be lazy.
+    from egg_restrictions.patterns import AGENT_PATTERNS
+
     pattern = AGENT_PATTERNS.get(role)
     if pattern is None:
         return False

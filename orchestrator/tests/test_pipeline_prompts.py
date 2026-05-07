@@ -4544,8 +4544,8 @@ class TestDirectedCoordinationGuidance:
 # CONSENSUS_PROPOSE in routes/signals.py:_validate_planner_role_alignment,
 # rejecting the planner's proposal with HTTP 400 before the tracker
 # state is mutated. The reviewer prompt no longer carries a per-prompt
-# section; the validator-runs-here tests live in test_signals.py
-# (test_propose_validates_planner_role_alignment).
+# section; the validator-runs-here tests live in this same file under
+# class TestPlannerRoleAlignmentValidation (above).
 
 
 class TestPlanReviewCriteriaReflectsOrchestratorSideValidation:
