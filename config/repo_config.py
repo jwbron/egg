@@ -356,6 +356,75 @@ def reload_config() -> None:
     """
     global _checkpoint_repos_cache
     _checkpoint_repos_cache = None
+    # Per-repo role patterns are cached inside egg_restrictions; clearing
+    # that cache here keeps the SIGHUP path single-entry. Imported lazily
+    # so this module doesn't pull egg_restrictions at every config load.
+    try:
+        from egg_restrictions.patterns import reset_pattern_cache
+
+        reset_pattern_cache()
+    except ImportError:
+        pass
+
+
+_VALID_ROLE_PATTERN_KEYS = frozenset({"tests_globs", "code_globs", "docs_globs"})
+
+
+def get_repo_role_patterns(repo: str) -> dict[str, list[str]] | None:
+    """Get the per-repo role-pattern overrides for a repository (#2528).
+
+    Repos can declare alternate test/code/docs file conventions in
+    ``repositories.yaml`` so non-Python repos (Go, JS/TS, …) get correct
+    coder/tester/documenter boundaries. Only the language-convention
+    glob lists are configurable; security-relevant blocklists
+    (``.egg-state/contracts/``, ``.github/``) stay fixed and cannot be
+    relaxed by the target repo.
+
+    Schema (all keys optional):
+
+    .. code-block:: yaml
+
+        repo_settings:
+          owner/example-go-repo:
+            role_patterns:
+              tests_globs: ["**/*_test.go", "**/testdata/**"]
+              code_globs:  ["**/*.go"]
+              docs_globs:  ["**/*.md", "docs/"]
+
+    Args:
+        repo: Repository in ``owner/repo`` format.
+
+    Returns:
+        A dict containing only the keys the repo configured (any subset
+        of ``tests_globs`` / ``code_globs`` / ``docs_globs`` whose value
+        is a non-empty list of strings). Returns ``None`` when no
+        ``role_patterns`` block is set, or when every configured key is
+        invalid. Unknown keys (e.g. attempts to override
+        ``contracts_blocklist``) are silently dropped — the security
+        boundary is enforced in
+        ``shared/egg_restrictions/patterns.py`` builders, but rejecting
+        the unknown key here gives operators a clean signal in the
+        logs.
+    """
+    raw = get_repo_setting(repo, "role_patterns", None)
+    if not isinstance(raw, dict):
+        return None
+
+    out: dict[str, list[str]] = {}
+    for key, value in raw.items():
+        if key not in _VALID_ROLE_PATTERN_KEYS:
+            # Defense-in-depth: a misconfigured repo cannot widen
+            # security boundaries by inventing keys. The pattern
+            # builders already ignore anything outside the three knobs,
+            # so dropping here is purely diagnostic.
+            continue
+        if not isinstance(value, list):
+            continue
+        cleaned = [str(item) for item in value if isinstance(item, str) and item]
+        if cleaned:
+            out[key] = cleaned
+
+    return out or None
 
 
 def get_all_checkpoint_repos() -> frozenset[str]:

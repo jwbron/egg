@@ -1679,7 +1679,7 @@ def git_push() -> tuple[Response, int] | Response:
             if role_for_sha and role_for_sha != session_role:
                 pulled_commits_summary.append({"sha": sha, "author_role": role_for_sha})
 
-        allowed_own, blocked_own = _partition_fn(session_role, own_files)
+        allowed_own, blocked_own = _partition_fn(session_role, own_files, repo=repo)
 
         if unregistered_files and enforce:
             audit_log(

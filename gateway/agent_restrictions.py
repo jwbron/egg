@@ -38,10 +38,16 @@ from egg_restrictions.patterns import (
     AGENT_PATTERNS,
     AUTOFIXER_PATTERNS,
     CONFLICT_RESOLVER_PATTERNS,
+    DEFAULT_CODE_GLOBS,
+    DEFAULT_DOCS_GLOBS,
+    DEFAULT_TESTS_GLOBS,
     INSPECTOR_PATTERNS,
     OVERSEER_PATTERNS,
     AgentFilePattern,
     AgentRole,
+    build_agent_patterns,
+    get_agent_pattern_for_repo,
+    reset_pattern_cache,
 )
 
 logger = logging.getLogger("gateway.agent_restrictions")
@@ -50,12 +56,21 @@ logger = logging.getLogger("gateway.agent_restrictions")
 def partition_files_by_role(
     role: str,
     files: list[str],
+    repo: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """Split ``files`` into ``(allowed, blocked)`` by what ``role`` may write.
 
     Used by the gateway's push handler to decide which files in a push
     diff would be rejected by the role's AgentFilePattern and therefore
     need to be auto-filtered out by the per-commit rewriter (#1882).
+
+    Args:
+        role: The agent role identifier.
+        files: Files in the push diff.
+        repo: Optional ``owner/repo`` for per-repo pattern overrides
+            (#2528). When set, the role's pattern reflects the
+            ``role_patterns:`` block in ``repositories.yaml`` for this
+            repo; when ``None``, falls back to global defaults.
 
     Behaviour:
 
@@ -71,7 +86,7 @@ def partition_files_by_role(
     if not files:
         return [], []
 
-    pattern = get_agent_pattern(role)
+    pattern = get_agent_pattern(role, repo=repo)
     if pattern is None:
         logger.warning(
             "partition_files_by_role_unknown_role",
@@ -96,12 +111,18 @@ __all__ = [
     "AgentRestrictionResult",
     "AgentRole",
     "CONFLICT_RESOLVER_PATTERNS",
+    "DEFAULT_CODE_GLOBS",
+    "DEFAULT_DOCS_GLOBS",
+    "DEFAULT_TESTS_GLOBS",
     "INSPECTOR_PATTERNS",
     "OVERSEER_PATTERNS",
+    "build_agent_patterns",
     "check_agent_file_access",
     "check_agent_gh_operation",
     "get_agent_pattern",
+    "get_agent_pattern_for_repo",
     "partition_files_by_role",
+    "reset_pattern_cache",
     "validate_agent_push",
 ]
 

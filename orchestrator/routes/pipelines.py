@@ -5659,17 +5659,24 @@ def _build_role_context(
     return "\n".join(lines)
 
 
-def _build_role_restrictions_section() -> str:
+def _build_role_restrictions_section(repo: str | None = None) -> str:
     """Build a prompt section describing file access restrictions per execution role.
 
     This section is injected into the task_planner prompt so that it can
     assign each task to the correct execution role (coder, tester, documenter)
     based on which files the task will modify.
 
+    Args:
+        repo: Optional ``owner/repo`` for per-repo pattern overrides
+            (#2528). When set, the rendered patterns reflect
+            ``role_patterns:`` from ``repositories.yaml`` for the repo
+            so the planner sees the same boundaries the gateway will
+            enforce. When ``None``, falls back to global defaults.
+
     Returns:
         Formatted markdown string describing role file boundaries.
     """
-    from egg_contracts.agent_roles import get_file_patterns
+    from egg_restrictions.patterns import build_agent_patterns
 
     lines: list[str] = [
         "## Execution Role File Restrictions",
@@ -5680,15 +5687,16 @@ def _build_role_restrictions_section() -> str:
         "",
     ]
 
+    patterns_by_role = build_agent_patterns(repo)
     for role_name in ("coder", "tester", "documenter"):
-        patterns = get_file_patterns(role_name)
-        if patterns is None:
+        pattern = patterns_by_role.get(role_name)
+        if pattern is None:
             continue
         lines.append(f"### {role_name}")
-        if patterns.get("allowed"):
-            lines.append(f"- **Allowed**: {', '.join(f'`{p}`' for p in patterns['allowed'])}")
-        if patterns.get("blocked"):
-            lines.append(f"- **Blocked**: {', '.join(f'`{p}`' for p in patterns['blocked'])}")
+        if pattern.allowed_patterns:
+            lines.append(f"- **Allowed**: {', '.join(f'`{p}`' for p in pattern.allowed_patterns)}")
+        if pattern.blocked_patterns:
+            lines.append(f"- **Blocked**: {', '.join(f'`{p}`' for p in pattern.blocked_patterns)}")
         lines.append("")
 
     lines.append(
@@ -11199,8 +11207,11 @@ def _build_agent_prompt(
                 "",
             ]
         )
-        # Append role file restriction info so the planner assigns tasks correctly
-        lines.append(_build_role_restrictions_section())
+        # Append role file restriction info so the planner assigns tasks correctly.
+        # Pass the pipeline's repo so per-repo role_patterns from
+        # repositories.yaml are rendered (#2528) — keeps planner-prompt
+        # boundaries in sync with the gateway's push-time enforcement.
+        lines.append(_build_role_restrictions_section(repo=repo or None))
     elif role_value == "risk_analyst":
         lines.extend(
             [

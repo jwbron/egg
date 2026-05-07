@@ -68,12 +68,18 @@ def check_file_write_permission(
         # If egg_restrictions not available, allow (fail-open for backward compat)
         return None
 
-    allowed, blocked_files, reason = check_agent_file_access(agent_role, [file_path])
+    # Per-repo overrides (#2528): the orchestrator injects EGG_PIPELINE_REPO
+    # into the sandbox so check_agent_file_access can read role_patterns
+    # from repositories.yaml. Falls back to global defaults outside a
+    # pipeline.
+    repo = os.environ.get("EGG_PIPELINE_REPO", "").strip() or None
+
+    allowed, blocked_files, reason = check_agent_file_access(agent_role, [file_path], repo=repo)
     if allowed:
         return None
 
     # Find which role owns this file for helpful error message
-    owner_role = _find_owning_role(file_path, agent_role)
+    owner_role = _find_owning_role(file_path, agent_role, repo=repo)
     owner_hint = f" -- this file belongs to the '{owner_role}' role" if owner_role else ""
 
     return (
@@ -97,28 +103,31 @@ def _normalize_to_repo_relative(file_path: str) -> str:
     return file_path.lstrip("/")
 
 
-def _find_owning_role(file_path: str, excluded_role: str) -> str | None:
+def _find_owning_role(file_path: str, excluded_role: str, repo: str | None = None) -> str | None:
     """Find which role is allowed to write to a file.
 
     Used for helpful error messages to tell agents which role
-    should handle the file.
+    should handle the file. Honours per-repo pattern overrides (#2528)
+    so the suggested role matches what the gateway will actually accept.
     """
     try:
-        from egg_restrictions import AGENT_PATTERNS
+        from egg_restrictions.patterns import build_agent_patterns
     except ImportError:
         return None
+
+    patterns = build_agent_patterns(repo)
 
     # Check common roles first (most likely targets for delegation)
     priority_roles = ["coder", "tester", "documenter"]
     for role_name in priority_roles:
         if role_name == excluded_role:
             continue
-        pattern = AGENT_PATTERNS.get(role_name)
+        pattern = patterns.get(role_name)
         if pattern and pattern.can_write(file_path):
             return role_name
 
     # Check remaining roles
-    for role_name, pattern in AGENT_PATTERNS.items():
+    for role_name, pattern in patterns.items():
         if role_name == excluded_role or role_name in priority_roles:
             continue
         if pattern.can_write(file_path):
