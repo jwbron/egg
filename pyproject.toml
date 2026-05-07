@@ -214,7 +214,6 @@ timeout = 60
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
     "integration: marks tests as integration tests (require k3s, may be slow)",
-    "functional: marks tests as functional tests (require Docker, faster than integration)",
     "security: marks tests as security/pentesting tests",
 ]
 
