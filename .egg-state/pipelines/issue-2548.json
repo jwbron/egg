@@ -75,10 +75,10 @@
         {
           "container_id": "a10327b5-2fe0-403f-85c2-f673e11b501b",
           "container_name": "egg-sandbox-egg-agent-issue-2548-refiner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-07T17:25:53.165008Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-07T17:25:58.571389Z",
+          "exit_code": -1,
           "agent_role": "refiner",
           "session_token": null,
           "pod_name": null,
@@ -115,15 +115,15 @@
       "agents": [
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "a10327b5-2fe0-403f-85c2-f673e11b501b",
           "container_info": null,
           "slice_id": null,
           "started_at": "2026-05-07T17:25:53.165022Z",
-          "completed_at": null,
+          "completed_at": "2026-05-07T17:25:58.604518Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -170,12 +170,20 @@
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "5feab0e4eaa6119fbe043ebd469726b372263042",
-      "agent_exits": []
+      "agent_exits": [
+        {
+          "role": "refiner",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-07T17:25:58.604532Z",
+          "container_id": "a10327b5-2fe0-403f-85c2-f673e11b501b"
+        }
+      ]
     }
   },
   "decisions": [],
   "created_at": "2026-05-07T17:25:23.537637Z",
-  "updated_at": "2026-05-07T17:25:53.165118Z",
+  "updated_at": "2026-05-07T17:25:58.604598Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -189,6 +197,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7,
+  "version": 8,
   "jira_ticket": null
 }
