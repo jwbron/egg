@@ -154,6 +154,62 @@ class TestWatchdog:
         assert snap["healthy"] is False
         assert "stale" in snap["message"]
 
+    def test_in_flight_probe_extends_freshness_window(self, with_repo_path):
+        """A probe that's still running shouldn't cause a spurious
+        unhealthy flip on the request path. While the BG probe is
+        in-flight, the cache stays fresh past the normal staleness
+        window — the in-flight probe will refresh the cache when it
+        completes (#2501)."""
+        from state_store_probe import StateStoreProbe
+
+        probe = StateStoreProbe(interval=1.0, stale_multiplier=2.0)
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
+        ):
+            probe.probe_now()
+
+        # Cache age is now > 2*interval (3s in the past), but a probe
+        # is in flight that started 1s ago — well within the staleness
+        # window. snapshot() must not flip the cached healthy=True.
+        now = time.monotonic()
+        with probe._lock:  # type: ignore[attr-defined]
+            probe._last_check_monotonic = now - 3.0  # type: ignore[attr-defined]
+            probe._probe_in_flight = True  # type: ignore[attr-defined]
+            probe._probe_started_at_monotonic = now - 1.0  # type: ignore[attr-defined]
+
+        snap = probe.snapshot()
+        assert snap["fresh"] is True
+        assert snap["healthy"] is True
+        assert snap["message"] == "ok"
+
+    def test_in_flight_probe_still_flips_stale_once_wedged(self, with_repo_path):
+        """The in-flight grace is bounded: once the in-flight probe
+        itself has been running for longer than the staleness window,
+        we admit the cache is stale and report unhealthy. Otherwise a
+        wedged ``git worktree add`` would never surface as a wedge."""
+        from state_store_probe import StateStoreProbe
+
+        probe = StateStoreProbe(interval=1.0, stale_multiplier=2.0)
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
+        ):
+            probe.probe_now()
+
+        # Cache age 5s, in-flight probe has been running 4s (> 2*interval).
+        # The grace is exhausted — should flip stale.
+        now = time.monotonic()
+        with probe._lock:  # type: ignore[attr-defined]
+            probe._last_check_monotonic = now - 5.0  # type: ignore[attr-defined]
+            probe._probe_in_flight = True  # type: ignore[attr-defined]
+            probe._probe_started_at_monotonic = now - 4.0  # type: ignore[attr-defined]
+
+        snap = probe.snapshot()
+        assert snap["fresh"] is False
+        assert snap["healthy"] is False
+        assert "stale" in snap["message"]
+
 
 class TestExceptionIsolation:
     """Exceptions in the underlying probe must not crash the BG thread
