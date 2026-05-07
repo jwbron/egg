@@ -451,7 +451,8 @@ cursor=""
 while true; do
     out=$(egg-orch message wait --json \
         --for CONSENSUS_ACK --for CONSENSUS_NACK \
-        --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT \
+        --for CONSENSUS_RE_REVIEW --for STATUS \
+        --for OVERSEER_ALERT \
         --timeout 60 \
         ${cursor:+--since "$cursor"})
     rc=$?
