@@ -1693,6 +1693,124 @@ class GatewayClient:
                 )
             return False
 
+    def is_slice_branch_merged_into_parent(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        integration_branch: str,
+        parent_branch: str,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Return True iff the slice integration branch's tip on origin is
+        already reachable from ``parent_branch``'s tip on origin.
+
+        This is the #2549 "slice already merged" signal: after the slice's
+        PR is merged into the parent, the integration branch's old tip is
+        an ancestor of the parent's new tip. The inverse direction of the
+        #2512 restart-recovery check — and the case that previously caused
+        ``create_slice_integration_branch`` to fall through to a non-fast-
+        forward push and fail the slice (and cascade-fail the phase).
+
+        Returns False on any of:
+
+        * Either branch is missing on origin (nothing to compare against).
+        * The integration branch tip equals the parent tip (``==`` is
+          neither "merged" nor "diverged"; just a no-op state — let the
+          regular create path handle it as a fast-forward no-op).
+        * The ancestry check itself fails (gateway down, missing object
+          after a flaky fetch). In that case we return False so the
+          caller falls through to the existing create path rather than
+          silently skipping the slice.
+
+        The transport mirrors :meth:`create_slice_integration_branch`:
+        a single synthetic launcher-authenticated session shared across
+        ls-remote, fetch, and the merge-base call.
+        """
+        if not integration_branch or not parent_branch:
+            return False
+        if integration_branch == parent_branch:
+            return False
+
+        temp_container_id = (
+            f"{pipeline_id}-slice-merged-check-{integration_branch.replace('/', '-')}"
+        )
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                branch=integration_branch,
+                synthetic=True,
+            )
+            session_token = session.session_token
+
+            parent_sha = self.get_remote_branch_sha(
+                pipeline_id,
+                repo_path,
+                f"refs/heads/{parent_branch}",
+                mode=mode,
+                bearer_token=session_token,
+            )
+            existing_sha = self.get_remote_branch_sha(
+                pipeline_id,
+                repo_path,
+                f"refs/heads/{integration_branch}",
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if not parent_sha or not existing_sha:
+                return False
+            if parent_sha == existing_sha:
+                return False
+
+            # Both refs must be locally reachable for ``merge-base
+            # --is-ancestor`` to evaluate without errors. Best-effort:
+            # if either fetch fails the merge-base call will return
+            # False (missing object → returncode != 0) and we degrade
+            # to "not merged", which matches the safe default.
+            self.fetch_branch(
+                pipeline_id,
+                repo_path,
+                args=[f"+refs/heads/{parent_branch}:refs/remotes/origin/{parent_branch}"],
+                mode=mode,
+                bearer_token=session_token,
+            )
+            self.fetch_branch(
+                pipeline_id,
+                repo_path,
+                args=[f"+refs/heads/{integration_branch}:refs/remotes/origin/{integration_branch}"],
+                mode=mode,
+                bearer_token=session_token,
+            )
+
+            return self._sha_is_ancestor(
+                pipeline_id,
+                repo_path,
+                existing_sha,
+                parent_sha,
+                bearer_token=session_token,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "is_slice_branch_merged_into_parent: gateway request failed",
+                pipeline_id=pipeline_id,
+                integration_branch=integration_branch,
+                parent_branch=parent_branch,
+                error=str(exc),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
     def create_slice_integration_branch(
         self,
         pipeline_id: str,

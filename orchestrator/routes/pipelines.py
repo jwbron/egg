@@ -12319,15 +12319,13 @@ def _run_implement_phase_slices(
         except Exception:  # noqa: BLE001
             return None
 
-    reconciler_thread, reconciler_stop = _start_stacked_pr_reconciler(
-        pipeline_id,
-        _contract_loader,
-        spawner.gateway,
-        pipeline,
-        worktree_repo_path=worktree_repo_path,
-        repo=getattr(pipeline, "repo", None),
-    )
-
+    # #2549 reviewer note: defer starting the stacked-PR reconciler
+    # until after the bootstrap reconciliation pass so an unhandled
+    # exception during bootstrap (e.g. a hard ImportError of
+    # ``SliceStatus`` or a programming error in the pass) cannot leak
+    # the daemon thread. The reconciler does not depend on bootstrap
+    # state, so its start is safe to move after the pass; the existing
+    # ``finally`` at the bottom of the run loop owns its teardown.
     aggregate_logs: list[str] = []
     overall_exit = 0
     poll_interval = 5.0
@@ -12336,6 +12334,170 @@ def _run_implement_phase_slices(
         from orchestrator import global_slice_admit
     except ImportError:
         import global_slice_admit  # type: ignore[no-redef]
+
+    try:
+        from orchestrator.peer_consensus import (
+            remove_peer_consensus_tracker,
+        )
+    except ImportError:
+        from peer_consensus import (  # type: ignore[no-redef]
+            remove_peer_consensus_tracker,
+        )
+
+    try:
+        from state_store import get_pipeline_state_lock
+    except ImportError:
+        from orchestrator.state_store import (  # type: ignore[no-redef]
+            get_pipeline_state_lock,
+        )
+
+    from egg_contracts.models import SliceStatus
+
+    def _persist_slice_status_complete(slice_id: str) -> None:
+        """Mark ``slice_id`` as ``SliceStatus.COMPLETE`` on the contract.
+
+        #2549 — durable record of slice completion. The
+        ``Slice.status`` field has had a ``COMPLETE`` value since
+        the original schema, but until #2549 nothing wrote it; the
+        #2470 ``restart_agent`` reader at line 2653 was effectively
+        dead code. This helper closes that gap so:
+
+        * Subsequent ``start_pipeline`` calls see merged slices as
+          COMPLETE on the contract and skip them in the bootstrap
+          reconciliation pass below — no GitHub round-trip needed.
+        * The #2470 ``restart_agent`` parent-complete fallback
+          finally has a real signal to read.
+
+        Best-effort: if the lock or save fails, the in-memory
+        scheduler state still reflects completion and the slice
+        won't run this pass; the next start_pipeline will
+        re-detect via the merged-detection helper.
+        """
+        try:
+            with get_pipeline_state_lock(pipeline_id):
+                contract_local = load_contract(pipeline_id, worktree_repo_path)
+                for s in contract_local.slices:
+                    if s.id == slice_id:
+                        s.status = SliceStatus.COMPLETE
+                        break
+                save_contract(contract_local, worktree_repo_path)
+        except Exception as save_err:  # noqa: BLE001
+            logger.warning(
+                "Failed to persist slice.status=COMPLETE",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(save_err),
+            )
+
+    # #2549 — bootstrap reconciliation pass. Before the run loop picks up
+    # any slices, fold in two sources of "this slice is already done"
+    # state that the scheduler (a pure rebuild from ``contract.slices``)
+    # cannot see on its own:
+    #
+    # (A) Slices that the contract already records as
+    #     ``SliceStatus.COMPLETE``. Once #2549 starts writing this
+    #     field on success, future restarts can trust it directly
+    #     without a GitHub round-trip.
+    #
+    # (B) Slices whose integration branch on origin is reachable from
+    #     their parent's tip — i.e. their PR has been merged. This
+    #     handles the literal #2549 repro (operator merges slice-1's
+    #     PR, runs ``start_pipeline`` to resume) AND any slice whose
+    #     completion was committed before #2549's writer landed. On a
+    #     hit, also persist (A) so subsequent restarts hit the cheap
+    #     path.
+    #
+    # Without this pass, the scheduler would yield every slice as READY
+    # on its first ``iter_ready`` tick and ``create_slice_integration_
+    # branch`` would attempt to push parent_sha onto an existing slice
+    # ref whose tip is now an ancestor of parent — a non-fast-forward
+    # rejection that previously failed the slice and cascaded the
+    # phase. Both layers (A+B) are best-effort: a failure in this pass
+    # silently falls through to the existing run loop, preserving the
+    # pre-#2549 behaviour as the floor.
+    bootstrap_complete: list[str] = []
+    bootstrap_merged: list[str] = []
+
+    # Layer (A): cheap, no I/O. Trust contract-recorded COMPLETE status.
+    layer_b_candidates = []
+    for s in slices:
+        if s.status == SliceStatus.COMPLETE:
+            scheduler.record_complete(s.id)
+            bootstrap_complete.append(s.id)
+            continue
+        layer_b_candidates.append(s)
+
+    # Layer (B): origin-side detection for slices not yet recorded as
+    # COMPLETE on the contract. Each helper call uses its own synthetic
+    # gateway session, so we parallelise across slices to keep startup
+    # latency bounded as forests grow. Cap workers so a large forest
+    # doesn't burst against the gateway.
+    if pipeline.repo and layer_b_candidates:
+
+        def _bootstrap_check_one(slice_obj: Any) -> tuple[str, bool]:
+            # Prefer the parent branch the slice was actually forked
+            # off of (recorded by ``_run_one_slice_inner``). Falls back
+            # to the dependency-derived parent for slices that never
+            # made it through ``_run_one_slice_inner`` (e.g. fresh
+            # contract on first run). Both should agree today, but a
+            # future re-plan that mutates ``dependencies`` post-creation
+            # would diverge — preferring the recorded value future-
+            # proofs the check.
+            if slice_obj.parent_branch_at_creation:
+                parent_branch_for_check = slice_obj.parent_branch_at_creation
+            elif slice_obj.dependencies:
+                parent_branch_for_check = f"{issue_branch}/{slice_obj.dependencies[0]}"
+            else:
+                parent_branch_for_check = pipeline_branch
+            integration_branch_for_check = f"{issue_branch}/{slice_obj.id}"
+            try:
+                merged = spawner.gateway.is_slice_branch_merged_into_parent(
+                    pipeline_id,
+                    str(worktree_repo_path),
+                    integration_branch=integration_branch_for_check,
+                    parent_branch=parent_branch_for_check,
+                    agent_role="coder",
+                    mode=gateway_mode,  # type: ignore[arg-type]
+                )
+            except Exception as detect_err:  # noqa: BLE001
+                logger.warning(
+                    "Bootstrap merged-detection raised; treating slice as not-merged",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_obj.id,
+                    error=str(detect_err),
+                )
+                return slice_obj.id, False
+            return slice_obj.id, bool(merged)
+
+        max_workers = min(len(layer_b_candidates), 8)
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix=f"slice-bootstrap-{pipeline_id}",
+        ) as bootstrap_pool:
+            results = list(bootstrap_pool.map(_bootstrap_check_one, layer_b_candidates))
+
+        for slice_id, already_merged in results:
+            if already_merged:
+                scheduler.record_complete(slice_id)
+                _persist_slice_status_complete(slice_id)
+                bootstrap_merged.append(slice_id)
+
+    if bootstrap_complete or bootstrap_merged:
+        logger.info(
+            "Slice bootstrap reconciliation marked slices complete",
+            pipeline_id=pipeline_id,
+            already_complete_on_contract=bootstrap_complete,
+            detected_merged_on_origin=bootstrap_merged,
+        )
+
+    reconciler_thread, reconciler_stop = _start_stacked_pr_reconciler(
+        pipeline_id,
+        _contract_loader,
+        spawner.gateway,
+        pipeline,
+        worktree_repo_path=worktree_repo_path,
+        repo=getattr(pipeline, "repo", None),
+    )
 
     try:
         while not scheduler.all_done():
@@ -12376,21 +12538,6 @@ def _run_implement_phase_slices(
             # on the scheduler from inside ``_run_one_slice`` so the
             # cascade machinery sees the same wall-clock as the run
             # loop.
-            try:
-                from orchestrator.peer_consensus import (
-                    remove_peer_consensus_tracker,
-                )
-            except ImportError:
-                from peer_consensus import (  # type: ignore[no-redef]
-                    remove_peer_consensus_tracker,
-                )
-
-            try:
-                from state_store import get_pipeline_state_lock
-            except ImportError:
-                from orchestrator.state_store import (  # type: ignore[no-redef]
-                    get_pipeline_state_lock,
-                )
 
             def _run_one_slice(slice_id: str, parent_slice_id: str | None) -> tuple[int, str]:
                 # Release the global-admission slot when the slice
@@ -12429,6 +12576,54 @@ def _run_implement_phase_slices(
                         slice_id=slice_id,
                         error=str(save_err),
                     )
+
+                # #2549 race protection: a slice's PR can be merged
+                # between the bootstrap reconciliation pass and this
+                # spawn (e.g. operator merges slice-1 while slice-2 is
+                # still queued). When that happens, the integration
+                # branch's old tip is reachable from the parent's new
+                # tip, and the create-branch push below would be
+                # rejected as non-fast-forward (cascading the slice and
+                # its descendants to FAILED). Detect that case here and
+                # skip directly to COMPLETE — same effect as the
+                # bootstrap reconciliation pass, just on a slice that
+                # transitioned during the run.
+                if pipeline.repo:
+                    try:
+                        already_merged = spawner.gateway.is_slice_branch_merged_into_parent(
+                            pipeline_id,
+                            str(worktree_repo_path),
+                            integration_branch=integration_branch,
+                            parent_branch=parent_branch,
+                            agent_role="coder",
+                            mode=gateway_mode,  # type: ignore[arg-type]
+                        )
+                    except Exception as detect_err:  # noqa: BLE001
+                        logger.warning(
+                            "Slice merged-detection raised; treating as not-merged",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            error=str(detect_err),
+                        )
+                        already_merged = False
+                    if already_merged:
+                        logger.info(
+                            "Slice already merged into parent on origin — skipping spawn (#2549)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            integration_branch=integration_branch,
+                            parent_branch=parent_branch,
+                        )
+                        scheduler.record_complete(slice_id)
+                        _persist_slice_status_complete(slice_id)
+                        try:
+                            remove_peer_consensus_tracker(pipeline_id, slice_id)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        return 0, (
+                            f"slice {slice_id}: already merged into "
+                            f"{parent_branch} on origin — skipped"
+                        )
 
                 # #2137 TASK-4-2: create the slice integration branch
                 # on origin BEFORE spawning containers. Push
@@ -12663,6 +12858,7 @@ def _run_implement_phase_slices(
                     )
 
                 scheduler.record_complete(slice_id)
+                _persist_slice_status_complete(slice_id)
                 try:
                     remove_peer_consensus_tracker(pipeline_id, slice_id)
                 except Exception:  # noqa: BLE001

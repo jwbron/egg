@@ -439,6 +439,11 @@ class TestRunImplementPhaseSlices:
         spawner = MagicMock()
         spawner.gateway = MagicMock()
         spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+        # #2549 — bootstrap reconciliation + run-loop race-protection both
+        # call this gateway helper. Default to False so existing tests
+        # exercise the spawn-and-run path; merged-detection tests set it
+        # to True explicitly.
+        spawner.gateway.is_slice_branch_merged_into_parent.return_value = False
         return spawner
 
     def _make_loader_save_pair(self, contract: Contract) -> tuple[MagicMock, MagicMock]:
@@ -943,6 +948,342 @@ class TestRunImplementPhaseSlices:
 
 
 # ---------------------------------------------------------------------------
+# #2549 — already-merged-slice detection (bootstrap + race protection)
+# ---------------------------------------------------------------------------
+
+
+class TestSliceMergedDetection:
+    """#2549 — orchestrator must skip slices whose PR has already merged.
+
+    Live repro: pipeline ``issue-2474-v2`` slice-1 merged → operator
+    ran ``start_pipeline`` to resume from slice-2 → orchestrator tried
+    to recreate slice-1's integration branch → push rejected as
+    non-fast-forward → slice-1 cascade-failed slices 2-5 in 5 seconds.
+
+    Two layers cover the failure:
+
+    * **Bootstrap reconciliation** runs once before the slice run loop
+      starts. Folds in (A) ``Slice.status == COMPLETE`` from prior
+      run's contract write and (B) gateway-detected
+      ``is_slice_branch_merged_into_parent`` for slices the contract
+      doesn't know about yet (e.g. pipelines whose merge happened
+      before the writer landed).
+
+    * **Run-loop race protection** runs at slice spawn. Catches the
+      narrow window where a slice's PR is merged after bootstrap but
+      before the slice's wave executes.
+
+    Both layers persist ``slice.status = SliceStatus.COMPLETE`` on
+    the contract so subsequent restarts go through the cheap
+    contract-only path.
+    """
+
+    def _make_spawner(self) -> MagicMock:
+        spawner = MagicMock()
+        spawner.gateway = MagicMock()
+        spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+        spawner.gateway.is_slice_branch_merged_into_parent.return_value = False
+        return spawner
+
+    def test_bootstrap_skips_slice_marked_complete_on_contract(self) -> None:
+        """(A) — Slice already marked COMPLETE on the contract is
+        skipped without calling ``is_slice_branch_merged_into_parent``
+        (cheap path: trust the contract, no GitHub round-trip)."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        slice1.status = SliceStatus.COMPLETE  # prior run wrote this on success
+        slice2 = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
+        contract = _make_contract(slices=[slice1, slice2])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # Only slice-2 ran — slice-1 was trusted from the contract.
+        invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
+        assert invoked == {"slice-2"}, (
+            "slice-1 must be skipped at bootstrap when its contract status is COMPLETE"
+        )
+        # No PR opened for slice-1 (it's already done).
+        pr_slice_ids = [
+            c.kwargs["slice_id"] for c in spawner.gateway.create_slice_pr.call_args_list
+        ]
+        assert "slice-1" not in pr_slice_ids
+        assert "slice-2" in pr_slice_ids
+        # Step (A) trusts the contract — no GitHub round-trip for the COMPLETE slice.
+        merged_calls_for_slice1 = [
+            c
+            for c in spawner.gateway.is_slice_branch_merged_into_parent.call_args_list
+            if c.kwargs.get("integration_branch", "").endswith("/slice-1")
+        ]
+        assert merged_calls_for_slice1 == [], (
+            "step (A) must skip the GitHub-side merged-detection when contract "
+            "already records COMPLETE"
+        )
+
+    def test_bootstrap_detects_merged_slice_on_origin(self) -> None:
+        """(B) — slice still PENDING on contract but merged on origin
+        (the literal #2549 repro). Bootstrap detects via
+        ``is_slice_branch_merged_into_parent``, marks the slice
+        complete, persists ``status=COMPLETE``, and the run loop
+        proceeds with slice-2 alone."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        slice2 = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
+        contract = _make_contract(slices=[slice1, slice2])
+
+        # The contract write under the lock loads + saves; mock the
+        # save to capture what status got persisted.
+        save_calls: list[Contract] = []
+
+        def _capture_save(c: Contract, _path: Any) -> None:
+            save_calls.append(c)
+
+        # Slice-1 is the merged slice; slice-2 is not.
+        def _merged_side_effect(*_args: Any, **kwargs: Any) -> bool:
+            return kwargs.get("integration_branch", "").endswith("/slice-1")
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract", side_effect=_capture_save),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            spawner.gateway.is_slice_branch_merged_into_parent.side_effect = _merged_side_effect
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # slice-1 detected as merged → not run; slice-2 runs normally.
+        invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
+        assert invoked == {"slice-2"}, (
+            "slice-1 must be skipped at bootstrap when origin shows it merged"
+        )
+        # No agent spawn or PR creation for slice-1.
+        pr_slice_ids = [
+            c.kwargs["slice_id"] for c in spawner.gateway.create_slice_pr.call_args_list
+        ]
+        assert "slice-1" not in pr_slice_ids
+        # Status persisted to contract so future restarts hit the cheap path.
+        assert slice1.status == SliceStatus.COMPLETE, (
+            "step (B) must persist slice.status=COMPLETE so subsequent restarts "
+            "skip the GitHub round-trip"
+        )
+
+    def test_bootstrap_does_nothing_when_pipeline_repo_unset(self) -> None:
+        """No ``pipeline.repo`` (e.g. local-only test pipeline) → step
+        (B) is skipped (no remote to query). Step (A) still applies
+        because it's a pure contract read — covered here by a
+        ``status=COMPLETE`` slice that must be skipped without any
+        gateway round-trip."""
+        pipeline = _make_pipeline()
+        pipeline.repo = None
+        # slice-1 was completed on a prior run (step (A) — contract
+        # already records COMPLETE). slice-2 still has work to do and
+        # must run; step (B) cannot help here because there's no
+        # remote to query.
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        slice1.status = SliceStatus.COMPLETE
+        slice2 = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
+        contract = _make_contract(slices=[slice1, slice2])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            spawner.gateway.is_slice_branch_merged_into_parent.return_value = True
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        # Step (B) skipped wholesale when pipeline.repo is None — we
+        # have no remote to query against.
+        spawner.gateway.is_slice_branch_merged_into_parent.assert_not_called()
+        # Step (A) still applies: slice-1 (already COMPLETE on the
+        # contract) is skipped; slice-2 runs normally.
+        invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
+        assert invoked == {"slice-2"}, (
+            "step (A) must trust the contract even when pipeline.repo is None"
+        )
+
+    def test_run_loop_race_skip_when_slice_merges_after_bootstrap(self) -> None:
+        """Race: bootstrap saw slice as PENDING (not merged); slice's
+        PR merges before the wave runs. ``_run_one_slice_inner`` must
+        re-check before push and skip cleanly — no agent spawn, no
+        slice-PR creation, no integration-branch push."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice1])
+
+        # First call (bootstrap): not merged. Second call (race
+        # protection in _run_one_slice_inner): merged.
+        merged_call_count = {"n": 0}
+
+        def _merged_side_effect(*_args: Any, **_kwargs: Any) -> bool:
+            merged_call_count["n"] += 1
+            return merged_call_count["n"] >= 2
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            spawner.gateway.is_slice_branch_merged_into_parent.side_effect = _merged_side_effect
+            exit_code, logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # No agent spawn — race-protection caught it after bootstrap missed it.
+        mock_run_phase.assert_not_called()
+        # No integration-branch push, no slice-PR creation.
+        spawner.gateway.create_slice_integration_branch.assert_not_called()
+        spawner.gateway.create_slice_pr.assert_not_called()
+        # Sanity: detection helper was actually called twice
+        # (bootstrap + race protection).
+        assert merged_call_count["n"] >= 2
+
+    def test_successful_slice_persists_status_complete_to_contract(self) -> None:
+        """Once a slice reaches PR-creation success, its
+        ``status=COMPLETE`` must land on the contract. Subsequent
+        restarts then skip via step (A) without a GitHub round-trip."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice1])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        assert slice1.status == SliceStatus.COMPLETE, (
+            "successful slice run must persist status=COMPLETE on the contract — "
+            "the durable signal that lets future restarts skip via step (A)"
+        )
+
+    def test_bootstrap_detection_failure_falls_through(self) -> None:
+        """``is_slice_branch_merged_into_parent`` raising must not
+        block the run loop — it's best-effort. The slice runs
+        through the regular path and the orchestrator tolerates the
+        gateway transient."""
+        pipeline = _make_pipeline()
+        slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice1])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            spawner.gateway.is_slice_branch_merged_into_parent.side_effect = RuntimeError(
+                "gateway transient"
+            )
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        assert exit_code == 0
+        # Detection raised → bootstrap and race-protection both treat
+        # as not-merged → slice runs the regular path.
+        assert mock_run_phase.call_count == 1
+        spawner.gateway.create_slice_pr.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # Coder fixes for reviewer_code_holistic v1 NACK (now regression guards)
 # ---------------------------------------------------------------------------
 #
@@ -997,6 +1338,7 @@ class TestCoderFixesForHolisticReview:
                 side_effect=_track_create_branch
             )
             spawner.gateway.create_slice_pr = MagicMock(side_effect=_track_create_pr)
+            spawner.gateway.is_slice_branch_merged_into_parent = MagicMock(return_value=False)
 
             _run_implement_phase_slices(
                 pipeline_id=pipeline.id,
@@ -1284,6 +1626,11 @@ class TestGlobalSliceAdmit:
         spawner = MagicMock()
         spawner.gateway = MagicMock()
         spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+        # #2549 — bootstrap reconciliation + run-loop race-protection both
+        # call this gateway helper. Default to False so existing tests
+        # exercise the spawn-and-run path; merged-detection tests set it
+        # to True explicitly.
+        spawner.gateway.is_slice_branch_merged_into_parent.return_value = False
         return spawner
 
     def test_release_called_on_consensus_path(self) -> None:
@@ -1539,6 +1886,7 @@ class TestSliceIntegrationBranchPrecedesAgentSpawn:
                 side_effect=_track_create_branch
             )
             spawner.gateway.create_slice_pr = MagicMock(return_value="https://example/pr/1")
+            spawner.gateway.is_slice_branch_merged_into_parent = MagicMock(return_value=False)
 
             _run_implement_phase_slices(
                 pipeline_id=pipeline.id,
@@ -1652,6 +2000,7 @@ class TestSliceIntegrationBranchQualifierPreserved:
             spawner.gateway = MagicMock()
             spawner.gateway.create_slice_integration_branch = MagicMock(side_effect=_capture)
             spawner.gateway.create_slice_pr = MagicMock(return_value="https://example/pr/1")
+            spawner.gateway.is_slice_branch_merged_into_parent = MagicMock(return_value=False)
 
             _run_implement_phase_slices(
                 pipeline_id=pipeline.id,
