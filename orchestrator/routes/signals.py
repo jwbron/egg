@@ -2003,6 +2003,12 @@ def handle_consensus_resolve_obligation_signal(
 
         store = get_message_store()
         phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        # Tag with slice_id metadata for the implement-phase BRC writer's
+        # per-slice partitioning (#2548). CONSENSUS_OBLIGATION_RESOLVED is
+        # in BRC_HISTORY_TYPES and can fire during the implement phase
+        # with slice scope (typical case: tester satisfies a coder's
+        # conditional ACK on a per-slice review).
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -2022,6 +2028,7 @@ def handle_consensus_resolve_obligation_signal(
                     "note": note,
                     "version": result.get("version"),
                     "condition": result.get("condition", ""),
+                    **_slice_meta,
                 },
             )
         )
@@ -2095,6 +2102,10 @@ def handle_consensus_producer_push_signal(
 
             store = get_message_store()
             phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+            # Tag with slice_id metadata for the implement-phase BRC
+            # writer's per-slice partitioning (#2548). Same shape as the
+            # manual re-propose path in handle_consensus_propose_signal.
+            _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
             store.add_message(
                 Message(
                     pipeline_id=pipeline_id,
@@ -2113,6 +2124,7 @@ def handle_consensus_producer_push_signal(
                         "commit_sha": commit_sha,
                         "version": result.get("version"),
                         "changed_files": changed_files,
+                        **_slice_meta,
                     },
                 )
             )
@@ -2143,6 +2155,7 @@ def handle_consensus_producer_push_signal(
                             "producer_role": agent_role,
                             "version": result.get("version"),
                             "commit_sha": commit_sha,
+                            **_slice_meta,
                         },
                     )
                 )
