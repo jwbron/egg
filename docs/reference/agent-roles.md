@@ -439,7 +439,9 @@ Tasks are assigned based on the files they modify:
 
 ### Validation
 
-The YAML schema restricts the `role` field to the enum values `coder`, `tester`, and `documenter`. The plan parser also validates role values at parse time — invalid roles generate a parse warning and are treated as unassigned (`null`).
+The YAML schema restricts the `role` field to the enum values `coder`, `tester`, and `documenter`. The plan parser validates role values at parse time — invalid roles generate a parse warning and are treated as unassigned (`null`).
+
+The orchestrator also validates **role↔file alignment** at `CONSENSUS_PROPOSE` time for `task_planner` proposals ([#2527](https://github.com/jwbron/egg/issues/2527)). A task whose `role:` assignment cannot push its `files:` — per the same `shared/egg_restrictions/patterns.py` blocklist the gateway uses at push time — causes the proposal to be rejected with HTTP 400 before it reaches reviewers. This catches structurally broken plans at plan time rather than after a producer cycle is wasted on a `403 restricted_path_modified`. The `validator` is available for manual use via `egg_contracts.plan_parser.validate_task_role_alignment(slices)`.
 
 ### Backward Compatibility
 
