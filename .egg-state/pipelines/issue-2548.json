@@ -101,10 +101,10 @@
         {
           "container_id": "43730f15-0c2c-4efb-bf3e-0d96103802e5",
           "container_name": "egg-sandbox-egg-agent-issue-2548-reviewer-agent-design",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-07T17:25:53.165043Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-07T17:26:19.489215Z",
+          "exit_code": -1,
           "agent_role": "reviewer_agent_design",
           "session_token": null,
           "pod_name": null,
@@ -143,15 +143,15 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "container_id": "43730f15-0c2c-4efb-bf3e-0d96103802e5",
           "container_info": null,
           "slice_id": null,
           "started_at": "2026-05-07T17:25:53.165046Z",
-          "completed_at": null,
+          "completed_at": "2026-05-07T17:26:19.525890Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -184,13 +184,20 @@
           "last_lines": [],
           "terminated_at": "2026-05-07T17:26:19.419519Z",
           "container_id": "fc1fbdfb-31a0-4f12-8d18-1057df7a9910"
+        },
+        {
+          "role": "reviewer_agent_design",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-07T17:26:19.525913Z",
+          "container_id": "43730f15-0c2c-4efb-bf3e-0d96103802e5"
         }
       ]
     }
   },
   "decisions": [],
   "created_at": "2026-05-07T17:25:23.537637Z",
-  "updated_at": "2026-05-07T17:26:19.419710Z",
+  "updated_at": "2026-05-07T17:26:19.526081Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -204,6 +211,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9,
+  "version": 10,
   "jira_ticket": null
 }
