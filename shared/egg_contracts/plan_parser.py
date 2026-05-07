@@ -205,6 +205,11 @@ class ParseResult:
     pr_description: str | None = None
     pr_test_plan: str | None = None
     pr_manual_steps: str | None = None
+    # #2548 — context-PR fields. Optional; default to None when the
+    # planner omits them (the orchestrator falls back to ``pr_title`` /
+    # ``pr_description`` for the context-PR framing in that case).
+    pr_context_title: str | None = None
+    pr_context_description: str | None = None
 
     def to_contract_phases(self) -> list[Slice]:
         """Backward-compat alias for ``to_contract_slices`` (#2137).
@@ -915,6 +920,76 @@ def extract_pr_metadata_from_yaml(
     return pr_title, pr_description, pr_test_plan, pr_manual_steps, warnings
 
 
+def extract_pr_context_metadata_from_yaml(
+    yaml_data: dict[str, Any] | None,
+) -> tuple[str | None, str | None, list[ParseWarning]]:
+    """Extract optional context-PR framing fields from the ``pr:`` block.
+
+    Added in #2548 alongside the dedicated context-PR mechanism. The
+    planner can emit ``pr.context_title`` and ``pr.context_description``
+    to frame the strategic-plan PR differently from the slice PRs (e.g.
+    "Strategic plan for #N" vs "Implement …"). Both keys are optional —
+    when omitted the orchestrator falls back to ``pr.title`` /
+    ``pr.description`` for the context PR's framing.
+
+    The orchestrator-populated fields ``pr.context_branch`` and
+    ``pr.context_pr_number`` are intentionally NOT extracted here:
+    planners must not emit them, and a future plan-reviewer may emit a
+    warning if they do appear in a planner-authored YAML. We currently
+    accept-and-ignore unknown keys to stay forward-compatible with
+    minor planner-prompt drift.
+
+    Args:
+        yaml_data: Parsed YAML data from a yaml-tasks code fence.
+
+    Returns:
+        Tuple of (context_title, context_description, warnings). Each
+        of the two value slots is ``None`` when absent or malformed.
+    """
+    warnings: list[ParseWarning] = []
+
+    if yaml_data is None:
+        return None, None, warnings
+
+    pr_data = yaml_data.get("pr")
+    if not isinstance(pr_data, dict):
+        # ``extract_pr_metadata_from_yaml`` already produces a structural
+        # warning for the non-dict case; do not duplicate it here.
+        return None, None, warnings
+
+    raw_title = pr_data.get("context_title")
+    raw_description = pr_data.get("context_description")
+
+    context_title: str | None = None
+    if raw_title is not None:
+        if not isinstance(raw_title, str):
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"'pr.context_title' must be a string, got {type(raw_title).__name__}"
+                    ),
+                    context="context-PR title will fall back to pr.title",
+                )
+            )
+        else:
+            stripped = raw_title.strip()
+            context_title = stripped if stripped else None
+
+    # Normalize description to a non-empty string, then collapse the
+    # absent/empty case to ``None`` so the orchestrator can reliably
+    # detect "fall back to pr.description" semantics. The existing
+    # ``pr.description`` field defaults to "" because PRMetadata
+    # requires a string body, but ``context_description`` is Optional
+    # at the model layer.
+    context_description: str | None = None
+    if raw_description is not None:
+        normalized = _normalize_optional_string(raw_description)
+        context_description = normalized if normalized else None
+
+    return context_title, context_description, warnings
+
+
 def parse_phases_from_markdown(content: str) -> list[ParsedPhase]:
     """
     Parse phase sections from markdown content.
@@ -1101,6 +1176,14 @@ def parse_plan(content: str) -> ParseResult:
     )
     warnings.extend(pr_warnings)
 
+    # Extract optional context-PR framing fields (#2548). These are
+    # captured separately to keep ``extract_pr_metadata_from_yaml``'s
+    # 5-tuple signature stable for existing callers.
+    pr_context_title, pr_context_description, pr_context_warnings = (
+        extract_pr_context_metadata_from_yaml(yaml_data)
+    )
+    warnings.extend(pr_context_warnings)
+
     return ParseResult(
         success=True,
         phases=phases,
@@ -1110,6 +1193,8 @@ def parse_plan(content: str) -> ParseResult:
         pr_description=pr_description,
         pr_test_plan=pr_test_plan,
         pr_manual_steps=pr_manual_steps,
+        pr_context_title=pr_context_title,
+        pr_context_description=pr_context_description,
     )
 
 
