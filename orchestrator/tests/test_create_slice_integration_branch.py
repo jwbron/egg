@@ -556,6 +556,70 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
         assert len(push_invoked) == 1, "must attempt the push when histories diverge"
         assert push_invoked[0]["refspec"] == (f"{parent_sha}:refs/heads/egg/issue-1/slice-1")
 
+    def test_diverged_history_push_rejection_surfaces_as_failure(self, gateway_client):
+        """The whole point of falling through to the push on diverged
+        history is that origin's non-fast-forward rejection surfaces
+        as a clear ``ok is False`` signal (rather than silently
+        overwriting unknown work).  Pin that the rejection actually
+        propagates and that the synthetic session is still cleaned up
+        in the failure path."""
+        parent_sha = "deadbeef" * 5
+        existing_sha = "feedface" * 5  # diverged
+
+        register_spy = MagicMock(return_value=_session_info("diverged-tok"))
+        delete_spy = MagicMock(return_value=True)
+
+        def fake_get_remote_branch_sha(pipeline_id, repo_path, ref, **kwargs):
+            if ref.endswith("/slice-1"):
+                return existing_sha
+            return parent_sha
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/push":
+                # Origin rejects the non-fast-forward push.
+                raise GatewayError(
+                    "git push failed",
+                    status_code=500,
+                    details={
+                        "returncode": 1,
+                        "stderr": "! [rejected] (non-fast-forward)",
+                    },
+                )
+            if endpoint == "/api/v1/git/execute":
+                # not-ancestor → returncode=1
+                raise GatewayError(
+                    "git merge-base failed",
+                    status_code=500,
+                    details={"returncode": 1, "stdout": "", "stderr": ""},
+                )
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", side_effect=register_spy),
+            patch.object(gateway_client, "delete_session", side_effect=delete_spy),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=fake_get_remote_branch_sha,
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            ok = gateway_client.create_slice_integration_branch(
+                "pipe-div-rej",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert ok is False, (
+            "non-fast-forward rejection on diverged history must surface as "
+            "ok=False — that's the user-visible signal the operator needs"
+        )
+        assert delete_spy.call_args_list == [call("diverged-tok")], (
+            "synthetic session must still be cleaned up in the rejection path"
+        )
+
     def test_existing_branch_equal_to_parent_skips_recovery_path(self, gateway_client):
         """When the integration branch already exists at exactly
         parent_sha (e.g., the slice was created in a prior run but
@@ -591,6 +655,71 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
         assert merge_base_calls == [], (
             "must not run merge-base when existing tip is already at parent_sha"
         )
+
+    def test_existing_branch_absent_skips_recovery_path(self, gateway_client):
+        """First-run / branch-absent path: ``get_remote_branch_sha``
+        returns None for the integration ref because the branch
+        doesn't exist on origin yet.  The recovery path is unnecessary
+        — no extra fetch, no merge-base, just the regular push.
+
+        This pins that the new ``if existing_sha and …`` guard
+        short-circuits correctly on the first conjunct and doesn't
+        accidentally start dereferencing a None ``existing_sha``.
+        """
+        parent_sha = "abc12345" * 5
+
+        merge_base_calls: list[dict] = []
+        push_invoked: list[bool] = []
+        fetch_calls: list[tuple] = []
+
+        def fake_fetch_branch(pipeline_id, repo_path, *, args=None, **kwargs):
+            fetch_calls.append(tuple(args or ()))
+            return True
+
+        def fake_get_remote_branch_sha(pipeline_id, repo_path, ref, **kwargs):
+            if ref == "refs/heads/egg/issue-1":
+                return parent_sha  # parent exists
+            if ref == "refs/heads/egg/issue-1/slice-1":
+                return None  # integration branch absent (first run)
+            return None
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/push":
+                push_invoked.append(True)
+            elif endpoint == "/api/v1/git/execute":
+                merge_base_calls.append(dict(data or {}))
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", side_effect=fake_fetch_branch),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=fake_get_remote_branch_sha,
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            ok = gateway_client.create_slice_integration_branch(
+                "pipe-firstrun",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert ok is True
+        assert push_invoked == [True], "push must run on the first-run / branch-absent path"
+        assert merge_base_calls == [], (
+            "must not run merge-base when integration branch doesn't exist on origin"
+        )
+        # Only the parent-branch fetch should run; the integration-
+        # branch fetch is gated on ``existing_sha`` being truthy.
+        assert len(fetch_calls) == 1, (
+            "branch-absent path must skip the integration-branch fetch — "
+            "no need to fetch a branch that doesn't exist"
+        )
+        assert "egg/issue-1" in fetch_calls[0][0]
 
 
 class TestShaIsAncestor:

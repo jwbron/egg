@@ -1742,7 +1742,14 @@ class GatewayClient:
                 # Fetch the integration branch so its tip object is
                 # in the local odb for the merge-base check below
                 # (parent_sha was made local by the earlier
-                # fetch_branch on parent_branch).
+                # fetch_branch on parent_branch).  Best-effort: if
+                # this fetch fails (gateway down, transient network,
+                # expired session), the existing tip won't be in the
+                # local odb and ``_sha_is_ancestor`` will return
+                # False, so we'll degrade to the original push-and-
+                # hope behaviour rather than mistakenly preserving
+                # prior work on an unverifiable check.  See the
+                # softened fall-through warning below.
                 self.fetch_branch(
                     pipeline_id,
                     repo_path,
@@ -1770,15 +1777,23 @@ class GatewayClient:
                         existing_sha=existing_sha,
                     )
                     return True
-                # Diverged: parent_sha is not reachable from the
-                # existing tip.  Fall through to the push so the
-                # rejection surfaces (and the operator gets a clear
-                # signal that the slice branch must be cleaned up
-                # rather than silently overwriting prior work).
+                # Could not verify ancestry: parent_sha is either not
+                # reachable from the existing tip (genuinely diverged
+                # history) or the merge-base call itself failed
+                # (gateway down, missing object after a failed
+                # integration-branch fetch, expired session).  The
+                # inner warning emitted by ``_sha_is_ancestor`` for
+                # the second case captures the true cause; the outer
+                # message stays deliberately neutral so an operator
+                # triaging "why was my slice rejected?" doesn't latch
+                # onto "diverged history" when the real failure was
+                # an unverifiable check.  Either way: fall through
+                # to the push so the rejection surfaces rather than
+                # silently overwriting unknown work.
                 logger.warning(
-                    "Slice integration branch exists with diverged "
-                    "history (parent_sha not ancestor of existing "
-                    "tip); push will be rejected",
+                    "Could not verify that parent is an ancestor of "
+                    "the existing slice integration tip; push may be "
+                    "rejected as non-fast-forward",
                     pipeline_id=pipeline_id,
                     integration_branch=integration_branch,
                     parent_sha=parent_sha,
