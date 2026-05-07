@@ -326,10 +326,50 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Today, slice PRs target egg/<id>/work (not main directly), and there's no automatic 'merge work to main' PR. Is that an existing gap that this issue should also fix, or is the work-branch-as-base intentional and out of scope here?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "The proposal says context PR uses contract.pr.title and pr.description (per #2534). #2534 has already been partially fixed in #2541 and #2543 (slice attribution + program narrative on every slice). Do you want context-PR title/body to be authored from those same contract fields, or should the planner emit a separate contract.pr.context_title / pr.context_description so the context PR can have a different framing than the slice PRs (e.g. 'Strategic plan for #N' vs 'Implement #N')?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Should the context PR include the per-phase agent transcripts (e.g. .egg-state/agent-outputs/<id>-refine-*.md)? Or only the final analysis.md, plan.md, and BRC consensus records?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "When a slice's implement-phase BRC concludes, the orchestrator would need to commit .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} to the slice's integration branch as a final commit before opening the slice PR. Is that final orchestrator-authored commit acceptable, or should it be authored by the coder/tester role (and would that conflict with role file boundaries — coder cannot push under .egg-state/brc-history/)?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "The issue lists 'analysis + plan + refine/plan BRC histories' for the context PR. Should the implement-phase aggregate BRC history (cross-slice) ALSO live on the context PR, or is each slice's BRC history sufficient for audit purposes?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-07T17:59:53.872030Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-07T17:25:23.537637Z",
-  "updated_at": "2026-05-07T17:59:53.849438Z",
+  "updated_at": "2026-05-07T17:59:53.877366Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -343,6 +383,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-07T17:42:04.525601Z",
-  "version": 27,
+  "version": 28,
   "jira_ticket": null
 }
