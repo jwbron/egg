@@ -636,27 +636,31 @@ class ConcurrentPhaseExecutor:
                 pipeline_id=self.pipeline.id,
                 slice_id=self._slice_id,
             )
-            # Attempt lazy reconstruction from message store
-            # Reconstruction does NOT yet support slice scoping — for
-            # slice-scoped trackers we fall back to fetching the bare
-            # pipeline-id tracker (legacy behaviour). This is acceptable
-            # because reconstruction is a backstop for orchestrator
-            # restarts, not the steady-state path; per-slice trackers
-            # are stateless event consumers and are recreated by the
-            # slice scheduler on the next iteration.
-            try:
-                from peer_consensus import reconstruct_tracker_from_messages
+            # Attempt lazy reconstruction from message store — pipeline-
+            # scoped only. Slice-scoped reconstruction is unsafe today:
+            # CONSENSUS_* messages are persisted under the bare
+            # pipeline_id, so a per-slice replay would mingle siblings'
+            # messages and reach false consensus the moment a fresh
+            # slice spawns roles whose names match an already-confirmed
+            # prior slice. Per-slice trackers are stateless event
+            # consumers and are recreated by the slice scheduler on the
+            # next iteration; the pipeline run loop's empty-tracker
+            # iteration will simply observe is_complete=False, which is
+            # the correct answer for a brand-new slice (#2535).
+            if self._slice_id is None:
+                try:
+                    from peer_consensus import reconstruct_tracker_from_messages
 
-                graph = self._get_review_graph()
-                tracker = reconstruct_tracker_from_messages(self.pipeline.id, graph)
-            except ImportError:
-                pass
-            except Exception as e:
-                logger.warning(
-                    "Tracker reconstruction failed",
-                    error=str(e),
-                    pipeline_id=self.pipeline.id,
-                )
+                    graph = self._get_review_graph()
+                    tracker = reconstruct_tracker_from_messages(self.pipeline.id, graph)
+                except ImportError:
+                    pass
+                except Exception as e:
+                    logger.warning(
+                        "Tracker reconstruction failed",
+                        error=str(e),
+                        pipeline_id=self.pipeline.id,
+                    )
         if tracker:
             result = tracker.evaluate()
             # Message-bus fallback: if reconstruction produced a tracker but
@@ -678,7 +682,9 @@ class ConcurrentPhaseExecutor:
                 # Safety net (#1671): if the tracker has all roles in
                 # confirmed_roles but evaluate() returned False due to stale
                 # NACK edges in the approval matrix (common after NACK →
-                # re-propose cycles), trust the confirmed set.
+                # re-propose cycles), trust the confirmed set. This path is
+                # safe for slice-scoped trackers because ``confirmed_roles``
+                # is the per-slice tracker's own state.
                 tracker_confirmed = tracker.confirmed_roles
                 if all_roles and all_roles.issubset(tracker_confirmed):
                     logger.warning(
@@ -691,6 +697,23 @@ class ConcurrentPhaseExecutor:
                     )
                     result["is_complete"] = True
                     result["fallback"] = "tracker_confirmed"
+                elif self._slice_id is not None:
+                    # Slice-scoped: the message-bus fallback below scans
+                    # ``store.get_messages(pipeline_id)`` pipeline-wide and
+                    # cannot distinguish slice-1's CONFIRMs from slice-2's,
+                    # so it would falsely declare consensus the moment a
+                    # fresh slice spawns roles whose names match an already-
+                    # confirmed prior slice (#2535). The in-memory per-slice
+                    # tracker is the authoritative source for slice work;
+                    # an empty fresh tracker correctly returns
+                    # is_complete=False here so the pipeline run loop keeps
+                    # polling.
+                    logger.info(
+                        "Skipping pipeline-wide message-bus fallback for slice-scoped tracker",
+                        pipeline_id=self.pipeline.id,
+                        slice_id=self._slice_id,
+                        blocking_agents=result.get("blocking_agents", []),
+                    )
                 else:
                     # Message-bus fallback: scan message store for
                     # CONSENSUS_CONFIRMED messages (#1471/#1615).

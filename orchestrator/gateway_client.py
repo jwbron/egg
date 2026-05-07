@@ -10,6 +10,7 @@ Provides coordination between the orchestrator and gateway sidecar for:
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -46,6 +47,58 @@ except ImportError:
     GATEWAY_PORT = 9848  # noqa: EGG002
 
 logger = get_logger("orchestrator.gateway_client")
+
+
+_REBASE_REF_RE = re.compile(r"^[A-Za-z0-9._/+-][A-Za-z0-9._/+-]*$")
+
+
+def _build_rebase_onto_args(
+    branch: str, new_base: str, old_base: str
+) -> tuple[list[str], bool, str]:
+    """Construct the canonical ``rebase --onto`` argv for the reconciler.
+
+    Performs the same ref-shape sanity checks as
+    :func:`gateway.git_client.build_rebase_onto_args` (reject empty,
+    flag-shaped, whitespace-bearing, or non-git-ref-shaped inputs) but
+    lives in the orchestrator package so the deployed orchestrator image
+    (which does not ship ``gateway/``) can build the argv without an
+    import-time dependency on the gateway code. Two intentional
+    differences from the gateway helper:
+
+    - The argv is emitted with each ref *stripped*, so leading/trailing
+      whitespace that the regex would otherwise reject as the input is
+      normalised before the gateway round-trip.
+    - This helper does NOT call ``gateway.git_client.validate_git_args``
+      — pulling that import in would defeat the point of inlining. The
+      gateway server's ``/git`` endpoint runs the same allowlist
+      validator on every submission, so the security floor is unchanged
+      (audit boundary is the server, not the client-side helper).
+    """
+    if not isinstance(branch, str) or not branch.strip():
+        return [], False, "branch must be a non-empty string"
+    if not isinstance(new_base, str) or not new_base.strip():
+        return [], False, "new_base must be a non-empty string"
+    if not isinstance(old_base, str) or not old_base.strip():
+        return [], False, "old_base must be a non-empty string"
+
+    for label, value in (("branch", branch), ("new_base", new_base), ("old_base", old_base)):
+        v = value.strip()
+        if v.startswith("-"):
+            return [], False, f"{label} must not start with '-' (rejected flag-shaped ref: {v!r})"
+        if any(ch.isspace() or ch == "\x00" for ch in v):
+            return (
+                [],
+                False,
+                f"{label} must not contain whitespace or NUL (rejected: {v!r})",
+            )
+        if not _REBASE_REF_RE.fullmatch(v):
+            return (
+                [],
+                False,
+                f"{label} must look like a git ref (alnum + . _ / + -); got {v!r}",
+            )
+
+    return ["--onto", new_base.strip(), old_base.strip(), branch.strip()], True, ""
 
 
 @dataclass
@@ -1390,8 +1443,11 @@ class GatewayClient:
 
         1. ``git rebase --onto <new_base> <old_base> <branch>``
            (via the existing per-agent ``/api/v1/git/execute``
-           endpoint and the canonical argv from
-           :func:`gateway.git_client.build_rebase_onto_args`).
+           endpoint and the canonical argv from the local
+           :func:`_build_rebase_onto_args` helper — which mirrors
+           ``gateway.git_client.build_rebase_onto_args`` so the
+           orchestrator image does not need ``gateway/`` on its
+           Python path).
         2. ``git push --force-with-lease origin <branch>``
            (via the existing per-agent ``/api/v1/git/push``
            endpoint) — propagates the rewritten history to origin
@@ -1420,16 +1476,7 @@ class GatewayClient:
         reconciler counts both ``False`` and exceptions as
         ``rebases_failed``.
         """
-        try:
-            from gateway.git_client import build_rebase_onto_args
-        except ImportError:
-            logger.error(
-                "rebase_onto: gateway/git_client module unavailable",
-                pipeline_id=pipeline_id,
-            )
-            return False
-
-        args, ok, err = build_rebase_onto_args(branch, new_base, old_base)
+        args, ok, err = _build_rebase_onto_args(branch, new_base, old_base)
         if not ok:
             logger.warning(
                 "rebase_onto: argv rejected by allowlist validator",
