@@ -1272,6 +1272,141 @@ def _detect_cycles(slices: list[Slice], known_ids: set[str]) -> list[list[str]]:
     return cycles
 
 
+# ---------------------------------------------------------------------------
+# #2527 — task role ↔ files_affected alignment
+# ---------------------------------------------------------------------------
+
+
+def _is_file_blocked_for_role(role: str, file_path: str) -> bool:
+    """Return True if ``file_path`` is blocked for ``role`` per the role's
+    ``AGENT_PATTERNS`` blocklist (with block-exempt carve-outs).
+
+    Mirrors ``gateway/phase_filter.py::FileRestriction.is_file_blocked``
+    so plan-time validation matches push-time enforcement 1:1. The
+    gateway's check intentionally consults only blocked + block-exempt
+    patterns (not allowed_patterns), and so does this function.
+    """
+    import posixpath
+
+    from egg_restrictions.matchers import match_pattern
+    from egg_restrictions.patterns import AGENT_PATTERNS
+
+    pattern = AGENT_PATTERNS.get(role)
+    if pattern is None:
+        return False
+
+    normalized = posixpath.normpath(file_path)
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    if normalized.startswith("../") or normalized.startswith("/"):
+        return True
+
+    if not any(match_pattern(normalized, p) for p in pattern.blocked_patterns):
+        return False
+    if any(match_pattern(normalized, p) for p in pattern.block_exempt_patterns):
+        return False
+    return True
+
+
+def _eligible_producer_roles(files: list[str]) -> list[str]:
+    """Return the producer roles (coder/tester/documenter) for which
+    every file in ``files`` passes the gateway's blocked-pattern check.
+
+    The result preserves the canonical coder→tester→documenter ordering
+    so suggestions are deterministic across runs.
+    """
+    from .agent_roles import AgentRole
+
+    ordered_roles = (AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER)
+    eligible: list[str] = []
+    for role in ordered_roles:
+        if all(not _is_file_blocked_for_role(role, f) for f in files):
+            eligible.append(role.value)
+    return eligible
+
+
+def _check_role_files(task: Task, slice_id: str) -> str | None:
+    """Return a structured error string for a misaligned task, or
+    ``None`` if the task's ``role`` can push every file in
+    ``files_affected``.
+
+    Per-task hook so the #2530 follow-up can thread a future
+    ``includes_tests: true`` opt-in through here without restructuring
+    the outer walk: a coder task that legitimately couples tests to
+    its own production code is the most common false-positive case
+    (24 of 25 misassignments in the #2530 audit), and that flag is the
+    proposed exception. Until the flag exists this function reports
+    every coder-with-test-files mismatch.
+
+    Tasks without a ``role`` or with empty ``files_affected`` return
+    ``None`` — the parser already treats ``role`` as optional, and an
+    empty file list leaves nothing to check (prose/research tasks).
+    """
+    role = task.role
+    files = list(task.files_affected or [])
+    if not role or not files:
+        return None
+    blocked = [f for f in files if _is_file_blocked_for_role(role, f)]
+    if not blocked:
+        return None
+    eligible = _eligible_producer_roles(files)
+    if len(eligible) == 1:
+        hint = f"Reassign to role '{eligible[0]}' — it can push every file in this task."
+    elif len(eligible) > 1:
+        hint = (
+            f"Eligible roles for this file set: {eligible}. "
+            "Pick one and update the task's 'role' field."
+        )
+    else:
+        hint = (
+            "No producer role can push every file in this task. Either "
+            "split the task so each subtask falls within a single "
+            "role's scope, or — for `.github/` files — stage them "
+            "under top-level `.github-staging/` and let the PR "
+            "builder emit a manual reviewer step (issue #2508)."
+        )
+    return (
+        f"Task '{task.id}' (slice '{slice_id}') is assigned role "
+        f"'{role}' but files {blocked} are blocked for that role per "
+        f"shared/egg_restrictions/patterns.py. {hint}"
+    )
+
+
+def validate_task_role_alignment(slices: list[Slice]) -> list[str]:
+    """Walk the slice/task tree and reject tasks whose ``role`` cannot
+    push their ``files_affected``.
+
+    Added in #2527. The plan-phase ``task_planner`` can assign tasks to
+    producer roles whose ``shared/egg_restrictions/patterns.py``
+    blocklist forbids the listed files; the mismatch is otherwise only
+    caught at push time by the gateway's
+    ``check_file_restrictions``, which means the producer agent gets
+    spawned, explores, sometimes builds workarounds, and only then
+    hits ``403 restricted_path_modified``. Running the same check
+    at plan time lets the plan reviewer NACK the planner before any
+    producer cycle is wasted.
+
+    Per-task logic lives in ``_check_role_files`` so the #2530
+    ``includes_tests`` follow-up has a clear hook point.
+
+    Args:
+        slices: The slice list extracted from the contract / plan.
+
+    Returns:
+        A list of structured-error strings — one entry per offending
+        task. Each entry names the task ID, the assigned role, the
+        blocked files, and the eligible-role hint so the plan reviewer
+        can surface an actionable NACK reason.
+    """
+    errors: list[str] = []
+    for slice_ in slices:
+        for task in slice_.tasks:
+            err = _check_role_files(task, slice_.id)
+            if err is not None:
+                errors.append(err)
+    return errors
+
+
 __all__ = (
     "ParsedPhase",
     "ParsedTask",
@@ -1281,4 +1416,5 @@ __all__ = (
     "parse_plan",
     "parse_plan_file",
     "validate_forest",
+    "validate_task_role_alignment",
 )

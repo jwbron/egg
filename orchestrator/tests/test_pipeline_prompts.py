@@ -25,12 +25,14 @@ from routes.pipelines import (
     _build_producer_orientation,
     _build_review_prompt,
     _build_reviewer_preparation,
+    _build_role_alignment_check_section,
     _build_role_context,
     _build_role_restrictions_section,
     _extract_plan_overview,
     _get_agent_design_criteria,
     _get_code_review_criteria,
     _get_contract_review_criteria,
+    _get_plan_review_criteria,
     _get_reviewer_scope_preamble,
     _read_shared_criteria,
     _read_tester_gaps,
@@ -4300,3 +4302,151 @@ class TestDirectedCoordinationGuidance:
         assert "HANDOFF" in preamble
         # Must clarify relationship to consensus
         assert "supplementary" in preamble or "consensus" in preamble.lower()
+
+
+# ---------------------------------------------------------------------------
+# #2527 — plan reviewer's structural role-alignment check
+# ---------------------------------------------------------------------------
+
+
+_PLAN_WITH_MISASSIGNED_TASK = """\
+# Plan
+
+```yaml
+# yaml-tasks
+slices:
+  - id: 1
+    name: Setup
+    goal: scaffolding
+    tasks:
+      - id: TASK-1-1
+        description: Add pytest fixtures
+        acceptance: fixtures load
+        role: coder
+        files:
+          - integration_tests/conftest.py
+```
+"""
+
+
+_PLAN_WITH_CLEAN_ASSIGNMENTS = """\
+# Plan
+
+```yaml
+# yaml-tasks
+slices:
+  - id: 1
+    name: Setup
+    goal: scaffolding
+    tasks:
+      - id: TASK-1-1
+        description: Add pytest fixtures
+        acceptance: fixtures load
+        role: tester
+        files:
+          - integration_tests/conftest.py
+```
+"""
+
+
+def _write_plan_draft(repo_path: Path, issue_number: int, body: str) -> None:
+    drafts_dir = repo_path / ".egg-state" / "drafts"
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+    (drafts_dir / f"{issue_number}-plan.md").write_text(body)
+
+
+class TestRoleAlignmentCheckSection:
+    """The pure helper that runs the validator and formats the section."""
+
+    def test_returns_empty_when_repo_path_missing(self):
+        assert _build_role_alignment_check_section(None, ".egg-state/drafts/1-plan.md") == ""
+
+    def test_returns_empty_when_draft_path_missing(self):
+        assert _build_role_alignment_check_section("/tmp", None) == ""
+
+    def test_returns_empty_when_draft_file_does_not_exist(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            section = _build_role_alignment_check_section(tmpdir, ".egg-state/drafts/1-plan.md")
+            assert section == ""
+
+    def test_returns_empty_when_plan_is_clean(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_plan_draft(Path(tmpdir), 2527, _PLAN_WITH_CLEAN_ASSIGNMENTS)
+            section = _build_role_alignment_check_section(tmpdir, ".egg-state/drafts/2527-plan.md")
+            assert section == ""
+
+    def test_emits_section_when_violations_exist(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_plan_draft(Path(tmpdir), 2527, _PLAN_WITH_MISASSIGNED_TASK)
+            section = _build_role_alignment_check_section(tmpdir, ".egg-state/drafts/2527-plan.md")
+            assert section != ""
+            assert "Structural Role-Alignment Check" in section
+            assert "task-1-1" in section
+            assert "'coder'" in section
+            assert "integration_tests/conftest.py" in section
+            # Hint must surface the eligible role.
+            assert "tester" in section
+            # Reviewer must be told to NACK and quote verbatim.
+            assert "NACK" in section
+
+
+class TestPlanReviewPromptIncludesAlignmentCheck:
+    """End-to-end check on _build_review_prompt: when reviewer_type=='plan'
+    the section is appended whenever the validator reports violations,
+    and is omitted otherwise."""
+
+    def test_plan_reviewer_prompt_includes_section_on_violations(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_plan_draft(Path(tmpdir), 2527, _PLAN_WITH_MISASSIGNED_TASK)
+            prompt = _build_review_prompt(
+                phase="plan",
+                pipeline_id="issue-2527",
+                pipeline_mode="issue",
+                reviewer_type="plan",
+                issue_number=2527,
+                repo_path=tmpdir,
+            )
+            assert "## Structural Role-Alignment Check" in prompt
+            assert "task-1-1" in prompt
+
+    def test_plan_reviewer_prompt_omits_section_when_clean(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_plan_draft(Path(tmpdir), 2527, _PLAN_WITH_CLEAN_ASSIGNMENTS)
+            prompt = _build_review_prompt(
+                phase="plan",
+                pipeline_id="issue-2527",
+                pipeline_mode="issue",
+                reviewer_type="plan",
+                issue_number=2527,
+                repo_path=tmpdir,
+            )
+            assert "## Structural Role-Alignment Check" not in prompt
+
+    def test_non_plan_reviewer_does_not_run_check(self):
+        # Even if a draft exists with violations, only the plan reviewer
+        # should surface this section. A code reviewer prompt must not
+        # include it (different phase, different review surface).
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_plan_draft(Path(tmpdir), 2527, _PLAN_WITH_MISASSIGNED_TASK)
+            prompt = _build_review_prompt(
+                phase="implement",
+                pipeline_id="issue-2527",
+                pipeline_mode="issue",
+                reviewer_type="code",
+                issue_number=2527,
+                repo_path=tmpdir,
+            )
+            assert "## Structural Role-Alignment Check" not in prompt
+
+
+class TestPlanReviewCriteriaReferencesCheck:
+    """The plan-review criteria string must point the reviewer at the
+    structural check section so an LLM following the criteria knows to
+    treat any listed entry as blocking."""
+
+    def test_criteria_references_role_alignment_section(self):
+        criteria = _get_plan_review_criteria()
+        assert "Role" in criteria and "Alignment" in criteria
+        # Must reference the issue and instruct treating entries as blocking.
+        assert "#2527" in criteria
+        assert "needs_revision" in criteria or "NACK" in criteria
