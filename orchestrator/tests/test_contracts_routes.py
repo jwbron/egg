@@ -171,7 +171,56 @@ class TestMutateContract:
                 "new_value": "abc1234",
             },
         )
-        assert response.status_code in (403, 400)
+        assert response.status_code == 403
+
+    def test_invalid_path_returns_400(self, client, fake_worktree):
+        """#2495: out-of-range index is a value error, not authorization.
+
+        Implementer is authorized to mutate ``phases.*.status``, but the
+        seeded contract has no phases — index 0 is out of range and
+        ``apply_mutation`` translates the ``IndexError`` to ``MutationResult``
+        with ``error_kind="value"``.  The route returns 400 so a client
+        does not retry as a different role.
+        """
+        pipeline_id, worktree = fake_worktree
+        _seed_contract(worktree, pipeline_id)
+
+        response = self._mutate(
+            client,
+            pipeline_id,
+            role="implementer",
+            body_overrides={
+                "field_path": "phases.0.status",
+                "new_value": "complete",
+            },
+        )
+        assert response.status_code == 400
+        assert "Failed to apply mutation" in json.loads(response.data)["message"]
+
+    def test_invalid_value_returns_400(self, client, fake_worktree):
+        """#2495: out-of-domain value (e.g. arbitrary string for a
+        ``PipelinePhase`` enum) is a value error, not authorization.
+
+        Reviewer is authorized to mutate ``current_phase``, but pydantic's
+        ``validate_assignment=True`` (added for #2465) raises
+        ``ValidationError`` for ``"garbage"``.  ``apply_mutation``
+        translates that to ``MutationResult`` with ``error_kind="value"``,
+        and the route returns 400.
+        """
+        pipeline_id, worktree = fake_worktree
+        _seed_contract(worktree, pipeline_id)
+
+        response = self._mutate(
+            client,
+            pipeline_id,
+            role="reviewer",
+            body_overrides={
+                "field_path": "current_phase",
+                "new_value": "garbage",
+            },
+        )
+        assert response.status_code == 400
+        assert "Invalid value for current_phase" in json.loads(response.data)["message"]
 
 
 class TestValidateMutation:

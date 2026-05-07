@@ -6,7 +6,7 @@ only authorized roles can modify specific fields.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -25,14 +25,24 @@ class ValidationResult:
     required_role: str | None = None
 
 
+MutationErrorKind = Literal["authorization", "value"]
+
+
 @dataclass
 class MutationResult:
-    """Result of applying a mutation."""
+    """Result of applying a mutation.
+
+    ``error_kind`` discriminates failure causes for the route boundary
+    (#2495): ``"authorization"`` is a role-permission rejection (HTTP
+    403); ``"value"`` is a malformed path or out-of-domain value (HTTP
+    400/422). ``None`` on success.
+    """
 
     success: bool
     message: str
     contract: Contract | None = None
     audit_entry: AuditEntry | None = None
+    error_kind: MutationErrorKind | None = None
 
 
 def validate_mutation(
@@ -103,6 +113,7 @@ def apply_mutation(
         return MutationResult(
             success=False,
             message=validation.message,
+            error_kind="authorization",
         )
 
     # Get the old value and apply the mutation
@@ -119,6 +130,7 @@ def apply_mutation(
         return MutationResult(
             success=False,
             message=f"Failed to apply mutation: {e}",
+            error_kind="value",
         )
     except ValidationError as e:
         # ``Contract.model_config = ConfigDict(validate_assignment=True)``
@@ -130,6 +142,7 @@ def apply_mutation(
         return MutationResult(
             success=False,
             message=f"Invalid value for {field_path}: {e}",
+            error_kind="value",
         )
 
     # Create audit entry. ``current_phase`` mutations get the dedicated
