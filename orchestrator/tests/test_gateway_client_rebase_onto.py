@@ -485,3 +485,51 @@ class TestEndToEndOrphanHeal:
         assert ok is False
         register.assert_not_called()
         make_request.assert_not_called()
+
+
+class TestNoGatewayPackageDependency:
+    """Regression for #2535 Bug A.
+
+    The deployed orchestrator image does not ship the ``gateway/`` source
+    tree, so importing :mod:`gateway.git_client` raises ``ImportError`` at
+    runtime. ``rebase_onto`` must build its argv from a helper that lives
+    in the orchestrator package itself; a successful rebase MUST NOT
+    require ``gateway.git_client`` to be importable.
+    """
+
+    def test_rebase_onto_succeeds_when_gateway_package_unavailable(
+        self, client: GatewayClient
+    ) -> None:
+        # Simulate the deployed image: ``gateway`` is not on sys.modules
+        # and any attempt to import it raises ImportError.  The local
+        # ``_build_rebase_onto_args`` helper must absorb the load.
+        original_import = __import__
+
+        def fail_gateway_import(name: str, *args, **kwargs):
+            if name == "gateway" or name.startswith("gateway."):
+                raise ImportError(f"No module named {name!r}")
+            return original_import(name, *args, **kwargs)
+
+        with (
+            patch("builtins.__import__", side_effect=fail_gateway_import),
+            patch.object(client, "register_session", return_value=_fake_session()),
+            patch.object(client, "_make_request", return_value={"success": True}) as make_request,
+            patch.object(client, "delete_session", return_value=True),
+            patch.object(GatewayClient, "self_ip", new="127.0.0.1"),
+        ):
+            ok = client.rebase_onto(
+                "issue-2535",
+                "/repo",
+                branch="egg/issue-2535/slice-2",
+                new_base="egg/issue-2535",
+                old_base="egg/issue-2535/slice-1",
+            )
+
+        assert ok is True
+        # Canonical argv was built by the local helper.
+        assert make_request.call_args.kwargs["data"]["args"] == [
+            "--onto",
+            "egg/issue-2535",
+            "egg/issue-2535/slice-1",
+            "egg/issue-2535/slice-2",
+        ]
