@@ -8094,6 +8094,26 @@ BRC_HISTORY_TYPES = frozenset(
     }
 )
 
+# Subset of BRC_HISTORY_TYPES that the orchestrator's CONSENSUS_* signal
+# handlers tag with ``metadata['slice_id']`` for slice-aware implement
+# pipelines (#2548). The implement-phase BRC writer treats a missing
+# ``slice_id`` on these as a contract violation (drop with WARNING),
+# while the remaining BRC_HISTORY_TYPES (HEARTBEAT, STATUS, HANDOFF,
+# AGENT_FAILED, NUDGE, OVERSEER_ALERT) come from emitters that do not
+# uniformly carry slice scope — those are routed to the unattributed
+# sibling file rather than dropped, so the audit trail stays complete.
+CONSENSUS_BRC_TYPES = frozenset(
+    {
+        "CONSENSUS_PROPOSE",
+        "CONSENSUS_ACK",
+        "CONSENSUS_NACK",
+        "CONSENSUS_WITHDRAW",
+        "CONSENSUS_CONFIRMED",
+        "CONSENSUS_RE_REVIEW",
+        "CONSENSUS_OBLIGATION_RESOLVED",
+    }
+)
+
 
 def _get_message_store():
     """Import and return the message store factory function, or None if unavailable."""
@@ -8266,11 +8286,21 @@ def _write_brc_history(
       ``metadata['slice_id']`` (validated against
       ``SLICE_ID_PATTERN``), the writer partitions messages per-slice
       and writes one file per slice as
-      ``{identifier}-implement-{slice_id}.{md,json}``. Messages lacking
-      a canonical slice_id are dropped with a single aggregate WARNING
-      (the orchestrator's CONSENSUS_* signal handlers tag every
-      implement-phase write under D4, so a missing slice_id is a
-      contract violation).
+      ``{identifier}-implement-{slice_id}.{md,json}``.
+      Per-message attribution rules:
+
+      - ``CONSENSUS_*`` messages without a canonical slice_id are
+        dropped with a single aggregate WARNING — the orchestrator's
+        CONSENSUS_* signal handlers tag every implement-phase write
+        under D4, so a missing slice_id is a contract violation.
+      - Other ``BRC_HISTORY_TYPES`` (HEARTBEAT, STATUS, HANDOFF,
+        AGENT_FAILED, NUDGE, OVERSEER_ALERT) come from emitters that
+        do not uniformly carry slice scope. When they lack a
+        canonical slice_id they are routed to a sibling
+        ``{identifier}-implement-unattributed.{md,json}`` file rather
+        than dropped, so the audit trail stays complete and reviewers
+        of any per-slice transcript can cross-reference.
+
     * If **no** BRC message carries a slice_id (babysit_pr and other
       non-slice pipelines), the writer falls back to the aggregate
       ``{identifier}-implement.{md,json}`` filename. This preserves
@@ -8335,13 +8365,14 @@ def _write_brc_history(
     if phase == "implement":
         # Implement-phase BRC messages are partitioned per-slice (#2548)
         # for slice-aware pipelines (issue mode with `contract.slices`):
-        # the orchestrator's signal handlers tag every implement-phase
-        # CONSENSUS_* message with `metadata['slice_id']`, and this writer
-        # buckets them into one transcript file per slice. Babysit_pr and
-        # other non-slice pipelines have no slice scope on any message,
-        # so they fall back to the aggregate `{identifier}-implement.{md,json}`
-        # filename (preserving the documented babysit_pr artifact named
-        # in `skills/babysit-pr/SKILL.md`).
+        # the orchestrator's CONSENSUS_* signal handlers tag every
+        # implement-phase consensus message with `metadata['slice_id']`,
+        # and this writer buckets them into one transcript file per
+        # slice. Babysit_pr and other non-slice pipelines have no slice
+        # scope on any message, so they fall back to the aggregate
+        # `{identifier}-implement.{md,json}` filename (preserving the
+        # documented babysit_pr artifact named in
+        # `skills/babysit-pr/SKILL.md`).
         #
         # ``metadata['slice_id']`` is interpolated into the on-disk
         # filename below, so this is a gateway-facing seam in the same
@@ -8352,25 +8383,33 @@ def _write_brc_history(
         # can post arbitrary metadata via ``messages.py``) could smuggle
         # path separators into the filename and write outside
         # ``.egg-state/brc-history/``. See ``slice_id_validation.py``
-        # for the invariant.
-        try:
-            from slice_id_validation import SLICE_ID_PATTERN
-        except ImportError:
-            from ..slice_id_validation import (  # type: ignore[no-redef]
-                SLICE_ID_PATTERN,
-            )
+        # for the invariant. ``SLICE_ID_PATTERN`` is already imported at
+        # module top (the same try/except sandbox-vs-orchestrator dual
+        # import that imports ``extract_slice_id``); no local re-import
+        # is needed.
 
         buckets: dict[str, list[Any]] = {}
-        unattributed: list[Any] = []
+        # ``unattributed_consensus`` holds CONSENSUS_* messages that lack
+        # a canonical slice_id — those are a D4 contract violation and
+        # are dropped with a single aggregate WARNING. ``unattributed_other``
+        # holds non-CONSENSUS BRC types (HEARTBEAT, STATUS, HANDOFF,
+        # AGENT_FAILED, NUDGE, OVERSEER_ALERT) whose emitters do not
+        # uniformly carry slice scope; those are written to the
+        # ``unattributed`` sibling file so the audit trail stays complete.
+        unattributed_consensus: list[Any] = []
+        unattributed_other: list[Any] = []
         for msg in brc_messages:
             # ``Message.metadata`` is a Pydantic dict[str, Any] field with a
             # default_factory=dict (message_store.Message), so it is always a
             # dict at this point — no need to guard with getattr/isinstance.
             raw_slice_id = msg.metadata.get("slice_id")
-            if not isinstance(raw_slice_id, str) or not SLICE_ID_PATTERN.fullmatch(raw_slice_id):
-                unattributed.append(msg)
+            if isinstance(raw_slice_id, str) and SLICE_ID_PATTERN.fullmatch(raw_slice_id):
+                buckets.setdefault(raw_slice_id, []).append(msg)
                 continue
-            buckets.setdefault(raw_slice_id, []).append(msg)
+            if str(getattr(msg, "message_type", "")) in CONSENSUS_BRC_TYPES:
+                unattributed_consensus.append(msg)
+            else:
+                unattributed_other.append(msg)
 
         if not buckets:
             # No slice-attributed messages anywhere — this is a non-slice
@@ -8397,25 +8436,41 @@ def _write_brc_history(
             return
 
         # Slice-aware pipeline: at least one canonical slice_id was
-        # observed. Drop any implement-phase messages that lack a
-        # canonical slice_id — under D4 hard-switchover the orchestrator
-        # is contracted to tag every implement-phase BRC write, so a
-        # missing/invalid slice_id is a contract violation worth a
-        # warning (and worth keeping the per-slice files clean of
-        # un-attributable noise). The drop is loud (single aggregate
-        # WARNING with the count and an example) so an operator notices
-        # the asymmetry rather than silently shipping a thinned-out
-        # transcript.
-        if unattributed:
-            sample_types = sorted({str(getattr(m, "message_type", "")) for m in unattributed[:8]})
+        # observed. CONSENSUS_* messages that lack a canonical slice_id
+        # are a D4 hard-switchover contract violation — drop them with
+        # a loud aggregate WARNING (count + sample types) so an operator
+        # notices the asymmetry rather than silently shipping a thinned-
+        # out transcript.
+        if unattributed_consensus:
+            sample_types = sorted(
+                {str(getattr(m, "message_type", "")) for m in unattributed_consensus[:8]}
+            )
             logger.warning(
-                "_write_brc_history: dropped implement-phase BRC messages "
+                "_write_brc_history: dropped implement-phase CONSENSUS_* messages "
                 "without canonical metadata.slice_id (hard switchover, #2548)",
                 pipeline_id=pipeline_id,
                 phase=phase,
-                dropped_count=len(unattributed),
+                dropped_count=len(unattributed_consensus),
                 sample_message_types=sample_types,
                 attributed_count=sum(len(v) for v in buckets.values()),
+            )
+
+        # Non-CONSENSUS BRC types without a canonical slice_id come from
+        # emitters that do not uniformly attach slice scope (HealthMonitor
+        # nudges, overseer respawn alerts, AGENT_FAILED broadcasts,
+        # CLI-routed HANDOFF/NUDGE messages, etc.). Route them to a
+        # sibling ``{identifier}-implement-unattributed.{md,json}`` file
+        # so the audit trail stays complete — reviewers reading any
+        # per-slice transcript can cross-reference. See #2548
+        # reviewer_code blocking finding.
+        if unattributed_other:
+            _write_brc_history_file(
+                worktree_path,
+                pipeline_id,
+                phase,
+                identifier,
+                unattributed_other,
+                slice_id="unattributed",
             )
 
         # Natural sort by the integer suffix so a 12-slice pipeline iterates
@@ -8729,14 +8784,21 @@ def _build_brc_history_link_line(
     # Per-slice implement files (#2548) carry the stem
     # ``implement-slice-{N}``; cluster them at the canonical ``implement``
     # rank so the rendered link order is
-    # ``refine → plan → implement[-slice-N] → pr`` instead of pushing
-    # the per-slice files past pr to the end of the list. Within the
-    # implement cluster, sort by the integer slice index so a 12-slice
-    # pipeline renders ``slice-1, slice-2, …, slice-12`` rather than
-    # the lexicographic ``slice-1, slice-10, slice-11, slice-12, slice-2``.
+    # ``refine → plan → implement[-slice-N] → implement-unattributed →
+    # pr`` instead of pushing the per-slice files past pr to the end of
+    # the list. Within the implement cluster, sort by the integer slice
+    # index so a 12-slice pipeline renders ``slice-1, slice-2, …,
+    # slice-12`` rather than the lexicographic ``slice-1, slice-10,
+    # slice-11, slice-12, slice-2``. The ``implement-unattributed``
+    # sibling (cross-cutting non-CONSENSUS BRC types without slice scope,
+    # see ``_write_brc_history``) sorts after every per-slice file so a
+    # reviewer reads each slice transcript first, then the cross-cutting
+    # context.
     def _sort_key(name: str) -> tuple[int, int, str]:
         if name == "implement":
             return (rank["implement"], -1, "")
+        if name == "implement-unattributed":
+            return (rank["implement"], 1 << 30, name)
         if name.startswith("implement-slice-"):
             try:
                 idx = int(name.rsplit("-", 1)[1])

@@ -1962,6 +1962,140 @@ class TestPerSliceImplementBrcHistory:
             f"Expected dropped_count=1, got warnings: {warning_calls}"
         )
 
+    def test_non_consensus_unattributed_routed_to_unattributed_sibling_file(self, tmp_path):
+        """Non-CONSENSUS BRC types (HEARTBEAT, OVERSEER_ALERT, AGENT_FAILED,
+        STATUS, NUDGE, HANDOFF) without ``metadata['slice_id']`` are routed
+        to ``{identifier}-implement-unattributed.{md,json}`` rather than
+        dropped. Their emitters do not uniformly carry slice scope (overseer
+        respawn, HealthMonitor escalation, CLI message-send), and dropping
+        them would silently strip cross-cutting context from per-slice
+        transcripts. See #2548 reviewer_code blocking finding."""
+        from routes.pipelines import _write_brc_history
+
+        # One canonical CONSENSUS_PROPOSE so partition mode engages.
+        attributed = self._make_implement_msgs("slice-1")
+        # An OVERSEER_ALERT and a HEARTBEAT, both without slice_id — these
+        # should land in the unattributed sibling, not be dropped.
+        unattributed_other = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="orchestrator",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject="brc_confirmation_timeout — call mcp__brc__confirm",
+                body="orchestrator nudge with no explicit slice scope",
+                phase="implement",
+                slice_id=None,
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.HEARTBEAT,
+                subject="heartbeat: WORKING",
+                body="",
+                phase="implement",
+                slice_id=None,
+            ),
+        ]
+        for m in unattributed_other:
+            assert "slice_id" not in m.metadata, "fixture leak — slice_id stamped"
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = attributed + unattributed_other
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        # Per-slice file exists for the canonical message.
+        assert (history_dir / "42-implement-slice-1.md").exists()
+        assert (history_dir / "42-implement-slice-1.json").exists()
+        # Unattributed sibling file exists and contains the OVERSEER_ALERT
+        # and HEARTBEAT.
+        unattributed_md = history_dir / "42-implement-unattributed.md"
+        unattributed_json = history_dir / "42-implement-unattributed.json"
+        assert unattributed_md.exists(), (
+            "Non-CONSENSUS BRC messages without slice_id must land in the "
+            "unattributed sibling, not be dropped"
+        )
+        assert unattributed_json.exists()
+        content = unattributed_md.read_text()
+        assert "brc_confirmation_timeout" in content
+        assert "OVERSEER_ALERT" in content
+        assert "HEARTBEAT" in content
+        # No aggregate file (partition mode is engaged).
+        assert not (history_dir / "42-implement.md").exists()
+        # No CONSENSUS_* drop warning (none were dropped).
+        warning_calls = [
+            c
+            for c in mock_logger.warning.call_args_list
+            if "without canonical metadata.slice_id" in str(c)
+        ]
+        assert warning_calls == [], (
+            f"Did not expect drop warnings for non-CONSENSUS unattributed; got: {warning_calls}"
+        )
+
+    def test_consensus_dropped_non_consensus_routed_when_mixed(self, tmp_path):
+        """When unattributed messages include BOTH CONSENSUS_* and
+        non-CONSENSUS_* types, the writer must split the bucket: CONSENSUS_*
+        are dropped with a warning (D4 contract violation), non-CONSENSUS_*
+        are routed to the unattributed sibling so the audit trail stays
+        complete."""
+        from routes.pipelines import _write_brc_history
+
+        attributed = self._make_implement_msgs("slice-1")
+        stray_consensus = _make_brc_message(
+            pipeline_id="issue-42",
+            from_role="coder",
+            message_type=MessageType.CONSENSUS_PROPOSE,
+            subject="Stray PROPOSE",
+            body="contract violation — must be dropped",
+            phase="implement",
+            slice_id=None,
+        )
+        stray_alert = _make_brc_message(
+            pipeline_id="issue-42",
+            from_role="orchestrator",
+            message_type=MessageType.OVERSEER_ALERT,
+            subject="overseer_restart",
+            body="cross-cutting alert — must be routed to unattributed",
+            phase="implement",
+            slice_id=None,
+        )
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = attributed + [stray_consensus, stray_alert]
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        # CONSENSUS_* drop produced a warning with count=1 (only the stray
+        # PROPOSE, not the OVERSEER_ALERT).
+        warning_calls = [
+            c
+            for c in mock_logger.warning.call_args_list
+            if "CONSENSUS_*" in str(c) or "without canonical metadata.slice_id" in str(c)
+        ]
+        assert any(c[1].get("dropped_count") == 1 for c in warning_calls), (
+            f"Expected CONSENSUS_* drop warning with count=1; got {warning_calls}"
+        )
+        # The OVERSEER_ALERT landed in the unattributed sibling.
+        unattributed_md = (history_dir / "42-implement-unattributed.md").read_text()
+        assert "overseer_restart" in unattributed_md
+        assert "OVERSEER_ALERT" in unattributed_md
+        # The stray CONSENSUS_PROPOSE did NOT land anywhere.
+        for produced in history_dir.glob("42-implement*.md"):
+            content = produced.read_text()
+            assert "Stray PROPOSE" not in content, (
+                f"CONSENSUS_* drop must not leak into {produced.name}"
+            )
+
     def test_implement_messages_with_empty_slice_id_treated_as_unattributed(self, tmp_path):
         """Empty-string slice_id fails ``SLICE_ID_PATTERN`` validation and is
         treated as unattributed.
@@ -2085,7 +2219,6 @@ class TestPerSliceImplementBrcHistory:
 
         assert first_s1_md == second_s1_md, "slice-1 markdown not idempotent"
         assert first_s2_md == second_s2_md, "slice-2 markdown not idempotent"
-        assert first_s1_json == second_s2_json or first_s1_json == second_s1_json
         assert first_s1_json == second_s1_json, "slice-1 JSON not idempotent"
         assert first_s2_json == second_s2_json, "slice-2 JSON not idempotent"
 

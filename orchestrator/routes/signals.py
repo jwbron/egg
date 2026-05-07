@@ -938,6 +938,7 @@ def _emit_ready_to_confirm_nudges(
     phase: str,
     newly_ready: list[dict[str, Any]],
     tracker: Any = None,
+    slice_id: str | None = None,
 ) -> None:
     """Emit a STATUS to each producer that newly became ready to confirm.
 
@@ -951,12 +952,18 @@ def _emit_ready_to_confirm_nudges(
     supplied, the per-version memo entry is rolled back so the producer
     can be re-nudged on the next state change.  Other producers in the
     batch are still attempted.
+
+    ``slice_id`` is forwarded into the STATUS metadata so the
+    implement-phase BRC writer (#2548) routes the nudge into the
+    producer's per-slice transcript.  Pipeline-level (non-slice) callers
+    leave it as ``None``.
     """
     if not newly_ready:
         return
     from message_store import Message, MessageType, get_message_store
 
     store = get_message_store()
+    _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
     for entry in newly_ready:
         producer = entry["role"]
         version = entry["version"]
@@ -975,7 +982,7 @@ def _emit_ready_to_confirm_nudges(
                         f"`egg-orch consensus confirmed` to confirm."
                     ),
                     phase=phase,
-                    metadata={"ready_to_confirm": True, "version": version},
+                    metadata={"ready_to_confirm": True, "version": version, **_slice_meta},
                 )
             )
         except Exception as exc:
@@ -1187,7 +1194,9 @@ def handle_consensus_propose_signal(
 
         # A new proposal can unblock the global zero-proposal guard for
         # producers that were previously fully ACKed but unable to confirm.
-        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []), tracker)
+        _emit_ready_to_confirm_nudges(
+            pipeline_id, phase, result.get("newly_ready", []), tracker, slice_id=slice_id
+        )
 
         return make_success_response(
             f"Proposal recorded for {agent_role}",
@@ -1306,7 +1315,9 @@ def handle_consensus_ack_signal(
         # critical-reviewer ACK predicate.  Replaces the prior ``fully_acked``
         # gate which fired before global guards (e.g. zero-proposal) cleared
         # and could mislead an advisory-only producer like documenter (#2078).
-        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []), tracker)
+        _emit_ready_to_confirm_nudges(
+            pipeline_id, phase, result.get("newly_ready", []), tracker, slice_id=slice_id
+        )
 
         return make_success_response(
             f"ACK recorded: {reviewer_role} -> {producer_role}",
@@ -1885,6 +1896,11 @@ def handle_consensus_excuse_producer_signal(
 
         store = get_message_store()
         phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        # Tag with slice_id so the implement-phase BRC writer can
+        # partition this STATUS into the correct per-slice transcript
+        # (#2548). Pipeline-level (non-slice) callers leave the metadata
+        # off entirely.
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
 
         # Notify all agents that the producer has been excused
         store.add_message(
@@ -1905,6 +1921,7 @@ def handle_consensus_excuse_producer_signal(
                     "producer_role": producer_role,
                     "reason": reason,
                     "affected_reviewers": result.get("affected_reviewers", []),
+                    **_slice_meta,
                 },
             )
         )
@@ -2168,7 +2185,7 @@ def handle_consensus_producer_push_signal(
             # ACKs were just invalidated), but skipping the call would
             # silently regress if a future guard depends on peer versions.
             _emit_ready_to_confirm_nudges(
-                pipeline_id, phase, result.get("newly_ready", []), tracker
+                pipeline_id, phase, result.get("newly_ready", []), tracker, slice_id=slice_id
             )
 
         return make_success_response(
