@@ -5,7 +5,7 @@
   "branch": "egg/issue-2548/work",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -67,107 +67,17 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "failed",
-      "started_at": "2026-05-07T17:25:27.514201Z",
-      "work_started_at": "2026-05-07T17:25:51.649083Z",
-      "completed_at": "2026-05-07T17:26:19.573458Z",
-      "containers": [
-        {
-          "container_id": "a10327b5-2fe0-403f-85c2-f673e11b501b",
-          "container_name": "egg-sandbox-egg-agent-issue-2548-refiner",
-          "status": "failed",
-          "started_at": "2026-05-07T17:25:53.165008Z",
-          "exited_at": "2026-05-07T17:25:58.571389Z",
-          "exit_code": -1,
-          "agent_role": "refiner",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2548-refiner"
-        },
-        {
-          "container_id": "fc1fbdfb-31a0-4f12-8d18-1057df7a9910",
-          "container_name": "egg-sandbox-egg-agent-issue-2548-reviewer-refine",
-          "status": "failed",
-          "started_at": "2026-05-07T17:25:53.165033Z",
-          "exited_at": "2026-05-07T17:26:19.380669Z",
-          "exit_code": -1,
-          "agent_role": "reviewer_refine",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2548-reviewer-refine"
-        },
-        {
-          "container_id": "43730f15-0c2c-4efb-bf3e-0d96103802e5",
-          "container_name": "egg-sandbox-egg-agent-issue-2548-reviewer-agent-design",
-          "status": "failed",
-          "started_at": "2026-05-07T17:25:53.165043Z",
-          "exited_at": "2026-05-07T17:26:19.489215Z",
-          "exit_code": -1,
-          "agent_role": "reviewer_agent_design",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-2548-reviewer-agent-design"
-        }
-      ],
-      "agents": [
-        {
-          "role": "refiner",
-          "status": "failed",
-          "container_id": "a10327b5-2fe0-403f-85c2-f673e11b501b",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-07T17:25:53.165022Z",
-          "completed_at": "2026-05-07T17:25:58.604518Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code -1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_refine",
-          "status": "failed",
-          "container_id": "fc1fbdfb-31a0-4f12-8d18-1057df7a9910",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-07T17:25:53.165040Z",
-          "completed_at": "2026-05-07T17:26:19.419506Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code -1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_agent_design",
-          "status": "failed",
-          "container_id": "43730f15-0c2c-4efb-bf3e-0d96103802e5",
-          "container_info": null,
-          "slice_id": null,
-          "started_at": "2026-05-07T17:25:53.165046Z",
-          "completed_at": "2026-05-07T17:26:19.525890Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code -1",
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-05-07T17:25:51.649083Z",
-          "completed_at": "2026-05-07T17:26:19.573447Z",
-          "commit_sha": "5feab0e4eaa6119fbe043ebd469726b372263042"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- refiner (exit=-1) ---\n\n--- reviewer_refine (exit=-1) ---\n\n--- reviewer_agent_design (exit=-1) ---\n\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=refiner, reviewer_agent_design, reviewer_refine",
+      "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "5feab0e4eaa6119fbe043ebd469726b372263042",
       "agent_exits": [
@@ -216,7 +126,7 @@
     }
   ],
   "created_at": "2026-05-07T17:25:23.537637Z",
-  "updated_at": "2026-05-07T17:40:20.743368Z",
+  "updated_at": "2026-05-07T17:42:04.526995Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -224,12 +134,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- refiner (exit=-1) ---\n\n--- reviewer_refine (exit=-1) ---\n\n--- reviewer_agent_design (exit=-1) ---\n\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=refiner, reviewer_agent_design, reviewer_refine",
+  "error": null,
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": null,
-  "version": 13,
+  "run_epoch": "2026-05-07T17:42:04.525601Z",
+  "version": 14,
   "jira_ticket": null
 }
