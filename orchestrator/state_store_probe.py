@@ -235,11 +235,18 @@ class StateStoreProbe:
           A wedged probe (in-flight indefinitely) still surfaces as
           stale once its in-flight age exceeds the staleness window.
           Worst-case wedge detection latency is therefore bounded at
-          ~``2 * stale_window`` after the last good probe (one window
-          for the in-flight grace plus one for the existing cache age),
-          versus ~``stale_window`` before #2501. With the 30s default
-          this is ~60s of blindness in the pathological case — the
-          documented trade-off for eliminating the dual-write flap.
+          ``stale_window + interval`` after the last good probe — the
+          existing cache stays fresh for ``stale_window``, then the
+          next BG probe starts (within ``interval`` seconds of the
+          last completion) and the in-flight grace extends freshness
+          until that probe's own age exceeds ``stale_window``. With
+          the defaults (``interval=15s``, ``stale_multiplier=2.0`` →
+          ``stale_window=30s``) that's ~45s of blindness in the
+          pathological case, versus ~``stale_window`` (30s) before
+          #2501 — the documented trade-off for eliminating the
+          dual-write flap. The looser ``2 * stale_window`` upper bound
+          only saturates when ``stale_multiplier=1.0`` (interval
+          equals stale_window).
           During the grace, ``fresh=True`` is reported even though
           ``age_seconds`` may exceed ``stale_window``; operators
           inspecting ``/api/v1/health`` mid-grace will see a
