@@ -8872,7 +8872,12 @@ def _build_phase_prompt(
                 "evaluating options, and surfacing decisions for the human.",
                 "",
                 "## Output Format\n",
-                "Create an analysis document following this template:\n",
+                "Create an analysis document following the template below. The "
+                "fenced block is the **template literal** — copy it as-is and fill "
+                "in the bracketed placeholders. The unfenced sections that follow "
+                "(`## How to Populate Open Questions`, `## Complexity Assessment`) "
+                "are **meta-guidance** — do **not** transcribe them into your "
+                "analysis document.\n",
                 "````markdown",
                 "# Analysis: [Issue Title]\n",
                 "> Issue: #[number] | Phase: refine\n",
@@ -8902,10 +8907,23 @@ def _build_phase_prompt(
                 "## Recommended Approach\n",
                 "[Which option is recommended and why. Reference the option above.]\n",
                 "## Open Questions\n",
-                "**IMPORTANT: Every open question MUST be registered as a contract "
-                "decision or feedback item using `egg-contract`.** Do not just write "
-                "questions as prose — they will not be seen by the human unless "
-                "registered.\n",
+                "[Register every open question by following the protocol in "
+                "`## How to Populate Open Questions` below the template, then paste "
+                "the markdown output of each registration command into this section. "
+                "Do **not** copy the protocol instructions themselves into this "
+                "document.]\n",
+                "---\n",
+                "*Authored-by: egg*",
+                "````\n",
+                "",
+                "## How to Populate Open Questions\n",
+                "These instructions tell you how to handle the `## Open Questions` "
+                "section of the template above. They are **meta-guidance**, not "
+                "template content — do **not** transcribe this section into the "
+                "analysis document you write.\n",
+                "**Every open question MUST be registered as a contract decision or "
+                "feedback item using `egg-contract`.** Do not just write questions "
+                "as prose — they will not be seen by the human unless registered.\n",
                 "**Skip already-resolved questions.** If the Task Description above "
                 "includes an `## Additional Context` section, treat anything addressed "
                 "there as already decided by the operator (those came from a pre-refine "
@@ -8949,10 +8967,10 @@ def _build_phase_prompt(
                 "- Use custom HTML comment markers like "
                 "`<!-- DECISION: ... -->` instead of the contract CLI",
                 "- Skip registration because you think the questions are minor — "
-                "register every question\n",
-                "---\n",
-                "*Authored-by: egg*",
-                "````\n",
+                "register every question",
+                "- Transcribe this `## How to Populate Open Questions` section "
+                "into your analysis document — it is meta-guidance, not template "
+                "content\n",
                 "",
             ]
         )
