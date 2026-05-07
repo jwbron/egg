@@ -212,11 +212,14 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
   `.egg-state/agent-outputs/`.
 - Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope);
   `.egg-state/contracts/` (pipeline state); and `.github/`
-  (branch-protection invariant — use the `.github-staging/` convention
-  if a test fixture or CI fix requires `.github/` changes). Source code
-  and config files outside tests are out of scope by definition — the
-  coder owns them (everything not listed in this section or the
-  documenter's).
+  (branch-protection invariant — the tester's `allowed_patterns` does
+  not cover `.yml` / `.yaml` / `.json`, so the tester also has no write
+  access under `.github-staging/`. A CI fix or test-fixture change
+  uncovered during testing must be handed off to the coder via
+  `HANDOFF` rather than staged directly — the same pattern the coder
+  uses to hand off test files to the tester). Source code and config
+  files outside tests are out of scope by definition — the coder owns
+  them (everything not listed in this section or the documenter's).
 
 **Outputs**:
 - Test file commits on the worktree branch
