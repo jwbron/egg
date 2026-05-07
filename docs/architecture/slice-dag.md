@@ -556,13 +556,17 @@ reconciler is fully functional, not a no-op:
   (no PR is treated as orphaned).
 - **`rebase_onto`** → `GatewayClient.rebase_onto(pipeline_id, repo_path,
   branch=..., new_base=..., old_base=...) → bool`. This bridges the
-  reconciler's `Callable[[str, str, str], bool]` shape to the
-  gateway-side `gateway.git_client.build_rebase_onto_args`. The argv
-  builder constructs the canonical `["--onto", new_base, old_base,
-  branch]` shape and runs it through the existing
-  `validate_git_args("rebase", ...)` allowlist — extra flags (e.g.
-  `--strategy-option=ours`) are rejected. After validation the bridge
-  submits the args through the existing per-agent `/api/v1/git`
+  reconciler's `Callable[[str, str, str], bool]` shape to
+  `orchestrator.gateway_client._build_rebase_onto_args` — an inlined
+  copy of `gateway.git_client.build_rebase_onto_args` so the
+  orchestrator image (which does not ship `gateway/`) has no import-time
+  dependency on the gateway package (#2535). The argv builder constructs
+  the canonical `["--onto", new_base, old_base, branch]` shape and
+  validates ref shapes client-side (rejects flag-shaped, whitespace-
+  bearing, or non-git-ref inputs); the gateway server re-validates via
+  `validate_git_args("rebase", ...)` before execution — extra flags
+  (e.g. `--strategy-option=ours`) are rejected. After validation the
+  bridge submits the args through the existing per-agent `/api/v1/git`
   endpoint via the same temp-session pattern that `create_pr` and
   `fetch_worktree_branch` use; failures (validation reject, HTTP error,
   gateway unavailable) return `False` and the reconciler counts them
