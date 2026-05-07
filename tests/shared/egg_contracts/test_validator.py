@@ -147,6 +147,9 @@ class TestApplyMutation:
         assert "reviewer" in result.message.lower()
         assert result.contract is None
         assert result.audit_entry is None
+        # #2495: role-permission rejections must surface as
+        # ``error_kind="authorization"`` so the route boundary returns 403.
+        assert result.error_kind == "authorization"
 
     def test_implementer_can_set_task_status(self, sample_contract):
         """Test that implementer can mark task complete (shared ownership)."""
@@ -309,6 +312,32 @@ class TestApplyMutation:
         assert "current_phase" in result.message
         # The original value is unchanged.
         assert sample_contract.current_phase is PipelinePhase.REFINE
+        # #2495: out-of-domain values must surface as ``error_kind="value"``
+        # so the route boundary returns 400 (not 403).
+        assert result.error_kind == "value"
+
+    def test_invalid_path_returns_failed_mutation(self, sample_contract):
+        """#2495: out-of-range index path errors return ``error_kind="value"``.
+
+        Implementer is authorized to mutate ``phases.*.tasks.*.commit`` (the
+        role check passes), but ``phases.99.tasks.0.commit`` raises
+        ``IndexError`` from inside ``_set_value``.  ``apply_mutation`` must
+        catch that and surface it through ``MutationResult`` with
+        ``error_kind="value"`` so the route boundary returns 400 instead of
+        misclassifying the failure as authorization (403).
+        """
+        result = apply_mutation(
+            contract=sample_contract,
+            role=Role.IMPLEMENTER,
+            actor="james-in-a-box",
+            field_path="phases.99.tasks.0.commit",
+            new_value="abc1234",
+        )
+
+        assert result.success is False
+        assert result.contract is None
+        assert result.audit_entry is None
+        assert result.error_kind == "value"
 
     def test_non_current_phase_field_still_emits_update_action(self, sample_contract):
         """Non-current_phase fields continue to emit AuditAction.UPDATE."""

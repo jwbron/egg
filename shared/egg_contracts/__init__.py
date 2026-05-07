@@ -221,6 +221,7 @@ from .roles import (
     normalize_path,
 )
 from .validator import (
+    MutationErrorKind,
     MutationResult,
     ValidationResult,
     apply_mutation,
@@ -253,6 +254,7 @@ __all__ = [
     # Roles
     "FIELD_OWNERSHIP",
     "IssueInfo",
+    "MutationErrorKind",
     "MutationResult",
     "Phase",
     "PhaseStatus",
