@@ -445,7 +445,7 @@ terminal_slice_id=None, ...)` opens one PR per slice with two body
 shapes:
 
 - **Non-terminal slices** (no `program_title`) — title is
-  `"slice {slice_id}: {slice_name}"` truncated to 70 chars; body lists
+  `"{slice_id}: {slice_name}"` truncated to 70 chars; body lists
   the slice's tasks (each truncated to 300 chars), optionally followed
   by a one-line pointer to `terminal_slice_id` so reviewers can jump
   to the umbrella PR; footer names the slice ID, pipeline, and base.
