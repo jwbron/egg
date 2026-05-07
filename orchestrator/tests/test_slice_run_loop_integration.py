@@ -1106,18 +1106,28 @@ class TestSliceMergedDetection:
 
     def test_bootstrap_does_nothing_when_pipeline_repo_unset(self) -> None:
         """No ``pipeline.repo`` (e.g. local-only test pipeline) → step
-        (B) is skipped; the slice runs through the regular path. Step
-        (A) still applies because it doesn't need GitHub access."""
+        (B) is skipped (no remote to query). Step (A) still applies
+        because it's a pure contract read — covered here by a
+        ``status=COMPLETE`` slice that must be skipped without any
+        gateway round-trip."""
         pipeline = _make_pipeline()
         pipeline.repo = None
+        # slice-1 was completed on a prior run (step (A) — contract
+        # already records COMPLETE). slice-2 still has work to do and
+        # must run; step (B) cannot help here because there's no
+        # remote to query.
         slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
-        contract = _make_contract(slices=[slice1])
+        slice1.status = SliceStatus.COMPLETE
+        slice2 = _make_slice("slice-2", deps=["slice-1"], tasks=[_make_task("task-2-1")])
+        contract = _make_contract(slices=[slice1, slice2])
 
         with (
             patch("egg_contracts.loader.load_contract", return_value=contract),
             patch("egg_contracts.loader.save_contract"),
             patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
-            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch(
+                "routes.pipelines._run_concurrent_phase", return_value=(0, "ok")
+            ) as mock_run_phase,
             patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
         ):
             mock_start_recon.return_value = (MagicMock(), threading.Event())
@@ -1135,9 +1145,15 @@ class TestSliceMergedDetection:
                 certs_volume=None,
                 worktree_repo_path=Path("/tmp/x"),
             )
-        # Detection helper not even called when pipeline.repo is unset
-        # — we have no remote to query against.
+        # Step (B) skipped wholesale when pipeline.repo is None — we
+        # have no remote to query against.
         spawner.gateway.is_slice_branch_merged_into_parent.assert_not_called()
+        # Step (A) still applies: slice-1 (already COMPLETE on the
+        # contract) is skipped; slice-2 runs normally.
+        invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
+        assert invoked == {"slice-2"}, (
+            "step (A) must trust the contract even when pipeline.repo is None"
+        )
 
     def test_run_loop_race_skip_when_slice_merges_after_bootstrap(self) -> None:
         """Race: bootstrap saw slice as PENDING (not merged); slice's

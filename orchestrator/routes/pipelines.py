@@ -12319,15 +12319,13 @@ def _run_implement_phase_slices(
         except Exception:  # noqa: BLE001
             return None
 
-    reconciler_thread, reconciler_stop = _start_stacked_pr_reconciler(
-        pipeline_id,
-        _contract_loader,
-        spawner.gateway,
-        pipeline,
-        worktree_repo_path=worktree_repo_path,
-        repo=getattr(pipeline, "repo", None),
-    )
-
+    # #2549 reviewer note: defer starting the stacked-PR reconciler
+    # until after the bootstrap reconciliation pass so an unhandled
+    # exception during bootstrap (e.g. a hard ImportError of
+    # ``SliceStatus`` or a programming error in the pass) cannot leak
+    # the daemon thread. The reconciler does not depend on bootstrap
+    # state, so its start is safe to move after the pass; the existing
+    # ``finally`` at the bottom of the run loop owns its teardown.
     aggregate_logs: list[str] = []
     overall_exit = 0
     poll_interval = 5.0
@@ -12419,39 +12417,71 @@ def _run_implement_phase_slices(
     # pre-#2549 behaviour as the floor.
     bootstrap_complete: list[str] = []
     bootstrap_merged: list[str] = []
+
+    # Layer (A): cheap, no I/O. Trust contract-recorded COMPLETE status.
+    layer_b_candidates = []
     for s in slices:
         if s.status == SliceStatus.COMPLETE:
             scheduler.record_complete(s.id)
             bootstrap_complete.append(s.id)
             continue
-        if not pipeline.repo:
-            continue
-        if s.dependencies:
-            parent_branch_for_check = f"{issue_branch}/{s.dependencies[0]}"
-        else:
-            parent_branch_for_check = pipeline_branch
-        integration_branch_for_check = f"{issue_branch}/{s.id}"
-        try:
-            already_merged = spawner.gateway.is_slice_branch_merged_into_parent(
-                pipeline_id,
-                str(worktree_repo_path),
-                integration_branch=integration_branch_for_check,
-                parent_branch=parent_branch_for_check,
-                agent_role="coder",
-                mode=gateway_mode,  # type: ignore[arg-type]
-            )
-        except Exception as detect_err:  # noqa: BLE001
-            logger.warning(
-                "Bootstrap merged-detection raised; treating slice as not-merged",
-                pipeline_id=pipeline_id,
-                slice_id=s.id,
-                error=str(detect_err),
-            )
-            continue
-        if already_merged:
-            scheduler.record_complete(s.id)
-            _persist_slice_status_complete(s.id)
-            bootstrap_merged.append(s.id)
+        layer_b_candidates.append(s)
+
+    # Layer (B): origin-side detection for slices not yet recorded as
+    # COMPLETE on the contract. Each helper call uses its own synthetic
+    # gateway session, so we parallelise across slices to keep startup
+    # latency bounded as forests grow. Cap workers so a large forest
+    # doesn't burst against the gateway.
+    if pipeline.repo and layer_b_candidates:
+
+        def _bootstrap_check_one(slice_obj: Any) -> tuple[str, bool]:
+            # Prefer the parent branch the slice was actually forked
+            # off of (recorded by ``_run_one_slice_inner``). Falls back
+            # to the dependency-derived parent for slices that never
+            # made it through ``_run_one_slice_inner`` (e.g. fresh
+            # contract on first run). Both should agree today, but a
+            # future re-plan that mutates ``dependencies`` post-creation
+            # would diverge — preferring the recorded value future-
+            # proofs the check.
+            if slice_obj.parent_branch_at_creation:
+                parent_branch_for_check = slice_obj.parent_branch_at_creation
+            elif slice_obj.dependencies:
+                parent_branch_for_check = f"{issue_branch}/{slice_obj.dependencies[0]}"
+            else:
+                parent_branch_for_check = pipeline_branch
+            integration_branch_for_check = f"{issue_branch}/{slice_obj.id}"
+            try:
+                merged = spawner.gateway.is_slice_branch_merged_into_parent(
+                    pipeline_id,
+                    str(worktree_repo_path),
+                    integration_branch=integration_branch_for_check,
+                    parent_branch=parent_branch_for_check,
+                    agent_role="coder",
+                    mode=gateway_mode,  # type: ignore[arg-type]
+                )
+            except Exception as detect_err:  # noqa: BLE001
+                logger.warning(
+                    "Bootstrap merged-detection raised; treating slice as not-merged",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_obj.id,
+                    error=str(detect_err),
+                )
+                return slice_obj.id, False
+            return slice_obj.id, bool(merged)
+
+        max_workers = min(len(layer_b_candidates), 8)
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix=f"slice-bootstrap-{pipeline_id}",
+        ) as bootstrap_pool:
+            results = list(bootstrap_pool.map(_bootstrap_check_one, layer_b_candidates))
+
+        for slice_id, already_merged in results:
+            if already_merged:
+                scheduler.record_complete(slice_id)
+                _persist_slice_status_complete(slice_id)
+                bootstrap_merged.append(slice_id)
+
     if bootstrap_complete or bootstrap_merged:
         logger.info(
             "Slice bootstrap reconciliation marked slices complete",
@@ -12459,6 +12489,15 @@ def _run_implement_phase_slices(
             already_complete_on_contract=bootstrap_complete,
             detected_merged_on_origin=bootstrap_merged,
         )
+
+    reconciler_thread, reconciler_stop = _start_stacked_pr_reconciler(
+        pipeline_id,
+        _contract_loader,
+        spawner.gateway,
+        pipeline,
+        worktree_repo_path=worktree_repo_path,
+        repo=getattr(pipeline, "repo", None),
+    )
 
     try:
         while not scheduler.all_done():
