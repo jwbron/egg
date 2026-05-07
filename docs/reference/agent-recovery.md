@@ -259,7 +259,7 @@ When an agent's pushes to its assigned branch are wedged — gateway branch-allo
 | **API (read)** | `GET /api/v1/pipelines/{id}/local-commits[?agent_role=&slice_id=]` — list unpushed commits per worktree (read-only) |
 | **API (write)** | `POST /api/v1/pipelines/{id}/salvage[?agent_role=&slice_id=]` — push HEAD to `egg/recovered/...` |
 | **MCP tool** | `list_agent_local_commits(task_id, agent_role?, slice_id?)` and `salvage_agent_commits(task_id, agent_role?, slice_id?)` |
-| **Auto-salvage** | Best-effort, automatic — runs from `kubernetes_spawner.cleanup_pipeline` and `restart_phase` before worktree deletion. Skipped when `preserve_worktrees=True` (the worktree survives, no need to mirror it). Failures are logged and never block cleanup or restart |
+| **Auto-salvage** | Best-effort, automatic — runs from `kubernetes_spawner.cleanup_pipeline` (skipped when `preserve_worktrees=True`, since the worktree survives and there's nothing to mirror) and from `restart_phase` (always runs against the worktrees of the roles being restarted). Failures are logged and never block cleanup or restart |
 
 ### Recovery Workflow
 
