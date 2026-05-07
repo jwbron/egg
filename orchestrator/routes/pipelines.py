@@ -12637,7 +12637,7 @@ def _run_implement_phase_slices(
                             head=integration_branch,
                             base=parent_branch,
                             issue_number=issue_number,
-                            agent_role="coder",
+                            agent_role="orchestrator",
                             mode=gateway_mode,  # type: ignore[arg-type]
                             program_title=slice_pr_data["program_title"],
                             program_description=slice_pr_data["program_description"],
