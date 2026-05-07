@@ -670,8 +670,9 @@ class Contract(EggContractBaseModel):
             "Schema version. Bumped to ``1.1`` in #2548 to track the addition "
             "of the optional ``pr.context_*`` fields. Pre-1.1 contracts load "
             "transparently — the new fields default to None — and are "
-            "promoted to ``1.1`` on the next save (see "
-            "``_migrate_schema_version_to_1_1``)."
+            "promoted to ``1.1`` whenever they are loaded into the model; "
+            "the new value is then persisted on the next save. See "
+            "``_migrate_schema_version_to_1_1``."
         ),
     )
     issue: IssueInfo | None = Field(default=None, description="Issue metadata")
@@ -820,6 +821,20 @@ class Contract(EggContractBaseModel):
         We deliberately do NOT touch versions outside ``{1.0}`` so that
         an unrelated future bump (e.g. a hypothetical ``2.0``) does not
         get silently downgraded back to ``1.1``.
+
+        This validator runs in ``mode="after"``, so the bump happens at
+        every load — including in-memory ``Contract.model_validate(...)``
+        calls — not lazily on the next save. The mutation is idempotent
+        (the conditional only fires when the value is exactly ``"1.0"``)
+        so re-running the validator on an already-migrated contract is
+        a no-op.
+
+        Note: the bump is silent — no ``AuditEntry`` is appended.
+        Operators inspecting the audit trail after a 1.0 → 1.1
+        promotion will not see a record of the change. Schema bumps
+        are uncommon enough that this is intentional; if a future
+        bump warrants audit visibility, a dedicated audit hook on
+        the migration validator is the right place to add it.
         """
         if self.schemaVersion == "1.0":
             self.schemaVersion = "1.1"

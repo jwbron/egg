@@ -982,10 +982,29 @@ def extract_pr_context_metadata_from_yaml(
     # ``pr.description`` field defaults to "" because PRMetadata
     # requires a string body, but ``context_description`` is Optional
     # at the model layer.
+    #
+    # Symmetric with the ``context_title`` branch above: warn loudly
+    # when the planner emitted a non-string scalar (e.g. an int or a
+    # nested mapping). Without this check ``_normalize_optional_string``
+    # would silently coerce via ``str(value)`` and a planner-prompt
+    # regression that started emitting structured values would land
+    # quietly on the contract.
     context_description: str | None = None
     if raw_description is not None:
-        normalized = _normalize_optional_string(raw_description)
-        context_description = normalized if normalized else None
+        if not isinstance(raw_description, str):
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"'pr.context_description' must be a string, got "
+                        f"{type(raw_description).__name__}"
+                    ),
+                    context="context-PR description will fall back to pr.description",
+                )
+            )
+        else:
+            normalized = _normalize_optional_string(raw_description)
+            context_description = normalized if normalized else None
 
     return context_title, context_description, warnings
 

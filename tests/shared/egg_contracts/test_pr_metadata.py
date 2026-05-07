@@ -342,10 +342,16 @@ class TestPRMetadataContextEmptyStringSemantics:
     contract.pr.title`` to pick the framing for the context PR — both
     ``None`` and ``""`` fall back via Python truthiness, so the model
     deliberately does NOT enforce a min_length on the context-string
-    fields. These tests pin that behavior so a future ``min_length=1``
-    addition is caught by the test suite (it would break the ingestion
-    path, where the planner can legitimately emit an empty
-    ``context_description: ""`` block scalar).
+    fields. These tests pin model-layer permissiveness so a future
+    ``min_length=1`` regression is caught by the test suite.
+
+    Note: the planner path (``extract_pr_context_metadata_from_yaml``)
+    collapses whitespace-only / empty scalars to ``None`` before they
+    reach the model — see
+    ``test_extract_normalises_whitespace_to_none``. So in practice
+    only hand-edited or migrated payloads can produce a ``PRMetadata``
+    with ``context_description == ""``; the model layer keeps that
+    door open by design.
     """
 
     def test_empty_context_title_accepted(self):
@@ -492,6 +498,48 @@ class TestPlanParserContextFieldExtraction:
         assert title is None  # malformed → fall back
         assert len(warnings) == 1
         assert "context_title" in warnings[0].message
+        assert "int" in warnings[0].message
+
+    def test_extract_warns_on_non_string_context_description(self):
+        """A non-string ``context_description`` must also warn.
+
+        Symmetric with the ``context_title`` branch above. Without an
+        explicit type check, ``_normalize_optional_string`` would
+        silently coerce non-strings via ``str(value)`` (e.g. an int
+        ``12345`` becomes ``"12345"``, a dict ``{a: b}`` becomes
+        ``"{'a': 'b'}"``) and a planner-prompt regression that started
+        emitting structured values would land quietly on the contract.
+        """
+        from egg_contracts.plan_parser import extract_pr_context_metadata_from_yaml
+
+        yaml_data = {
+            "pr": {
+                "title": "Implement #2548",
+                "context_description": {"unexpected": "mapping"},
+            },
+            "phases": [],
+        }
+        _title, desc, warnings = extract_pr_context_metadata_from_yaml(yaml_data)
+        assert desc is None  # malformed → fall back
+        assert len(warnings) == 1
+        assert "context_description" in warnings[0].message
+        assert "dict" in warnings[0].message
+
+    def test_extract_warns_on_int_context_description(self):
+        """Integer scalars on ``context_description`` warn rather than coerce."""
+        from egg_contracts.plan_parser import extract_pr_context_metadata_from_yaml
+
+        yaml_data = {
+            "pr": {
+                "title": "Implement #2548",
+                "context_description": 12345,
+            },
+            "phases": [],
+        }
+        _title, desc, warnings = extract_pr_context_metadata_from_yaml(yaml_data)
+        assert desc is None
+        assert len(warnings) == 1
+        assert "context_description" in warnings[0].message
         assert "int" in warnings[0].message
 
     def test_parse_plan_threads_context_into_parse_result(self):

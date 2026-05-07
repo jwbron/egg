@@ -14918,13 +14918,28 @@ def _populate_contract_from_plan(
         if result.pr_title:
             from egg_contracts.models import PRMetadata
 
-            # #2548 — preserve any orchestrator-populated context_branch /
-            # context_pr_number across re-populates. The planner-emitted
-            # context_title / context_description still flow in fresh
-            # from the parsed plan; only the runtime-only fields are
-            # carried over from a prior PRMetadata if present.
+            # #2548 — preserve orchestrator-populated runtime fields on
+            # ``PRMetadata`` across re-populates. The planner-emitted
+            # ``context_title`` / ``context_description`` still flow in
+            # fresh from the parsed plan; the fields below are populated
+            # by orchestrator code paths (gateway primitives, the
+            # conditional-ACK gate at ``complete_phase``) and would
+            # otherwise be silently dropped when this safety-net
+            # populator re-runs (e.g. on a ``start_phase=implement``
+            # re-entry where ``deferred_actions`` was already populated
+            # during implement-phase close).
+            #
+            # ``deferred_actions`` is the merge-blocking *Pre-merge
+            # Obligations* handoff written by ``decisions.py`` after a
+            # conditional-ACK gate resolves; losing it here erases the
+            # reviewer's only durable handoff for git-mv / migration /
+            # cross-repo flips. See test
+            # ``test_populate_contract_from_plan_preserves_deferred_actions``.
             preserved_branch = contract.pr.context_branch if contract.pr is not None else None
             preserved_pr_number = contract.pr.context_pr_number if contract.pr is not None else None
+            preserved_deferred_actions = (
+                list(contract.pr.deferred_actions) if contract.pr is not None else []
+            )
             contract.pr = PRMetadata(
                 title=result.pr_title,
                 description=result.pr_description or "",
@@ -14934,6 +14949,7 @@ def _populate_contract_from_plan(
                 context_description=result.pr_context_description,
                 context_branch=preserved_branch,
                 context_pr_number=preserved_pr_number,
+                deferred_actions=preserved_deferred_actions,
             )
             changed = True
 
