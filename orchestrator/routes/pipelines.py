@@ -17279,6 +17279,22 @@ def _run_pipeline(
                 # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``.
                 store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
 
+            # Drop the previous phase's in-memory consensus tracker and
+            # message-store entries (#2502).  The other phase-transition
+            # paths -- ``advance_phase`` REST handler, HITL-revision
+            # re-run, and the ``recover_pipeline`` resume path -- all
+            # call this; the auto-advance path used to skip it, leaving
+            # a stale plan-phase tracker keyed under the bare
+            # ``pipeline_id`` for ``_get_concurrent_status`` to find and
+            # report as ``is_complete: True`` long after the implement
+            # phase had started.  ``_write_brc_history`` already ran
+            # earlier in this iteration (line ~16753) so the BRC
+            # transcript is already on disk by the time we wipe the
+            # message store here.
+            from routes.phases import _clear_concurrent_state
+
+            _clear_concurrent_state(pipeline_id)
+
             logger.info(
                 "Phase advanced (auto), respawning driver thread",
                 pipeline_id=pipeline_id,
@@ -17938,6 +17954,22 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 pipeline.run_epoch = datetime.now(UTC)
                 pipeline.status = PipelineStatus.RUNNING
                 store.save_pipeline(pipeline)
+
+            # TEST_MARKER: recover_advance_clear (load-bearing: brackets
+            # the post-lock clear for TestRecoverPipelineClearsConcurrentState;
+            # do not remove without updating that test class).
+            # Drop the previous phase's in-memory consensus tracker on
+            # cross-phase advance (#2502).  The request_changes /
+            # change_approach branch above already cleared inside the
+            # lock for same-phase re-runs (#1296); the advance branch
+            # needs its own post-lock clear so persisted state lands
+            # before the tracker is wiped, matching the persist-then-
+            # clear-then-spawn order used by ``advance_phase`` and the
+            # auto-advance block.
+            if is_approved:
+                from routes.phases import _clear_concurrent_state
+
+                _clear_concurrent_state(pipeline_id)
 
             # Launch runner thread
             thread = threading.Thread(
