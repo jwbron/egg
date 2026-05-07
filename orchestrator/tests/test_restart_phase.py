@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from agent_salvage import AgentWorktree
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -24,6 +25,25 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
+
+
+def _make_agent_worktree(
+    worktree_id: str,
+    *,
+    pipeline_id: str = "issue-200",
+    agent_role: str | None,
+    slice_id: str | None = None,
+) -> AgentWorktree:
+    """Build an AgentWorktree for tests without touching the filesystem."""
+    return AgentWorktree(
+        worktree_id=worktree_id,
+        pipeline_id=pipeline_id,
+        agent_role=agent_role,
+        slice_id=slice_id,
+        repo_path=Path(f"/var/lib/egg/worktrees/{worktree_id}/repo"),
+        local_branch=f"egg/{worktree_id}/work",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -85,6 +105,63 @@ def _make_pipeline_with_phase_agents(
                     container_id="documenter-container",
                 ),
             ],
+        ),
+    }
+    return pipeline
+
+
+def _make_pipeline_with_slice_agents(
+    pipeline_id: str = "issue-200",
+    phase: PipelinePhase = PipelinePhase.IMPLEMENT,
+    slice_ids: tuple[str, ...] = ("slice-1", "slice-2"),
+    roles: tuple[AgentRole, ...] = (AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER),
+):
+    """Create a slice-based pipeline with per-slice agent teams.
+
+    Mirrors what production looks like at restart time for a multi-slice
+    phase: ``phase_exec.agents`` carries one ``AgentExecution`` per
+    ``(role, slice_id)`` so consumers that walk by role match on the
+    ``(role, slice_id)`` tuple rather than role alone (see ``models.py``
+    ``AgentExecution.slice_id`` description and #2422).
+    """
+    pipeline = Pipeline(
+        id=pipeline_id,
+        issue_number=200,
+        repo="owner/repo",
+        branch=f"egg/{pipeline_id}",
+        status=PipelineStatus.RUNNING,
+        current_phase=phase,
+    )
+
+    containers = []
+    agents = []
+    for slice_id in slice_ids:
+        for role in roles:
+            container_id = f"{role.value}-{slice_id}-container"
+            containers.append(
+                ContainerInfo(
+                    container_id=container_id,
+                    container_name=f"egg-{pipeline_id}-{slice_id}-{role.value}",
+                    agent_role=role,
+                    status=ContainerStatus.RUNNING,
+                )
+            )
+            agents.append(
+                AgentExecution(
+                    role=role,
+                    status=AgentExecutionStatus.RUNNING,
+                    container_id=container_id,
+                    slice_id=slice_id,
+                )
+            )
+
+    pipeline.phases = {
+        phase.value: PhaseExecution(
+            phase=phase,
+            status=PipelineStatus.RUNNING,
+            review_cycles=2,
+            containers=containers,
+            agents=agents,
         ),
     }
     return pipeline
@@ -850,12 +927,19 @@ class TestRestartPhaseLaunchesPollingThread:
         assert len(agents) == 3
         assert set(agents) == {"coder", "tester", "documenter"}
 
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_deletes_per_agent_worktrees(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        client,
     ):
         """Phase restart must delete per-agent worktrees before respawning.
 
@@ -873,6 +957,12 @@ class TestRestartPhaseLaunchesPollingThread:
 
         mock_spawner = MagicMock()
         mock_spawner_fn.return_value = mock_spawner
+
+        mock_enumerate.return_value = [
+            _make_agent_worktree("issue-200-coder", agent_role="coder"),
+            _make_agent_worktree("issue-200-tester", agent_role="tester"),
+            _make_agent_worktree("issue-200-documenter", agent_role="documenter"),
+        ]
 
         response = client.post(
             "/api/v1/pipelines/issue-200/phases/implement/restart",
@@ -901,12 +991,149 @@ class TestRestartPhaseLaunchesPollingThread:
                 "Expected force=True for worktree deletion during phase restart"
             )
 
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_deletes_slice_scoped_worktrees(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        client,
+    ):
+        """Phase restart on a slice pipeline must delete slice-scoped worktrees.
+
+        Regression test for #2522: the previous implementation guessed
+        ``{pipeline_id}-{role}`` and missed slice-scoped worktrees
+        (``{pipeline_id}-slice-{N}-{role}``), leaving them on disk after a
+        restart.  Driving deletion off ``enumerate_agent_worktrees`` covers
+        both shapes.
+
+        Uses ``_make_pipeline_with_slice_agents`` so the fixture mirrors
+        production: one ``AgentExecution`` per ``(role, slice_id)`` with
+        ``slice_id`` populated, matching what ``concurrent_executor``
+        writes for a multi-slice phase.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_slice_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_enumerate.return_value = [
+            _make_agent_worktree("issue-200-slice-1-coder", agent_role="coder", slice_id="slice-1"),
+            _make_agent_worktree("issue-200-slice-2-coder", agent_role="coder", slice_id="slice-2"),
+            _make_agent_worktree(
+                "issue-200-slice-1-tester", agent_role="tester", slice_id="slice-1"
+            ),
+            _make_agent_worktree(
+                "issue-200-slice-1-documenter",
+                agent_role="documenter",
+                slice_id="slice-1",
+            ),
+        ]
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+
+        delete_calls = mock_spawner.gateway.delete_worktrees.call_args_list
+        deleted_ids = {
+            call.kwargs.get("container_id", call.args[0] if call.args else None)
+            for call in delete_calls
+        }
+        expected_ids = {
+            "issue-200-slice-1-coder",
+            "issue-200-slice-2-coder",
+            "issue-200-slice-1-tester",
+            "issue-200-slice-1-documenter",
+        }
+        assert deleted_ids == expected_ids, (
+            f"Expected slice-scoped worktree deletion for {expected_ids}, got {deleted_ids}"
+        )
+
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_skips_pipeline_level_and_other_role_worktrees(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        client,
+    ):
+        """Phase restart must not delete the pipeline-level worktree or
+        worktrees for roles that aren't in the restarted phase.
+
+        The pipeline-level worktree (``agent_role=None``) is owned by
+        ``cleanup_pipeline``, not by phase restart.  And worktrees for roles
+        outside the phase being restarted (e.g. a leftover ``planner``
+        worktree from an earlier phase) must survive — wiping them would
+        destroy work the restart wasn't asked to touch.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_enumerate.return_value = [
+            _make_agent_worktree("issue-200", agent_role=None),  # pipeline-level
+            _make_agent_worktree("issue-200-coder", agent_role="coder"),
+            _make_agent_worktree("issue-200-slice-1-coder", agent_role="coder", slice_id="slice-1"),
+            _make_agent_worktree("issue-200-planner", agent_role="planner"),
+        ]
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+
+        delete_calls = mock_spawner.gateway.delete_worktrees.call_args_list
+        deleted_ids = {
+            call.kwargs.get("container_id", call.args[0] if call.args else None)
+            for call in delete_calls
+        }
+        assert deleted_ids == {"issue-200-coder", "issue-200-slice-1-coder"}, (
+            f"Expected only implement-phase coder worktrees deleted, got {deleted_ids}"
+        )
+
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_phase_worktree_deletion_failure_is_nonfatal(
-        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        client,
     ):
         """Worktree deletion failure during phase restart must not abort the restart.
 
@@ -926,6 +1153,10 @@ class TestRestartPhaseLaunchesPollingThread:
         mock_spawner.gateway.delete_worktrees.side_effect = RuntimeError("Gateway unavailable")
         mock_spawner_fn.return_value = mock_spawner
 
+        mock_enumerate.return_value = [
+            _make_agent_worktree("issue-200-coder", agent_role="coder"),
+        ]
+
         response = client.post(
             "/api/v1/pipelines/issue-200/phases/implement/restart",
             json={},
@@ -933,6 +1164,318 @@ class TestRestartPhaseLaunchesPollingThread:
 
         # Should still succeed despite worktree deletion failures
         assert response.status_code == 200
+
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_continues_after_partial_worktree_deletion_failure(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        client,
+    ):
+        """A single delete_worktrees failure must not abort the rest of the loop.
+
+        Locks down the continue-on-error semantic: with three worktrees
+        scheduled for deletion where the middle one raises, the first and
+        third must still be deleted. Without this coverage a future refactor
+        could replace ``continue`` with ``break`` (or stop catching the
+        exception) and leave half the worktrees on disk silently.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        # First and third deletes succeed, middle one raises.
+        def _flaky_delete(container_id: str, force: bool = True) -> None:
+            if container_id == "issue-200-tester":
+                raise RuntimeError("Gateway 502")
+
+        mock_spawner.gateway.delete_worktrees.side_effect = _flaky_delete
+
+        mock_enumerate.return_value = [
+            _make_agent_worktree("issue-200-coder", agent_role="coder"),
+            _make_agent_worktree("issue-200-tester", agent_role="tester"),
+            _make_agent_worktree("issue-200-documenter", agent_role="documenter"),
+        ]
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+
+        delete_calls = mock_spawner.gateway.delete_worktrees.call_args_list
+        attempted_ids = [
+            call.kwargs.get("container_id", call.args[0] if call.args else None)
+            for call in delete_calls
+        ]
+        # All three deletions must have been attempted, in order — the
+        # tester failure must not short-circuit documenter.
+        assert attempted_ids == [
+            "issue-200-coder",
+            "issue-200-tester",
+            "issue-200-documenter",
+        ], f"Expected all three deletions attempted, got {attempted_ids}"
+
+    @patch("routes.pipelines.agent_salvage.auto_salvage_pipeline")
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_salvages_before_deleting_worktrees(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        mock_salvage,
+        client,
+    ):
+        """Restart must salvage unpushed agent commits before worktree deletion.
+
+        Restart is *the* scenario where unpushed commits accumulate (the
+        operator hits restart precisely because agents got stuck/wedged —
+        the same conditions that prevent pushes from landing on
+        ``origin/<assigned_branch>``). Without a salvage hook in front of
+        the deletion loop, restart silently destroys recoverable work.
+        Mirrors ``cleanup_pipeline``'s salvage-before-delete invariant
+        (#2429).
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+        pipeline.base_branch = "main"
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        # Track call ordering: salvage must run before any delete.
+        call_order: list[str] = []
+        mock_salvage.side_effect = lambda *a, **kw: call_order.append("salvage")
+        mock_spawner.gateway.delete_worktrees.side_effect = lambda *a, **kw: call_order.append(
+            "delete"
+        )
+
+        mock_enumerate.return_value = [
+            _make_agent_worktree("issue-200-coder", agent_role="coder"),
+            _make_agent_worktree("issue-200-tester", agent_role="tester"),
+        ]
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+
+        # Salvage was called exactly once, before any deletion.
+        assert mock_salvage.call_count == 1, (
+            f"Expected exactly one auto_salvage_pipeline call, got {mock_salvage.call_count}"
+        )
+        assert call_order[0] == "salvage", (
+            f"Expected salvage to run before any deletion, got order {call_order}"
+        )
+
+        # Salvage was scoped to exactly the worktrees about to be deleted,
+        # and was given the pipeline's base_branch so it can resolve the
+        # ``^origin/<base>`` anchor for unpushed-commit enumeration.
+        salvage_kwargs = mock_salvage.call_args.kwargs
+        assert salvage_kwargs.get("worktree_filter") == {
+            "issue-200-coder",
+            "issue-200-tester",
+        }
+        assert salvage_kwargs.get("base_branch") == "main"
+        assert salvage_kwargs.get("mode") in ("public", "private")
+
+    @patch("routes.pipelines.agent_salvage.auto_salvage_pipeline")
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_salvage_failure_is_nonfatal(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        mock_salvage,
+        client,
+    ):
+        """A salvage failure must not block worktree deletion or the restart.
+
+        Salvage is best-effort — a transient gateway error during salvage
+        must not leave wedged worktrees on disk, since the original #1723
+        scenario (broken btrfs mounts surviving restart) was the whole
+        reason restart deletes worktrees in the first place.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_salvage.side_effect = RuntimeError("Gateway 503")
+
+        mock_enumerate.return_value = [
+            _make_agent_worktree("issue-200-coder", agent_role="coder"),
+        ]
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        # Deletion must still happen even when salvage raised.
+        mock_spawner.gateway.delete_worktrees.assert_called_once()
+        delete_kwargs = mock_spawner.gateway.delete_worktrees.call_args.kwargs
+        assert delete_kwargs.get("container_id") == "issue-200-coder"
+
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_deletes_broken_worktree_without_git_marker(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        client,
+    ):
+        """Restart must still delete worktrees with broken/missing ``.git`` markers.
+
+        Regression guard for the salvage-vs-cleanup distinction: salvage
+        callers want ``.git``-validated entries (you can't salvage a
+        broken worktree), but cleanup callers MUST receive broken
+        entries — the original #1723 scenario is precisely "broken btrfs
+        mount survives restart, ``create_worktree`` later trips over it".
+        Restart calls ``enumerate_agent_worktrees(validate_git=False)``
+        so this caller sees broken entries; assert that the resulting
+        worktree id reaches ``delete_worktrees``.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        # Simulate a broken worktree whose enumerate-with-validate_git=False
+        # surfaced it: ``repo_path`` falls back to the worktree dir itself
+        # rather than a ``.git``-validated subdir.
+        broken = AgentWorktree(
+            worktree_id="issue-200-coder",
+            pipeline_id="issue-200",
+            agent_role="coder",
+            slice_id=None,
+            repo_path=Path("/var/lib/egg/worktrees/issue-200-coder"),
+            local_branch="egg/issue-200-coder/work",
+        )
+        mock_enumerate.return_value = [broken]
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        mock_spawner.gateway.delete_worktrees.assert_called_once()
+        assert (
+            mock_spawner.gateway.delete_worktrees.call_args.kwargs.get("container_id")
+            == "issue-200-coder"
+        )
+
+        # Restart must request the cleanup-style enumeration
+        # (``validate_git=False``) so broken entries reach delete_worktrees
+        # rather than being filtered out. ``auto_salvage_pipeline`` calls
+        # ``enumerate_agent_worktrees`` again internally with the default
+        # (validate_git=True) — that's intentional, salvage can't operate
+        # on broken worktrees — so check ALL recorded calls and assert
+        # at least one passed ``validate_git=False`` (the cleanup call).
+        validate_git_false_calls = [
+            call
+            for call in mock_enumerate.call_args_list
+            if call.kwargs.get("validate_git") is False
+        ]
+        assert validate_git_false_calls, (
+            "restart_phase must pass validate_git=False so broken worktrees are "
+            f"still deleted; got calls={mock_enumerate.call_args_list}"
+        )
+
+    @patch("routes.pipelines.agent_salvage.enumerate_agent_worktrees")
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_worktree_enumeration_failure_is_nonfatal(
+        self,
+        mock_repo,
+        mock_resolve,
+        mock_spawner_fn,
+        mock_thread,
+        mock_enumerate,
+        client,
+    ):
+        """Enumeration failure must not abort the restart (#2522).
+
+        ``enumerate_agent_worktrees`` reads the disk; if it raises (e.g.
+        ``WORKTREE_BASE_DIR`` missing in a degraded environment), the
+        restart should log and proceed rather than fail.
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_enumerate.side_effect = RuntimeError("disk unreadable")
+
+        response = client.post(
+            "/api/v1/pipelines/issue-200/phases/implement/restart",
+            json={},
+        )
+
+        assert response.status_code == 200
+        mock_spawner.gateway.delete_worktrees.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
