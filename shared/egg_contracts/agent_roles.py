@@ -364,6 +364,8 @@ ARCHITECT_ROLE = AgentRoleDefinition(
             "**/*.go",
             "**/*.java",
             ".egg-state/contracts/",
+            # Issue #2532: parity with ARCHITECT_PATTERNS — see #2508 / #2521.
+            ".github/",
         ],
     ),
     produces_outputs=["architecture_analysis", "technical_decisions"],
@@ -397,6 +399,8 @@ TASK_PLANNER_ROLE = AgentRoleDefinition(
             "**/*.go",
             "**/*.java",
             ".egg-state/contracts/",
+            # Issue #2532: parity with TASK_PLANNER_PATTERNS — see #2508 / #2521.
+            ".github/",
         ],
     ),
     produces_outputs=["task_breakdown", "acceptance_criteria"],
@@ -430,6 +434,8 @@ RISK_ANALYST_ROLE = AgentRoleDefinition(
             "**/*.go",
             "**/*.java",
             ".egg-state/contracts/",
+            # Issue #2532: parity with RISK_ANALYST_PATTERNS — see #2508 / #2521.
+            ".github/",
         ],
     ),
     can_run_in_parallel=True,  # Can run in parallel with task_planner
@@ -488,6 +494,8 @@ _REVIEWER_BLOCKED_WRITE = [
     "test/",
     ".egg-state/contracts/",
     ".egg-state/drafts/",
+    # Issue #2532: parity with _REVIEWER_BLOCKED in patterns.py — see #2508 / #2521.
+    ".github/",
 ]
 
 REVIEWER_CODE_ROLE = AgentRoleDefinition(
@@ -551,6 +559,8 @@ _REVIEWER_CONTRACT_BLOCKED_WRITE = [
     "tests/",
     "test/",
     ".egg-state/drafts/",
+    # Issue #2532: parity with _REVIEWER_CONTRACT_BLOCKED in patterns.py — see #2508 / #2521.
+    ".github/",
 ]
 
 REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
