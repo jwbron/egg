@@ -174,6 +174,44 @@ class TestEnumerate:
             wts = enumerate_agent_worktrees("issue-99")
         assert wts == []
 
+    def test_validate_git_false_returns_broken_worktrees(self, tmp_path: Path) -> None:
+        """``validate_git=False`` is the cleanup-style listing.
+
+        Cleanup callers (e.g. phase restart) must still see worktrees
+        with missing or unreadable ``.git`` markers — that's exactly the
+        #1723 broken-btrfs-mount failure class the cleanup loop exists to
+        delete. With ``validate_git=True`` (the salvage default) a broken
+        worktree would be silently skipped and the wedged directory
+        would survive restart.
+        """
+        # No .git anywhere — this would be skipped by the salvage default.
+        (tmp_path / "issue-99-coder" / "repo").mkdir(parents=True)
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            wts = enumerate_agent_worktrees("issue-99", validate_git=False)
+        assert len(wts) == 1
+        wt = wts[0]
+        assert wt.worktree_id == "issue-99-coder"
+        assert wt.agent_role == "coder"
+        assert wt.slice_id is None
+        # Without a usable .git, repo_path falls back to the worktree dir
+        # itself — cleanup callers don't need a real repo, just the id.
+        assert wt.repo_path == tmp_path / "issue-99-coder"
+
+    def test_validate_git_false_preserves_validated_repo_path(self, tmp_path: Path) -> None:
+        """When .git IS present, ``validate_git=False`` still returns the validated path.
+
+        The flag widens the filter (broken worktrees included) without
+        changing the resolution for healthy worktrees — they keep their
+        ``{worktree_dir}/{repo_short}/.git`` repo subdirectory so any
+        downstream code that does pick up these entries can still operate
+        on the real checkout.
+        """
+        _make_worktree_layout(tmp_path, "issue-99", agent_role="coder", slice_id=None)
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            wts = enumerate_agent_worktrees("issue-99", validate_git=False)
+        assert len(wts) == 1
+        assert wts[0].repo_path == tmp_path / "issue-99-coder" / "repo"
+
     def test_returns_empty_when_base_dir_missing(self, tmp_path: Path) -> None:
         missing = tmp_path / "does-not-exist"
         with patch("agent_salvage.WORKTREE_BASE_DIR", missing):

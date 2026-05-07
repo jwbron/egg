@@ -217,7 +217,11 @@ def _is_git_worktree(repo_path: Path) -> bool:
     return git_marker.exists()
 
 
-def enumerate_agent_worktrees(pipeline_id: str) -> list[AgentWorktree]:
+def enumerate_agent_worktrees(
+    pipeline_id: str,
+    *,
+    validate_git: bool = True,
+) -> list[AgentWorktree]:
     """List per-agent worktrees on disk for ``pipeline_id``.
 
     Scans ``WORKTREE_BASE_DIR`` for directories that match the
@@ -228,10 +232,20 @@ def enumerate_agent_worktrees(pipeline_id: str) -> list[AgentWorktree]:
     enumerates exactly the worktrees the cleanup loop is about to
     delete.
 
-    Each returned ``AgentWorktree.repo_path`` points at the first
-    sub-directory inside the worktree that has a ``.git`` marker. Worktrees
-    with no usable repo checkout are skipped — they have nothing to
-    salvage.
+    With ``validate_git=True`` (the default, used by salvage callers),
+    each returned ``AgentWorktree.repo_path`` points at the first
+    sub-directory inside the worktree that has a ``.git`` marker.
+    Worktrees with no usable repo checkout are skipped — they have
+    nothing to salvage.
+
+    With ``validate_git=False`` (cleanup callers), worktrees with
+    missing or unreadable ``.git`` markers are still returned, with
+    ``repo_path`` falling back to the worktree directory itself. This
+    is required so that broken/corrupted worktrees (e.g. wedged btrfs
+    mounts) — exactly the failure class #1723 set out to clean up —
+    still reach ``gateway.delete_worktrees`` rather than being silently
+    skipped by a salvage-style ``.git`` gate. Such entries are not
+    salvageable, but they must still be deletable.
     """
     if not WORKTREE_BASE_DIR.exists():
         return []
@@ -284,7 +298,9 @@ def enumerate_agent_worktrees(pipeline_id: str) -> list[AgentWorktree]:
 
         repo_path = _resolve_repo_path(entry)
         if repo_path is None:
-            continue
+            if validate_git:
+                continue
+            repo_path = entry
 
         worktree = AgentWorktree(
             worktree_id=name,
