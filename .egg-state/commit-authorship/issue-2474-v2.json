@@ -1,5 +1,12 @@
 {
   "entries": {
+    "57773af62c6ea119fb79d66dcab6d983106c64cc": {
+      "branch": "egg/issue-2474-v2/slice-1",
+      "pipeline_id": "issue-2474-v2",
+      "registered_at": "2026-05-07T03:10:31.875774+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "d24a1941ceaa5cf2a873eb80c1fd123403d81ea3": {
       "branch": "egg/issue-2474-v2/slice-1",
       "pipeline_id": "issue-2474-v2",
