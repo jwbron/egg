@@ -1128,7 +1128,15 @@ def handle_consensus_propose_signal(
                 details=result,
             )
 
-        # Write consensus message to message bus
+        # Write consensus message to message bus.
+        # Tag every CONSENSUS_* message with slice_id metadata when the
+        # producer is slice-scoped so the implement-phase BRC writer
+        # (#2548) can partition messages into per-slice transcript
+        # files. Pipeline-level (non-slice) callers leave the metadata
+        # off entirely — matches the legacy non-slice shape and signals
+        # the writer to fall back to its aggregate filename.
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
+
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
@@ -1146,6 +1154,7 @@ def handle_consensus_propose_signal(
                     "payload": payload,
                     "version": result.get("version"),
                     "commit_sha": commit_sha,
+                    **_slice_meta,
                 },
             )
         )
@@ -1171,6 +1180,7 @@ def handle_consensus_propose_signal(
                     metadata={
                         "producer_role": agent_role,
                         "version": result.get("version"),
+                        **_slice_meta,
                     },
                 )
             )
@@ -1270,6 +1280,10 @@ def handle_consensus_ack_signal(
 
         store = get_message_store()
         phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        # Tag with slice_id metadata for the implement-phase BRC writer's
+        # per-slice partitioning (#2548). Pipeline-level callers leave it
+        # off, matching the legacy non-slice shape.
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1279,7 +1293,11 @@ def handle_consensus_ack_signal(
                 subject=f"ACK from {reviewer_role} for {producer_role}",
                 body=payload.get("reason", ""),
                 phase=phase,
-                metadata={"payload": payload, "version": result.get("version")},
+                metadata={
+                    "payload": payload,
+                    "version": result.get("version"),
+                    **_slice_meta,
+                },
             )
         )
 
@@ -1359,6 +1377,9 @@ def handle_consensus_nack_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
+        # Tag with slice_id metadata for the implement-phase BRC writer's
+        # per-slice partitioning (#2548).
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1372,6 +1393,7 @@ def handle_consensus_nack_signal(
                     "payload": payload,
                     "reason": result.get("reason"),
                     "revision_count": result.get("revision_count"),
+                    **_slice_meta,
                 },
             )
         )
@@ -1423,6 +1445,9 @@ def handle_consensus_withdraw_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
+        # Tag with slice_id metadata for the implement-phase BRC writer's
+        # per-slice partitioning (#2548).
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1432,6 +1457,7 @@ def handle_consensus_withdraw_signal(
                 subject=f"Withdrawal by {agent_role}",
                 body=reason,
                 phase=_resolve_pipeline_phase(pipeline_id, repo_path),
+                metadata=_slice_meta,
             )
         )
 

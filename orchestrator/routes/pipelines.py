@@ -8259,12 +8259,23 @@ def _write_brc_history(
     and writes them as a chronological markdown log to
     ``.egg-state/brc-history/{identifier}-{phase}.md``.
 
-    For the ``implement`` phase the writer instead partitions BRC messages
-    by their ``metadata['slice_id']`` and writes one file per slice as
-    ``{identifier}-{phase}-{slice_id}.{md,json}`` (#2548).  The aggregate
-    ``{identifier}-implement.{md,json}`` file is no longer produced — this
-    is a hard switchover (D4); messages on the implement phase that lack a
-    slice_id metadata field are dropped with a warning.
+    For the ``implement`` phase the writer auto-detects slice-aware vs
+    aggregate mode (#2548):
+
+    * If at least one BRC message carries a canonical
+      ``metadata['slice_id']`` (validated against
+      ``SLICE_ID_PATTERN``), the writer partitions messages per-slice
+      and writes one file per slice as
+      ``{identifier}-implement-{slice_id}.{md,json}``. Messages lacking
+      a canonical slice_id are dropped with a single aggregate WARNING
+      (the orchestrator's CONSENSUS_* signal handlers tag every
+      implement-phase write under D4, so a missing slice_id is a
+      contract violation).
+    * If **no** BRC message carries a slice_id (babysit_pr and other
+      non-slice pipelines), the writer falls back to the aggregate
+      ``{identifier}-implement.{md,json}`` filename. This preserves
+      the documented babysit_pr artifact named in
+      ``skills/babysit-pr/SKILL.md``.
 
     No-ops gracefully when the message store is unavailable or contains no
     BRC messages for the pipeline and phase.
@@ -8322,12 +8333,15 @@ def _write_brc_history(
         return
 
     if phase == "implement":
-        # Implement-phase BRC messages are partitioned per-slice (#2548).
-        # The orchestrator attaches metadata['slice_id'] to every
-        # implement-phase BRC message; messages without one — or with a
-        # non-canonical value — are dropped with a warning under the
-        # hard-switchover policy (D4); there is no aggregate implement
-        # file to fall back into.
+        # Implement-phase BRC messages are partitioned per-slice (#2548)
+        # for slice-aware pipelines (issue mode with `contract.slices`):
+        # the orchestrator's signal handlers tag every implement-phase
+        # CONSENSUS_* message with `metadata['slice_id']`, and this writer
+        # buckets them into one transcript file per slice. Babysit_pr and
+        # other non-slice pipelines have no slice scope on any message,
+        # so they fall back to the aggregate `{identifier}-implement.{md,json}`
+        # filename (preserving the documented babysit_pr artifact named
+        # in `skills/babysit-pr/SKILL.md`).
         #
         # ``metadata['slice_id']`` is interpolated into the on-disk
         # filename below, so this is a gateway-facing seam in the same
@@ -8347,33 +8361,60 @@ def _write_brc_history(
             )
 
         buckets: dict[str, list[Any]] = {}
-        unattributed = 0
+        unattributed: list[Any] = []
         for msg in brc_messages:
             metadata = getattr(msg, "metadata", None) or {}
             raw_slice_id = metadata.get("slice_id") if isinstance(metadata, dict) else None
             if not isinstance(raw_slice_id, str) or not SLICE_ID_PATTERN.fullmatch(raw_slice_id):
-                unattributed += 1
+                unattributed.append(msg)
                 continue
             buckets.setdefault(raw_slice_id, []).append(msg)
 
+        if not buckets:
+            # No slice-attributed messages anywhere — this is a non-slice
+            # pipeline (babysit_pr or any other implement-phase run that
+            # never spawned slice scopes). Fall back to the aggregate
+            # `{identifier}-implement.{md,json}` filename so we never
+            # silently drop the entire BRC stream when no per-slice
+            # bucketing is possible. See #2548 reviewer_code_holistic
+            # finding #3.
+            logger.info(
+                "_write_brc_history: no slice-attributed implement-phase "
+                "messages — writing aggregate file (non-slice pipeline)",
+                pipeline_id=pipeline_id,
+                phase=phase,
+                total_brc_messages=len(brc_messages),
+            )
+            _write_brc_history_file(
+                worktree_path,
+                pipeline_id,
+                phase,
+                identifier,
+                brc_messages,
+            )
+            return
+
+        # Slice-aware pipeline: at least one canonical slice_id was
+        # observed. Drop any implement-phase messages that lack a
+        # canonical slice_id — under D4 hard-switchover the orchestrator
+        # is contracted to tag every implement-phase BRC write, so a
+        # missing/invalid slice_id is a contract violation worth a
+        # warning (and worth keeping the per-slice files clean of
+        # un-attributable noise). The drop is loud (single aggregate
+        # WARNING with the count and an example) so an operator notices
+        # the asymmetry rather than silently shipping a thinned-out
+        # transcript.
         if unattributed:
+            sample_types = sorted({str(getattr(m, "message_type", "")) for m in unattributed[:8]})
             logger.warning(
                 "_write_brc_history: dropped implement-phase BRC messages "
                 "without canonical metadata.slice_id (hard switchover, #2548)",
                 pipeline_id=pipeline_id,
                 phase=phase,
-                dropped_count=unattributed,
+                dropped_count=len(unattributed),
+                sample_message_types=sample_types,
+                attributed_count=sum(len(v) for v in buckets.values()),
             )
-
-        if not buckets:
-            logger.info(
-                "_write_brc_history: early return — no slice-attributed "
-                "BRC messages for implement phase",
-                pipeline_id=pipeline_id,
-                phase=phase,
-                total_brc_messages=len(brc_messages),
-            )
-            return
 
         for slice_id, slice_msgs in sorted(buckets.items()):
             _write_brc_history_file(
@@ -8675,7 +8716,18 @@ def _build_brc_history_link_line(
 
     canonical = [p.value for p in PipelinePhase]
     rank = {name: i for i, name in enumerate(canonical)}
-    phases.sort(key=lambda name: (rank.get(name, len(canonical)), name))
+
+    def _rank(name: str) -> int:
+        # Per-slice implement files (#2548) carry the stem
+        # ``implement-{slice_id}``; cluster them at the canonical
+        # ``implement`` rank so the rendered link order is
+        # refine → plan → implement[-slice-N] → pr instead of pushing
+        # the per-slice files past pr to the end of the list.
+        if name.startswith("implement-"):
+            return rank.get("implement", len(canonical))
+        return rank.get(name, len(canonical))
+
+    phases.sort(key=lambda name: (_rank(name), name))
 
     links = ", ".join(
         f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases
