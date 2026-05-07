@@ -3451,14 +3451,20 @@ class TestBuildRoleRestrictionsSection:
         concrete staging-path example is caught here.
         """
         section = _build_role_restrictions_section()
-        # Bare strings — both also occur elsewhere in the section.
+        # Bare-string assertions — these tokens also occur in the
+        # surrounding role-restrictions section (`.github/` is rendered
+        # in the plan-phase blocked-write list, `.github-staging/` is
+        # mentioned in the role-assignment paragraph, and `role: coder`
+        # appears in the role-assignment instruction). They confirm the
+        # tokens haven't been deleted from the section entirely but
+        # don't pin the staging-dir prose specifically.
         assert ".github-staging/" in section
         assert ".github/" in section
-        # Actionable guidance: the role assignment, a concrete staging
-        # path example, and the `.gitignore` warning. These are the
-        # things a planner needs to act on; a refactor that loses them
-        # would render the section informational rather than directive.
         assert "role: coder" in section
+        # Prose-pinning assertions: the concrete staging-path example
+        # and the `.gitignore` warning only appear in the staging-dir
+        # subsection. A refactor that drops the staging-dir prose will
+        # break here even if the bare-string tokens above survive.
         assert ".github-staging/workflows/ci.yml" in section
         assert ".gitignore" in section
 

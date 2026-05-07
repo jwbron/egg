@@ -525,6 +525,29 @@ class TestBuildPrBodyGithubStaging:
 
         assert "Move staged" not in body
 
+    def test_drops_step_when_staging_dir_is_symlink(self, tmp_path):
+        """When `.github-staging` itself is a symlink, no step is emitted.
+
+        ``Path.is_dir()`` follows symlinks, and the per-entry
+        ``is_symlink()`` guard only checks leaf components — so without
+        a guard on the staging dir itself, a malicious
+        ``.github-staging -> /etc`` would let ``rglob`` enumerate host
+        files into the manual-step file list. Regression-locks the
+        directory-as-symlink guard added alongside the per-entry one.
+        """
+        pipeline = _make_pipeline()
+        # Real directory with a regular file the rglob would otherwise pick up.
+        real_target = tmp_path / "real-target"
+        real_target.mkdir()
+        (real_target / "evil.yml").write_text("name: evil\n")
+        # `.github-staging` itself is a symlink to that directory.
+        (tmp_path / ".github-staging").symlink_to(real_target)
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged" not in body
+        assert "evil.yml" not in body
+
 
 class TestAutoCreatePr:
     """Tests for _auto_create_pr."""

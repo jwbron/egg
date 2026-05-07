@@ -8502,6 +8502,14 @@ def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
     Returns an empty string when `.github-staging/` is absent or empty.
     """
     staging_dir = worktree_repo_path / ".github-staging"
+    # Drop the whole step when ``.github-staging`` itself is a symlink:
+    # ``Path.is_dir()`` follows symlinks, so without this guard a
+    # ``.github-staging -> /etc`` (or any other host path) would let
+    # ``rglob`` enumerate the link target's files into the manual-step
+    # file list, polluting the PR body with arbitrary host-filesystem
+    # paths. Mirrors the per-entry symlink guard below.
+    if staging_dir.is_symlink():
+        return ""
     if not staging_dir.is_dir():
         return ""
 
@@ -10363,9 +10371,13 @@ def _build_file_boundary_section(role_value: str) -> str:
         lines.append("**Blocked:** " + ", ".join(f"`{p}`" for p in fa.blocked_write))
 
     # `.github/` staging-dir convention (issue #2508). Surfaced for the
-    # coder role specifically because it's the only producer whose
-    # catch-all allowlist reaches `.github-staging/`; other roles can't
-    # write the staged files even via the convention.
+    # coder role specifically because it's the producer that's expected
+    # to initiate `.github/` work. The role-pattern check
+    # (``startswith(".github/")``) doesn't match `.github-staging/`, so
+    # autofixer / conflict_resolver allowlists technically reach the
+    # staging path too — but those roles are reactive and aren't asked
+    # to plan new `.github/` changes, so the convention's planning-time
+    # guidance only needs to land for coder.
     if role_value == "coder":
         lines.append("")
         lines.append(
