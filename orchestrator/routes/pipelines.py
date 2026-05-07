@@ -4579,17 +4579,22 @@ def _get_plan_review_criteria() -> str:
         "- Are documentation updates included where needed?\n"
         "- Are there any obvious gaps or missing tasks?\n\n"
         "### 8. Task Role ↔ Files Alignment (deterministic, see #2527)\n"
-        "- If a **Structural Role-Alignment Check** section appears below, "
-        "every entry there is a deterministic finding from the same "
-        "blocked-pattern logic the gateway enforces at push time.\n"
-        "- Each listed task would fail at push with "
-        "`403 restricted_path_modified` if implemented as assigned.\n"
-        "- **Treat any entry as blocking**: flag the plan as "
-        "`needs_revision` (or NACK in concurrent mode) and quote the errors "
-        "verbatim in your feedback so the planner re-emits the plan with "
-        "corrected `role:` fields.\n"
-        "- The absence of that section means the automated check found no "
-        "violations — task-role assignments are not a blocking issue.\n"
+        "- Task role↔files alignment is enforced **orchestrator-side** at "
+        "`CONSENSUS_PROPOSE`: a planner proposal whose task `role:` "
+        "assignments cannot push their `files:` (per "
+        "`shared/egg_restrictions/patterns.py`, the same blocklist the "
+        "gateway uses) is rejected with HTTP 400 before this prompt is "
+        "ever rendered. By the time you see a proposal, structural "
+        "role↔files alignment is therefore already validated — no manual "
+        "check is required for this dimension.\n"
+        "- If you want belt-and-suspenders verification, you can run the "
+        "validator yourself against the proposed plan: "
+        '`python3 -c "from egg_contracts.plan_parser import parse_plan_file, '
+        "validate_task_role_alignment as v; r = parse_plan_file('<plan-path>'); "
+        "print('\\n'.join(v(r.to_contract_slices())))\"`. "
+        "Errors here would predict a push-time `403 "
+        "restricted_path_modified` — NACK the planner and quote the "
+        "structured errors verbatim if any surface.\n"
     )
 
 
@@ -5763,78 +5768,6 @@ def _render_contract_tasks(
     return "\n".join(lines) if len(lines) > 1 else None
 
 
-def _build_role_alignment_check_section(
-    repo_path: str | None,
-    draft_rel: str | None,
-) -> str:
-    """Build the plan reviewer's "Structural Role-Alignment Check" section.
-
-    Runs ``validate_task_role_alignment`` against the parsed plan draft and
-    formats any violations for inclusion in the reviewer prompt. Returns
-    an empty string when the draft is unavailable, the plan parses to no
-    slices, or the validator reports no violations — in which case the
-    section is omitted from the prompt entirely.
-
-    The check mirrors the gateway's push-time blocked-pattern enforcement
-    (see ``shared/egg_contracts/plan_parser.py::validate_task_role_alignment``
-    and ``gateway/phase_filter.py::FileRestriction.is_file_blocked``), so
-    a violation surfaced here predicts a push-time
-    ``403 restricted_path_modified`` before any producer cycle is wasted
-    (issue #2527).
-    """
-    if not repo_path or not draft_rel:
-        return ""
-    try:
-        from egg_contracts.plan_parser import (
-            parse_plan,
-            validate_task_role_alignment,
-        )
-    except ImportError:
-        return ""
-    plan_file = Path(repo_path) / draft_rel
-    try:
-        if not plan_file.exists():
-            return ""
-        result = parse_plan(plan_file.read_text())
-    except Exception as parse_err:  # noqa: BLE001
-        logger.debug(
-            "plan reviewer role-alignment check: parse failed",
-            draft=str(plan_file),
-            error=str(parse_err),
-        )
-        return ""
-    if not result.success:
-        return ""
-    try:
-        slices = result.to_contract_slices()
-        errors = validate_task_role_alignment(slices)
-    except Exception as validator_err:  # noqa: BLE001
-        logger.debug(
-            "plan reviewer role-alignment check: validator failed",
-            draft=str(plan_file),
-            error=str(validator_err),
-        )
-        return ""
-    if not errors:
-        return ""
-
-    lines = [
-        "## Structural Role-Alignment Check",
-        "",
-        "An automated check ran against the plan's task→role assignments using "
-        "the same blocked-pattern logic the gateway enforces at push time "
-        "(`shared/egg_restrictions/patterns.py`). The following tasks would "
-        "fail at push with `403 restricted_path_modified` if implemented as "
-        "assigned. **NACK the plan and quote these errors verbatim in your "
-        "feedback so the planner re-emits the plan with corrected roles.**",
-        "",
-    ]
-    for err in errors:
-        lines.append(f"- {err}")
-    lines.append("")
-    return "\n".join(lines)
-
-
 def _build_review_prompt(
     phase: str,
     pipeline_id: str,
@@ -5999,15 +5932,6 @@ def _build_review_prompt(
     lines.append("## Review Criteria\n")
     lines.append(_get_review_criteria_for_type(reviewer_type, phase, repo_path=repo_path))
     lines.append("")
-
-    # Structural role-alignment check for plan reviewers (issue #2527).
-    # Surfaces deterministic role-vs-files violations the LLM reviewer
-    # otherwise would not catch; section is emitted only when violations
-    # exist, so a clean plan keeps the prompt unchanged.
-    if reviewer_type == "plan":
-        role_alignment_section = _build_role_alignment_check_section(repo_path, draft_path)
-        if role_alignment_section:
-            lines.append(role_alignment_section)
 
     # Review conventions — quality standards aligned with PR reviewer thoroughness
     lines.append("## Review Conventions\n")

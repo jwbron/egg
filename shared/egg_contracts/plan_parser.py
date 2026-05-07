@@ -56,12 +56,15 @@ Parse Failure Handling:
 
 from __future__ import annotations
 
+import posixpath
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+from egg_restrictions.matchers import match_pattern
+from egg_restrictions.patterns import AGENT_PATTERNS
 
 from .agent_roles import EXECUTION_ROLE_VALUES
 from .models import Slice, SliceStatus, Task, TaskStatus
@@ -1286,11 +1289,6 @@ def _is_file_blocked_for_role(role: str, file_path: str) -> bool:
     gateway's check intentionally consults only blocked + block-exempt
     patterns (not allowed_patterns), and so does this function.
     """
-    import posixpath
-
-    from egg_restrictions.matchers import match_pattern
-    from egg_restrictions.patterns import AGENT_PATTERNS
-
     pattern = AGENT_PATTERNS.get(role)
     if pattern is None:
         return False
