@@ -734,6 +734,41 @@ class TestCopyRepoWatchFilesEdgeCases:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert not manifest_path.exists()
 
+    def test_warns_when_watch_files_not_list(self, tmp_path):
+        """Malformed build_commands.watch_files surfaces as a host-side warn,
+        not a silent skip. Without this, a yaml typo (e.g. ``watch_files:
+        package-lock.json`` instead of a list) silently drops the repo from
+        both the copy step and the manifest, producing an image with no
+        per-repo build steps and no log line. Regression guard: a future
+        refactor that strips the warn back to a bare ``continue`` should
+        fail this test.
+        """
+        from egg_lib.docker import populate_build_context
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": "not-a-list",
+                        "commands": ["make"],
+                    }
+                }
+            },
+        }
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with (
+            patch("egg_lib.docker._load_repos_config", return_value=config),
+            patch("egg_lib.docker.warn") as mock_warn,
+        ):
+            populate_build_context(build_dir / "repo-deps", quiet=True)
+
+        assert any(
+            "watch_files and commands must be lists" in call.args[0]
+            for call in mock_warn.call_args_list
+        ), f"expected malformed-list warn, got: {mock_warn.call_args_list}"
+
     def test_multiple_repos_copy_separately(self, tmp_path):
         """Watch files from multiple repos are copied to separate directories."""
         from egg_lib.docker import populate_build_context

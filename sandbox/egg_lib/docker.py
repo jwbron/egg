@@ -230,6 +230,14 @@ def populate_build_context(target_dir: Path, quiet: bool = False) -> None:
             # is silently dropped from both the watch-file copy step and
             # (via repos_with_local_path) the manifest, producing an
             # image with no per-repo build steps and no log line.
+            #
+            # Intentionally NOT gated on ``quiet``: this is operator
+            # misconfiguration, not a recoverable per-file condition like
+            # "watch file not found" or "local path not found". The other
+            # warns in this function are quiet-gated because tests run with
+            # quiet=True to suppress expected per-file noise; a malformed
+            # build_commands block is a config bug we want surfaced
+            # regardless.
             warn(f"build_commands: skipping {repo_name} — watch_files and commands must be lists")
             continue
         if not commands:
