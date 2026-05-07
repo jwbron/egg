@@ -31,7 +31,7 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         setup deps venv sync-venv-if-uv sandbox-deps install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
         test test-all test-record-good security \
-        test-integration test-e2e test-security smoketest-long-poll \
+        test-integration test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
         k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import
@@ -63,9 +63,8 @@ help:
 	@echo "  make lint-actions       - Actionlint (requires actionlint)"
 	@echo "  make lint-custom        - Project-specific check scripts"
 	@echo ""
-	@echo "Integration tests (requires Docker):"
+	@echo "Integration tests (requires k3s):"
 	@echo "  make test-integration   - Run integration tests"
-	@echo "  make test-e2e           - Run E2E tests (requires API keys)"
 	@echo "  make test-security      - Run security/pentesting tests"
 	@echo ""
 	@echo "Auto-fix (modifies local files):"
@@ -387,16 +386,12 @@ security: sync-venv-if-uv
 	fi
 
 # ============================================================================
-# Integration tests (native — requires Docker)
+# Integration tests (native — requires k3s; see docs/guides/testing.md)
 # ============================================================================
 
 test-integration: export PYTHONPATH := shared
-test-integration: venv  ## Run integration tests (requires Docker)
+test-integration: venv  ## Run integration tests on k3s (cross-module regressions)
 	$(PYTEST) integration_tests -v -m integration --timeout=300
-
-test-e2e: export PYTHONPATH := shared
-test-e2e: venv  ## Run E2E tests (requires API keys)
-	$(PYTEST) integration_tests -v -m e2e --timeout=600
 
 test-security: export PYTHONPATH := shared
 test-security: venv  ## Run security/pentesting tests
