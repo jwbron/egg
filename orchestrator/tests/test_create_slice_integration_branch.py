@@ -726,6 +726,243 @@ class TestCreateSliceIntegrationBranchRestartRecovery:
         assert fetch_calls[0][0] == ("+refs/heads/egg/issue-1:refs/remotes/origin/egg/issue-1")
 
 
+class TestIsSliceBranchMergedIntoParent:
+    """#2549 — detect whether a slice's PR has already merged into its
+    parent. This is the inverse of the #2512 restart-recovery check:
+    when ``existing_sha`` (slice tip on origin) is reachable from
+    ``parent_sha`` (parent tip on origin), the slice's commits are
+    already in the parent and any attempt to (re)create the slice's
+    integration branch via ``parent_sha:refs/heads/<slice>`` would be
+    rejected as non-fast-forward.
+
+    The bootstrap reconciliation pass and the run-loop race-protection
+    check in ``routes/pipelines._run_implement_phase_slices`` both rely
+    on this signal — a False from here lets the slice run normally; a
+    True short-circuits the slice to COMPLETE.
+    """
+
+    def _setup_remotes(self, parent_sha: str | None, existing_sha: str | None):
+        def fake_get_remote_branch_sha(pipeline_id, repo_path, ref, **kwargs):
+            if ref.endswith("/slice-1"):
+                return existing_sha
+            return parent_sha
+
+        return fake_get_remote_branch_sha
+
+    def test_returns_true_when_slice_tip_is_ancestor_of_parent(self, gateway_client):
+        """The literal #2549 repro: slice-1 PR was merged into the
+        work branch; the slice-1 ref still exists on origin at its
+        pre-merge tip, and the work tip now has the merge commit on
+        top. ``existing_sha`` is reachable from ``parent_sha`` →
+        merged → True."""
+        parent_sha = "f3c16e3b" * 5  # work tip after merge
+        existing_sha = "ea591ec1" * 5  # pre-merge slice-1 tip
+
+        merge_base_calls: list[dict] = []
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/execute":
+                merge_base_calls.append(dict(data or {}))
+                # existing IS reachable from parent → returncode 0 → True
+                return {"success": True, "data": {"returncode": 0}}
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=self._setup_remotes(parent_sha, existing_sha),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            merged = gateway_client.is_slice_branch_merged_into_parent(
+                "issue-2474-v2",
+                "/repo",
+                integration_branch="egg/issue-2474-v2/slice-1",
+                parent_branch="egg/issue-2474-v2/work",
+            )
+
+        assert merged is True
+        assert len(merge_base_calls) == 1
+        mb = merge_base_calls[0]
+        assert mb["args"] == ["--is-ancestor", existing_sha, parent_sha], (
+            "ancestry direction is the inverse of #2512: existing must be "
+            "ancestor of parent, signalling 'slice merged into parent'"
+        )
+
+    def test_returns_false_when_slice_tip_diverged_from_parent(self, gateway_client):
+        """Genuinely diverged history (slice has commits parent doesn't,
+        or vice versa) → not merged. Caller falls through to the regular
+        create path so origin's rejection (if any) surfaces normally."""
+        parent_sha = "deadbeef" * 5
+        existing_sha = "feedface" * 5
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/execute":
+                # not-ancestor → returncode 1
+                raise GatewayError(
+                    "git merge-base failed",
+                    status_code=500,
+                    details={"returncode": 1, "stdout": "", "stderr": ""},
+                )
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=self._setup_remotes(parent_sha, existing_sha),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            merged = gateway_client.is_slice_branch_merged_into_parent(
+                "p",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert merged is False
+
+    def test_returns_false_when_integration_branch_absent(self, gateway_client):
+        """First-run / branch-deleted case: ``ls-remote`` returns no
+        SHA for the integration branch → can't be merged → False.
+        Crucially does NOT run merge-base (no SHA to compare)."""
+        parent_sha = "abc12345" * 5
+
+        merge_base_calls: list[dict] = []
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/execute":
+                merge_base_calls.append(dict(data or {}))
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=self._setup_remotes(parent_sha, existing_sha=None),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            merged = gateway_client.is_slice_branch_merged_into_parent(
+                "p",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert merged is False
+        assert merge_base_calls == [], (
+            "must not run merge-base when one of the SHAs is unresolvable"
+        )
+
+    def test_returns_false_when_parent_branch_absent(self, gateway_client):
+        """If the parent branch can't be resolved on origin we have
+        nothing to compare against — return False rather than guess."""
+        existing_sha = "feedface" * 5
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=self._setup_remotes(parent_sha=None, existing_sha=existing_sha),
+            ),
+            patch.object(gateway_client, "_make_request", return_value={"success": True}),
+        ):
+            merged = gateway_client.is_slice_branch_merged_into_parent(
+                "p",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert merged is False
+
+    def test_returns_false_when_branches_equal(self, gateway_client):
+        """Tips equal → no-op state, neither merged nor diverged. Let
+        the caller fall through to the regular fast-forward no-op path."""
+        sha = "cafebabe" * 5
+
+        merge_base_calls: list[dict] = []
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/execute":
+                merge_base_calls.append(dict(data or {}))
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(gateway_client, "get_remote_branch_sha", return_value=sha),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            merged = gateway_client.is_slice_branch_merged_into_parent(
+                "p",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert merged is False
+        assert merge_base_calls == [], "no merge-base when tips are equal"
+
+    def test_session_cleaned_up_on_success_and_failure(self, gateway_client):
+        """The synthetic session must be deleted via ``delete_session``
+        on both the success path and any exception path — symmetric
+        with ``create_slice_integration_branch``."""
+        parent_sha = "deadbeef" * 5
+        existing_sha = "feedface" * 5
+
+        delete_calls: list = []
+
+        def _delete(token):
+            delete_calls.append(token)
+            return True
+
+        # Force an exception in merge-base so we exercise the failure path.
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            raise RuntimeError("kaboom")
+
+        with (
+            patch.object(
+                gateway_client, "register_session", return_value=_session_info("merged-tok")
+            ),
+            patch.object(gateway_client, "delete_session", side_effect=_delete),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=self._setup_remotes(parent_sha, existing_sha),
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            merged = gateway_client.is_slice_branch_merged_into_parent(
+                "p",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert merged is False
+        assert delete_calls == ["merged-tok"], (
+            "synthetic session must be cleaned up even when the call raises"
+        )
+
+
 class TestShaIsAncestor:
     """Unit tests for the ``_sha_is_ancestor`` helper that backs the
     #2512 restart-recovery detection."""
