@@ -46,6 +46,17 @@ FIELD_OWNERSHIP: dict[str, FieldOwner] = {
     # Task status: shared between implementer (mark done during implementation)
     # and reviewer (validate/override during review)
     "phases.*.tasks.*.status": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
+    # Task role: owned by the orchestrator (SYSTEM) so impasse-driven
+    # delegation (#2529) can mutate ``role`` to the producer the agent
+    # suggested. Producers must not rewrite their own role mid-flight —
+    # the suggestion is encoded in the ``Impasse`` payload they emit and
+    # applied by the orchestrator after the phase exits, not by the
+    # agent itself.
+    "phases.*.tasks.*.role": Role.SYSTEM,
+    # Delegation counter: bumped by the orchestrator alongside any
+    # role-flip so a second impasse on the same task escalates to HITL
+    # instead of looping forever.
+    "phases.*.tasks.*.delegation_attempts": Role.SYSTEM,
     # Phase commit: implementer links a commit SHA to the phase
     "phases.*.commit": Role.IMPLEMENTER,
     # Phase status: shared between implementer (mark done after completing all

@@ -127,15 +127,19 @@ class TestToolCountAndNamespaces:
     """Derived assertions locked here so the integration suite trips on
     silent drift.
 
-    Count is **29** — ``mcp__brc__wait_for_event`` and
+    Count is **31** — ``mcp__brc__wait_for_event`` and
     ``mcp__brc__wait_loop`` were removed in #2211 (long-poll waits don't
     fit the in-process SDK MCP transport's ~60 s tool-call cap; agents
     now use ``egg-orch message wait`` / ``wait-loop`` via Bash).
     ``mcp__brc__resolve_obligation`` was added in #2338 to mark a
     conditional-ACK obligation satisfied in-cycle.
+    ``mcp__sdlc__check_file_restriction`` and
+    ``mcp__sdlc__report_impasse`` were added in #2529 for the runtime
+    escape-hatch — the agent self-checks role/file boundaries and
+    emits a typed Impasse instead of inventing workarounds.
     """
 
-    EXPECTED_TOOL_COUNT = 29
+    EXPECTED_TOOL_COUNT = 31
 
     def test_tool_count(self):
         assert len(TOOL_LIST) == self.EXPECTED_TOOL_COUNT

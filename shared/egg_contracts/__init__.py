@@ -121,6 +121,10 @@ from .hitl import (
     start_debounce,
     update_comment_with_countdown,
 )
+from .impasse import (
+    Impasse,
+    ImpasseCategory,
+)
 from .loader import (
     ContractNotFoundError,
     ContractValidationError,
@@ -251,6 +255,8 @@ __all__ = [
     "DecisionType",
     "DeferredAction",
     "HumanReviewMechanism",
+    "Impasse",
+    "ImpasseCategory",
     "PhaseConfig",
     # Roles
     "FIELD_OWNERSHIP",
