@@ -307,10 +307,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Where in the stack should the context PR sit (and what should slice-1's PR base be)?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Context PR base=main, slice-1 base=egg/<id>/context (slice-1 stacks on context; context merges first to main, then slices cascade-merge)",
+        "Context PR base=main, slice-1 base=egg/<id>/work (context PR is a side-channel docs PR; slice stack is unchanged)",
+        "No context PR; instead retarget egg/<id>/work itself to be the merge target on main (slice-N terminal merges into work, then a final 'merge work to main' PR is opened automatically)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-07T17:59:53.844088Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-07T17:25:23.537637Z",
-  "updated_at": "2026-05-07T17:59:53.820920Z",
+  "updated_at": "2026-05-07T17:59:53.849438Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -324,6 +343,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-07T17:42:04.525601Z",
-  "version": 26,
+  "version": 27,
   "jira_ticket": null
 }
