@@ -24,8 +24,10 @@ def test_unmatched_path_returns_none() -> None:
         (".egg-state/agent-anchors/coder.json", "mcp__sdlc__update_anchor"),
         (".egg-state/drafts/plan.md", "different agent role"),
         (".egg-state/reviews/code.md", "different agent role"),
-        (".github/workflows/ci.yml", "owned by infrastructure"),
-        (".github/CODEOWNERS", "owned by infrastructure"),
+        # Issue #2508: hint points agents at the `.github-staging/`
+        # convention so a 403 here becomes self-correcting.
+        (".github/workflows/ci.yml", ".github-staging/"),
+        (".github/CODEOWNERS", ".github-staging/"),
         ("docs/index.md", "documenter role"),
         ("README.md", "documenter role"),
         ("orchestrator/foo/README.md", "documenter role"),
