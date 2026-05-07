@@ -165,8 +165,13 @@ separate surface (phase mounts, not role restrictions) and is kept in sync with
   (`**/*_test.py`, `**/test_*.py`, `**/*_test.go`, `**/test_*.go`,
   `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`),
   `**/conftest.py` (tester's scope); `.egg-state/` (pipeline state);
-  plus a defense-in-depth block on `.github/` (CI workflows and
-  CODEOWNERS — preserves the branch-protection invariant).
+  plus a block on `.github/` (CI workflows, CODEOWNERS, dependabot
+  config — branch-protection invariant). To propose `.github/` changes,
+  write the end-state to `.github-staging/` mirroring the `.github/`
+  structure (e.g. stage `.github/workflows/ci.yml` as
+  `.github-staging/workflows/ci.yml`); the PR builder auto-emits a
+  manual step asking the human reviewer to move the files before merge
+  ([#2508](https://github.com/jwbron/egg/issues/2508)).
   `sandbox/scripts/` is **writable** — the gateway is the sole egress
   chokepoint, so credential-shim modifications are reviewed by
   `reviewer_security` rather than blocked at the role-pattern layer.
@@ -205,8 +210,14 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
   `**/conftest.py`; plus the tester-relevant pin files
   `.python-version`, `**/*.lock`, `**/requirements*.txt`; and
   `.egg-state/agent-outputs/`.
-- Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope) and
-  `.egg-state/contracts/` (pipeline state). Source code and config
+- Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope);
+  `.egg-state/contracts/` (pipeline state); and `.github/`
+  (branch-protection invariant — the tester's `allowed_patterns` does
+  not cover `.yml` / `.yaml` / `.json`, so the tester also has no write
+  access under `.github-staging/`. A CI fix or test-fixture change
+  uncovered during testing must be handed off to the coder via
+  `HANDOFF` rather than staged directly — the same pattern the coder
+  uses to hand off test files to the tester). Source code and config
   files outside tests are out of scope by definition — the coder owns
   them (everything not listed in this section or the documenter's).
 
@@ -214,7 +225,7 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
 - Test file commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data (includes lint/type-check results and gaps found)
 
-**Directed coordination**: The tester may receive `HANDOFF` messages from the coder when role boundaries prevent the coder from pushing test files. On receiving a HANDOFF, sync the worktree (`git fetch origin && git merge origin/<branch> --no-edit`), review the coder's guidance, and create the test files. Acknowledge via a `STATUS` or `PROGRESS` message back. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
+**Directed coordination**: The tester may receive `HANDOFF` messages from the coder when role boundaries prevent the coder from pushing test files. On receiving a HANDOFF, sync the worktree (`git fetch origin && git merge origin/<branch> --no-edit`), review the coder's guidance, and create the test files. Acknowledge via a `STATUS` or `PROGRESS` message back. The tester also *sends* `HANDOFF` messages to the coder in the reverse direction — when a CI fix or `.github/` change is uncovered during testing (e.g. a workflow needs a new step to run a regression), the tester describes the required end-state in the HANDOFF body and the coder stages it under `.github-staging/`. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
 
 **Prompt context**: Summarized background, coder handoff data, task list.
 
@@ -229,10 +240,13 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
 - Blocked: all source and implementation file extensions (`**/*.py`,
   `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`,
   `**/*.rb`, `**/*.rs`), all test directories (`tests/`, `test/`,
-  `**/tests/`, `**/test/`), and `.egg-state/contracts/`. Source-code
-  markdown that is functional (e.g. `sandbox/agent-config/rules/*.md`,
-  `sandbox/agent-config/commands/*.md`, `skills/**/*.md`) is owned by
-  the coder via block exemptions, not the documenter.
+  `**/tests/`, `**/test/`), `.egg-state/contracts/`, and `.github/`
+  (branch-protection invariant — even markdown under `.github/` such as
+  `PULL_REQUEST_TEMPLATE.md` must use the `.github-staging/`
+  convention). Source-code markdown that is functional (e.g.
+  `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md`,
+  `skills/**/*.md`) is owned by the coder via block exemptions, not the
+  documenter.
 
 **Outputs**:
 - Documentation commits on the worktree branch
@@ -319,7 +333,9 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
 
 **File access**:
 - Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `.egg-state/agent-outputs/`
-- Blocked: `docs/`, `**/*.md`, `.egg-state/contracts/`
+- Blocked: `docs/`, `**/*.md`, `.egg-state/contracts/`, `.github/`
+  (branch-protection invariant — even a workflow auto-fix must use the
+  `.github-staging/` convention)
 
 **Outputs**:
 - Commits with auto-fix changes on the worktree branch
@@ -333,7 +349,9 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
 
 **File access**:
 - Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `Procfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `tests/`, `test/`, `**/tests/`, `**/test/`, `docs/`, `**/*.md`, `.egg-state/agent-outputs/`
-- Blocked: `.egg-state/` (contracts, drafts, reviews, pipelines)
+- Blocked: `.egg-state/` (contracts, drafts, reviews, pipelines);
+  `.github/` (branch-protection invariant — conflict resolutions
+  touching workflow files must use the `.github-staging/` convention)
 
 **Outputs**:
 - Conflict resolution commits on the worktree branch
