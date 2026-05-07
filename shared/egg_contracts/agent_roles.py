@@ -336,6 +336,23 @@ DOCUMENTER_ROLE = AgentRoleDefinition(
 )
 
 # Plan-phase agent role definitions
+# Plan-phase agents (architect, task_planner, risk_analyst) share a
+# blocked_write list mirroring ``_PLAN_AGENT_BLOCKED`` in
+# ``shared/egg_restrictions/patterns.py``. Keeping the two views in
+# lockstep is the invariant issue #2532 closed; using a shared constant
+# eliminates one future drift surface within ``agent_roles.py`` itself.
+_PLAN_AGENT_BLOCKED_WRITE = [
+    "**/*.py",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.js",
+    "**/*.jsx",
+    "**/*.go",
+    "**/*.java",
+    ".egg-state/contracts/",
+    # Issue #2532: parity with _PLAN_AGENT_BLOCKED in patterns.py — see #2508 / #2521.
+    ".github/",
+]
 
 ARCHITECT_ROLE = AgentRoleDefinition(
     role=AgentRole.ARCHITECT,
@@ -355,16 +372,7 @@ ARCHITECT_ROLE = AgentRoleDefinition(
             ".egg-state/drafts/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=[
-            "**/*.py",
-            "**/*.ts",
-            "**/*.tsx",
-            "**/*.js",
-            "**/*.jsx",
-            "**/*.go",
-            "**/*.java",
-            ".egg-state/contracts/",
-        ],
+        blocked_write=_PLAN_AGENT_BLOCKED_WRITE,
     ),
     produces_outputs=["architecture_analysis", "technical_decisions"],
     requires_inputs=[],
@@ -388,16 +396,7 @@ TASK_PLANNER_ROLE = AgentRoleDefinition(
             ".egg-state/drafts/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=[
-            "**/*.py",
-            "**/*.ts",
-            "**/*.tsx",
-            "**/*.js",
-            "**/*.jsx",
-            "**/*.go",
-            "**/*.java",
-            ".egg-state/contracts/",
-        ],
+        blocked_write=_PLAN_AGENT_BLOCKED_WRITE,
     ),
     produces_outputs=["task_breakdown", "acceptance_criteria"],
     requires_inputs=["architecture_analysis"],
@@ -421,16 +420,7 @@ RISK_ANALYST_ROLE = AgentRoleDefinition(
             ".egg-state/drafts/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=[
-            "**/*.py",
-            "**/*.ts",
-            "**/*.tsx",
-            "**/*.js",
-            "**/*.jsx",
-            "**/*.go",
-            "**/*.java",
-            ".egg-state/contracts/",
-        ],
+        blocked_write=_PLAN_AGENT_BLOCKED_WRITE,
     ),
     can_run_in_parallel=True,  # Can run in parallel with task_planner
     produces_outputs=["risk_assessment", "mitigation_plan"],
@@ -488,6 +478,8 @@ _REVIEWER_BLOCKED_WRITE = [
     "test/",
     ".egg-state/contracts/",
     ".egg-state/drafts/",
+    # Issue #2532: parity with _REVIEWER_BLOCKED in patterns.py — see #2508 / #2521.
+    ".github/",
 ]
 
 REVIEWER_CODE_ROLE = AgentRoleDefinition(
@@ -551,6 +543,8 @@ _REVIEWER_CONTRACT_BLOCKED_WRITE = [
     "tests/",
     "test/",
     ".egg-state/drafts/",
+    # Issue #2532: parity with _REVIEWER_CONTRACT_BLOCKED in patterns.py — see #2508 / #2521.
+    ".github/",
 ]
 
 REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
