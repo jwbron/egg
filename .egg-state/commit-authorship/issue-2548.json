@@ -237,6 +237,13 @@
       "registered_at": "2026-05-07T18:35:00.891135+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
+    },
+    "fea608d2e2375e14961d706978a01cd184a51b81": {
+      "branch": "egg/issue-2548/slice-2",
+      "pipeline_id": "issue-2548",
+      "registered_at": "2026-05-07T19:53:48.966450+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code_holistic"
     }
   },
   "version": 1
