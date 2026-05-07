@@ -8363,8 +8363,10 @@ def _write_brc_history(
         buckets: dict[str, list[Any]] = {}
         unattributed: list[Any] = []
         for msg in brc_messages:
-            metadata = getattr(msg, "metadata", None) or {}
-            raw_slice_id = metadata.get("slice_id") if isinstance(metadata, dict) else None
+            # ``Message.metadata`` is a Pydantic dict[str, Any] field with a
+            # default_factory=dict (message_store.Message), so it is always a
+            # dict at this point — no need to guard with getattr/isinstance.
+            raw_slice_id = msg.metadata.get("slice_id")
             if not isinstance(raw_slice_id, str) or not SLICE_ID_PATTERN.fullmatch(raw_slice_id):
                 unattributed.append(msg)
                 continue
@@ -8416,7 +8418,14 @@ def _write_brc_history(
                 attributed_count=sum(len(v) for v in buckets.values()),
             )
 
-        for slice_id, slice_msgs in sorted(buckets.items()):
+        # Natural sort by the integer suffix so a 12-slice pipeline iterates
+        # `slice-1, slice-2, ..., slice-12` rather than the lexicographic
+        # `slice-1, slice-10, slice-11, slice-12, slice-2`. Every key is
+        # already SLICE_ID_PATTERN-validated (`^slice-[0-9]+$`) above, so the
+        # int() parse is total.
+        for slice_id, slice_msgs in sorted(
+            buckets.items(), key=lambda kv: int(kv[0].rsplit("-", 1)[1])
+        ):
             _write_brc_history_file(
                 worktree_path,
                 pipeline_id,
@@ -8717,17 +8726,26 @@ def _build_brc_history_link_line(
     canonical = [p.value for p in PipelinePhase]
     rank = {name: i for i, name in enumerate(canonical)}
 
-    def _rank(name: str) -> int:
-        # Per-slice implement files (#2548) carry the stem
-        # ``implement-{slice_id}``; cluster them at the canonical
-        # ``implement`` rank so the rendered link order is
-        # refine → plan → implement[-slice-N] → pr instead of pushing
-        # the per-slice files past pr to the end of the list.
-        if name.startswith("implement-"):
-            return rank.get("implement", len(canonical))
-        return rank.get(name, len(canonical))
+    # Per-slice implement files (#2548) carry the stem
+    # ``implement-slice-{N}``; cluster them at the canonical ``implement``
+    # rank so the rendered link order is
+    # ``refine → plan → implement[-slice-N] → pr`` instead of pushing
+    # the per-slice files past pr to the end of the list. Within the
+    # implement cluster, sort by the integer slice index so a 12-slice
+    # pipeline renders ``slice-1, slice-2, …, slice-12`` rather than
+    # the lexicographic ``slice-1, slice-10, slice-11, slice-12, slice-2``.
+    def _sort_key(name: str) -> tuple[int, int, str]:
+        if name == "implement":
+            return (rank["implement"], -1, "")
+        if name.startswith("implement-slice-"):
+            try:
+                idx = int(name.rsplit("-", 1)[1])
+            except ValueError:
+                idx = 1 << 30  # malformed → sort last within cluster
+            return (rank["implement"], idx, name)
+        return (rank.get(name, len(canonical)), 0, name)
 
-    phases.sort(key=lambda name: (_rank(name), name))
+    phases.sort(key=_sort_key)
 
     links = ", ".join(
         f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases
