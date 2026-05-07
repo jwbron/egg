@@ -250,10 +250,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "How should the implement-phase BRC consensus history be split so each slice PR carries its own slice's history?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Split file at write time: orchestrator writes to .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} (one per slice; no aggregate file)",
+        "Keep single .egg-state/brc-history/<id>-implement.{json,md} but also write per-slice files for slice PR diffs",
+        "Keep single file unchanged; rely on a per-slice 'view' rendered into the slice PR body (no per-slice .json/.md committed)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-07T17:59:53.758547Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-07T17:25:23.537637Z",
-  "updated_at": "2026-05-07T17:59:53.684880Z",
+  "updated_at": "2026-05-07T17:59:53.763938Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -267,6 +286,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-07T17:42:04.525601Z",
-  "version": 23,
+  "version": 24,
   "jira_ticket": null
 }
