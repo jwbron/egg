@@ -469,6 +469,23 @@ class TestSandboxEnvVarInjection:
             result = load_repo_pattern_override("owner/repo")
         assert result is None
 
+    def test_env_var_lookup_is_case_insensitive(self, monkeypatch):
+        from agent_restrictions import load_repo_pattern_override
+
+        # Snapshot key is mixed-case; query is lower-case. Both should
+        # resolve, mirroring ``get_repo_setting``'s case-insensitive
+        # lookup and the ``_normalize_repo_key`` cache key.
+        monkeypatch.setenv(
+            "EGG_PIPELINE_REPO_PATTERNS_JSON",
+            json.dumps({"Owner/Go-Repo": {"tests_globs": ["**/*_test.go"]}}),
+        )
+        with patch(
+            "config.repo_config.get_repo_role_patterns",
+            side_effect=AssertionError("filesystem lookup should not run"),
+        ):
+            result = load_repo_pattern_override("owner/go-repo")
+        assert result == {"tests_globs": ["**/*_test.go"]}
+
     def test_pattern_lookup_uses_env_var_override(self, monkeypatch):
         # End-to-end: a sandbox-style env injection alters the registry
         # that ``get_agent_pattern_for_repo`` returns, without any
@@ -537,7 +554,7 @@ class TestConfigValidationLogging:
             "config.repo_config.get_repo_setting",
             return_value={"tests_glob": ["**/*_test.go"]},  # typo
         ):
-            with caplog.at_level("WARNING", logger="config.repo_config"):
+            with caplog.at_level("WARNING", logger="egg.repo_config"):
                 result = get_repo_role_patterns("owner/repo")
         assert result is None
         joined = " ".join(r.message for r in caplog.records)
@@ -551,7 +568,7 @@ class TestConfigValidationLogging:
             "config.repo_config.get_repo_setting",
             return_value={"tests_globs": 42},
         ):
-            with caplog.at_level("WARNING", logger="config.repo_config"):
+            with caplog.at_level("WARNING", logger="egg.repo_config"):
                 result = get_repo_role_patterns("owner/repo")
         assert result is None
         joined = " ".join(r.message for r in caplog.records)
@@ -564,7 +581,7 @@ class TestConfigValidationLogging:
             "config.repo_config.get_repo_setting",
             return_value={"tests_globs": ["**/*_test.go", None, ""]},
         ):
-            with caplog.at_level("WARNING", logger="config.repo_config"):
+            with caplog.at_level("WARNING", logger="egg.repo_config"):
                 result = get_repo_role_patterns("owner/repo")
         # The valid entry is kept; the None/"" entries are dropped with
         # warnings.

@@ -5676,7 +5676,7 @@ def _build_role_restrictions_section(repo: str | None = None) -> str:
     Returns:
         Formatted markdown string describing role file boundaries.
     """
-    from egg_restrictions.patterns import build_agent_patterns
+    from egg_restrictions.patterns import get_agent_patterns_for_repo
 
     lines: list[str] = [
         "## Execution Role File Restrictions",
@@ -5687,7 +5687,7 @@ def _build_role_restrictions_section(repo: str | None = None) -> str:
         "",
     ]
 
-    patterns_by_role = build_agent_patterns(repo)
+    patterns_by_role = get_agent_patterns_for_repo(repo)
     for role_name in ("coder", "tester", "documenter"):
         pattern = patterns_by_role.get(role_name)
         if pattern is None:

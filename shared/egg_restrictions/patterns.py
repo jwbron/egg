@@ -862,7 +862,18 @@ def load_repo_pattern_override(repo: str) -> dict[str, list[str]] | None:
             )
             decoded = None
         if isinstance(decoded, dict):
-            entry = decoded.get(repo)
+            # Match the case-insensitive lookup used by ``get_repo_setting``
+            # and the per-repo cache key, so a developer hand-setting the
+            # env var with one case and querying with another still hits.
+            normalized_repo = repo.lower()
+            entry = next(
+                (
+                    v
+                    for k, v in decoded.items()
+                    if isinstance(k, str) and k.lower() == normalized_repo
+                ),
+                None,
+            )
             if isinstance(entry, dict):
                 cleaned: dict[str, list[str]] = {}
                 for key in ("tests_globs", "code_globs", "docs_globs"):

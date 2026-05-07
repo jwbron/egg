@@ -39,7 +39,8 @@ from typing import Any, cast
 
 import yaml
 
-logger = logging.getLogger(__name__)
+_LOGGER_NAME = "egg.repo_config"
+logger = logging.getLogger(_LOGGER_NAME)
 
 
 def _get_config_path() -> Path:
