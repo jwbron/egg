@@ -261,9 +261,12 @@ class TestImportOrderingRegression:
         from pathlib import Path
 
         # Resolve the repo's ``shared/`` directory from this file's location:
-        # tests/ → egg_contracts/ → shared/. The gateway boots with
-        # ``PYTHONPATH=shared`` (see scripts/start-gateway.sh), so this
-        # mirrors that surface — no orchestrator/, no gateway/.
+        # tests/ → egg_contracts/ → shared/. The gateway runs
+        # ``python3 gateway.py`` with ``PYTHONPATH=/app`` (see
+        # gateway/Dockerfile:99 and gateway/entrypoint.sh:286) where
+        # shared/ modules are copied to /app/ (see
+        # gateway/Dockerfile:70-75). ``PYTHONPATH=shared`` mirrors that
+        # import surface — no orchestrator/, no gateway/.
         shared_dir = Path(__file__).resolve().parents[2]
         env = {**os.environ, "PYTHONPATH": str(shared_dir)}
 
