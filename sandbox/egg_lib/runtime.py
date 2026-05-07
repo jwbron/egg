@@ -687,7 +687,10 @@ def exec_in_new_container(
 
     # Check repository configuration - warn but continue if missing
     if not _get_repos_config_file().exists():
-        warn("No repositories configured. Run 'egg --setup' to add repositories.")
+        warn(
+            "No repositories configured. Copy config/repositories.yaml.example "
+            "to ~/.config/egg/repositories.yaml to add repositories."
+        )
         warn("Continuing with no mounted repositories...")
 
     # Compose-based service bring-up was removed in #1762; operators
@@ -789,7 +792,10 @@ def exec_in_new_container(
                 f"  1. Gateway sidecar is running: curl http://localhost:{GATEWAY_PORT}/api/v1/health"
             )
             error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
-            error("  Fix: Re-run 'egg --setup' to sync secrets")
+            error(
+                "  Fix: ensure ~/.config/egg/launcher-secret matches "
+                "the gateway's EGG_LAUNCHER_SECRET (regenerate via setup.py if needed)"
+            )
             return False
     else:
         # repo_mode is required since PR #669 - all containers need sessions

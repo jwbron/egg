@@ -221,7 +221,7 @@ Each `build_commands` entry has:
 7. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` copies `persist_dirs` directories into the mounted repo (skipping files that already exist)
 
 **Key properties:**
-- Repos without `build_commands` are skipped — only the empty `.empty` marker is written for them
+- Repos without `build_commands` are skipped — they get no entry in `repo-deps/`. If no repos have `build_commands` and no `extra_packages` are configured, `repo-deps/.empty` is written so the Dockerfile `COPY` step still has a valid source.
 - Docker layer caching is the only rebuild trigger; unchanged watch files mean unchanged image
 - `persist_dirs` is for repo-relative directories (e.g., `node_modules`); `persist_system_dirs` is for absolute-path system installations (e.g., `/usr/local/go`)
 - Changing `persist_dirs` or `persist_system_dirs` alone does not trigger a rebuild — add or modify a `watch_files` entry, or run `make build --no-cache` (or `docker build --no-cache` for the sandbox image)

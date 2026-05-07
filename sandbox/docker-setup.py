@@ -247,7 +247,9 @@ def load_build_commands_manifest(
                 continue
             result.append(entry)
         return result
-    except json.JSONDecodeError, OSError:
+    except json.JSONDecodeError:
+        return []
+    except OSError:
         return []
 
 
@@ -277,7 +279,9 @@ def load_extra_packages_manifest(
         if not isinstance(dnf, list):
             dnf = []
         return [str(p) for p in apt], [str(p) for p in dnf]
-    except json.JSONDecodeError, OSError:
+    except json.JSONDecodeError:
+        return [], []
+    except OSError:
         return [], []
 
 
@@ -464,6 +468,13 @@ def persist_build_dirs(
             # jwbron/egg's uv and Khan/webapp's node land in /usr/local/bin).
             # Skip files an earlier repo's persist already placed — first
             # writer wins. Mirrors entrypoint.py:restore_prebuilt_deps.
+            #
+            # symlinks=False is intentional: copytree recurses into directory
+            # symlinks (expanding them) but routes file entries (including file
+            # symlinks) through copy_function, where we handle existence-skip
+            # and re-create file symlinks via os.symlink(os.readlink(src), dst).
+            # That preserves relative file-symlink targets verbatim — e.g.
+            # /usr/local/bin/uv -> ../../... keeps working after restore.
             def _copy_skip_existing(src: str, dst: str, **kwargs: Any) -> None:
                 if os.path.exists(dst) or os.path.islink(dst):
                     return

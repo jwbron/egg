@@ -297,6 +297,21 @@ class TestGetLocalRepoPath:
 class TestCopyRepoWatchFiles:
     """Tests for populate_build_context."""
 
+    def test_refuses_target_dir_not_named_repo_deps(self, tmp_path):
+        """Footgun guard: refuse to rmtree a target whose basename != repo-deps."""
+        import pytest
+        from egg_lib.docker import populate_build_context
+
+        bad_target = tmp_path / "important-data"
+        bad_target.mkdir()
+        (bad_target / "do-not-delete.txt").write_text("precious")
+
+        with pytest.raises(ValueError, match="must be named 'repo-deps'"):
+            populate_build_context(bad_target, quiet=True)
+
+        # Pre-existing content must remain untouched.
+        assert (bad_target / "do-not-delete.txt").read_text() == "precious"
+
     def test_copies_watch_files(self, tmp_path):
         """Copies watch files from local repos to build context."""
         from egg_lib.docker import populate_build_context
@@ -677,8 +692,15 @@ class TestCopyRepoWatchFilesEdgeCases:
         # Stale directory should be removed
         assert not stale_dir.exists()
 
-    def test_writes_manifest_when_no_watch_files_copied(self, tmp_path):
-        """Writes manifest.json even when no watch files are copyable (local path not found)."""
+    def test_skips_manifest_entry_when_local_path_unresolved(self, tmp_path):
+        """No manifest entry for a repo whose local path can't be found.
+
+        Without a local path the watch-files dir won't exist in the build
+        context, so emitting a manifest entry would only surface as a
+        downstream RuntimeError from docker-setup.py:run_build_commands
+        (``watch files directory ... does not exist``). The host already
+        warned at populate-time; keep that as the single source of truth.
+        """
 
         from egg_lib.docker import populate_build_context
 
@@ -701,16 +723,13 @@ class TestCopyRepoWatchFilesEdgeCases:
         with patch("egg_lib.docker._load_repos_config", return_value=config):
             populate_build_context(build_dir / "repo-deps", quiet=True)
 
-        # Manifest should still be written so build commands execute during Docker build
+        # No manifest entry => either .empty or no manifest at all. With no
+        # extra_packages and no buildable repos, populate falls back to .empty.
+        assert (build_dir / "repo-deps" / ".empty").exists()
         manifest_path = build_dir / "repo-deps" / "manifest.json"
-        assert manifest_path.exists()
-        manifest = json.loads(manifest_path.read_text())
-        build_commands = manifest["build_commands"]
-        assert len(build_commands) == 1
-        assert build_commands[0]["repo"] == "org/unknown-repo"
-        assert build_commands[0]["commands"] == ["pip install -r req.txt"]
-        # .empty should NOT exist since manifest was written
-        assert not (build_dir / "repo-deps" / ".empty").exists()
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text())
+            assert manifest["build_commands"] == []
 
     def test_multiple_repos_copy_separately(self, tmp_path):
         """Watch files from multiple repos are copied to separate directories."""

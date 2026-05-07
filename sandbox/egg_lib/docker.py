@@ -199,11 +199,22 @@ def populate_build_context(target_dir: Path, quiet: bool = False) -> None:
 
     repo_deps_dir = target_dir
 
+    # Footgun guard: this function rmtrees its target. The Makefile passes
+    # ``./repo-deps``, but the script is a public entry point and a stray
+    # argument like ``/home/user/important-data`` would otherwise be wiped.
+    # Refuse anything whose final segment isn't ``repo-deps``.
+    if repo_deps_dir.name != "repo-deps":
+        raise ValueError(
+            f"populate_build_context refuses to operate on {repo_deps_dir!s}: "
+            f"target directory must be named 'repo-deps' (got {repo_deps_dir.name!r})"
+        )
+
     # Clean up old contents to avoid stale files
     if repo_deps_dir.exists():
         shutil.rmtree(repo_deps_dir, ignore_errors=True)
 
     has_any = False
+    repos_with_local_path: set[str] = set()
 
     for repo_name, settings in repo_settings.items():
         if not isinstance(settings, dict):
@@ -224,6 +235,8 @@ def populate_build_context(target_dir: Path, quiet: bool = False) -> None:
             if not quiet:
                 warn(f"build_commands: local path not found for {repo_name}, skipping watch files")
             continue
+
+        repos_with_local_path.add(repo_name)
 
         # Copy watch files
         repo_dir_name = repo_name.replace("/", "--")
@@ -288,6 +301,13 @@ def populate_build_context(target_dir: Path, quiet: bool = False) -> None:
             continue
         commands = build_cmds.get("commands", [])
         if not isinstance(commands, list) or not commands:
+            continue
+        # Skip repos whose local path wasn't found above. The host already
+        # warned; emitting a manifest entry here would surface as a
+        # downstream RuntimeError from docker-setup.py:run_build_commands
+        # (watch files dir missing) which is just noise for the same root
+        # cause. Keep the host warning as the single source of truth.
+        if repo_name not in repos_with_local_path:
             continue
         watch_files = build_cmds.get("watch_files", [])
         if not isinstance(watch_files, list):
