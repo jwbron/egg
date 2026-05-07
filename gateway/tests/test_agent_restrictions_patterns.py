@@ -250,6 +250,23 @@ class TestCoderRole:
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/coder-out.json") is True
 
+    def test_cannot_write_github_dir(self, pattern):
+        """Coder is blocked from `.github/` (branch-protection invariant)."""
+        assert pattern.can_write(".github/workflows/ci.yml") is False
+        assert pattern.can_write(".github/CODEOWNERS") is False
+
+    def test_can_write_github_staging_dir(self, pattern):
+        """Coder can write to `.github-staging/` (issue #2508 staging convention).
+
+        The `.github/` blocked prefix is matched via ``startswith(".github/")``,
+        which doesn't match `.github-staging/...`, so the catch-all
+        ``**`` allowlist reaches it. The PR builder turns staged files
+        into a manual step asking the human reviewer to move them
+        into `.github/` before merge.
+        """
+        assert pattern.can_write(".github-staging/workflows/ci.yml") is True
+        assert pattern.can_write(".github-staging/CODEOWNERS") is True
+
     def test_can_write_python_version(self, pattern):
         """Coder can write .python-version (common project config)."""
         assert pattern.can_write(".python-version") is True
@@ -376,6 +393,20 @@ class TestCoderBlocklistComplement1901:
     def test_blocks_github_codeowners(self, pattern):
         """.github/ is blocked (branch-protection invariant)."""
         assert pattern.can_write(".github/CODEOWNERS") is False
+
+    def test_allows_github_staging_workflow(self, pattern):
+        """`.github-staging/` is the staging-dir convention from issue #2508.
+
+        The `.github/` blocked prefix is matched via ``startswith(".github/")``,
+        which does not match `.github-staging/...` — so the catch-all
+        ``**`` allowlist reaches the staging dir. This regression-locks
+        that behavior so the convention keeps working.
+        """
+        assert pattern.can_write(".github-staging/workflows/ci.yml") is True
+
+    def test_allows_github_staging_codeowners(self, pattern):
+        """Staging-dir convention covers extensionless files like CODEOWNERS."""
+        assert pattern.can_write(".github-staging/CODEOWNERS") is True
 
     def test_allows_license(self, pattern):
         assert pattern.can_write("LICENSE") is True
@@ -615,6 +646,23 @@ class TestDocumenterRole:
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/doc-out.json") is True
 
+    def test_cannot_write_github_dir_md(self, pattern):
+        """Documenter is blocked from markdown under `.github/` (issue #2508).
+
+        Without the `.github/` block, the documenter's ``**/*.md``
+        allow would let it rewrite ``.github/PULL_REQUEST_TEMPLATE.md``,
+        ``.github/ISSUE_TEMPLATE.md``, etc. — bypassing the
+        branch-protection invariant the staging convention preserves.
+        """
+        assert pattern.can_write(".github/PULL_REQUEST_TEMPLATE.md") is False
+        assert pattern.can_write(".github/ISSUE_TEMPLATE.md") is False
+
+    def test_cannot_write_github_dir_codeowners(self, pattern):
+        """Even non-markdown under `.github/` is blocked — the documenter
+        couldn't reach CODEOWNERS via its allowlist anyway, but the
+        block makes the invariant explicit."""
+        assert pattern.can_write(".github/CODEOWNERS") is False
+
 
 class TestArchitectRole:
     """Verify architect agent can only write drafts and agent-outputs."""
@@ -802,6 +850,18 @@ class TestAutofixerRole:
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/autofixer-out.json") is True
 
+    def test_cannot_write_github_workflows(self, pattern):
+        """Autofixer is blocked from `.github/` (issue #2508).
+
+        Without this block, the autofixer's ``**/*.yml`` allow would
+        let it rewrite ``.github/workflows/ci.yml`` directly when
+        applying a YAML lint fix — bypassing the branch-protection
+        invariant the staging convention preserves.
+        """
+        assert pattern.can_write(".github/workflows/ci.yml") is False
+        assert pattern.can_write(".github/workflows/test.yaml") is False
+        assert pattern.can_write(".github/dependabot.yml") is False
+
 
 class TestConflictResolverRole:
     """Verify conflict resolver agent can/cannot write expected files."""
@@ -880,6 +940,19 @@ class TestConflictResolverRole:
 
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/resolver-out.json") is True
+
+    def test_cannot_write_github_dir(self, pattern):
+        """Conflict resolver is blocked from `.github/` (issue #2508).
+
+        Without this block, resolving a merge conflict that touches
+        ``.github/workflows/*.yml`` or ``.github/CODEOWNERS`` would
+        commit the resolution directly into `.github/` and push it,
+        bypassing the branch-protection invariant the staging
+        convention preserves.
+        """
+        assert pattern.can_write(".github/workflows/ci.yml") is False
+        assert pattern.can_write(".github/CODEOWNERS") is False
+        assert pattern.can_write(".github/PULL_REQUEST_TEMPLATE.md") is False
 
 
 class TestAllRolesRegistered:

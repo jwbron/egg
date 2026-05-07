@@ -206,11 +206,22 @@ CODER_ROLE = AgentRoleDefinition(
             "**/*.yaml",
             "**/*.json",
             ".egg-state/agent-outputs/",  # For handoff data
+            # Issue #2508: staging dir for proposed `.github/` changes.
+            # `.github/` itself is blocked below; the agent stages the
+            # proposed end-state here and the PR builder emits a manual
+            # step asking the human reviewer to move the files into
+            # `.github/` before merge.
+            ".github-staging/",
         ],
         blocked_write=[
             "docs/",  # Documenter handles docs
             "**/README.md",  # Documenter handles READMEs
             ".egg-state/contracts/",  # Contracts are managed by API
+            # Issue #2508: branch-protection invariant — agents cannot
+            # push to `.github/` directly. Use `.github-staging/` (above)
+            # to propose CI workflow / CODEOWNERS changes for human
+            # review.
+            ".github/",
         ],
     ),
     produces_outputs=["changed_files", "commits"],
@@ -271,6 +282,11 @@ TESTER_ROLE = AgentRoleDefinition(
             "**/README.md",
             "**/*.md",
             ".egg-state/contracts/",
+            # Issue #2508: branch-protection invariant — even a
+            # tester-applied auto-fix to `.github/workflows/*.yml` must
+            # go through the `.github-staging/` convention so a human
+            # reviewer moves it in before merge.
+            ".github/",
         ],
     ),
     produces_outputs=["test_files", "coverage_report", "gaps_found", "check_results"],
@@ -306,6 +322,12 @@ DOCUMENTER_ROLE = AgentRoleDefinition(
             "**/*.java",
             "tests/",  # Cannot modify tests
             ".egg-state/contracts/",
+            # Issue #2508: branch-protection invariant — even markdown
+            # files under `.github/` (PULL_REQUEST_TEMPLATE.md,
+            # ISSUE_TEMPLATE.md, etc.) must go through the
+            # `.github-staging/` convention so a human reviewer moves
+            # them in before merge.
+            ".github/",
         ],
     ),
     can_run_in_parallel=True,  # Can run in parallel with tester
@@ -794,6 +816,11 @@ AUTOFIXER_ROLE = AgentRoleDefinition(
             "docs/",
             "**/*.md",
             ".egg-state/contracts/",
+            # Issue #2508: branch-protection invariant — even an
+            # auto-fix to `.github/workflows/*.yml` must go through the
+            # `.github-staging/` convention so a human reviewer moves
+            # it in before merge.
+            ".github/",
         ],
     ),
     produces_outputs=["autofix_report", "fixed_files"],
@@ -857,6 +884,11 @@ CONFLICT_RESOLVER_ROLE = AgentRoleDefinition(
             ".egg-state/pipelines/",
             ".egg-state/reviews/",
             ".egg-state/oversight/",
+            # Issue #2508: branch-protection invariant — when resolving
+            # a conflict that touches a workflow / CODEOWNERS file, the
+            # resolution must go through the `.github-staging/`
+            # convention so a human reviewer moves it in before merge.
+            ".github/",
         ],
     ),
     produces_outputs=["conflict_report", "resolved_files"],

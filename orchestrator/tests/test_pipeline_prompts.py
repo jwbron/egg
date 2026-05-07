@@ -3439,6 +3439,35 @@ class TestBuildRoleRestrictionsSection:
         section = _build_role_restrictions_section()
         assert "## Execution Role File Restrictions" in section
 
+    def test_includes_github_staging_convention(self):
+        """Section documents the `.github-staging/` staging convention (issue #2508).
+
+        Without this guidance, the planner schedules `.github/`-touching tasks
+        that no producer role can actually push, leading to silent
+        slice-failure as observed on the issue-2474 pipeline.
+
+        Asserts the actionable guidance in addition to the bare strings, so
+        a future refactor that drops the role-assignment instruction or the
+        concrete staging-path example is caught here.
+        """
+        section = _build_role_restrictions_section()
+        # Bare-string assertions — these tokens also occur in the
+        # surrounding role-restrictions section (`.github/` is rendered
+        # in the plan-phase blocked-write list, `.github-staging/` is
+        # mentioned in the role-assignment paragraph, and `role: coder`
+        # appears in the role-assignment instruction). They confirm the
+        # tokens haven't been deleted from the section entirely but
+        # don't pin the staging-dir prose specifically.
+        assert ".github-staging/" in section
+        assert ".github/" in section
+        assert "role: coder" in section
+        # Prose-pinning assertions: the concrete staging-path example
+        # and the `.gitignore` warning only appear in the staging-dir
+        # subsection. A refactor that drops the staging-dir prose will
+        # break here even if the bare-string tokens above survive.
+        assert ".github-staging/workflows/ci.yml" in section
+        assert ".gitignore" in section
+
 
 class TestTaskPlannerRoleRestrictions:
     """Tests for task_planner prompt including role restrictions."""

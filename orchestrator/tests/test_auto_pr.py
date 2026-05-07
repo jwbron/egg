@@ -404,6 +404,151 @@ class TestBuildPrBodyFallbackBanner:
         assert ".egg-state/drafts/42-plan.md" in body
 
 
+class TestBuildPrBodyGithubStaging:
+    """Tests for the `.github-staging/` auto-step in _build_pr_body (issue #2508).
+
+    Producer agents are blocked from `.github/` by role patterns. The
+    convention introduced in #2508 has agents stage proposed `.github/`
+    changes under top-level `.github-staging/`; the PR builder detects
+    them and emits a manual step asking the human reviewer to move the
+    files into `.github/` before merge.
+    """
+
+    def test_no_step_when_staging_dir_absent(self, tmp_path):
+        """No manual step when `.github-staging/` does not exist."""
+        pipeline = _make_pipeline()
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert ".github-staging" not in body
+        assert "Move staged" not in body
+
+    def test_no_step_when_staging_dir_empty(self, tmp_path):
+        """No manual step when `.github-staging/` exists but contains no files."""
+        pipeline = _make_pipeline()
+        (tmp_path / ".github-staging").mkdir()
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged" not in body
+
+    def test_emits_step_when_staging_dir_has_files(self, tmp_path):
+        """Manual step lists each staged file and tells reviewer to move them."""
+        pipeline = _make_pipeline()
+        staging = tmp_path / ".github-staging"
+        (staging / "workflows").mkdir(parents=True)
+        (staging / "workflows" / "test-e2e.yml").write_text("name: e2e\n")
+        (staging / "CODEOWNERS").write_text("* @team\n")
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "## Manual Steps" in body
+        assert "Move staged `.github/` changes" in body
+        assert "`.github-staging/workflows/test-e2e.yml`" in body
+        assert "`.github-staging/CODEOWNERS`" in body
+        assert "git mv" in body
+
+    def test_step_merged_with_planner_manual_steps(self, tmp_path):
+        """Planner-supplied manual_steps and the auto step share one section."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        contract = _make_contract_json()
+        contract["pr"]["manual_steps"] = "Pre-merge: run db migration."
+        (contract_dir / "42.json").write_text(json.dumps(contract))
+        staging = tmp_path / ".github-staging" / "workflows"
+        staging.mkdir(parents=True)
+        (staging / "ci.yml").write_text("name: ci\n")
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        # Both the planner step and the auto step appear under one
+        # `## Manual Steps` heading (only one heading in the body).
+        assert body.count("## Manual Steps") == 1
+        assert "Pre-merge: run db migration." in body
+        assert "Move staged `.github/` changes" in body
+        assert "`.github-staging/workflows/ci.yml`" in body
+
+    def test_ignores_subdirectories_with_no_files(self, tmp_path):
+        """Empty subdirectories under `.github-staging/` don't emit the step."""
+        pipeline = _make_pipeline()
+        (tmp_path / ".github-staging" / "workflows").mkdir(parents=True)
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged" not in body
+
+    def test_drops_symlinks_from_staged_paths(self, tmp_path):
+        """Symlinks under `.github-staging/` are filtered out (issue #2508).
+
+        ``Path.is_file()`` follows symlinks, so without an explicit
+        ``is_symlink()`` guard a malicious staged file pointing at
+        ``/etc/passwd`` would survive into the manual-step file list,
+        the reviewer's `git mv` would preserve it, and `.github/...`
+        would land in the repo as a symlink. This test regression-locks
+        the guard so the helper stays the choke point.
+        """
+        pipeline = _make_pipeline()
+        staging = tmp_path / ".github-staging" / "workflows"
+        staging.mkdir(parents=True)
+        # Real file alongside a symlink — only the real file should
+        # appear in the rendered step.
+        (staging / "ci.yml").write_text("name: ci\n")
+        target = tmp_path / "outside-target.yml"
+        target.write_text("name: outside\n")
+        (staging / "evil-symlink.yml").symlink_to(target)
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged `.github/` changes" in body
+        assert "`.github-staging/workflows/ci.yml`" in body
+        # The symlink must NOT be surfaced — it would pass `is_file()`
+        # but the guard above drops it before the rel-path is recorded.
+        assert "evil-symlink.yml" not in body
+
+    def test_drops_step_when_only_symlinks_staged(self, tmp_path):
+        """When `.github-staging/` contains only symlinks, no step is emitted.
+
+        Mirrors :meth:`test_no_step_when_staging_dir_empty` for the
+        symlink-only case — the symlink-filter must not leave the
+        helper in a state where it emits a header with an empty file
+        list.
+        """
+        pipeline = _make_pipeline()
+        staging = tmp_path / ".github-staging"
+        staging.mkdir()
+        target = tmp_path / "outside-target.yml"
+        target.write_text("name: outside\n")
+        (staging / "only-symlink.yml").symlink_to(target)
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged" not in body
+
+    def test_drops_step_when_staging_dir_is_symlink(self, tmp_path):
+        """When `.github-staging` itself is a symlink, no step is emitted.
+
+        ``Path.is_dir()`` follows symlinks, and the per-entry
+        ``is_symlink()`` guard only checks leaf components — so without
+        a guard on the staging dir itself, a malicious
+        ``.github-staging -> /etc`` would let ``rglob`` enumerate host
+        files into the manual-step file list. Regression-locks the
+        directory-as-symlink guard added alongside the per-entry one.
+        """
+        pipeline = _make_pipeline()
+        # Real directory with a regular file the rglob would otherwise pick up.
+        real_target = tmp_path / "real-target"
+        real_target.mkdir()
+        (real_target / "evil.yml").write_text("name: evil\n")
+        # `.github-staging` itself is a symlink to that directory.
+        (tmp_path / ".github-staging").symlink_to(real_target)
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged" not in body
+        assert "evil.yml" not in body
+
+
 class TestAutoCreatePr:
     """Tests for _auto_create_pr."""
 
