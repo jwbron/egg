@@ -1246,7 +1246,7 @@ class GatewayClient:
           fallback so this path stays at parity with the legacy
           single-PR renderer.
         * **Non-terminal slice** (no ``program_title``): deterministic
-          ``slice {slice_id}: {slice_name}`` title, bulleted task list
+          ``{slice_id}: {slice_name}`` title, bulleted task list
           body. When ``terminal_slice_id`` is supplied, the body also
           carries a pointer to the terminal slice so reviewers can
           jump to the umbrella PR. ``program_deferred_actions`` MUST
@@ -1264,7 +1264,7 @@ class GatewayClient:
             assert program_title is not None  # implied by has_program_block
             title = program_title.strip()
         else:
-            title = f"slice {slice_id}: {slice_name}".strip()
+            title = f"{slice_id}: {slice_name}".strip()
         if len(title) > 70:
             title = title[:67] + "..."
 
