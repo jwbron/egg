@@ -3134,16 +3134,82 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 f"Phase {phase} not found in pipeline {pipeline_id}", status_code=404
             )
 
-        # 1. Collect agent roles from the phase execution for respawning
-        agent_roles = []
+        # 1. Collect agent roles for respawning. Prefer the runtime cache
+        #    on ``phase_exec.agents`` since it reflects the roster from
+        #    the most recent spawn, but fall back to the deterministic
+        #    source the executor itself consults — ``pipeline.active_roles``
+        #    first (CUSTOM-mode / BABYSIT overrides, #1762), then
+        #    ``get_roles_for_phase`` for ISSUE-mode pipelines. Without
+        #    this fallback a restart whose clear step ran
+        #    (``phase_exec.agents = []`` below) but whose spawn step
+        #    failed leaves the pipeline unrecoverable: every subsequent
+        #    ``restart_phase`` 400s on the now-empty cache, and
+        #    ``start_pipeline`` 409s on the CANCELLED state (#2515).
+        agent_roles: list[AgentRole] = []
         for agent in phase_exec.agents:
             if hasattr(agent, "role"):
                 role = agent.role if isinstance(agent.role, AgentRole) else AgentRole(agent.role)
                 agent_roles.append(role)
 
         if not agent_roles:
-            return make_error_response(
-                f"No agents found in phase {phase} to restart", status_code=400
+            # Mirror ``_run_concurrent_phase`` exactly so the route's
+            # response (and the downstream worktree-delete / health-
+            # monitor reset) matches the roster the spawn will actually
+            # produce: when ``active_roles`` is set, use it verbatim
+            # and do NOT fall through to ``get_roles_for_phase``.
+            # Otherwise the all-unknown-override edge case would have
+            # the route promise a phase-default roster while the spawn
+            # produced nothing.
+            _roster_override = getattr(pipeline, "active_roles", None)
+            if _roster_override:
+                for r_value in _roster_override:
+                    try:
+                        agent_roles.append(AgentRole(r_value))
+                    except ValueError:
+                        # Unknown role from a newer schema — skip so
+                        # BRC doesn't wait on an unspawnable agent.
+                        continue
+            else:
+                try:
+                    from egg_contracts.agent_roles import (
+                        get_roles_for_phase as _get_roles_for_phase,
+                    )
+
+                    for r in _get_roles_for_phase(
+                        phase,
+                        include_reviewers=True,
+                        repo=pipeline.repo,
+                        has_contract=getattr(pipeline, "has_contract", True),
+                    ):
+                        try:
+                            agent_roles.append(AgentRole(r.value))
+                        except ValueError:
+                            continue
+                except Exception as exc:  # noqa: BLE001
+                    # Catch derivation failures so the route returns 400
+                    # rather than 500 — deliberate divergence from
+                    # ``_run_concurrent_phase`` (``pipelines.py:12813-12840``),
+                    # which lets the same failure propagate up the worker
+                    # thread. In a synchronous HTTP context an honest 400
+                    # ("No agents found") is more useful to the operator
+                    # than a 500.
+                    logger.warning(
+                        "restart_phase: failed to derive default roster fallback",
+                        pipeline_id=pipeline_id,
+                        phase=phase,
+                        error=str(exc),
+                    )
+
+            if not agent_roles:
+                return make_error_response(
+                    f"No agents found in phase {phase} to restart", status_code=400
+                )
+
+            logger.info(
+                "restart_phase: phase_exec.agents empty, derived roster from pipeline config",
+                pipeline_id=pipeline_id,
+                phase=phase,
+                agent_roles=[r.value for r in agent_roles],
             )
 
         # 2. Snapshot container IDs for teardown outside the lock
