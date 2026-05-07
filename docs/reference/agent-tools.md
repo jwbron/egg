@@ -175,7 +175,9 @@ Total: **31 tools** across 6 namespaces (`sdlc`, `brc`, `phase`,
 `progress`, `task`, `checkpoint`) — 18 iter-1 + 12 iter-2 (#1917) = 30,
 then −2 in #2211 (`wait_for_event` + `wait_loop` removed; long-poll
 waits go through `egg-orch message wait` / `wait-loop` via Bash), then
-+1 in #2338 (`resolve_obligation`). Covers the BRC consensus loop,
++1 in #2338 (`resolve_obligation`), then +2 in #2529
+(`check_file_restriction` + `report_impasse` — runtime escape
+hatch). Covers the BRC consensus loop,
 HITL (decisions + feedback + answers), phase context + completion,
 progress signals + overseer alerts + status queries, task completion
 + commits + notes + coverage-gaps, and checkpoint browsing — every
@@ -230,6 +232,8 @@ verbs are:
 - `mcp__phase__get_context` — no CLI; environment + filtered task list bundle.
 - `mcp__phase__get_assigned_tasks` — no CLI; filtered view over `egg-contract show`.
 - `mcp__task__mark_gap` — no CLI; tester→coder coverage-gap handoff is agent-to-agent.
+- `mcp__sdlc__check_file_restriction` — no CLI; pattern matching is pure CPU and the registry ships in the sandbox image — a CLI shim would just re-import the same module (decision-13 rationale in `handlers/restrictions.py`).
+- `mcp__sdlc__report_impasse` — no CLI; structured runtime signal that lives inside agent-output JSON — a parallel CLI write path would just risk drift with the MCP one (decision-13 rationale in `handlers/restrictions.py`).
 
 When adding a new `cli_command=None` verb, the handler docstring
 must explain the no-CLI rationale; CI fails otherwise.
