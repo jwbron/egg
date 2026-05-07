@@ -382,8 +382,8 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
    | Role                    | Phase                | Confirmed | Latest activity                              |
    |-------------------------|----------------------|-----------|----------------------------------------------|
    | coder                   | PROPOSED             | ✓         | re-proposed at 19:03:40, accepted            |
-   | tester                  | WORKING / REVIEWING  |           | writing TASK-1-2 tests against coder's diff  |
    | documenter              | PROPOSED             | ✓         | no-op attestation (slice-1 is code-only)     |
+   | tester                  | WORKING / REVIEWING  |           | writing TASK-1-2 tests against coder's diff  |
    | reviewer_code           | WORKING              |           | reviewing                                    |
    | reviewer_security       | CONFIRMED            | ✓         | ACK at 19:05:41                              |
 
@@ -506,7 +506,7 @@ When the pipeline uses concurrent agents (BRC protocol), each `wait-status` JSON
 
 | Column | Source |
 |--------|--------|
-| Role | Keys of `concurrent.consensus.agents`, sorted producers-first then reviewers. Use `concurrent.consensus.review_graph.producers` for the producer block and `review_graph.reviewers` for the reviewer block (both already alphabetical in the payload — `peer_consensus.evaluate()` sorts them in `ReviewGraph.to_dict()`). This generalizes across phases — refine has `refiner`, plan has `architect` / `task_planner` / `risk_analyst`, implement has `coder` / `tester` / `documenter`. Producer/reviewer is decidable from which of `producer_phase` / `reviewer_phase` is set on the agent entry; `review_graph` is the canonical source. |
+| Role | Keys of `concurrent.consensus.agents`, sorted producers-first then reviewers. Use `concurrent.consensus.review_graph.producers` for the producer block and `review_graph.reviewers` for the reviewer block (both already alphabetical in the payload — `peer_consensus.evaluate()` sorts them in `ReviewGraph.to_dict()`). **Skip any role from the reviewer block that already appeared in the producer block** — dual-role agents (`tester` is the canonical case, present in both lists for the implement graph) render once, in the producer block, with the combined phase per the Phase column rule below. This generalizes across phases — refine has `refiner`, plan has `architect` / `task_planner` / `risk_analyst`, implement has `coder` / `tester` / `documenter`. Producer/reviewer is decidable from which of `producer_phase` / `reviewer_phase` is set on the agent entry; `review_graph` is the canonical source. |
 | Phase | `producer_phase` for producers, `reviewer_phase` for reviewers. For dual-role agents (`tester` is the canonical case — both `producer_phase` and `reviewer_phase` set) render `<producer_phase> / <reviewer_phase>` (e.g. `WORKING / REVIEWING`). |
 | Confirmed | `✓` if `agents[role].confirmed` is true, blank otherwise. |
 | Latest activity | Free-form, derived from the **cached** `last_status.recent_messages` combined with any `messages[]` ferried by a `trigger: "message"` line — not a fresh `get_status` per emit. Pick the most recent entry where `from_role == role`; render its `subject` (truncated to ~50 chars). Fall back to `—` when the role hasn't sent any messages this phase. |
