@@ -2,13 +2,20 @@
 
 Provides:
 - LocalPipelineStack dataclass with gateway/orchestrator URLs
-- local_pipeline_stack (session-scoped): builds mock sandbox, starts compose,
-  waits for health, tears down
-- orchestrator_url / gateway_url (session-scoped): extracted from compose ports
-- wait_for_pipeline_terminal(): polls pipeline status until complete/failed/cancelled
+- local_pipeline_stack (session-scoped): runs against a Kubernetes (k3s)
+  cluster.  Expects gateway and orchestrator to already be deployed in
+  the egg-system namespace.
+- orchestrator_url / gateway_url / launcher_secret (session-scoped):
+  shortcuts derived from local_pipeline_stack
+- wait_for_pipeline_terminal(): polls pipeline status until
+  complete/failed/cancelled (re-exported from .helpers for backwards
+  compatibility with tests that imported it from conftest).
+
+Issue #2474 retired the docker-compose runtime; the only supported
+backend is k3s.  Tests skip with a clear message when ``kubectl`` is
+unavailable.
 """
 
-import json
 import os
 import secrets
 import shutil
@@ -19,19 +26,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from egg_config import GATEWAY_PORT
-from egg_config.constants import ORCHESTRATOR_PORT
 
-from tests.utils.gateway_client import docker_available, wait_for_healthy
+from tests.utils.gateway_client import wait_for_healthy
 
 # Project root (two levels up from integration_tests/local_pipeline/)
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-
-# Compose file for this test suite
-COMPOSE_FILE = Path(__file__).parent / "docker-compose.yml"
-
-# Mock sandbox build context
-MOCK_SANDBOX_DIR = Path(__file__).parent / "mock-sandbox"
 
 
 def _write_test_config(config_dir: str, launcher_secret: str) -> None:
@@ -94,25 +93,6 @@ class LocalPipelineStack:
 # Re-export wait_for_pipeline_terminal from helpers for backwards compatibility
 # with any tests that import it from conftest
 from .helpers import wait_for_pipeline_terminal  # noqa: E402, F401
-
-
-def _cleanup_orphaned_containers() -> None:
-    """Remove any leftover egg-sandbox containers from previous test runs."""
-    result = subprocess.run(
-        ["docker", "ps", "-a", "--filter", "name=egg-sandbox-egg-", "--format", "{{.Names}}"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    for name in result.stdout.strip().splitlines():
-        if name:
-            subprocess.run(
-                ["docker", "rm", "-f", name],
-                capture_output=True,
-                timeout=10,
-                check=False,
-            )
 
 
 def _kubectl_available() -> bool:
@@ -256,237 +236,19 @@ def _k8s_local_pipeline_stack() -> Generator[LocalPipelineStack]:
 
 @pytest.fixture(scope="session")
 def local_pipeline_stack() -> Generator[LocalPipelineStack]:
-    """Session-scoped fixture: build mock sandbox, start gateway+orchestrator.
+    """Session-scoped fixture: gateway+orchestrator running in Kubernetes (k3s).
 
-    Selects Kubernetes or Docker backend based on the EGG_RUNTIME env var.
+    Skips with a clear message if ``kubectl`` is not available — see
+    ``docs/guides/testing.md`` for the k3s-on-host setup recipe.
     """
-    runtime = os.environ.get("EGG_RUNTIME", "docker")
-
-    if runtime == "kubernetes" and _kubectl_available():
-        yield from _k8s_local_pipeline_stack()
-        return
-
-    if not docker_available():
-        pytest.skip("Docker is not available")
-
-    if not COMPOSE_FILE.exists():
-        pytest.skip("local_pipeline docker-compose.yml not found")
-
-    project_name = f"egg-lp-test-{os.getpid()}"
-    launcher_secret = secrets.token_urlsafe(32)
-
-    config_dir = tempfile.mkdtemp(prefix="egg-lp-test-config-")
-    repos_dir = tempfile.mkdtemp(prefix="egg-lp-test-repos-")
-    _write_test_config(config_dir, launcher_secret)
-
-    # Initialize a bare git repo so the orchestrator's state store works
-    subprocess.run(
-        ["git", "init", repos_dir],
-        capture_output=True,
-        check=True,
-        timeout=10,
-    )
-    subprocess.run(
-        ["git", "-C", repos_dir, "config", "user.name", "test"],
-        capture_output=True,
-        check=True,
-        timeout=10,
-    )
-    subprocess.run(
-        ["git", "-C", repos_dir, "config", "user.email", "test@test.com"],
-        capture_output=True,
-        check=True,
-        timeout=10,
-    )
-    # Add a fake origin remote so gateway push endpoint can resolve repo names
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            repos_dir,
-            "remote",
-            "add",
-            "origin",
-            "https://github.com/test-owner/test-repo.git",
-        ],
-        capture_output=True,
-        check=True,
-        timeout=10,
-    )
-    # Create initial commit so git operations work
-    Path(repos_dir, ".gitkeep").touch()
-    subprocess.run(
-        ["git", "-C", repos_dir, "add", "."],
-        capture_output=True,
-        check=True,
-        timeout=10,
-    )
-    subprocess.run(
-        ["git", "-C", repos_dir, "commit", "-m", "init", "--no-verify"],
-        capture_output=True,
-        check=True,
-        timeout=10,
-    )
-
-    # Generate docker-compose.override.yml with per-repo volume mounts
-    repo_name = "test-repo"
-    override_file = Path(config_dir) / "docker-compose.override.yml"
-    override_file.write_text(
-        f"# Auto-generated for testing\n"
-        f"services:\n"
-        f"  gateway:\n"
-        f"    volumes:\n"
-        f"      - {repos_dir}:/home/egg/repos/{repo_name}\n"
-        f"  orchestrator:\n"
-        f"    volumes:\n"
-        f"      - {repos_dir}:/home/egg/repos/{repo_name}\n"
-    )
-
-    env = {
-        **os.environ,
-        "COMPOSE_PROJECT_NAME": project_name,
-        "EGG_LAUNCHER_SECRET": launcher_secret,
-        "EGG_CONFIG_DIR": config_dir,
-        "EGG_HOST_REPO_MAP": json.dumps({repo_name: repos_dir}),
-        "HOST_UID": str(os.getuid()),
-        "HOST_GID": str(os.getgid()),
-        "GATEWAY_PORT": "0",
-        "PROXY_PORT": "0",
-        "ORCHESTRATOR_PORT": "0",
-    }
-
-    compose_cmd = [
-        "docker",
-        "compose",
-        "-f",
-        str(COMPOSE_FILE),
-        "-f",
-        str(override_file),
-        "-p",
-        project_name,
-    ]
-
-    try:
-        # Clean up any orphaned sandbox containers from previous test runs
-        # that might cause name conflicts
-        _cleanup_orphaned_containers()
-
-        # Build mock-sandbox image first
-        subprocess.run(
-            [
-                "docker",
-                "build",
-                "-t",
-                "mock-sandbox:latest",
-                str(MOCK_SANDBOX_DIR),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=True,
+    if not _kubectl_available():
+        pytest.skip(
+            "kubectl is not available or not connected to a cluster — "
+            "local pipeline integration tests require k3s "
+            "(see docs/guides/testing.md)"
         )
 
-        # Build and start the compose stack
-        result = subprocess.run(
-            [*compose_cmd, "up", "-d", "--build"],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=300,
-            check=False,
-        )
-        if result.returncode != 0:
-            pytest.fail(
-                f"docker compose up failed (exit {result.returncode}).\n"
-                f"STDOUT:\n{result.stdout[-3000:]}\n"
-                f"STDERR:\n{result.stderr[-3000:]}"
-            )
-
-        # Get mapped gateway port
-        port_result = subprocess.run(
-            [*compose_cmd, "port", "gateway", str(GATEWAY_PORT)],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-        gateway_host_port = port_result.stdout.strip().split(":")[-1]
-        gateway_url = f"http://localhost:{gateway_host_port}"
-
-        # Get mapped orchestrator port
-        port_result = subprocess.run(
-            [*compose_cmd, "port", "orchestrator", str(ORCHESTRATOR_PORT)],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-        orchestrator_host_port = port_result.stdout.strip().split(":")[-1]
-        orchestrator_url = f"http://localhost:{orchestrator_host_port}"
-
-        # Wait for gateway to become healthy
-        if not wait_for_healthy(gateway_url, timeout=120):
-            logs = subprocess.run(
-                [*compose_cmd, "logs", "gateway"],
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-            pytest.fail(
-                f"Gateway did not become healthy within 120s.\nLogs:\n{logs.stdout}\n{logs.stderr}"
-            )
-
-        # Wait for orchestrator to become healthy
-        if not wait_for_healthy(orchestrator_url, timeout=120):
-            logs = subprocess.run(
-                [*compose_cmd, "logs", "orchestrator"],
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-            pytest.fail(
-                f"Orchestrator did not become healthy within 120s.\n"
-                f"Logs:\n{logs.stdout}\n{logs.stderr}"
-            )
-
-        stack = LocalPipelineStack(
-            gateway_url=gateway_url,
-            orchestrator_url=orchestrator_url,
-            launcher_secret=launcher_secret,
-            compose_project=project_name,
-            config_dir=config_dir,
-            repos_dir=repos_dir,
-        )
-
-        yield stack
-
-    finally:
-        # Dump logs for debugging if tests fail
-        subprocess.run(
-            [*compose_cmd, "logs", "--tail", "100"],
-            env=env,
-            capture_output=False,
-            timeout=30,
-            check=False,
-        )
-
-        # Tear down
-        subprocess.run(
-            [*compose_cmd, "down", "-v", "--remove-orphans"],
-            env=env,
-            capture_output=True,
-            timeout=60,
-            check=False,
-        )
-
-        shutil.rmtree(config_dir, ignore_errors=True)
-        shutil.rmtree(repos_dir, ignore_errors=True)
+    yield from _k8s_local_pipeline_stack()
 
 
 @pytest.fixture(scope="session")

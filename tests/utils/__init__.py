@@ -20,7 +20,6 @@ from tests.utils.factories import (
 )
 from tests.utils.gateway_client import (
     GatewayClientMixin,
-    docker_available,
     wait_for_healthy,
 )
 
@@ -38,6 +37,5 @@ __all__ = [
     "assert_session_valid",
     # Gateway client utilities
     "GatewayClientMixin",
-    "docker_available",
     "wait_for_healthy",
 ]
