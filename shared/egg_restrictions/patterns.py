@@ -221,6 +221,8 @@ TESTER_PATTERNS = AgentFilePattern(
         "**/*.md",
         # Contracts
         ".egg-state/contracts/",
+        # Issue #2521: parity with TESTER_ROLE.blocked_write — see CODER_PATTERNS for rationale.
+        ".github/",
     ],
 )
 
