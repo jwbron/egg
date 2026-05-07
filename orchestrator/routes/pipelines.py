@@ -8324,23 +8324,42 @@ def _write_brc_history(
     if phase == "implement":
         # Implement-phase BRC messages are partitioned per-slice (#2548).
         # The orchestrator attaches metadata['slice_id'] to every
-        # implement-phase BRC message; messages without one are dropped
-        # with a warning under the hard-switchover policy (D4) — there is
-        # no aggregate implement file to fall back into.
+        # implement-phase BRC message; messages without one — or with a
+        # non-canonical value — are dropped with a warning under the
+        # hard-switchover policy (D4); there is no aggregate implement
+        # file to fall back into.
+        #
+        # ``metadata['slice_id']`` is interpolated into the on-disk
+        # filename below, so this is a gateway-facing seam in the same
+        # sense as ``signals.py`` / the restart route /
+        # ``concurrent_executor`` branch builders: every value MUST be
+        # validated against the canonical ``SLICE_ID_PATTERN`` before
+        # use, otherwise an attacker-controlled metadata blob (any role
+        # can post arbitrary metadata via ``messages.py``) could smuggle
+        # path separators into the filename and write outside
+        # ``.egg-state/brc-history/``. See ``slice_id_validation.py``
+        # for the invariant.
+        try:
+            from slice_id_validation import SLICE_ID_PATTERN
+        except ImportError:
+            from ..slice_id_validation import (  # type: ignore[no-redef]
+                SLICE_ID_PATTERN,
+            )
+
         buckets: dict[str, list[Any]] = {}
         unattributed = 0
         for msg in brc_messages:
             metadata = getattr(msg, "metadata", None) or {}
-            slice_id = metadata.get("slice_id") if isinstance(metadata, dict) else None
-            if not slice_id:
+            raw_slice_id = metadata.get("slice_id") if isinstance(metadata, dict) else None
+            if not isinstance(raw_slice_id, str) or not SLICE_ID_PATTERN.fullmatch(raw_slice_id):
                 unattributed += 1
                 continue
-            buckets.setdefault(str(slice_id), []).append(msg)
+            buckets.setdefault(raw_slice_id, []).append(msg)
 
         if unattributed:
             logger.warning(
                 "_write_brc_history: dropped implement-phase BRC messages "
-                "without metadata.slice_id (hard switchover, #2548)",
+                "without canonical metadata.slice_id (hard switchover, #2548)",
                 pipeline_id=pipeline_id,
                 phase=phase,
                 dropped_count=unattributed,
