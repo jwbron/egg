@@ -1,0 +1,383 @@
+{
+  "issue": 2548,
+  "phase": "plan",
+  "role": "risk_analyst",
+  "pipeline_id": "issue-2548",
+  "summary": "Risk assessment for the 'context PR + per-slice BRC history' restructure of the egg slice-PR train. The change is internal to the orchestrator + gateway + contract schema (no third-party dependency upgrades), so all risks are integration / invariant / operator-experience class. The HITL operator has selected hard-switchover (decision-4): no backwards compat, no backfill. That single choice dominates the risk surface — every legacy artifact, in-flight pipeline, and persisted contract that predates the change is on the operator's manual-cleanup list. The recommended posture is 'land behind a launch checklist that drains in-flight pipelines, ship the gateway allowlist update first, and gate any in-flight pipeline restart on a contract-schema reload pass'.",
+  "scope": {
+    "external_dependencies_changed": false,
+    "internal_change_only": true,
+    "research_notes": "Change is purely internal to egg's orchestrator/gateway/contract layers. No new PyPI deps, no SDK upgrades, no GH API surface changes (gh pr create call shape is unchanged — only base/head differ). External research (CVEs, deprecations) skipped per the role brief: 'Skip external research for purely internal changes.'"
+  },
+  "decision_inputs": {
+    "decision_1": "Dedicated context PR (egg/<id>/context branch)",
+    "decision_2": "Split BRC history at write time into per-slice files; no aggregate",
+    "decision_3": "Doc-only auto-open; no merge gate; not BRC-reviewed",
+    "decision_4": "Hard switchover — no backfill, no backwards compat",
+    "decision_5": "Context PR base = pipeline.base_branch (NOT hardcoded main); slice-1 base = egg/<id>/context",
+    "feedback_q1": "Work→main gap is in scope for #2548",
+    "feedback_q2": "New contract.pr.context_title / pr.context_description fields",
+    "feedback_q3": "Include agent transcripts (.egg-state/agent-outputs/<id>-refine-*.md, etc.)",
+    "feedback_q4": "Orchestrator-authored final commit on slice integration branches",
+    "feedback_q5": "Per-slice BRC only on slice PRs; no cross-slice aggregate file in repo"
+  },
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Gateway _SLICE_INTEGRATION_BRANCH_RE rejects egg/<id>/context push",
+      "category": "compatibility",
+      "subcategory": "gateway-policy",
+      "description": "Gateway's regex (gateway/gateway.py:1085) is `^egg/[A-Za-z0-9][A-Za-z0-9_-]*/(?:slice|phase)-\\d+$`. Branch name `egg/<id>/context` does not match the slice-or-phase suffix, so the synthetic-launcher push that creates the context branch will NOT receive the slice-integration exemption. The push falls through to the agent-session push enforcement (#2028) and is rejected. Symptom: orchestrator's context-branch creation step 500s on push; pipeline blocks at end of plan phase before slice-1 can be provisioned.",
+      "impact": "high",
+      "likelihood": "near-certain",
+      "blast_radius": "every new pipeline that runs after the orchestrator change merges before the gateway change merges — all of them stall at plan→implement transition",
+      "evidence": [
+        "gateway/gateway.py:1085 — _SLICE_INTEGRATION_BRANCH_RE",
+        "gateway/gateway.py:1296–1332 — synthetic-session exemption is gated on the regex matching"
+      ],
+      "mitigations": [
+        "Extend the regex to `^egg/[A-Za-z0-9][A-Za-z0-9_-]*/(?:slice|phase)-\\d+|context$` (or a separate allowlist branch for `context`).",
+        "Land the gateway change in its own slice and BEFORE any orchestrator slice that calls create_context_branch(). Treat the gateway slice as a hard prerequisite in slice ordering — task_planner should put it as slice-1.",
+        "Add a unit test in gateway tests that asserts a synthetic-session push to `egg/issue-9999/context` succeeds, and a non-synthetic push to the same branch is rejected (parity with the slice variant)."
+      ],
+      "rollback": "Revert the gateway regex extension; orchestrator falls back to NotImplementedError on context-branch create, pipelines pin at plan-end. Operator triage: cancel in-flight pipelines or hand-create the context branch via the launcher.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R2",
+      "title": "Hard switchover breaks in-flight pipelines mid-stream",
+      "category": "compatibility",
+      "subcategory": "migration",
+      "description": "Decision-4 explicitly chose 'no backfill/backwards compat. Hard switchover'. Any pipeline whose contract was written before the new PRMetadata fields exist will, on the first reload after the orchestrator upgrade, either (a) silently lose the new fields if defaults are added, or (b) hard-fail Pydantic validation if the new fields are required. In-flight pipelines that have already reached implement and are mid-slice stack will also be reading old slice base-branch resolution from contract.slices[i].parent_branch_at_creation and don't know about the new context branch. Symptom: orchestrator restart after upgrade picks up legacy contract → either crashes on validation or silently mis-targets slice base.",
+      "impact": "high",
+      "likelihood": "high",
+      "blast_radius": "every in-flight pipeline at the time of upgrade (typically 1–3 in this repo's cadence)",
+      "evidence": [
+        "shared/egg_contracts/models.py:615 — Contract.schemaVersion is a single string, no per-field versioning",
+        "shared/egg_contracts/models.py:682–709 — existing migration shim _migrate_phases_to_slices is the established pattern; absence of an equivalent shim for new PRMetadata fields means hard breakage",
+        "Decision-4 resolution text: 'no backfill/backwards compat. Hard switchover'"
+      ],
+      "mitigations": [
+        "Pre-upgrade drain: operator runbook MUST list 'finish or cancel all in-flight pipelines before merging the slice that introduces the new contract fields'. Add this to the slice PR body's Manual Steps section.",
+        "Even though decision-4 says no backfill, the new PRMetadata fields MUST have safe defaults (default=None / default_factory=list) so that old contracts loaded post-upgrade fail gracefully — Pydantic validation should not crash the orchestrator on legacy contract load.",
+        "Bump Contract.schemaVersion to '1.1' (or similar). Add a model_validator that emits a single ERROR-level log line — not a crash — when schemaVersion < the current contract-PR support level AND the contract has slice metadata, so operators can grep for stranded pipelines.",
+        "Add a `egg-orch pipeline drain` operator command that lists in-flight pipelines that need to finish before upgrade. Even if backfill is out of scope, visibility into 'which pipelines will break' is in scope."
+      ],
+      "rollback": "Revert the orchestrator slice; contract loads return to the pre-change schema. Any contracts that were rewritten post-upgrade with the new fields will load cleanly on the rolled-back orchestrator only if the new fields were never required (covered by mitigation #2). If they were required, manually edit the contract JSON files to strip the new fields. Hard switchover means rollback is also a manual operator event — not automatic.",
+      "needs_human_review": true,
+      "human_review_reason": "Operator-runbook ergonomics: the operator has already chosen hard switchover but probably didn't anticipate the in-flight pipeline drain requirement. Surface this explicitly so they can pick (a) drain-then-upgrade, (b) cancel-then-upgrade, or (c) a one-shot CLI to clean up stranded contracts."
+    },
+    {
+      "id": "R3",
+      "title": "Stacked-PR reconciler fallback still points at pipeline_branch (egg/<id>/work)",
+      "category": "compatibility",
+      "subcategory": "orphan-recovery",
+      "description": "stacked_pr_reconciler.py:_resolve_extant_new_base() walks Slice.dependencies up the DAG to find the first ancestor whose branch still exists on origin; the fallback when the entire ancestor chain is gone is `pipeline_branch` (line ~132). After the change, slice-1's parent is `egg/<id>/context` (NOT pipeline_branch). If slice-1 merges and is later reverted, or if the context PR is closed-without-merging while slice-1 is still open, the reconciler will retarget orphan slices to pipeline_branch — which is (a) the wrong branch under the new model, and (b) potentially an empty branch (no commits) if the orchestrator stopped using pipeline_branch as the work tree. Symptom: orphaned slice PRs cascade-rebase onto a dead branch, GitHub closes them as 'no commits to merge', operator has to hand-rebase.",
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "any pipeline where (a) a slice PR is closed without merging or (b) the context PR is closed before all slices merge",
+      "evidence": [
+        "orchestrator/stacked_pr_reconciler.py:87–132 — _resolve_extant_new_base()",
+        "orchestrator/stacked_pr_reconciler.py:10–11 — 30s default cadence (env EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS)"
+      ],
+      "mitigations": [
+        "Update _resolve_extant_new_base() so when the ancestor chain is exhausted, the new fallback is `contract.pr.context_branch` (or the new field name) — and only if THAT is also gone, fall back to `pipeline.base_branch`. Pipeline_branch is no longer the right last-resort target.",
+        "Add a reconciler regression test: simulate a stack where context-branch and slice-1 are both deleted while slice-2 is still open; assert reconciler retargets slice-2 to `pipeline.base_branch`, not `egg/<id>/work`.",
+        "Add a metrics counter `egg_reconciler_fallback_to_base_branch_total` so operators can see how often this path fires post-deploy."
+      ],
+      "rollback": "Reconciler change is a single function; revert is straightforward and does not require contract migration.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "Doc-only context PR with no merge gate creates merge-order ambiguity",
+      "category": "operator-experience",
+      "subcategory": "merge-flow",
+      "description": "Decision-3 chose 'doc-only auto-open' — pipeline does NOT block on context-PR merge before slicing. So slice-1 spawns immediately after plan_gate, with base=egg/<id>/context. If the human merges slice-1 BEFORE merging the context PR, GitHub auto-detects the missing context commits and the slice-1 merge brings them along (technically OK), but the context PR's diff vs main shrinks to empty (its commits are now on main via slice-1) and GitHub auto-closes it. Symptom: context PR gets auto-closed without a 'merged' badge, even though all its commits did reach main. Reviewers approaching #<context-pr> later see a closed PR with no merge marker and may assume the context was rejected.",
+      "impact": "low",
+      "likelihood": "high",
+      "blast_radius": "every merged pipeline whose human merger doesn't follow the bottom-up merge order",
+      "evidence": [
+        "Decision-3 resolution: 'Doc-only auto-open (orchestrator opens; humans review on the PR; pipeline does not block on its merge before slicing)'",
+        "GitHub behavior: a PR whose head branch's commits all already exist on the base is auto-closed with 'no commits between ...' rather than 'merged'"
+      ],
+      "mitigations": [
+        "Render a clear 'merge order' note into the body of every PR in the stack ('merge order: this context PR → slice-1 → slice-2 → ... → slice-N'). The terminal slice already carries similar language post-#2543; extend it.",
+        "Have the orchestrator's stacked-PR reconciler detect 'context PR auto-closed because subsumed' and POST a comment to the now-closed context PR explaining the situation, so future reviewers don't read it as a rejection.",
+        "Optional follow-up issue: introduce a `merge_state: subsumed` GitHub-Actions label that the orchestrator applies to context PRs that auto-close due to upstream merging. Out of scope for this slice but worth noting for visibility."
+      ],
+      "rollback": "Cosmetic only; no rollback action needed if the feature ships and the comment-on-close mitigation is added later.",
+      "needs_human_review": true,
+      "human_review_reason": "Confirm that 'merge order: context first' should be advisory text only, OR if the operator wants the orchestrator to enforce merge order via a GitHub branch protection rule. The latter is a bigger surface area."
+    },
+    {
+      "id": "R5",
+      "title": "Context PR ships agent transcripts that may contain sensitive content",
+      "category": "security",
+      "subcategory": "data-exposure",
+      "description": "Feedback Q3 chose 'include agent transcripts' for maximum transparency. Agent transcripts under `.egg-state/agent-outputs/<id>-refine-*.md` and similar are LLM-authored summaries of the refine/plan phases. They can contain (a) reflexive snippets of repo source code that the agent quoted while reasoning, (b) verbatim portions of the issue body — which itself may contain user-pasted secrets the operator didn't realize they were pasting, (c) reasoning that mentions internal-only code paths, error messages, or system internals that the operator might not want public. If the repo is public (egg's repo IS public on GitHub), the context PR's diff puts all of that on a public PR diff against main.",
+      "impact": "medium",
+      "likelihood": "low-to-medium",
+      "blast_radius": "any pipeline where the issue body, prior brc-history, or agent reasoning quoted something sensitive",
+      "evidence": [
+        "Feedback Q3 answer: 'Include agent transcripts as well (.egg-state/agent-outputs/<id>-refine-*.md and similar). Maximum transparency.'",
+        "egg's GitHub repo (jwbron/egg) is public — every PR diff is public",
+        "No existing scrubber exists today for `.egg-state/agent-outputs/` content"
+      ],
+      "mitigations": [
+        "Add a content scrubber (regex / entropy-based) over agent transcripts before commit-to-context-branch. Mirror the existing secret-detection used in pre-commit hooks. Reject the context-PR creation if a match is found and surface a HITL question to the operator.",
+        "Add a per-pipeline opt-OUT flag (contract.pr.include_transcripts: bool, default true honoring decision Q3). Even if the operator picked 'maximum transparency' in this issue's resolution, individual pipelines may need to opt out for sensitivity reasons.",
+        "Document the exposure in the PR body of every context PR ('This PR includes agent reasoning transcripts. Review for any sensitive content before merging.'). Make it explicit so reviewers know to look.",
+        "Operator-runbook entry: 'before merging a context PR, scan the diff for any unintended secret leakage'."
+      ],
+      "rollback": "Trivial — flip the include-transcripts flag default to false, or remove the transcript-copy step from the orchestrator's context-branch builder.",
+      "needs_human_review": true,
+      "human_review_reason": "The operator picked transparency in feedback-1; before shipping this for the egg repo (public) we should confirm they understand that includes implementation-detail leakage and want a content scrubber wired in."
+    },
+    {
+      "id": "R6",
+      "title": "BRC history split breaks read-side renderers that assume {id}-implement.{json,md}",
+      "category": "compatibility",
+      "subcategory": "internal-api",
+      "description": "_rewrite_brc_history_for_pr() (orchestrator/routes/pipelines.py:8265–8328) currently iterates pipeline phases and writes/reads BRC history per phase keyed by the file pattern `<id>-<phase>.{json,md}`. Decision-2 chose 'split at write time, no aggregate file'. Every site that READS BRC history — PR-body-renderer, audit log emitters, checkpoint exporters, and the `mcp__brc__read_peer_artifact` MCP tool — must learn that for phase=='implement' the file naming includes a slice qualifier. Symptom: if any read site is missed, slice PR bodies render an empty 'BRC history' section, audit grep on `<id>-implement.json` returns nothing, and the brc-history MCP returns {}.",
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "every implement-phase read site in the orchestrator + MCP",
+      "evidence": [
+        "orchestrator/routes/pipelines.py:8110–8235 — _write_brc_history()",
+        "orchestrator/routes/pipelines.py:8265–8328 — _rewrite_brc_history_for_pr()",
+        "mcp__brc__read_peer_artifact tool surface — reads from .egg-state/brc-history/<identifier>-<phase>.json",
+        "Decision-2 resolution: 'Split file at write time: orchestrator writes to .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} (one per slice; no aggregate file)'"
+      ],
+      "mitigations": [
+        "Centralize the file-naming logic in a single helper (`_brc_history_path(identifier, phase, slice_id=None)`) so all read/write sites go through it. Audit every existing call site.",
+        "Add a static-analysis test: grep for the pattern `brc-history/.*-implement` and assert every match calls the helper — fail CI if a hardcoded path slips in.",
+        "Bump the `mcp__brc__read_peer_artifact` schema to include an optional slice_id parameter and update its tool description; without it, callers still get phase-only files (refine/plan), which preserves the contract for non-implement phases.",
+        "Add an integration test: drive a 2-slice pipeline through implement, assert that two distinct `.egg-state/brc-history/<id>-implement-slice-{1,2}.json` files exist on disk and on the slice integration branches."
+      ],
+      "rollback": "Reverting the orchestrator slice restores aggregate-file naming. Slice-PR bodies pre-rollback will reference filenames that no longer exist, but the audit value is in the diff itself — operators can hand-grep the slice integration branches.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Reconciler cadence amplification: extra PR layer = extra reconcile pass on every parent merge",
+      "category": "performance",
+      "subcategory": "scheduler-load",
+      "description": "Stacked-PR reconciler runs every 30s by default. Today, on slice-1 merge, the reconciler does 1 retarget pass to walk slice-2 down to pipeline_branch. After the change, slice-1 merging requires the reconciler to recognize that slice-1's old parent (egg/<id>/context) was a context PR and slice-2's new parent should be `pipeline.base_branch` (since context already merged into base before slice-1). That's not just renaming a fallback — it's a state-machine transition the reconciler must learn ('parent was context PR, now context PR has merged, so my new parent is base_branch'). If the reconciler doesn't know this, it retargets slice-2 to a deleted egg/<id>/context branch. The reconciler runs every 30s, so the window for incorrect retarget is short, but in a busy repo with multiple reconciler-watched stacks, the extra pass adds load.",
+      "impact": "low",
+      "likelihood": "medium",
+      "blast_radius": "all pipelines using the new context-PR mechanism, post-context-PR-merge",
+      "evidence": [
+        "orchestrator/stacked_pr_reconciler.py:10–11 — default 30s cadence",
+        "orchestrator/stacked_pr_reconciler.py:87–132 — _resolve_extant_new_base() walks dependency chain"
+      ],
+      "mitigations": [
+        "Extend the reconciler's parent-resolution logic so it knows about the context PR explicitly: `if old_parent == context_branch and context_branch is gone, retarget to pipeline.base_branch`. Add a unit test for the transition.",
+        "Add a metric `egg_reconciler_retarget_total{from='context',to='base_branch'}` so operators can watch the transition fire.",
+        "If reconcile load becomes an issue, raise the cadence to 45s — but only as a follow-up if metrics show degradation. Not a launch blocker."
+      ],
+      "rollback": "Reconciler change is independent of the contract schema change; can be rolled back separately if it misbehaves.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "Contract schema additions (context_title, context_description, context_branch, context_pr_number) require defaults; missing defaults break legacy contract load",
+      "category": "compatibility",
+      "subcategory": "schema",
+      "description": "Feedback Q2 mandates new fields contract.pr.context_title and contract.pr.context_description. The change also implicitly needs contract.pr.context_branch and contract.pr.context_pr_number (so slice provisioning and reconciler can find the context PR). PRMetadata in shared/egg_contracts/models.py:371–427 has no schema versioning per field. If new fields are added without `default=None` (or `default_factory=...`), Pydantic v2 will raise ValidationError when the orchestrator tries to load any contract written by the pre-upgrade orchestrator.",
+      "impact": "high",
+      "likelihood": "high (without mitigation)",
+      "blast_radius": "every contract on disk at upgrade time",
+      "evidence": [
+        "shared/egg_contracts/models.py:371–427 — current PRMetadata definition has no context_* fields",
+        "shared/egg_contracts/models.py:682–709 — existing _migrate_phases_to_slices migration is the established pattern for forward-compat",
+        "Pydantic v2 default behavior: fields without defaults are required and raise on load if missing"
+      ],
+      "mitigations": [
+        "REQUIRED: every new PRMetadata field MUST be Optional with a sensible default (None for strings, [] for lists). This is not optional — even with hard switchover (decision-4), contract-load crashes on upgrade are a different class of failure than 'old contracts produce no context PR' and are not what the operator chose.",
+        "Bump Contract.schemaVersion default to '1.1' and add a model_validator that, when loading a contract with schemaVersion '1.0' AND the new fields are absent, leaves them at default (no migration, no error — just default-fill).",
+        "Add a unit test: round-trip a v1.0 contract JSON (synthetic legacy fixture committed under tests/fixtures/) through Contract.model_validate — must not raise.",
+        "Document in the schema CHANGELOG (shared/egg_contracts/CHANGELOG.md if it exists, else inline in models.py docstring) that v1.1 added context_* fields."
+      ],
+      "rollback": "Defaults make rollback trivial — orchestrator pre-change ignores fields it doesn't know about (Pydantic's default `extra='ignore'` if set, else explicit allow in BaseModel.model_config).",
+      "needs_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "Hard switchover + decision-4 means in-flight pipelines see contract field drift",
+      "category": "operator-experience",
+      "subcategory": "migration",
+      "description": "Even with safe defaults (R8 mitigation), an in-flight pipeline started pre-upgrade has Slice[0].parent_branch_at_creation = `egg/<id>/work`. Post-upgrade, the orchestrator's slice provisioning is rewritten to assume Slice[0].parent_branch_at_creation = `egg/<id>/context`. If the in-flight pipeline reaches implement post-upgrade, the orchestrator will either (a) honor the persisted parent_branch_at_creation and use the OLD scheme (mixed-mode pipeline), or (b) ignore it and try to rebase slice-1 onto a context branch that was never created.",
+      "impact": "high",
+      "likelihood": "medium",
+      "blast_radius": "in-flight pipelines at upgrade time",
+      "evidence": [
+        "orchestrator/routes/pipelines.py:_run_one_slice_inner() persists Slice.parent_branch_at_creation per slice — the value at slice-creation time is sticky",
+        "Decision-4 explicitly says no backfill; no mid-flight migration"
+      ],
+      "mitigations": [
+        "Operator runbook (REQUIRED): 'Before merging the slice that flips slice-provisioning to context-PR mode, drain or cancel all in-flight pipelines that have not yet reached implement.' Add this to the implement-flipping slice's PR body Manual Steps.",
+        "Add an orchestrator-side guard that detects 'Slice.parent_branch_at_creation == egg/<id>/work AND pipeline is post-upgrade' and surfaces an OVERSEER_ALERT explaining the operator's options (cancel, hand-rebase, force-restart).",
+        "Document the failure mode explicitly in the PR description so reviewers can ask the right questions before merging.",
+        "Optional: provide an operator CLI `egg-orch pipeline force-restart <id>` that drops the in-flight pipeline's slice metadata and re-emits from plan with the new context-PR scheme. This is OUT of decision-4's 'no backfill' choice but a usability nice-to-have. Surface as a HITL question."
+      ],
+      "rollback": "Roll back the orchestrator slice; in-flight pipelines resume with the old scheme. This works because the contract schema (with R8 defaults) doesn't crash on the rolled-back code reading the new fields — they just sit unused.",
+      "needs_human_review": true,
+      "human_review_reason": "Decision-4 says 'hard switchover'. Confirm with operator: do you want a force-restart escape hatch for stranded pipelines, or do you actually want to abandon them?"
+    },
+    {
+      "id": "R10",
+      "title": "Context PR introduces a new merge-order assumption for HITL plan_gate timing",
+      "category": "compatibility",
+      "subcategory": "hitl-flow",
+      "description": "Today, plan_gate fires at end-of-plan-phase. After plan_gate ACK, the orchestrator transitions to implement and starts spawning slice agents. Decision-3 chose 'auto-open, no merge gate' for the context PR — meaning the context PR is created at end-of-plan-phase BEFORE slice-1 spawns. This adds a new step to plan→implement transition that can fail (gateway push, GitHub PR create, GH API rate-limit). If context PR creation fails, the orchestrator must EITHER block plan→implement (which contradicts decision-3 'no merge gate') OR proceed without a context PR (which silently breaks the discoverability promise and surprises the operator). The current code does not have a 'best-effort, log-and-continue' pattern for PR creation in the plan→implement transition.",
+      "impact": "medium",
+      "likelihood": "low-medium",
+      "blast_radius": "plan→implement transitions where context-PR creation hits a transient GH error",
+      "evidence": [
+        "Decision-3: 'pipeline does not block on its merge before slicing' — but says nothing about creation failure",
+        "Decision-3 vs decision-1 tension: decision-1 says 'context PR exists', decision-3 says 'don't block on it'"
+      ],
+      "mitigations": [
+        "Define explicit failure semantics for context-PR creation: fail-loud (block plan→implement transition with operator alert) is recommended even though it's stricter than the literal text of decision-3 — the 'don't block on merge' is about merging, not creation.",
+        "Add a retry-with-backoff on gh PR create (mirror existing slice-PR-create retry logic in create_slice_pr).",
+        "Add a HITL question to the planner: 'on context-PR-creation failure, should the orchestrator (a) block the pipeline, (b) emit OVERSEER_ALERT and continue, or (c) auto-retry forever?' This is a decision the operator owns.",
+        "If the orchestrator does decide to continue on creation failure (option b), the slice PR bodies' 'Strategic context: #<ctx>' link must gracefully render 'context PR creation failed; see .egg-state/drafts/<id>-analysis.md on the work branch' rather than a broken link."
+      ],
+      "rollback": "Removing the context-PR step from plan→implement is a single-function change.",
+      "needs_human_review": true,
+      "human_review_reason": "Operator-owned decision: what should happen if context-PR creation fails? Decision-3 covers merge, not creation."
+    },
+    {
+      "id": "R11",
+      "title": "Per-slice BRC commit by orchestrator on slice integration branches conflicts with existing 'commit only state files' allowlist",
+      "category": "compatibility",
+      "subcategory": "gateway-policy",
+      "description": "Feedback Q4 confirmed orchestrator-authored commit of `.egg-state/brc-history/<id>-implement-slice-<N>.{json,md}` to slice integration branches. The orchestrator already does this on the work branch via _commit_statefiles_to_worktree(). On the slice integration branch, the gateway must allow the orchestrator to push these files specifically — not arbitrary writes. Today the synthetic-session slice-integration-branch creation push is exempt (gateway/gateway.py:1296–1332), but a SECOND push to the same slice branch (the BRC-history append commit) needs the same exemption. Symptom: orchestrator's BRC-history append on slice integration branch is rejected by the gateway because it's not the initial-create push.",
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "every slice's PR open step",
+      "evidence": [
+        "gateway/gateway.py:1296–1332 — synthetic-session push exemption, scoped to specific event audit",
+        "Feedback Q4: 'Orchestrator-authored. Matches existing _commit_statefiles_to_worktree pattern; coder/tester gateway boundaries forbid them from pushing under .egg-state/brc-history/ anyway.'"
+      ],
+      "mitigations": [
+        "Verify that the synthetic-session exemption (is_slice_integration_push) covers ALL pushes to a slice integration branch, not just the initial creation. If it does, the BRC-history commit is OK. If it only covers the creation push, extend the exemption to subsequent synthetic-session pushes to the same branch.",
+        "Add a gateway test: synthetic-session pushes a commit modifying ONLY `.egg-state/brc-history/<id>-implement-slice-1.json` to an existing `egg/<id>/slice-1` branch — must succeed.",
+        "Audit-log distinguishability: emit a separate `push_brc_history_append` event so operators can grep for these specifically (vs. the integration-branch creation event)."
+      ],
+      "rollback": "Removing the BRC-history-append step is a single-function change.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R12",
+      "title": "Agent transcripts (per Q3) may exceed PR diff size limits",
+      "category": "performance",
+      "subcategory": "ux",
+      "description": "Including `.egg-state/agent-outputs/<id>-refine-*.md` and similar transcripts in the context PR's diff can produce very large diffs. A typical refine session produces 500–5000 lines of agent reasoning. With multiple agents per phase, a context PR could carry 20k+ lines of LLM-authored markdown. GitHub's PR review UI degrades around 500 changed files; the diff-rendering performance also gets sluggish past ~3MB total diff. Reviewers may give up on actually reading the context PR.",
+      "impact": "low",
+      "likelihood": "high",
+      "blast_radius": "every context PR",
+      "evidence": [
+        "Feedback Q3: 'Include agent transcripts as well (.egg-state/agent-outputs/<id>-refine-*.md and similar). Maximum transparency.'",
+        "Empirical: existing refine-phase BRC history files (e.g. 2548-refine.md) are already 689 lines after ONE round; agent-outputs transcripts are typically larger"
+      ],
+      "mitigations": [
+        "Compress transcripts at commit time: drop tool-call output verbatim, keep only role-level summaries. Document the compression in the context PR body.",
+        "Use a `.egg-state/agent-outputs/<id>/index.md` table-of-contents file in the diff that links to per-agent transcript files; reviewers see a small index even if the underlying transcripts are large.",
+        "Add a size-budget check: if the cumulative transcript size exceeds 5MB, the orchestrator emits an OVERSEER_ALERT and the operator chooses to (a) include anyway, (b) summarize, or (c) drop transcripts for this pipeline.",
+        "Document in the operator runbook that maximum-transparency context PRs may need manual triage on very-long-running pipelines."
+      ],
+      "rollback": "Excluding transcripts from the context PR is a single-step change in the orchestrator's context-branch builder.",
+      "needs_human_review": true,
+      "human_review_reason": "Confirm with operator: is 'maximum transparency' worth a 5MB+ PR diff that no reviewer will read in full? A summary mode might serve the audit goal better."
+    },
+    {
+      "id": "R13",
+      "title": "No automated test coverage today for stacked-PR + reconciler + new-PR-type interactions",
+      "category": "testing",
+      "subcategory": "regression-risk",
+      "description": "The stacked-PR reconciler is exercised by a small number of integration tests (against a synthetic GH mock). Adding a new PR layer at the bottom of the stack expands the state space of 'what merges first?' / 'what closes-without-merging?' significantly. Without new tests, regressions in stacked behavior won't be caught until they hit production pipelines.",
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "every pipeline using the new mechanism",
+      "evidence": [
+        "orchestrator/stacked_pr_reconciler.py — single file, hard to test in isolation without a GH mock"
+      ],
+      "mitigations": [
+        "Task_planner must include a slice (or a sub-task within the reconciler slice) for end-to-end integration tests covering: (a) context+slice-1+slice-2 stack happy path, (b) context PR closed without merging while slice-1 open, (c) slice-1 closed without merging while slice-2 open, (d) cascade-merge of all three, (e) operator force-merges slice-1 before context.",
+        "Reuse the existing GH-mock infrastructure in integration_tests/.",
+        "Make the test fixtures explicit about pipeline.base_branch != 'main' so we cover decision-5's parametric base resolution."
+      ],
+      "rollback": "Tests are additive; they don't gate functionality.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R14",
+      "title": "Decision-5 'pipeline base_branch != main' adds a previously-untested parameter to slice provisioning",
+      "category": "compatibility",
+      "subcategory": "branch-resolution",
+      "description": "The HITL operator amended decision-5 to require `Context PR base = <pipeline base_branch>` (NOT hardcoded main). Today, _run_one_slice_inner()'s base resolution implicitly assumes pipeline_branch is the canonical root, and pipeline_branch is created from base_branch. The new logic must read pipeline.base_branch from the contract and pass it to the gateway's create-context-branch primitive. If any code path implicitly hardcodes 'main' (in PR-body templates, in default refspecs, in audit-log messages), pipelines with a non-main base_branch will silently produce broken context PRs.",
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "any pipeline whose base_branch is not 'main' (e.g., long-running feature branches, release branches)",
+      "evidence": [
+        "Decision-5 amended resolution: 'Option 1 with base=<pipeline base_branch> (not hardcoded main)'",
+        "egg/issue-2548/work currently exists; pipeline.base_branch is derivable from contract"
+      ],
+      "mitigations": [
+        "Grep the orchestrator + gateway codebase for hardcoded `'main'` strings as default base; replace with `pipeline.base_branch` lookups.",
+        "Add an integration test where pipeline.base_branch is 'develop' (or any non-main string) and assert the context PR's base is correctly set.",
+        "Surface base_branch in the context PR body so reviewers can sanity-check it."
+      ],
+      "rollback": "Hardcoding 'main' temporarily restores prior behavior, at the cost of breaking non-main base pipelines.",
+      "needs_human_review": false
+    }
+  ],
+  "consolidated_mitigation_strategy": {
+    "ordering": [
+      "1. Land gateway-side regex extension (R1) FIRST as a standalone slice. This is the only change that, if absent, hard-fails every subsequent pipeline.",
+      "2. Land contract schema additions with safe defaults (R8, R2, R9). New fields must be Optional with default=None / default_factory=list. Bump schemaVersion. Add legacy contract round-trip test.",
+      "3. Land BRC-history file naming centralization helper (R6) BEFORE the per-slice split. Audit all read sites first, then flip to per-slice.",
+      "4. Land orchestrator context-branch creation primitive + mcp + audit logging (R5, R11). Add content scrubber for transcripts.",
+      "5. Land slice-1 base-branch resolution change (R3, R7, R14). Update reconciler fallback. Add metrics.",
+      "6. Land context-PR-create step in plan→implement transition (R10). Define failure semantics. Add retry.",
+      "7. Land slice-PR body re-render to include 'Strategic context: #<ctx>' backlink and merge-order note (R4).",
+      "8. Land integration tests covering all stacked-PR scenarios (R13)."
+    ],
+    "drain_runbook": [
+      "Before merging slice 5+ above, operator MUST: (a) list all in-flight pipelines (egg-orch pipeline list --state in-flight), (b) drain or cancel each, (c) confirm zero in-flight, (d) merge the slice. Otherwise R2 / R9 fire.",
+      "Surface this requirement in the slice PR body's Manual Steps section so the merger sees it."
+    ],
+    "monitoring_after_launch": [
+      "egg_reconciler_fallback_to_base_branch_total — should rise from 0 to small-but-nonzero",
+      "egg_reconciler_retarget_total{from='context'} — should fire on every context-PR merge",
+      "push_brc_history_append events in audit log — every slice's PR open should produce one",
+      "context PR auto-close-without-merge events — flag if rate > 10% (suggests merge-order confusion)"
+    ]
+  },
+  "areas_for_human_review": [
+    "R2 / R9: Operator chose hard-switchover; confirm they want a drain runbook (recommended) vs. force-restart CLI vs. abandon-in-flight.",
+    "R4: Confirm 'merge order: context first' is advisory text only, not a GH branch-protection enforcement.",
+    "R5: Confirm public-repo exposure of agent transcripts is acceptable; add content scrubber + opt-out flag.",
+    "R10: What should happen if context-PR CREATION fails? Decision-3 covers merge, not creation. New HITL question recommended.",
+    "R12: Maximum-transparency transcripts may produce 5MB+ diffs no reviewer reads. Compress / index?"
+  ],
+  "complexity_assessment": {
+    "rating": "high",
+    "reasoning": "8 distinct subsystems touched (gateway regex + push exemptions, contract schema + migration, BRC history naming + read sites, orchestrator slice provisioning, reconciler fallback, context-PR creation primitive, slice-PR body renderer, agent-transcript scrubbing). Decision-4's hard-switchover dominates the migration risk — without a force-restart escape hatch, any in-flight pipeline at upgrade time is potentially lost work. Decision-5's parametric base_branch (not main) is a small but pervasive change that must be threaded through every PR-body template and default refspec."
+  },
+  "go_no_go_recommendation": {
+    "verdict": "go-with-conditions",
+    "conditions": [
+      "Hard requirement: gateway regex extension lands as the first slice. The orchestrator slices that depend on it cannot land first or pipelines stall immediately.",
+      "Hard requirement: every new contract.pr.context_* field has a safe default (Optional, default=None / default_factory=list). Pydantic validation crashes on legacy contract load are NOT what decision-4 chose.",
+      "Hard requirement: surface a HITL question for context-PR-creation failure semantics (R10) before the orchestrator slice that calls create_context_pr() lands.",
+      "Hard requirement: surface a HITL question for agent-transcript public exposure + size-budget (R5, R12) before the slice that copies transcripts into the context branch lands.",
+      "Strong recommendation: add a force-restart CLI for stranded in-flight pipelines (R9). Even though decision-4 says no backfill, no-escape-hatch is operator-hostile."
+    ]
+  },
+  "artifacts_authored": [
+    ".egg-state/agent-outputs/2548-risk_analyst-output.json"
+  ]
+}
