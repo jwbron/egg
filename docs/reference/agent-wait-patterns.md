@@ -47,6 +47,7 @@ and issues [#2064](https://github.com/jwbron/egg/issues/2064), [#2482](https://g
 | `CONSENSUS_ACK` | A reviewer ACKed — check if all required reviewers have ACKed, then confirm | Print and exit 0; act on the message |
 | `CONSENSUS_NACK` | A reviewer NACKed — start fixing immediately | Print and exit 0; act on the message |
 | `CONSENSUS_RE_REVIEW` | Re-review requested (peer re-proposed) | Print and exit 0; act on the message |
+| `STATUS` | Directed *Ready to confirm — all confirm preconditions satisfied* nudge fires once every blocking review clears and global guards pass — the only signal once every reviewer has already ACKed (#2531) | Print and exit 0; if `metadata.ready_to_confirm == true` go to step 5 CONFIRM, otherwise re-enter the wait |
 | `OVERSEER_ALERT` | Overseer escalation | Print and exit 0; act on the message |
 
 ```bash
@@ -55,8 +56,20 @@ egg-orch message wait-loop \
   --for CONSENSUS_ACK \
   --for CONSENSUS_NACK \
   --for CONSENSUS_RE_REVIEW \
+  --for STATUS \
   --for OVERSEER_ALERT
 ```
+
+> **Why `STATUS` is in the pre-confirm allowlist (#2531):** when every
+> reviewer ACKs the current version, no further `CONSENSUS_ACK` /
+> `CONSENSUS_NACK` arrive on the bus. The orchestrator's directed
+> *Ready to confirm* nudge (`MessageType.STATUS`,
+> `metadata.ready_to_confirm == True`) is the only signal that the
+> global preconditions cleared. Without `STATUS` in the filter, the
+> producer sleeps through the nudge and only wakes via the
+> health-monitor `OVERSEER_ALERT` backstop — minutes later. See the
+> "Disambiguator" note in [Anti-pattern 5](#anti-pattern-5--producer-waits-on-consensus_confirmed-before-its-own-confirm-has-succeeded-2064)
+> for handling unrelated `STATUS` wakeups (e.g. *Producer X excused*).
 
 ### Producer STAY ALIVE (post-confirm, step 6)
 

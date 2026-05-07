@@ -3884,13 +3884,44 @@ class TestProducerRespondToReviewsWaitLoop:
             "--for CONSENSUS_ACK",
             "--for CONSENSUS_NACK",
             "--for CONSENSUS_RE_REVIEW",
+            "--for STATUS",
             "--for OVERSEER_ALERT",
         ):
             assert required in respond_block, (
                 f"RESPOND TO REVIEWS step must include `{required}` in the "
                 f"pre-confirm wait-loop incantation for role={role} "
-                f"phase={phase} (issue #2482)."
+                f"phase={phase} (issues #2482, #2531)."
             )
+
+    @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
+    def test_step4_explains_status_ready_to_confirm_nudge(self, role, phase):
+        """`--for STATUS` must come with guidance on the directed
+        ``Ready to confirm`` nudge (issue #2531).
+
+        Background: when every reviewer has already ACKed the current
+        version, no further ``CONSENSUS_ACK`` / ``CONSENSUS_NACK`` arrive
+        and the producer would deadlock until its wait timed out. The
+        orchestrator emits a directed ``STATUS`` (subject ``Ready to
+        confirm — all confirm preconditions satisfied``,
+        ``metadata.ready_to_confirm == True``) once the global
+        preconditions clear. The prompt has to tell the producer to act
+        on that wake (go to step 5 CONFIRM), or the agent will read the
+        message, treat it as informational, and re-enter the wait.
+        """
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        respond_end = preamble.index("**CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        assert "Ready to confirm" in respond_block, (
+            f"RESPOND TO REVIEWS step must mention the orchestrator's "
+            f"`Ready to confirm` STATUS nudge so role={role} phase={phase} "
+            "knows what to do on a STATUS wake (issue #2531)."
+        )
+        assert "#2531" in respond_block, (
+            "RESPOND TO REVIEWS step must cite #2531 next to the STATUS "
+            "guidance so future readers have the context for why STATUS "
+            "is in the allowlist."
+        )
 
     @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
     def test_step4_excludes_consensus_confirmed(self, role, phase):
