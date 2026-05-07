@@ -1,0 +1,475 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 2474,
+    "title": "Issue #2474",
+    "url": "https://github.com/jwbron/egg/issues/2474"
+  },
+  "pipeline_id": "issue-2474-v2",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Cleanup \u2014 k3s only, drop dead test tiers",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `integration_tests/conftest.py` and `integration_tests/local_pipeline/conftest.py`,\nremove `_docker_egg_stack()` and the runtime-selection branch in\n`egg_stack`. Always call `_k8s_egg_stack()`; skip with clear\nmessage if `kubectl` unavailable. Remove `docker_available`\nimport and call sites. Drop stale docker-compose comments.\nFlip default `EGG_RUNTIME` from \"docker\" to \"kubernetes\" or remove.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`grep -n \"EGG_RUNTIME=docker\\|_docker_egg_stack\\|docker_available\" integration_tests/conftest.py integration_tests/local_pipeline/conftest.py`\nreturns no hits.",
+          "files_affected": [
+            "integration_tests/conftest.py",
+            "integration_tests/local_pipeline/conftest.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-1-2",
+          "description": "Delete entire `tests/functional/` directory (5 files). Remove\n`functional:` marker from `pyproject.toml`. Remove\n`tests/functional/conftest.py` and `integration_tests/docker-compose.yml`\nallowlist entries from `scripts/check-hardcoded-ports.py`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`tests/functional/` no longer exists. `make test-all` passes.\n`grep -rn \"tests.functional\\|@pytest.mark.functional\"` returns no hits.",
+          "files_affected": [
+            "tests/functional/conftest.py",
+            "tests/functional/test_git_wrappers.py",
+            "tests/functional/test_network_modes.py",
+            "tests/functional/test_session_lifecycle.py",
+            "tests/functional/__init__.py",
+            "pyproject.toml",
+            "scripts/check-hardcoded-ports.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-1-3",
+          "description": "Delete `.github/workflows/test-e2e.yml`,\n`integration_tests/test_e2e_workflow.py`,\n`integration_tests/test_agent_security_fuzz.py`, and\n`integration_tests/agent_findings.py`. Remove `e2e` and\n`agent_flaky` markers from `pyproject.toml`. Remove `test-e2e:`\ntarget from `Makefile`. Update `test-integration:` docstring.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The 4 files are gone. `make test-e2e` is no longer a valid target.\n`make help` does not advertise `test-e2e`. `make lint` and\n`make test-all` pass.",
+          "files_affected": [
+            ".github/workflows/test-e2e.yml",
+            "integration_tests/test_e2e_workflow.py",
+            "integration_tests/test_agent_security_fuzz.py",
+            "integration_tests/agent_findings.py",
+            "pyproject.toml",
+            "Makefile"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `integration_tests/conftest.py`, remove `run_claude_structured()`,\n`assert_agent_verdict()`, the `infrastructure_failure` field on\n`AgentVerdict` dataclass, and orphan helpers used only by those.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`grep -rn \"run_claude_structured\\|assert_agent_verdict\"` returns no hits.\n`make test-integration` and `make test-all` pass.",
+          "files_affected": [
+            "integration_tests/conftest.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Promote ScriptedProvider to public testing API",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create `shared/egg_harness/testing/__init__.py` and\n`shared/egg_harness/testing/scripted_provider.py` containing the\nclass verbatim plus `_stream_events`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`python -c \"from shared.egg_harness.testing import ScriptedProvider; print(ScriptedProvider.__name__)\"`\nprints `ScriptedProvider`. `make lint` passes.",
+          "files_affected": [
+            "shared/egg_harness/testing/__init__.py",
+            "shared/egg_harness/testing/scripted_provider.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-2-2",
+          "description": "In `shared/tests/test_egg_harness/test_integration.py`, replace\ninline ScriptedProvider class with re-export shim. Keep five call\nsites resolvable. `RecordingRegistry` stays inline.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File no longer contains `class ScriptedProvider` or `_stream_events`\ndefinitions. `make test` passes.",
+          "files_affected": [
+            "shared/tests/test_egg_harness/test_integration.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add `shared/tests/test_egg_harness/test_scripted_provider.py` with\ntwo tests: import works, public API surface matches.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New test passes. Removing `scripted_provider.py` causes ImportError.",
+          "files_affected": [
+            "shared/tests/test_egg_harness/test_scripted_provider.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Add k3s integration tests for recent regressions and invariants",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create `integration_tests/regression/__init__.py` and `conftest.py`.\nConftest re-exports parent k8s fixtures and adds `start_pipeline()`\nhelper returning deterministic pipeline_id from test nodeid.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`make test-integration -m integration` includes new dir, \"0 errors\" on collection.",
+          "files_affected": [
+            "integration_tests/regression/__init__.py",
+            "integration_tests/regression/conftest.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add `test_slice_branch_env.py` covering #2428. Spin 2-slice DAG;\nassert each slice coder pod's `EGG_BRANCH` matches its slice ref\nvia `kubectl get pod -o jsonpath`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting #2428 fix causes failure with clear assertion.",
+          "files_affected": [
+            "integration_tests/regression/test_slice_branch_env.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add `test_unpushed_commit_salvage.py` covering #2429. Trigger\ngateway push rejection by attempting push outside role allowlist\n(no test backdoor). Assert recovery branch ref appears.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting salvage code causes \"recovery ref not found\".",
+          "files_affected": [
+            "integration_tests/regression/test_unpushed_commit_salvage.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add `test_live_pod_guard.py` covering #2420. Start pipeline, wait\nfor slice pods Running, call `start_pipeline` again WITHOUT force=true;\nassert refused. Retry with force=true; assert new pipeline replaces old.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting #2420 makes second start succeed.",
+          "files_affected": [
+            "integration_tests/regression/test_live_pod_guard.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-5",
+          "description": "Add `test_hitl_round_trip.py` covering #2430. Drive refine pipeline\nthat registers HITL decision; observe AWAITING_HUMAN; call provide_input;\nassert pipeline resumes. Use `ScriptedProvider`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting alive-signal bypass causes timeout.",
+          "files_affected": [
+            "integration_tests/regression/test_hitl_round_trip.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-6",
+          "description": "Add `test_brc_single_cycle.py` (BRC happy path: PROPOSE \u2192 ACK \u2192\nCONFIRMED, exact counts) and `test_slice_dag_restart.py` (3-slice\nDAG, mid-flight restart_agent, assert slice-2 branch unchanged).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both tests pass on `main`. BRC test asserts exact counts.",
+          "files_affected": [
+            "integration_tests/regression/test_brc_single_cycle.py",
+            "integration_tests/regression/test_slice_dag_restart.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-7",
+          "description": "Add `test_phase_aware_timeout.py`. Configure\n`phase_configs.plan.consensus_timeout_s = 30`; have planner not\npropose; assert `CONSENSUS_TIMEOUT` event lands within 30\u00b15s;\nassert other phases unaffected.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Setting timeout to 600 fails deadline assertion.",
+          "files_affected": [
+            "integration_tests/regression/test_phase_aware_timeout.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-8",
+          "description": "Add `test_babysit_pr_single_push.py`. Drive babysit-PR across 2\ncoder revisions. Query gateway audit log for pushes to PR head ref;\nassert exactly 1 successful push.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. If regression makes coder push twice, test fails.",
+          "files_affected": [
+            "integration_tests/regression/test_babysit_pr_single_push.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Wire integration tests into PR CI",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "In `.github/workflows/test.yml`, add `integration:` job (sibling\nof `unit:` and `security:`) that uses `test-integration.yml`.\nInclude in `aggregate:` job's `needs:` list. Add\n`timeout-minutes: 30`. Add `concurrency:` block to\n`test-integration.yml` mirroring `test.yml`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PR shows new `Test / integration` check and updated\n`Test / aggregate` check that depends on it. Both run within\n30-min timeout. `make lint` passes.",
+          "files_affected": [
+            ".github/workflows/test.yml",
+            ".github/workflows/test-integration.yml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-4-2",
+          "description": "In `.github/workflows/test-integration.yml`, add flake-guard steps:\nretry \"Import images into k3s\" once on failure; explicit\n`kubectl wait --for=condition=Available deployment/egg-orchestrator --timeout=120s`.\nAdd per-step `timeout-minutes:`. On failure, capture k3s logs as artifact.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PR runs integration job to green. Image-import flake recovered by retry.\nOn forced failure, uploads `k3s-debug.log` artifact.",
+          "files_affected": [
+            ".github/workflows/test-integration.yml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Documentation \u2014 point agents at the integration tier",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "In `CLAUDE.md`, add Quick Reference bullet:\n`make test-integration  # Cross-module regressions; requires k3s (see docs/guides/testing.md)`.\nAdd new section after \"Key Entry Points\" titled \"Integration tests\"\nwith paragraph pointing at `integration_tests/regression/` for\ncross-module bugs. Update Repo Layout row.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`CLAUDE.md` contains new bullet, new section, and updated Repo Layout row.\n`make lint` passes.",
+          "files_affected": [
+            "CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-5-2",
+          "description": "In `docs/guides/testing.md`, add \"Integration tests\" section with\nthree subsections:\n1. **What it covers** \u2014 k3s + mocked LLMs.\n2. **Running locally** \u2014 k3s-on-host recipe ONLY. Do NOT document\n   kind or minikube as alternatives. Mention macOS users need a\n   Linux VM. Mention required-check name `Test / aggregate`.\n3. **CI gating** \u2014 integration tier runs on every PR. `make test-all`\n   remains unit-only.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New section with three subsections. NO mention of kind or minikube\nas alternative local-dev runtimes. `make lint` passes.",
+          "files_affected": [
+            "docs/guides/testing.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-5-3",
+          "description": "Clean up stale references in adjacent docs:\n- `docs/architecture/kubernetes-migration.md`: mark\n  `integration_tests/docker-compose.yml` row as historical with\n  \"(docker path retired in #2474)\" annotation.\n- `docs/development/STRUCTURE.md`: remove `test_e2e_workflow.py`\n  entry; remove or annotate `docker-compose.yml` entries.\nDo NOT delete historical sections \u2014 only annotate retired artifacts.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`grep -n \"test_e2e_workflow\" docs/development/STRUCTURE.md` returns no live references.\n`kubernetes-migration.md` mentions #2474 next to retired entries. `make lint` passes.",
+          "files_affected": [
+            "docs/architecture/kubernetes-migration.md",
+            "docs/development/STRUCTURE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Wire integration tests into PR CI; retire dead tiers; expand coverage",
+    "description": "Wire `test-integration.yml` into PR CI; retire dead test tiers\n(Docker-compose runtime, tests/functional/, real-LLM e2e); expand\nintegration coverage with 8 new k3s scenarios; document agent\nguidance. Multi-phase / multi-PR delivery via 5-slice stacked train.",
+    "test_plan": "- Automated:\n  * `make test-all` continues to pass on every slice.\n  * `make lint` continues to pass.\n  * `make test-integration` passes locally on k3s after slice 1 and after slice 3.\n  * Slice 4 onwards: GitHub Actions integration job runs on each slice PR.\n- Manual:\n  * Confirm new `Integration Tests / aggregate` check appears on a sample PR after slice 4.\n  * Reviewer follows `docs/guides/testing.md` k3s-on-host recipe on a fresh laptop.",
+    "manual_steps": "Pre-merge (slice 4): trigger `test-integration.yml` via workflow_dispatch on slice-4 branch; confirm green and within budget.\nPost-merge (slice 4 + 5): maintainer flips `Test / aggregate` to required in branch protection; close #2449 if absorbed.",
+    "deferred_actions": []
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

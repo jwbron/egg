@@ -48,9 +48,8 @@ ALLOWLIST_PATHS = [
     # Docker compose files
     "docker-compose.yml",
     "docker-compose.yaml",
-    # Integration test infrastructure (compose files, conftest, network tests)
+    # Integration test infrastructure (conftest, network tests)
     "integration_tests/conftest.py",
-    "integration_tests/docker-compose.yml",
     "integration_tests/local_pipeline/",
     "integration_tests/test_network_",
     # CI/CD workflows (YAML cannot import Python)
@@ -63,7 +62,6 @@ ALLOWLIST_PATHS = [
     "tests/fixtures/",
     # Test files that validate config defaults or use hardcoded values in assertions
     "tests/egg_config/test_configs.py",
-    "tests/functional/conftest.py",
     "tests/shared/egg_container/test_build_cmd.py",
     "tests/shared/egg_container/test_config_builder.py",
     "tests/shared/egg_contracts/test_checkpoint_cli_http.py",
