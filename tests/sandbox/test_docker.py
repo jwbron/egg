@@ -306,8 +306,13 @@ class TestCopyRepoWatchFiles:
         bad_target.mkdir()
         (bad_target / "do-not-delete.txt").write_text("precious")
 
-        with pytest.raises(ValueError, match="must be named 'repo-deps'"):
-            populate_build_context(bad_target, quiet=True)
+        # Mock _load_repos_config so a CI-runner host yaml can't influence the
+        # test. The guard fires before any config read, so the patched value
+        # never matters — but bare-calling it would otherwise reach real
+        # production yaml-load + path resolution from a unit test.
+        with patch("egg_lib.docker._load_repos_config", return_value={}):
+            with pytest.raises(ValueError, match="must be named 'repo-deps'"):
+                populate_build_context(bad_target, quiet=True)
 
         # Pre-existing content must remain untouched.
         assert (bad_target / "do-not-delete.txt").read_text() == "precious"
@@ -723,13 +728,11 @@ class TestCopyRepoWatchFilesEdgeCases:
         with patch("egg_lib.docker._load_repos_config", return_value=config):
             populate_build_context(build_dir / "repo-deps", quiet=True)
 
-        # No manifest entry => either .empty or no manifest at all. With no
-        # extra_packages and no buildable repos, populate falls back to .empty.
+        # No buildable repos and no extra_packages => populate writes the
+        # global ``.empty`` marker and skips manifest.json entirely.
         assert (build_dir / "repo-deps" / ".empty").exists()
         manifest_path = build_dir / "repo-deps" / "manifest.json"
-        if manifest_path.exists():
-            manifest = json.loads(manifest_path.read_text())
-            assert manifest["build_commands"] == []
+        assert not manifest_path.exists()
 
     def test_multiple_repos_copy_separately(self, tmp_path):
         """Watch files from multiple repos are copied to separate directories."""

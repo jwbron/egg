@@ -225,6 +225,12 @@ def populate_build_context(target_dir: Path, quiet: bool = False) -> None:
         watch_files = build_cmds.get("watch_files", [])
         commands = build_cmds.get("commands", [])
         if not isinstance(watch_files, list) or not isinstance(commands, list):
+            # Malformed yaml: tell the operator. Without this warn, a
+            # repo with a typo in build_commands.watch_files / .commands
+            # is silently dropped from both the watch-file copy step and
+            # (via repos_with_local_path) the manifest, producing an
+            # image with no per-repo build steps and no log line.
+            warn(f"build_commands: skipping {repo_name} — watch_files and commands must be lists")
             continue
         if not commands:
             continue

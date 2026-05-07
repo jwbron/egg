@@ -794,7 +794,7 @@ def exec_in_new_container(
             error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
             error(
                 "  Fix: ensure ~/.config/egg/launcher-secret matches "
-                "the gateway's EGG_LAUNCHER_SECRET (regenerate via setup.py if needed)"
+                "the gateway's EGG_LAUNCHER_SECRET (regenerate via 'bin/egg-deploy init' if needed)"
             )
             return False
     else:
