@@ -137,9 +137,7 @@ class TestPrPhaseBrcRewrite:
         assert (history_dir / "42-plan.md").exists()
         # implement was FAILED, so neither aggregate nor per-slice file exists.
         assert not (history_dir / "42-implement.md").exists()
-        assert not (
-            history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
-        ).exists()
+        assert not (history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md").exists()
 
     def test_idempotent_rewrite(self, tmp_path):
         """Re-writing BRC history overwrites existing files safely."""

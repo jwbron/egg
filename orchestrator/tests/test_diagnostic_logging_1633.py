@@ -677,9 +677,9 @@ class TestIntegrationBrcHistory:
         # #2548: implement is per-slice now; no aggregate, and the per-slice
         # file should also be absent because the implement phase is RUNNING.
         assert not (brc_dir / "42-implement.md").exists(), "RUNNING phase should NOT have BRC file"
-        assert not (
-            brc_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
-        ).exists(), "RUNNING phase should NOT have per-slice BRC file"
+        assert not (brc_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md").exists(), (
+            "RUNNING phase should NOT have per-slice BRC file"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -717,9 +717,7 @@ class TestEdgeCases:
         # #2548: neither aggregate nor per-slice file should exist when no
         # implement-phase messages are present.
         assert not (history_dir / "42-implement.md").exists()
-        assert not (
-            history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
-        ).exists()
+        assert not (history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md").exists()
 
     def test_write_brc_history_string_identifier(self, tmp_path):
         """_write_brc_history works with string pipeline identifiers."""
@@ -740,9 +738,7 @@ class TestEdgeCases:
             / f"my-pipeline-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
         )
         assert history_file.exists()
-        assert not (
-            tmp_path / ".egg-state" / "brc-history" / "my-pipeline-implement.md"
-        ).exists()
+        assert not (tmp_path / ".egg-state" / "brc-history" / "my-pipeline-implement.md").exists()
 
     def test_rewrite_brc_history_mixed_statuses_logging(self, tmp_path):
         """Entry log correctly reports completed vs non-completed phase counts."""
