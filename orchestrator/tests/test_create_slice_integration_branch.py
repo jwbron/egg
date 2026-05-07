@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from gateway_client import GatewayClient, SessionInfo
+from gateway_client import GatewayClient, GatewayError, SessionInfo
 
 
 @pytest.fixture
@@ -107,7 +107,14 @@ class TestCreateSliceIntegrationBranchSuccess:
     def test_fetch_runs_before_sha_lookup_runs_before_push(self, gateway_client):
         """Defensive fetch must run before ``ls-remote`` so the parent's
         commit object is reachable in the local odb before we issue the
-        SHA-based push (``git push <sha>:...`` requires it locally)."""
+        SHA-based push (``git push <sha>:...`` requires it locally).
+
+        Also pins the #2512 ordering: the existence-check ls-remote on
+        the integration branch happens AFTER the parent ls-remote and
+        BEFORE the push.  When integration branch is absent (or its
+        tip equals parent_sha), no extra fetch is needed and the push
+        proceeds as a fast-forward.
+        """
         order: list[str] = []
         parent_sha = "abc12345" * 5
 
@@ -119,7 +126,8 @@ class TestCreateSliceIntegrationBranchSuccess:
             return True
 
         def fake_get_remote_branch_sha(*args, **kwargs):
-            order.append("ls-remote")
+            ref = args[2] if len(args) >= 3 else kwargs.get("ref")
+            order.append(f"ls-remote:{ref}")
             return parent_sha
 
         def fake_make_request(endpoint, method=None, data=None, **kwargs):
@@ -146,7 +154,12 @@ class TestCreateSliceIntegrationBranchSuccess:
             )
 
         assert ok is True
-        assert order == ["fetch", "ls-remote", "push"]
+        assert order == [
+            "fetch",
+            "ls-remote:refs/heads/egg/issue-2393",
+            "ls-remote:refs/heads/egg/issue-2393/slice-1",
+            "push",
+        ]
 
 
 class TestCreateSliceIntegrationBranchFailures:
@@ -417,3 +430,213 @@ class TestCreateSliceIntegrationBranchSession:
         assert ok is False
         assert register_spy.call_count == 1
         assert delete_spy.call_args_list == [call("orphan-tok")]
+
+
+class TestCreateSliceIntegrationBranchRestartRecovery:
+    """#2512 — restart_phase recovery when slice integration branch
+    already exists on origin with prior-run commits.
+
+    The pre-#2512 implementation issued ``parent_sha:refs/heads/<int>``
+    unconditionally, which is rejected as non-fast-forward when the
+    branch already carries commits descended from parent.  decision-3
+    advertises "Committed work is preserved on the per-role branch —
+    'Retry phase' restarts with artifacts intact"; that promise was
+    only honored on the first slice spawn.  These tests pin the
+    restart-recovery path: detect the existing branch, verify its
+    tip descends from the current parent, and short-circuit success
+    instead of pushing.
+    """
+
+    def test_existing_branch_descended_from_parent_is_preserved(self, gateway_client):
+        """Issue #2512 reproduction: slice-1 branch on origin contains
+        coder/tester commits descended from parent (cancel_task with
+        cleanup=false followed by restart_phase).  ``create_slice_
+        integration_branch`` must detect this and return True without
+        pushing — the prior commits are exactly what restart_phase
+        promises to preserve."""
+        parent_sha = "8a76c30d" * 5  # parent-branch tip
+        existing_sha = "0c5c6697" * 5  # slice-1 tip from prior run
+
+        push_invoked: list[bool] = []
+        merge_base_calls: list[dict] = []
+
+        def fake_get_remote_branch_sha(pipeline_id, repo_path, ref, **kwargs):
+            if ref == "refs/heads/egg/issue-2474":
+                return parent_sha
+            if ref == "refs/heads/egg/issue-2474/slice-1":
+                return existing_sha
+            return None
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/push":
+                push_invoked.append(True)
+            elif endpoint == "/api/v1/git/execute":
+                merge_base_calls.append(dict(data or {}))
+                # operation=merge-base --is-ancestor parent existing
+                # parent IS an ancestor → returncode 0 / success
+                return {"success": True, "data": {"returncode": 0}}
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=fake_get_remote_branch_sha,
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            ok = gateway_client.create_slice_integration_branch(
+                "issue-2474",
+                "/repo",
+                integration_branch="egg/issue-2474/slice-1",
+                parent_branch="egg/issue-2474",
+            )
+
+        assert ok is True, "must short-circuit success when prior work descends from parent"
+        assert push_invoked == [], (
+            "must NOT push when integration branch already descends from "
+            "parent — that push would be rejected as non-fast-forward"
+        )
+        assert len(merge_base_calls) == 1
+        mb = merge_base_calls[0]
+        assert mb["operation"] == "merge-base"
+        assert mb["args"] == ["--is-ancestor", parent_sha, existing_sha], (
+            "ancestry direction matters: parent must be ancestor of existing tip"
+        )
+
+    def test_existing_branch_diverged_falls_through_to_push(self, gateway_client):
+        """If parent_sha is NOT an ancestor of the existing slice tip
+        (genuinely diverged history), fall through to the push so
+        origin's rejection surfaces as a clear signal.  Better than
+        silently overwriting unknown work."""
+        parent_sha = "deadbeef" * 5
+        existing_sha = "feedface" * 5  # diverged
+
+        push_invoked: list[dict] = []
+
+        def fake_get_remote_branch_sha(pipeline_id, repo_path, ref, **kwargs):
+            if ref.endswith("/slice-1"):
+                return existing_sha
+            return parent_sha
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/push":
+                push_invoked.append(dict(data or {}))
+            elif endpoint == "/api/v1/git/execute":
+                # not-ancestor → gateway returns 500 with returncode=1
+                raise GatewayError(
+                    "git merge-base failed",
+                    status_code=500,
+                    details={"returncode": 1, "stdout": "", "stderr": ""},
+                )
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(
+                gateway_client,
+                "get_remote_branch_sha",
+                side_effect=fake_get_remote_branch_sha,
+            ),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            ok = gateway_client.create_slice_integration_branch(
+                "pipe-div",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert ok is True, "diverged history → push proceeds and (here) succeeds"
+        assert len(push_invoked) == 1, "must attempt the push when histories diverge"
+        assert push_invoked[0]["refspec"] == (f"{parent_sha}:refs/heads/egg/issue-1/slice-1")
+
+    def test_existing_branch_equal_to_parent_skips_recovery_path(self, gateway_client):
+        """When the integration branch already exists at exactly
+        parent_sha (e.g., the slice was created in a prior run but
+        no agent commits landed), the recovery path is unnecessary —
+        the push is a no-op fast-forward and we don't run merge-base."""
+        sha = "cafebabe" * 5
+        merge_base_calls: list[dict] = []
+        push_invoked: list[bool] = []
+
+        def fake_make_request(endpoint, method=None, data=None, **kwargs):
+            if endpoint == "/api/v1/git/push":
+                push_invoked.append(True)
+            elif endpoint == "/api/v1/git/execute":
+                merge_base_calls.append(dict(data or {}))
+            return {"success": True, "data": {}}
+
+        with (
+            patch.object(gateway_client, "register_session", return_value=_session_info()),
+            patch.object(gateway_client, "delete_session", return_value=True),
+            patch.object(gateway_client, "fetch_branch", return_value=True),
+            patch.object(gateway_client, "get_remote_branch_sha", return_value=sha),
+            patch.object(gateway_client, "_make_request", side_effect=fake_make_request),
+        ):
+            ok = gateway_client.create_slice_integration_branch(
+                "pipe-eq",
+                "/repo",
+                integration_branch="egg/issue-1/slice-1",
+                parent_branch="egg/issue-1",
+            )
+
+        assert ok is True
+        assert push_invoked == [True], "push still runs (it's a fast-forward no-op)"
+        assert merge_base_calls == [], (
+            "must not run merge-base when existing tip is already at parent_sha"
+        )
+
+
+class TestShaIsAncestor:
+    """Unit tests for the ``_sha_is_ancestor`` helper that backs the
+    #2512 restart-recovery detection."""
+
+    def test_returns_true_on_success_response(self, gateway_client):
+        with patch.object(
+            gateway_client,
+            "_make_request",
+            return_value={"success": True, "data": {"returncode": 0}},
+        ) as mock_req:
+            ok = gateway_client._sha_is_ancestor(
+                "pipe-1", "/repo", "aaaa", "bbbb", bearer_token="tok"
+            )
+        assert ok is True
+        call_data = mock_req.call_args.kwargs["data"]
+        assert call_data["operation"] == "merge-base"
+        assert call_data["args"] == ["--is-ancestor", "aaaa", "bbbb"]
+        assert mock_req.call_args.kwargs["bearer_token"] == "tok"
+
+    def test_returns_false_on_returncode_1(self, gateway_client):
+        """``merge-base --is-ancestor`` exits 1 when the relation does
+        not hold — surfaces as 500 from the gateway with
+        ``returncode: 1`` in the error details."""
+
+        def fake(*args, **kwargs):
+            raise GatewayError(
+                "git merge-base failed",
+                status_code=500,
+                details={"returncode": 1, "stderr": ""},
+            )
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake):
+            ok = gateway_client._sha_is_ancestor("p", "/r", "a", "b")
+        assert ok is False
+
+    def test_returns_false_on_unexpected_error(self, gateway_client):
+        """Any failure that isn't ``returncode: 1`` (network, missing
+        object, gateway down) is treated as non-ancestor so callers
+        fall through to the conservative path rather than incorrectly
+        preserving prior work on a broken check."""
+
+        def fake(*args, **kwargs):
+            raise GatewayError("connection refused")
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake):
+            ok = gateway_client._sha_is_ancestor("p", "/r", "a", "b")
+        assert ok is False
