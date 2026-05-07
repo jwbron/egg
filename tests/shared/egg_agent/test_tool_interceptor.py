@@ -198,3 +198,71 @@ class TestGetRoleFromEnv:
     def test_strips_whitespace(self, monkeypatch):
         monkeypatch.setenv("EGG_AGENT_ROLE", "  tester  ")
         assert get_role_from_env() == "tester"
+
+
+class TestPipelineRepoOverride:
+    """``EGG_PIPELINE_REPO`` + ``EGG_PIPELINE_REPO_PATTERNS_JSON``
+    propagation through ``check_file_write_permission`` (#2528).
+
+    The orchestrator pre-resolves the per-repo override and injects
+    both env vars when spawning the sandbox. The interceptor reads
+    them and routes the write check to the correct (per-repo) pattern.
+    """
+
+    def setup_method(self):
+        # Clear any cached pattern dicts between tests so a stale
+        # override from another test doesn't leak through.
+        from egg_restrictions.patterns import reset_pattern_cache
+
+        reset_pattern_cache()
+
+    def teardown_method(self):
+        from egg_restrictions.patterns import reset_pattern_cache
+
+        reset_pattern_cache()
+
+    def test_go_repo_override_blocks_coder_from_test_files(self, monkeypatch):
+        """Go conventions: coder cannot write ``*_test.go`` next to
+        source under a repo that declares Go ``tests_globs``."""
+        import json
+
+        monkeypatch.setenv("EGG_PIPELINE_REPO", "owner/go-repo")
+        monkeypatch.setenv(
+            "EGG_PIPELINE_REPO_PATTERNS_JSON",
+            json.dumps(
+                {
+                    "owner/go-repo": {
+                        "tests_globs": ["**/*_test.go", "**/testdata/**"],
+                        "code_globs": ["**/*.go"],
+                    }
+                }
+            ),
+        )
+
+        # The default pattern would let coder write ``*_test.go`` (the
+        # legacy Python-only blocklist had no Go entries pre-PR).
+        # With the override, this file routes to tester.
+        result = check_file_write_permission(
+            "Write",
+            {"file_path": "internal/foo/bar_test.go", "content": "..."},
+            agent_role="coder",
+        )
+        assert result is not None
+        assert "BLOCKED" in result
+        assert "tester" in result  # owner-role hint plumbed through override
+
+    def test_no_pipeline_repo_uses_default_patterns(self, monkeypatch):
+        """Outside a pipeline (no ``EGG_PIPELINE_REPO``), the
+        interceptor falls back to global defaults."""
+        monkeypatch.delenv("EGG_PIPELINE_REPO", raising=False)
+        monkeypatch.delenv("EGG_PIPELINE_REPO_PATTERNS_JSON", raising=False)
+
+        # Default patterns block ``test_*.py`` from coder; verifies
+        # the no-override branch still works.
+        result = check_file_write_permission(
+            "Write",
+            {"file_path": "tests/test_foo.py", "content": "..."},
+            agent_role="coder",
+        )
+        assert result is not None
+        assert "BLOCKED" in result

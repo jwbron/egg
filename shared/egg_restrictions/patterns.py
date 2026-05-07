@@ -8,6 +8,9 @@ that need to enforce agent file access boundaries.
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 import posixpath
 from dataclasses import dataclass, field
 
@@ -19,6 +22,8 @@ from egg_contracts.agent_roles import AgentRole
 
 from .matchers import match_pattern
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "AGENT_PATTERNS",
     "AgentFilePattern",
@@ -28,6 +33,8 @@ __all__ = [
     "DEFAULT_TESTS_GLOBS",
     "build_agent_patterns",
     "get_agent_pattern_for_repo",
+    "get_agent_patterns_for_repo",
+    "load_repo_pattern_override",
     "reset_pattern_cache",
 ]
 
@@ -775,14 +782,7 @@ def build_agent_patterns(
         per-repo knobs only widen the language-convention lists.
     """
     if repo is not None and tests_globs is None and code_globs is None and docs_globs is None:
-        # Lazy import — config.repo_config pulls yaml + filesystem state
-        # that we don't want at module-import time.
-        try:
-            from config.repo_config import get_repo_role_patterns
-
-            override = get_repo_role_patterns(repo)
-        except Exception:
-            override = None
+        override = load_repo_pattern_override(repo)
         if override:
             tests_globs = override.get("tests_globs")
             code_globs = override.get("code_globs")
@@ -827,6 +827,89 @@ def build_agent_patterns(
     }
 
 
+def load_repo_pattern_override(repo: str) -> dict[str, list[str]] | None:
+    """Resolve the per-repo role-pattern override for ``repo``.
+
+    Production runtimes have three different shapes for reading the
+    override:
+
+    1. **Sandbox** — has no access to ``repositories.yaml``. The
+       orchestrator pre-resolves the override at spawn time and passes
+       it via the ``EGG_PIPELINE_REPO_PATTERNS_JSON`` env var (a JSON
+       object whose top-level keys are repos). This is checked first.
+    2. **Gateway** — copies ``config/repo_config.py`` to ``/app/`` (top
+       level) and to ``/config/`` (no ``__init__.py``). Only the
+       top-level layout is on ``PYTHONPATH``, so the import has to fall
+       back from ``config.repo_config`` to ``repo_config``.
+    3. **Orchestrator** — copies ``config/repo_config.py`` to its
+       working directory as ``repo_config.py`` (top level). Same
+       fallback path as the gateway.
+
+    The two-step import mirrors the existing
+    ``gateway.gateway._reload_all_config`` pattern. Failures are
+    swallowed (the feature degrades to defaults) but logged at DEBUG so
+    operators can correlate a missing override with the import path.
+    """
+    env_blob = os.environ.get("EGG_PIPELINE_REPO_PATTERNS_JSON")
+    if env_blob:
+        try:
+            decoded = json.loads(env_blob)
+        except json.JSONDecodeError:
+            logger.warning(
+                "EGG_PIPELINE_REPO_PATTERNS_JSON is not valid JSON; ignoring",
+                extra={"repo": repo},
+            )
+            decoded = None
+        if isinstance(decoded, dict):
+            entry = decoded.get(repo)
+            if isinstance(entry, dict):
+                cleaned: dict[str, list[str]] = {}
+                for key in ("tests_globs", "code_globs", "docs_globs"):
+                    value = entry.get(key)
+                    if isinstance(value, list):
+                        only_strings = [v for v in value if isinstance(v, str) and v]
+                        if only_strings:
+                            cleaned[key] = only_strings
+                if cleaned:
+                    return cleaned
+
+    get_repo_role_patterns = None
+    try:
+        from config.repo_config import get_repo_role_patterns  # type: ignore[no-redef]
+    except ImportError:
+        try:
+            from repo_config import get_repo_role_patterns  # type: ignore[no-redef]
+        except ImportError:
+            logger.debug(
+                "repo_config not importable; per-repo overrides disabled",
+                extra={"repo": repo},
+            )
+            return None
+
+    try:
+        override = get_repo_role_patterns(repo)
+    except FileNotFoundError:
+        # No repositories.yaml mounted — expected outside the gateway.
+        return None
+    except Exception:
+        logger.exception(
+            "Failed to load per-repo role-pattern override; using defaults",
+            extra={"repo": repo},
+        )
+        return None
+    return override or None
+
+
+def _normalize_repo_key(repo: str | None) -> str | None:
+    """Normalize the repo cache key so ``Owner/Repo`` and ``owner/repo``
+    share one entry. Mirrors the case-insensitive lookup in
+    ``config.repo_config.get_repo_setting``.
+    """
+    if repo is None:
+        return None
+    return repo.lower()
+
+
 # Per-repo cache. The build is cheap but called on every push, plan-time
 # validation, and tool-interceptor write check; memoizing avoids redoing
 # the YAML read per-call. Reset via ``reset_pattern_cache`` (wired into
@@ -839,13 +922,30 @@ def get_agent_pattern_for_repo(role: str, repo: str | None = None) -> AgentFileP
     role is not defined.
 
     Equivalent to ``AGENT_PATTERNS.get(role)`` when ``repo`` is None or
-    no override exists. Memoizes per repo.
+    no override exists. Memoizes per repo (case-insensitive).
     """
-    cached = _repo_pattern_cache.get(repo)
+    key = _normalize_repo_key(repo)
+    cached = _repo_pattern_cache.get(key)
     if cached is None:
         cached = build_agent_patterns(repo)
-        _repo_pattern_cache[repo] = cached
+        _repo_pattern_cache[key] = cached
     return cached.get(role)
+
+
+def get_agent_patterns_for_repo(repo: str | None = None) -> dict[str, AgentFilePattern]:
+    """Return the full per-role pattern registry for ``repo`` (memoized).
+
+    Used by callers that need to scan every role (e.g. the tool
+    interceptor's ``_find_owning_role``); cheaper than calling
+    ``build_agent_patterns`` once per call site since the cache is
+    shared with ``get_agent_pattern_for_repo``.
+    """
+    key = _normalize_repo_key(repo)
+    cached = _repo_pattern_cache.get(key)
+    if cached is None:
+        cached = build_agent_patterns(repo)
+        _repo_pattern_cache[key] = cached
+    return cached
 
 
 def reset_pattern_cache() -> None:
@@ -854,6 +954,11 @@ def reset_pattern_cache() -> None:
     Called by ``config.repo_config.reload_config`` so a SIGHUP /
     ``/api/v1/config/reload`` picks up edited ``role_patterns:``
     overrides without restarting the gateway.
+
+    Atomic rebind avoids a race where a concurrent reader sees the
+    cache mid-clear and rebuilds the ``None`` entry as a fresh dict
+    (functionally identical but a different object than
+    ``AGENT_PATTERNS`` — which the parity tests assert against).
     """
-    _repo_pattern_cache.clear()
-    _repo_pattern_cache[None] = AGENT_PATTERNS
+    global _repo_pattern_cache
+    _repo_pattern_cache = {None: AGENT_PATTERNS}

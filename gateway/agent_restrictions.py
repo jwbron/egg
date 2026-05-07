@@ -47,6 +47,8 @@ from egg_restrictions.patterns import (
     AgentRole,
     build_agent_patterns,
     get_agent_pattern_for_repo,
+    get_agent_patterns_for_repo,
+    load_repo_pattern_override,
     reset_pattern_cache,
 )
 
@@ -121,6 +123,8 @@ __all__ = [
     "check_agent_gh_operation",
     "get_agent_pattern",
     "get_agent_pattern_for_repo",
+    "get_agent_patterns_for_repo",
+    "load_repo_pattern_override",
     "partition_files_by_role",
     "reset_pattern_cache",
     "validate_agent_push",

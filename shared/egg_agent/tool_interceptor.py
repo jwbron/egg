@@ -111,11 +111,13 @@ def _find_owning_role(file_path: str, excluded_role: str, repo: str | None = Non
     so the suggested role matches what the gateway will actually accept.
     """
     try:
-        from egg_restrictions.patterns import build_agent_patterns
+        from egg_restrictions.patterns import get_agent_patterns_for_repo
     except ImportError:
         return None
 
-    patterns = build_agent_patterns(repo)
+    # Use the cached lookup so we don't rebuild all 19 role patterns on
+    # every blocked write — write checks can be hot in noisy sessions.
+    patterns = get_agent_patterns_for_repo(repo)
 
     # Check common roles first (most likely targets for delegation)
     priority_roles = ["coder", "tester", "documenter"]

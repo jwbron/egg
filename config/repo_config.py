@@ -31,12 +31,15 @@ Usage:
     reviewer = get_default_reviewer()
 """
 
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def _get_config_path() -> Path:
@@ -399,28 +402,67 @@ def get_repo_role_patterns(repo: str) -> dict[str, list[str]] | None:
         of ``tests_globs`` / ``code_globs`` / ``docs_globs`` whose value
         is a non-empty list of strings). Returns ``None`` when no
         ``role_patterns`` block is set, or when every configured key is
-        invalid. Unknown keys (e.g. attempts to override
-        ``contracts_blocklist``) are silently dropped — the security
-        boundary is enforced in
-        ``shared/egg_restrictions/patterns.py`` builders, but rejecting
-        the unknown key here gives operators a clean signal in the
-        logs.
+        invalid.
+
+        Dropped input emits a WARNING log so operators can correlate a
+        repo's stale globs with the offending key/value:
+
+        - Unknown keys (e.g. an attempt to invent a
+          ``contracts_blocklist`` knob, or a typo such as
+          ``tests_glob`` missing the trailing ``s``).
+        - Non-list values (``tests_globs: 42``).
+        - Non-string list entries (``tests_globs: [null]``).
+
+        Defense-in-depth: dropping unknown keys at the parser layer
+        keeps a misconfigured repo from widening security boundaries.
+        The pattern builders also ignore anything outside the three
+        knobs, but the parser is the single place that produces a
+        diagnostic signal.
     """
     raw = get_repo_setting(repo, "role_patterns", None)
+    if raw is None:
+        return None
     if not isinstance(raw, dict):
+        logger.warning(
+            "repositories.yaml: role_patterns for %r must be a mapping, got %s; "
+            "ignoring entire block",
+            repo,
+            type(raw).__name__,
+        )
         return None
 
     out: dict[str, list[str]] = {}
     for key, value in raw.items():
         if key not in _VALID_ROLE_PATTERN_KEYS:
-            # Defense-in-depth: a misconfigured repo cannot widen
-            # security boundaries by inventing keys. The pattern
-            # builders already ignore anything outside the three knobs,
-            # so dropping here is purely diagnostic.
+            logger.warning(
+                "repositories.yaml: role_patterns key %r is not recognised for "
+                "repo %r (valid keys: %s); dropping",
+                key,
+                repo,
+                sorted(_VALID_ROLE_PATTERN_KEYS),
+            )
             continue
         if not isinstance(value, list):
+            logger.warning(
+                "repositories.yaml: role_patterns.%s for repo %r must be a list, got %s; dropping",
+                key,
+                repo,
+                type(value).__name__,
+            )
             continue
-        cleaned = [str(item) for item in value if isinstance(item, str) and item]
+        cleaned: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item:
+                cleaned.append(item)
+            else:
+                logger.warning(
+                    "repositories.yaml: role_patterns.%s for repo %r contains "
+                    "invalid entry %r (expected non-empty string); dropping that "
+                    "entry",
+                    key,
+                    repo,
+                    item,
+                )
         if cleaned:
             out[key] = cleaned
 
