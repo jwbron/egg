@@ -3197,20 +3197,38 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     #     Without this, stale worktree directories (e.g. broken btrfs mounts)
     #     survive container removal and cause create_worktree to skip creation
     #     or fail.  Mirrors cleanup_pipeline's worktree deletion.  (#1723)
-    for role in agent_roles:
-        agent_worktree_id = f"{pipeline_id}-{role.value}"
+    #
+    #     Enumerate from disk rather than guess names: slice-scoped worktrees
+    #     are ``{pipeline_id}-slice-{N}-{role}``, not ``{pipeline_id}-{role}``,
+    #     so a name-guess loop misses every per-slice worktree on a slice
+    #     pipeline and leaves them behind.  (#2522)
+    restart_role_values = {role.value for role in agent_roles}
+    try:
+        all_worktrees = agent_salvage.enumerate_agent_worktrees(pipeline_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to enumerate per-agent worktrees during phase restart",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        all_worktrees = []
+    for wt in all_worktrees:
+        if wt.agent_role not in restart_role_values:
+            continue
         try:
-            spawner.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
+            spawner.gateway.delete_worktrees(container_id=wt.worktree_id, force=True)
             logger.info(
                 "Deleted per-agent worktree during phase restart",
-                agent_worktree_id=agent_worktree_id,
+                agent_worktree_id=wt.worktree_id,
                 pipeline_id=pipeline_id,
+                slice_id=wt.slice_id,
             )
         except Exception as e:
             logger.warning(
                 "Failed to delete per-agent worktree during phase restart",
-                agent_worktree_id=agent_worktree_id,
+                agent_worktree_id=wt.worktree_id,
                 pipeline_id=pipeline_id,
+                slice_id=wt.slice_id,
                 error=str(e),
             )
 
