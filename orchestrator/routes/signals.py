@@ -1581,6 +1581,16 @@ def handle_consensus_confirmed_signal(
                 error=str(recon_err),
             )
 
+        if not tracker and slice_id is not None:
+            # Slice-scoped: pipeline-wide message-bus fallback would mingle
+            # other slices' CONFIRMs and reach false consensus the moment a
+            # fresh slice spawns roles matching an already-confirmed prior
+            # slice (#2535). Per-slice trackers are recreated by the slice
+            # scheduler on the next iteration; surface the missing tracker
+            # rather than guessing from sibling-slice state.
+            scope = f"{pipeline_id}/{slice_id}"
+            return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
+
         if not tracker:
             # Message-bus authoritative fallback: if all expected roles have
             # CONSENSUS_CONFIRMED messages, accept the confirmation directly.
