@@ -63,6 +63,15 @@ def _make_contract_json(
     return contract
 
 
+# Default slice_id stamped onto implement-phase BRC messages by the test
+# helpers below. Issue #2548 hard-switchover: ``_write_brc_history`` drops
+# implement-phase BRC messages without a ``metadata['slice_id']`` with a
+# warning, so every fixture in this module must seed one. Tests that want
+# to exercise the missing-slice_id WARNING path explicitly pass
+# ``slice_id=None`` (or omit ``slice_id`` from the override metadata).
+_DEFAULT_IMPLEMENT_SLICE_ID = "slice-1"
+
+
 def _make_brc_message(
     pipeline_id="issue-42",
     from_role="coder",
@@ -72,8 +81,25 @@ def _make_brc_message(
     phase="implement",
     timestamp=None,
     metadata=None,
+    slice_id="__default__",
 ):
-    """Create a BRC Message for testing."""
+    """Create a BRC Message for testing.
+
+    ``slice_id`` is merged into ``metadata`` for implement-phase messages so
+    tests can rely on the post-#2548 hard-switchover writer producing per-slice
+    files. Pass ``slice_id=None`` to omit it (used by the missing-slice_id
+    WARNING regression test). When ``metadata`` already contains a
+    ``slice_id`` key it wins (caller intent).
+    """
+    md = dict(metadata or {})
+    if slice_id == "__default__":
+        # Default policy: implement phase auto-stamps slice-1 unless metadata
+        # already supplies one; non-implement phases never auto-stamp.
+        if phase == "implement" and "slice_id" not in md:
+            md["slice_id"] = _DEFAULT_IMPLEMENT_SLICE_ID
+    elif slice_id is not None:
+        md.setdefault("slice_id", slice_id)
+    # slice_id=None and metadata lacks "slice_id" -> intentionally unattributed
     return Message(
         pipeline_id=pipeline_id,
         from_role=from_role,
@@ -83,11 +109,11 @@ def _make_brc_message(
         body=body,
         phase=phase,
         timestamp=timestamp or datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-        metadata=metadata or {},
+        metadata=md,
     )
 
 
-def _make_brc_messages(pipeline_id="issue-42", phase="implement"):
+def _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="__default__"):
     """Create a typical set of BRC messages for a phase."""
     return [
         _make_brc_message(
@@ -98,6 +124,7 @@ def _make_brc_messages(pipeline_id="issue-42", phase="implement"):
             body="Implemented auth fix",
             phase=phase,
             timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
+            slice_id=slice_id,
         ),
         _make_brc_message(
             pipeline_id=pipeline_id,
@@ -107,6 +134,7 @@ def _make_brc_messages(pipeline_id="issue-42", phase="implement"):
             body="Code looks good",
             phase=phase,
             timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
+            slice_id=slice_id,
         ),
         _make_brc_message(
             pipeline_id=pipeline_id,
@@ -116,6 +144,7 @@ def _make_brc_messages(pipeline_id="issue-42", phase="implement"):
             body="Tests pass",
             phase=phase,
             timestamp=datetime(2026, 4, 8, 12, 10, 0, tzinfo=UTC),
+            slice_id=slice_id,
         ),
         _make_brc_message(
             pipeline_id=pipeline_id,
@@ -125,11 +154,12 @@ def _make_brc_messages(pipeline_id="issue-42", phase="implement"):
             body="",
             phase=phase,
             timestamp=datetime(2026, 4, 8, 12, 15, 0, tzinfo=UTC),
+            slice_id=slice_id,
         ),
     ]
 
 
-def _make_mixed_messages(pipeline_id="issue-42", phase="implement"):
+def _make_mixed_messages(pipeline_id="issue-42", phase="implement", slice_id="__default__"):
     """Create messages with both BRC and non-BRC types."""
     return [
         _make_brc_message(
@@ -139,6 +169,7 @@ def _make_mixed_messages(pipeline_id="issue-42", phase="implement"):
             subject="Working on task",
             body="Starting implementation",
             phase=phase,
+            slice_id=slice_id,
         ),
         _make_brc_message(
             pipeline_id=pipeline_id,
@@ -147,6 +178,7 @@ def _make_mixed_messages(pipeline_id="issue-42", phase="implement"):
             subject="Proposal from coder",
             body="Done with implementation",
             phase=phase,
+            slice_id=slice_id,
         ),
         _make_brc_message(
             pipeline_id=pipeline_id,
@@ -155,8 +187,19 @@ def _make_mixed_messages(pipeline_id="issue-42", phase="implement"):
             subject="Test status",
             body="Running tests",
             phase=phase,
+            slice_id=slice_id,
         ),
     ]
+
+
+def _implement_path(tmp_path, identifier="42", suffix=".md", slice_id=_DEFAULT_IMPLEMENT_SLICE_ID):
+    """Resolve the canonical per-slice implement-phase BRC history path (#2548)."""
+    return (
+        tmp_path
+        / ".egg-state"
+        / "brc-history"
+        / f"{identifier}-implement-{slice_id}{suffix}"
+    )
 
 
 def _setup_contract(tmp_path, issue_number=42):
@@ -181,11 +224,14 @@ class TestWriteBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        expected_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        expected_path = _implement_path(tmp_path)
         assert expected_path.exists(), f"Expected BRC history file at {expected_path}"
 
         content = expected_path.read_text()
         assert len(content) > 0
+        # #2548 hard switchover: aggregate file MUST NOT be produced.
+        aggregate = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        assert not aggregate.exists(), "Aggregate implement file leaked through hard switchover"
 
     def test_file_contains_chronological_messages(self, tmp_path):
         """BRC history file contains messages in chronological order."""
@@ -198,7 +244,7 @@ class TestWriteBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
 
         # Verify all BRC message types appear
         assert "CONSENSUS_PROPOSE" in content
@@ -266,7 +312,7 @@ class TestWriteBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        expected_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        expected_path = _implement_path(tmp_path)
         assert expected_path.exists()
 
         content = expected_path.read_text()
@@ -318,7 +364,7 @@ class TestWriteBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         # File should contain a header with phase info
         assert "implement" in content.lower()
 
@@ -352,7 +398,7 @@ class TestWriteBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "CONSENSUS_NACK" in content
         assert "reviewer_code" in content
 
@@ -395,7 +441,7 @@ class TestWriteBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "CONSENSUS_RE_REVIEW" in content
         assert "CONSENSUS_WITHDRAW" in content
 
@@ -438,7 +484,7 @@ class TestWriteBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         # Should contain implement-phase messages
         assert "Implement proposal" in content
         assert "ACK for implement" in content
@@ -499,7 +545,11 @@ class TestWriteBrcHistoryEdgeCases:
         history_dir = tmp_path / ".egg-state" / "brc-history"
         assert (history_dir / "42-refine.md").exists()
         assert (history_dir / "42-plan.md").exists()
-        assert (history_dir / "42-implement.md").exists()
+        # #2548: implement phase emits a per-slice file, not the aggregate.
+        assert (history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md").exists()
+        assert not (history_dir / "42-implement.md").exists(), (
+            "Aggregate implement.md leaked through hard switchover"
+        )
 
     def test_messages_with_empty_body(self, tmp_path):
         """Messages with empty body are included but don't break formatting."""
@@ -521,7 +571,7 @@ class TestWriteBrcHistoryEdgeCases:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        expected_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        expected_path = _implement_path(tmp_path)
         assert expected_path.exists()
         content = expected_path.read_text()
         assert "CONSENSUS_CONFIRMED" in content
@@ -554,7 +604,7 @@ class TestWriteBrcHistoryLossless:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "````yaml" in content
         assert "artifact_references" in content
         assert "orchestrator/routes/pipelines.py" in content
@@ -584,7 +634,7 @@ class TestWriteBrcHistoryLossless:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "````yaml" in content
         assert "revision_count" in content
         assert "payload" in content
@@ -611,7 +661,7 @@ class TestWriteBrcHistoryLossless:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "commit_sha" in content
         assert "abc123def456" in content
 
@@ -638,7 +688,7 @@ class TestWriteBrcHistoryLossless:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "→ reviewer_code" in content
 
     def test_to_role_omitted_for_broadcast(self, tmp_path):
@@ -662,7 +712,7 @@ class TestWriteBrcHistoryLossless:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "→" not in content
 
     def test_triple_backtick_body_does_not_corrupt_yaml_block(self, tmp_path):
@@ -693,7 +743,7 @@ class TestWriteBrcHistoryLossless:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         # The body should appear verbatim
         assert "```python" in content
         assert "print('hi')" in content
@@ -739,7 +789,7 @@ class TestWriteBrcHistoryLossless:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "HANDOFF" in content
         assert "Code ready for testing" in content
 
@@ -764,7 +814,7 @@ class TestWriteBrcHistoryLossless:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "OVERSEER_ALERT" in content
 
 
@@ -782,7 +832,7 @@ class TestJsonCompanionFile:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
+        json_path = _implement_path(tmp_path, suffix=".json")
         assert json_path.exists(), "JSON companion file should exist"
 
     def test_json_round_trips_to_message_dicts(self, tmp_path):
@@ -796,7 +846,7 @@ class TestJsonCompanionFile:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
+        json_path = _implement_path(tmp_path, suffix=".json")
         data = json.loads(json_path.read_text())
         assert isinstance(data, list)
         assert len(data) == len(messages)
@@ -878,7 +928,7 @@ class TestJsonCompanionFile:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
+        json_path = _implement_path(tmp_path, suffix=".json")
         data = json.loads(json_path.read_text())
         types_in_json = {entry["message_type"] for entry in data}
 
@@ -914,7 +964,7 @@ class TestJsonCompanionFile:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
+        json_path = _implement_path(tmp_path, suffix=".json")
         data = json.loads(json_path.read_text())
         assert len(data) == 1
         metadata = data[0]["metadata"]
@@ -946,7 +996,7 @@ class TestJsonCompanionFile:
         ):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        md_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        md_path = _implement_path(tmp_path)
         assert md_path.exists(), "Markdown file should still be written despite JSON failure"
 
 
@@ -1040,7 +1090,7 @@ class TestYamlMetadataRoundTrip:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
 
         # Extract YAML blocks from fenced code blocks
         in_yaml = False
@@ -1094,7 +1144,7 @@ class TestYamlMetadataRoundTrip:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
 
         in_yaml = False
         yaml_lines: list[str] = []
@@ -1142,14 +1192,14 @@ class TestMarkdownWriteFailureIsolation:
         history_dir.mkdir(parents=True, exist_ok=True)
 
         # Make the .md file a directory so write_text fails
-        md_path = history_dir / "42-implement.md"
+        md_path = history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
         md_path.mkdir()
 
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         # JSON should still be written despite MD failure
-        json_path = history_dir / "42-implement.json"
+        json_path = history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.json"
         assert json_path.exists(), "JSON file should be written despite markdown write failure"
         data = json.loads(json_path.read_text())
         assert len(data) == 1
@@ -1169,7 +1219,7 @@ class TestJsonCompanionEdgeCases:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
+        json_path = _implement_path(tmp_path, suffix=".json")
         assert not json_path.exists(), "No JSON file should be created for empty message store"
 
     def test_multiple_phases_create_separate_json_files(self, tmp_path):
@@ -1190,11 +1240,19 @@ class TestJsonCompanionEdgeCases:
         history_dir = tmp_path / ".egg-state" / "brc-history"
         assert (history_dir / "42-refine.json").exists()
         assert (history_dir / "42-plan.json").exists()
-        assert (history_dir / "42-implement.json").exists()
+        # #2548: implement is per-slice; aggregate JSON must NOT exist.
+        assert (history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.json").exists()
+        assert not (history_dir / "42-implement.json").exists(), (
+            "Aggregate implement.json leaked through hard switchover"
+        )
 
         # Each JSON file should only contain messages for that phase
-        for phase in ["refine", "plan", "implement"]:
-            data = json.loads((history_dir / f"42-{phase}.json").read_text())
+        for phase, fname in [
+            ("refine", "42-refine.json"),
+            ("plan", "42-plan.json"),
+            ("implement", f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.json"),
+        ]:
+            data = json.loads((history_dir / fname).read_text())
             for entry in data:
                 assert entry["phase"] == phase, (
                     f"JSON for {phase} contains message from {entry['phase']}"
@@ -1222,7 +1280,7 @@ class TestJsonCompanionEdgeCases:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
+        json_path = _implement_path(tmp_path, suffix=".json")
         data = json.loads(json_path.read_text())
         assert data[0]["to_role"] == "reviewer_code"
 
@@ -1250,7 +1308,7 @@ class TestHistoryIncludesNonConsensusTypes:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "STATUS" in content
         assert "Ready to confirm" in content
 
@@ -1274,7 +1332,7 @@ class TestHistoryIncludesNonConsensusTypes:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "NUDGE" in content
 
     def test_status_replaces_removed_question_type(self, tmp_path):
@@ -1305,7 +1363,7 @@ class TestHistoryIncludesNonConsensusTypes:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "STATUS" in content
         assert "Should I test the SSO path?" in content
 
@@ -1329,7 +1387,7 @@ class TestHistoryIncludesNonConsensusTypes:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "AGENT_FAILED" in content
         assert "Container exited with code 1" in content
 
@@ -1353,7 +1411,7 @@ class TestHistoryIncludesNonConsensusTypes:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        content = _implement_path(tmp_path).read_text()
         assert "HANDOFF" in content
 
 
@@ -1368,7 +1426,7 @@ class TestBuildBrcHistoryLinkLine:
     def test_returns_empty_when_identifier_is_none(self, tmp_path):
         from routes.pipelines import _build_brc_history_link_line
 
-        self._touch(tmp_path, "42-implement.md")
+        self._touch(tmp_path, f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md")
         assert _build_brc_history_link_line(tmp_path, None) == ""
 
     def test_returns_empty_when_history_dir_missing(self, tmp_path):
@@ -1379,52 +1437,69 @@ class TestBuildBrcHistoryLinkLine:
     def test_returns_empty_when_no_matching_files(self, tmp_path):
         from routes.pipelines import _build_brc_history_link_line
 
-        # File for a different pipeline/identifier
-        self._touch(tmp_path, "99-implement.md")
+        # File for a different pipeline/identifier (#2548: per-slice form).
+        self._touch(tmp_path, f"99-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md")
         assert _build_brc_history_link_line(tmp_path, 42) == ""
 
     def test_links_files_in_canonical_phase_order(self, tmp_path):
-        """Phases link in refine → plan → implement → pr order even if files were created otherwise."""
+        """Phases link in refine → plan → implement order even if files were created otherwise.
+
+        After #2548, implement-phase BRC files are per-slice (e.g.
+        ``42-implement-slice-1.md``); the link-line builder treats the suffix
+        after the identifier as the phase label, so the slice file appears as
+        ``implement-slice-1`` rather than ``implement``. The canonical phases
+        ``refine``/``plan``/``pr`` still sort before any non-canonical name —
+        which now includes the slice suffix.
+        """
         from routes.pipelines import _build_brc_history_link_line
 
-        # Create deliberately out of order
-        self._touch(tmp_path, "42-implement.md")
+        # Create deliberately out of order. Implement phase uses the per-slice
+        # form (#2548 hard switchover) — there is no aggregate ``42-implement.md``.
+        impl_file = f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        self._touch(tmp_path, impl_file)
         self._touch(tmp_path, "42-plan.md")
         self._touch(tmp_path, "42-refine.md")
 
         result = _build_brc_history_link_line(tmp_path, 42)
         assert result.startswith("_Per-phase BRC transcripts:")
         assert result.endswith("._")
-        # Canonical order: refine before plan before implement
+        # Canonical order: refine before plan before implement(-slice-N).
         assert result.index("refine") < result.index("plan") < result.index("implement")
-        # Link format
+        # Link format — refine/plan unchanged, implement now includes slice suffix.
         assert "[`plan`](./.egg-state/brc-history/42-plan.md)" in result
         assert "[`refine`](./.egg-state/brc-history/42-refine.md)" in result
-        assert "[`implement`](./.egg-state/brc-history/42-implement.md)" in result
+        assert (
+            f"[`implement-{_DEFAULT_IMPLEMENT_SLICE_ID}`]"
+            f"(./.egg-state/brc-history/{impl_file})"
+        ) in result
 
     def test_ignores_json_companions(self, tmp_path):
         from routes.pipelines import _build_brc_history_link_line
 
-        self._touch(tmp_path, "42-implement.md")
-        self._touch(tmp_path, "42-implement.json")
+        self._touch(tmp_path, f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md")
+        self._touch(tmp_path, f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.json")
 
         result = _build_brc_history_link_line(tmp_path, 42)
         # .json not surfaced as its own phase
         assert ".json" not in result
-        assert "[`implement`]" in result
+        assert f"[`implement-{_DEFAULT_IMPLEMENT_SLICE_ID}`]" in result
 
     def test_string_identifier_works(self, tmp_path):
         """Babysit-pr identifiers like 'pr-123-abc1234' glob the corresponding files."""
         from routes.pipelines import _build_brc_history_link_line
 
-        self._touch(tmp_path, "pr-123-abc1234-implement.md")
+        impl_file = f"pr-123-abc1234-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        self._touch(tmp_path, impl_file)
         self._touch(tmp_path, "pr-123-abc1234-plan.md")
         # Unrelated file for a different identifier must not leak in
         self._touch(tmp_path, "42-refine.md")
 
         result = _build_brc_history_link_line(tmp_path, "pr-123-abc1234")
         assert "[`plan`](./.egg-state/brc-history/pr-123-abc1234-plan.md)" in result
-        assert "[`implement`](./.egg-state/brc-history/pr-123-abc1234-implement.md)" in result
+        assert (
+            f"[`implement-{_DEFAULT_IMPLEMENT_SLICE_ID}`]"
+            f"(./.egg-state/brc-history/{impl_file})"
+        ) in result
         assert "42-refine" not in result
 
     def test_unknown_phase_names_sorted_after_canonical(self, tmp_path):
@@ -1449,13 +1524,18 @@ class TestBuildPrBodyBrcLink:
         history_dir = tmp_path / ".egg-state" / "brc-history"
         history_dir.mkdir(parents=True)
         (history_dir / "42-plan.md").write_text("stub")
-        (history_dir / "42-implement.md").write_text("stub")
+        # #2548: implement is per-slice — the aggregate file is gone.
+        impl_file = f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        (history_dir / impl_file).write_text("stub")
 
         title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "_Per-phase BRC transcripts:" in body
         assert "[`plan`](./.egg-state/brc-history/42-plan.md)" in body
-        assert "[`implement`](./.egg-state/brc-history/42-implement.md)" in body
+        assert (
+            f"[`implement-{_DEFAULT_IMPLEMENT_SLICE_ID}`]"
+            f"(./.egg-state/brc-history/{impl_file})"
+        ) in body
         # The dropped inline summary must not reappear
         assert "## BRC Consensus Summary" not in body
         # Existing sections still present
@@ -1480,8 +1560,598 @@ class TestBuildPrBodyBrcLink:
         _setup_contract(tmp_path)
         history_dir = tmp_path / ".egg-state" / "brc-history"
         history_dir.mkdir(parents=True)
-        (history_dir / "42-implement.md").write_text("stub")
+        # #2548: per-slice implement file replaces the aggregate.
+        (history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md").write_text("stub")
 
         title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert body.index("Per-phase BRC transcripts") < body.index("Authored-by: egg")
+
+
+# ---------------------------------------------------------------------------
+# Per-slice implement-phase BRC history (#2548 slice-2)
+# ---------------------------------------------------------------------------
+
+
+class TestPerSliceImplementBrcHistory:
+    """Implement-phase ``_write_brc_history`` partitions BRC messages by
+    ``metadata['slice_id']`` and writes one file per slice (#2548 slice-2,
+    hard switchover under D4 — no aggregate ``<id>-implement.{md,json}`` is
+    produced).
+
+    These tests pin the per-slice partitioning contract end-to-end:
+    multi-slice fan-out, file-naming shape, message routing into the right
+    bucket, and the no-aggregate-file invariant that the planner explicitly
+    called out as the slice's most observable acceptance criterion.
+    """
+
+    def _make_implement_msgs(self, slice_id, *, body_prefix="work"):
+        """Build a 4-message PROPOSE/ACK/ACK/CONFIRMED BRC quartet for *slice_id*."""
+        return _make_brc_messages(
+            pipeline_id="issue-42", phase="implement", slice_id=slice_id
+        )
+
+    def test_writes_one_file_per_slice_no_aggregate(self, tmp_path):
+        """Two slices' worth of implement BRC messages produce two per-slice
+        files and no aggregate ``42-implement.{md,json}``."""
+        from routes.pipelines import _write_brc_history
+
+        messages = []
+        # Distinct timestamps so the two buckets render in stable order.
+        for i, sid in enumerate(["slice-1", "slice-2"]):
+            for j, m in enumerate(self._make_implement_msgs(sid)):
+                # Disambiguate timestamps so renderer ordering is stable.
+                m.timestamp = datetime(2026, 4, 8, 12, i * 30 + j, 0, tzinfo=UTC)
+                messages.append(m)
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        slice1_md = history_dir / "42-implement-slice-1.md"
+        slice2_md = history_dir / "42-implement-slice-2.md"
+        slice1_json = history_dir / "42-implement-slice-1.json"
+        slice2_json = history_dir / "42-implement-slice-2.json"
+
+        # Per-slice files exist, both .md and .json.
+        assert slice1_md.exists(), "slice-1 markdown file missing"
+        assert slice2_md.exists(), "slice-2 markdown file missing"
+        assert slice1_json.exists(), "slice-1 JSON companion missing"
+        assert slice2_json.exists(), "slice-2 JSON companion missing"
+
+        # Aggregate file MUST NOT exist (hard switchover, D4).
+        assert not (history_dir / "42-implement.md").exists(), (
+            "Aggregate 42-implement.md leaked through hard switchover"
+        )
+        assert not (history_dir / "42-implement.json").exists(), (
+            "Aggregate 42-implement.json leaked through hard switchover"
+        )
+
+        # And there should be exactly the expected per-slice files plus the
+        # JSON companions — no other implement-phase artifacts.
+        produced = sorted(p.name for p in history_dir.glob("42-implement*"))
+        assert produced == [
+            "42-implement-slice-1.json",
+            "42-implement-slice-1.md",
+            "42-implement-slice-2.json",
+            "42-implement-slice-2.md",
+        ], f"Unexpected files: {produced}"
+
+    def test_each_slice_file_contains_only_its_own_messages(self, tmp_path):
+        """The slice-1 file must NOT contain any slice-2 messages and vice
+        versa — partitioning must isolate the buckets."""
+        from routes.pipelines import _write_brc_history
+
+        messages = []
+        for sid, marker in [("slice-1", "alpha-marker"), ("slice-2", "beta-marker")]:
+            for m in self._make_implement_msgs(sid):
+                if m.message_type == MessageType.CONSENSUS_PROPOSE:
+                    m.body = f"{marker} body"
+                messages.append(m)
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        slice1_md = (history_dir / "42-implement-slice-1.md").read_text()
+        slice2_md = (history_dir / "42-implement-slice-2.md").read_text()
+
+        # Each marker lands ONLY in its own slice's file.
+        assert "alpha-marker" in slice1_md
+        assert "alpha-marker" not in slice2_md, "alpha-marker leaked into slice-2"
+        assert "beta-marker" in slice2_md
+        assert "beta-marker" not in slice1_md, "beta-marker leaked into slice-1"
+
+        # And the JSON companions match the same partitioning.
+        slice1_json = json.loads((history_dir / "42-implement-slice-1.json").read_text())
+        slice2_json = json.loads((history_dir / "42-implement-slice-2.json").read_text())
+        assert all(entry["metadata"].get("slice_id") == "slice-1" for entry in slice1_json)
+        assert all(entry["metadata"].get("slice_id") == "slice-2" for entry in slice2_json)
+
+    def test_single_slice_still_uses_per_slice_filename(self, tmp_path):
+        """Even a single-slice pipeline writes ``-implement-slice-1.{md,json}``
+        — there is no fallback to the aggregate filename when only one slice
+        exists. (Hard switchover — no special-case for N=1.)"""
+        from routes.pipelines import _write_brc_history
+
+        messages = self._make_implement_msgs("slice-1")
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        assert (history_dir / "42-implement-slice-1.md").exists()
+        assert (history_dir / "42-implement-slice-1.json").exists()
+        assert not (history_dir / "42-implement.md").exists()
+        assert not (history_dir / "42-implement.json").exists()
+
+    def test_per_slice_file_carries_slice_label_in_header(self, tmp_path):
+        """Each per-slice file's ``# BRC Consensus History`` header includes
+        the slice_id so a reviewer scanning the markdown knows which slice
+        the consensus belongs to."""
+        from routes.pipelines import _write_brc_history
+
+        messages = self._make_implement_msgs("slice-7")
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        content = (
+            tmp_path / ".egg-state" / "brc-history" / "42-implement-slice-7.md"
+        ).read_text()
+        assert "# BRC Consensus History" in content
+        assert "slice-7" in content, "Slice label missing from per-slice file header"
+        assert "implement" in content.lower()
+
+    def test_messages_without_slice_id_dropped_with_warning(self, tmp_path):
+        """Implement-phase BRC messages that lack ``metadata['slice_id']``
+        are silently dropped from the on-disk history (hard switchover) and
+        a single aggregate WARNING is emitted naming the dropped count."""
+        from routes.pipelines import _write_brc_history
+
+        # Mix attributed and unattributed messages.
+        attributed = self._make_implement_msgs("slice-1")
+        unattributed = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Stray PROPOSE",
+                body="missing slice_id",
+                phase="implement",
+                slice_id=None,  # <-- intentionally omit metadata.slice_id
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_NACK,
+                subject="Stray NACK",
+                body="missing slice_id",
+                phase="implement",
+                slice_id=None,
+            ),
+        ]
+        for m in unattributed:
+            assert "slice_id" not in m.metadata, "fixture leak — slice_id was stamped"
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = attributed + unattributed
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        # The slice-1 file exists and contains ONLY the attributed PROPOSE
+        # body; the unattributed Stray PROPOSE/NACK must NOT be present.
+        slice1_md = tmp_path / ".egg-state" / "brc-history" / "42-implement-slice-1.md"
+        assert slice1_md.exists()
+        content = slice1_md.read_text()
+        assert "missing slice_id" not in content, (
+            "Unattributed message leaked into slice-1 file"
+        )
+        assert "Stray PROPOSE" not in content
+        assert "Stray NACK" not in content
+
+        # An aggregate file must STILL not exist, even though there were
+        # unattributed messages — the writer never falls back.
+        assert not (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").exists()
+        assert not (tmp_path / ".egg-state" / "brc-history" / "42-implement.json").exists()
+
+        # A single warning was emitted with the dropped count.
+        warning_calls = [
+            c for c in mock_logger.warning.call_args_list
+            if "slice_id" in str(c) or "without metadata" in str(c)
+        ]
+        assert len(warning_calls) >= 1, (
+            f"Expected a warning about dropped messages, got: {mock_logger.warning.call_args_list}"
+        )
+        # The warning surfaces the dropped count so an operator knows scale.
+        kwargs = warning_calls[0][1]
+        assert kwargs.get("dropped_count") == 2
+
+    def test_all_messages_unattributed_no_files_no_aggregate(self, tmp_path):
+        """When EVERY implement-phase BRC message lacks ``slice_id``, no
+        per-slice files are produced AND no aggregate file is produced —
+        the writer does not silently fall back to the legacy filename."""
+        from routes.pipelines import _write_brc_history
+
+        unattributed = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject=f"Stray {i}",
+                body="no slice_id",
+                phase="implement",
+                slice_id=None,
+            )
+            for i in range(3)
+        ]
+        for m in unattributed:
+            assert "slice_id" not in m.metadata
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = unattributed
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        # Either dir doesn't exist or it's empty — the key invariant is no
+        # implement-phase files at all.
+        files = list(history_dir.glob("42-implement*")) if history_dir.exists() else []
+        assert files == [], (
+            f"Expected no implement-phase files when all messages were unattributed, got: {files}"
+        )
+
+    def test_refine_phase_keeps_aggregate_filename(self, tmp_path):
+        """Regression: refine phase still writes the aggregate
+        ``42-refine.{md,json}`` and does NOT write a per-slice file even when
+        messages happen to carry ``metadata['slice_id']``."""
+        from routes.pipelines import _write_brc_history
+
+        # Refine messages with a slice_id leftover (defensive — should be
+        # ignored for non-implement phases).
+        messages = _make_brc_messages(
+            pipeline_id="issue-42", phase="refine", slice_id="slice-1"
+        )
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "refine", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        assert (history_dir / "42-refine.md").exists(), "Refine aggregate .md missing"
+        assert (history_dir / "42-refine.json").exists(), "Refine aggregate .json missing"
+        # No per-slice refine file should exist.
+        assert not (history_dir / "42-refine-slice-1.md").exists(), (
+            "Refine phase must not partition by slice"
+        )
+        assert not (history_dir / "42-refine-slice-1.json").exists(), (
+            "Refine phase must not partition by slice"
+        )
+
+    def test_plan_phase_keeps_aggregate_filename(self, tmp_path):
+        """Regression: plan phase still writes the aggregate
+        ``42-plan.{md,json}`` (only implement is per-slice — D4)."""
+        from routes.pipelines import _write_brc_history
+
+        messages = _make_brc_messages(
+            pipeline_id="issue-42", phase="plan", slice_id="slice-1"
+        )
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "plan", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        assert (history_dir / "42-plan.md").exists()
+        assert (history_dir / "42-plan.json").exists()
+        assert not (history_dir / "42-plan-slice-1.md").exists()
+        assert not (history_dir / "42-plan-slice-1.json").exists()
+
+    def test_pr_phase_keeps_aggregate_filename(self, tmp_path):
+        """Regression: pr phase still writes the aggregate
+        ``42-pr.{md,json}``. The contract carved out implement only."""
+        from routes.pipelines import _write_brc_history
+
+        messages = _make_brc_messages(
+            pipeline_id="issue-42", phase="pr", slice_id="slice-1"
+        )
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "pr", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        assert (history_dir / "42-pr.md").exists()
+        assert (history_dir / "42-pr.json").exists()
+        assert not (history_dir / "42-pr-slice-1.md").exists()
+        assert not (history_dir / "42-pr-slice-1.json").exists()
+
+    def test_partial_attribution_only_attributed_messages_get_files(self, tmp_path):
+        """Mix of slice-1, slice-2, and unattributed messages: per-slice
+        files exist for slice-1 and slice-2, no aggregate, unattributed are
+        dropped with a single warning."""
+        from routes.pipelines import _write_brc_history
+
+        slice1_msgs = self._make_implement_msgs("slice-1")
+        slice2_msgs = self._make_implement_msgs("slice-2")
+        # One unattributed message.
+        stray = _make_brc_message(
+            pipeline_id="issue-42",
+            phase="implement",
+            from_role="coder",
+            message_type=MessageType.CONSENSUS_PROPOSE,
+            subject="Stray",
+            body="no slice_id",
+            slice_id=None,
+        )
+        assert "slice_id" not in stray.metadata
+        all_messages = slice1_msgs + slice2_msgs + [stray]
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = all_messages
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        produced = sorted(p.name for p in history_dir.glob("42-implement*"))
+        assert produced == [
+            "42-implement-slice-1.json",
+            "42-implement-slice-1.md",
+            "42-implement-slice-2.json",
+            "42-implement-slice-2.md",
+        ], f"Unexpected files: {produced}"
+
+        # The dropped count must equal exactly 1 — the writer must not
+        # double-count or miscount.
+        warning_calls = [
+            c for c in mock_logger.warning.call_args_list
+            if "slice_id" in str(c) or "without metadata" in str(c)
+        ]
+        assert any(c[1].get("dropped_count") == 1 for c in warning_calls), (
+            f"Expected dropped_count=1, got warnings: {warning_calls}"
+        )
+
+    def test_implement_messages_with_empty_slice_id_dropped(self, tmp_path):
+        """Empty-string slice_id is treated as missing — the writer's
+        ``if not slice_id`` guard accepts None, '' equally and drops both."""
+        from routes.pipelines import _write_brc_history
+
+        messages = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                from_role="coder",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Empty slice_id",
+                body="should be dropped",
+                phase="implement",
+                metadata={"slice_id": ""},  # empty string
+                slice_id=None,
+            ),
+        ]
+        # The metadata explicitly contains slice_id="" (falsy) — verify
+        # the fixture is what we expect before exercising the writer.
+        assert messages[0].metadata.get("slice_id") == ""
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        # No per-slice file with empty stem (security: must not write
+        # ``42-implement-.md``).
+        assert not (history_dir / "42-implement-.md").exists(), (
+            "Empty slice_id must not be coerced into a per-slice filename"
+        )
+        # No aggregate either.
+        assert not (history_dir / "42-implement.md").exists()
+        # Warning was emitted.
+        warning_calls = [
+            c for c in mock_logger.warning.call_args_list
+            if "slice_id" in str(c) or "without metadata" in str(c)
+        ]
+        assert len(warning_calls) >= 1, "Expected drop warning for empty slice_id"
+
+    def test_three_slices_all_get_distinct_files(self, tmp_path):
+        """N=3 slices produces 3 distinct per-slice .md/.json pairs in
+        deterministic order — exercises the bucket sort path."""
+        from routes.pipelines import _write_brc_history
+
+        messages = []
+        for sid in ["slice-3", "slice-1", "slice-2"]:  # deliberately unordered
+            messages.extend(self._make_implement_msgs(sid))
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        for sid in ["slice-1", "slice-2", "slice-3"]:
+            assert (history_dir / f"42-implement-{sid}.md").exists(), (
+                f"Per-slice file for {sid} missing"
+            )
+            assert (history_dir / f"42-implement-{sid}.json").exists()
+        # Aggregate must not exist.
+        assert not (history_dir / "42-implement.md").exists()
+        assert not (history_dir / "42-implement.json").exists()
+
+    def test_idempotent_per_slice_write(self, tmp_path):
+        """Running the writer twice with the same input produces
+        byte-identical per-slice files (idempotency invariant from #1714
+        carried over into per-slice mode)."""
+        from routes.pipelines import _write_brc_history
+
+        messages = []
+        for sid in ["slice-1", "slice-2"]:
+            messages.extend(self._make_implement_msgs(sid))
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+            first_s1_md = (history_dir / "42-implement-slice-1.md").read_text()
+            first_s2_md = (history_dir / "42-implement-slice-2.md").read_text()
+            first_s1_json = (history_dir / "42-implement-slice-1.json").read_text()
+            first_s2_json = (history_dir / "42-implement-slice-2.json").read_text()
+
+            # Second call (e.g. PR-phase safety-net rewrite).
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+            second_s1_md = (history_dir / "42-implement-slice-1.md").read_text()
+            second_s2_md = (history_dir / "42-implement-slice-2.md").read_text()
+            second_s1_json = (history_dir / "42-implement-slice-1.json").read_text()
+            second_s2_json = (history_dir / "42-implement-slice-2.json").read_text()
+
+        assert first_s1_md == second_s1_md, "slice-1 markdown not idempotent"
+        assert first_s2_md == second_s2_md, "slice-2 markdown not idempotent"
+        assert first_s1_json == second_s2_json or first_s1_json == second_s1_json
+        assert first_s1_json == second_s1_json, "slice-1 JSON not idempotent"
+        assert first_s2_json == second_s2_json, "slice-2 JSON not idempotent"
+
+    def test_non_dict_metadata_is_treated_as_unattributed(self, tmp_path):
+        """If a message's ``metadata`` happens to be a non-dict (e.g. None,
+        a list — defensive), the writer treats it as unattributed and drops
+        the message rather than crashing."""
+        from routes.pipelines import _write_brc_history
+
+        msg = _make_brc_message(
+            pipeline_id="issue-42",
+            phase="implement",
+            from_role="coder",
+            message_type=MessageType.CONSENSUS_PROPOSE,
+            subject="Weird metadata",
+            body="non-dict metadata",
+            slice_id=None,
+        )
+        # Force-replace metadata with a non-dict to exercise the
+        # ``isinstance(metadata, dict)`` guard.
+        object.__setattr__(msg, "metadata", None)
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = [msg]
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            # Must not raise.
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        files = list(history_dir.glob("42-implement*")) if history_dir.exists() else []
+        assert files == [], "Non-dict metadata produced unexpected output files"
+
+        # Drop warning was logged.
+        warning_calls = [
+            c for c in mock_logger.warning.call_args_list
+            if "slice_id" in str(c) or "without metadata" in str(c)
+        ]
+        assert len(warning_calls) >= 1
+
+
+class TestPerSliceImplementBrcHistoryRewriteForPr:
+    """The PR-phase safety-net rewrite (``_rewrite_brc_history_for_pr``)
+    inherits the per-slice partitioning from ``_write_brc_history`` (#2548).
+    These tests verify the rewrite path treats per-slice files correctly
+    and never produces an aggregate.
+    """
+
+    def test_rewrite_for_pr_emits_per_slice_implement_files(self, tmp_path):
+        """When the PR phase rewrites BRC history, the implement-phase
+        rewrite produces per-slice files and no aggregate file."""
+        from routes.pipelines import _rewrite_brc_history_for_pr
+
+        messages = _make_brc_messages(
+            pipeline_id="issue-42", phase="implement", slice_id="slice-1"
+        )
+        messages.extend(
+            _make_brc_messages(
+                pipeline_id="issue-42", phase="implement", slice_id="slice-2"
+            )
+        )
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        phases = {
+            "implement": MagicMock(status=PipelineStatus.COMPLETE),
+        }
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+        ):
+            _rewrite_brc_history_for_pr(tmp_path, "issue-42", phases, 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        assert (history_dir / "42-implement-slice-1.md").exists()
+        assert (history_dir / "42-implement-slice-2.md").exists()
+        assert not (history_dir / "42-implement.md").exists()
+        assert not (history_dir / "42-implement.json").exists()
+
+    def test_rewrite_for_pr_mixes_aggregate_refine_and_per_slice_implement(self, tmp_path):
+        """Mixed multi-phase rewrite: refine emits aggregate, implement
+        emits per-slice — both shapes coexist in the same brc-history dir."""
+        from routes.pipelines import _rewrite_brc_history_for_pr
+
+        all_messages = []
+        all_messages.extend(_make_brc_messages(pipeline_id="issue-42", phase="refine"))
+        all_messages.extend(
+            _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-1")
+        )
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = all_messages
+
+        phases = {
+            "refine": MagicMock(status=PipelineStatus.COMPLETE),
+            "implement": MagicMock(status=PipelineStatus.COMPLETE),
+        }
+
+        with (
+            patch("message_store.get_message_store", return_value=mock_store),
+            patch("routes.pipelines._commit_statefiles_to_worktree"),
+        ):
+            _rewrite_brc_history_for_pr(tmp_path, "issue-42", phases, 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        # Refine: aggregate. Implement: per-slice.
+        assert (history_dir / "42-refine.md").exists()
+        assert (history_dir / "42-refine.json").exists()
+        assert (history_dir / "42-implement-slice-1.md").exists()
+        assert (history_dir / "42-implement-slice-1.json").exists()
+        # No aggregate implement file.
+        assert not (history_dir / "42-implement.md").exists()
+        assert not (history_dir / "42-implement.json").exists()
+        # Refine never partitions by slice.
+        assert not (history_dir / "42-refine-slice-1.md").exists()

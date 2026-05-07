@@ -22,6 +22,10 @@ sys.modules.setdefault("docker.types", _docker_mock.types)
 from message_store import Message, MessageStore, MessageType
 from models import PipelineStatus
 
+# Default slice_id seeded onto implement-phase BRC messages so the
+# post-#2548 hard-switchover writer accepts them.
+_DEFAULT_IMPLEMENT_SLICE_ID = "slice-1"
+
 
 def _make_brc_message(
     pipeline_id="issue-42",
@@ -31,8 +35,20 @@ def _make_brc_message(
     body="test body",
     phase="implement",
     timestamp=None,
+    slice_id="__default__",
 ):
-    """Create a BRC message for testing."""
+    """Create a BRC message for testing.
+
+    For implement-phase messages, ``metadata['slice_id']`` is auto-stamped
+    to ``slice-1`` (#2548 hard switchover) unless ``slice_id`` is set
+    explicitly (pass ``None`` to test the missing-slice_id drop path).
+    """
+    md: dict = {}
+    if slice_id == "__default__":
+        if phase == "implement":
+            md["slice_id"] = _DEFAULT_IMPLEMENT_SLICE_ID
+    elif slice_id is not None:
+        md["slice_id"] = slice_id
     return Message(
         pipeline_id=pipeline_id,
         from_role=from_role,
@@ -42,7 +58,7 @@ def _make_brc_message(
         body=body,
         phase=phase,
         timestamp=timestamp or datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-        metadata={},
+        metadata=md,
     )
 
 
@@ -511,10 +527,15 @@ class TestIntegrationBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             mod._rewrite_brc_history_for_pr(worktree, pipeline_id, phases, identifier)
 
-        # Assertion (a): BRC history files written for both COMPLETE phases
+        # Assertion (a): BRC history files written for both COMPLETE phases.
+        # #2548: implement phase is per-slice; aggregate file is gone.
         brc_dir = worktree / ".egg-state" / "brc-history"
         assert (brc_dir / "42-refine.md").exists(), "BRC history for refine should exist"
-        assert (brc_dir / "42-implement.md").exists(), "BRC history for implement should exist"
+        impl_file = brc_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        assert impl_file.exists(), "Per-slice BRC history for implement should exist"
+        assert not (brc_dir / "42-implement.md").exists(), (
+            "Aggregate implement.md leaked through hard switchover"
+        )
 
         # Assertion (b): BRC files have correct content
         refine_content = (brc_dir / "42-refine.md").read_text()
@@ -524,7 +545,7 @@ class TestIntegrationBrcHistory:
         assert "CONSENSUS_PROPOSE" in refine_content
         assert "CONSENSUS_ACK" in refine_content
 
-        implement_content = (brc_dir / "42-implement.md").read_text()
+        implement_content = impl_file.read_text()
         assert "implement phase" in implement_content
         assert "Tests pass" in implement_content
 
@@ -578,7 +599,13 @@ class TestIntegrationBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             mod._rewrite_brc_history_for_pr(worktree, "issue-42", phases, 42)
 
-        history_file = worktree / ".egg-state" / "brc-history" / "42-implement.md"
+        # #2548: implement is per-slice — the aggregate file is gone.
+        history_file = (
+            worktree
+            / ".egg-state"
+            / "brc-history"
+            / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        )
         assert history_file.exists(), "BRC history file should exist on disk"
 
         content = history_file.read_text()
@@ -647,7 +674,12 @@ class TestIntegrationBrcHistory:
         brc_dir = worktree / ".egg-state" / "brc-history"
         assert (brc_dir / "42-refine.md").exists(), "COMPLETE phase should have BRC file"
         assert not (brc_dir / "42-plan.md").exists(), "FAILED phase should NOT have BRC file"
+        # #2548: implement is per-slice now; no aggregate, and the per-slice
+        # file should also be absent because the implement phase is RUNNING.
         assert not (brc_dir / "42-implement.md").exists(), "RUNNING phase should NOT have BRC file"
+        assert not (
+            brc_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        ).exists(), "RUNNING phase should NOT have per-slice BRC file"
 
 
 # ---------------------------------------------------------------------------
@@ -682,7 +714,12 @@ class TestEdgeCases:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)  # Request "implement"
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
+        # #2548: neither aggregate nor per-slice file should exist when no
+        # implement-phase messages are present.
         assert not (history_dir / "42-implement.md").exists()
+        assert not (
+            history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        ).exists()
 
     def test_write_brc_history_string_identifier(self, tmp_path):
         """_write_brc_history works with string pipeline identifiers."""
@@ -695,8 +732,17 @@ class TestEdgeCases:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", "my-pipeline")
 
-        history_file = tmp_path / ".egg-state" / "brc-history" / "my-pipeline-implement.md"
+        # #2548: implement is per-slice — the aggregate file is gone.
+        history_file = (
+            tmp_path
+            / ".egg-state"
+            / "brc-history"
+            / f"my-pipeline-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        )
         assert history_file.exists()
+        assert not (
+            tmp_path / ".egg-state" / "brc-history" / "my-pipeline-implement.md"
+        ).exists()
 
     def test_rewrite_brc_history_mixed_statuses_logging(self, tmp_path):
         """Entry log correctly reports completed vs non-completed phase counts."""

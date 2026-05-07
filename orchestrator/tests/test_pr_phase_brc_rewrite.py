@@ -18,6 +18,10 @@ sys.modules.setdefault("docker.types", _docker_mock.types)
 from message_store import Message, MessageStore, MessageType
 from models import PipelineStatus
 
+# Default slice_id stamped on implement-phase messages so the post-#2548
+# hard-switchover writer accepts them.
+_DEFAULT_IMPLEMENT_SLICE_ID = "slice-1"
+
 
 def _make_brc_message(
     pipeline_id="issue-42",
@@ -27,8 +31,21 @@ def _make_brc_message(
     body="test body",
     phase="implement",
     timestamp=None,
+    slice_id="__default__",
 ):
-    """Create a BRC message for testing."""
+    """Create a BRC message for testing.
+
+    For implement-phase messages, ``metadata['slice_id']`` is auto-stamped
+    to ``slice-1`` (#2548 hard switchover) so the writer keeps producing a
+    file. Pass ``slice_id=None`` explicitly to test the missing-slice_id
+    drop path.
+    """
+    md: dict = {}
+    if slice_id == "__default__":
+        if phase == "implement":
+            md["slice_id"] = _DEFAULT_IMPLEMENT_SLICE_ID
+    elif slice_id is not None:
+        md["slice_id"] = slice_id
     return Message(
         pipeline_id=pipeline_id,
         from_role=from_role,
@@ -38,7 +55,7 @@ def _make_brc_message(
         body=body,
         phase=phase,
         timestamp=timestamp or datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-        metadata={},
+        metadata=md,
     )
 
 
@@ -84,7 +101,11 @@ class TestPrPhaseBrcRewrite:
         history_dir = tmp_path / ".egg-state" / "brc-history"
         assert (history_dir / "42-refine.md").exists()
         assert (history_dir / "42-plan.md").exists()
-        assert (history_dir / "42-implement.md").exists()
+        # #2548: implement is per-slice — aggregate is gone.
+        assert (history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md").exists()
+        assert not (history_dir / "42-implement.md").exists(), (
+            "Aggregate implement.md leaked through hard switchover"
+        )
 
     def test_skips_non_complete_phases(self, tmp_path):
         """Phases with FAILED or RUNNING status are not written."""
@@ -114,8 +135,11 @@ class TestPrPhaseBrcRewrite:
         history_dir = tmp_path / ".egg-state" / "brc-history"
         assert (history_dir / "42-refine.md").exists()
         assert (history_dir / "42-plan.md").exists()
-        # implement was FAILED, so not written
+        # implement was FAILED, so neither aggregate nor per-slice file exists.
         assert not (history_dir / "42-implement.md").exists()
+        assert not (
+            history_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        ).exists()
 
     def test_idempotent_rewrite(self, tmp_path):
         """Re-writing BRC history overwrites existing files safely."""
@@ -135,7 +159,12 @@ class TestPrPhaseBrcRewrite:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        history_file = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        history_file = (
+            tmp_path
+            / ".egg-state"
+            / "brc-history"
+            / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        )
         first_content = history_file.read_text()
 
         # Add more messages and re-write
@@ -201,7 +230,12 @@ class TestPrPhaseBrcRewrite:
         mock_store = MagicMock(spec=MessageStore)
         mock_store.get_messages.return_value = messages
 
-        history_file = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        history_file = (
+            tmp_path
+            / ".egg-state"
+            / "brc-history"
+            / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        )
 
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
@@ -230,7 +264,12 @@ class TestPrPhaseBrcRewrite:
         mock_store = MagicMock(spec=MessageStore)
         mock_store.get_messages.return_value = messages
 
-        history_file = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        history_file = (
+            tmp_path
+            / ".egg-state"
+            / "brc-history"
+            / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        )
 
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
