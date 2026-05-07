@@ -1144,3 +1144,50 @@ class TestRestartPhaseEmptyAgentsFallback:
         assert response.status_code == 200, response.get_json()
         data = response.get_json()
         assert set(data["data"]["agents_to_restart"]) == {"coder", "tester"}
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_active_roles_set_but_all_unknown_returns_400_not_phase_default(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """Strict parity with ``_run_concurrent_phase``: when
+        ``active_roles`` is set but every entry is unknown to this
+        orchestrator's ``AgentRole`` (e.g. an in-flight pipeline on a
+        newer schema after a role removal), the route must NOT silently
+        expand to the phase-default roster — that would have the route
+        promise agents the spawn would never produce. The 400 is the
+        honest signal so the operator can intervene.
+        """
+        mock_repo.return_value = "/repo"
+        # Build with valid roles to satisfy the validator, then mutate
+        # the field to inject an unknown value (simulating an older
+        # pipeline persisted before a role rename / removal).
+        pipeline = _make_pipeline_with_empty_phase_agents(
+            active_roles=["coder"],
+        )
+        # ``active_roles`` is a plain list field; mutate post-construct
+        # to bypass ``_validate_active_roles`` (which rejects unknown
+        # values at write time but cannot guard load-time drift).
+        pipeline.active_roles = ["__role_removed_in_newer_schema__"]
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-2515/phases/implement/restart",
+            json={"reason": "All-unknown override edge case"},
+        )
+
+        assert response.status_code == 400, response.get_json()
+        data = response.get_json()
+        assert "No agents found" in data["message"]
+        # Pipeline status must NOT have transitioned — the route should
+        # have failed before mutating state.
+        assert pipeline.status == PipelineStatus.CANCELLED

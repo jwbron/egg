@@ -3152,6 +3152,14 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                 agent_roles.append(role)
 
         if not agent_roles:
+            # Mirror ``_run_concurrent_phase`` exactly so the route's
+            # response (and the downstream worktree-delete / health-
+            # monitor reset) matches the roster the spawn will actually
+            # produce: when ``active_roles`` is set, use it verbatim
+            # and do NOT fall through to ``get_roles_for_phase``.
+            # Otherwise the all-unknown-override edge case would have
+            # the route promise a phase-default roster while the spawn
+            # produced nothing.
             _roster_override = getattr(pipeline, "active_roles", None)
             if _roster_override:
                 for r_value in _roster_override:
@@ -3161,7 +3169,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
                         # Unknown role from a newer schema — skip so
                         # BRC doesn't wait on an unspawnable agent.
                         continue
-            if not agent_roles:
+            else:
                 try:
                     from egg_contracts.agent_roles import (
                         get_roles_for_phase as _get_roles_for_phase,
