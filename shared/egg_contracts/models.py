@@ -12,6 +12,22 @@ from typing import Any, cast
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 
+class EggContractBaseModel(BaseModel):
+    """Shared base for every model in the contract object graph.
+
+    ``validate_assignment=True`` makes ``setattr`` re-run field
+    validation, so ``contract.current_phase = "plan"`` coerces to
+    ``PipelinePhase.PLAN`` (and ``task.status = "garbage"`` raises
+    ``pydantic.ValidationError``) instead of silently storing the raw
+    string. Originally added to ``Contract`` only in #2484; lifted to a
+    shared base in #2490 so the strictness applies uniformly to sibling
+    models (``Task``, ``Slice``, ``Decision``, ``AgentExecutionModel``,
+    …) — without per-model duplication of the config.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
 class TaskStatus(StrEnum):
     """Status values for tasks."""
 
@@ -92,7 +108,7 @@ class AuditRole(StrEnum):
     SYSTEM = "system"
 
 
-class IssueInfo(BaseModel):
+class IssueInfo(EggContractBaseModel):
     """Issue metadata."""
 
     number: int = Field(..., ge=1, description="GitHub issue number")
@@ -100,7 +116,7 @@ class IssueInfo(BaseModel):
     url: str = Field(..., description="Issue URL")
 
 
-class AcceptanceCriterion(BaseModel):
+class AcceptanceCriterion(EggContractBaseModel):
     """Top-level acceptance criterion."""
 
     id: str = Field(..., pattern=r"^ac-[0-9]+$", description="Unique identifier")
@@ -108,7 +124,7 @@ class AcceptanceCriterion(BaseModel):
     verified: bool = Field(default=False, description="Whether verified by reviewer")
 
 
-class ReviewFeedback(BaseModel):
+class ReviewFeedback(EggContractBaseModel):
     """Feedback from reviewer on a task."""
 
     timestamp: datetime = Field(..., description="When feedback was given")
@@ -137,7 +153,7 @@ def _normalise_slice_id(value: str) -> str:
     return value
 
 
-class TaskGap(BaseModel):
+class TaskGap(EggContractBaseModel):
     """Tester→coder coverage-gap handoff record.
 
     Added in iteration 2 of the agent-facing MCP tools (#1917) so the
@@ -163,7 +179,7 @@ class TaskGap(BaseModel):
     resolved: bool = Field(default=False, description="Set True when the gap is addressed")
 
 
-class Task(BaseModel):
+class Task(EggContractBaseModel):
     """A task within a phase."""
 
     id: str = Field(
@@ -211,7 +227,7 @@ class Task(BaseModel):
         return _normalize_commit(v)
 
 
-class Slice(BaseModel):
+class Slice(EggContractBaseModel):
     """An implementation slice containing tasks.
 
     Renamed from ``Phase`` in #2137 to support the slice-DAG implement
@@ -291,7 +307,7 @@ class Slice(BaseModel):
 Phase = Slice
 
 
-class DecisionOption(BaseModel):
+class DecisionOption(EggContractBaseModel):
     """An option for a decision."""
 
     id: str = Field(..., description="Option identifier")
@@ -299,7 +315,7 @@ class DecisionOption(BaseModel):
     description: str | None = Field(default=None, description="Option description")
 
 
-class Decision(BaseModel):
+class Decision(EggContractBaseModel):
     """A HITL decision point."""
 
     id: str = Field(..., pattern=r"^decision-[0-9]+$", description="Unique decision identifier")
@@ -318,7 +334,7 @@ class Decision(BaseModel):
     debounce_until: datetime | None = Field(default=None, description="Debounce expiration")
 
 
-class DeferredAction(BaseModel):
+class DeferredAction(EggContractBaseModel):
     """A single pre-merge obligation persisted from a conditional ACK.
 
     Replaces the free-form ``list[str]`` shape used in #2004 so the renderer
@@ -352,7 +368,7 @@ class DeferredAction(BaseModel):
     )
 
 
-class PRMetadata(BaseModel):
+class PRMetadata(EggContractBaseModel):
     """Planner-generated PR metadata: title, description, test plan, and manual steps."""
 
     title: str = Field(..., min_length=1, description="PR title (recommended max 70 chars)")
@@ -410,7 +426,7 @@ class PRMetadata(BaseModel):
         return coerced
 
 
-class CheckDefinition(BaseModel):
+class CheckDefinition(EggContractBaseModel):
     """Definition of a check to run during a phase."""
 
     id: str = Field(
@@ -425,7 +441,7 @@ class CheckDefinition(BaseModel):
     max_retries: int = Field(default=0, ge=0, description="Maximum number of retries")
 
 
-class CheckResult(BaseModel):
+class CheckResult(EggContractBaseModel):
     """Result of running a check."""
 
     check_id: str = Field(
@@ -439,7 +455,7 @@ class CheckResult(BaseModel):
     fixable: bool = Field(default=False, description="Whether this failure can be auto-fixed")
 
 
-class PhaseConfig(BaseModel):
+class PhaseConfig(EggContractBaseModel):
     """Configuration for a pipeline phase."""
 
     checks: list[CheckDefinition] = Field(
@@ -454,7 +470,7 @@ class PhaseConfig(BaseModel):
     )
 
 
-class FeedbackQuestion(BaseModel):
+class FeedbackQuestion(EggContractBaseModel):
     """A question for human feedback."""
 
     id: str = Field(..., pattern=r"^Q[0-9]+$", description="Unique question identifier (e.g., Q1)")
@@ -462,7 +478,7 @@ class FeedbackQuestion(BaseModel):
     answer: str | None = Field(default=None, description="Human-provided answer (free-form text)")
 
 
-class Feedback(BaseModel):
+class Feedback(EggContractBaseModel):
     """Feedback request for collecting open-ended questions from humans."""
 
     id: str = Field(
@@ -506,7 +522,7 @@ class Feedback(BaseModel):
         return all(q.answer is not None for q in self.questions)
 
 
-class AuditEntry(BaseModel):
+class AuditEntry(EggContractBaseModel):
     """Audit log entry for contract modifications."""
 
     timestamp: datetime = Field(..., description="When the action occurred")
@@ -555,7 +571,7 @@ class AgentRoleType(StrEnum):
     REVIEWER_PLAN = "reviewer_plan"
 
 
-class AgentExecutionModel(BaseModel):
+class AgentExecutionModel(EggContractBaseModel):
     """Tracks the execution state of a single agent.
 
     Used by the orchestrator to track which agents have run,
@@ -593,17 +609,8 @@ class AgentExecutionModel(BaseModel):
     )
 
 
-class Contract(BaseModel):
+class Contract(EggContractBaseModel):
     """The complete SDLC contract."""
-
-    # ``validate_assignment=True`` ensures that ``setattr`` on Contract
-    # fields coerces the value back to the declared type — most
-    # importantly, that ``contract.current_phase = "plan"`` produces a
-    # ``PipelinePhase`` enum rather than a plain ``str``. See #2465 for
-    # the bug this guards against (apply_mutation leaving
-    # ``current_phase`` as a string until the next save/load round-trip,
-    # which broke ``.value`` reads and emitted serializer warnings).
-    model_config = ConfigDict(validate_assignment=True)
 
     schemaVersion: str = Field(  # noqa: N815
         default="1.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"
