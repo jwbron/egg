@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import posixpath
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 # Re-export the canonical AgentRole StrEnum from egg_contracts so the
@@ -873,12 +874,12 @@ def load_repo_pattern_override(repo: str) -> dict[str, list[str]] | None:
                 if cleaned:
                     return cleaned
 
-    get_repo_role_patterns = None
+    _loader: Callable[[str], dict[str, list[str]] | None] | None = None
     try:
-        from config.repo_config import get_repo_role_patterns  # type: ignore[no-redef]
+        from config.repo_config import get_repo_role_patterns as _loader
     except ImportError:
         try:
-            from repo_config import get_repo_role_patterns  # type: ignore[no-redef]
+            from repo_config import get_repo_role_patterns as _loader
         except ImportError:
             logger.debug(
                 "repo_config not importable; per-repo overrides disabled",
@@ -886,8 +887,9 @@ def load_repo_pattern_override(repo: str) -> dict[str, list[str]] | None:
             )
             return None
 
+    assert _loader is not None
     try:
-        override = get_repo_role_patterns(repo)
+        override = _loader(repo)
     except FileNotFoundError:
         # No repositories.yaml mounted — expected outside the gateway.
         return None
