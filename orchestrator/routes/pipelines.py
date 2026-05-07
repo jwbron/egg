@@ -3263,21 +3263,72 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     #     Without this, stale worktree directories (e.g. broken btrfs mounts)
     #     survive container removal and cause create_worktree to skip creation
     #     or fail.  Mirrors cleanup_pipeline's worktree deletion.  (#1723)
-    for role in agent_roles:
-        agent_worktree_id = f"{pipeline_id}-{role.value}"
+    #
+    #     Enumerate from disk rather than guess names: slice-scoped worktrees
+    #     are ``{pipeline_id}-slice-{N}-{role}``, not ``{pipeline_id}-{role}``,
+    #     so a name-guess loop misses every per-slice worktree on a slice
+    #     pipeline and leaves them behind.  (#2522)
+    #
+    #     ``validate_git=False`` so that broken/corrupted worktrees (missing
+    #     or unreadable ``.git`` marker — exactly the #1723 btrfs failure
+    #     class) still reach ``delete_worktrees``. The default
+    #     ``validate_git=True`` is salvage-correct (you can't salvage a
+    #     broken worktree) but cleanup-incorrect (you must still delete it).
+    restart_role_values = {role.value for role in agent_roles}
+    try:
+        all_worktrees = agent_salvage.enumerate_agent_worktrees(pipeline_id, validate_git=False)
+    except (OSError, ImportError, RuntimeError) as e:
+        logger.warning(
+            "Failed to enumerate per-agent worktrees during phase restart",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        all_worktrees = []
+    worktrees_to_delete = [wt for wt in all_worktrees if wt.agent_role in restart_role_values]
+
+    # Salvage unpushed agent commits before deleting worktrees (#2429).
+    # Restart is *the* scenario where unpushed commits accumulate: an
+    # operator hits this endpoint precisely because agents are wedged or
+    # timed out — the same conditions that prevent pushes from landing on
+    # ``origin/<assigned_branch>``. Without this hook, restart would be
+    # the one orchestrator-side worktree-delete code path that bypasses
+    # salvage and silently destroys recoverable work. Best-effort: any
+    # failure logs and continues so cleanup cannot be blocked by salvage.
+    if worktrees_to_delete:
         try:
-            spawner.gateway.delete_worktrees(container_id=agent_worktree_id, force=True)
+            agent_salvage.auto_salvage_pipeline(
+                spawner.gateway,
+                pipeline_id,
+                worktree_filter={wt.worktree_id for wt in worktrees_to_delete},
+                mode=gateway_mode,
+                base_branch=pipeline.base_branch,
+            )
+        except Exception as e:
+            logger.warning(
+                "Auto-salvage failed during phase restart; proceeding with worktree deletion",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
+    for wt in worktrees_to_delete:
+        log_extras: dict[str, str] = {}
+        if wt.slice_id is not None:
+            log_extras["slice_id"] = wt.slice_id
+        try:
+            spawner.gateway.delete_worktrees(container_id=wt.worktree_id, force=True)
             logger.info(
                 "Deleted per-agent worktree during phase restart",
-                agent_worktree_id=agent_worktree_id,
+                agent_worktree_id=wt.worktree_id,
                 pipeline_id=pipeline_id,
+                **log_extras,
             )
         except Exception as e:
             logger.warning(
                 "Failed to delete per-agent worktree during phase restart",
-                agent_worktree_id=agent_worktree_id,
+                agent_worktree_id=wt.worktree_id,
                 pipeline_id=pipeline_id,
                 error=str(e),
+                **log_extras,
             )
 
     # 5. Reset consensus state
