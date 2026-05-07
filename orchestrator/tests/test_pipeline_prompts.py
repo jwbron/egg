@@ -2237,6 +2237,8 @@ class TestPlannerRoleAlignmentValidation:
     )
 
     _PLAN_WITH_CLEAN_ASSIGNMENTS = (
+        # Slice has both a coder task (satisfies #2565 slice-composition)
+        # and a tester task on a test file (satisfies #2527 role↔files).
         "# Plan\n"
         "\n"
         "```yaml\n"
@@ -2247,6 +2249,12 @@ class TestPlannerRoleAlignmentValidation:
         "    goal: scaffolding\n"
         "    tasks:\n"
         "      - id: TASK-1-1\n"
+        "        description: Add module\n"
+        "        acceptance: builds\n"
+        "        role: coder\n"
+        "        files:\n"
+        "          - src/foo.py\n"
+        "      - id: TASK-1-2\n"
         "        description: Add pytest fixtures\n"
         "        acceptance: fixtures load\n"
         "        role: tester\n"
