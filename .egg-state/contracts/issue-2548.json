@@ -42,10 +42,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Dedicated context PR (new egg/<id>/context branch based on main; slice-1 stacks on top of it)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-07T18:15:45.073982Z",
       "debounce_until": null
     },
     {
@@ -75,10 +75,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Split file at write time: orchestrator writes to .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} (one per slice; no aggregate file)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-07T18:15:45.086730Z",
       "debounce_until": null
     },
     {
@@ -108,10 +108,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Doc-only auto-open (orchestrator opens; humans review on the PR; pipeline does not block on its merge before slicing)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-07T18:15:45.099743Z",
       "debounce_until": null
     },
     {
@@ -141,10 +141,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"no backfill/backwards compat. Hard switchover\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-07T18:16:34.966742Z",
       "debounce_until": null
     },
     {
@@ -174,10 +174,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option 1 with base=<pipeline base_branch> (not hardcoded main): Context PR base=<base_branch>, slice-1 base=egg/<id>/context. Slice-1 stacks on context; context merges first, then slices cascade-merge.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-07T18:26:47.376438Z",
       "debounce_until": null
     },
     {
@@ -490,32 +490,32 @@
       {
         "id": "Q1",
         "question": "Today, slice PRs target egg/<id>/work (not main directly), and there's no automatic 'merge work to main' PR. Is that an existing gap that this issue should also fix, or is the work-branch-as-base intentional and out of scope here?",
-        "answer": null
+        "answer": "In scope \u2014 fix as part of #2548. The work\u2192main gap is the deeper problem; closing it via the context PR mechanism is on-scope."
       },
       {
         "id": "Q2",
         "question": "The proposal says context PR uses contract.pr.title and pr.description (per #2534). #2534 has already been partially fixed in #2541 and #2543 (slice attribution + program narrative on every slice). Do you want context-PR title/body to be authored from those same contract fields, or should the planner emit a separate contract.pr.context_title / pr.context_description so the context PR can have a different framing than the slice PRs (e.g. 'Strategic plan for #N' vs 'Implement #N')?",
-        "answer": null
+        "answer": "Add separate contract.pr.context_title / pr.context_description fields. Lets context framing differ from slice framing."
       },
       {
         "id": "Q3",
         "question": "Should the context PR include the per-phase agent transcripts (e.g. .egg-state/agent-outputs/<id>-refine-*.md)? Or only the final analysis.md, plan.md, and BRC consensus records?",
-        "answer": null
+        "answer": "Include agent transcripts as well (.egg-state/agent-outputs/<id>-refine-*.md and similar). Maximum transparency."
       },
       {
         "id": "Q4",
         "question": "When a slice's implement-phase BRC concludes, the orchestrator would need to commit .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} to the slice's integration branch as a final commit before opening the slice PR. Is that final orchestrator-authored commit acceptable, or should it be authored by the coder/tester role (and would that conflict with role file boundaries \u2014 coder cannot push under .egg-state/brc-history/)?",
-        "answer": null
+        "answer": "Orchestrator-authored. Matches existing _commit_statefiles_to_worktree pattern; coder/tester gateway boundaries forbid them from pushing under .egg-state/brc-history/ anyway."
       },
       {
         "id": "Q5",
         "question": "The issue lists 'analysis + plan + refine/plan BRC histories' for the context PR. Should the implement-phase aggregate BRC history (cross-slice) ALSO live on the context PR, or is each slice's BRC history sufficient for audit purposes?",
-        "answer": null
+        "answer": "Per-slice BRC only \u2014 each slice PR carries its own; no cross-slice aggregate file (consistent with decision-4)."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-07T18:27:11.510145Z",
     "comment_id": null,
     "debounce_until": null
   },
