@@ -1277,71 +1277,100 @@ class GatewayClient:
     ) -> str | None:
         """Open a PR for one slice in a stacked-PR chain.
 
-        Two body shapes:
+        Every slice — terminal or not — carries the planner-authored
+        program narrative (title, description, test plan, manual steps)
+        when ``contract.pr`` is populated, so reviewers see the program
+        rationale on whichever slice PR they open first (#2538).
 
-        * **Terminal slice** (caller passes ``program_title`` from the
-          contract's ``pr`` block): the PR carries the planner-authored
-          title / description / test plan / manual steps, plus a
-          banner marking it as the program-level umbrella for the
-          chain. When ``program_deferred_actions`` is non-empty, the
-          body also includes the ``## ⚠️ Pre-merge Obligations`` (and,
-          when applicable, ``## ✅ Resolved within this PR``) section
-          carrying conditional-ACK obligations (#2354). The section
-          is rendered immediately after the program description and
-          *before* ``## Test Plan`` so the merge-blocking banner is
-          visible without scrolling past pipeline metadata — same
-          placement as the legacy ``_auto_create_pr`` path. The
-          caller is expected to pass the *normalized* obligation
-          shape produced by
-          ``routes.pipelines._collect_pre_merge_obligations`` (a list
-          of ``{reviewer, condition, resolved_in_diff}`` dicts), which
-          carries both the contract source and the live-tracker
-          fallback so this path stays at parity with the legacy
-          single-PR renderer.
-        * **Non-terminal slice** (no ``program_title``): deterministic
-          ``{slice_id}: {slice_name}`` title, bulleted task list
-          body. When ``terminal_slice_id`` is supplied, the body also
-          carries a pointer to the terminal slice so reviewers can
-          jump to the umbrella PR. ``program_deferred_actions`` MUST
-          be ``None`` on this shape — obligations belong on the
-          umbrella, and the assertion below fails fast on caller
-          mistakes (#2354 review nit).
+        * **Title.** The terminal slice gets the bare ``program_title``;
+          non-terminal slices get a ``[<slice-id>] `` prefix so the
+          GitHub PR list stays scannable when several stacked PRs are
+          open at once. When ``program_title`` is empty (older contracts
+          / planner skipped the field), every slice falls back to the
+          deterministic ``{slice_id}: {slice_name}`` form (#2539).
+        * **Body.** Program description → ``## This slice`` (slice name
+          and task bullets) → ``## Test Plan`` → ``## Manual Steps`` →
+          stack footer. The terminal slice prepends a "merge gate /
+          umbrella" banner and (when ``program_deferred_actions`` is
+          non-empty) injects the ``## ⚠️ Pre-merge Obligations`` /
+          ``## ✅ Resolved within this PR`` section before
+          ``## Test Plan`` — same placement as the legacy
+          ``_auto_create_pr`` path. ``program_deferred_actions`` is
+          terminal-only by convention (the merge gate is the
+          last-to-merge PR in the stack); the assertion below fails
+          fast if a caller wires obligations through to a non-terminal
+          slice (#2354 review nit).
 
-        Both shapes always end with a footer naming the slice and the
-        branch it stacks onto, so the slice's role in the chain stays
-        legible in the PR view.
+        The caller passes the *normalized* obligation shape produced
+        by ``routes.pipelines._collect_pre_merge_obligations`` (a list
+        of ``{reviewer, condition, resolved_in_diff}`` dicts) so this
+        path stays at parity with the legacy single-PR renderer.
+
+        ``terminal_slice_id`` is the caller's signal for "this is a
+        non-terminal slice; the terminal slice's id is X." It's no
+        longer rendered into the body (every slice carries its own
+        narrative now), but it still selects the title shape: the
+        terminal slice gets the bare ``program_title``, non-terminal
+        slices get the ``[<slice-id>] `` prefix.
         """
-        has_program_block = bool(program_title and program_title.strip())
+        has_program_title = bool(program_title and program_title.strip())
+        # ``pipelines.py`` sets ``terminal_slice_id`` only for
+        # non-terminal slices that point at an existing umbrella. So
+        # ``terminal_slice_id is None`` combined with a populated
+        # ``program_title`` identifies the terminal slice (or a
+        # single-slice pipeline, which is also terminal).
+        is_terminal_slice = has_program_title and terminal_slice_id is None
 
-        if has_program_block:
-            assert program_title is not None  # implied by has_program_block
-            title = program_title.strip()
+        if has_program_title:
+            assert program_title is not None  # implied by has_program_title
+            program_title_clean = program_title.strip()
+            if is_terminal_slice:
+                title = program_title_clean
+            else:
+                title = f"[{slice_id}] {program_title_clean}"
         else:
+            # Defensive: obligations belong only on the umbrella. Failing
+            # fast here catches a caller wiring ``program_deferred_actions``
+            # through to a non-terminal slice (#2354 review nit) instead
+            # of silently dropping it.
+            #
+            # Guarded on ``program_title is None`` rather than
+            # ``has_program_title`` so a whitespace-only ``program_title``
+            # (which ``PRMetadata.title`` allows under its current
+            # ``min_length=1`` validator) doesn't masquerade as a slice
+            # routing error here — that's a different bug and should
+            # surface as such, not as a spurious AssertionError on the
+            # umbrella PR creation path (#2354 review observation B).
+            if program_title is None:
+                assert program_deferred_actions is None, (
+                    "program_deferred_actions must be None on non-terminal slices; "
+                    "obligations belong on the umbrella PR only"
+                )
             title = f"{slice_id}: {slice_name}".strip()
         if len(title) > 70:
             title = title[:67] + "..."
 
         body_lines: list[str] = []
 
-        if has_program_block:
-            body_lines.append(
-                f"> **Program-level umbrella PR — terminal slice of pipeline `{pipeline_id}`.**"
-            )
-            body_lines.append(
-                "> Roll-up of the slice-PR chain; the planner's narrative below covers "
-                "the whole program, not just this slice."
-            )
-            body_lines.append("")
+        if has_program_title:
+            if is_terminal_slice:
+                body_lines.append(
+                    f"> **Program-level umbrella PR — terminal slice of pipeline `{pipeline_id}`.**"
+                )
+                body_lines.append(
+                    "> Roll-up of the slice-PR chain; this PR is the merge gate "
+                    "for the program. Pre-merge obligations (when present) live here."
+                )
+                body_lines.append("")
             if program_description and program_description.strip():
                 body_lines.append(program_description.strip())
                 body_lines.append("")
-            # Render Pre-merge Obligations / Resolved-within-PR *before*
-            # ``## Test Plan`` so the merge-blocking banner is visible
-            # without scrolling past plan/steps. Same placement as the
-            # legacy ``_auto_create_pr`` path (see
-            # ``routes/pipelines.py::_build_pr_body``); the renderer is
-            # the same shared module so both paths stay byte-identical
-            # (#2354 review).
+            # Render Pre-merge Obligations / Resolved-within-PR right
+            # after the program description so the merge-blocking
+            # banner stays high in the body — the original visibility
+            # intent from #2354 (banner must be visible without
+            # scrolling past plan/steps). Same placement as the legacy
+            # ``_auto_create_pr`` path.
             if program_deferred_actions:
                 try:
                     from pr_obligations import render_obligations_section_from_normalized
@@ -1355,6 +1384,26 @@ class GatewayClient:
                 if obligations_section:
                     body_lines.append(obligations_section)
                     body_lines.append("")
+            # Per-slice scope: slice name + task bullets. Sits between
+            # obligations and the test plan so reviewers see "what does
+            # the program do (and what's blocking merge)" → "what does
+            # this slice contribute" → "how do we verify the program"
+            # in reading order.
+            body_lines.append("## This slice")
+            body_lines.append("")
+            body_lines.append(slice_name)
+            if slice_tasks:
+                body_lines.append("")
+                body_lines.append("Tasks:")
+                for task in slice_tasks:
+                    desc = task.get("description") or task.get("id") or ""
+                    desc = " ".join(desc.split())  # collapse whitespace
+                    if len(desc) > 300:
+                        desc = desc[:297] + "..."
+                    task_id = task.get("id") or ""
+                    bullet_prefix = f"- {task_id}: " if task_id else "- "
+                    body_lines.append(f"{bullet_prefix}{desc}")
+            body_lines.append("")
             if program_test_plan and program_test_plan.strip():
                 body_lines.append("## Test Plan")
                 body_lines.append("")
@@ -1366,23 +1415,8 @@ class GatewayClient:
                 body_lines.append(program_manual_steps.strip())
                 body_lines.append("")
         else:
-            # Defensive: obligations belong only on the umbrella. Failing
-            # fast here catches a caller wiring ``program_deferred_actions``
-            # through to a non-terminal slice (#2354 review nit) instead
-            # of silently dropping it.
-            #
-            # Guarded on ``program_title is None`` rather than
-            # ``has_program_block`` so a whitespace-only ``program_title``
-            # (which ``PRMetadata.title`` allows under its current
-            # ``min_length=1`` validator) doesn't masquerade as a slice
-            # routing error here — that's a different bug and should
-            # surface as such, not as a spurious AssertionError on the
-            # umbrella PR creation path (#2354 review observation B).
-            if program_title is None:
-                assert program_deferred_actions is None, (
-                    "program_deferred_actions must be None on non-terminal slices; "
-                    "obligations belong on the umbrella PR only"
-                )
+            # Fallback: contract.pr missing or program_title empty.
+            # Render the deterministic per-slice body with no narrative.
             body_lines.append(slice_name)
             if slice_tasks:
                 body_lines.append("")
@@ -1395,13 +1429,6 @@ class GatewayClient:
                     task_id = task.get("id") or ""
                     bullet_prefix = f"- {task_id}: " if task_id else "- "
                     body_lines.append(f"{bullet_prefix}{desc}")
-            if terminal_slice_id:
-                body_lines.append("")
-                body_lines.append(
-                    f"Part of pipeline `{pipeline_id}`; the terminal slice "
-                    f"`{terminal_slice_id}`'s PR carries the program-level "
-                    "narrative (description, test plan, manual steps)."
-                )
             body_lines.append("")
 
         body_lines.append(

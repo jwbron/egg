@@ -12528,18 +12528,19 @@ def _run_implement_phase_slices(
                             # Identify the terminal slice(s) of the
                             # forest: any slice no other slice lists
                             # as a dependency. Pick a single terminal
-                            # so non-terminal slices can point at it
-                            # ("see <terminal-slice-id>'s PR for the
-                            # umbrella narrative") and so the
-                            # planner-authored ``contract.pr`` block
-                            # lands on exactly one PR.  When the
-                            # forest has multiple terminal slices we
-                            # take the last one in declared order —
-                            # arbitrary but stable. For multi-tree
-                            # forests this means non-terminal slices
-                            # in non-chosen trees point at a leaf
-                            # outside their own subtree; see the
-                            # "Stacked-PR creation" section of
+                            # so non-terminal slices can flag it via
+                            # ``terminal_slice_id`` (the gateway uses
+                            # that signal to switch the title shape:
+                            # bare ``program_title`` for the terminal
+                            # vs. ``[<slice-id>] <program_title>`` for
+                            # non-terminals). When the forest has
+                            # multiple terminal slices we take the
+                            # last one in declared order — arbitrary
+                            # but stable. For multi-tree forests this
+                            # means non-terminal slices in non-chosen
+                            # trees flag a leaf outside their own
+                            # subtree; see the "Stacked-PR creation"
+                            # section of
                             # ``docs/architecture/slice-dag.md`` for
                             # the rationale.
                             depended_on: set[str] = {
@@ -12550,21 +12551,24 @@ def _run_implement_phase_slices(
                             ]
                             chosen_terminal = terminal_ids[-1] if terminal_ids else None
                             is_terminal = slice_id == chosen_terminal
-                            program_pr = contract_post.pr if is_terminal else None
-                            # Only point non-terminal slices at the
-                            # terminal when the umbrella will actually
-                            # carry a program-level narrative.
-                            # ``create_slice_pr`` upgrades to the
-                            # planner-authored shape only when
-                            # ``program_title`` is non-empty, so a
-                            # ``contract.pr`` with a missing/empty
-                            # title yields the auto-generated body on
-                            # the terminal — and the pointer would
-                            # mislead reviewers who follow it.
+                            # #2538: every slice — terminal or not —
+                            # carries the planner-authored narrative on
+                            # its PR so reviewers see context on whichever
+                            # slice they open first. Per-merge obligations
+                            # remain terminal-only (the merge gate is the
+                            # last-to-merge PR in the stack).
+                            program_pr = contract_post.pr
+                            # ``terminal_slice_id`` is the gateway's
+                            # title-shape signal: None on the terminal
+                            # itself (or when no umbrella narrative
+                            # exists), the terminal id otherwise. We
+                            # only flag non-terminals when the umbrella
+                            # actually has a planner-authored title;
+                            # otherwise both terminal and non-terminal
+                            # fall back to the deterministic
+                            # ``slice {id}: {name}`` form.
                             umbrella_has_program_block = bool(
-                                contract_post.pr
-                                and contract_post.pr.title
-                                and contract_post.pr.title.strip()
+                                program_pr and program_pr.title and program_pr.title.strip()
                             )
                             terminal_pointer = (
                                 None
@@ -12601,14 +12605,16 @@ def _run_implement_phase_slices(
                                 # the legacy ``_auto_create_pr`` path
                                 # (#2354 review item 2).
                                 "program_deferred_actions": (
-                                    _collect_pre_merge_obligations(
-                                        pipeline_id,
-                                        list(program_pr.deferred_actions),
+                                    (
+                                        _collect_pre_merge_obligations(
+                                            pipeline_id,
+                                            list(program_pr.deferred_actions),
+                                        )
+                                        or None
                                     )
-                                    or None
-                                )
-                                if program_pr
-                                else None,
+                                    if program_pr and is_terminal
+                                    else None
+                                ),
                                 "terminal_slice_id": terminal_pointer,
                             }
                 except Exception as load_err:  # noqa: BLE001
