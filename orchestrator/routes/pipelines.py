@@ -17911,6 +17911,22 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 pipeline.status = PipelineStatus.RUNNING
                 store.save_pipeline(pipeline)
 
+            # TEST_MARKER: recover_advance_clear (load-bearing: brackets
+            # the post-lock clear for TestRecoverPipelineClearsConcurrentState;
+            # do not remove without updating that test class).
+            # Drop the previous phase's in-memory consensus tracker on
+            # cross-phase advance (#2502).  The request_changes /
+            # change_approach branch above already cleared inside the
+            # lock for same-phase re-runs (#1296); the advance branch
+            # needs its own post-lock clear so persisted state lands
+            # before the tracker is wiped, matching the persist-then-
+            # clear-then-spawn order used by ``advance_phase`` and the
+            # auto-advance block.
+            if is_approved:
+                from routes.phases import _clear_concurrent_state
+
+                _clear_concurrent_state(pipeline_id)
+
             # Launch runner thread
             thread = threading.Thread(
                 target=_run_pipeline,

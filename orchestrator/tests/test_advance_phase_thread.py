@@ -341,11 +341,72 @@ class TestAutoAdvanceRespawnsThread:
 
 
 # ---------------------------------------------------------------------------
-# Tests for #2219: post-BRC band must not strand the pipeline on
-# best-effort sub-call failures.  The implement→PR auto-advance silently
-# wedged when an exception escaped one of the post-phase helpers and the
-# outer FAILED-marking handler then failed silently.
+# Tests for #2502 (recover_pipeline advance branch): the AWAITING_HUMAN
+# resume path must also drop the previous phase's tracker when the HITL
+# decision approves a phase advance (cross-phase), mirroring the auto-
+# advance block in ``_run_pipeline``.  The same-phase re-run branch
+# (request_changes / change_approach) already clears under the lock for
+# #1296.
 # ---------------------------------------------------------------------------
+
+
+class TestRecoverPipelineClearsConcurrentState:
+    """Verify ``start_pipeline``'s AWAITING_HUMAN advance branch wipes the
+    previous phase's consensus tracker before launching the runner thread.
+
+    Source-inspection in the same style as
+    ``TestAutoAdvanceRespawnsThread`` — a behavioural test would need a
+    full Flask + state-store harness exercising the HITL resolution
+    flow.  Pairs with the explicit ``_clear_concurrent_state`` calls in
+    ``advance_phase``, the HITL-revision re-run branch, and the
+    auto-advance block.
+    """
+
+    _BLOCK_MARKER = "TEST_MARKER: recover_advance_clear"
+
+    def _recover_advance_block(self) -> str:
+        """Extract the recover-advance clear block from start_pipeline."""
+        from routes import pipelines
+
+        source = inspect.getsource(pipelines.start_pipeline)
+        assert self._BLOCK_MARKER in source, (
+            f"Could not find {self._BLOCK_MARKER!r} in start_pipeline source. "
+            "Tests rely on this token bracketing the recover_pipeline advance "
+            "branch's clear call; if the block was moved or removed, update "
+            "both source and tests."
+        )
+        idx = source.index(self._BLOCK_MARKER)
+        # Window large enough to cover the comment + the conditional clear.
+        return source[idx : idx + 1200]
+
+    def test_recover_advance_calls_clear_concurrent_state(self):
+        """Regression for #2502 (advance branch).
+
+        Without this, an HITL-approved advance from plan→implement would
+        leave the plan-phase tracker keyed under the bare ``pipeline_id``
+        for ``_get_concurrent_status`` to find and report ``is_complete:
+        True`` indefinitely — the same shape as the auto-advance bug.
+        """
+        block = self._recover_advance_block()
+        assert "_clear_concurrent_state(pipeline_id)" in block, (
+            "recover_pipeline's advance branch must call "
+            "_clear_concurrent_state(pipeline_id) so the next phase's "
+            "snapshot doesn't surface the previous phase's tracker (#2502)."
+        )
+
+    def test_recover_advance_clear_is_conditional_on_is_approved(self):
+        """The clear must only fire on the advance branch, not the
+        request_changes/change_approach branch (which already clears
+        inside the lock for #1296)."""
+        block = self._recover_advance_block()
+        assert re.search(
+            r"if is_approved:\s*\n(?:\s*(?:from|#).*\n)*\s*_clear_concurrent_state\(pipeline_id\)",
+            block,
+        ), (
+            "The recover_pipeline clear must be guarded by `if is_approved:` "
+            "so the request_changes branch's existing in-lock clear (#1296) "
+            "is not duplicated."
+        )
 
 
 class TestPostBrcBandSwallowsErrors:
