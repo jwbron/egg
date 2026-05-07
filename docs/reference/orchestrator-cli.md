@@ -200,7 +200,7 @@ egg-orch phase restart implement \
   --context "Previous attempt stalled during BRC convergence — focus on completing reviews first"
 ```
 
-Agent restart preserves the agent's existing worktree (including committed work on the branch) and resets only that agent's consensus state (proposals, ACKs, NACKs, confirmations). Phase restart resets all consensus state and review cycle counters for the phase, then respawns all agents from scratch while preserving prior phase artifacts and branch commits.
+Agent restart preserves the agent's existing worktree (including committed work on the branch) and resets only that agent's consensus state (proposals, ACKs, NACKs, confirmations). Phase restart resets all consensus state and review cycle counters for the phase, then respawns all agents from scratch while preserving prior phase artifacts and branch commits. Before deleting worktrees, phase restart enumerates all per-agent worktrees from disk (including slice-scoped worktrees) and auto-salvages any committed-but-unpushed work to `egg/recovered/…` refs — the same salvage path as `cleanup_pipeline`.
 
 > **Note:** CLI commands for restart are pending implementation. In the meantime, use the REST API directly or the MCP tools:
 > ```bash
