@@ -42,7 +42,13 @@ class TestPytestConfigConsolidation:
         )
 
     def test_pyproject_has_required_markers(self):
-        """Standard markers must be defined to avoid warnings."""
+        """Standard markers must be defined to avoid warnings.
+
+        Issue #2474 retired the docker-compose runtime, deleting the
+        ``functional`` tier (``tests/functional/``) and the real-LLM
+        ``e2e`` / ``agent_flaky`` tiers (``integration_tests/test_e2e_*``).
+        Only ``integration`` (k3s) and ``security`` markers remain.
+        """
         import tomllib
 
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
@@ -50,7 +56,7 @@ class TestPytestConfigConsolidation:
 
         markers = cfg["tool"]["pytest"]["ini_options"]["markers"]
         marker_names = {m.split(":")[0].strip() for m in markers}
-        required = {"integration", "functional", "e2e", "security", "agent_flaky"}
+        required = {"integration", "security"}
         assert required.issubset(marker_names), f"Missing markers: {required - marker_names}"
 
     def test_pyproject_has_kubernetes_dev_dependency(self):

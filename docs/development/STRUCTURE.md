@@ -376,11 +376,7 @@ shared/
 ```
 integration_tests/
 ├── conftest.py                    # Shared fixtures for all integration tests
-├── docker-compose.yml             # Test environment setup
-├── agent_findings.py              # Security findings for agent security fuzz tests
-├── test_agent_security_fuzz.py    # Agent security fuzzing tests
 ├── test_credential_security.py    # Credential isolation verification
-├── test_e2e_workflow.py           # End-to-end workflow tests
 ├── test_error_recovery.py         # Error handling and recovery tests
 ├── test_fail_closed.py            # Fail-closed security property tests
 ├── test_gateway_auth.py           # Gateway authentication tests
@@ -400,9 +396,7 @@ integration_tests/
 │   └── test_escalation.py         # Early-exit paths (fork, merged, empty diff) and final-push head-move escalation
 ├── local_pipeline/                # Orchestrator pipeline integration tests
 │   ├── conftest.py                # Pipeline test fixtures
-│   ├── docker-compose.yml         # Orchestrator test environment
 │   ├── helpers.py                 # Shared API helper functions for tests
-│   ├── mock-sandbox/              # Mock sandbox for testing
 │   ├── test_api_validation.py     # API input validation tests
 │   ├── test_concurrent_pipelines.py  # Concurrent pipeline execution tests
 │   ├── test_error_recovery.py     # Error recovery scenario tests

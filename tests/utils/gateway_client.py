@@ -7,7 +7,6 @@ that can be used by both MinimalGateway (functional tests) and EggStack
 """
 
 import os
-import subprocess
 import time
 from typing import Any
 
@@ -191,20 +190,6 @@ class GatewayClientMixin:
             json=json_data,
             timeout=timeout,
         )
-
-
-def docker_available() -> bool:
-    """Check if Docker is available and running."""
-    try:
-        result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-        return result.returncode == 0
-    except FileNotFoundError, subprocess.TimeoutExpired:
-        return False
 
 
 def wait_for_healthy(url: str, timeout: int = 60) -> bool:
