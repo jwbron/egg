@@ -5577,7 +5577,10 @@ def _build_role_restrictions_section() -> str:
         "step asking the human reviewer to move the staged files into "
         "place before merge. Assign such tasks to `role: coder` and "
         "make the staging path explicit in the task's "
-        "`files_affected`."
+        "`files_affected`. `.github-staging/` must remain tracked by "
+        "git (do not add it to `.gitignore`); otherwise the staged "
+        "files won't be in the PR commit and the reviewer's `git mv` "
+        "will fail."
     )
     lines.append("")
 
@@ -8504,6 +8507,16 @@ def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
 
     staged_paths: list[str] = []
     for path in sorted(staging_dir.rglob("*")):
+        # Skip symlinks: ``Path.is_file()`` follows them, so without this
+        # guard a staged ``.github-staging/evil.yml`` → ``/etc/passwd``
+        # would be surfaced in the manual-step file list, the reviewer's
+        # ``git mv`` would preserve it, and ``.github/evil.yml`` would
+        # land in the repo as a symlink. The reviewer's only mitigation
+        # would be the diff (where a symlink shows as a small mode
+        # change that's easy to skim past). Drop staged symlinks here so
+        # the helper is the choke point.
+        if path.is_symlink():
+            continue
         if not path.is_file():
             continue
         try:
@@ -8539,9 +8552,13 @@ def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
             "   mkdir -p .github/workflows",
             "   git mv .github-staging/workflows/test-e2e.yml .github/workflows/test-e2e.yml",
             "   ```",
-            "3. Remove the empty `.github-staging/` directory and commit the move.",
-            "4. Push from a context with the GitHub `workflow` scope (a normal "
-            "user push works; the bot token may not — see issue #2508 layer 2).",
+            "   After the `git mv`, `.github-staging/` is no longer tracked "
+            "by git (git doesn't track empty directories). Run "
+            "`rm -rf .github-staging` locally if you want to clear any "
+            "leftover empty subdirectories from your worktree.",
+            "3. Commit the move and push from a context with the GitHub "
+            "`workflow` scope (a normal user push works; the bot token may "
+            "not — see issue #2508 layer 2).",
         ]
     )
     return "\n".join(lines)

@@ -254,6 +254,13 @@ DOCUMENTER_PATTERNS = AgentFilePattern(
         "**/test/",
         # Contracts
         ".egg-state/contracts/",
+        # Issue #2508: branch-protection invariant — even markdown
+        # files under `.github/` (PULL_REQUEST_TEMPLATE.md,
+        # ISSUE_TEMPLATE.md, etc.) must go through the
+        # `.github-staging/` convention so a human reviewer moves them
+        # in before merge. Without this block, `**/*.md` would let the
+        # documenter rewrite `.github/PULL_REQUEST_TEMPLATE.md`.
+        ".github/",
     ],
 )
 
@@ -506,6 +513,12 @@ AUTOFIXER_PATTERNS = AgentFilePattern(
         "**/*.md",
         # Contracts
         ".egg-state/contracts/",
+        # Issue #2508: branch-protection invariant — even an autofixer
+        # YAML lint fix to `.github/workflows/*.yml` must go through
+        # the `.github-staging/` convention so a human reviewer moves
+        # it in before merge. Without this block, `**/*.yml` would let
+        # the autofixer rewrite workflows directly.
+        ".github/",
     ],
 )
 
@@ -576,6 +589,11 @@ CONFLICT_RESOLVER_PATTERNS = AgentFilePattern(
         ".egg-state/pipelines/",
         ".egg-state/reviews/",
         ".egg-state/oversight/",
+        # Issue #2508: branch-protection invariant — when resolving a
+        # merge conflict that touches a workflow / CODEOWNERS file,
+        # the resolution must go through the `.github-staging/`
+        # convention so a human reviewer moves it in before merge.
+        ".github/",
     ],
 )
 

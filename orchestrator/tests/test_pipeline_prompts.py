@@ -3445,10 +3445,22 @@ class TestBuildRoleRestrictionsSection:
         Without this guidance, the planner schedules `.github/`-touching tasks
         that no producer role can actually push, leading to silent
         slice-failure as observed on the issue-2474 pipeline.
+
+        Asserts the actionable guidance in addition to the bare strings, so
+        a future refactor that drops the role-assignment instruction or the
+        concrete staging-path example is caught here.
         """
         section = _build_role_restrictions_section()
+        # Bare strings — both also occur elsewhere in the section.
         assert ".github-staging/" in section
         assert ".github/" in section
+        # Actionable guidance: the role assignment, a concrete staging
+        # path example, and the `.gitignore` warning. These are the
+        # things a planner needs to act on; a refactor that loses them
+        # would render the section informational rather than directive.
+        assert "role: coder" in section
+        assert ".github-staging/workflows/ci.yml" in section
+        assert ".gitignore" in section
 
 
 class TestTaskPlannerRoleRestrictions:

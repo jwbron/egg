@@ -478,6 +478,53 @@ class TestBuildPrBodyGithubStaging:
 
         assert "Move staged" not in body
 
+    def test_drops_symlinks_from_staged_paths(self, tmp_path):
+        """Symlinks under `.github-staging/` are filtered out (issue #2508).
+
+        ``Path.is_file()`` follows symlinks, so without an explicit
+        ``is_symlink()`` guard a malicious staged file pointing at
+        ``/etc/passwd`` would survive into the manual-step file list,
+        the reviewer's `git mv` would preserve it, and `.github/...`
+        would land in the repo as a symlink. This test regression-locks
+        the guard so the helper stays the choke point.
+        """
+        pipeline = _make_pipeline()
+        staging = tmp_path / ".github-staging" / "workflows"
+        staging.mkdir(parents=True)
+        # Real file alongside a symlink — only the real file should
+        # appear in the rendered step.
+        (staging / "ci.yml").write_text("name: ci\n")
+        target = tmp_path / "outside-target.yml"
+        target.write_text("name: outside\n")
+        (staging / "evil-symlink.yml").symlink_to(target)
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged `.github/` changes" in body
+        assert "`.github-staging/workflows/ci.yml`" in body
+        # The symlink must NOT be surfaced — it would pass `is_file()`
+        # but the guard above drops it before the rel-path is recorded.
+        assert "evil-symlink.yml" not in body
+
+    def test_drops_step_when_only_symlinks_staged(self, tmp_path):
+        """When `.github-staging/` contains only symlinks, no step is emitted.
+
+        Mirrors :meth:`test_no_step_when_staging_dir_empty` for the
+        symlink-only case — the symlink-filter must not leave the
+        helper in a state where it emits a header with an empty file
+        list.
+        """
+        pipeline = _make_pipeline()
+        staging = tmp_path / ".github-staging"
+        staging.mkdir()
+        target = tmp_path / "outside-target.yml"
+        target.write_text("name: outside\n")
+        (staging / "only-symlink.yml").symlink_to(target)
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "Move staged" not in body
+
 
 class TestAutoCreatePr:
     """Tests for _auto_create_pr."""

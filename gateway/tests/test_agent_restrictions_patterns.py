@@ -646,6 +646,23 @@ class TestDocumenterRole:
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/doc-out.json") is True
 
+    def test_cannot_write_github_dir_md(self, pattern):
+        """Documenter is blocked from markdown under `.github/` (issue #2508).
+
+        Without the `.github/` block, the documenter's ``**/*.md``
+        allow would let it rewrite ``.github/PULL_REQUEST_TEMPLATE.md``,
+        ``.github/ISSUE_TEMPLATE.md``, etc. — bypassing the
+        branch-protection invariant the staging convention preserves.
+        """
+        assert pattern.can_write(".github/PULL_REQUEST_TEMPLATE.md") is False
+        assert pattern.can_write(".github/ISSUE_TEMPLATE.md") is False
+
+    def test_cannot_write_github_dir_codeowners(self, pattern):
+        """Even non-markdown under `.github/` is blocked — the documenter
+        couldn't reach CODEOWNERS via its allowlist anyway, but the
+        block makes the invariant explicit."""
+        assert pattern.can_write(".github/CODEOWNERS") is False
+
 
 class TestArchitectRole:
     """Verify architect agent can only write drafts and agent-outputs."""
@@ -833,6 +850,18 @@ class TestAutofixerRole:
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/autofixer-out.json") is True
 
+    def test_cannot_write_github_workflows(self, pattern):
+        """Autofixer is blocked from `.github/` (issue #2508).
+
+        Without this block, the autofixer's ``**/*.yml`` allow would
+        let it rewrite ``.github/workflows/ci.yml`` directly when
+        applying a YAML lint fix — bypassing the branch-protection
+        invariant the staging convention preserves.
+        """
+        assert pattern.can_write(".github/workflows/ci.yml") is False
+        assert pattern.can_write(".github/workflows/test.yaml") is False
+        assert pattern.can_write(".github/dependabot.yml") is False
+
 
 class TestConflictResolverRole:
     """Verify conflict resolver agent can/cannot write expected files."""
@@ -911,6 +940,19 @@ class TestConflictResolverRole:
 
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/resolver-out.json") is True
+
+    def test_cannot_write_github_dir(self, pattern):
+        """Conflict resolver is blocked from `.github/` (issue #2508).
+
+        Without this block, resolving a merge conflict that touches
+        ``.github/workflows/*.yml`` or ``.github/CODEOWNERS`` would
+        commit the resolution directly into `.github/` and push it,
+        bypassing the branch-protection invariant the staging
+        convention preserves.
+        """
+        assert pattern.can_write(".github/workflows/ci.yml") is False
+        assert pattern.can_write(".github/CODEOWNERS") is False
+        assert pattern.can_write(".github/PULL_REQUEST_TEMPLATE.md") is False
 
 
 class TestAllRolesRegistered:
