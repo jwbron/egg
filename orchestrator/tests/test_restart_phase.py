@@ -1025,3 +1025,122 @@ class TestRestartPhaseResetsHealthMonitor:
         assert response.status_code == 200
         reset_calls = {call.args[0] for call in mock_hm.reset_agent.call_args_list}
         assert reset_calls == {"coder", "tester", "documenter"}
+
+
+# ---------------------------------------------------------------------------
+# Issue #2515: empty phase_exec.agents must not wedge restart_phase
+# ---------------------------------------------------------------------------
+
+
+def _make_pipeline_with_empty_phase_agents(
+    pipeline_id="issue-2515",
+    phase=PipelinePhase.IMPLEMENT,
+    *,
+    active_roles: list[str] | None = None,
+):
+    """Build a pipeline in CANCELLED state with phase_exec.agents=[].
+
+    Reproduces the post-failed-restart state from #2515: a prior
+    ``restart_phase`` cleared ``phase_exec.agents`` (its own clear
+    step) but the spawn step failed before re-populating it, then
+    ``cancel_task(cleanup=false)`` returned the pipeline to a
+    restartable status with an empty roster cache.
+    """
+    pipeline = Pipeline(
+        id=pipeline_id,
+        issue_number=2515,
+        repo="owner/repo",
+        branch=f"egg/{pipeline_id}",
+        status=PipelineStatus.CANCELLED,
+        current_phase=phase,
+        active_roles=active_roles,
+    )
+    pipeline.phases = {
+        phase.value: PhaseExecution(
+            phase=phase,
+            status=PipelineStatus.PENDING,
+            review_cycles=0,
+            containers=[],
+            agents=[],
+        ),
+    }
+    return pipeline
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartPhaseEmptyAgentsFallback:
+    """Issue #2515: ``restart_phase`` must derive the roster from the
+    pipeline-level config when ``phase_exec.agents`` is empty.
+
+    Without the fallback, a prior failed restart leaves the pipeline
+    permanently unrecoverable: ``restart_phase`` 400s on the empty
+    cache and ``start_pipeline`` 409s on the CANCELLED status.
+    """
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_empty_agents_falls_back_to_phase_default_roster(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_empty_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-2515/phases/implement/restart",
+            json={"reason": "Recover from failed prior restart"},
+        )
+
+        assert response.status_code == 200, response.get_json()
+        data = response.get_json()
+        agents = data["data"]["agents_to_restart"]
+        # Implement phase has stable producer roles; reviewers vary by
+        # repo / has_contract gating, so assert producers are present
+        # rather than pinning the exact list.
+        assert "coder" in agents
+        assert "tester" in agents
+        assert "documenter" in agents
+        # Pipeline must transition out of CANCELLED so it is no longer
+        # stuck.
+        assert pipeline.status == PipelineStatus.RUNNING
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_empty_agents_uses_active_roles_override_when_set(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        """CUSTOM-mode / BABYSIT pipelines persist their roster on
+        ``Pipeline.active_roles``; the fallback must honour it rather
+        than expanding to the full phase-default roster."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_empty_phase_agents(
+            active_roles=["coder", "tester"],
+        )
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-2515/phases/implement/restart",
+            json={"reason": "Recover CUSTOM-mode pipeline after failed restart"},
+        )
+
+        assert response.status_code == 200, response.get_json()
+        data = response.get_json()
+        assert set(data["data"]["agents_to_restart"]) == {"coder", "tester"}
