@@ -12884,6 +12884,77 @@ def _run_implement_phase_slices(
     return overall_exit, aggregated
 
 
+def _clear_stale_impasses_for_producers(
+    repo_path: Path,
+    pipeline_id: str,
+    producer_roles: list,
+    *,
+    cleanup_reason: str,
+) -> None:
+    """Drop the ``impasse`` field from each producer's per-pipeline
+    agent-output file before the next BRC cycle.
+
+    ``save_agent_output`` writes with ``mode="w"`` so a producer that
+    respawns and reaches its handoff write will overwrite the stale
+    impasse on its own. But if a producer crashes before writing in the
+    next iteration (or if the implement roster ever becomes
+    contract-task-driven, in which case a producer with no remaining
+    tasks won't spawn at all), the iter-N impasse file would persist
+    into iter-N+1's ``collect_impasses`` scan and re-trigger routing on
+    a stale signal — which the ``delegation_attempts`` counter would
+    then translate into a spurious "second impasse on same task" HITL
+    escalation.
+
+    Pre-clearing the field keeps ``collect_impasses`` honest about what
+    came out of the *current* iteration only. Other top-level fields on
+    the agent output (``handoff_data``, ``role``, anything else) are
+    preserved.
+    """
+    try:
+        from egg_contracts.orchestrator import load_agent_output, save_agent_output
+    except ImportError:  # pragma: no cover - import seam parity
+        from shared.egg_contracts.orchestrator import (  # type: ignore[no-redef]
+            load_agent_output,
+            save_agent_output,
+        )
+
+    for role_enum in producer_roles:
+        try:
+            existing = load_agent_output(repo_path, role_enum, identifier=pipeline_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "Could not pre-load agent output to clear stale impasse",
+                pipeline_id=pipeline_id,
+                role=role_enum.value,
+                error=str(exc),
+            )
+            continue
+        if not isinstance(existing, dict) or "impasse" not in existing:
+            continue
+        cleaned = {k: v for k, v in existing.items() if k != "impasse"}
+        try:
+            save_agent_output(
+                repo_path,
+                role_enum,
+                cleaned,
+                identifier=pipeline_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to clear stale impasse from agent output",
+                pipeline_id=pipeline_id,
+                role=role_enum.value,
+                error=str(exc),
+            )
+            continue
+        logger.info(
+            "Cleared stale impasse from agent output",
+            pipeline_id=pipeline_id,
+            role=role_enum.value,
+            cleanup_reason=cleanup_reason,
+        )
+
+
 def _run_concurrent_phase_with_impasse_retry(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -12942,14 +13013,6 @@ def _run_concurrent_phase_with_impasse_retry(
         from shared.egg_contracts.agent_roles import (  # type: ignore[no-redef]
             AgentRole as ContractAgentRoleEnum,
         )
-    try:
-        from egg_contracts.orchestrator import load_agent_output, save_agent_output
-    except ImportError:  # pragma: no cover - import seam parity
-        from shared.egg_contracts.orchestrator import (  # type: ignore[no-redef]
-            load_agent_output,
-            save_agent_output,
-        )
-
     # Two attempts max: original + at most one delegated retry. The
     # ``delegation_attempts`` counter on the contract task enforces the
     # same bound when the slice is restarted out-of-band by an
@@ -12964,62 +13027,6 @@ def _run_concurrent_phase_with_impasse_retry(
         ContractAgentRoleEnum.TESTER,
         ContractAgentRoleEnum.DOCUMENTER,
     ]
-
-    def _clear_stale_impasses(reason: str) -> None:
-        """Drop the ``impasse`` field from any per-pipeline producer
-        output file before the next BRC cycle.
-
-        ``save_agent_output`` writes with ``mode="w"`` so a producer
-        that respawns and reaches its handoff write will overwrite the
-        stale impasse on its own. But if a producer crashes before
-        writing in the next iteration (or if the implement roster ever
-        becomes contract-task-driven, in which case a producer with no
-        remaining tasks won't spawn at all), the iter-N impasse file
-        would persist into iter-N+1's ``collect_impasses`` scan and
-        re-trigger routing on a stale signal — which the
-        ``delegation_attempts`` counter would then translate into a
-        spurious "second impasse on same task" HITL escalation.
-
-        Pre-clearing the field keeps ``collect_impasses`` honest about
-        what came out of the *current* iteration only.
-        """
-        for role_enum in producer_roles:
-            try:
-                existing = load_agent_output(
-                    Path(worktree_repo_path), role_enum, identifier=pipeline_id
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "Could not pre-load agent output to clear stale impasse",
-                    pipeline_id=pipeline_id,
-                    role=role_enum.value,
-                    error=str(exc),
-                )
-                continue
-            if not isinstance(existing, dict) or "impasse" not in existing:
-                continue
-            cleaned = {k: v for k, v in existing.items() if k != "impasse"}
-            try:
-                save_agent_output(
-                    Path(worktree_repo_path),
-                    role_enum,
-                    cleaned,
-                    identifier=pipeline_id,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Failed to clear stale impasse from agent output",
-                    pipeline_id=pipeline_id,
-                    role=role_enum.value,
-                    error=str(exc),
-                )
-                continue
-            logger.info(
-                "Cleared stale impasse from agent output",
-                pipeline_id=pipeline_id,
-                role=role_enum.value,
-                cleanup_reason=reason,
-            )
 
     last_exit = 0
     last_logs = ""
@@ -13118,7 +13125,12 @@ def _run_concurrent_phase_with_impasse_retry(
         # Drop the now-routed impasse signals before the next BRC
         # cycle, so a producer that crashes pre-handoff in iter-N+1
         # cannot resurrect this iteration's impasse via a stale file.
-        _clear_stale_impasses("post-delegation cleanup")
+        _clear_stale_impasses_for_producers(
+            Path(worktree_repo_path),
+            pipeline_id,
+            producer_roles,
+            cleanup_reason="post-delegation cleanup",
+        )
 
     return last_exit, last_logs
 
