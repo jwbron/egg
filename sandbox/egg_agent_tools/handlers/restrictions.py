@@ -216,7 +216,22 @@ def report_impasse(req: dict[str, Any]) -> dict[str, Any]:
     suggested_role = req.get("suggested_role")
     if suggested_role is not None and not isinstance(suggested_role, str):
         raise HandlerError("'suggested_role' must be a string when provided")
-    if category == "wrong_role" and suggested_role:
+    if category == "wrong_role":
+        # ``wrong_role`` is the only auto-delegateable category; without
+        # ``suggested_role`` the orchestrator-side router can only
+        # escalate to HITL, which silently degrades the producer's
+        # deliberately-set ``category=wrong_role`` signal into
+        # "always-escalate". Reject at the handler boundary and point
+        # the agent at ``check_file_restriction`` so the fix lands in
+        # the same iteration.
+        if not suggested_role:
+            raise HandlerError(
+                "'suggested_role' is required for category='wrong_role'. "
+                "Call mcp__sdlc__check_file_restriction first to discover "
+                "the producer role that *can* write the blocked files, "
+                "then pass it as suggested_role. Use category='unknown' "
+                "if no single producer role covers the impasse."
+            )
         if suggested_role == role:
             raise HandlerError(
                 "'suggested_role' must differ from the impassed role "
@@ -236,6 +251,19 @@ def report_impasse(req: dict[str, Any]) -> dict[str, Any]:
     task_id = req.get("task_id")
     if task_id is not None and not isinstance(task_id, str):
         raise HandlerError("'task_id' must be a string when provided")
+    # ``wrong_role`` triggers an auto-delegation against a specific
+    # task — the role-match fallback in the orchestrator-side router
+    # is fragile when a slice contains multiple tasks per role or
+    # role-less tasks. Require an explicit task_id so the routing
+    # never has to guess. Other categories (plan_bug,
+    # external_blocker, unknown) escalate either way and tolerate
+    # task-level ambiguity.
+    if category == "wrong_role" and not task_id:
+        raise HandlerError(
+            "'task_id' is required for category='wrong_role' so the "
+            "orchestrator can route precisely. Look it up in your "
+            "spawn prompt or via `egg-contract show`."
+        )
 
     repo_path = Path(req.get("repo_path") or get_repo_path())
     identifier = req.get("identifier") or req.get("issue") or req.get("pipeline_id")

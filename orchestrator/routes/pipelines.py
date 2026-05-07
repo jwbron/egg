@@ -5705,47 +5705,88 @@ def _build_role_restrictions_section() -> str:
     )
     lines.append("")
 
-    # Runtime escape hatch (issue #2529).
-    lines.append("### Impossible task? Use the runtime escape hatch — DO NOT invent workarounds")
+    # Runtime escape hatch — the actionable producer-side guidance (the
+    # "call these two tools, do not invent a workaround, exit cleanly"
+    # text) lives in ``_build_impasse_escape_hatch_section`` and is
+    # injected into producer prompts (coder/tester/documenter); see
+    # issue #2529. Here we tell the planner only that the post-failure
+    # delegation path exists, so it knows the orchestrator can rewire a
+    # mis-assigned task without re-planning. The planner does not emit
+    # impasses itself.
+    lines.append("### Runtime delegation (post-failure)")
     lines.append("")
     lines.append(
-        "If you discover mid-execution that the task you've been "
-        "assigned is structurally impossible (file restrictions block "
-        "your role, the plan is buggy, an external dependency is "
-        "missing), STOP. Do not invent a workaround like staging the "
-        "files in another directory or asking another agent to do it "
-        "via a freeform handoff document — past pipelines (#2474, "
-        "#2529) wasted ~10+ min and triggered downstream NACKs that "
-        "way."
-    )
-    lines.append("")
-    lines.append("Instead, use the two MCP tools:")
-    lines.append("")
-    lines.append(
-        '1. `mcp__sdlc__check_file_restriction({path: "..."})` — '
-        "cheap pure-local read against `shared/egg_restrictions/"
-        "patterns.py`. Confirms whether your role can write the path "
-        "and returns `alternative_role` (the producer role that "
-        "*can* write it, when exactly one covers it). Call this "
-        "BEFORE exploring a file you suspect is outside your "
-        "boundary."
-    )
-    lines.append("")
-    lines.append(
-        "2. `mcp__sdlc__report_impasse({category, reason, "
-        "suggested_role, blocked_files})` — emits a typed Impasse "
-        "signal and exits cleanly. The orchestrator detects the "
-        "impasse post-phase and either delegates to "
-        "``suggested_role`` (first attempt) or escalates to HITL "
-        "(second attempt or no eligible role). Categories: "
-        "``wrong_role`` (file restrictions; auto-delegateable), "
-        "``plan_bug`` / ``external_blocker`` / ``unknown`` (always "
-        "HITL). Once you've called this tool, do NOT commit code or "
-        "call any other producer tool — just exit."
+        "If a producer discovers mid-execution that its assigned task "
+        "is structurally impossible, it emits a typed Impasse via "
+        "``mcp__sdlc__report_impasse`` and the orchestrator may "
+        "auto-delegate the task to a different producer role (see "
+        "issue #2529). You don't need to plan for this — it's a "
+        "runtime safety net for plan bugs, role-restriction "
+        "mismatches, and external blockers."
     )
     lines.append("")
 
     return "\n".join(lines)
+
+
+def _build_impasse_escape_hatch_section() -> str:
+    """Build the producer-facing runtime escape hatch section (#2529).
+
+    Injected into the coder/tester/documenter prompts so producers know
+    to call ``mcp__sdlc__check_file_restriction`` /
+    ``mcp__sdlc__report_impasse`` instead of inventing workarounds when
+    they hit a structurally impossible task. The planner never emits
+    impasses, so this section is omitted from its prompt — see
+    ``_build_role_restrictions_section`` for the planner-facing
+    summary.
+    """
+    return "\n".join(
+        [
+            "## Impossible task? Use the runtime escape hatch — DO NOT invent workarounds",
+            "",
+            (
+                "If you discover mid-execution that the task you've been "
+                "assigned is structurally impossible (file restrictions "
+                "block your role, the plan is buggy, an external "
+                "dependency is missing), STOP. Do not invent a "
+                "workaround like staging the files in another directory "
+                "or asking another agent to do it via a freeform handoff "
+                "document — past pipelines (#2474, #2529) wasted ~10+ "
+                "min and triggered downstream NACKs that way."
+            ),
+            "",
+            "Instead, use the two MCP tools:",
+            "",
+            (
+                '1. `mcp__sdlc__check_file_restriction({path: "..."})` — '
+                "cheap pure-local read against `shared/egg_restrictions/"
+                "patterns.py`. Confirms whether your role can write the "
+                "path and returns `alternative_role` (the producer role "
+                "that *can* write it, when exactly one covers it). Call "
+                "this BEFORE exploring a file you suspect is outside "
+                "your boundary."
+            ),
+            "",
+            (
+                "2. `mcp__sdlc__report_impasse({category, reason, "
+                "task_id, suggested_role, blocked_files})` — emits a "
+                "typed Impasse signal and exits cleanly. **`task_id` is "
+                "required for ``wrong_role`` impasses** (look it up in "
+                "your spawn prompt or via `egg-contract show`); without "
+                "it the orchestrator cannot route precisely and "
+                "escalates to HITL. The orchestrator detects the "
+                "impasse post-phase and either delegates to "
+                "``suggested_role`` (first attempt) or escalates to "
+                "HITL (second attempt or no eligible role). Categories: "
+                "``wrong_role`` (file restrictions; auto-delegateable), "
+                "``plan_bug`` / ``external_blocker`` / ``unknown`` "
+                "(always HITL). Once you've called this tool, do NOT "
+                "commit code or call any other producer tool — just "
+                "exit."
+            ),
+            "",
+        ]
+    )
 
 
 def _render_contract_tasks(
@@ -10645,6 +10686,13 @@ def _build_agent_prompt(
         boundary_section = _build_file_boundary_section(role_value)
         if boundary_section:
             base_prompt += "\n" + boundary_section
+        # Producer escape hatch (#2529) — coder is one of the impassing
+        # producer roles, so it must see the actionable
+        # check_file_restriction / report_impasse guidance instead of
+        # inventing workarounds. Refiner runs in the refine phase and
+        # never owns implement-phase tasks, so it doesn't need this.
+        if role_value == "coder":
+            base_prompt += "\n" + _build_impasse_escape_hatch_section()
         # In concurrent mode, inject BRC consensus preamble so the coder/refiner
         # knows to propose, respond to reviews, confirm, and stay alive.
         if concurrent:
@@ -11338,6 +11386,15 @@ def _build_agent_prompt(
     boundary_section = _build_file_boundary_section(role_value)
     if boundary_section:
         lines.append(boundary_section)
+
+    # Producer escape hatch (#2529) — tester/documenter are the other
+    # two impassing producer roles (coder is handled in the early-return
+    # branch above). They need the actionable
+    # check_file_restriction / report_impasse guidance so they don't
+    # invent workarounds when their assigned task is structurally
+    # impossible.
+    if role_value in ("tester", "documenter"):
+        lines.append(_build_impasse_escape_hatch_section())
 
     lines.append("## Phase Completion\n")
     if concurrent:
@@ -12885,6 +12942,13 @@ def _run_concurrent_phase_with_impasse_retry(
         from shared.egg_contracts.agent_roles import (  # type: ignore[no-redef]
             AgentRole as ContractAgentRoleEnum,
         )
+    try:
+        from egg_contracts.orchestrator import load_agent_output, save_agent_output
+    except ImportError:  # pragma: no cover - import seam parity
+        from shared.egg_contracts.orchestrator import (  # type: ignore[no-redef]
+            load_agent_output,
+            save_agent_output,
+        )
 
     # Two attempts max: original + at most one delegated retry. The
     # ``delegation_attempts`` counter on the contract task enforces the
@@ -12892,9 +12956,76 @@ def _run_concurrent_phase_with_impasse_retry(
     # operator, so a long-lived pipeline can never escape this gate.
     MAX_IMPASSE_ATTEMPTS = 2
 
+    # Producer roles only — impasses are a producer concept; reviewers
+    # don't author tasks. Mirrors the producer trio in
+    # ``shared/egg_restrictions/patterns.py``.
+    producer_roles = [
+        ContractAgentRoleEnum.CODER,
+        ContractAgentRoleEnum.TESTER,
+        ContractAgentRoleEnum.DOCUMENTER,
+    ]
+
+    def _clear_stale_impasses(reason: str) -> None:
+        """Drop the ``impasse`` field from any per-pipeline producer
+        output file before the next BRC cycle.
+
+        ``save_agent_output`` writes with ``mode="w"`` so a producer
+        that respawns and reaches its handoff write will overwrite the
+        stale impasse on its own. But if a producer crashes before
+        writing in the next iteration (or if the implement roster ever
+        becomes contract-task-driven, in which case a producer with no
+        remaining tasks won't spawn at all), the iter-N impasse file
+        would persist into iter-N+1's ``collect_impasses`` scan and
+        re-trigger routing on a stale signal — which the
+        ``delegation_attempts`` counter would then translate into a
+        spurious "second impasse on same task" HITL escalation.
+
+        Pre-clearing the field keeps ``collect_impasses`` honest about
+        what came out of the *current* iteration only.
+        """
+        for role_enum in producer_roles:
+            try:
+                existing = load_agent_output(
+                    Path(worktree_repo_path), role_enum, identifier=pipeline_id
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "Could not pre-load agent output to clear stale impasse",
+                    pipeline_id=pipeline_id,
+                    role=role_enum.value,
+                    error=str(exc),
+                )
+                continue
+            if not isinstance(existing, dict) or "impasse" not in existing:
+                continue
+            cleaned = {k: v for k, v in existing.items() if k != "impasse"}
+            try:
+                save_agent_output(
+                    Path(worktree_repo_path),
+                    role_enum,
+                    cleaned,
+                    identifier=pipeline_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to clear stale impasse from agent output",
+                    pipeline_id=pipeline_id,
+                    role=role_enum.value,
+                    error=str(exc),
+                )
+                continue
+            logger.info(
+                "Cleared stale impasse from agent output",
+                pipeline_id=pipeline_id,
+                role=role_enum.value,
+                cleanup_reason=reason,
+            )
+
     last_exit = 0
     last_logs = ""
     for attempt in range(MAX_IMPASSE_ATTEMPTS):
+        is_terminal = attempt + 1 == MAX_IMPASSE_ATTEMPTS
+
         last_exit, last_logs = _run_concurrent_phase(
             pipeline_id=pipeline_id,
             pipeline=pipeline,
@@ -12910,15 +13041,6 @@ def _run_concurrent_phase_with_impasse_retry(
             review_feedback=review_feedback,
             slice_id=slice_id,
         )
-
-        # Producer roles only — impasses are a producer concept;
-        # reviewers don't author tasks. Mirrors the producer trio in
-        # ``shared/egg_restrictions/patterns.py``.
-        producer_roles = [
-            ContractAgentRoleEnum.CODER,
-            ContractAgentRoleEnum.TESTER,
-            ContractAgentRoleEnum.DOCUMENTER,
-        ]
 
         try:
             impasses = collect_impasses(
@@ -12939,12 +13061,17 @@ def _run_concurrent_phase_with_impasse_retry(
             return last_exit, last_logs
 
         try:
+            # On the terminal iteration we have no remaining BRC cycle
+            # to respawn with a new role, so a delegation made here
+            # would silently dangle (review feedback #2 on PR #2553).
+            # Force every impasse onto the escalate path instead.
             decisions = route_impasses(
                 repo_path=Path(worktree_repo_path),
                 pipeline_id=pipeline_id,
                 contract_identifier=pipeline_id,
                 impasses=impasses,
                 slice_id=slice_id,
+                force_escalate=is_terminal,
             )
         except Exception as route_err:  # noqa: BLE001
             logger.error(
@@ -12987,6 +13114,11 @@ def _run_concurrent_phase_with_impasse_retry(
                 to_role=d.new_role,
                 task_id=d.task_id,
             )
+
+        # Drop the now-routed impasse signals before the next BRC
+        # cycle, so a producer that crashes pre-handoff in iter-N+1
+        # cannot resurrect this iteration's impasse via a stale file.
+        _clear_stale_impasses("post-delegation cleanup")
 
     return last_exit, last_logs
 
@@ -16948,6 +17080,16 @@ def _run_pipeline(
                                 worktree_repo_path=worktree_repo_path,
                             )
                         else:
+                            # Pre-#2137 monolithic-implement fallback. The
+                            # impasse-retry wrapper deliberately wraps only
+                            # the slice-loop call site (#2529): impasse
+                            # delegation rewires a *task* between producer
+                            # roles, which only makes sense per-slice.
+                            # Pipelines that don't use the slice loop are
+                            # legacy / single-PR-shape, so an impasse here
+                            # surfaces as a normal slice failure and the
+                            # operator handles it via the existing
+                            # phase-failure HITL path.
                             exit_code, container_logs = _run_concurrent_phase(
                                 pipeline_id=pipeline_id,
                                 pipeline=pipeline,

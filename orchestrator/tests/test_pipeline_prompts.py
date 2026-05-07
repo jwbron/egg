@@ -1036,6 +1036,77 @@ class TestBuildAgentPromptRoleContext:
             assert f"Agent Role: {role}" in result
 
 
+class TestProducerEscapeHatchInPrompts:
+    """Producer prompts must surface the runtime escape hatch (#2529).
+
+    The check_file_restriction / report_impasse guidance has to land in
+    the agent prompt for every role that *emits* an impasse — coder,
+    tester, and documenter. Without this section the producer cannot
+    discover the escape hatch and falls back to inventing workarounds
+    (the .github-staging/ deletion-marker anti-pattern from pipeline
+    issue-2474-v2 that this PR exists to prevent).
+
+    Originally the guidance was injected only into the planner prompt
+    via _build_role_restrictions_section, which meant producers never
+    saw it. The fix moves the actionable guidance into a producer-only
+    helper.
+    """
+
+    @pytest.mark.parametrize("role", ["coder", "tester", "documenter"])
+    def test_producer_prompt_contains_report_impasse(self, role):
+        result = _build_agent_prompt(
+            role_value=role,
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+        )
+        assert "mcp__sdlc__report_impasse" in result, (
+            f"{role} prompt missing the report_impasse escape-hatch tool name; "
+            "producers must see the actionable guidance to avoid inventing workarounds."
+        )
+        assert "mcp__sdlc__check_file_restriction" in result, (
+            f"{role} prompt missing the check_file_restriction tool name."
+        )
+        assert "DO NOT invent workarounds" in result, (
+            f"{role} prompt missing the anti-workaround directive."
+        )
+
+    def test_planner_prompt_has_summary_not_actionable_guidance(self):
+        """Planner gets only the post-failure delegation summary, not the
+        producer-facing actionable text. The planner doesn't emit
+        impasses; it doesn't need the call-these-tools instructions."""
+        result = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+        )
+        assert "Runtime delegation" in result
+        assert "auto-delegate" in result
+        # The actionable producer-only directives should NOT appear in
+        # the planner prompt — the summary mentions ``report_impasse``
+        # by name for context, but doesn't tell the planner to call it.
+        assert "DO NOT invent workarounds" not in result
+        assert "mcp__sdlc__check_file_restriction" not in result
+
+    def test_architect_prompt_does_not_contain_escape_hatch(self):
+        """Architect is a non-impassing analysis role — it shouldn't
+        carry the producer-only guidance."""
+        result = _build_agent_prompt(
+            role_value="architect",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+        )
+        assert "mcp__sdlc__report_impasse" not in result
+
+
 # ── Additional tester-authored coverage ──────────────────────────────────────
 
 

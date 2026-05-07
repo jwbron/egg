@@ -191,12 +191,25 @@ def _is_eligible_delegation(
     impasse: Impasse,
     impassed_role: str,
     task: Task,
+    *,
+    force_escalate: bool = False,
 ) -> tuple[bool, str]:
     """Decide whether this impasse qualifies for auto-delegation.
 
     Returns ``(eligible, reason)``. ``reason`` is a short human-readable
     string used in the structured log + the HITL decision body.
+
+    ``force_escalate`` is set by the slice-loop wrapper on its terminal
+    iteration: a delegation that lands there can never re-run the BRC
+    cycle, so the safer behaviour is to escalate to HITL instead of
+    silently mutating the contract and exiting (review feedback #2 on
+    PR #2553).
     """
+    if force_escalate:
+        return False, (
+            "delegation skipped on terminal slice iteration; no further "
+            "BRC cycle can execute the new role assignment"
+        )
     if impasse.category != ImpasseCategory.WRONG_ROLE:
         return False, (
             f"category={impasse.category.value} is not auto-delegateable "
@@ -300,6 +313,8 @@ def route_impasses(
     impasses: list[tuple[ContractAgentRole, Impasse]],
     slice_id: str | None,
     actor: str = "orchestrator-impasse-router",
+    *,
+    force_escalate: bool = False,
 ) -> list[RoutingDecision]:
     """Apply the routing policy to every impasse, mutating the contract.
 
@@ -316,6 +331,12 @@ def route_impasses(
     per ``shared/egg_contracts/roles.py``.
 
     Saves the contract once at the end if any mutation was applied.
+
+    ``force_escalate`` (callers: terminal slice-loop iteration) forces
+    every impasse to take the escalate path even when it would
+    otherwise qualify for auto-delegation. The slice loop sets this on
+    its last iteration because a delegation made there can never
+    re-run a BRC cycle, so the role flip would silently dangle.
     """
     if not impasses:
         return []
@@ -342,7 +363,9 @@ def route_impasses(
             continue
 
         slice_obj, task = located
-        eligible, why = _is_eligible_delegation(impasse, impassed_role, task)
+        eligible, why = _is_eligible_delegation(
+            impasse, impassed_role, task, force_escalate=force_escalate
+        )
 
         if eligible:
             decision = _record_delegate(
@@ -406,6 +429,9 @@ def _record_delegate(
         )
 
     role_path = f"phases.{slice_idx}.tasks.{task_idx}.role"
+    # The impasse schema caps ``reason`` at 2000 chars; the audit log
+    # can hold the full payload, and post-mortem debugging benefits
+    # from the unredacted agent reasoning. Don't truncate.
     role_result = apply_mutation(
         contract,
         role=Role.SYSTEM,
@@ -414,7 +440,7 @@ def _record_delegate(
         new_value=impasse.suggested_role,
         reason=(
             f"Impasse-driven delegation: {impassed_role} → "
-            f"{impasse.suggested_role}. Agent reason: {impasse.reason[:120]}"
+            f"{impasse.suggested_role}. Agent reason: {impasse.reason}"
         ),
     )
     if not role_result.success:

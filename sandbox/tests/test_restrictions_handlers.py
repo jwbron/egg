@@ -169,9 +169,61 @@ class TestReportImpasse:
                 {
                     "category": "wrong_role",
                     "reason": "x",
+                    "task_id": "task-1-1",
+                    "suggested_role": "tester",
                     "blocked_files": [1, 2],
                 }
             )
+
+    def test_wrong_role_without_suggested_role_rejected(self, tmp_path, monkeypatch):
+        # ``wrong_role`` is the auto-delegateable category; without
+        # suggested_role the orchestrator-side router can only escalate
+        # to HITL, which silently degrades the producer's deliberately
+        # set wrong_role signal. The handler boundary should reject
+        # the call so the agent fixes the input in the same iteration.
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pid")
+        with pytest.raises(HandlerError, match="suggested_role.* is required"):
+            restrictions.report_impasse(
+                {
+                    "category": "wrong_role",
+                    "reason": "cannot write tests/conftest.py",
+                    "task_id": "task-1-1",
+                    "blocked_files": ["tests/conftest.py"],
+                }
+            )
+
+    def test_wrong_role_without_task_id_rejected(self, tmp_path, monkeypatch):
+        # Same defense-in-depth motivation — without task_id the
+        # router's role-match fallback is fragile (multiple tasks per
+        # role, role-less tasks). Require explicit task_id at the
+        # handler boundary so routing never has to guess.
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pid")
+        with pytest.raises(HandlerError, match="task_id.* is required"):
+            restrictions.report_impasse(
+                {
+                    "category": "wrong_role",
+                    "reason": "cannot write tests/conftest.py",
+                    "suggested_role": "tester",
+                    "blocked_files": ["tests/conftest.py"],
+                }
+            )
+
+    def test_plan_bug_without_task_id_accepted(self, tmp_path, monkeypatch):
+        # Non-wrong_role categories don't auto-delegate, so the
+        # task-level ambiguity that breaks the role-match fallback
+        # never matters — keep these accepted without task_id so an
+        # agent can flag a plan-wide impasse.
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pid")
+        out = restrictions.report_impasse(
+            {
+                "category": "plan_bug",
+                "reason": "two slices contradict each other on schema shape",
+            }
+        )
+        assert out["ok"] is True
 
 
 class TestToolRegistration:

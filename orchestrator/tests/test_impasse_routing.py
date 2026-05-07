@@ -306,3 +306,106 @@ class TestEmptyInput:
         contract = load_contract(pid, tmp_path)
         assert contract.slices[0].tasks[0].role == "coder"
         assert contract.slices[0].tasks[0].delegation_attempts == 0
+
+
+class TestForceEscalate:
+    """``force_escalate=True`` short-circuits the delegation path.
+
+    The slice-loop wrapper sets this on its terminal iteration: a
+    delegation made there can never re-run a BRC cycle, so the role
+    flip would silently dangle and the operator would be stuck staring
+    at a contract whose ``task.role`` no longer matches the agent that
+    actually ran (review feedback #2 on PR #2553).
+    """
+
+    def test_terminal_iteration_escalates_first_impasse(self, tmp_path):
+        pid = _seed_contract(tmp_path)
+        imp = Impasse(
+            category=ImpasseCategory.WRONG_ROLE,
+            reason="cannot write tests/conftest.py",
+            task_id="task-1-1",
+            suggested_role="tester",
+            blocked_files=["tests/conftest.py"],
+        )
+        decisions = route_impasses(
+            repo_path=tmp_path,
+            pipeline_id=pid,
+            contract_identifier=pid,
+            impasses=[(ContractAgentRole.CODER, imp)],
+            slice_id="slice-1",
+            force_escalate=True,
+        )
+        assert len(decisions) == 1
+        d = decisions[0]
+        assert d.action == ImpasseAction.ESCALATE
+        assert d.hitl_decision_id is not None
+        assert "terminal" in d.reason
+
+        # Contract untouched — task.role MUST stay on the impassed
+        # role so the operator's view matches the agent that ran.
+        contract = load_contract(pid, tmp_path)
+        task = contract.slices[0].tasks[0]
+        assert task.role == "coder"
+        assert task.delegation_attempts == 0
+
+    def test_non_terminal_iteration_still_delegates(self, tmp_path):
+        # Sanity check: the default (force_escalate=False) preserves
+        # the auto-delegation path, so this is purely an opt-in
+        # safety gate for the terminal iteration.
+        pid = _seed_contract(tmp_path)
+        imp = Impasse(
+            category=ImpasseCategory.WRONG_ROLE,
+            reason="cannot write tests/conftest.py",
+            task_id="task-1-1",
+            suggested_role="tester",
+        )
+        decisions = route_impasses(
+            repo_path=tmp_path,
+            pipeline_id=pid,
+            contract_identifier=pid,
+            impasses=[(ContractAgentRole.CODER, imp)],
+            slice_id="slice-1",
+        )
+        assert decisions[0].action == ImpasseAction.DELEGATE
+
+    def test_full_reason_recorded_in_audit_log(self, tmp_path):
+        # Regression test for review feedback #6 on PR #2553. The
+        # delegation reason previously truncated the agent's reason to
+        # 120 chars, which loses signal when a post-mortem reads the
+        # contract audit log. The schema caps reason at 2000; persist
+        # it intact.
+        pid = _seed_contract(tmp_path)
+        long_reason = (
+            "I tried to write tests/conftest.py but the file restriction "
+            "patterns block coder from any path under tests/, see "
+            "shared/egg_restrictions/patterns.py:34. The exact failure "
+            "was a gateway pre-push validation that rejected the commit "
+            "with `tests/conftest.py blocked by tester pattern`. The "
+            "task description in the contract names tests/conftest.py "
+            "explicitly under files_affected, which means the planner "
+            "mis-assigned the role. Suggested fix: hand off to tester."
+        )
+        assert len(long_reason) > 200  # ensure we exercise non-truncation
+        imp = Impasse(
+            category=ImpasseCategory.WRONG_ROLE,
+            reason=long_reason,
+            task_id="task-1-1",
+            suggested_role="tester",
+        )
+        decisions = route_impasses(
+            repo_path=tmp_path,
+            pipeline_id=pid,
+            contract_identifier=pid,
+            impasses=[(ContractAgentRole.CODER, imp)],
+            slice_id="slice-1",
+        )
+        assert decisions[0].action == ImpasseAction.DELEGATE
+
+        contract = load_contract(pid, tmp_path)
+        # Find the audit-log entry for the role mutation; the full
+        # agent reason must be preserved verbatim.
+        delegation_entries = [
+            e for e in contract.audit_log if "Impasse-driven delegation" in (e.reason or "")
+        ]
+        assert delegation_entries, "expected audit-log entry for the delegation"
+        assert long_reason in delegation_entries[0].reason
