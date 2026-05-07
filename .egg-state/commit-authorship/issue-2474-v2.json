@@ -6,6 +6,13 @@
       "registered_at": "2026-05-07T03:01:33.404407+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
+    },
+    "d68876aa2e6254b7addb76710a4b68d824fc8ade": {
+      "branch": "egg/issue-2474-v2/slice-1",
+      "pipeline_id": "issue-2474-v2",
+      "registered_at": "2026-05-07T03:04:17.423152+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     }
   },
   "version": 1
