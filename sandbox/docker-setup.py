@@ -204,11 +204,12 @@ def get_build_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
 def load_build_commands_manifest(
     manifest_path: str = "/tmp/repo-deps/manifest.json",
 ) -> list[dict[str, Any]]:
-    """Load build commands from the manifest file written by create_dockerfile().
+    """Load build commands from the manifest file written before image build.
 
     During Docker builds, repositories.yaml is not available in the build context.
-    Instead, the host-side create_dockerfile() writes a manifest.json into repo-deps/
-    containing the build commands. This function reads that manifest.
+    Instead, the host-side ``scripts/prepare-sandbox-build-context.py`` writes a
+    manifest.json into ``repo-deps/`` (driven by ``populate_build_context`` in
+    ``egg_lib/docker.py``). This function reads that manifest.
 
     Supports two manifest formats:
     - New: {"extra_packages": {...}, "build_commands": [...]}
@@ -253,7 +254,7 @@ def load_build_commands_manifest(
 def load_extra_packages_manifest(
     manifest_path: str = "/tmp/repo-deps/manifest.json",
 ) -> tuple[list[str], list[str]]:
-    """Load extra_packages from the manifest file written by create_dockerfile().
+    """Load extra_packages from the manifest written before image build.
 
     Returns:
         Tuple of (apt_packages, dnf_packages). Empty lists if not found.
@@ -294,7 +295,7 @@ def run_build_commands(
     which silently produced broken images — see #2087):
 
     - The repo's watch_files directory is missing (build manifest declared
-      commands but `_copy_repo_watch_files` produced no source for them).
+      commands but `populate_build_context` produced no source for them).
     - A command exits non-zero, or raises an exception (e.g. binary not found).
 
     Args:
@@ -324,7 +325,7 @@ def run_build_commands(
             raise RuntimeError(
                 f"build_commands: watch files directory {work_dir} does not exist "
                 f"for {repo}; check watch_files config and that "
-                f"_copy_repo_watch_files ran"
+                f"populate_build_context ran (scripts/prepare-sandbox-build-context.py)"
             )
 
         for cmd in commands:
@@ -458,7 +459,26 @@ def persist_build_dirs(
             dest_dir = system_dest / abs_dir_clean.lstrip("/")
             dest_dir.parent.mkdir(parents=True, exist_ok=True)
             print(f"  Persisting system dir {abs_dir_clean} ({repo}) -> {dest_dir}")
-            shutil.copytree(src_dir, dest_dir, symlinks=True, dirs_exist_ok=True)
+
+            # Multiple repos may persist overlapping system dirs (e.g. both
+            # jwbron/egg's uv and Khan/webapp's node land in /usr/local/bin).
+            # Skip files an earlier repo's persist already placed — first
+            # writer wins. Mirrors entrypoint.py:restore_prebuilt_deps.
+            def _copy_skip_existing(src: str, dst: str, **kwargs: Any) -> None:
+                if os.path.exists(dst) or os.path.islink(dst):
+                    return
+                if os.path.islink(src):
+                    os.symlink(os.readlink(src), dst)
+                else:
+                    shutil.copy2(src, dst, **kwargs)
+
+            shutil.copytree(
+                src_dir,
+                dest_dir,
+                copy_function=_copy_skip_existing,
+                dirs_exist_ok=True,
+                symlinks=False,
+            )
             persist_count += 1
 
     if persist_count:
@@ -533,8 +553,9 @@ def main() -> None:
         configure_system(distro)
 
         # Run per-repo build commands (dependency installation)
-        # Try config first, then fall back to manifest.json written by create_dockerfile()
-        # (repositories.yaml is not available during Docker builds)
+        # Try config first, then fall back to manifest.json written by
+        # scripts/prepare-sandbox-build-context.py (repositories.yaml is
+        # not available during Docker builds)
         build_commands = get_build_commands(config)
         if not build_commands:
             build_commands = load_build_commands_manifest()

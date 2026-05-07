@@ -55,7 +55,7 @@ from .container_logging import (
     save_container_logs,
 )
 from .context import get_context
-from .docker import build_image, create_dockerfile, image_exists
+from .docker import image_exists
 from .gateway import (
     create_session,
     delete_session,
@@ -673,20 +673,22 @@ def exec_in_new_container(
     ctx = get_context()
     quiet = get_quiet_mode()
 
-    # Check if image exists - build non-interactively if missing
+    # Image build is handled out-of-band by ``make build`` (locally) or
+    # ``docker pull`` (GHA, see action/entrypoint.sh). If the image is
+    # missing here, the caller forgot to build/pull it — fail loudly
+    # instead of trying to build inside an exec path that has no
+    # build context.
     if not image_exists():
-        info("Docker image not found. Building...")
-        create_dockerfile()
+        error(
+            f"Docker image {ctx.sandbox_image} not found. "
+            "Run `make build` (local) or `docker pull` (CI) before exec."
+        )
+        return False
 
     # Check repository configuration - warn but continue if missing
     if not _get_repos_config_file().exists():
         warn("No repositories configured. Run 'egg --setup' to add repositories.")
         warn("Continuing with no mounted repositories...")
-
-    # Build/update image
-    if not build_image():
-        error("Docker build failed")
-        return False
 
     # Compose-based service bring-up was removed in #1762; operators
     # running locally are expected to have the gateway + orchestrator
