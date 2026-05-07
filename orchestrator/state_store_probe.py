@@ -234,6 +234,16 @@ class StateStoreProbe:
           callback later records healthy from the same probe (#2501).
           A wedged probe (in-flight indefinitely) still surfaces as
           stale once its in-flight age exceeds the staleness window.
+          Worst-case wedge detection latency is therefore bounded at
+          ~``2 * stale_window`` after the last good probe (one window
+          for the in-flight grace plus one for the existing cache age),
+          versus ~``stale_window`` before #2501. With the 30s default
+          this is ~60s of blindness in the pathological case — the
+          documented trade-off for eliminating the dual-write flap.
+          During the grace, ``fresh=True`` is reported even though
+          ``age_seconds`` may exceed ``stale_window``; operators
+          inspecting ``/api/v1/health`` mid-grace will see a
+          "fresh-but-old" response, which is intentional.
         - ``age_seconds``: float | None — seconds since the most recent
           probe, ``None`` if the BG thread has not run yet.
         """
@@ -261,8 +271,14 @@ class StateStoreProbe:
         if not fresh and in_flight and started is not None:
             # Don't penalize the cache for a probe that's still in
             # progress: the BG callback will record the result from this
-            # same probe shortly. Bound the grace by the staleness window
-            # so a wedged probe (in-flight forever) still flips stale.
+            # same probe shortly (this is "fix #1" of the #2501 dual-
+            # write race — addressing the symptom on the snapshot side
+            # so the request path doesn't observe a transient unhealthy
+            # state from the same probe the BG thread will record as
+            # healthy seconds later). Bound the grace by the staleness
+            # window so a wedged probe (in-flight forever) still flips
+            # stale — without this bound the cache would become a
+            # permanent lie on a real wedge.
             in_flight_age = now - started
             if in_flight_age <= stale_window:
                 fresh = True

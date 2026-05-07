@@ -210,6 +210,57 @@ class TestWatchdog:
         assert snap["healthy"] is False
         assert "stale" in snap["message"]
 
+    def test_snapshot_during_real_in_flight_probe_stays_fresh(self, with_repo_path):
+        """Integration check: drive ``snapshot()`` while a real
+        ``probe_now()`` is parked mid-probe in another thread, so the
+        in-flight flag and ``_probe_started_at_monotonic`` are both
+        populated by the production code path (not by manual field
+        pokes). Closes the loop end-to-end: if a future refactor stops
+        populating ``_probe_started_at_monotonic`` from inside
+        ``probe_now``, this test fails where the field-poking variants
+        above would silently keep passing."""
+        from state_store_probe import StateStoreProbe
+
+        probe = StateStoreProbe(interval=1.0, stale_multiplier=2.0)
+        probe_started = threading.Event()
+        release_probe = threading.Event()
+
+        def slow_probe(_path: Path) -> tuple[bool, str, dict[str, dict[str, str]]]:
+            probe_started.set()
+            release_probe.wait(timeout=2.0)
+            return True, "ok-slow", {str(_path): {"status": "ok"}}
+
+        with patch("state_store_probe.probe_state_store_at", side_effect=slow_probe):
+            # Prime the cache with a healthy result first so snapshot()
+            # has something to extend the freshness of, then artificially
+            # age that cache so the in-flight grace is the only thing
+            # keeping snapshot() fresh.
+            with patch(
+                "state_store_probe.probe_state_store_at",
+                return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
+            ):
+                probe.probe_now()
+            with probe._lock:  # type: ignore[attr-defined]
+                probe._last_check_monotonic -= 10.0  # type: ignore[attr-defined,operator]
+
+            # Park a real probe mid-flight on a worker thread.
+            t = threading.Thread(target=probe.probe_now)
+            t.start()
+            try:
+                assert probe_started.wait(timeout=1.0), "in-flight probe never started"
+
+                snap = probe.snapshot()
+                # Cache age is 10s (> 2*interval=2s), but the in-flight
+                # probe started <1s ago — grace must keep snapshot fresh.
+                assert snap["fresh"] is True
+                assert snap["healthy"] is True
+                assert snap["message"] == "ok"
+                assert snap["age_seconds"] is not None
+                assert snap["age_seconds"] >= 10.0
+            finally:
+                release_probe.set()
+                t.join(timeout=2.0)
+
 
 class TestExceptionIsolation:
     """Exceptions in the underlying probe must not crash the BG thread
