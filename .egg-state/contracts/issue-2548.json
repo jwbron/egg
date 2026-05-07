@@ -9,15 +9,488 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Where should refine/plan analysis docs and BRC consensus history live so they are reviewable on PRs targeting main?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Dedicated context PR (new egg/<id>/context branch based on main; slice-1 stacks on top of it)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Embed in slice-1's diff (commit analysis.md/plan.md/refine+plan BRC history to slice-1 integration branch on top of egg/<id>/work)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Embed in terminal slice's diff (terminal slice already carries the program narrative; co-locate the docs there)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "All slices carry a snapshot of analysis/plan as part of the slice integration branch",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should the implement-phase BRC consensus history be split so each slice PR carries its own slice's history?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Split file at write time: orchestrator writes to .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} (one per slice; no aggregate file)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep single .egg-state/brc-history/<id>-implement.{json,md} but also write per-slice files for slice PR diffs",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep single file unchanged; rely on a per-slice 'view' rendered into the slice PR body (no per-slice .json/.md committed)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should the new context PR go through BRC review (reviewer_refine + reviewer_agent_design + reviewer_plan), or land as a doc-only PR auto-merged after plan_gate approval?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "BRC-reviewed (treated like any other producer PR; reviewers ACK the docs PR before slice-1 spawns)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Doc-only auto-open (orchestrator opens; humans review on the PR; pipeline does not block on its merge before slicing)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Doc-only with merge gate (pipeline blocks slicing until human merges the context PR)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Rollout scope: which pipelines should the context-PR / per-slice BRC mechanism apply to?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Only new pipelines started after the change lands",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "New pipelines + retroactively backfill in-flight pipelines (e.g. issue-2474-v2) by opening a context PR mid-stream",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "New pipelines + provide a one-shot 'egg-contract emit-context-pr' CLI for operators to backfill on demand",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Where in the stack should the context PR sit (and what should slice-1's PR base be)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Context PR base=main, slice-1 base=egg/<id>/context (slice-1 stacks on context; context merges first to main, then slices cascade-merge)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Context PR base=main, slice-1 base=egg/<id>/work (context PR is a side-channel docs PR; slice stack is unchanged)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "No context PR; instead retarget egg/<id>/work itself to be the merge target on main (slice-N terminal merges into work, then a final 'merge work to main' PR is opened automatically)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-07T17:47:59.031379Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Where should refine/plan analysis docs and BRC consensus history live so they are reviewable on PRs targeting main?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Dedicated context PR (new egg/<id>/context branch based on main; slice-1 stacks on top of it)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Embed in slice-1's diff (commit analysis.md/plan.md/refine+plan BRC history to slice-1 integration branch on top of egg/<id>/work)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Embed in terminal slice's diff (terminal slice already carries the program narrative; co-locate the docs there)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "All slices carry a snapshot of analysis/plan as part of the slice integration branch",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should refine/plan analysis docs and BRC con...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-07T17:48:12.267469Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "How should the implement-phase BRC consensus history be split so each slice PR carries its own slice's history?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Split file at write time: orchestrator writes to .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} (one per slice; no aggregate file)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep single .egg-state/brc-history/<id>-implement.{json,md} but also write per-slice files for slice PR diffs",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep single file unchanged; rely on a per-slice 'view' rendered into the slice PR body (no per-slice .json/.md committed)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the implement-phase BRC consensus histo...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-07T17:48:12.809253Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Should the new context PR go through BRC review (reviewer_refine + reviewer_agent_design + reviewer_plan), or land as a doc-only PR auto-merged after plan_gate approval?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "BRC-reviewed (treated like any other producer PR; reviewers ACK the docs PR before slice-1 spawns)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Doc-only auto-open (orchestrator opens; humans review on the PR; pipeline does not block on its merge before slicing)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Doc-only with merge gate (pipeline blocks slicing until human merges the context PR)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the new context PR go through BRC review (r...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-07T17:48:13.294096Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Rollout scope: which pipelines should the context-PR / per-slice BRC mechanism apply to?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Only new pipelines started after the change lands",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "New pipelines + retroactively backfill in-flight pipelines (e.g. issue-2474-v2) by opening a context PR mid-stream",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "New pipelines + provide a one-shot 'egg-contract emit-context-pr' CLI for operators to backfill on demand",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Rollout scope: which pipelines should the context-...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-07T17:48:31.613417Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Where in the stack should the context PR sit (and what should slice-1's PR base be)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Context PR base=main, slice-1 base=egg/<id>/context (slice-1 stacks on context; context merges first to main, then slices cascade-merge)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Context PR base=main, slice-1 base=egg/<id>/work (context PR is a side-channel docs PR; slice stack is unchanged)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "No context PR; instead retarget egg/<id>/work itself to be the merge target on main (slice-N terminal merges into work, then a final 'merge work to main' PR is opened automatically)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where in the stack should the context PR sit (and ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-07T17:48:32.086509Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Today, slice PRs target egg/<id>/work (not main directly), and there's no automatic 'merge work to main' PR. Is that an existing gap that this issue should also fix, or is the work-branch-as-base intentional and out of scope here?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "The proposal says context PR uses contract.pr.title and pr.description (per #2534). #2534 has already been partially fixed in #2541 and #2543 (slice attribution + program narrative on every slice). Do you want context-PR title/body to be authored from those same contract fields, or should the planner emit a separate contract.pr.context_title / pr.context_description so the context PR can have a different framing than the slice PRs (e.g. 'Strategic plan for #N' vs 'Implement #N')?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Should the context PR include the per-phase agent transcripts (e.g. .egg-state/agent-outputs/<id>-refine-*.md)? Or only the final analysis.md, plan.md, and BRC consensus records?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "When a slice's implement-phase BRC concludes, the orchestrator would need to commit .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} to the slice's integration branch as a final commit before opening the slice PR. Is that final orchestrator-authored commit acceptable, or should it be authored by the coder/tester role (and would that conflict with role file boundaries \u2014 coder cannot push under .egg-state/brc-history/)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "The issue lists 'analysis + plan + refine/plan BRC histories' for the context PR. Should the implement-phase aggregate BRC history (cross-slice) ALSO live on the context PR, or is each slice's BRC history sufficient for audit purposes?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Today, slice PRs target egg/<id>/work (not main directly), and there's no automatic 'merge work to main' PR. Is that an existing gap that this issue should also fix, or is the work-branch-as-base intentional and out of scope here?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "The proposal says context PR uses contract.pr.title and pr.description (per #2534). #2534 has already been partially fixed in #2541 and #2543 (slice attribution + program narrative on every slice). Do you want context-PR title/body to be authored from those same contract fields, or should the planner emit a separate contract.pr.context_title / pr.context_description so the context PR can have a different framing than the slice PRs (e.g. 'Strategic plan for #N' vs 'Implement #N')?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Should the context PR include the per-phase agent transcripts (e.g. .egg-state/agent-outputs/<id>-refine-*.md)? Or only the final analysis.md, plan.md, and BRC consensus records?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "When a slice's implement-phase BRC concludes, the orchestrator would need to commit .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} to the slice's integration branch as a final commit before opening the slice PR. Is that final orchestrator-authored commit acceptable, or should it be authored by the coder/tester role (and would that conflict with role file boundaries \u2014 coder cannot push under .egg-state/brc-history/)?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "The issue lists 'analysis + plan + refine/plan BRC histories' for the context PR. Should the implement-phase aggregate BRC history (cross-slice) ALSO live on the context PR, or is each slice's BRC history sufficient for audit purposes?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
