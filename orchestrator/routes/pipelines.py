@@ -8107,6 +8107,146 @@ def _get_message_store():
     return get_message_store
 
 
+def _render_brc_history_markdown(
+    brc_messages: list[Any],
+    pipeline_id: str,
+    phase: str,
+    *,
+    slice_id: str | None = None,
+) -> str:
+    """Render *brc_messages* as a chronological markdown log.
+
+    The output shape mirrors the legacy aggregate file: a heading line,
+    a generated-timestamp footer, and one ``### [ts] role (TYPE): subject``
+    section per message with a fenced YAML metadata block.
+
+    ``Generated:`` is derived from the *latest* message timestamp (not
+    wall-clock time) so regenerating the file from the same message set
+    produces byte-identical output.  This keeps the PR-phase safety-net
+    rewrite (:func:`_rewrite_brc_history_for_pr`) idempotent: when no new
+    BRC messages arrived between phase completion and PR creation, the
+    rewritten file matches the previous commit and the follow-up commit is
+    skipped by :func:`_commit_statefiles_to_worktree`.  See #1714.
+    """
+    message_timestamps = [m.timestamp for m in brc_messages if m.timestamp is not None]
+    if message_timestamps:
+        generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        generated_str = "unknown"
+    lines: list[str] = []
+    if slice_id:
+        lines.append(f"# BRC Consensus History — {phase} phase, {slice_id}")
+    else:
+        lines.append(f"# BRC Consensus History — {phase} phase")
+    lines.append("")
+    lines.append(f"Generated: {generated_str}")
+    lines.append(f"Pipeline: {pipeline_id}")
+    if slice_id:
+        lines.append(f"Slice: {slice_id}")
+    lines.append("")
+
+    for msg in brc_messages:
+        ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
+        # Include to_role for directed messages (not broadcast "all")
+        if msg.to_role and msg.to_role != "all":
+            header = (
+                f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+            )
+        else:
+            header = f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}"
+        lines.append(header)
+        if msg.body:
+            lines.append("")
+            lines.append(msg.body)
+
+        # Emit a YAML metadata block with id, phase, and non-empty metadata
+        meta_block: dict[str, Any] = {}
+        if msg.id:
+            meta_block["id"] = msg.id
+        if msg.phase:
+            meta_block["phase"] = msg.phase
+        if msg.metadata:
+            meta_block["metadata"] = msg.metadata
+        if meta_block:
+            lines.append("")
+            lines.append("````yaml")
+            lines.append(
+                yaml.safe_dump(meta_block, sort_keys=False, default_flow_style=False).rstrip()
+            )
+            lines.append("````")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _write_brc_history_file(
+    worktree_path: Path,
+    pipeline_id: str,
+    phase: str,
+    identifier: int | str,
+    brc_messages: list[Any],
+    *,
+    slice_id: str | None = None,
+) -> None:
+    """Render and persist the markdown + JSON companion files for one bucket.
+
+    ``slice_id``, when provided, switches the on-disk filename from the
+    aggregate ``{identifier}-{phase}.{md,json}`` shape used by
+    refine/plan/pr to the per-slice ``{identifier}-{phase}-{slice_id}.{md,json}``
+    shape used by implement (#2548 — hard switchover, no aggregate
+    implement file is produced).
+    """
+    if slice_id:
+        stem = f"{identifier}-{phase}-{slice_id}"
+    else:
+        stem = f"{identifier}-{phase}"
+
+    history_dir = worktree_path / ".egg-state" / "brc-history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    history_file = history_dir / f"{stem}.md"
+
+    # Write the markdown history file
+    try:
+        history_file.write_text(
+            _render_brc_history_markdown(
+                brc_messages,
+                pipeline_id,
+                phase,
+                slice_id=slice_id,
+            )
+        )
+    except Exception as md_err:
+        logger.warning(
+            "Failed to write BRC history markdown file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            slice_id=slice_id,
+            error=str(md_err),
+        )
+
+    # Write a JSON companion artifact containing the full message dicts
+    json_file = history_dir / f"{stem}.json"
+    try:
+        json_data = [msg.to_dict() for msg in brc_messages]
+        json_file.write_text(json.dumps(json_data, indent=2, default=str))
+    except Exception as json_err:
+        logger.warning(
+            "Failed to write BRC history JSON companion file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            slice_id=slice_id,
+            error=str(json_err),
+        )
+
+    logger.info(
+        "Wrote BRC history file",
+        pipeline_id=pipeline_id,
+        phase=phase,
+        slice_id=slice_id,
+        path=str(history_file),
+        message_count=len(brc_messages),
+    )
+
+
 def _write_brc_history(
     worktree_path: Path,
     pipeline_id: str,
@@ -8118,6 +8258,14 @@ def _write_brc_history(
     Retrieves BRC-related messages for the given phase from the message store
     and writes them as a chronological markdown log to
     ``.egg-state/brc-history/{identifier}-{phase}.md``.
+
+    For the ``implement`` phase the writer instead partitions BRC messages
+    by their ``metadata['slice_id']`` and writes one file per slice as
+    ``{identifier}-{phase}-{slice_id}.{md,json}`` (#2548).  The aggregate
+    ``{identifier}-implement.{md,json}`` file is no longer produced — this
+    is a hard switchover (D4); messages on the implement phase that lack a
+    slice_id metadata field are dropped with a warning.
+
     No-ops gracefully when the message store is unavailable or contains no
     BRC messages for the pipeline and phase.
 
@@ -8173,92 +8321,60 @@ def _write_brc_history(
         )
         return
 
-    # Format as markdown.  `Generated:` is derived from the latest
-    # message timestamp (not wall-clock time) so regenerating the
-    # file from the same message set produces byte-identical output.
-    # This keeps the PR-phase safety-net rewrite
-    # (_rewrite_brc_history_for_pr) idempotent: when no new BRC
-    # messages arrived between phase completion and PR creation,
-    # the rewritten file matches the previous commit and the
-    # follow-up commit is skipped by _commit_statefiles_to_worktree.
-    # See #1714.
-    message_timestamps = [m.timestamp for m in brc_messages if m.timestamp is not None]
-    if message_timestamps:
-        generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
-    else:
-        generated_str = "unknown"
-    lines: list[str] = []
-    lines.append(f"# BRC Consensus History — {phase} phase")
-    lines.append("")
-    lines.append(f"Generated: {generated_str}")
-    lines.append(f"Pipeline: {pipeline_id}")
-    lines.append("")
+    if phase == "implement":
+        # Implement-phase BRC messages are partitioned per-slice (#2548).
+        # The orchestrator attaches metadata['slice_id'] to every
+        # implement-phase BRC message; messages without one are dropped
+        # with a warning under the hard-switchover policy (D4) — there is
+        # no aggregate implement file to fall back into.
+        buckets: dict[str, list[Any]] = {}
+        unattributed = 0
+        for msg in brc_messages:
+            metadata = getattr(msg, "metadata", None) or {}
+            slice_id = metadata.get("slice_id") if isinstance(metadata, dict) else None
+            if not slice_id:
+                unattributed += 1
+                continue
+            buckets.setdefault(str(slice_id), []).append(msg)
 
-    for msg in brc_messages:
-        ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
-        # Include to_role for directed messages (not broadcast "all")
-        if msg.to_role and msg.to_role != "all":
-            header = (
-                f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+        if unattributed:
+            logger.warning(
+                "_write_brc_history: dropped implement-phase BRC messages "
+                "without metadata.slice_id (hard switchover, #2548)",
+                pipeline_id=pipeline_id,
+                phase=phase,
+                dropped_count=unattributed,
             )
-        else:
-            header = f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}"
-        lines.append(header)
-        if msg.body:
-            lines.append("")
-            lines.append(msg.body)
 
-        # Emit a YAML metadata block with id, phase, and non-empty metadata
-        meta_block: dict[str, Any] = {}
-        if msg.id:
-            meta_block["id"] = msg.id
-        if msg.phase:
-            meta_block["phase"] = msg.phase
-        if msg.metadata:
-            meta_block["metadata"] = msg.metadata
-        if meta_block:
-            lines.append("")
-            lines.append("````yaml")
-            lines.append(
-                yaml.safe_dump(meta_block, sort_keys=False, default_flow_style=False).rstrip()
+        if not buckets:
+            logger.info(
+                "_write_brc_history: early return — no slice-attributed "
+                "BRC messages for implement phase",
+                pipeline_id=pipeline_id,
+                phase=phase,
+                total_brc_messages=len(brc_messages),
             )
-            lines.append("````")
-        lines.append("")
+            return
 
-    history_dir = worktree_path / ".egg-state" / "brc-history"
-    history_dir.mkdir(parents=True, exist_ok=True)
-    history_file = history_dir / f"{identifier}-{phase}.md"
+        for slice_id, slice_msgs in sorted(buckets.items()):
+            _write_brc_history_file(
+                worktree_path,
+                pipeline_id,
+                phase,
+                identifier,
+                slice_msgs,
+                slice_id=slice_id,
+            )
+        return
 
-    # Write the markdown history file
-    try:
-        history_file.write_text("\n".join(lines))
-    except Exception as md_err:
-        logger.warning(
-            "Failed to write BRC history markdown file",
-            pipeline_id=pipeline_id,
-            phase=phase,
-            error=str(md_err),
-        )
-
-    # Write a JSON companion artifact containing the full message dicts
-    json_file = history_dir / f"{identifier}-{phase}.json"
-    try:
-        json_data = [msg.to_dict() for msg in brc_messages]
-        json_file.write_text(json.dumps(json_data, indent=2, default=str))
-    except Exception as json_err:
-        logger.warning(
-            "Failed to write BRC history JSON companion file",
-            pipeline_id=pipeline_id,
-            phase=phase,
-            error=str(json_err),
-        )
-
-    logger.info(
-        "Wrote BRC history file",
-        pipeline_id=pipeline_id,
-        phase=phase,
-        path=str(history_file),
-        message_count=len(brc_messages),
+    # Refine, plan, and pr phases continue to write the aggregate
+    # `{identifier}-{phase}.{md,json}` file — only implement is per-slice.
+    _write_brc_history_file(
+        worktree_path,
+        pipeline_id,
+        phase,
+        identifier,
+        brc_messages,
     )
 
 
