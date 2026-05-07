@@ -377,7 +377,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
    **Path B — BRC line (`concurrent.consensus` is present):** a per-role status table. See [Consensus Monitoring](#consensus-monitoring) for column derivation. Always render the full table on every emit — the table is the operator's at-a-glance scan, so partial renders defeat the point.
 
    ```
-   Phase: <current_phase> | Status: <status> | Elapsed: <phase_elapsed_seconds>s | Slice: <slice_id or —> | Consensus: <N>/<total> | NACKs: <K>
+   Phase: <current_phase> | Status: <status> | Elapsed: <phase_elapsed_seconds>s | Consensus: <N>/<total> | NACKs: <K>
 
    | Role                    | Phase                | Confirmed | Latest activity                              |
    |-------------------------|----------------------|-----------|----------------------------------------------|
@@ -391,7 +391,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
    ⚠️ reviewer_contract: silent for ~12m — no BRC messages                     (only when a silent agent is detected)
    ```
 
-   The header values come straight from the JSON-line: `current_phase`, `status`, `phase_elapsed_seconds`. Pull `Slice` from the cached `last_status.pipeline.current_slice_id` (render `—` when absent). `Consensus: <N>/<total>` counts agents with `confirmed: true` over `len(agents)`; `NACKs: <K>` is `len(unresolved_nacks)`.
+   The header values come straight from the JSON-line: `current_phase`, `status`, `phase_elapsed_seconds`. `Consensus: <N>/<total>` counts agents with `confirmed: true` over `len(agents)`; `NACKs: <K>` is `len(unresolved_nacks)`.
 
    Use the server-computed `phase_elapsed_seconds` from the line. The line carries only the dashboard-relevant subset (`current_phase`, `status`, `phase_elapsed_seconds`, `concurrent.consensus`) — it does **not** include the full snapshot (running_agents, completed_agents, recent_messages, pipeline metadata, `pending_decisions`). When you need the full envelope — for example to enrich an `OVERSEER_ALERT` with `recent_messages`, or to render `pending_decisions` ahead of HITL on a `decision.created` line — call `get_status(task_id)` again as a one-shot snapshot and refresh `last_status`.
 
@@ -506,7 +506,7 @@ When the pipeline uses concurrent agents (BRC protocol), each `wait-status` JSON
 
 | Column | Source |
 |--------|--------|
-| Role | Keys of `concurrent.consensus.agents`, sorted producers-first then reviewers alphabetical. Producers come from the order `coder`, `tester`, `documenter` (any of those keys present); reviewers are everything else, alphabetical. Producer/reviewer is decidable from which of `producer_phase` / `reviewer_phase` is set on the agent entry. |
+| Role | Keys of `concurrent.consensus.agents`, sorted producers-first then reviewers. Use `concurrent.consensus.review_graph.producers` for the producer block and `review_graph.reviewers` for the reviewer block (both already alphabetical in the payload — `peer_consensus.evaluate()` sorts them in `ReviewGraph.to_dict()`). This generalizes across phases — refine has `refiner`, plan has `architect` / `task_planner` / `risk_analyst`, implement has `coder` / `tester` / `documenter`. Producer/reviewer is decidable from which of `producer_phase` / `reviewer_phase` is set on the agent entry; `review_graph` is the canonical source. |
 | Phase | `producer_phase` for producers, `reviewer_phase` for reviewers. For dual-role agents (`tester` is the canonical case — both `producer_phase` and `reviewer_phase` set) render `<producer_phase> / <reviewer_phase>` (e.g. `WORKING / REVIEWING`). |
 | Confirmed | `✓` if `agents[role].confirmed` is true, blank otherwise. |
 | Latest activity | Free-form, derived from the **cached** `last_status.recent_messages` combined with any `messages[]` ferried by a `trigger: "message"` line — not a fresh `get_status` per emit. Pick the most recent entry where `from_role == role`; render its `subject` (truncated to ~50 chars). Fall back to `—` when the role hasn't sent any messages this phase. |
@@ -514,12 +514,11 @@ When the pipeline uses concurrent agents (BRC protocol), each `wait-status` JSON
 **Header line** (one line above the table):
 
 ```
-Phase: <current_phase> | Status: <status> | Elapsed: <phase_elapsed_seconds>s | Slice: <slice_id or —> | Consensus: <N>/<total> | NACKs: <K>
+Phase: <current_phase> | Status: <status> | Elapsed: <phase_elapsed_seconds>s | Consensus: <N>/<total> | NACKs: <K>
 ```
 
 - `<N>/<total>` = `sum(1 for a in agents.values() if a.confirmed) / len(agents)`.
 - `<K>` = `len(unresolved_nacks)`.
-- `<slice_id>` from `last_status.pipeline.current_slice_id`; render `—` when absent (non-sliced pipelines).
 
 **Optional rows below the table:**
 
@@ -537,6 +536,7 @@ The `concurrent.consensus` object may not be present in all status responses (e.
 3. Maintain an in-memory map of `{role: {last_message_type, last_message_time, message_count}}` built from `recent_messages`
 4. Infer consensus state: if all roles listed in `running_agents` have sent `CONSENSUS_CONFIRMED` messages, consensus is likely complete
 5. For the per-role table (Path B above), approximate the fields when `concurrent.consensus` is missing:
+   - `Phase` cell: render `—` for every row. The `producer_phase` / `reviewer_phase` source is gone in fallback mode and message types do not give a reliable per-role phase mapping (e.g. a `CONSENSUS_PROPOSE` from a producer means the producer is in `PROPOSED`, but says nothing about reviewer phases on its own). `—` is the safe floor; do not invent a message-type-to-phase mapping.
    - `Confirmed` cell: `✓` if the role has emitted a `CONSENSUS_CONFIRMED` message, blank otherwise
    - Header `<N>/<total>` confirmed: count of roles with `CONSENSUS_CONFIRMED` messages
    - Optional NACK rows: `CONSENSUS_NACK` messages not followed by a `CONSENSUS_PROPOSE` from the named producer (use `subject` to extract the reason)
@@ -1392,7 +1392,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 4. **Render the dashboard** on each line, picking the same two paths as Phase 3 (see [Phase 3 step 4](#phase-3--monitor) and [Consensus Monitoring](#consensus-monitoring) for the full column derivation):
 
    - **Path A — non-BRC line (`concurrent.consensus` absent):** the 3-line compact form (`Phase / Status / Elapsed` + `Recent`). Deltas-only on subsequent emits is fine.
-   - **Path B — BRC line (`concurrent.consensus` present):** the per-role status table with the `Phase | Status | Elapsed | Slice | Consensus | NACKs` header and `Role | Phase | Confirmed | Latest activity` columns. Always render full state, including the optional `⚠️` NACK and silent-agent rows.
+   - **Path B — BRC line (`concurrent.consensus` present):** the per-role status table with the `Phase | Status | Elapsed | Consensus | NACKs` header and `Role | Phase | Confirmed | Latest activity` columns. Always render full state, including the optional `⚠️` NACK and silent-agent rows.
 
    The JSON-line ships only the dashboard-relevant subset (`current_phase`, `status`, `phase_elapsed_seconds`, `concurrent.consensus`) — it does **not** include the full snapshot (agent list, recent_messages, pipeline metadata, `pending_decisions`). When you need the full envelope (e.g. on `decision.created` to render `pending_decisions` ahead of HITL, or to populate the table's `Latest activity` column from `recent_messages`), call `get_status(task_id)` as a one-shot and refresh `last_status`.
 
@@ -1401,7 +1401,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
    - On `status: "complete"` or `event_type: "pipeline.completed"` → exit, move to Phase S6.
    - On `status: "failed"` or `event_type: "pipeline.failed"` → apply the **failed status grace period** (see below) before exiting.
 
-Keep the dashboard output concise. Only show changes from the previous emit when possible.
+Path A keeps the dashboard concise via deltas — skip lines that didn't change from the previous emit. Path B always renders full state, including the optional NACK and silent-agent rows.
 
 **Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Monitor invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side, and Monitor surfaces each emitted line as its own notification. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When Monitor's `timeout_ms` (or the 10-min Bash cap, if you're on the fallback path) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the event allowlist, exit-code contract, and concurrency model.
 
@@ -1465,6 +1465,7 @@ Status: Success
 
 - Show PR link if available in the pipeline data
 - If no PR link is found, check `gh pr list --repo <repo> --state open --json number,title,url --limit 5` to find a recently created PR
+- If the final emit (or the cached `last_status`) carried `concurrent.consensus`, render the per-role table from [Consensus Monitoring](#consensus-monitoring) one final time — gives the operator a closing snapshot of which roles confirmed and any leftover NACK / silent rows for the record. (Lightweight pipelines start at implement, so BRC consensus data is the common case here.)
 
 ### On failure:
 ```
