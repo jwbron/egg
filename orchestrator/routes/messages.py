@@ -666,11 +666,17 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 
     # Emit as a normal HEARTBEAT message on the bus so downstream
     # consumers (HealthMonitor, overseer, UI) see it.
-    metadata = {"state": state}
+    metadata: dict[str, Any] = {"state": state}
     if waiting_on:
         metadata["waiting_on"] = waiting_on
     if body.get("since"):
         metadata["since"] = body["since"]
+    # Tag with slice_id so the implement-phase BRC writer can partition
+    # this HEARTBEAT into the correct per-slice transcript (#2548).
+    # Pipeline-level (non-slice) heartbeats leave the metadata off
+    # entirely.
+    if slice_id:
+        metadata["slice_id"] = slice_id
 
     msg = Message(
         pipeline_id=pipeline_id,

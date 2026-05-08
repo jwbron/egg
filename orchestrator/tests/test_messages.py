@@ -2668,6 +2668,90 @@ class TestHeartbeatRoute:
                 )
                 mock_gw_client.heartbeat_session_by_container.assert_not_called()
 
+    def test_heartbeat_message_metadata_carries_slice_id(self, client, app):
+        """Slice-scoped HEARTBEATs land on the bus with ``slice_id`` in
+        ``Message.metadata`` so the implement-phase BRC writer (#2548) can
+        partition them into the correct per-slice transcript file.
+
+        Without this, every slice-scoped HEARTBEAT would be routed to the
+        ``unattributed`` sibling file even when the producer route already
+        knew the slice scope.
+        """
+        from message_store import get_message_store
+
+        store = get_message_store()
+
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/heartbeat-slice-meta-pipeline/heartbeat",
+                    json={
+                        "from_role": "tester",
+                        "state": "WORKING",
+                        "slice_id": "slice-7",
+                    },
+                )
+                assert resp.status_code == 200
+
+        # Inspect the stored message's metadata.
+        messages = store.get_messages("heartbeat-slice-meta-pipeline", limit=10)
+        heartbeats = [m for m in messages if m.message_type == "HEARTBEAT"]
+        assert heartbeats, "Expected a HEARTBEAT to be persisted on the bus"
+        assert heartbeats[-1].metadata.get("slice_id") == "slice-7", (
+            f"slice_id missing from HEARTBEAT metadata: {heartbeats[-1].metadata}"
+        )
+
+    def test_heartbeat_metadata_omits_slice_id_when_pipeline_level(self, client, app):
+        """Non-slice (pipeline-level) HEARTBEATs MUST NOT carry a
+        ``slice_id`` key in metadata. The BRC writer treats absence as
+        "no slice scope" and falls back to the aggregate filename for
+        non-slice pipelines (babysit_pr et al.); a stray empty/None value
+        would smuggle these messages into the slice-aware path."""
+        from message_store import get_message_store
+
+        store = get_message_store()
+
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/heartbeat-noslice-pipeline/heartbeat",
+                    json={"from_role": "coder", "state": "WORKING"},
+                )
+                assert resp.status_code == 200
+
+        messages = store.get_messages("heartbeat-noslice-pipeline", limit=10)
+        heartbeats = [m for m in messages if m.message_type == "HEARTBEAT"]
+        assert heartbeats, "Expected a HEARTBEAT to be persisted on the bus"
+        assert "slice_id" not in heartbeats[-1].metadata, (
+            f"Pipeline-level HEARTBEAT must omit slice_id key, got: {heartbeats[-1].metadata}"
+        )
+
     def test_heartbeat_sibling_slices_do_not_share_throttle(self, client, app):
         """Sibling slices with the same role each fan out independently (#2451).
 

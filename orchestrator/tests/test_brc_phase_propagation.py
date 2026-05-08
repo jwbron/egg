@@ -48,6 +48,13 @@ def _make_pipeline(
     )
 
 
+# Default slice_id seeded onto implement-phase BRC messages so the
+# post-#2548 hard-switchover writer accepts them. Tests that need an
+# unattributed (missing-slice_id) message must set ``slice_id=None``
+# AND avoid passing ``metadata={"slice_id": ...}``.
+_DEFAULT_IMPLEMENT_SLICE_ID = "slice-1"
+
+
 def _make_brc_message(
     pipeline_id="issue-42",
     from_role="coder",
@@ -57,8 +64,20 @@ def _make_brc_message(
     phase=None,
     timestamp=None,
     metadata=None,
+    slice_id="__default__",
 ):
-    """Create a BRC Message for testing.  Defaults to phase=None to mimic pre-fix."""
+    """Create a BRC Message for testing.  Defaults to phase=None to mimic pre-fix.
+
+    For implement-phase messages, ``metadata['slice_id']`` is auto-stamped
+    to ``slice-1`` (#2548 hard switchover) unless the caller passes an
+    explicit ``slice_id`` or sets the key in ``metadata`` directly.
+    """
+    md = dict(metadata or {})
+    if slice_id == "__default__":
+        if phase == "implement" and "slice_id" not in md:
+            md["slice_id"] = _DEFAULT_IMPLEMENT_SLICE_ID
+    elif slice_id is not None:
+        md.setdefault("slice_id", slice_id)
     return Message(
         pipeline_id=pipeline_id,
         from_role=from_role,
@@ -68,7 +87,7 @@ def _make_brc_message(
         body=body,
         phase=phase,
         timestamp=timestamp or datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-        metadata=metadata or {},
+        metadata=md,
     )
 
 
@@ -715,7 +734,13 @@ class TestWriteBrcHistoryNonePhase:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        expected_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        # #2548: implement is per-slice — the aggregate file is gone.
+        expected_path = (
+            tmp_path
+            / ".egg-state"
+            / "brc-history"
+            / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
+        )
         assert expected_path.exists()
         content = expected_path.read_text()
         assert "New message" in content

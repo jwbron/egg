@@ -1463,6 +1463,163 @@ class TestExcuseProducerHITLGate:
         assert data["success"] is True
         mock_tracker.excuse_producer.assert_called_once_with("coder", "Not delivering")
 
+    def test_excuse_producer_status_carries_slice_id_metadata(self, app):
+        """Slice-scoped excuse-producer STATUS lands on the bus with
+        ``slice_id`` in ``Message.metadata`` so the implement-phase BRC
+        writer (#2548) routes it into the producer's per-slice transcript."""
+        with app.app_context():
+            from models import DecisionStatus
+            from routes.signals import handle_consensus_excuse_producer_signal
+
+            mock_decision = MagicMock()
+            mock_decision.status = DecisionStatus.RESOLVED
+            mock_decision.context = "failed_role:coder"
+
+            mock_queue = MagicMock()
+            mock_queue.get_decision.return_value = mock_decision
+
+            mock_tracker = MagicMock()
+            mock_tracker.excuse_producer.return_value = {
+                "status": "excused",
+                "affected_reviewers": ["reviewer_code"],
+            }
+
+            mock_store_inst = MagicMock()
+
+            with (
+                patch("decision_queue.get_decision_queue", return_value=mock_queue),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_store_inst),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_excuse_producer_signal(
+                    "issue-42",
+                    {
+                        "producer_role": "coder",
+                        "reason": "Not delivering",
+                        "decision_id": "dec-123",
+                        "slice_id": "slice-3",
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        # Inspect the Message that was added to the store.
+        mock_store_inst.add_message.assert_called_once()
+        stored_message = mock_store_inst.add_message.call_args[0][0]
+        assert stored_message.message_type == "STATUS"
+        assert stored_message.metadata.get("slice_id") == "slice-3", (
+            f"slice_id missing from excuse-producer STATUS metadata: {stored_message.metadata}"
+        )
+
+    def test_ready_to_confirm_status_carries_slice_id_metadata(self, app):
+        """Slice-scoped ``_emit_ready_to_confirm_nudges`` stamps
+        ``slice_id`` on the ready-to-confirm STATUS so the implement-phase
+        BRC writer routes the nudge into the producer's per-slice
+        transcript (#2548 follow-up; pins the metadata stamp on the
+        ready-to-confirm STATUS path that the three call sites — propose,
+        ACK, producer-push — feed)."""
+        with app.app_context():
+            from routes.signals import _emit_ready_to_confirm_nudges
+
+            mock_store_inst = MagicMock()
+            mock_tracker = MagicMock()
+
+            with patch("message_store.get_message_store", return_value=mock_store_inst):
+                _emit_ready_to_confirm_nudges(
+                    "issue-42",
+                    "implement",
+                    [{"role": "coder", "version": 3}],
+                    tracker=mock_tracker,
+                    slice_id="slice-2",
+                )
+
+        mock_store_inst.add_message.assert_called_once()
+        stored = mock_store_inst.add_message.call_args[0][0]
+        assert stored.message_type == "STATUS"
+        assert stored.metadata.get("ready_to_confirm") is True
+        assert stored.metadata.get("version") == 3
+        assert stored.metadata.get("slice_id") == "slice-2", (
+            f"slice_id missing from ready-to-confirm STATUS metadata: {stored.metadata}"
+        )
+
+    def test_ready_to_confirm_status_omits_slice_id_when_pipeline_level(self, app):
+        """Pipeline-level (non-slice) ready-to-confirm STATUS MUST NOT
+        carry a ``slice_id`` key. ``_emit_ready_to_confirm_nudges``
+        defaults the parameter to ``None``; the writer treats absence as
+        "no slice scope" so babysit_pr et al. continue to land in the
+        aggregate file."""
+        with app.app_context():
+            from routes.signals import _emit_ready_to_confirm_nudges
+
+            mock_store_inst = MagicMock()
+
+            with patch("message_store.get_message_store", return_value=mock_store_inst):
+                _emit_ready_to_confirm_nudges(
+                    "issue-42",
+                    "implement",
+                    [{"role": "coder", "version": 1}],
+                )
+
+        mock_store_inst.add_message.assert_called_once()
+        stored = mock_store_inst.add_message.call_args[0][0]
+        assert "slice_id" not in stored.metadata, (
+            f"Pipeline-level ready-to-confirm STATUS must omit slice_id, got: {stored.metadata}"
+        )
+
+    def test_excuse_producer_status_omits_slice_id_when_pipeline_level(self, app):
+        """Non-slice (pipeline-level) excuse-producer STATUS MUST NOT
+        carry a ``slice_id`` key — the BRC writer treats absence as
+        "no slice scope" and falls back to the aggregate filename
+        (babysit_pr et al.)."""
+        with app.app_context():
+            from models import DecisionStatus
+            from routes.signals import handle_consensus_excuse_producer_signal
+
+            mock_decision = MagicMock()
+            mock_decision.status = DecisionStatus.RESOLVED
+            mock_decision.context = "failed_role:coder"
+
+            mock_queue = MagicMock()
+            mock_queue.get_decision.return_value = mock_decision
+
+            mock_tracker = MagicMock()
+            mock_tracker.excuse_producer.return_value = {
+                "status": "excused",
+                "affected_reviewers": ["reviewer_code"],
+            }
+
+            mock_store_inst = MagicMock()
+
+            with (
+                patch("decision_queue.get_decision_queue", return_value=mock_queue),
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store", return_value=mock_store_inst),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_excuse_producer_signal(
+                    "issue-42",
+                    {
+                        "producer_role": "coder",
+                        "reason": "Not delivering",
+                        "decision_id": "dec-123",
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        mock_store_inst.add_message.assert_called_once()
+        stored_message = mock_store_inst.add_message.call_args[0][0]
+        assert "slice_id" not in stored_message.metadata, (
+            f"Pipeline-level STATUS must omit slice_id key, got: {stored_message.metadata}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # ACK version forwarding tests (#1637)

@@ -776,6 +776,9 @@ class TestBrcHistoryExposesCondition:
                     "pre_merge_condition": "git mv legacy/x new/x before merge",
                 },
                 "version": 1,
+                # #2548 hard switchover: implement-phase BRC messages must
+                # carry a slice_id, otherwise the writer drops them.
+                "slice_id": "slice-1",
             },
         )
 
@@ -788,7 +791,7 @@ class TestBrcHistoryExposesCondition:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        md_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        md_path = tmp_path / ".egg-state" / "brc-history" / "42-implement-slice-1.md"
         assert md_path.exists()
         content = md_path.read_text()
         assert "pre_merge_condition" in content
@@ -803,7 +806,7 @@ class TestBrcHistoryExposesCondition:
         with patch("message_store.get_message_store", return_value=mock_store):
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
+        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement-slice-1.json"
         assert json_path.exists()
         data = json.loads(json_path.read_text())
         assert len(data) == 1

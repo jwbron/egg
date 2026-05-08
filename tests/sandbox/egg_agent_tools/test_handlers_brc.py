@@ -1070,6 +1070,209 @@ class TestBrcReadPeerArtifact:
         lower = doc.lower()
         assert "no cli" in lower or "no-cli" in lower
 
+    # ---- Slice-aware implement-phase reads (#2548 follow-up) -----------
+
+    def _make_slice_history_file(self, root, identifier: str, slice_id: str, records: list[dict]):
+        """Write a per-slice implement-phase brc-history file."""
+        dir_ = root / ".egg-state" / "brc-history"
+        dir_.mkdir(parents=True, exist_ok=True)
+        path = dir_ / f"{identifier}-implement-{slice_id}.json"
+        path.write_text(json.dumps(records))
+        return path
+
+    def _make_unattributed_history_file(self, root, identifier: str, records: list[dict]):
+        """Write the cross-cutting `unattributed` sibling file."""
+        dir_ = root / ".egg-state" / "brc-history"
+        dir_.mkdir(parents=True, exist_ok=True)
+        path = dir_ / f"{identifier}-implement-unattributed.json"
+        path.write_text(json.dumps(records))
+        return path
+
+    def test_slice_scoped_implement_reads_per_slice_file(self, tmp_path, monkeypatch):
+        """When EGG_SLICE_ID is set and phase=='implement', the handler
+        reads {identifier}-implement-{slice_id}.json — not the legacy
+        aggregate file (which the writer no longer produces in slice mode)."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        # Slice-1 has its own transcript; no aggregate file exists.
+        self._make_slice_history_file(
+            tmp_path,
+            "1917",
+            "slice-1",
+            _records(("coder", "CONSENSUS_PROPOSE"), ("reviewer_code", "CONSENSUS_ACK")),
+        )
+        resp = brc.brc_read_peer_artifact({"phase": "implement"})
+        assert resp["ok"] is True
+        assert len(resp["items"]) == 2
+        assert resp["total_available"] == 2
+
+    def test_slice_scoped_implement_no_aggregate_fallback(self, tmp_path, monkeypatch):
+        """A slice-scoped agent must NOT silently dead-end into the
+        aggregate file even if a stale {identifier}-implement.json
+        happens to be on disk — the slice file is the canonical path."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-2")
+        # Aggregate file from a previous run (or another tool) — must
+        # be ignored when slice-scoped.
+        _make_history_file(
+            tmp_path,
+            "1917",
+            "implement",
+            _records(("coder", "CONSENSUS_PROPOSE")),
+        )
+        # Slice-2's per-slice file does not exist.
+        resp = brc.brc_read_peer_artifact({"phase": "implement"})
+        assert resp["items"] == []
+        assert resp["total_available"] == 0
+
+    def test_slice_scoped_implement_merges_unattributed_sibling(self, tmp_path, monkeypatch):
+        """By default the slice transcript is merged with the cross-
+        cutting `unattributed` sibling so reviewers see OVERSEER_ALERT,
+        AGENT_FAILED, etc. interleaved with their slice's CONSENSUS_*."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        # Slice-1 records and unattributed records have distinct
+        # timestamps so we can assert chronological interleave.
+        slice_recs = [
+            {
+                "id": "s1",
+                "from_role": "coder",
+                "message_type": "CONSENSUS_PROPOSE",
+                "body": "b1",
+                "timestamp": "2026-04-24T00:00:01Z",
+            },
+            {
+                "id": "s2",
+                "from_role": "reviewer_code",
+                "message_type": "CONSENSUS_ACK",
+                "body": "b2",
+                "timestamp": "2026-04-24T00:00:03Z",
+            },
+        ]
+        unattr_recs = [
+            {
+                "id": "u1",
+                "from_role": "overseer",
+                "message_type": "OVERSEER_ALERT",
+                "body": "u1",
+                "timestamp": "2026-04-24T00:00:02Z",
+            },
+        ]
+        self._make_slice_history_file(tmp_path, "1917", "slice-1", slice_recs)
+        self._make_unattributed_history_file(tmp_path, "1917", unattr_recs)
+        resp = brc.brc_read_peer_artifact({"phase": "implement"})
+        assert len(resp["items"]) == 3
+        # Re-sorted by timestamp: s1 → u1 → s2.
+        assert [r["id"] for r in resp["items"]] == ["s1", "u1", "s2"]
+
+    def test_slice_scoped_implement_skip_unattributed_on_request(self, tmp_path, monkeypatch):
+        """``include_unattributed=False`` reads only the per-slice file."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        self._make_slice_history_file(
+            tmp_path,
+            "1917",
+            "slice-1",
+            _records(("coder", "CONSENSUS_PROPOSE")),
+        )
+        self._make_unattributed_history_file(
+            tmp_path,
+            "1917",
+            _records(("overseer", "OVERSEER_ALERT")),
+        )
+        resp = brc.brc_read_peer_artifact({"phase": "implement", "include_unattributed": False})
+        assert len(resp["items"]) == 1
+        assert resp["items"][0]["from_role"] == "coder"
+
+    def test_slice_scoped_implement_unattributed_only_present(self, tmp_path, monkeypatch):
+        """If a slice never produced any CONSENSUS_* but unattributed
+        traffic exists, the handler still returns the unattributed
+        records rather than an empty response."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        self._make_unattributed_history_file(
+            tmp_path,
+            "1917",
+            _records(("overseer", "OVERSEER_ALERT")),
+        )
+        resp = brc.brc_read_peer_artifact({"phase": "implement"})
+        assert len(resp["items"]) == 1
+        assert resp["items"][0]["from_role"] == "overseer"
+
+    def test_pipeline_level_implement_reads_aggregate(self, tmp_path, monkeypatch):
+        """Without EGG_SLICE_ID the handler reads the aggregate
+        ``{identifier}-implement.json`` file (babysit_pr / non-slice
+        runs are unaffected by the slice-aware switch)."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        _make_history_file(
+            tmp_path,
+            "1917",
+            "implement",
+            _records(("coder", "CONSENSUS_PROPOSE")),
+        )
+        resp = brc.brc_read_peer_artifact({"phase": "implement"})
+        assert len(resp["items"]) == 1
+
+    def test_invalid_slice_id_env_rejected(self, tmp_path, monkeypatch):
+        """Defense-in-depth: a malformed EGG_SLICE_ID must not be
+        interpolated into the filename. Same regex the writer enforces
+        at the orchestrator seam."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "../etc/passwd")
+        with pytest.raises(HandlerError) as exc:
+            brc.brc_read_peer_artifact({"phase": "implement"})
+        assert "slice" in str(exc.value).lower()
+
+    def test_invalid_include_unattributed_rejected(self, tmp_path, monkeypatch):
+        """``include_unattributed`` must be a bool when supplied."""
+        self._set_env(monkeypatch, tmp_path)
+        with pytest.raises(HandlerError):
+            brc.brc_read_peer_artifact({"phase": "plan", "include_unattributed": "yes"})
+
+    def test_slice_scoped_non_implement_reads_aggregate(self, tmp_path, monkeypatch):
+        """EGG_SLICE_ID only switches the implement phase. Refine/plan/pr
+        always read the aggregate file — slice-aware writers never
+        partition those phases."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        _make_history_file(
+            tmp_path,
+            "1917",
+            "plan",
+            _records(("coder", "CONSENSUS_PROPOSE")),
+        )
+        resp = brc.brc_read_peer_artifact({"phase": "plan"})
+        assert len(resp["items"]) == 1
+
+    def test_filter_by_message_type_overseer_alert_in_unattributed(self, tmp_path, monkeypatch):
+        """Reviewers can scan cross-cutting alerts in their slice's
+        transcript by filtering on a non-CONSENSUS_* type. Regression
+        guard: the handler's ``_BRC_HISTORY_TYPES`` whitelist must include
+        the same non-CONSENSUS_* types the writer emits to the
+        ``unattributed`` sibling, otherwise this raises ``Unknown
+        message_type(s)`` even though matching records exist on disk."""
+        self._set_env(monkeypatch, tmp_path)
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        self._make_slice_history_file(
+            tmp_path,
+            "1917",
+            "slice-1",
+            _records(("coder", "CONSENSUS_PROPOSE")),
+        )
+        self._make_unattributed_history_file(
+            tmp_path,
+            "1917",
+            _records(
+                ("overseer", "OVERSEER_ALERT"),
+                ("system", "HEARTBEAT"),
+            ),
+        )
+        resp = brc.brc_read_peer_artifact({"phase": "implement", "message_type": "OVERSEER_ALERT"})
+        assert len(resp["items"]) == 1
+        assert resp["items"][0]["message_type"] == "OVERSEER_ALERT"
+        assert resp["items"][0]["from_role"] == "overseer"
+
 
 class TestBrcPipelineIdValidation:
     """Pipeline IDs are interpolated into URL paths — format validation
@@ -1218,3 +1421,54 @@ class TestBrcResolveObligation:
                         "producer_role": "coder",
                     }
                 )
+
+
+class TestBrcHistoryTypesDriftGuard:
+    """Regression guard locking writer/reader symmetry for the *full* BRC
+    history type set.
+
+    The writer (``orchestrator.routes.pipelines.BRC_HISTORY_TYPES``) and
+    the reader-side filter whitelist
+    (``egg_agent_tools.handlers.brc._BRC_HISTORY_TYPES``) must list the
+    same types: any type the writer emits must be filterable by the
+    reader, and any type the reader accepts must be one the writer
+    actually produces. The single-type regression test added in #2548
+    locks ``OVERSEER_ALERT`` only — this test parses the writer-side
+    literal out of the orchestrator source and asserts membership
+    equality, so future drift on either side surfaces as a test failure.
+
+    The handler module deliberately does *not* import the orchestrator
+    package (which pulls fastapi); the regex-extraction approach
+    preserves that boundary while still locking the contract.
+    """
+
+    def test_handler_whitelist_matches_writer_set(self):
+        import re
+
+        pipelines_path = ROOT / "orchestrator" / "routes" / "pipelines.py"
+        source = pipelines_path.read_text()
+        match = re.search(
+            r"^BRC_HISTORY_TYPES\s*=\s*frozenset\s*\(\s*\{(?P<body>.*?)\}\s*\)",
+            source,
+            re.MULTILINE | re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not locate ``BRC_HISTORY_TYPES = frozenset({...})`` "
+            f"literal in {pipelines_path}; the drift-guard regex needs "
+            "updating to track the new shape."
+        )
+        writer_types = frozenset(re.findall(r'"([A-Z_]+)"', match.group("body")))
+        assert writer_types, (
+            "Parsed ``BRC_HISTORY_TYPES`` literal is empty — the regex "
+            "did not capture any type names; check the literal shape."
+        )
+        handler_types = brc._BRC_HISTORY_TYPES
+        assert handler_types == writer_types, (
+            "Sandbox handler whitelist drifted from orchestrator writer "
+            "set. "
+            f"Handler-only (reader accepts but writer never emits): "
+            f"{sorted(handler_types - writer_types)}; "
+            f"Writer-only (writer emits but reader rejects): "
+            f"{sorted(writer_types - handler_types)}. "
+            "Update one or both to keep the partition symmetric."
+        )

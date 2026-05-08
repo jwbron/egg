@@ -8194,6 +8194,26 @@ BRC_HISTORY_TYPES = frozenset(
     }
 )
 
+# Subset of BRC_HISTORY_TYPES that the orchestrator's CONSENSUS_* signal
+# handlers tag with ``metadata['slice_id']`` for slice-aware implement
+# pipelines (#2548). The implement-phase BRC writer treats a missing
+# ``slice_id`` on these as a contract violation (drop with WARNING),
+# while the remaining BRC_HISTORY_TYPES (HEARTBEAT, STATUS, HANDOFF,
+# AGENT_FAILED, NUDGE, OVERSEER_ALERT) come from emitters that do not
+# uniformly carry slice scope — those are routed to the unattributed
+# sibling file rather than dropped, so the audit trail stays complete.
+CONSENSUS_BRC_TYPES = frozenset(
+    {
+        "CONSENSUS_PROPOSE",
+        "CONSENSUS_ACK",
+        "CONSENSUS_NACK",
+        "CONSENSUS_WITHDRAW",
+        "CONSENSUS_CONFIRMED",
+        "CONSENSUS_RE_REVIEW",
+        "CONSENSUS_OBLIGATION_RESOLVED",
+    }
+)
+
 
 def _get_message_store():
     """Import and return the message store factory function, or None if unavailable."""
@@ -8207,6 +8227,157 @@ def _get_message_store():
     return get_message_store
 
 
+def _render_brc_history_markdown(
+    brc_messages: list[Any],
+    pipeline_id: str,
+    phase: str,
+    *,
+    slice_id: str | None = None,
+) -> str:
+    """Render *brc_messages* as a chronological markdown log.
+
+    The output shape mirrors the legacy aggregate file: a heading line,
+    a generated-timestamp footer, and one ``### [ts] role (TYPE): subject``
+    section per message with a fenced YAML metadata block.
+
+    ``Generated:`` is derived from the *latest* message timestamp (not
+    wall-clock time) so regenerating the file from the same message set
+    produces byte-identical output.  This keeps the PR-phase safety-net
+    rewrite (:func:`_rewrite_brc_history_for_pr`) idempotent: when no new
+    BRC messages arrived between phase completion and PR creation, the
+    rewritten file matches the previous commit and the follow-up commit is
+    skipped by :func:`_commit_statefiles_to_worktree`.  See #1714.
+    """
+    message_timestamps = [m.timestamp for m in brc_messages if m.timestamp is not None]
+    if message_timestamps:
+        generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        generated_str = "unknown"
+    # The "unattributed" bucket is not a slice — it holds cross-cutting
+    # non-CONSENSUS messages that lack canonical slice scope (HEARTBEAT,
+    # OVERSEER_ALERT, AGENT_FAILED, …) routed to a sibling file so the
+    # audit trail stays complete. Rendering it as "Slice: unattributed"
+    # would mislead a reviewer who lands on the file via a link line —
+    # special-case the heading and metadata block instead.
+    is_unattributed = slice_id == "unattributed"
+    lines: list[str] = []
+    if is_unattributed:
+        lines.append(f"# BRC Consensus History — {phase} phase, cross-cutting (unattributed)")
+    elif slice_id:
+        lines.append(f"# BRC Consensus History — {phase} phase, {slice_id}")
+    else:
+        lines.append(f"# BRC Consensus History — {phase} phase")
+    lines.append("")
+    lines.append(f"Generated: {generated_str}")
+    lines.append(f"Pipeline: {pipeline_id}")
+    if is_unattributed:
+        lines.append("Section: cross-cutting (unattributed)")
+    elif slice_id:
+        lines.append(f"Slice: {slice_id}")
+    lines.append("")
+
+    for msg in brc_messages:
+        ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
+        # Include to_role for directed messages (not broadcast "all")
+        if msg.to_role and msg.to_role != "all":
+            header = (
+                f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+            )
+        else:
+            header = f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}"
+        lines.append(header)
+        if msg.body:
+            lines.append("")
+            lines.append(msg.body)
+
+        # Emit a YAML metadata block with id, phase, and non-empty metadata
+        meta_block: dict[str, Any] = {}
+        if msg.id:
+            meta_block["id"] = msg.id
+        if msg.phase:
+            meta_block["phase"] = msg.phase
+        if msg.metadata:
+            meta_block["metadata"] = msg.metadata
+        if meta_block:
+            lines.append("")
+            lines.append("````yaml")
+            lines.append(
+                yaml.safe_dump(meta_block, sort_keys=False, default_flow_style=False).rstrip()
+            )
+            lines.append("````")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _write_brc_history_file(
+    worktree_path: Path,
+    pipeline_id: str,
+    phase: str,
+    identifier: int | str,
+    brc_messages: list[Any],
+    *,
+    slice_id: str | None = None,
+) -> None:
+    """Render and persist the markdown + JSON companion files for one bucket.
+
+    ``slice_id``, when provided, switches the on-disk filename from the
+    aggregate ``{identifier}-{phase}.{md,json}`` shape used by
+    refine/plan/pr to the per-slice ``{identifier}-{phase}-{slice_id}.{md,json}``
+    shape used by implement (#2548 — hard switchover, no aggregate
+    implement file is produced).
+    """
+    if slice_id:
+        stem = f"{identifier}-{phase}-{slice_id}"
+    else:
+        stem = f"{identifier}-{phase}"
+
+    history_dir = worktree_path / ".egg-state" / "brc-history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    history_file = history_dir / f"{stem}.md"
+
+    # Write the markdown history file
+    try:
+        history_file.write_text(
+            _render_brc_history_markdown(
+                brc_messages,
+                pipeline_id,
+                phase,
+                slice_id=slice_id,
+            )
+        )
+    except Exception as md_err:
+        logger.warning(
+            "Failed to write BRC history markdown file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            slice_id=slice_id,
+            error=str(md_err),
+        )
+
+    # Write a JSON companion artifact containing the full message dicts
+    json_file = history_dir / f"{stem}.json"
+    try:
+        json_data = [msg.to_dict() for msg in brc_messages]
+        json_file.write_text(json.dumps(json_data, indent=2, default=str))
+    except Exception as json_err:
+        logger.warning(
+            "Failed to write BRC history JSON companion file",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            slice_id=slice_id,
+            error=str(json_err),
+        )
+
+    logger.info(
+        "Wrote BRC history file",
+        pipeline_id=pipeline_id,
+        phase=phase,
+        slice_id=slice_id,
+        path=str(history_file),
+        message_count=len(brc_messages),
+    )
+
+
 def _write_brc_history(
     worktree_path: Path,
     pipeline_id: str,
@@ -8218,6 +8389,35 @@ def _write_brc_history(
     Retrieves BRC-related messages for the given phase from the message store
     and writes them as a chronological markdown log to
     ``.egg-state/brc-history/{identifier}-{phase}.md``.
+
+    For the ``implement`` phase the writer auto-detects slice-aware vs
+    aggregate mode (#2548):
+
+    * If at least one BRC message carries a canonical
+      ``metadata['slice_id']`` (validated against
+      ``SLICE_ID_PATTERN``), the writer partitions messages per-slice
+      and writes one file per slice as
+      ``{identifier}-implement-{slice_id}.{md,json}``.
+      Per-message attribution rules:
+
+      - ``CONSENSUS_*`` messages without a canonical slice_id are
+        dropped with a single aggregate WARNING — the orchestrator's
+        CONSENSUS_* signal handlers tag every implement-phase write
+        under D4, so a missing slice_id is a contract violation.
+      - Other ``BRC_HISTORY_TYPES`` (HEARTBEAT, STATUS, HANDOFF,
+        AGENT_FAILED, NUDGE, OVERSEER_ALERT) come from emitters that
+        do not uniformly carry slice scope. When they lack a
+        canonical slice_id they are routed to a sibling
+        ``{identifier}-implement-unattributed.{md,json}`` file rather
+        than dropped, so the audit trail stays complete and reviewers
+        of any per-slice transcript can cross-reference.
+
+    * If **no** BRC message carries a slice_id (babysit_pr and other
+      non-slice pipelines), the writer falls back to the aggregate
+      ``{identifier}-implement.{md,json}`` filename. This preserves
+      the documented babysit_pr artifact named in
+      ``skills/babysit-pr/SKILL.md``.
+
     No-ops gracefully when the message store is unavailable or contains no
     BRC messages for the pipeline and phase.
 
@@ -8273,92 +8473,143 @@ def _write_brc_history(
         )
         return
 
-    # Format as markdown.  `Generated:` is derived from the latest
-    # message timestamp (not wall-clock time) so regenerating the
-    # file from the same message set produces byte-identical output.
-    # This keeps the PR-phase safety-net rewrite
-    # (_rewrite_brc_history_for_pr) idempotent: when no new BRC
-    # messages arrived between phase completion and PR creation,
-    # the rewritten file matches the previous commit and the
-    # follow-up commit is skipped by _commit_statefiles_to_worktree.
-    # See #1714.
-    message_timestamps = [m.timestamp for m in brc_messages if m.timestamp is not None]
-    if message_timestamps:
-        generated_str = max(message_timestamps).strftime("%Y-%m-%dT%H:%M:%SZ")
-    else:
-        generated_str = "unknown"
-    lines: list[str] = []
-    lines.append(f"# BRC Consensus History — {phase} phase")
-    lines.append("")
-    lines.append(f"Generated: {generated_str}")
-    lines.append(f"Pipeline: {pipeline_id}")
-    lines.append("")
+    if phase == "implement":
+        # Implement-phase BRC messages are partitioned per-slice (#2548)
+        # for slice-aware pipelines (issue mode with `contract.slices`):
+        # the orchestrator's CONSENSUS_* signal handlers tag every
+        # implement-phase consensus message with `metadata['slice_id']`,
+        # and this writer buckets them into one transcript file per
+        # slice. Babysit_pr and other non-slice pipelines have no slice
+        # scope on any message, so they fall back to the aggregate
+        # `{identifier}-implement.{md,json}` filename (preserving the
+        # documented babysit_pr artifact named in
+        # `skills/babysit-pr/SKILL.md`).
+        #
+        # ``metadata['slice_id']`` is interpolated into the on-disk
+        # filename below, so this is a gateway-facing seam in the same
+        # sense as ``signals.py`` / the restart route /
+        # ``concurrent_executor`` branch builders: every value MUST be
+        # validated against the canonical ``SLICE_ID_PATTERN`` before
+        # use, otherwise an attacker-controlled metadata blob (any role
+        # can post arbitrary metadata via ``messages.py``) could smuggle
+        # path separators into the filename and write outside
+        # ``.egg-state/brc-history/``. See ``slice_id_validation.py``
+        # for the invariant. ``SLICE_ID_PATTERN`` is already imported at
+        # module top (the same try/except sandbox-vs-orchestrator dual
+        # import that imports ``extract_slice_id``); no local re-import
+        # is needed.
 
-    for msg in brc_messages:
-        ts = msg.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") if msg.timestamp else "unknown"
-        # Include to_role for directed messages (not broadcast "all")
-        if msg.to_role and msg.to_role != "all":
-            header = (
-                f"### [{ts}] {msg.from_role} → {msg.to_role} ({msg.message_type}): {msg.subject}"
+        buckets: dict[str, list[Any]] = {}
+        # ``unattributed_consensus`` holds CONSENSUS_* messages that lack
+        # a canonical slice_id — those are a D4 contract violation and
+        # are dropped with a single aggregate WARNING. ``unattributed_other``
+        # holds non-CONSENSUS BRC types (HEARTBEAT, STATUS, HANDOFF,
+        # AGENT_FAILED, NUDGE, OVERSEER_ALERT) whose emitters do not
+        # uniformly carry slice scope; those are written to the
+        # ``unattributed`` sibling file so the audit trail stays complete.
+        unattributed_consensus: list[Any] = []
+        unattributed_other: list[Any] = []
+        for msg in brc_messages:
+            # ``Message.metadata`` is a Pydantic dict[str, Any] field with a
+            # default_factory=dict (message_store.Message), so it is always a
+            # dict at this point — no need to guard with getattr/isinstance.
+            raw_slice_id = msg.metadata.get("slice_id")
+            if isinstance(raw_slice_id, str) and SLICE_ID_PATTERN.fullmatch(raw_slice_id):
+                buckets.setdefault(raw_slice_id, []).append(msg)
+                continue
+            if str(getattr(msg, "message_type", "")) in CONSENSUS_BRC_TYPES:
+                unattributed_consensus.append(msg)
+            else:
+                unattributed_other.append(msg)
+
+        if not buckets:
+            # No slice-attributed messages anywhere — this is a non-slice
+            # pipeline (babysit_pr or any other implement-phase run that
+            # never spawned slice scopes). Fall back to the aggregate
+            # `{identifier}-implement.{md,json}` filename so we never
+            # silently drop the entire BRC stream when no per-slice
+            # bucketing is possible. See #2548 reviewer_code_holistic
+            # finding #3.
+            logger.info(
+                "_write_brc_history: no slice-attributed implement-phase "
+                "messages — writing aggregate file (non-slice pipeline)",
+                pipeline_id=pipeline_id,
+                phase=phase,
+                total_brc_messages=len(brc_messages),
             )
-        else:
-            header = f"### [{ts}] {msg.from_role} ({msg.message_type}): {msg.subject}"
-        lines.append(header)
-        if msg.body:
-            lines.append("")
-            lines.append(msg.body)
-
-        # Emit a YAML metadata block with id, phase, and non-empty metadata
-        meta_block: dict[str, Any] = {}
-        if msg.id:
-            meta_block["id"] = msg.id
-        if msg.phase:
-            meta_block["phase"] = msg.phase
-        if msg.metadata:
-            meta_block["metadata"] = msg.metadata
-        if meta_block:
-            lines.append("")
-            lines.append("````yaml")
-            lines.append(
-                yaml.safe_dump(meta_block, sort_keys=False, default_flow_style=False).rstrip()
+            _write_brc_history_file(
+                worktree_path,
+                pipeline_id,
+                phase,
+                identifier,
+                brc_messages,
             )
-            lines.append("````")
-        lines.append("")
+            return
 
-    history_dir = worktree_path / ".egg-state" / "brc-history"
-    history_dir.mkdir(parents=True, exist_ok=True)
-    history_file = history_dir / f"{identifier}-{phase}.md"
+        # Slice-aware pipeline: at least one canonical slice_id was
+        # observed. CONSENSUS_* messages that lack a canonical slice_id
+        # are a D4 hard-switchover contract violation — drop them with
+        # a loud aggregate WARNING (count + sample types) so an operator
+        # notices the asymmetry rather than silently shipping a thinned-
+        # out transcript.
+        if unattributed_consensus:
+            sample_types = sorted(
+                {str(getattr(m, "message_type", "")) for m in unattributed_consensus[:8]}
+            )
+            logger.warning(
+                "_write_brc_history: dropped implement-phase CONSENSUS_* messages "
+                "without canonical metadata.slice_id (hard switchover, #2548)",
+                pipeline_id=pipeline_id,
+                phase=phase,
+                dropped_count=len(unattributed_consensus),
+                sample_message_types=sample_types,
+                attributed_count=sum(len(v) for v in buckets.values()),
+            )
 
-    # Write the markdown history file
-    try:
-        history_file.write_text("\n".join(lines))
-    except Exception as md_err:
-        logger.warning(
-            "Failed to write BRC history markdown file",
-            pipeline_id=pipeline_id,
-            phase=phase,
-            error=str(md_err),
-        )
+        # Non-CONSENSUS BRC types without a canonical slice_id come from
+        # emitters that do not uniformly attach slice scope (HealthMonitor
+        # nudges, overseer respawn alerts, AGENT_FAILED broadcasts,
+        # CLI-routed HANDOFF/NUDGE messages, etc.). Route them to a
+        # sibling ``{identifier}-implement-unattributed.{md,json}`` file
+        # so the audit trail stays complete — reviewers reading any
+        # per-slice transcript can cross-reference. See #2548
+        # reviewer_code blocking finding.
+        if unattributed_other:
+            _write_brc_history_file(
+                worktree_path,
+                pipeline_id,
+                phase,
+                identifier,
+                unattributed_other,
+                slice_id="unattributed",
+            )
 
-    # Write a JSON companion artifact containing the full message dicts
-    json_file = history_dir / f"{identifier}-{phase}.json"
-    try:
-        json_data = [msg.to_dict() for msg in brc_messages]
-        json_file.write_text(json.dumps(json_data, indent=2, default=str))
-    except Exception as json_err:
-        logger.warning(
-            "Failed to write BRC history JSON companion file",
-            pipeline_id=pipeline_id,
-            phase=phase,
-            error=str(json_err),
-        )
+        # Natural sort by the integer suffix so a 12-slice pipeline iterates
+        # `slice-1, slice-2, ..., slice-12` rather than the lexicographic
+        # `slice-1, slice-10, slice-11, slice-12, slice-2`. Every key is
+        # already SLICE_ID_PATTERN-validated (`^slice-[0-9]+$`) above, so the
+        # int() parse is total.
+        for slice_id, slice_msgs in sorted(
+            buckets.items(), key=lambda kv: int(kv[0].rsplit("-", 1)[1])
+        ):
+            _write_brc_history_file(
+                worktree_path,
+                pipeline_id,
+                phase,
+                identifier,
+                slice_msgs,
+                slice_id=slice_id,
+            )
+        return
 
-    logger.info(
-        "Wrote BRC history file",
-        pipeline_id=pipeline_id,
-        phase=phase,
-        path=str(history_file),
-        message_count=len(brc_messages),
+    # Refine, plan, and pr phases continue to write the aggregate
+    # `{identifier}-{phase}.{md,json}` file — only implement is per-slice.
+    _write_brc_history_file(
+        worktree_path,
+        pipeline_id,
+        phase,
+        identifier,
+        brc_messages,
     )
 
 
@@ -8640,7 +8891,34 @@ def _build_brc_history_link_line(
 
     canonical = [p.value for p in PipelinePhase]
     rank = {name: i for i, name in enumerate(canonical)}
-    phases.sort(key=lambda name: (rank.get(name, len(canonical)), name))
+
+    # Per-slice implement files (#2548) carry the stem
+    # ``implement-slice-{N}``; cluster them at the canonical ``implement``
+    # rank so the rendered link order is
+    # ``refine → plan → implement[-slice-N] → implement-unattributed →
+    # pr`` instead of pushing the per-slice files past pr to the end of
+    # the list. Within the implement cluster, sort by the integer slice
+    # index so a 12-slice pipeline renders ``slice-1, slice-2, …,
+    # slice-12`` rather than the lexicographic ``slice-1, slice-10,
+    # slice-11, slice-12, slice-2``. The ``implement-unattributed``
+    # sibling (cross-cutting non-CONSENSUS BRC types without slice scope,
+    # see ``_write_brc_history``) sorts after every per-slice file so a
+    # reviewer reads each slice transcript first, then the cross-cutting
+    # context.
+    def _sort_key(name: str) -> tuple[int, int, str]:
+        if name == "implement":
+            return (rank["implement"], -1, "")
+        if name == "implement-unattributed":
+            return (rank["implement"], 1 << 30, name)
+        if name.startswith("implement-slice-"):
+            try:
+                idx = int(name.rsplit("-", 1)[1])
+            except ValueError:
+                idx = 1 << 30  # malformed → sort last within cluster
+            return (rank["implement"], idx, name)
+        return (rank.get(name, len(canonical)), 0, name)
+
+    phases.sort(key=_sort_key)
 
     links = ", ".join(
         f"[`{phase}`](./.egg-state/brc-history/{identifier}-{phase}.md)" for phase in phases

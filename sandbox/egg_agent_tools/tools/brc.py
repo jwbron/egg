@@ -260,7 +260,10 @@ _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
             "description": (
                 "Optional message_type filter; accepts a single type or a "
                 "list (CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, "
-                "CONSENSUS_CONFIRMED, CONSENSUS_RE_REVIEW, CONSENSUS_WITHDRAWN)"
+                "CONSENSUS_WITHDRAW, CONSENSUS_CONFIRMED, "
+                "CONSENSUS_RE_REVIEW, CONSENSUS_OBLIGATION_RESOLVED, "
+                "STATUS, HANDOFF, AGENT_FAILED, NUDGE, OVERSEER_ALERT, "
+                "HEARTBEAT)"
             ),
         },
         "limit": {
@@ -271,6 +274,18 @@ _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
         "cursor": {
             "type": "string",
             "description": "Opaque pagination token returned by a prior call",
+        },
+        "include_unattributed": {
+            "type": "boolean",
+            "default": True,
+            "description": (
+                "When reading a slice-scoped implement transcript "
+                "(EGG_SLICE_ID set + phase='implement'), also merge "
+                "records from the sibling "
+                "<identifier>-implement-unattributed.json file "
+                "(cross-cutting messages without slice scope). "
+                "Default true; set false to read only the per-slice file."
+            ),
         },
     },
     "required": ["phase"],
