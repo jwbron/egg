@@ -282,7 +282,7 @@ class TestHappyPath:
         spawner = make_spawner()
         spawner.gateway.fetch_branch.side_effect = RuntimeError("network blip")
         with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
-            ok = _commit_slice_brc_history_to_integration_branch(
+            _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
                 tmp_path,
@@ -290,11 +290,15 @@ class TestHappyPath:
                 integration_branch="egg/issue-2548/slice-1",
             )
 
-        # Push still happens — the worktree-add probably failed too in
-        # production (since the local tracking ref is stale), but in our
-        # patched-subprocess tests it's a no-op so the helper proceeds
-        # to push.  Either way: not a hard error.
-        assert ok is True or ok is False  # explicit: either is acceptable
+        # Fetch failure was tolerated — the helper continued past the
+        # failing fetch and reached the push step (the existing local
+        # ref is good enough to attempt a push, since worktree-add and
+        # push are no-ops in this patched-subprocess environment).  If
+        # the helper had aborted on fetch failure, push_worktree_branch
+        # would never have been invoked.
+        assert spawner.gateway.push_worktree_branch.called, (
+            "fetch failure must not abort the helper — push step must still be reached"
+        )
 
     def test_pipeline_repo_unset_returns_false_without_calling_gateway(
         self, tmp_path, make_spawner

@@ -9866,6 +9866,36 @@ def _open_context_pr_for_pipeline(
     return context_branch
 
 
+def _resolve_slice_1_context_branch_from_contract(
+    pipeline_id: str,
+    worktree_repo_path: Path,
+) -> str | None:
+    """Load the contract and return ``contract.pr.context_branch`` —
+    slice-1's parent branch under #2548.
+
+    Returns the configured context branch (which may itself be the
+    empty string under a D4-policy-violating in-flight contract), or
+    ``None`` if the contract has no PR metadata.  Raises whatever
+    ``load_contract`` raises; the caller wraps the call in
+    ``try/except`` to fall back to the pipeline branch on failure.
+
+    Extracted as a module-level helper (rather than inlined in
+    ``_run_one_slice_inner``) so tests can scope failure injection
+    to this specific call site by patching
+    ``routes.pipelines._resolve_slice_1_context_branch_from_contract``,
+    rather than patching the global ``load_contract`` and counting
+    invocations to identify the resolver call — a brittle shape that
+    breaks under any refactor that adds or removes a load_contract
+    call elsewhere in the slice loop.
+    """
+    from egg_contracts.loader import load_contract
+
+    contract_for_base = load_contract(pipeline_id, worktree_repo_path)
+    if contract_for_base.pr is None:
+        return None
+    return contract_for_base.pr.context_branch
+
+
 def _commit_slice_brc_history_to_integration_branch(
     pipeline,
     spawner: "ContainerSpawner",  # noqa: UP037
@@ -9918,6 +9948,19 @@ def _commit_slice_brc_history_to_integration_branch(
     against an already-committed integration branch produces no new
     commit (``_commit_statefiles_to_worktree`` skips when nothing is
     staged) and a no-op fast-forward push.
+
+    Concurrency: this hook runs from ``_run_one_slice_inner``, which
+    is itself invoked concurrently across slices in a thread pool.
+    Two slices reaching consensus near-simultaneously will both call
+    ``_write_brc_history`` on the same work worktree, and the writer
+    iterates every bucket — so slice-N's hook re-writes slice-(N-1)'s
+    per-slice files even though only slice-N's files are then copied
+    onto the integration branch.  This is safe because post-consensus
+    BRC messages are immutable: both writers stage byte-identical
+    content, and a torn ``Path.write_text`` produces the same result
+    as a clean one.  Only the per-slice files for *this* slice are
+    copied to the integration worktree (Step 3), so concurrent writes
+    do not cross-pollinate slice PRs.
     """
     pipeline_id = pipeline.id
 
@@ -13809,9 +13852,9 @@ def _run_implement_phase_slices(
                 if parent_slice_id is None:
                     context_branch_for_slice1: str | None = None
                     try:
-                        contract_for_base = load_contract(pipeline_id, worktree_repo_path)
-                        if contract_for_base.pr is not None:
-                            context_branch_for_slice1 = contract_for_base.pr.context_branch
+                        context_branch_for_slice1 = _resolve_slice_1_context_branch_from_contract(
+                            pipeline_id, worktree_repo_path
+                        )
                     except Exception as load_err:  # noqa: BLE001
                         logger.warning(
                             "Slice-1 base resolution: failed to load contract — "

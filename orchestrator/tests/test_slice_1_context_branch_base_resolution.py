@@ -178,6 +178,28 @@ def _make_spawner() -> MagicMock:
     return spawner
 
 
+def _has_slice_1_fallback_warning(mock_logger: MagicMock) -> bool:
+    """Return True iff ``mock_logger.warning`` was called for the
+    slice-1 base-resolution fallback log line.
+
+    The production code emits the warning at
+    ``orchestrator/routes/pipelines.py`` (slice-1 base resolution),
+    keyed on the substring ``"context_branch"`` and the
+    pipeline-branch fallback message.  We match on the
+    distinguishing fragment rather than the full message so a
+    minor wording tweak doesn't break the test, but a refactor
+    that drops the warning entirely does.
+    """
+    for call in mock_logger.warning.call_args_list:
+        # ``logger.warning(msg, **kwargs)`` — the message is args[0].
+        if not call.args:
+            continue
+        msg = call.args[0]
+        if "Slice-1 base resolution" in msg and "context_branch" in msg:
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Slice-1 root base resolution
 # ---------------------------------------------------------------------------
@@ -253,6 +275,7 @@ class TestSlice1RootBaseResolution:
             patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
             patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
             patch("routes.pipelines._commit_slice_brc_history_to_integration_branch"),
+            patch("routes.pipelines.logger") as mock_logger,
         ):
             mock_start_recon.return_value = (MagicMock(), threading.Event())
             spawner = _make_spawner()
@@ -272,6 +295,14 @@ class TestSlice1RootBaseResolution:
         assert exit_code == 0
         # No AttributeError raised; slice-1 fell back to pipeline branch.
         assert slice_obj.parent_branch_at_creation == pipeline.branch
+        # Operator-visibility: the empty-context-branch warning is
+        # emitted so a refactor that drops the warning is caught here
+        # rather than discovered in production by an oncall who can't
+        # see why slice-1 isn't stacking on the context branch.
+        assert _has_slice_1_fallback_warning(mock_logger), (
+            f"expected slice-1 base-resolution fallback warning, got: "
+            f"{mock_logger.warning.call_args_list}"
+        )
 
     def test_slice_1_falls_back_when_context_branch_is_none(self) -> None:
         """``contract.pr.context_branch is None`` (PRMetadata exists but
@@ -290,6 +321,7 @@ class TestSlice1RootBaseResolution:
             patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
             patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
             patch("routes.pipelines._commit_slice_brc_history_to_integration_branch"),
+            patch("routes.pipelines.logger") as mock_logger,
         ):
             mock_start_recon.return_value = (MagicMock(), threading.Event())
             spawner = _make_spawner()
@@ -308,22 +340,35 @@ class TestSlice1RootBaseResolution:
 
         # Slice-1 falls back to pipeline branch.
         assert slice_obj.parent_branch_at_creation == pipeline.branch
+        # Same warning surface as the ``pr is None`` path — they share
+        # the empty-context-branch fallback log line.
+        assert _has_slice_1_fallback_warning(mock_logger), (
+            f"expected slice-1 base-resolution fallback warning, got: "
+            f"{mock_logger.warning.call_args_list}"
+        )
 
     def test_slice_1_load_contract_failure_during_base_resolution_falls_back(
         self,
     ) -> None:
-        """If ``load_contract`` raises specifically during the slice-1
-        base resolution (within the inner closure), the slice still
-        provisions — it falls back to the pipeline branch with a
+        """If the slice-1 base resolver raises (e.g. ``load_contract``
+        hits a transient FS error during the base read), the slice
+        still provisions — it falls back to the pipeline branch with a
         warning rather than aborting the whole pipeline.
 
-        The contract is loaded multiple times during a slice run (top-
-        of-loop bootstrap, base resolution, parent_branch persistence,
-        slice_pr_data snapshot).  We let the bootstrap call succeed so
-        the loop enters; targeting the third call (the
-        ``contract_for_base = load_contract(...)`` line in
-        ``_run_one_slice_inner``) lets us probe the resolver-only
-        failure path.
+        Earlier versions of this test patched the global
+        ``egg_contracts.loader.load_contract`` and counted calls to
+        target only the resolver invocation (the contract is also
+        loaded for bootstrap, parent_branch persistence, and the
+        slice_pr_data snapshot — we needed to fail only the resolver
+        call).  That count was an implementation detail of the slice
+        loop and a refactor that added or removed a load_contract
+        call elsewhere would silently re-target the failure.
+
+        Today we patch
+        ``routes.pipelines._resolve_slice_1_context_branch_from_contract``
+        directly — a one-purpose helper that exists only as the
+        resolver's load_contract wrapper.  Failure is scoped to the
+        exact call site by construction.
         """
         pipeline = _make_pipeline()
         slice_obj = _make_slice("slice-1", tasks=[_make_task()])
@@ -332,66 +377,54 @@ class TestSlice1RootBaseResolution:
             context_branch="egg/issue-2548/context",
         )
 
-        # Counter trick: succeed for the first N calls (bootstrap +
-        # any pre-resolver reads), then raise on the next call (slice-1
-        # base resolution), then succeed for the rest (persistence
-        # path).  We tune N empirically — fewer than 3 is fragile
-        # because the count depends on the loop's internal call shape;
-        # we just assert the helper was robust to ANY raise during
-        # base resolution by always raising once mid-stream.
-        call_count = [0]
-
-        def _flaky_load(*args, **kwargs):
-            call_count[0] += 1
-            # Raise once around the resolver call site.  In practice
-            # call #3 (or thereabouts) is the resolver read; we raise
-            # there so the rest of the loop can recover.
-            if call_count[0] == 3:
-                raise OSError("transient FS error during base resolve")
-            return contract
-
         with (
-            patch("egg_contracts.loader.load_contract", side_effect=_flaky_load),
+            patch("egg_contracts.loader.load_contract", return_value=contract),
             patch("egg_contracts.loader.save_contract"),
+            patch(
+                "routes.pipelines._resolve_slice_1_context_branch_from_contract",
+                side_effect=OSError("transient FS error during base resolve"),
+            ),
             patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
             patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
             patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
             patch("routes.pipelines._commit_slice_brc_history_to_integration_branch"),
+            patch("routes.pipelines.logger") as mock_logger,
         ):
             mock_start_recon.return_value = (MagicMock(), threading.Event())
             spawner = _make_spawner()
-            # We don't assert exit_code here — depending on which call
-            # the raise lands on, the loop may abort with a non-zero
-            # code (e.g. slice failed to spawn) or recover cleanly.
-            # Either way, the slice-1 base resolution must NOT raise
-            # uncaught — we assert that by *not* observing the OSError
-            # propagate.
-            try:
-                _run_implement_phase_slices(
-                    pipeline_id=pipeline.id,
-                    pipeline=pipeline,
-                    spawner=spawner,
-                    repo_volumes={},
-                    gateway_mode="public",
-                    repos=["owner/repo"],
-                    sandbox_env={},
-                    store=MagicMock(),
-                    certs_volume=None,
-                    worktree_repo_path=Path("/tmp/x"),
-                )
-            except OSError as exc:
-                # Acceptable: an OSError leaked from a non-resolver
-                # load_contract call (e.g. parent_branch persistence)
-                # which is OUTSIDE the scope of this test.  We only
-                # need to confirm the resolver itself swallowed the
-                # exception — verified by: if the resolver raised, we
-                # would see a ``parent_branch_at_creation`` left
-                # unchanged at None.  Let's check that fallback:
-                if slice_obj.parent_branch_at_creation is None:
-                    raise AssertionError(
-                        "resolver did not swallow load_contract failure: "
-                        "slice-1 parent_branch_at_creation was never set"
-                    ) from exc
+            exit_code, _ = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        # The resolver's OSError was swallowed and slice-1 fell back
+        # to the pipeline branch.  ``parent_branch_at_creation``
+        # being non-None is the signal that resolution completed
+        # past the failing helper.
+        assert exit_code == 0
+        assert slice_obj.parent_branch_at_creation == pipeline.branch, (
+            f"slice-1 must fall back to pipeline branch on resolver failure, "
+            f"got {slice_obj.parent_branch_at_creation!r}"
+        )
+        # The "failed to load contract" warning is the operator's
+        # signal that the resolver hit an error rather than that
+        # the contract was simply missing context_branch.
+        load_failure_warnings = [
+            c
+            for c in mock_logger.warning.call_args_list
+            if c.args and "failed to load contract" in c.args[0]
+        ]
+        assert load_failure_warnings, (
+            f"expected load-failure warning, got: {mock_logger.warning.call_args_list}"
+        )
 
 
 class TestSlice2ChildBaseResolutionUnchanged:
@@ -537,16 +570,28 @@ class TestPerSliceBrcCommitHookInvocation:
         # Hook is invoked once per slice with the correct slice id and
         # integration branch — not just once for the terminal slice.
         assert mock_brc_commit.call_count == 2
-        # Order: slice-1 first, slice-2 second (per the scheduler).
-        slice_ids = [c.kwargs.get("slice_id") or c.args[3] for c in mock_brc_commit.call_args_list]
-        # Newer Python defaults positional kwargs differently; cope by
-        # re-collecting from the signature: ``(pipeline, spawner,
-        # worktree_repo_path, slice_id, integration_branch, ...)``.
-        for call in mock_brc_commit.call_args_list:
-            if call.kwargs:
-                # All-kwarg shape — skip positional fallback.
-                continue
-        # The PR creation order is the canonical seam — assert via
-        # the create_slice_pr calls which we already verify above.
+
+        # Helper signature is
+        # ``(pipeline, spawner, worktree_repo_path, slice_id,
+        # integration_branch, *, gateway_mode=...)`` — extract
+        # ``slice_id`` and ``integration_branch`` from each call,
+        # tolerating both all-positional and all-keyword shapes.
+        def _extract(call, kw_name: str, pos_index: int) -> str:
+            if kw_name in call.kwargs:
+                return call.kwargs[kw_name]
+            return call.args[pos_index]
+
+        slice_ids = [_extract(c, "slice_id", 3) for c in mock_brc_commit.call_args_list]
+        integration_branches = [
+            _extract(c, "integration_branch", 4) for c in mock_brc_commit.call_args_list
+        ]
+
+        # Both slices are covered, and each one targets its own
+        # integration branch (not a shared work branch and not the
+        # context branch — those are the failure modes the wiring
+        # protects against).
         assert "slice-1" in slice_ids
         assert "slice-2" in slice_ids
+        slice_to_branch = dict(zip(slice_ids, integration_branches, strict=True))
+        assert slice_to_branch["slice-1"] == "egg/issue-2548/slice-1"
+        assert slice_to_branch["slice-2"] == "egg/issue-2548/slice-2"
