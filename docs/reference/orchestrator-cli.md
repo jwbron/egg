@@ -429,6 +429,36 @@ egg-orch consensus status
 
 The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and optional `changed_files` parameters. When the producer is still in `WORKING` state, the signal is a no-op. See [Auto Re-Propose on Push/Commit](../guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
 
+## Context PR Surfaces ([#2548](https://github.com/jwbron/egg/issues/2548))
+
+Slice-aware pipelines (issue-mode pipelines with `contract.slices`) open a **Context PR** before any slice spawns — see [Orchestrator Architecture: Special case: Context PR](../architecture/orchestrator.md#network-mode) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:
+
+```bash
+# Inspect the contract's pr.context_* fields (populated as the pipeline progresses)
+egg-contract show --pipeline <pipeline-id>
+# Look for: pr.context_title, pr.context_description, pr.context_branch, pr.context_pr_number
+
+# Pipeline status (current_phase / pending_decisions; does not include context-PR-specific fields)
+egg-orch pipeline status <pipeline-id>
+
+# Locate the open Context PR on GitHub once contract.pr.context_pr_number is set
+gh pr view <context_pr_number>
+gh pr list --head egg/<id>/context
+```
+
+The four `pr.context_*` fields are added in contract schema 1.1 (#2548 — pre-1.1 contracts auto-promote on load):
+
+| Field | Author | Description |
+|-------|--------|-------------|
+| `pr.context_title` | Planner | Title for the Context PR (program-level framing). |
+| `pr.context_description` | Planner | Body for the Context PR (program-level narrative). |
+| `pr.context_branch` | Orchestrator | Branch name (`egg/<id>/context`) — populated when the orchestrator creates the branch. |
+| `pr.context_pr_number` | Orchestrator | GitHub PR number — populated when the PR is opened. |
+
+The orchestrator manages the Context PR end-to-end (create branch, commit refine/plan artifacts + BRC history + agent transcripts, open PR via `GatewayClient.create_pr()` with `context_title` / `context_description`). There are no `egg-orch` verbs for opening or closing it manually; cancel the entire pipeline (`egg-orch pipeline delete <id>`) to remove a Context PR that was opened by an unwanted run.
+
+Per-slice implement-phase BRC history files written by the orchestrator (`.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` plus `<id>-implement-unattributed.{md,json}`) are visible in each slice PR's diff; the aggregate `<id>-implement.{md,json}` file is **not** produced in slice-aware mode. Babysit-pr and other non-slice runs continue to emit the single content-addressed file (`pr-<N>-<short-sha>-implement.{md,json}` for babysit). See [Orchestrator Architecture: BRC-history file naming](../architecture/orchestrator.md#network-mode) for the full file-pattern table.
+
 ## Related CLIs
 
 - `egg-contract` — SDLC contract operations (tasks, decisions, feedback)

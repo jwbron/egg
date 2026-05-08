@@ -160,6 +160,52 @@ The gateway also injects an `<!-- egg-pipeline-context ... -->` HTML comment int
 
 This eliminates the need for agent interaction during PR creation and ensures consistent PR formatting across all pipelines.
 
+**Special case: Context PR (slice-aware mode, [#2548](https://github.com/jwbron/egg/issues/2548))**
+
+After the plan phase completes and the plan_gate is approved, the orchestrator opens a **doc-only Context PR** before any slice spawns. The Context PR establishes the program — analysis + plan + refine/plan BRC consensus — so reviewers approaching any slice PR see the strategic context that produced it. Mechanics:
+
+1. The orchestrator creates `egg/<id>/context` from the pipeline's configured `base_branch` (NOT hardcoded to `main`).
+2. It commits these refine/plan artifacts to that branch:
+   - `.egg-state/drafts/<id>-analysis.md` (refine output)
+   - `.egg-state/drafts/<id>-plan.md` (plan output, with full `yaml-tasks` block)
+   - `.egg-state/brc-history/<id>-refine.{md,json}` (refine BRC consensus record)
+   - `.egg-state/brc-history/<id>-plan.{md,json}` (plan BRC consensus record)
+   - `.egg-state/agent-outputs/<id>-refine-*.{md,json}` and `<id>-plan-*.{md,json}` (per-phase agent transcripts — included for transparency, HITL Q3)
+3. It opens the PR against the configured base branch using `contract.pr.context_title` and `contract.pr.context_description` (distinct from `pr.title` / `pr.description`, which are per-slice).
+4. The PR is **doc-only auto-open** (HITL decision-3): the orchestrator opens it, humans review on the PR, and the pipeline does **not** block on its merge before slicing begins.
+5. Slice-1's `parent_branch` resolves to `egg/<id>/context` (rather than `egg/<id>/work`); slice-N>1 stacks on its predecessor as before. The [stacked-PR rebase reconciler](slice-dag.md#stacked-pr-rebase-reconciler) prefers the context branch over `pipeline_branch` as a last-resort fallback when retargeting orphaned children.
+
+The context-PR rollout is a **hard switchover** (HITL decision-4) — there is no backwards-compat shim or feature flag, and in-flight pipelines are not backfilled.
+
+The contract's `pr` field (`PRMetadata`, `shared/egg_contracts/models.py`) carries four `pr.context_*` fields introduced in schema 1.1 (#2548 — pre-1.1 contracts auto-promote on load):
+
+| Field | Author | Description |
+|-------|--------|-------------|
+| `pr.context_title` | Planner | Title for the Context PR (program-level framing). |
+| `pr.context_description` | Planner | Body for the Context PR (program-level narrative). |
+| `pr.context_branch` | Orchestrator | Branch name (`egg/<id>/context`) — populated when the orchestrator creates it. |
+| `pr.context_pr_number` | Orchestrator | GitHub PR number — populated when the PR is opened. |
+
+These coexist with the existing `pr.title` / `pr.description` (per-slice) and `pr.test_plan` / `pr.manual_steps` / `pr.deferred_actions` fields. See the [Concurrent Execution Slice PR Stack section](../guides/concurrent-execution.md#slice-pr-stack) for the end-to-end stack shape and reviewer flow.
+
+**BRC-history file naming**
+
+Refine and plan phases continue to emit a single per-phase aggregate file:
+
+| Phase | File pattern |
+|-------|--------------|
+| `refine` | `.egg-state/brc-history/<id>-refine.{md,json}` |
+| `plan` | `.egg-state/brc-history/<id>-plan.{md,json}` |
+
+The implement phase splits per slice in slice-aware mode:
+
+| Mode | File pattern |
+|------|--------------|
+| Slice-aware (issue-mode pipelines with `contract.slices`, #2548 hard switchover) | `.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` (one per slice) plus `<id>-implement-unattributed.{md,json}` for cross-cutting messages without canonical slice scope (HEARTBEAT, OVERSEER_ALERT, AGENT_FAILED, …). The deprecated aggregate `<id>-implement.{md,json}` file is **not** produced — slice-aware pipelines never write it. |
+| Non-slice (babysit-pr; override pipelines without `contract.slices`) | A single content-addressed file: `pr-<N>-<short-sha>-implement.{md,json}` for babysit-pr; `<id>-implement.{md,json}` for non-slice override runs. The identifier shape is what differs — babysit cycles never partition into slices. |
+
+The orchestrator commits each `<id>-implement-slice-<N>.{md,json}` to the slice integration branch as a final orchestrator-authored commit before the slice PR is opened. This is necessary because the `coder` and `tester` role boundaries forbid pushes under `.egg-state/brc-history/`; the existing `_commit_statefiles_to_worktree` pattern keeps history persistence deterministic. See [Concurrent Execution: BRC History Link in PR Body](../guides/concurrent-execution.md#brc-history-link-in-pr-body) for the link-line behaviour rendered into auto-generated PR bodies.
+
 ### Pipeline state writeback after auto-PR creation
 
 After a successful auto-PR creation, `_finalize_pr_phase_failed` (in `orchestrator/routes/pipelines.py`) writes both `pipeline.pr_number` and `pipeline.pr_head_sha` alongside the existing `phases["pr"].artifacts["pr_url"]` entry, all inside the same `get_pipeline_state_lock → reload → save` transaction:
