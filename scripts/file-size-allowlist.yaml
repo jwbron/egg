@@ -50,3 +50,12 @@ files:
     issue: "2248"
   orchestrator/kubernetes_spawner.py:
     issue: "2248"
+  # On the egg/issue-2548/work merge target, slice-1's
+  # extract_pr_context_metadata_from_yaml + ParseResult.pr_context_*
+  # plumbing (#2548) stacks on top of #2527's validate_task_role_alignment
+  # additions, pushing the file to ~1,530 lines. The slice-1 branch alone
+  # is 1,388 lines (under the 1,500-line hard cap), but the merged
+  # work-branch state breaches the cap. Allowlisting under #2548 so the
+  # BRC implement-phase lint passes; decompose in a follow-up.
+  shared/egg_contracts/plan_parser.py:
+    issue: "2548"
