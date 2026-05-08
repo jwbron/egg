@@ -140,7 +140,12 @@ phases:
 > `pr.title` / `pr.description`. Two sibling fields — `pr.context_branch` and
 > `pr.context_pr_number` — exist on the contract but are populated by the
 > orchestrator after the context branch is created and the context PR is
-> opened; planners must NOT emit them.
+> opened; planners must NOT emit them. (Slice-1 lands the schema fields and
+> this planner-prompt guidance; the orchestrator branch-creation and
+> PR-opening hooks land in #2548 slices 3-4. Until those slices merge, any
+> `context_title` / `context_description` a planner emits flows through the
+> parser into `PRMetadata` but nothing acts on it yet — emitting them now
+> is forward-compatibly safe but does not change the rendered PR.)
 
 > **Slices vs. phases (#2137)**: The plan parser accepts either `slices:`
 > (canonical, post-#2137) or `phases:` (legacy alias) at the top of the
