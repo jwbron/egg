@@ -431,7 +431,7 @@ The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and opt
 
 ## Context PR Surfaces ([#2548](https://github.com/jwbron/egg/issues/2548))
 
-Slice-aware pipelines (issue-mode pipelines with `contract.slices`) open a **Context PR** before any slice spawns — see [Orchestrator Architecture: Special case: Context PR](../architecture/orchestrator.md#network-mode) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:
+Slice-aware pipelines (issue-mode pipelines with `contract.slices`) open a **Context PR** before any slice spawns — see [Orchestrator Architecture: Context PR (slice-aware mode)](../architecture/orchestrator.md#context-pr-slice-aware-mode-2548) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:
 
 ```bash
 # Inspect the contract's pr.context_* fields. The top-level --pipeline-id flag
@@ -464,7 +464,7 @@ gh pr close <context_pr_number>
 git push origin --delete egg/<pipeline-id>/context  # (gateway-mediated push)
 ```
 
-Per-slice implement-phase BRC history files written by the orchestrator (`.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` plus `<id>-implement-unattributed.{md,json}`) are visible in each slice PR's diff; the aggregate `<id>-implement.{md,json}` file is **not** produced in slice-aware mode. Babysit-pr and other non-slice runs continue to emit the single content-addressed file (`pr-<N>-<short-sha>-implement.{md,json}` for babysit). See [Orchestrator Architecture: BRC-history file naming](../architecture/orchestrator.md#network-mode) for the full file-pattern table.
+Per-slice implement-phase BRC history files written by the orchestrator (`.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` plus `<id>-implement-unattributed.{md,json}`) are visible in each slice PR's diff; the aggregate `<id>-implement.{md,json}` file is **not** produced in slice-aware mode. Babysit-pr and other non-slice runs continue to emit the single content-addressed file (`pr-<N>-<short-sha>-implement.{md,json}` for babysit). See [Orchestrator Architecture: BRC-history file naming](../architecture/orchestrator.md#brc-history-file-naming) for the full file-pattern table.
 
 ## Related CLIs
 

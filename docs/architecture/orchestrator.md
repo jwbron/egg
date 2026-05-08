@@ -160,7 +160,20 @@ The gateway also injects an `<!-- egg-pipeline-context ... -->` HTML comment int
 
 This eliminates the need for agent interaction during PR creation and ensures consistent PR formatting across all pipelines.
 
-**Special case: Context PR (slice-aware mode, [#2548](https://github.com/jwbron/egg/issues/2548))**
+### Pipeline state writeback after auto-PR creation
+
+After a successful auto-PR creation, `_finalize_pr_phase_failed` (in `orchestrator/routes/pipelines.py`) writes both `pipeline.pr_number` and `pipeline.pr_head_sha` alongside the existing `phases["pr"].artifacts["pr_url"]` entry, all inside the same `get_pipeline_state_lock → reload → save` transaction:
+
+- `pr_number` is parsed from the `pr_url` via `re.search(r"/pull/(\d+)", pr_url)`. It is always populated when the URL has the expected shape.
+- `pr_head_sha` is fetched via `_fetch_pr_state(pr_number, pipeline.repo)` (which shells out to `gh pr view`). It is assigned only when the returned value matches the `[0-9a-f]{7,40}` hex-SHA pattern (guarded explicitly in `_finalize_pr_phase_failed` before assignment). If `_fetch_pr_state` returns an empty dict — e.g., `gh` is unavailable, or the PR is not yet propagated — `pr_head_sha` is left `None` and the PR phase still succeeds (graceful degradation).
+
+Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`, babysit-worker handoffs) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where stale `pr_number` / `pr_head_sha` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
+
+### Per-agent commit SHA diagnostics
+
+`_update_agents_complete` populates each `completed_agents[].commit` field from `_brc.get_proposal_commit_sha(role)`. When the BRC tracker returns `None` or the `"RECONSTRUCTED_NO_SHA"` sentinel, a structured `logger.warning("BRC tracker returned no commit sha for completed agent", pipeline_id=..., phase=..., role=..., brc_value=...)` is emitted so the missing writeback can be investigated. This is diagnostic only — there is deliberately no auto-fallback to a guessed SHA, since that would mask the underlying wiring gap.
+
+## Context PR (slice-aware mode, [#2548](https://github.com/jwbron/egg/issues/2548))
 
 After the plan phase completes and the plan_gate is approved, the orchestrator opens a **doc-only Context PR** before any slice spawns. The Context PR establishes the program — analysis + plan + refine/plan BRC consensus — so reviewers approaching any slice PR see the strategic context that produced it. Mechanics:
 
@@ -188,7 +201,7 @@ The contract's `pr` field (`PRMetadata`, `shared/egg_contracts/models.py`) carri
 
 These coexist with the existing `pr.title` / `pr.description` (per-slice) and `pr.test_plan` / `pr.manual_steps` / `pr.deferred_actions` fields. See the [Concurrent Execution Slice PR Stack section](../guides/concurrent-execution.md#slice-pr-stack) for the end-to-end stack shape and reviewer flow.
 
-**BRC-history file naming**
+## BRC-history file naming
 
 Refine and plan phases continue to emit a single per-phase aggregate file:
 
@@ -205,19 +218,6 @@ The implement phase splits per slice in slice-aware mode:
 | Non-slice (babysit-pr; override pipelines without `contract.slices`) | A single content-addressed file: `pr-<N>-<short-sha>-implement.{md,json}` for babysit-pr; `<id>-implement.{md,json}` for non-slice override runs. The identifier shape is what differs — babysit cycles never partition into slices. |
 
 The orchestrator commits each `<id>-implement-slice-<N>.{md,json}` to the slice integration branch as a final orchestrator-authored commit before the slice PR is opened. This is necessary because the `coder` and `tester` role boundaries forbid pushes under `.egg-state/brc-history/`; the existing `_commit_statefiles_to_worktree` pattern keeps history persistence deterministic. See [Concurrent Execution: BRC History Link in PR Body](../guides/concurrent-execution.md#brc-history-link-in-pr-body) for the link-line behaviour rendered into auto-generated PR bodies.
-
-### Pipeline state writeback after auto-PR creation
-
-After a successful auto-PR creation, `_finalize_pr_phase_failed` (in `orchestrator/routes/pipelines.py`) writes both `pipeline.pr_number` and `pipeline.pr_head_sha` alongside the existing `phases["pr"].artifacts["pr_url"]` entry, all inside the same `get_pipeline_state_lock → reload → save` transaction:
-
-- `pr_number` is parsed from the `pr_url` via `re.search(r"/pull/(\d+)", pr_url)`. It is always populated when the URL has the expected shape.
-- `pr_head_sha` is fetched via `_fetch_pr_state(pr_number, pipeline.repo)` (which shells out to `gh pr view`). It is assigned only when the returned value matches the `[0-9a-f]{7,40}` hex-SHA pattern (guarded explicitly in `_finalize_pr_phase_failed` before assignment). If `_fetch_pr_state` returns an empty dict — e.g., `gh` is unavailable, or the PR is not yet propagated — `pr_head_sha` is left `None` and the PR phase still succeeds (graceful degradation).
-
-Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`, babysit-worker handoffs) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where stale `pr_number` / `pr_head_sha` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
-
-### Per-agent commit SHA diagnostics
-
-`_update_agents_complete` populates each `completed_agents[].commit` field from `_brc.get_proposal_commit_sha(role)`. When the BRC tracker returns `None` or the `"RECONSTRUCTED_NO_SHA"` sentinel, a structured `logger.warning("BRC tracker returned no commit sha for completed agent", pipeline_id=..., phase=..., role=..., brc_value=...)` is emitted so the missing writeback can be investigated. This is diagnostic only — there is deliberately no auto-fallback to a guessed SHA, since that would mask the underlying wiring gap.
 
 ## Per-Pipeline Worktrees
 

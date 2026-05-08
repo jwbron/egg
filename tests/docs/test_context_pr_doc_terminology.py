@@ -62,71 +62,16 @@ def _read(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _task_1_1_authored(text: str, expected_tokens: tuple[str, ...]) -> bool:
-    """Return True once the doc shows any sign that task-1-1's content
-    has been authored (any of the expected tokens is present).
-
-    Until task-1-1 lands, tests targeting the unwritten content
-    `pytest.skip` with a clear reason (recorded via
-    ``mcp__task__mark_gap`` on the task). Once *any* expected token
-    appears, every strict assertion runs as a regression check, so a
-    documenter who lands one field but forgets another will still be
-    caught.
-    """
-    return any(token in text for token in expected_tokens)
-
-
-# Tokens that indicate task-1-1 has been at least partially authored
-# (any one of them flips the conditional skip to a strict assertion).
-ARCHITECTURE_ORCHESTRATOR_TOKENS = (
-    "pr.context_branch",
-    "pr.context_pr_number",
-    "pr.context_title",
-    "pr.context_description",
-    "context_branch",
-    "context_pr_number",
-    "-implement-slice-",
-)
-
-REFERENCE_ORCHESTRATOR_CLI_TOKENS = (
-    "pr.context_branch",
-    "pr.context_pr_number",
-    "context_branch",
-    "context_pr_number",
-)
-
-
 class TestArchitectureOrchestratorContextFields:
     """`docs/architecture/orchestrator.md` must document the new
     `pr.context_*` contract fields and the per-slice BRC filename
-    pattern. Acceptance criterion for task-1-1 (#2548).
-
-    Until task-1-1 lands (the coder hit a wrong_role impasse on the
-    docs paths and the orchestrator has not yet auto-delegated to the
-    documenter), each assertion `pytest.skip`s with a clear reason.
-    The skip releases as soon as *any* expected token appears in the
-    file, so a partial fix that misses one field will still be caught
-    by the remaining strict assertions.
-    """
+    pattern. Acceptance criterion for task-1-1 (#2548)."""
 
     @pytest.fixture(scope="class")
     def text(self) -> str:
         return _read(ARCHITECTURE_ORCHESTRATOR)
 
-    @staticmethod
-    def _skip_until_task_1_1_lands(text: str) -> None:
-        if not _task_1_1_authored(text, ARCHITECTURE_ORCHESTRATOR_TOKENS):
-            pytest.skip(
-                "task-1-1 wrong_role impasse: docs/architecture/orchestrator.md "
-                "has not been authored yet (no `pr.context_*`, "
-                "`context_branch`, `context_pr_number`, or "
-                "`-implement-slice-` tokens present). Gap recorded via "
-                "mcp__task__mark_gap on task-1-1; skip releases as soon "
-                "as any of those tokens lands."
-            )
-
     def test_mentions_pr_context_branch(self, text: str) -> None:
-        self._skip_until_task_1_1_lands(text)
         assert "pr.context_branch" in text, (
             "task-1-1: docs/architecture/orchestrator.md must reference "
             "`pr.context_branch` (the new contract field). Without this, "
@@ -135,7 +80,6 @@ class TestArchitectureOrchestratorContextFields:
         )
 
     def test_mentions_pr_context_pr_number(self, text: str) -> None:
-        self._skip_until_task_1_1_lands(text)
         assert "pr.context_pr_number" in text, (
             "task-1-1: docs/architecture/orchestrator.md must reference "
             "`pr.context_pr_number` (the new contract field). Without this, "
@@ -145,7 +89,6 @@ class TestArchitectureOrchestratorContextFields:
         )
 
     def test_references_per_slice_brc_filename_pattern(self, text: str) -> None:
-        self._skip_until_task_1_1_lands(text)
         # The acceptance criterion calls out the per-slice filename
         # pattern. We accept either the bare suffix or any concrete
         # rendering of it (`{identifier}-implement-slice-<N>` etc.).
@@ -158,7 +101,6 @@ class TestArchitectureOrchestratorContextFields:
         )
 
     def test_cross_references_issue_2548(self, text: str) -> None:
-        self._skip_until_task_1_1_lands(text)
         # The contract requires each affected doc to cross-reference
         # #2548 so future readers can navigate to the originating issue.
         assert "#2548" in text, (
@@ -205,31 +147,13 @@ class TestArchitectureOrchestratorNoDeprecatedReferences:
 class TestReferenceOrchestratorCliContextFields:
     """`docs/reference/orchestrator-cli.md` cross-references the new
     `pr.context_*` contract fields. Acceptance criterion for task-1-1
-    (#2548).
-
-    Same wrong_role impasse story as
-    ``TestArchitectureOrchestratorContextFields``: assertions skip
-    until the doc has any context-PR token, then run strict.
-    """
+    (#2548)."""
 
     @pytest.fixture(scope="class")
     def text(self) -> str:
         return _read(REFERENCE_ORCHESTRATOR_CLI)
 
-    @staticmethod
-    def _skip_until_task_1_1_lands(text: str) -> None:
-        if not _task_1_1_authored(text, REFERENCE_ORCHESTRATOR_CLI_TOKENS):
-            pytest.skip(
-                "task-1-1 wrong_role impasse: docs/reference/orchestrator-cli.md "
-                "has not been authored yet (no `pr.context_*`, "
-                "`context_branch`, or `context_pr_number` tokens "
-                "present). Gap recorded via mcp__task__mark_gap on "
-                "task-1-1; skip releases as soon as any of those tokens "
-                "lands."
-            )
-
     def test_mentions_pr_context_branch_or_context_pr_number(self, text: str) -> None:
-        self._skip_until_task_1_1_lands(text)
         # The CLI doc may surface only one of the two fields directly
         # (e.g. status-output context branch column); we require at
         # least one literal mention so readers can land on the contract
@@ -244,7 +168,6 @@ class TestReferenceOrchestratorCliContextFields:
         )
 
     def test_cross_references_issue_2548(self, text: str) -> None:
-        self._skip_until_task_1_1_lands(text)
         assert "#2548" in text, (
             "task-1-1: docs/reference/orchestrator-cli.md must "
             "cross-reference issue #2548 so the rationale is one click "
@@ -325,28 +248,35 @@ class TestConcurrentExecutionContextPrSection:
         """Adversarial probe: the literal `egg/<id>/context` token
         could land in an unrelated paragraph (e.g. a sidebar that
         discusses the context branch but does not connect it to
-        slice-1's base resolution). Require that a "slice-1" mention
-        sits within 800 chars of the literal branch path so the two
-        ideas live in the same paragraph."""
-        # Skip if the prerequisite assertion hasn't been satisfied yet —
-        # `test_describes_slice_1_stacks_on_context` will surface that
-        # failure on its own with a clearer message.
-        branch_idx = -1
-        for token in (
+        slice-1's base resolution). Require that at least one
+        blank-line-delimited paragraph contains both the branch
+        literal AND a `slice-1` mention, so the two ideas live in the
+        same paragraph rather than merely within textual proximity.
+        """
+        branch_tokens = (
             "egg/<id>/context",
             "egg/{id}/context",
             "egg/{identifier}/context",
-        ):
-            branch_idx = text.find(token)
-            if branch_idx != -1:
-                break
-        if branch_idx == -1:
+        )
+        if not any(token in text for token in branch_tokens):
+            # Skip if the prerequisite assertion hasn't been satisfied
+            # yet — `test_describes_slice_1_stacks_on_context` will
+            # surface that failure on its own with a clearer message.
             pytest.skip("context-branch literal not present yet; covered by sibling test")
-        slice_idx = text.lower().find("slice-1", max(0, branch_idx - 800))
-        assert slice_idx != -1 and abs(slice_idx - branch_idx) <= 800, (
+        # Markdown paragraphs are blank-line-delimited. Splitting on
+        # one-or-more blank lines lets list items, fenced code blocks,
+        # and prose paragraphs each count as their own paragraph.
+        paragraphs = re.split(r"\n\s*\n", text)
+        tied = any(
+            any(token in para for token in branch_tokens)
+            and re.search(r"slice-1", para, flags=re.IGNORECASE)
+            for para in paragraphs
+        )
+        assert tied, (
             "task-1-2: the literal `egg/<id>/context` reference must "
-            "live in the same paragraph as a `slice-1` mention so "
-            "readers connect the branch to the slice-1 base resolution."
+            "live in the same blank-line-delimited paragraph as a "
+            "`slice-1` mention so readers connect the branch to the "
+            "slice-1 base resolution."
         )
 
     def test_cross_references_issue_2548(self, text: str) -> None:
@@ -423,7 +353,7 @@ class TestBabysitPrPerSliceBrcReferences:
 DEPRECATED_FILENAME_ALLOWLIST: list[tuple[str, str]] = [
     (
         "docs/guides/concurrent-execution.md",
-        "[`refine`](./.egg-state/brc-history/42-refine.md)",
+        "[`implement`](./.egg-state/brc-history/42-implement.md)",
     ),
     (
         "docs/guides/concurrent-execution.md",
