@@ -1000,6 +1000,13 @@
       "registered_at": "2026-05-07T19:53:48.966450+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
+    },
+    "ff2c43e9bc4c3f590084676a0d4ec87ac60fc156": {
+      "branch": "egg/issue-2548/work",
+      "pipeline_id": "issue-2548",
+      "registered_at": "2026-05-08T22:25:11.413189+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
     }
   },
   "version": 1
