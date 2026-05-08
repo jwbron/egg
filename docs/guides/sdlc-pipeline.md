@@ -444,7 +444,7 @@ The local orchestrator handles concurrent contract updates through `orchestrator
 
 ```json
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "issue": {
     "number": 123,
     "title": "Add feature X",
@@ -482,6 +482,13 @@ The local orchestrator handles concurrent contract updates through `orchestrator
   "audit_log": []
 }
 ```
+
+> **Schema 1.1 (#2548)**: The default `schemaVersion` is now `"1.1"`, which
+> additively introduces four optional `pr.context_*` fields
+> (`context_title`, `context_description`, `context_branch`,
+> `context_pr_number`). Pre-1.1 contract JSON loads cleanly — a Pydantic
+> `model_validator` silently promotes `"1.0"` to `"1.1"` on load and the
+> bumped value is persisted on the next save.
 
 ### Role-Based Field Ownership
 
