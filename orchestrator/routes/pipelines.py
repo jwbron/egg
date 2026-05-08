@@ -7282,7 +7282,7 @@ def _commit_statefiles_to_worktree(
     pipeline_identifier: int | str | None = None,
     *,
     pipeline_id: str | None = None,
-) -> None:
+) -> bool:
     """Stage and commit ``.egg-state/`` files in *worktree_path*.
 
     When *pipeline_identifier* is provided, only files whose names start
@@ -7305,6 +7305,11 @@ def _commit_statefiles_to_worktree(
     The commit is idempotent (skips when nothing is staged).
     Raises ``subprocess.CalledProcessError`` on git failure.
     Call sites decide whether to abort or continue.
+
+    Returns ``True`` when a commit was actually made, ``False`` when the
+    helper short-circuited (no .egg-state dir, no prefix match, or
+    nothing staged after add).  Lets call sites skip a follow-up push
+    that would be a no-op fast-forward (#2548 review suggestion D).
     """
     state_dir = worktree_path / ".egg-state"
     logger.info(
@@ -7321,7 +7326,7 @@ def _commit_statefiles_to_worktree(
             pipeline_identifier=str(pipeline_identifier),
             pipeline_id=str(pipeline_id),
         )
-        return  # Nothing to commit yet
+        return False  # Nothing to commit yet
 
     git_base = [
         "git",
@@ -7367,7 +7372,7 @@ def _commit_statefiles_to_worktree(
             truncated=len(matched) > 20,
         )
         if not matched:
-            return  # No state files for this pipeline yet
+            return False  # No state files for this pipeline yet
 
         rel_paths = [str(Path(f).relative_to(worktree_path)) for f in matched]
         subprocess.run(
@@ -7400,7 +7405,7 @@ def _commit_statefiles_to_worktree(
             pipeline_identifier=str(pipeline_identifier),
             commit_message=message,
         )
-        return  # Nothing to commit
+        return False  # Nothing to commit
 
     logger.info(
         "_commit_statefiles_to_worktree: staged changes detected — committing",
@@ -7419,6 +7424,7 @@ def _commit_statefiles_to_worktree(
         pipeline_identifier=str(pipeline_identifier),
         commit_message=message,
     )
+    return True
 
 
 def _cleanup_agent_outputs_for_pr(
@@ -9366,22 +9372,19 @@ _STATIC_CONTEXT_PR_FILE_GLOBS: tuple[str, ...] = (
 )
 
 # Per-agent-output suffix patterns appended to ``<identifier>-<role>-``
-# for each role in the refine + plan rosters. ``-output.{json,md}`` is
+# for each role in the refine + plan rosters.  ``-output.{json,md}`` is
 # the canonical filename written by ``save_agent_output`` (see
-# shared/egg_contracts/orchestrator.py:386); the explicit secondary
-# entries cover known sidecars a role may emit alongside its primary
-# output (decisions log, run summary).  The set is an explicit
-# allowlist on purpose — open-ended ``-*.{json,md}`` wildcards would
-# pick up arbitrary sidecar files an agent writes (raw prompts, debug
-# dumps, partial state) onto the publicly-reviewable context PR
-# (#2548 review issue 7).  Add new explicit entries when a new
-# sidecar shape ships.
+# shared/egg_contracts/orchestrator.py:386) and is the only sidecar
+# shape any role currently emits.  The set is an explicit allowlist on
+# purpose — open-ended ``-*.{json,md}`` wildcards would pick up
+# arbitrary sidecar files an agent writes (raw prompts, debug dumps,
+# partial state) onto the publicly-reviewable context PR (#2548 review
+# issue 7).  Add new explicit entries here when a future role actually
+# starts emitting a new sidecar shape; do not pre-allocate speculative
+# patterns that no role writes.
 _AGENT_OUTPUT_SUFFIXES: tuple[str, ...] = (
     "-output.json",
     "-output.md",
-    "-decisions.json",
-    "-summary.json",
-    "-summary.md",
 )
 
 
@@ -9960,13 +9963,19 @@ def _open_context_pr_for_pipeline(
             match = re.search(r"/pull/(\d+)", pr_url)
             pr_number = int(match.group(1)) if match else None
 
-        logger.info(
-            "Context PR hook: opened context PR (#2548)",
-            pipeline_id=pipeline_id,
-            context_branch=context_branch,
-            context_pr_number=pr_number,
-            pr_url=pr_url,
-        )
+            # Only log "opened" on a fresh create_pr success.  The
+            # recovery branches above already log
+            # "recovered existing context PR ..." with the matched PR
+            # number; emitting an "opened" line on top of that
+            # conflates creation with recovery for operators tailing
+            # logs (#2548 review suggestion A).
+            logger.info(
+                "Context PR hook: opened context PR (#2548)",
+                pipeline_id=pipeline_id,
+                context_branch=context_branch,
+                context_pr_number=pr_number,
+                pr_url=pr_url,
+            )
     finally:
         # Clean up the temp worktree regardless of outcome.  Two-step:
         # ``git worktree remove`` releases the admin dir, then we drop
@@ -10023,8 +10032,9 @@ def _open_context_pr_for_pipeline(
     # path (#2548 review issue 1) is the safety net that backfills
     # the contract from the live PR state on GitHub.
     if contract_persisted and pipeline.branch:
+        committed = False
         try:
-            _commit_statefiles_to_worktree(
+            committed = _commit_statefiles_to_worktree(
                 worktree_repo_path,
                 f"Persist context PR linkage for {identifier} (#2548)",
                 pipeline_identifier=identifier,
@@ -10038,21 +10048,29 @@ def _open_context_pr_for_pipeline(
                 error=str(commit_err),
             )
         else:
-            try:
-                spawner.gateway.push_worktree_branch(
-                    pipeline_id=pipeline_id,
-                    repo_path=str(worktree_repo_path),
-                    branch=pipeline.branch,
-                    mode=gateway_mode,  # type: ignore[arg-type]
-                    base_branch=base_branch,
-                )
-            except Exception as push_err:  # noqa: BLE001
-                logger.warning(
-                    "Context PR hook: failed to push contract update "
-                    "(continuing — restart-safe via recovery path) (#2548)",
-                    pipeline_id=pipeline_id,
-                    error=str(push_err),
-                )
+            # Skip the push when the commit was a no-op — the helper
+            # is idempotent and returns ``False`` on re-entry where
+            # nothing changed (e.g. the contract already had the
+            # context_pr_number from a prior tick).  An unconditional
+            # push would still be a fast-forward no-op against origin
+            # but would burn a network round-trip per tick (#2548
+            # review suggestion D).
+            if committed:
+                try:
+                    spawner.gateway.push_worktree_branch(
+                        pipeline_id=pipeline_id,
+                        repo_path=str(worktree_repo_path),
+                        branch=pipeline.branch,
+                        mode=gateway_mode,  # type: ignore[arg-type]
+                        base_branch=base_branch,
+                    )
+                except Exception as push_err:  # noqa: BLE001
+                    logger.warning(
+                        "Context PR hook: failed to push contract update "
+                        "(continuing — restart-safe via recovery path) (#2548)",
+                        pipeline_id=pipeline_id,
+                        error=str(push_err),
+                    )
 
     return context_branch
 

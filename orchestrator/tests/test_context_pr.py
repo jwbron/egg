@@ -131,7 +131,11 @@ def neutralise_git(monkeypatch):
         return result
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
-    monkeypatch.setattr("routes.pipelines._commit_statefiles_to_worktree", lambda *a, **kw: None)
+    # Default to ``True`` so the post-#2548 contract-commit branch (and
+    # any future call site that depends on the bool return) treats the
+    # neutralised helper as if a commit was made — preserves existing
+    # tests that assert a follow-up push happens.
+    monkeypatch.setattr("routes.pipelines._commit_statefiles_to_worktree", lambda *a, **kw: True)
 
 
 def _seed_repo(repo_root: Path, identifier: int | str) -> dict[str, Path]:
@@ -751,6 +755,10 @@ class TestOpenContextPRDurability:
 
         def _record_commit(worktree, message, *_, **__):
             commits.append((worktree, message))
+            # Return True so the post-#2548 commit-then-push branch in
+            # the hook treats the recorded commit as a real one and
+            # follows through with the work-branch push.
+            return True
 
         monkeypatch.setattr("routes.pipelines._commit_statefiles_to_worktree", _record_commit)
         with (
@@ -809,6 +817,71 @@ class TestOpenContextPRDurability:
         ):
             result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
         assert result == "egg/issue-2548/context"
+
+    def test_contract_push_failure_does_not_re_raise(
+        self, tmp_path, pipeline, make_spawner, monkeypatch
+    ):
+        """Symmetric coverage to ``test_contract_commit_failure_does_not_re_raise``:
+        the commit-and-push pair must both swallow exceptions so a
+        push raise does not strand the plan→implement transition
+        (#2548 review suggestion E).  The PR is already open and the
+        contract is already on disk; recovery on the next tick is the
+        safety net."""
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        # The artifact-files push (push #1) succeeds; the work-branch
+        # push (push #2 — the contract update) raises.  Iterate side
+        # effects so successive calls hit the right branch.
+        spawner.gateway.push_worktree_branch.side_effect = [
+            PushResult(ok=True),  # context-branch artifact push
+            RuntimeError("network blip mid-push"),  # work-branch contract push
+        ]
+        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+        assert result == "egg/issue-2548/context"
+
+    def test_contract_push_skipped_when_commit_was_a_noop(
+        self, tmp_path, pipeline, make_spawner, monkeypatch
+    ):
+        """When ``_commit_statefiles_to_worktree`` returns ``False``
+        (no-op — nothing staged), the hook must NOT push.  Without
+        this, every re-entry through the hook on a contract that
+        already has the linkage would burn one fast-forward-no-op
+        network round-trip per tick (#2548 review suggestion D)."""
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+
+        # First call (artifact-files commit on the temp context
+        # worktree) returns True so the artifact-files push fires;
+        # second call (contract commit on the work worktree) returns
+        # False to simulate a no-op idempotent re-entry.
+        commit_returns: list[bool] = [True, False]
+
+        def _commit_helper(*_, **__):
+            return commit_returns.pop(0) if commit_returns else False
+
+        monkeypatch.setattr("routes.pipelines._commit_statefiles_to_worktree", _commit_helper)
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        # Exactly one push call total — the artifact push to the
+        # context branch.  The work-branch push must NOT have fired
+        # because the contract commit was a no-op.
+        push_calls = spawner.gateway.push_worktree_branch.call_args_list
+        work_branch_pushes = [c for c in push_calls if c.kwargs.get("branch") == pipeline.branch]
+        assert not work_branch_pushes, (
+            "work-branch push must be skipped when the contract commit "
+            "was a no-op — otherwise idempotent re-entries burn one "
+            "fast-forward push per tick"
+        )
 
 
 # ----------------------------------------------------------------------
