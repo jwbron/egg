@@ -587,3 +587,315 @@ class TestPlanParserContextFieldExtraction:
         assert result.success is True
         assert result.pr_context_title is None
         assert result.pr_context_description is None
+
+
+class TestPRMetadataAdversarial:
+    """Adversarial probes added by the tester role (#2548 task-1-2).
+
+    The classes above pin the happy paths and the symmetric warning
+    branches. The tests below try to break the implementation in ways
+    a planner-prompt regression, a hand-edited contract, or a future
+    refactor of ``_migrate_schema_version_to_1_1`` could plausibly
+    expose.
+    """
+
+    def test_model_dump_json_round_trip_preserves_all_context_fields(self):
+        """``model_dump_json()`` is the on-disk path; round-trip must be
+        value-preserving for every ``context_*`` field.
+
+        Adversarial: ``model_dump()`` returns Python objects, but the
+        contract is persisted via JSON. A future custom serializer that
+        treated ``None`` as "omit from output" would silently drop the
+        absent-context distinction; this test fails loudly if that
+        happens.
+        """
+        import json
+
+        pr = PRMetadata(
+            title="Implement #2548",
+            context_title="Strategic plan for #2548",
+            context_description="Refine + plan artifacts.",
+            context_branch="egg/issue-2548/context",
+            context_pr_number=4242,
+        )
+        as_json = pr.model_dump_json()
+        # Survives a JSON round-trip — no lossy custom encoder.
+        decoded = json.loads(as_json)
+        assert decoded["context_title"] == "Strategic plan for #2548"
+        assert decoded["context_description"] == "Refine + plan artifacts."
+        assert decoded["context_branch"] == "egg/issue-2548/context"
+        assert decoded["context_pr_number"] == 4242
+
+        round_trip = PRMetadata.model_validate_json(as_json)
+        assert round_trip.context_title == "Strategic plan for #2548"
+        assert round_trip.context_description == "Refine + plan artifacts."
+        assert round_trip.context_branch == "egg/issue-2548/context"
+        assert round_trip.context_pr_number == 4242
+
+    def test_model_dump_json_preserves_null_context_fields(self):
+        """A ``None`` context value must serialise as JSON ``null``, not omitted.
+
+        Adversarial: ``model_dump_json(exclude_none=True)`` is a one-line
+        change away in the future. Pin the explicit-null behavior so an
+        accidental ``exclude_none`` regression breaks the test rather
+        than silently changing the on-disk shape (round-trips would
+        still work but external readers would see schema drift).
+        """
+        import json
+
+        pr = PRMetadata(title="Plain PR — no context fields")
+        as_json = pr.model_dump_json()
+        decoded = json.loads(as_json)
+        assert decoded["context_title"] is None
+        assert decoded["context_description"] is None
+        assert decoded["context_branch"] is None
+        assert decoded["context_pr_number"] is None
+
+    def test_combined_phases_and_schemaversion_migration(self):
+        """A legacy contract with both ``phases:`` (pre-#2137) AND ``schemaVersion=1.0``
+        (pre-#2548) must be migrated correctly by both validators.
+
+        Adversarial: both migrations live on the same model.
+        ``_migrate_phases_to_slices`` runs in ``mode="wrap"`` and
+        rewrites the input dict; ``_migrate_schema_version_to_1_1``
+        runs in ``mode="after"`` on the constructed instance. A bug in
+        the wrap-mode validator could swallow the schemaVersion field;
+        a bug in the after-mode validator could fire before the wrap
+        completes. Pin the combined invariant: legacy keys re-map AND
+        the schemaVersion bumps to 1.1 in the same load.
+        """
+        payload = _minimal_contract_payload(schema_version="1.0")
+        # Reshape the payload to exercise the legacy phases-key path.
+        del payload["slices"]
+        payload["phases"] = [
+            {"id": "phase-1", "name": "first", "tasks": []},
+            {
+                "id": "phase-2",
+                "name": "second",
+                "tasks": [],
+                "dependencies": ["phase-1"],
+            },
+        ]
+        contract = Contract.model_validate(payload)
+        # schemaVersion was bumped to the post-#2548 version.
+        assert contract.schemaVersion == "1.1"
+        # phases-key was migrated to slices, and the slice-N IDs were
+        # canonicalised (the dependency edge too).
+        assert len(contract.slices) == 2
+        assert contract.slices[0].id == "slice-1"
+        assert contract.slices[1].id == "slice-2"
+        assert contract.slices[1].dependencies == ["slice-1"]
+        # Context fields default to None on the bumped contract.
+        assert contract.pr is not None
+        assert contract.pr.context_title is None
+        assert contract.pr.context_pr_number is None
+
+    def test_yaml_null_for_context_fields_yields_none(self):
+        """A planner emitting ``context_title: ~`` (YAML null) must thread
+        through as ``None``, not the string ``"~"`` or ``"None"``.
+
+        Adversarial: a fragile parser that did ``str(value)`` on raw
+        YAML scalars would silently coerce a YAML null to ``"None"``,
+        which the orchestrator's ``or pr.title`` fallback would happily
+        accept as a non-empty string and use as the context-PR title.
+        Lock this down at the parse-plan boundary.
+        """
+        from egg_contracts.plan_parser import parse_plan
+
+        plan_md = (
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "pr:\n"
+            '  title: "Implement #2548"\n'
+            '  description: "Slice-1 stub."\n'
+            "  context_title: ~\n"
+            "  context_description: null\n"
+            "phases:\n"
+            "  - id: 1\n"
+            "    name: slice-1\n"
+            "    tasks: []\n"
+            "```\n"
+        )
+        result = parse_plan(plan_md)
+        assert result.success is True
+        assert result.pr_context_title is None
+        assert result.pr_context_description is None
+
+    def test_parse_plan_markdown_only_yields_none_context(self):
+        """A plan document with no yaml-tasks fence (markdown-regex
+        fallback path) must still produce ``pr_context_*`` as ``None``.
+
+        Adversarial: parse_plan's third-priority fallback bypasses
+        ``extract_pr_context_metadata_from_yaml`` because there is no
+        YAML to extract from. The ``ParseResult`` defaults must keep
+        the context fields ``None`` — without this guard a regression
+        that initialised them to ``""`` would leak into the contract
+        and the orchestrator's truthiness fallback would still work,
+        masking the bug.
+        """
+        from egg_contracts.plan_parser import parse_plan
+
+        plan_md = (
+            "# Plan\n\n"
+            "## Phase 1: Setup\n"
+            "**Goal**: foo\n\n"
+            "- [TASK-1-1] Do thing — Acceptance: it works\n"
+        )
+        result = parse_plan(plan_md)
+        assert result.success is True
+        assert result.pr_context_title is None
+        assert result.pr_context_description is None
+
+    def test_extract_warns_on_list_typed_context_title(self):
+        """A list value for ``context_title`` must warn — not coerce.
+
+        Adversarial: the existing tests cover ``int`` and ``dict`` for
+        the description branch and ``int`` for the title branch. A
+        ``list`` (e.g. a planner that confused ``context_title`` with
+        ``files_affected``) hits a different branch of pydantic's str
+        coercion machinery; pin the warning path explicitly.
+        """
+        from egg_contracts.plan_parser import extract_pr_context_metadata_from_yaml
+
+        yaml_data = {
+            "pr": {
+                "title": "Implement #2548",
+                "context_title": ["a", "b"],
+            },
+            "phases": [],
+        }
+        title, _desc, warnings = extract_pr_context_metadata_from_yaml(yaml_data)
+        assert title is None
+        assert len(warnings) == 1
+        assert "context_title" in warnings[0].message
+        assert "list" in warnings[0].message
+
+    def test_extract_warns_on_list_typed_context_description(self):
+        """Symmetric with ``test_extract_warns_on_list_typed_context_title``.
+
+        Adversarial: the description branch's existing coverage is
+        ``dict`` and ``int``. A ``list`` would round-trip through
+        ``_normalize_optional_string`` as ``"[a, b]"`` if the type
+        guard regressed; lock the warning path down so a planner
+        emitting an accidental list of strings is caught.
+        """
+        from egg_contracts.plan_parser import extract_pr_context_metadata_from_yaml
+
+        yaml_data = {
+            "pr": {
+                "title": "Implement #2548",
+                "context_description": ["line one", "line two"],
+            },
+            "phases": [],
+        }
+        _title, desc, warnings = extract_pr_context_metadata_from_yaml(yaml_data)
+        assert desc is None
+        assert len(warnings) == 1
+        assert "context_description" in warnings[0].message
+        assert "list" in warnings[0].message
+
+    def test_extract_handles_crlf_whitespace_in_context_fields(self):
+        """A planner emitting CRLF / mixed whitespace must still strip cleanly.
+
+        Adversarial: agents writing on Windows-line-ending hosts (or a
+        planner whose prompt template has CRLF) could emit
+        ``"  Strategic plan  \\r\\n"`` for ``context_title``. The
+        existing ``_normalize_optional_string`` uses ``.strip()`` which
+        handles CRLF; pin the behavior so a future hand-rolled
+        replacement that only stripped ``\\n`` would catch the gap.
+        """
+        from egg_contracts.plan_parser import extract_pr_context_metadata_from_yaml
+
+        yaml_data = {
+            "pr": {
+                "title": "Implement #2548",
+                "context_title": "  Strategic plan for #2548  \r\n",
+                "context_description": "\r\n  multi-line  \n  body  \r\n",
+            },
+            "phases": [],
+        }
+        title, desc, warnings = extract_pr_context_metadata_from_yaml(yaml_data)
+        assert title == "Strategic plan for #2548"
+        # Internal newlines preserved; only leading/trailing stripped.
+        assert desc == "multi-line  \n  body"
+        assert warnings == []
+
+    def test_context_pr_number_accepts_large_int(self):
+        """A high GitHub PR number (six- or seven-digit) must round-trip.
+
+        Adversarial: a future ``int32``-style validator (``le=2**31-1``)
+        added without thought would clip realistic PR numbers on a
+        long-lived monorepo. Pin a generous ceiling so the validator
+        stays scoped to the ``ge=1`` lower bound documented in the model.
+        """
+        # GitHub doesn't publish a hard cap; common monorepos already
+        # exceed 100k PRs. 10_000_000 is comfortably above any
+        # plausible repo for the foreseeable future.
+        pr = PRMetadata(title="t", context_pr_number=10_000_000)
+        assert pr.context_pr_number == 10_000_000
+        # And it round-trips through model_validate without loss.
+        round_trip = PRMetadata.model_validate(pr.model_dump())
+        assert round_trip.context_pr_number == 10_000_000
+
+    def test_invalid_schemaversion_format_rejected(self):
+        """``schemaVersion`` must match the ``M.N`` regex — a freeform
+        string like ``"1.0-rc1"`` or ``"v1.0"`` must raise.
+
+        Adversarial: a future migration that emitted ``"1.1-#2548"`` or
+        ``"v1.1"`` would silently land on disk if the regex were
+        relaxed; pin the strict format so any drift fails fast.
+        """
+        payload = _minimal_contract_payload(schema_version="1.0-rc1")
+        with pytest.raises(ValidationError):
+            Contract.model_validate(payload)
+
+        payload = _minimal_contract_payload(schema_version="v1.0")
+        with pytest.raises(ValidationError):
+            Contract.model_validate(payload)
+
+    def test_legacy_1_0_with_explicit_context_fields_loads(self):
+        """A 1.0 payload that ALREADY carries the new ``context_*`` keys
+        (e.g., a hand-edited contract or a partial mid-flight migration)
+        must load cleanly: the schemaVersion bumps, the explicit context
+        values are preserved.
+
+        Adversarial: the migration shim only runs when schemaVersion is
+        exactly ``"1.0"``. Pin that the bump does NOT erase explicit
+        context values — the validator must be additive, not corrective.
+        """
+        payload = _minimal_contract_payload(schema_version="1.0")
+        payload["pr"]["context_title"] = "Strategic plan for #2548"
+        payload["pr"]["context_description"] = "Refine + plan artifacts."
+        payload["pr"]["context_branch"] = "egg/issue-2548/context"
+        payload["pr"]["context_pr_number"] = 4242
+
+        contract = Contract.model_validate(payload)
+        assert contract.schemaVersion == "1.1"
+        assert contract.pr is not None
+        assert contract.pr.context_title == "Strategic plan for #2548"
+        assert contract.pr.context_description == "Refine + plan artifacts."
+        assert contract.pr.context_branch == "egg/issue-2548/context"
+        assert contract.pr.context_pr_number == 4242
+
+    def test_extract_returns_none_when_pr_block_is_non_dict(self):
+        """A malformed ``pr:`` block (e.g. a list) must not crash the
+        extractor. Returns ``(None, None, [])`` — the warning is
+        already produced by ``extract_pr_metadata_from_yaml`` so we do
+        not duplicate it here, but the extractor must short-circuit
+        rather than ``AttributeError`` on ``.get``.
+
+        Adversarial: a planner that confused YAML mapping syntax could
+        emit ``pr: [title, body]``. The legacy ``extract_pr_metadata_from_yaml``
+        produces a structural warning for that case; the new context
+        extractor must align with that contract (silent short-circuit
+        when its sibling already warned) rather than raising.
+        """
+        from egg_contracts.plan_parser import extract_pr_context_metadata_from_yaml
+
+        title, desc, warnings = extract_pr_context_metadata_from_yaml(
+            {"pr": ["title-as-list-item", "body-as-list-item"]}
+        )
+        assert title is None
+        assert desc is None
+        assert warnings == []
