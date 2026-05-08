@@ -2029,6 +2029,202 @@ class GatewayClient:
                     pass
 
     # ------------------------------------------------------------
+    # #2548 — context-branch creation
+    # ------------------------------------------------------------
+
+    def create_context_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        base_branch: str,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Create the doc-only context branch on origin from ``base_branch``.
+
+        Pushes ``<base_sha>:refs/heads/egg/<pipeline_id>/context`` via a
+        synthetic, launcher-authenticated session through
+        ``/api/v1/git/push``.  The base SHA is resolved by querying origin
+        directly (``git ls-remote``), mirroring
+        :meth:`create_slice_integration_branch` so we never depend on
+        local ref-name resolution in the orchestrator's per-pipeline
+        worktree (which is checked out on ``<branch>/work`` and does NOT
+        carry a local ref matching the configured ``base_branch``).
+
+        The gateway treats this push as orchestrator infrastructure: the
+        synthetic flag (only settable by ``/api/v1/sessions/create``,
+        which is gated on the launcher secret) combined with the context
+        branch name ``egg/<pipeline_id>/context`` short-circuits the
+        pipeline-session push block from #2028 — see the
+        ``_CONTEXT_BRANCH_RE`` exemption in ``gateway/gateway.py``.  The
+        branch itself still passes the normal ``egg/`` prefix branch-
+        ownership check, so no orchestrator-role push surface is
+        introduced.
+
+        Idempotency semantics (per #2548 task-1-1):
+
+        * Branch absent on origin → push from ``base_sha`` and return
+          ``True``.
+        * Branch already exists at exactly ``base_sha`` → return ``True``
+          without re-pushing.
+        * Branch exists at a different SHA → raise
+          :class:`GatewayError` so the caller surfaces a clear conflict
+          rather than silently overwriting commits already on the
+          context branch (e.g. from a prior partial run).  This is the
+          critical difference from
+          :meth:`create_slice_integration_branch`, which short-circuits
+          on descended-from-base tips because per-role agent commits
+          legitimately accumulate there; the context branch is owned
+          end-to-end by the orchestrator and any divergence is a bug,
+          not work-in-progress to preserve.
+
+        Args:
+            pipeline_id: Pipeline ID; the branch shape is
+                ``egg/<pipeline_id>/context``.
+            repo_path: Path the gateway will ``cd`` into for the push.
+            base_branch: Pipeline base branch (e.g. ``"main"``,
+                ``"develop"``).  NOT hardcoded — honors whatever the
+                pipeline was configured with.
+            agent_role: Forwarded to the synthetic session metadata for
+                audit logging; the gateway does not require any specific
+                role for the synthetic-session exemption.
+            mode: Network mode (``"public"`` / ``"private"``) for the
+                synthetic session.
+
+        Returns ``True`` on success (branch created or already at the
+        right SHA).  Raises :class:`GatewayError` if the branch exists
+        at a different SHA, or if the base ref cannot be resolved on
+        origin (caller surfaces the cause).  Other gateway / network
+        errors are logged and re-raised so the caller can decide
+        whether to abort or continue.
+        """
+        if not pipeline_id or not base_branch:
+            raise ValueError("create_context_branch requires both pipeline_id and base_branch")
+
+        context_branch = f"egg/{pipeline_id}/context"
+
+        # One synthetic session shared across fetch, ls-remote, and push
+        # (mirrors create_slice_integration_branch's #2398 refactor).
+        temp_container_id = f"{pipeline_id}-context-branch"
+        base_sha: str | None = None
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                branch=context_branch,
+                synthetic=True,
+            )
+            session_token = session.session_token
+
+            # Refresh the local remote-tracking ref so the base's commit
+            # object is available for the push below.  ``git push
+            # <sha>:refs/heads/...`` requires the source object to be
+            # locally reachable; the fetch makes that true even when the
+            # worktree was just created and has never seen this ref.
+            # Best-effort: a transient fetch failure is not fatal — the
+            # base object may already be local from a prior step, so we
+            # still attempt the ls-remote / push.
+            self.fetch_branch(
+                pipeline_id,
+                repo_path,
+                args=[f"+refs/heads/{base_branch}:refs/remotes/origin/{base_branch}"],
+                mode=mode,
+                bearer_token=session_token,
+            )
+
+            # Resolve the base to a SHA on origin.  Failing fast here
+            # produces a clear "base not found" error instead of git's
+            # confusing ``src refspec X does not match any``.
+            base_sha = self.get_remote_branch_sha(
+                pipeline_id,
+                repo_path,
+                f"refs/heads/{base_branch}",
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if not base_sha:
+                raise GatewayError(
+                    f"Base branch '{base_branch}' not found on origin; "
+                    f"cannot create context branch '{context_branch}'",
+                )
+
+            # Idempotency check: if context branch already exists at
+            # exactly base_sha, short-circuit success (no-op).  If it
+            # exists at a different SHA, raise — see semantics above.
+            existing_sha = self.get_remote_branch_sha(
+                pipeline_id,
+                repo_path,
+                f"refs/heads/{context_branch}",
+                mode=mode,
+                bearer_token=session_token,
+            )
+            if existing_sha is not None:
+                if existing_sha == base_sha:
+                    logger.info(
+                        "Context branch already exists at base SHA — idempotent no-op",
+                        pipeline_id=pipeline_id,
+                        context_branch=context_branch,
+                        base_branch=base_branch,
+                        base_sha=base_sha,
+                    )
+                    return True
+                raise GatewayError(
+                    (
+                        f"Context branch '{context_branch}' already exists at "
+                        f"{existing_sha} but base '{base_branch}' resolves to "
+                        f"{base_sha}; refusing to overwrite — caller must "
+                        "investigate divergence (#2548)"
+                    ),
+                )
+
+            refspec = f"{base_sha}:refs/heads/{context_branch}"
+            self._make_request(
+                "/api/v1/git/push",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "refspec": refspec,
+                },
+                bearer_token=session_token,
+            )
+            logger.info(
+                "Created context branch",
+                pipeline_id=pipeline_id,
+                context_branch=context_branch,
+                base_branch=base_branch,
+                base_sha=base_sha,
+            )
+            return True
+        except GatewayError:
+            # Re-raise GatewayError unchanged so the caller can introspect
+            # the cause (missing base, divergent existing tip, push
+            # rejection, transport failure).  Cleanup happens in the
+            # ``finally`` clause.
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to create context branch",
+                pipeline_id=pipeline_id,
+                context_branch=context_branch,
+                base_branch=base_branch,
+                base_sha=base_sha,
+                error=str(exc),
+            )
+            raise
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    # ------------------------------------------------------------
     # #2137 — stacked-PR reconciler list helpers (TASK-5-3)
     # ------------------------------------------------------------
 
