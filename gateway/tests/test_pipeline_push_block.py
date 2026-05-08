@@ -985,3 +985,105 @@ class TestSliceIntegrationBranchExemption:
             assert data.get("error") == "restricted_path_modified", body
             assert data.get("role") == "coder", body
             assert ".egg-state/contracts/some.json" in (data.get("blocked_paths") or []), body
+
+
+class TestContextBranchExemption:
+    """Context-branch creation exemption (#2548).
+
+    Mirror of :class:`TestSliceIntegrationBranchExemption` but for the
+    new ``egg/<base>/context`` shape.  The orchestrator's
+    ``create_context_branch`` registers a synthetic, launcher-authed
+    session and pushes ``base:refs/heads/egg/<id>/context`` so the doc-
+    only context PR has a target branch before any agent runs.  That
+    push is orchestrator infrastructure and must bypass the #2028
+    pipeline-session block the same way slice integration pushes do.
+    """
+
+    def test_synthetic_session_context_branch_push_allowed(self, client):
+        """Synthetic-session push to ``egg/issue-N/context`` is allowed."""
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2548/context")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            response = _do_push(
+                client,
+                refspec="main:refs/heads/egg/issue-2548/context",
+            )
+            assert response.status_code == 200, (
+                f"Expected 200 for synthetic context branch push, "
+                f"got {response.status_code}: {response.data!r}"
+            )
+
+    def test_non_synthetic_session_context_branch_push_blocked(self, client):
+        """Agent (non-synthetic) push to a context branch is still blocked.
+
+        Same trust gate as the slice integration branch exemption — the
+        regex alone is never enough; the synthetic flag must be set, and
+        only the launcher can set it.
+        """
+        session = _make_session(synthetic=False, assigned_branch="egg/issue-2548/context")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            response = _do_push(
+                client,
+                refspec="main:refs/heads/egg/issue-2548/context",
+            )
+            assert response.status_code == 403, (
+                "Non-synthetic session push to context branch must still "
+                "be blocked by pipeline-session enforcement"
+            )
+
+    def test_synthetic_session_qualified_context_branch_push_allowed(self, client):
+        """Qualifier-suffixed pipelines — ``egg/issue-N-v3/context`` — pass."""
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2474-v2/context")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            response = _do_push(
+                client,
+                refspec="main:refs/heads/egg/issue-2474-v2/context",
+            )
+            assert response.status_code == 200
+
+    def test_synthetic_session_context_multi_segment_blocked(self, client):
+        """Multi-segment shapes (``egg/foo/bar/context``) are not produced
+        by the orchestrator and the regex MUST reject them — same shape
+        constraint as the slice integration branch regex."""
+        session = _make_session(synthetic=True, assigned_branch="egg/foo/bar/context")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            response = _do_push(
+                client,
+                refspec="main:refs/heads/egg/foo/bar/context",
+            )
+            assert response.status_code == 403
