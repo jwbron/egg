@@ -9347,43 +9347,119 @@ def _auto_create_pr(
 # ----------------------------------------------------------------------
 
 # Files copied from the work-branch worktree onto the context worktree.
-# Drafts and aggregate refine/plan BRC artifacts are listed explicitly;
-# agent transcripts are matched as globs because their per-role suffixes
-# (architect, refiner, reviewer_*, etc.) vary by pipeline configuration.
-# Issue #2548 feedback Q3: include agent transcripts for maximum
-# transparency on the merge to ``main``.
-_CONTEXT_PR_FILE_GLOBS: tuple[str, ...] = (
+# Drafts and aggregate refine/plan BRC artifacts are listed explicitly.
+# Agent-transcript globs are derived dynamically from
+# ``get_roles_for_phase("refine")`` / ``get_roles_for_phase("plan")`` —
+# the orchestrator emits ``<identifier>-<role>-output.{json,md}`` per the
+# ``save_agent_output`` shape (shared/egg_contracts/orchestrator.py:386),
+# NOT a phase-prefix shape, so a static ``<id>-refine-*`` glob would
+# silently match nothing (#2548 review finding by reviewer_code).  The
+# refine + plan rosters are the canonical source of truth: a future
+# role addition is auto-picked up.
+_STATIC_CONTEXT_PR_FILE_GLOBS: tuple[str, ...] = (
     ".egg-state/drafts/{identifier}-analysis.md",
     ".egg-state/drafts/{identifier}-plan.md",
     ".egg-state/brc-history/{identifier}-refine.json",
     ".egg-state/brc-history/{identifier}-refine.md",
     ".egg-state/brc-history/{identifier}-plan.json",
     ".egg-state/brc-history/{identifier}-plan.md",
-    ".egg-state/agent-outputs/{identifier}-refine-*.md",
-    ".egg-state/agent-outputs/{identifier}-refine-*.json",
-    ".egg-state/agent-outputs/{identifier}-plan-*.md",
-    ".egg-state/agent-outputs/{identifier}-plan-*.json",
 )
+
+# Per-agent-output suffix patterns appended to ``<identifier>-<role>-``
+# for each role in the refine + plan rosters. ``-output.{json,md}`` is
+# the canonical filename written by ``save_agent_output``; the bare
+# ``-*.{json,md}`` patterns provide forward-compat for any future
+# secondary file (decisions, summaries) a role might emit alongside its
+# primary output.
+_AGENT_OUTPUT_SUFFIXES: tuple[str, ...] = (
+    "-output.json",
+    "-output.md",
+    "-*.json",
+    "-*.md",
+)
+
+
+def _refine_and_plan_role_values() -> list[str]:
+    """Return the canonical refine + plan agent-role values.
+
+    Pulls the producer + reviewer rosters straight from
+    :func:`agent_roles.get_roles_for_phase` so the context PR's set
+    of copied transcripts auto-tracks the rosters: a future role
+    added to plan_phase will be picked up without editing this hook.
+
+    Returns deduplicated role values in registration order.  Empty
+    list when ``agent_roles`` cannot be imported (defensive — same
+    fallback the rest of the orchestrator uses for that import).
+    """
+    try:
+        from egg_contracts.agent_roles import get_roles_for_phase
+    except ImportError:
+        try:
+            from agent_roles import get_roles_for_phase  # type: ignore[no-redef]
+        except ImportError:
+            return []
+
+    seen: set[str] = set()
+    values: list[str] = []
+    for phase in ("refine", "plan"):
+        try:
+            roles = get_roles_for_phase(phase, include_reviewers=True)
+        except Exception:  # noqa: BLE001
+            continue
+        for role in roles:
+            value = getattr(role, "value", str(role))
+            if value not in seen:
+                seen.add(value)
+                values.append(value)
+    return values
 
 
 def _gather_context_pr_files(
     work_worktree: Path,
     identifier: int | str,
 ) -> list[Path]:
-    """Resolve ``_CONTEXT_PR_FILE_GLOBS`` against ``work_worktree``.
+    """Resolve the curated context-PR file set against ``work_worktree``.
 
     Returns absolute paths of files that exist on the work branch
     worktree.  Missing files are silently skipped — the work-branch
     state is the source of truth and a missing draft (e.g.
     ``analysis.md`` for a pipeline that skipped the refine phase) is
-    not fatal.  Used by :func:`_open_context_pr_for_pipeline`.
+    not fatal.
+
+    Symbolic links are deliberately NOT followed: ``Path.is_symlink()``
+    short-circuits the entry, so a planted symlink under
+    ``.egg-state/drafts/`` (defense-in-depth against a hypothetical
+    future role-file boundary widening) cannot dereference a target
+    outside the work worktree onto the publicly-reviewable context PR
+    (#2548 review finding by reviewer_security).
+
+    Used by :func:`_open_context_pr_for_pipeline`.
     """
+    # Build the full glob set fresh per call so role-roster changes
+    # picked up at module reload time take effect immediately.
+    role_values = _refine_and_plan_role_values()
+    glob_templates: list[str] = list(_STATIC_CONTEXT_PR_FILE_GLOBS)
+    for role_value in role_values:
+        # ``role_value`` comes straight from a ``str`` enum literal
+        # (``AgentRole`` values are constrained alphabetic identifiers),
+        # so glob.escape is belt-and-braces.
+        escaped_role = glob.escape(role_value)
+        for suffix in _AGENT_OUTPUT_SUFFIXES:
+            glob_templates.append(f".egg-state/agent-outputs/{{identifier}}-{escaped_role}{suffix}")
+
     found: list[Path] = []
     seen: set[Path] = set()
-    for template in _CONTEXT_PR_FILE_GLOBS:
+    for template in glob_templates:
         rel = template.format(identifier=glob.escape(str(identifier)))
         for match in glob.glob(str(work_worktree / rel)):
             p = Path(match)
+            # ``is_symlink`` check defends against a future planted
+            # symlink dereferencing into the public PR; a regular file
+            # that happens to live inside ``.egg-state/`` flows through
+            # unchanged.  ``is_file()`` follows symlinks, so the order
+            # matters: check symlink first.
+            if p.is_symlink():
+                continue
             if p.is_file() and p not in seen:
                 seen.add(p)
                 found.append(p)
@@ -9438,6 +9514,26 @@ def _open_context_pr_for_pipeline(
     here must not strand the pipeline transition from plan to
     implement (per the same #2219 / #2337 robustness pattern other
     auto-advance helpers follow).
+
+    Idempotency model is convergent rather than mutually exclusive:
+    the top-of-function ``contract.pr.context_pr_number`` short-circuit
+    is read **without** holding the per-pipeline state lock.  If two
+    ``_run_pipeline`` ticks race past the check (e.g. a ``run_epoch``
+    transition while the prior tick was mid-flight), both perform the
+    heavy work — but the outcomes converge safely:
+
+    * gateway ``create_context_branch`` is no-op-on-same-SHA;
+    * ``git worktree add -B`` re-points the local branch at the prior
+      tick's pushed tip, file-copy is a no-op against identical
+      contents, ``_commit_statefiles_to_worktree`` skips when staged
+      is clean, ``push_worktree_branch`` is a fast-forward no-op;
+    * ``gh pr create`` rejects a duplicate ``head→base`` PR; the
+      failure path is logged and swallowed (the PR is already open).
+
+    The design avoids holding a process-wide lock across a multi-second
+    network sequence; the gateway primitive's raise-on-divergence
+    semantics are the safety net for any genuinely incoherent state
+    (#2548 review note from reviewer_concurrency).
     """
     pipeline_id = pipeline.id
 
@@ -9577,9 +9673,17 @@ def _open_context_pr_for_pipeline(
     pr_url: str | None = None
     pr_number: int | None = None
     try:
-        # Create a worktree tracking origin/<context_branch>.  ``-B``
-        # creates or resets a local branch pointed at the given
-        # commit-ish, mirroring what the gateway just pushed.
+        # Create a worktree tracking origin/<context_branch>.  ``-B`` is
+        # load-bearing for the convergent-idempotency model: if a prior
+        # ``_run_pipeline`` tick already pushed a context-branch commit
+        # but lost the contract update before persisting
+        # ``context_pr_number``, the next tick's ``-B`` re-points the
+        # local branch at ``origin/<context_branch>`` (which now carries
+        # the prior tick's commit), the file-copy step finds the same
+        # contents already on disk, ``_commit_statefiles_to_worktree``
+        # skips when nothing is staged, and ``push_worktree_branch``
+        # is a fast-forward no-op.  Without ``-B`` the second worktree-
+        # add would refuse on a divergent local-branch ref.
         try:
             subprocess.run(
                 [

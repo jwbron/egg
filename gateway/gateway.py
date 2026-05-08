@@ -1319,7 +1319,15 @@ def git_push() -> tuple[Response, int] | Response:
     # artifacts onto it.  Both shapes share the exemption — the synthetic-
     # session check below is the load-bearing trust gate; the regex match
     # only narrows which branches the exemption covers.
+    # ``is_slice_integration_push`` is a legacy variable name kept for the
+    # downstream audit-trail filter at the second event below; it now
+    # covers both slice-integration AND context-branch synthetic pushes.
+    # The branch-shape distinction is captured by ``is_context_push`` so
+    # the second exemption event below can emit a precise ``exempt_type``
+    # ("context_branch" vs "slice_integration_branch") and SIEM pipelines
+    # keying on ``exempt_type`` can tell them apart (#2548 review).
     is_slice_integration_push = False
+    is_context_push = False
     if not is_infrastructure_push and (
         _SLICE_INTEGRATION_BRANCH_RE.match(branch) or _CONTEXT_BRANCH_RE.match(branch)
     ):
@@ -1362,6 +1370,12 @@ def git_push() -> tuple[Response, int] | Response:
         if is_infrastructure_push or is_ckpt_repo:
             if is_ckpt_repo:
                 exempt_type = "checkpoint_repo"
+            elif is_context_push:
+                # Distinct ``exempt_type`` for context-branch pushes so
+                # SIEM pipelines that filter by the generic
+                # ``push_infrastructure_exempt`` event can tell them
+                # apart from slice-integration pushes (#2548 review).
+                exempt_type = "context_branch"
             elif is_slice_integration_push:
                 exempt_type = "slice_integration_branch"
             else:
