@@ -63,7 +63,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 from gateway_client import PushResult  # noqa: E402
 from models import Pipeline, PipelinePhase, PipelineStatus  # noqa: E402
 from routes.pipelines import (  # noqa: E402
-    _CONTEXT_PR_FILE_GLOBS,
+    _STATIC_CONTEXT_PR_FILE_GLOBS,
     _gather_context_pr_files,
     _open_context_pr_for_pipeline,
 )
@@ -161,11 +161,18 @@ def _seed_repo(repo_root: Path, identifier: int | str) -> dict[str, Path]:
     paths["plan_json"].write_text("{}\n")
     paths["plan_md"] = brc / f"{identifier}-plan.md"
     paths["plan_md"].write_text("# plan BRC\n")
-    paths["refine_transcript"] = outputs / f"{identifier}-refine-architect.md"
-    paths["refine_transcript"].write_text("refine architect transcript\n")
-    paths["plan_transcript"] = outputs / f"{identifier}-plan-planner.md"
-    paths["plan_transcript"].write_text("plan planner transcript\n")
-    paths["refine_transcript_json"] = outputs / f"{identifier}-refine-architect.json"
+    # Canonical agent-output filenames the orchestrator emits (per
+    # `save_agent_output` shape in shared/egg_contracts/orchestrator.py:386):
+    # `<id>-<role>-output.{md,json}`.  v2 of #2548 derives the glob
+    # set from `get_roles_for_phase("refine")` /
+    # `get_roles_for_phase("plan")` so the filenames must match real
+    # production roles (refiner / architect / etc.) rather than the
+    # phase-prefix shape that silently matched nothing.
+    paths["refine_transcript"] = outputs / f"{identifier}-refiner-output.md"
+    paths["refine_transcript"].write_text("refiner transcript\n")
+    paths["plan_transcript"] = outputs / f"{identifier}-architect-output.md"
+    paths["plan_transcript"].write_text("architect transcript\n")
+    paths["refine_transcript_json"] = outputs / f"{identifier}-refiner-output.json"
     paths["refine_transcript_json"].write_text("{}\n")
     return paths
 
@@ -732,31 +739,36 @@ class TestOpenContextPRAdversarial:
         assert result == "egg/issue-2548-v2/context"
         assert _CONTEXT_BRANCH_RE.match("egg/issue-2548-v2/context")
 
-    def test_glob_inventory_matches_documented_artifact_set(self):
-        """Pin the exact set of curated globs.  Future refactors that
-        drop one (or sneak in an unauthorized one — e.g.
-        ``.egg-state/contracts/*.json`` which would leak the contract
-        itself onto the context PR) are caught here."""
-        expected = {
+    def test_static_glob_inventory_matches_documented_artifact_set(self):
+        """Pin the *static* portion of the curated glob set (the part
+        that is NOT derived from ``get_roles_for_phase``).  Agent-
+        transcript globs live on the dynamic side (#2548 v2: derived
+        from refine + plan rosters at runtime so a future role
+        addition is auto-picked up).  Future refactors that drop one
+        of the static entries — or sneak in an unauthorized one,
+        e.g. ``.egg-state/contracts/*.json`` which would leak the
+        contract itself onto the context PR — are caught here."""
+        expected_static = {
             ".egg-state/drafts/{identifier}-analysis.md",
             ".egg-state/drafts/{identifier}-plan.md",
             ".egg-state/brc-history/{identifier}-refine.json",
             ".egg-state/brc-history/{identifier}-refine.md",
             ".egg-state/brc-history/{identifier}-plan.json",
             ".egg-state/brc-history/{identifier}-plan.md",
-            ".egg-state/agent-outputs/{identifier}-refine-*.md",
-            ".egg-state/agent-outputs/{identifier}-refine-*.json",
-            ".egg-state/agent-outputs/{identifier}-plan-*.md",
-            ".egg-state/agent-outputs/{identifier}-plan-*.json",
         }
-        assert set(_CONTEXT_PR_FILE_GLOBS) == expected, (
-            "The curated artifact set must match the documented Q3 answer "
-            "(analysis + plan + refine/plan BRC + refine/plan transcripts)."
+        assert set(_STATIC_CONTEXT_PR_FILE_GLOBS) == expected_static, (
+            "The static-glob set must match the documented Q3 answer "
+            "(analysis + plan + refine/plan BRC); agent transcripts are "
+            "added dynamically from the role roster."
         )
         # Defensive: contract files MUST NOT appear in this set.
-        for tmpl in _CONTEXT_PR_FILE_GLOBS:
+        for tmpl in _STATIC_CONTEXT_PR_FILE_GLOBS:
             assert "/contracts/" not in tmpl, (
                 "context PR must not include .egg-state/contracts/*.json"
+            )
+            assert "/agent-outputs/" not in tmpl, (
+                "agent-outputs must be added dynamically via "
+                "_refine_and_plan_role_values, not statically"
             )
 
     def test_save_contract_failure_does_not_re_raise(self, tmp_path, pipeline, make_spawner):

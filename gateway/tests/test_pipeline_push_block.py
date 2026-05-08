@@ -1087,3 +1087,52 @@ class TestContextBranchExemption:
                 refspec="main:refs/heads/egg/foo/bar/context",
             )
             assert response.status_code == 403
+
+    def test_audit_event_records_context_branch_exempt_type(self, client):
+        """Context-branch pushes emit ``push_infrastructure_exempt`` with
+        ``exempt_type="context_branch"`` (distinct from
+        ``slice_integration_branch``) so SIEM filters keying on
+        ``exempt_type`` can tell them apart (#2548 review)."""
+        session = _make_session(synthetic=True, assigned_branch="egg/issue-2548/context")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.object(gateway, "audit_log") as mock_audit:
+                response = _do_push(
+                    client,
+                    refspec="main:refs/heads/egg/issue-2548/context",
+                )
+                assert response.status_code == 200
+                events = [
+                    (call.args[0] if call.args else None, call.kwargs.get("details") or {})
+                    for call in mock_audit.call_args_list
+                ]
+                # The orchestrator-specific audit event still fires for context pushes,
+                # carrying a context-branch reason in its details.
+                slice_events = [e for e in events if e[0] == "push_slice_integration_exempt"]
+                assert slice_events, (
+                    f"Expected push_slice_integration_exempt event, got: {[e[0] for e in events]}"
+                )
+                assert any("context branch" in (e[1].get("reason") or "") for e in slice_events), (
+                    "push_slice_integration_exempt detail must identify context-branch pushes"
+                )
+                # The generic infra exemption event MUST use the
+                # context_branch exempt_type — this is the regression
+                # the test pins.
+                infra_events = [
+                    e
+                    for e in events
+                    if e[0] == "push_infrastructure_exempt"
+                    and e[1].get("exempt_type") == "context_branch"
+                ]
+                assert infra_events, (
+                    "Expected push_infrastructure_exempt with exempt_type=context_branch; "
+                    f"got: {[(e[0], e[1].get('exempt_type')) for e in events]}"
+                )
