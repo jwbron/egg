@@ -10095,6 +10095,330 @@ def _open_context_pr_for_pipeline(
     return context_branch
 
 
+def _resolve_slice_1_context_branch_from_contract(
+    pipeline_id: str,
+    worktree_repo_path: Path,
+) -> str | None:
+    """Load the contract and return ``contract.pr.context_branch`` —
+    slice-1's parent branch under #2548.
+
+    Returns the configured context branch (which may itself be the
+    empty string under a D4-policy-violating in-flight contract), or
+    ``None`` if the contract has no PR metadata.  Raises whatever
+    ``load_contract`` raises; the caller wraps the call in
+    ``try/except`` to fall back to the pipeline branch on failure.
+
+    Extracted as a module-level helper (rather than inlined in
+    ``_run_one_slice_inner``) so tests can scope failure injection
+    to this specific call site by patching
+    ``routes.pipelines._resolve_slice_1_context_branch_from_contract``,
+    rather than patching the global ``load_contract`` and counting
+    invocations to identify the resolver call — a brittle shape that
+    breaks under any refactor that adds or removes a load_contract
+    call elsewhere in the slice loop.
+    """
+    from egg_contracts.loader import load_contract
+
+    contract_for_base = load_contract(pipeline_id, worktree_repo_path)
+    if contract_for_base.pr is None:
+        return None
+    return contract_for_base.pr.context_branch
+
+
+def _commit_slice_brc_history_to_integration_branch(
+    pipeline,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: Path,
+    slice_id: str,
+    integration_branch: str,
+    *,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> bool:
+    """Commit a slice's per-slice BRC history onto its integration branch (#2548).
+
+    Runs after the slice's implement-phase consensus is reached and
+    before the slice PR is opened, so reviewers approaching the slice
+    PR see the full BRC consensus transcript that approved the slice's
+    code as part of the diff.
+
+    Steps:
+
+    1. Refresh the per-slice BRC history files
+       (``.egg-state/brc-history/<identifier>-implement-<slice_id>.{json,md}``)
+       on the **work worktree** via :func:`_write_brc_history`.  The
+       writer pulls messages from the message store and re-renders the
+       canonical files; running it again on each slice's consensus is
+       idempotent and ensures any messages that landed since the last
+       phase-boundary write are captured.
+    2. Materialise a temporary git worktree on
+       ``origin/<integration_branch>`` (the slice's integration branch).
+       ``-B`` re-points the local branch ref so a prior tick that
+       crashed mid-flight can re-enter cleanly.
+    3. Copy ONLY this slice's per-slice BRC files
+       (``<identifier>-implement-<slice_id>.{json,md}``) from the work
+       worktree to the integration worktree.  Other slices' files (or
+       the unattributed sibling) are deliberately not copied — each
+       slice PR carries only its own BRC transcript per D2 / D5 of
+       #2548.
+    4. Commit via :func:`_commit_statefiles_to_worktree`
+       (orchestrator-authored, ``--no-verify``, idempotent: skips when
+       staged is empty).
+    5. Push via :meth:`GatewayClient.push_worktree_branch` (launcher-
+       auth so we bypass agent-facing push restrictions on
+       ``.egg-state/brc-history/``).
+
+    Returns ``True`` on success or no-op (files already committed and
+    push is a fast-forward no-op).  Returns ``False`` on any failure;
+    the caller treats this as best-effort and proceeds with PR
+    creation, since the BRC files remain on the work worktree as a
+    fallback audit trail.
+
+    Idempotency: every step is convergent — re-running mid-flight
+    against an already-committed integration branch produces no new
+    commit (``_commit_statefiles_to_worktree`` skips when nothing is
+    staged) and a no-op fast-forward push.
+
+    Concurrency: this hook runs from ``_run_one_slice_inner``, which
+    is itself invoked concurrently across slices in a thread pool.
+    Two slices reaching consensus near-simultaneously will both call
+    ``_write_brc_history`` on the same work worktree, and the writer
+    iterates every bucket — so slice-N's hook re-writes slice-(N-1)'s
+    per-slice files even though only slice-N's files are then copied
+    onto the integration branch.  This is safe because post-consensus
+    BRC messages are immutable: both writers stage byte-identical
+    content, and a torn ``Path.write_text`` produces the same result
+    as a clean one.  Only the per-slice files for *this* slice are
+    copied to the integration worktree (Step 3), so concurrent writes
+    do not cross-pollinate slice PRs.
+    """
+    pipeline_id = pipeline.id
+
+    if not pipeline.repo:
+        logger.info(
+            "Per-slice BRC commit: pipeline has no remote repo, skipping (#2548)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+        )
+        return False
+
+    identifier = _brc_history_identifier(pipeline)
+
+    # --- Step 1: refresh per-slice BRC files on the work worktree ---
+    try:
+        _write_brc_history(
+            worktree_repo_path,
+            pipeline_id,
+            "implement",
+            identifier,
+        )
+    except Exception as brc_err:  # noqa: BLE001
+        logger.warning(
+            "Per-slice BRC commit: failed to refresh BRC history on work "
+            "worktree, skipping integration-branch commit (#2548)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(brc_err),
+        )
+        return False
+
+    # The per-slice files we will copy onto the integration worktree.
+    # Both files are produced by ``_write_brc_history`` (markdown and
+    # JSON companion).  Missing files are tolerated — the writer logs
+    # at warning level but still succeeds on the other format, so we
+    # copy whichever exists.
+    history_dir = worktree_repo_path / ".egg-state" / "brc-history"
+    per_slice_files: list[Path] = []
+    for ext in ("md", "json"):
+        candidate = history_dir / f"{identifier}-implement-{slice_id}.{ext}"
+        if candidate.is_symlink():
+            # Defense-in-depth: a planted symlink could point outside
+            # ``.egg-state/`` and leak unrelated content onto the slice
+            # PR.  Mirrors the symlink defense in
+            # :func:`_gather_context_pr_files`.
+            logger.warning(
+                "Per-slice BRC commit: skipping symlink in brc-history (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                path=str(candidate),
+            )
+            continue
+        if candidate.is_file():
+            per_slice_files.append(candidate)
+
+    if not per_slice_files:
+        logger.warning(
+            "Per-slice BRC commit: no per-slice BRC files produced "
+            "for slice — skipping integration-branch commit (#2548)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            identifier=str(identifier),
+        )
+        return False
+
+    import shutil
+    import tempfile
+
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_repo_path}",
+        "-C",
+        str(worktree_repo_path),
+    ]
+
+    # --- Step 2: refresh the local remote-tracking ref for the
+    # integration branch.  The slice's agents pushed directly to
+    # ``origin/<integration_branch>`` during the run, so the work
+    # worktree's local tracking ref may lag.  Best-effort: a failure
+    # here usually means the agent-side push has not yet propagated;
+    # the worktree-add below would then fail and we'd return False.
+    try:
+        spawner.gateway.fetch_branch(
+            pipeline_id,
+            str(worktree_repo_path),
+            args=[f"+refs/heads/{integration_branch}:refs/remotes/origin/{integration_branch}"],
+            mode=gateway_mode,  # type: ignore[arg-type]
+        )
+    except Exception as fetch_err:  # noqa: BLE001
+        logger.warning(
+            "Per-slice BRC commit: fetch of integration branch failed (continuing) (#2548)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            integration_branch=integration_branch,
+            error=str(fetch_err),
+        )
+
+    tmp_worktree = Path(
+        tempfile.mkdtemp(prefix=f"egg-slice-brc-{pipeline_id}-{slice_id}-", dir="/tmp")
+    )
+    wt_path = tmp_worktree / "wt"
+
+    try:
+        try:
+            subprocess.run(
+                [
+                    *git_base,
+                    "worktree",
+                    "add",
+                    "-B",
+                    integration_branch,
+                    str(wt_path),
+                    f"origin/{integration_branch}",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            )
+        except subprocess.CalledProcessError as wt_err:
+            logger.warning(
+                "Per-slice BRC commit: worktree add failed, skipping (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                integration_branch=integration_branch,
+                stderr=(wt_err.stderr or "")[:500],
+            )
+            return False
+
+        # --- Step 3: copy ONLY this slice's BRC files onto the integration
+        # worktree.  Each file lands at the same relative path it occupies
+        # on the work worktree (``.egg-state/brc-history/...``).
+        for src in per_slice_files:
+            try:
+                rel = src.relative_to(worktree_repo_path)
+            except ValueError:
+                logger.warning(
+                    "Per-slice BRC commit: file outside work worktree, skipping it (#2548)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    src=str(src),
+                )
+                continue
+            dst = wt_path / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+        # --- Step 4: commit (idempotent — skips when staged is empty) ---
+        try:
+            _commit_statefiles_to_worktree(
+                wt_path,
+                f"Persist BRC history for {slice_id} (#2548)",
+                pipeline_identifier=identifier,
+                pipeline_id=pipeline_id,
+            )
+        except Exception as commit_err:  # noqa: BLE001
+            logger.warning(
+                "Per-slice BRC commit: commit failed, skipping (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(commit_err),
+            )
+            return False
+
+        # --- Step 5: push to origin/<integration_branch>.  Fast-forward
+        # no-op when the local tip matches origin (e.g. when the
+        # commit step was a no-op because everything was already
+        # committed on a prior tick).
+        try:
+            push_result = spawner.gateway.push_worktree_branch(
+                pipeline_id=pipeline_id,
+                repo_path=str(wt_path),
+                branch=integration_branch,
+                mode=gateway_mode,  # type: ignore[arg-type]
+                base_branch=pipeline.base_branch,
+            )
+        except Exception as push_err:  # noqa: BLE001
+            logger.warning(
+                "Per-slice BRC commit: push raised, skipping (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(push_err),
+            )
+            return False
+        if not push_result.ok:
+            logger.warning(
+                "Per-slice BRC commit: push failed, skipping (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                category=getattr(push_result, "category", None),
+                detail=getattr(push_result, "detail", None),
+            )
+            return False
+
+        logger.info(
+            "Per-slice BRC commit: pushed BRC history to integration branch (#2548)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            integration_branch=integration_branch,
+            files=[str(p.relative_to(worktree_repo_path)) for p in per_slice_files],
+        )
+        return True
+    finally:
+        # Best-effort cleanup of the temp worktree.  A failure here is a
+        # housekeeping problem, not a pipeline-blocker.
+        try:
+            subprocess.run(
+                [*git_base, "worktree", "remove", "--force", str(wt_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        except Exception as cleanup_err:  # noqa: BLE001
+            logger.debug(
+                "Per-slice BRC commit: worktree remove failed (continuing) (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(cleanup_err),
+            )
+        try:
+            shutil.rmtree(tmp_worktree, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 # Shared PR description guidance injected into planner prompts.
 # Kept as a constant so both _build_phase_prompt and _build_agent_prompt
 # stay in sync when the guidance evolves.
@@ -13740,8 +14064,46 @@ def _run_implement_phase_slices(
 
             def _run_one_slice_inner(slice_id: str, parent_slice_id: str | None) -> tuple[int, str]:
                 # Resolve parent branch for stacking.
+                #
+                # Slice-1 (the root, ``parent_slice_id is None``) stacks on
+                # the dedicated context branch (#2548). The context branch
+                # carries the refine + plan analysis docs and BRC consensus
+                # transcripts; stacking slice-1 on top of it makes those
+                # artifacts reachable through the slice PR diff.
+                # ``contract.pr.context_branch`` is populated by
+                # :func:`_open_context_pr_for_pipeline` after plan_gate
+                # approves and before slice-1 provisions, so it should
+                # always be present here under D4 (hard switchover, no
+                # backwards-compat). If it is missing — a policy violation
+                # rather than a supported configuration — fall back to
+                # ``pipeline_branch`` so the slice still provisions, and log
+                # a warning so an operator notices the asymmetry.
                 if parent_slice_id is None:
-                    parent_branch = pipeline_branch
+                    context_branch_for_slice1: str | None = None
+                    try:
+                        context_branch_for_slice1 = _resolve_slice_1_context_branch_from_contract(
+                            pipeline_id, worktree_repo_path
+                        )
+                    except Exception as load_err:  # noqa: BLE001
+                        logger.warning(
+                            "Slice-1 base resolution: failed to load contract — "
+                            "falling back to pipeline_branch (#2548)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            error=str(load_err),
+                        )
+                    if context_branch_for_slice1:
+                        parent_branch = context_branch_for_slice1
+                    else:
+                        logger.warning(
+                            "Slice-1 base resolution: contract.pr.context_branch "
+                            "is empty — falling back to pipeline_branch "
+                            "(#2548 D4 hard-switchover policy violation)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            pipeline_branch=pipeline_branch,
+                        )
+                        parent_branch = pipeline_branch
                 else:
                     parent_branch = f"{issue_branch}/{parent_slice_id}"
                 integration_branch = f"{issue_branch}/{slice_id}"
@@ -14008,6 +14370,37 @@ def _run_implement_phase_slices(
                         slice_id=slice_id,
                         error=str(load_err),
                     )
+
+                # #2548 task-2-2: persist this slice's per-slice BRC
+                # consensus history onto its integration branch as the
+                # final orchestrator-authored commit before the slice
+                # PR is opened.  This makes the BRC transcript that
+                # approved the slice's code part of the PR's diff so
+                # reviewers approaching the PR see the full consensus
+                # narrative without leaving the diff view.
+                #
+                # Best-effort: a failure here is logged and swallowed so
+                # the slice PR creation can still proceed — the BRC
+                # files remain on the work worktree as a fallback audit
+                # trail, and the next phase-boundary write will
+                # re-attempt them.  Idempotent on retry.
+                if pipeline.repo:
+                    try:
+                        _commit_slice_brc_history_to_integration_branch(
+                            pipeline,
+                            spawner,
+                            worktree_repo_path,
+                            slice_id,
+                            integration_branch,
+                            gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                        )
+                    except Exception as brc_commit_err:  # noqa: BLE001
+                        logger.warning(
+                            "Per-slice BRC commit raised (continuing) (#2548)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            error=str(brc_commit_err),
+                        )
 
                 pr_created = True
                 if slice_pr_data is not None and pipeline.repo:
