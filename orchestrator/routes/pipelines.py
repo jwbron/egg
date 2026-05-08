@@ -9832,7 +9832,7 @@ def _open_context_pr_for_pipeline(
         #   stray .egg-state/ files that aren't ours)
         # - idempotency: skips when nothing is staged on retry.
         try:
-            _commit_statefiles_to_worktree(
+            artifacts_committed = _commit_statefiles_to_worktree(
                 wt_path,
                 f"Add refine + plan context artifacts for {identifier} (#2548)",
                 pipeline_identifier=identifier,
@@ -9848,30 +9848,37 @@ def _open_context_pr_for_pipeline(
 
         # Push the worktree HEAD to ``origin/<context_branch>``.  Uses
         # launcher-auth (orchestrator-trusted) so it bypasses agent-
-        # facing push restrictions.
-        try:
-            push_result = spawner.gateway.push_worktree_branch(
-                pipeline_id=pipeline_id,
-                repo_path=str(wt_path),
-                branch=context_branch,
-                mode=gateway_mode,  # type: ignore[arg-type]
-                base_branch=base_branch,
-            )
-        except Exception as push_err:  # noqa: BLE001
-            logger.warning(
-                "Context PR hook: push raised, skipping (#2548)",
-                pipeline_id=pipeline_id,
-                error=str(push_err),
-            )
-            return None
-        if not push_result.ok:
-            logger.warning(
-                "Context PR hook: push failed, skipping (#2548)",
-                pipeline_id=pipeline_id,
-                category=getattr(push_result, "category", None),
-                detail=getattr(push_result, "detail", None),
-            )
-            return None
+        # facing push restrictions.  Skip when the commit was a no-op:
+        # the temp worktree is freshly checked out from
+        # ``origin/<context_branch>`` (after the ``fetch_branch`` call
+        # above), so an empty staged-vs-HEAD diff means origin already
+        # carries the artifacts and the push would be a fast-forward
+        # no-op.  Symmetric to the work-branch push optimisation
+        # (#2548 review suggestion D / F).
+        if artifacts_committed:
+            try:
+                push_result = spawner.gateway.push_worktree_branch(
+                    pipeline_id=pipeline_id,
+                    repo_path=str(wt_path),
+                    branch=context_branch,
+                    mode=gateway_mode,  # type: ignore[arg-type]
+                    base_branch=base_branch,
+                )
+            except Exception as push_err:  # noqa: BLE001
+                logger.warning(
+                    "Context PR hook: push raised, skipping (#2548)",
+                    pipeline_id=pipeline_id,
+                    error=str(push_err),
+                )
+                return None
+            if not push_result.ok:
+                logger.warning(
+                    "Context PR hook: push failed, skipping (#2548)",
+                    pipeline_id=pipeline_id,
+                    category=getattr(push_result, "category", None),
+                    detail=getattr(push_result, "detail", None),
+                )
+                return None
 
         # --- Step 4: open the PR ---
         title = (contract.pr.context_title or contract.pr.title or "").strip()
@@ -10027,10 +10034,23 @@ def _open_context_pr_for_pipeline(
     # next phase's commit cycle does not lose the context-PR linkage
     # (#2548 review issue 5).  Mirrors the
     # ``_persist_phase_gate_resolution`` pattern: best-effort commit,
-    # best-effort push.  A failure here leaves the contract on disk
-    # only — the next tick's ``_recover_existing_context_pr`` call
-    # path (#2548 review issue 1) is the safety net that backfills
-    # the contract from the live PR state on GitHub.
+    # best-effort push.
+    #
+    # A failure here leaves the contract update on disk locally but
+    # not on the work branch's remote.  Recovery via
+    # ``_recover_existing_context_pr`` is NOT the safety net for this
+    # path: recovery only fires when ``context_pr_number is None``,
+    # and the in-memory ``save_contract`` above has already populated
+    # that field, so the next tick short-circuits at the idempotency
+    # check before reaching the recovery code.  The actual safety net
+    # is the local on-disk contract plus a subsequent phase commit
+    # cycle eventually pushing the worktree state — which means a
+    # commit/push failure here followed by an orchestrator restart
+    # before any later commit-cycle pushes is a real durability gap.
+    # That gap is bounded by how the orchestrator handles worktree
+    # provisioning across restarts (the same gap the rest of the
+    # phase-commit code exhibits) and is not worsened by this hook
+    # (#2548 review suggestion H).
     if contract_persisted and pipeline.branch:
         committed = False
         try:

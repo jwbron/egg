@@ -882,6 +882,60 @@ class TestOpenContextPRDurability:
             "was a no-op — otherwise idempotent re-entries burn one "
             "fast-forward push per tick"
         )
+        # Pin the positive case so a future regression that skipped
+        # both pushes (e.g. by gating both on the same ``committed``
+        # var or by a typo in the gate) would still fail this test
+        # (#2548 review suggestion G).
+        context_branch_pushes = [
+            c for c in push_calls if c.kwargs.get("branch") == "egg/issue-2548/context"
+        ]
+        assert context_branch_pushes, (
+            "artifact-files push to the context branch must fire when "
+            "the artifact commit was non-empty — without this assert, "
+            "a regression skipping both pushes would still pass"
+        )
+
+    def test_artifact_push_skipped_when_artifact_commit_was_a_noop(
+        self, tmp_path, pipeline, make_spawner, monkeypatch
+    ):
+        """Symmetric to ``test_contract_push_skipped_when_commit_was_a_noop``.
+        When the **artifact-files** commit is a no-op (idempotent
+        re-entry: the temp worktree's HEAD already matches origin so
+        the staged-vs-HEAD diff is empty), the artifact-files push
+        must be skipped too — origin already carries the same content
+        and the push would be a fast-forward no-op (#2548 review
+        suggestion F)."""
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+
+        # First call (artifact-files commit on the temp context
+        # worktree) returns False — the no-op re-entry case.  The
+        # second call (contract commit on the work worktree) is
+        # irrelevant for this test but returning True keeps the test
+        # exercising the rest of the hook to make sure the push gate
+        # is the only thing that changed.
+        commit_returns: list[bool] = [False, True]
+
+        def _commit_helper(*_, **__):
+            return commit_returns.pop(0) if commit_returns else False
+
+        monkeypatch.setattr("routes.pipelines._commit_statefiles_to_worktree", _commit_helper)
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        push_calls = spawner.gateway.push_worktree_branch.call_args_list
+        context_branch_pushes = [
+            c for c in push_calls if c.kwargs.get("branch") == "egg/issue-2548/context"
+        ]
+        assert not context_branch_pushes, (
+            "artifact-files push must be skipped when the artifact "
+            "commit was a no-op — otherwise idempotent re-entries burn "
+            "one fast-forward push per tick"
+        )
 
 
 # ----------------------------------------------------------------------
