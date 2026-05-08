@@ -308,9 +308,28 @@
       "agent_exits": []
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Coder filed wrong_role impasse on task-1-1 (docs/architecture/orchestrator.md, docs/reference/orchestrator-cli.md; suggested_role=documenter). Documenter proposed task-1-2 only. Tester has 6 test failures on task-1-1 content and is holding its propose. BRC is deadlocked. How should task-1-1 be resolved?",
+      "context": "",
+      "options": [
+        "Delegate task-1-1 to documenter (instruct documenter to author the two orchestrator doc files and re-propose)",
+        "Skip task-1-1 for this slice: accept task-1-2 as-is; tester proposes with gaps; address task-1-1 in follow-up slice",
+        "Retry implement phase with task-1-1 explicitly assigned to documenter in the plan"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-08T22:03:50.247400Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-05-08T21:42:09.151692Z",
-  "updated_at": "2026-05-08T21:42:45.583907Z",
+  "updated_at": "2026-05-08T22:03:50.255640Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -324,6 +343,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8,
+  "version": 9,
   "jira_ticket": null
 }
