@@ -6,7 +6,7 @@
     "url": "https://github.com/jwbron/egg/issues/2548"
   },
   "pipeline_id": "issue-2548",
-  "current_phase": "implement",
+  "current_phase": "pr",
   "acceptance_criteria": [],
   "slices": [
     {
@@ -570,6 +570,17 @@
       "field_path": "current_phase",
       "old_value": "refine",
       "new_value": "implement",
+      "reason": "populator advanced contract.current_phase (no apply_mutation caller for this pipeline; #2427)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-08T22:36:38.445209Z",
+      "actor": "orchestrator",
+      "role": "system",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "implement",
+      "new_value": "pr",
       "reason": "populator advanced contract.current_phase (no apply_mutation caller for this pipeline; #2427)",
       "checkpoint_id": null
     }
