@@ -24,9 +24,15 @@ Concretely, one `babysit-pr` invocation:
    with role-typed file-access boundaries enforced by the gateway.
 5. On consensus, re-verifies the PR head SHA hasn't moved, fast-forwards
    the staging branch into the PR head branch, and pushes one commit.
-6. Writes the BRC-history trail to `.egg-state/brc-history/pr-<N>-<short-sha>-implement.{md,json}`
+6. Writes the BRC-history trail to
+   `.egg-state/brc-history/pr-<N>-<short-sha>-implement.{md,json}`
    so the PR carries a durable, content-addressed record of what was
-   raised and addressed.
+   raised and addressed. babysit-pr is one of the
+   [non-slice implement runs](concurrent-execution.md#brc-history-link-in-pr-body)
+   that emit a single content-addressed file rather than the
+   per-slice `<id>-implement-slice-<N>.{md,json}` files that
+   issue-mode pipelines now produce after
+   [#2548](https://github.com/jwbron/egg/issues/2548).
 
 The intent is **quality / consistency improvement, not just gating.** A PR
 that passes CI and has no reviewer blockers should still come out of a
@@ -206,7 +212,7 @@ own terminal.
 | `phase` | `implement` | No refine or plan. |
 | `has_contract` | `false` | Drops `reviewer_contract` from the implement-phase roster. |
 | `base.ref` | Taken from `pr.base.ref` | **Not** hardcoded to `main`. Reviewer and producer orient prompts and health checks all honour this. |
-| BRC-history id | `pr-<N>-<short-sha>-implement` | Content-addressed — multiple cycles on the same PR over time produce distinct history files. |
+| BRC-history id | `pr-<N>-<short-sha>-implement` | Content-addressed — multiple cycles on the same PR over time produce distinct history files. babysit-pr does **not** use the per-slice `<id>-implement-slice-<N>` partition introduced for issue-mode pipelines in [#2548](https://github.com/jwbron/egg/issues/2548): a babysit cycle has no slices, so the run is one of the [non-slice implement runs](concurrent-execution.md#brc-history-link-in-pr-body) that retain the single-file format. |
 
 ### Agent roster
 
@@ -297,8 +303,11 @@ comments on the PR — the decision is visible via the orchestrator
 surfaces and, if configured, via external notification handlers (e.g.
 Slack). The final-consensus commit itself becomes the only automatic
 artifact written back to the PR; the durable BRC-history trail lives
-on the branch under `.egg-state/brc-history/` so reviewers can read it
-alongside the diff.
+on the branch under `.egg-state/brc-history/` (as the single
+content-addressed `pr-<N>-<short-sha>-implement.{md,json}` pair, not
+the per-slice `<id>-implement-slice-<N>` files an issue-mode pipeline
+emits — see [#2548](https://github.com/jwbron/egg/issues/2548)) so
+reviewers can read it alongside the diff.
 
 ## What Changed (Migration Notes)
 
