@@ -9090,6 +9090,42 @@ _PR_DESCRIPTION_YAML_EXAMPLE = [
     "    components as a result.",
 ]
 
+# Shared context-PR framing guidance injected into planner prompts (#2548).
+# The planner may optionally emit ``pr.context_title`` / ``pr.context_description``
+# to give the dedicated context PR a different framing from the slice PRs;
+# falls back to ``pr.title`` / ``pr.description`` when omitted. The
+# orchestrator-populated fields ``pr.context_branch`` and
+# ``pr.context_pr_number`` are intentionally excluded — those are runtime
+# values written by the orchestrator after the context branch is created
+# and the context PR is opened, and the planner must NOT emit them.
+_PR_CONTEXT_GUIDANCE = [
+    "**Optional context-PR framing (#2548)**: the orchestrator opens a "
+    "dedicated *context PR* at the root of the slice stack carrying the "
+    "refine/plan analysis docs and BRC consensus history. You MAY emit "
+    "`pr.context_title` and `pr.context_description` to frame this "
+    'context PR differently from the slice PRs (e.g. "Strategic plan '
+    'for #N" vs the slice\'s "Implement …"). Both keys are optional — '
+    "omit them and the orchestrator falls back to `pr.title` / "
+    "`pr.description`. Do NOT emit `pr.context_branch` or "
+    "`pr.context_pr_number`: those are populated by the orchestrator "
+    "after the context branch is created and the PR is opened.",
+]
+
+# Example YAML lines documenting the optional context-PR keys. Indented to
+# match the surrounding ``pr:`` block (``  context_title:`` lines up with
+# ``  description:``). Both lines are commented-out hints because they are
+# optional — emitting them is encouraged when the framing should differ.
+_PR_CONTEXT_YAML_EXAMPLE_LINES = [
+    "  # Optional context-PR framing (#2548); omit to reuse pr.title / pr.description.",
+    "  # context_title: |-",
+    "  #   Strategic plan for #<issue> — refine/plan analysis + BRC history",
+    "  # context_description: |-",
+    "  #   Carries the refine analysis, the plan, the BRC consensus",
+    "  #   history that approved each, and the agent transcripts —",
+    "  #   so reviewers approaching the slice stack can see the strategic",
+    "  #   narrative on a PR that targets the configured base branch.",
+]
+
 # YAML safety guidance for planner prompts. Plain (unquoted) scalars break
 # when they contain ``: `` sequences — e.g. "Add `sequence: int = 0` field"
 # parses as a nested mapping and raises ScannerError. Block scalars (``|-``)
@@ -9366,6 +9402,8 @@ def _build_phase_prompt(
                 "",
                 *_PR_DESCRIPTION_GUIDANCE,
                 "",
+                *_PR_CONTEXT_GUIDANCE,
+                "",
                 "End your document with a fenced YAML block like this:",
                 "",
                 "````",
@@ -9381,6 +9419,7 @@ def _build_phase_prompt(
                 "  manual_steps: |",
                 "    Pre-merge: any required steps before merging",
                 "    Post-merge: any required steps after merging",
+                *_PR_CONTEXT_YAML_EXAMPLE_LINES,
                 "phases:",
                 "  - id: 1",
                 "    name: |-",
@@ -11178,6 +11217,8 @@ def _build_agent_prompt(
                 "",
                 *_PR_DESCRIPTION_GUIDANCE,
                 "",
+                *_PR_CONTEXT_GUIDANCE,
+                "",
                 "End your document with a fenced YAML block like this:",
                 "",
                 "````",
@@ -11193,6 +11234,7 @@ def _build_agent_prompt(
                 "  manual_steps: |",
                 "    Pre-merge: any required steps before merging",
                 "    Post-merge: any required steps after merging",
+                *_PR_CONTEXT_YAML_EXAMPLE_LINES,
                 "phases:",
                 "  - id: 1",
                 "    name: |-",
@@ -15431,11 +15473,38 @@ def _populate_contract_from_plan(
         if result.pr_title:
             from egg_contracts.models import PRMetadata
 
+            # #2548 — preserve orchestrator-populated runtime fields on
+            # ``PRMetadata`` across re-populates. The planner-emitted
+            # ``context_title`` / ``context_description`` still flow in
+            # fresh from the parsed plan; the fields below are populated
+            # by orchestrator code paths (gateway primitives, the
+            # conditional-ACK gate at ``complete_phase``) and would
+            # otherwise be silently dropped when this safety-net
+            # populator re-runs (e.g. on a ``start_phase=implement``
+            # re-entry where ``deferred_actions`` was already populated
+            # during implement-phase close).
+            #
+            # ``deferred_actions`` is the merge-blocking *Pre-merge
+            # Obligations* handoff written by ``decisions.py`` after a
+            # conditional-ACK gate resolves; losing it here erases the
+            # reviewer's only durable handoff for git-mv / migration /
+            # cross-repo flips. See test
+            # ``test_populate_contract_from_plan_preserves_deferred_actions``.
+            preserved_branch = contract.pr.context_branch if contract.pr is not None else None
+            preserved_pr_number = contract.pr.context_pr_number if contract.pr is not None else None
+            preserved_deferred_actions = (
+                list(contract.pr.deferred_actions) if contract.pr is not None else []
+            )
             contract.pr = PRMetadata(
                 title=result.pr_title,
                 description=result.pr_description or "",
                 test_plan=result.pr_test_plan or "",
                 manual_steps=result.pr_manual_steps or "",
+                context_title=result.pr_context_title,
+                context_description=result.pr_context_description,
+                context_branch=preserved_branch,
+                context_pr_number=preserved_pr_number,
+                deferred_actions=preserved_deferred_actions,
             )
             changed = True
 

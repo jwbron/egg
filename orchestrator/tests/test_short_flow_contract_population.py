@@ -154,6 +154,75 @@ class TestPopulateContractFromPlan:
         contract = load_contract(pipeline_id, tmp_path)
         assert len(contract.phases) == 0  # Still empty
 
+    def test_populate_contract_from_plan_preserves_deferred_actions(self, tmp_path: Path):
+        """A re-populate must preserve runtime-only ``PRMetadata`` fields.
+
+        Regression for the slice-1 review in PR #2555: the populator
+        rebuilds ``contract.pr`` wholesale from the plan, and a prior
+        version preserved ``context_branch`` / ``context_pr_number``
+        but silently wiped ``deferred_actions`` — the merge-blocking
+        Pre-merge Obligations handoff written by the conditional-ACK
+        gate at ``decisions.py:complete_phase``. The
+        ``start_phase=implement`` re-entry path can hit this populator
+        after ``deferred_actions`` is already populated; losing it
+        erases the only durable handoff for git-mv / migration /
+        cross-repo flips.
+
+        Setup: create a contract, populate ``contract.pr`` once from
+        the plan, then mutate ``contract.pr.deferred_actions`` and
+        ``contract.pr.context_branch`` / ``context_pr_number`` to
+        simulate runtime-populated state, save, and re-run the
+        populator. Assert the runtime fields survive while the
+        planner-emitted fields are refreshed from the plan.
+        """
+        from egg_contracts.loader import create_contract, load_contract, save_contract
+        from egg_contracts.models import DeferredAction
+        from routes.pipelines import _populate_contract_from_plan
+
+        pipeline_id = "pipeline-deferred-preserve"
+
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text(SAMPLE_PLAN)
+
+        # First populate — establishes ``contract.pr`` from the plan.
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        # Simulate runtime-populated state: a conditional-ACK gate
+        # resolved at ``complete_phase`` and stamped a deferred action,
+        # plus the orchestrator opened the context PR and stamped the
+        # branch / PR-number.
+        contract = load_contract(pipeline_id, tmp_path)
+        assert contract.pr is not None
+        contract.pr.deferred_actions = [
+            DeferredAction(
+                reviewer="reviewer_code",
+                condition="must rename foo → bar before merge",
+                resolved_in_diff="",
+            )
+        ]
+        contract.pr.context_branch = "egg/pipeline-deferred-preserve/context"
+        contract.pr.context_pr_number = 7777
+        save_contract(contract, tmp_path)
+
+        # Re-run the populator (e.g. start_phase=implement re-entry).
+        _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        # All three runtime-populated fields must survive the re-build.
+        contract_after = load_contract(pipeline_id, tmp_path)
+        assert contract_after.pr is not None
+        assert len(contract_after.pr.deferred_actions) == 1
+        assert (
+            contract_after.pr.deferred_actions[0].condition == "must rename foo → bar before merge"
+        )
+        assert contract_after.pr.deferred_actions[0].reviewer == "reviewer_code"
+        assert contract_after.pr.context_branch == "egg/pipeline-deferred-preserve/context"
+        assert contract_after.pr.context_pr_number == 7777
+        # And the planner-emitted fields are still refreshed from the plan.
+        assert contract_after.pr.title == "Add retry logic to API client"
+
 
 class TestEnsureStatefilesRestoresPRMetadata:
     """_ensure_statefiles_on_branch re-populates PR metadata from plan draft.

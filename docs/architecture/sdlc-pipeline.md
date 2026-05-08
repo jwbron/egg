@@ -83,7 +83,7 @@ The contract is a JSON document tracking the complete state of an issue through 
 
 ```json
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "issue": { "number": 133, "title": "...", "url": "..." },
   "current_phase": "implement",
   "slices": [{
@@ -115,6 +115,27 @@ The contract is a JSON document tracking the complete state of an issue through 
 > `Contract.slices`, and the `Phase`/`PhaseStatus` aliases preserve
 > existing imports. See [Slice-DAG Implement Phase](slice-dag.md) for
 > the full design.
+
+> **Schema 1.1 (#2548)**: `schemaVersion` was bumped from `1.0` to `1.1`
+> to track the addition of four optional `pr.context_*` fields on
+> `PRMetadata` (`context_title`, `context_description`, `context_branch`,
+> `context_pr_number`) used by the dedicated context-PR mechanism. The
+> bump is purely additive — pre-1.1 contracts load transparently via a
+> Pydantic `model_validator(mode="after")` migration that stamps
+> `schemaVersion = "1.1"` on every load when the on-disk value is exactly
+> `"1.0"`; the migration is silent (no audit-log entry) and idempotent.
+> `context_title` / `context_description` are planner-emitted optional
+> framing for the strategic-plan PR; `context_branch` /
+> `context_pr_number` are populated by the orchestrator after the context
+> branch is created and the context PR is opened.
+>
+> **As of slice-1 (#2548 part 1)**, only the schema fields and the
+> planner-prompt advertisement are wired. The orchestrator
+> branch-creation and PR-opening hooks land in #2548 slices 3-4 — until
+> those slices merge, the four `pr.context_*` fields are
+> forward-compatibly inert: planners may emit `context_title` /
+> `context_description` and the values flow into `PRMetadata`, but
+> nothing acts on them yet.
 
 ## HITL (Human-in-the-Loop) Mechanism
 
