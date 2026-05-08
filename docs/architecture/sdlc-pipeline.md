@@ -127,12 +127,15 @@ The contract is a JSON document tracking the complete state of an issue through 
 > `context_title` / `context_description` are planner-emitted optional
 > framing for the strategic-plan PR; `context_branch` /
 > `context_pr_number` are populated by the orchestrator after the context
-> branch is created and the context PR is opened. (Slice-1 lands the
-> schema fields and the planner-prompt advertisement; the orchestrator
-> branch-creation and PR-opening hooks land in #2548 slices 3-4. Until
-> those slices merge, the four `pr.context_*` fields are forward-compatibly
-> inert — planners may emit `context_title` / `context_description` and
-> the values flow into `PRMetadata`, but nothing acts on them yet.)
+> branch is created and the context PR is opened.
+>
+> **As of slice-1 (#2548 part 1)**, only the schema fields and the
+> planner-prompt advertisement are wired. The orchestrator
+> branch-creation and PR-opening hooks land in #2548 slices 3-4 — until
+> those slices merge, the four `pr.context_*` fields are
+> forward-compatibly inert: planners may emit `context_title` /
+> `context_description` and the values flow into `PRMetadata`, but
+> nothing acts on them yet.
 
 ## HITL (Human-in-the-Loop) Mechanism
 

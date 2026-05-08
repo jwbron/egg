@@ -56,6 +56,6 @@ files:
   # additions, pushing the file to ~1,530 lines. The slice-1 branch alone
   # is 1,388 lines (under the 1,500-line hard cap), but the merged
   # work-branch state breaches the cap. Allowlisting under #2548 so the
-  # BRC implement-phase lint passes; decompose in a follow-up.
+  # BRC implement-phase lint passes; decompose under #2569.
   shared/egg_contracts/plan_parser.py:
     issue: "2548"

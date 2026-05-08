@@ -753,8 +753,13 @@ class TestPRMetadataAdversarial:
         Adversarial: the existing tests cover ``int`` and ``dict`` for
         the description branch and ``int`` for the title branch. A
         ``list`` (e.g. a planner that confused ``context_title`` with
-        ``files_affected``) hits a different branch of pydantic's str
-        coercion machinery; pin the warning path explicitly.
+        ``files_affected``) would round-trip through
+        ``_normalize_optional_string`` as ``"['a', 'b']"`` if the
+        ``isinstance(raw_title, str)`` guard in
+        ``extract_pr_context_metadata_from_yaml`` regressed. The check
+        fires in the parser before the value reaches ``PRMetadata``, so
+        pydantic is not involved in this code path; pin the
+        parser-layer warning path explicitly.
         """
         from egg_contracts.plan_parser import extract_pr_context_metadata_from_yaml
 
