@@ -1069,6 +1069,7 @@ def _emit_ready_to_confirm_nudges(
     phase: str,
     newly_ready: list[dict[str, Any]],
     tracker: Any = None,
+    slice_id: str | None = None,
 ) -> None:
     """Emit a STATUS to each producer that newly became ready to confirm.
 
@@ -1082,12 +1083,18 @@ def _emit_ready_to_confirm_nudges(
     supplied, the per-version memo entry is rolled back so the producer
     can be re-nudged on the next state change.  Other producers in the
     batch are still attempted.
+
+    ``slice_id`` is forwarded into the STATUS metadata so the
+    implement-phase BRC writer (#2548) routes the nudge into the
+    producer's per-slice transcript.  Pipeline-level (non-slice) callers
+    leave it as ``None``.
     """
     if not newly_ready:
         return
     from message_store import Message, MessageType, get_message_store
 
     store = get_message_store()
+    _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
     for entry in newly_ready:
         producer = entry["role"]
         version = entry["version"]
@@ -1106,7 +1113,7 @@ def _emit_ready_to_confirm_nudges(
                         f"`egg-orch consensus confirmed` to confirm."
                     ),
                     phase=phase,
-                    metadata={"ready_to_confirm": True, "version": version},
+                    metadata={"ready_to_confirm": True, "version": version, **_slice_meta},
                 )
             )
         except Exception as exc:
@@ -1277,7 +1284,15 @@ def handle_consensus_propose_signal(
                 details=result,
             )
 
-        # Write consensus message to message bus
+        # Write consensus message to message bus.
+        # Tag every CONSENSUS_* message with slice_id metadata when the
+        # producer is slice-scoped so the implement-phase BRC writer
+        # (#2548) can partition messages into per-slice transcript
+        # files. Pipeline-level (non-slice) callers leave the metadata
+        # off entirely — matches the legacy non-slice shape and signals
+        # the writer to fall back to its aggregate filename.
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
+
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
@@ -1295,6 +1310,7 @@ def handle_consensus_propose_signal(
                     "payload": payload,
                     "version": result.get("version"),
                     "commit_sha": commit_sha,
+                    **_slice_meta,
                 },
             )
         )
@@ -1320,13 +1336,16 @@ def handle_consensus_propose_signal(
                     metadata={
                         "producer_role": agent_role,
                         "version": result.get("version"),
+                        **_slice_meta,
                     },
                 )
             )
 
         # A new proposal can unblock the global zero-proposal guard for
         # producers that were previously fully ACKed but unable to confirm.
-        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []), tracker)
+        _emit_ready_to_confirm_nudges(
+            pipeline_id, phase, result.get("newly_ready", []), tracker, slice_id=slice_id
+        )
 
         return make_success_response(
             f"Proposal recorded for {agent_role}",
@@ -1419,6 +1438,10 @@ def handle_consensus_ack_signal(
 
         store = get_message_store()
         phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        # Tag with slice_id metadata for the implement-phase BRC writer's
+        # per-slice partitioning (#2548). Pipeline-level callers leave it
+        # off, matching the legacy non-slice shape.
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1428,7 +1451,11 @@ def handle_consensus_ack_signal(
                 subject=f"ACK from {reviewer_role} for {producer_role}",
                 body=payload.get("reason", ""),
                 phase=phase,
-                metadata={"payload": payload, "version": result.get("version")},
+                metadata={
+                    "payload": payload,
+                    "version": result.get("version"),
+                    **_slice_meta,
+                },
             )
         )
 
@@ -1437,7 +1464,9 @@ def handle_consensus_ack_signal(
         # critical-reviewer ACK predicate.  Replaces the prior ``fully_acked``
         # gate which fired before global guards (e.g. zero-proposal) cleared
         # and could mislead an advisory-only producer like documenter (#2078).
-        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []), tracker)
+        _emit_ready_to_confirm_nudges(
+            pipeline_id, phase, result.get("newly_ready", []), tracker, slice_id=slice_id
+        )
 
         return make_success_response(
             f"ACK recorded: {reviewer_role} -> {producer_role}",
@@ -1508,6 +1537,9 @@ def handle_consensus_nack_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
+        # Tag with slice_id metadata for the implement-phase BRC writer's
+        # per-slice partitioning (#2548).
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1521,6 +1553,7 @@ def handle_consensus_nack_signal(
                     "payload": payload,
                     "reason": result.get("reason"),
                     "revision_count": result.get("revision_count"),
+                    **_slice_meta,
                 },
             )
         )
@@ -1572,6 +1605,9 @@ def handle_consensus_withdraw_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
+        # Tag with slice_id metadata for the implement-phase BRC writer's
+        # per-slice partitioning (#2548).
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1581,6 +1617,7 @@ def handle_consensus_withdraw_signal(
                 subject=f"Withdrawal by {agent_role}",
                 body=reason,
                 phase=_resolve_pipeline_phase(pipeline_id, repo_path),
+                metadata=_slice_meta,
             )
         )
 
@@ -2008,6 +2045,11 @@ def handle_consensus_excuse_producer_signal(
 
         store = get_message_store()
         phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        # Tag with slice_id so the implement-phase BRC writer can
+        # partition this STATUS into the correct per-slice transcript
+        # (#2548). Pipeline-level (non-slice) callers leave the metadata
+        # off entirely.
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
 
         # Notify all agents that the producer has been excused
         store.add_message(
@@ -2028,6 +2070,7 @@ def handle_consensus_excuse_producer_signal(
                     "producer_role": producer_role,
                     "reason": reason,
                     "affected_reviewers": result.get("affected_reviewers", []),
+                    **_slice_meta,
                 },
             )
         )
@@ -2126,6 +2169,12 @@ def handle_consensus_resolve_obligation_signal(
 
         store = get_message_store()
         phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+        # Tag with slice_id metadata for the implement-phase BRC writer's
+        # per-slice partitioning (#2548). CONSENSUS_OBLIGATION_RESOLVED is
+        # in BRC_HISTORY_TYPES and can fire during the implement phase
+        # with slice scope (typical case: tester satisfies a coder's
+        # conditional ACK on a per-slice review).
+        _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -2145,6 +2194,7 @@ def handle_consensus_resolve_obligation_signal(
                     "note": note,
                     "version": result.get("version"),
                     "condition": result.get("condition", ""),
+                    **_slice_meta,
                 },
             )
         )
@@ -2218,6 +2268,10 @@ def handle_consensus_producer_push_signal(
 
             store = get_message_store()
             phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+            # Tag with slice_id metadata for the implement-phase BRC
+            # writer's per-slice partitioning (#2548). Same shape as the
+            # manual re-propose path in handle_consensus_propose_signal.
+            _slice_meta: dict[str, Any] = {"slice_id": slice_id} if slice_id is not None else {}
             store.add_message(
                 Message(
                     pipeline_id=pipeline_id,
@@ -2236,6 +2290,7 @@ def handle_consensus_producer_push_signal(
                         "commit_sha": commit_sha,
                         "version": result.get("version"),
                         "changed_files": changed_files,
+                        **_slice_meta,
                     },
                 )
             )
@@ -2266,6 +2321,7 @@ def handle_consensus_producer_push_signal(
                             "producer_role": agent_role,
                             "version": result.get("version"),
                             "commit_sha": commit_sha,
+                            **_slice_meta,
                         },
                     )
                 )
@@ -2278,7 +2334,7 @@ def handle_consensus_producer_push_signal(
             # ACKs were just invalidated), but skipping the call would
             # silently regress if a future guard depends on peer versions.
             _emit_ready_to_confirm_nudges(
-                pipeline_id, phase, result.get("newly_ready", []), tracker
+                pipeline_id, phase, result.get("newly_ready", []), tracker, slice_id=slice_id
             )
 
         return make_success_response(

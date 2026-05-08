@@ -705,7 +705,11 @@ When the orchestrator auto-creates the PR (during the PR phase), it includes a o
 
 > _Per-phase BRC transcripts: [`refine`](./.egg-state/brc-history/42-refine.md), [`plan`](./.egg-state/brc-history/42-plan.md), [`implement`](./.egg-state/brc-history/42-implement.md)._
 
-Phases are ordered by canonical execution order (`refine` → `plan` → `implement` → `pr`); any non-canonical names sort alphabetically after. The line is omitted entirely when no transcript files exist on disk or the identifier is `None`. See [#1828](https://github.com/jwbron/egg/issues/1828) for why the old inline BRC Consensus Summary was removed.
+In slice-aware mode (issue mode with `contract.slices`, #2548 hard switchover), the implement phase is partitioned per slice — the writer produces `{identifier}-implement-slice-<N>.md` (one file per slice) plus `{identifier}-implement-unattributed.md` for cross-cutting messages without canonical slice scope (HEARTBEAT, OVERSEER_ALERT, AGENT_FAILED, …). The aggregate `{identifier}-implement.md` file is **not** produced in slice mode. The link line clusters the per-slice files at the canonical `implement` rank in natural-sort order, with the unattributed sibling rendered last:
+
+> _Per-phase BRC transcripts: [`refine`](./.egg-state/brc-history/42-refine.md), [`plan`](./.egg-state/brc-history/42-plan.md), [`implement-slice-1`](./.egg-state/brc-history/42-implement-slice-1.md), [`implement-slice-2`](./.egg-state/brc-history/42-implement-slice-2.md), [`implement-unattributed`](./.egg-state/brc-history/42-implement-unattributed.md)._
+
+Babysit_pr and other non-slice implement runs continue to emit the aggregate `{identifier}-implement.md` file. Phases are ordered by canonical execution order (`refine` → `plan` → `implement` → `pr`); any non-canonical names sort alphabetically after. The line is omitted entirely when no transcript files exist on disk or the identifier is `None`. See [#1828](https://github.com/jwbron/egg/issues/1828) for why the old inline BRC Consensus Summary was removed and [#2548](https://github.com/jwbron/egg/issues/2548) for the per-slice partition.
 
 ### Consensus Check
 

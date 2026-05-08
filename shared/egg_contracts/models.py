@@ -383,7 +383,23 @@ class DeferredAction(EggContractBaseModel):
 
 
 class PRMetadata(EggContractBaseModel):
-    """Planner-generated PR metadata: title, description, test plan, and manual steps."""
+    """Planner-generated PR metadata: title, description, test plan, and manual steps.
+
+    Schema 1.1 (#2548) adds four optional ``context_*`` fields used by the
+    new dedicated context-PR mechanism. The context PR sits at the root of
+    the slice stack and carries the refine/plan analysis docs and BRC
+    consensus history, so that strategic narrative reaches ``main`` even
+    when slice PRs cascade-merge through the work branch.
+
+    * ``context_title`` / ``context_description`` are populated by the
+      planner when it wants the context PR framed differently from the
+      slice PRs (e.g. "Strategic plan for #N" vs the slice's "Implement
+      …"). When omitted the orchestrator falls back to ``title`` /
+      ``description``.
+    * ``context_branch`` / ``context_pr_number`` are populated by the
+      orchestrator after the context branch is created and the context
+      PR is opened — planners must NOT emit these fields.
+    """
 
     title: str = Field(..., min_length=1, description="PR title (recommended max 70 chars)")
     description: str = Field(default="", description="PR description/body")
@@ -394,6 +410,41 @@ class PRMetadata(EggContractBaseModel):
     manual_steps: str = Field(
         default="",
         description="Manual pre/post-merge steps (migrations, config changes, etc.)",
+    )
+    # ------------------------------------------------------------------
+    # #2548 — context-PR fields (schema 1.1).
+    # ------------------------------------------------------------------
+    context_title: str | None = Field(
+        default=None,
+        description=(
+            "Optional title for the dedicated context PR (#2548). Lets the "
+            "context PR be framed differently from slice PRs (e.g. "
+            "'Strategic plan for #N'). Falls back to ``title`` when None."
+        ),
+    )
+    context_description: str | None = Field(
+        default=None,
+        description=(
+            "Optional body for the dedicated context PR (#2548). Falls "
+            "back to ``description`` when None."
+        ),
+    )
+    context_branch: str | None = Field(
+        default=None,
+        description=(
+            "Branch name ``egg/<pipeline_id>/context`` once the orchestrator "
+            "has created it (#2548). Populated by the orchestrator hook that "
+            "runs after plan_gate; planners must NOT emit this field."
+        ),
+    )
+    context_pr_number: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "GitHub PR number once the context PR has been opened (#2548). "
+            "Populated by the orchestrator; planners must NOT emit this field. "
+            "Constrained to >=1 because GitHub PR numbers are positive."
+        ),
     )
     deferred_actions: list[DeferredAction] = Field(
         default_factory=list,
@@ -627,7 +678,16 @@ class Contract(EggContractBaseModel):
     """The complete SDLC contract."""
 
     schemaVersion: str = Field(  # noqa: N815
-        default="1.0", pattern=r"^[0-9]+\.[0-9]+$", description="Schema version"
+        default="1.1",
+        pattern=r"^[0-9]+\.[0-9]+$",
+        description=(
+            "Schema version. Bumped to ``1.1`` in #2548 to track the addition "
+            "of the optional ``pr.context_*`` fields. Pre-1.1 contracts load "
+            "transparently — the new fields default to None — and are "
+            "promoted to ``1.1`` whenever they are loaded into the model; "
+            "the new value is then persisted on the next save. See "
+            "``_migrate_schema_version_to_1_1``."
+        ),
     )
     issue: IssueInfo | None = Field(default=None, description="Issue metadata")
     pipeline_id: str | None = Field(
@@ -761,6 +821,38 @@ class Contract(EggContractBaseModel):
         instance: Contract = cast("Contract", handler(data))
         instance._legacy_phases = legacy_phases
         return instance
+
+    @model_validator(mode="after")
+    def _migrate_schema_version_to_1_1(self) -> Contract:
+        """Promote pre-1.1 contracts to schema ``1.1`` (#2548).
+
+        The ``1.0`` → ``1.1`` bump is purely additive — it documents the
+        arrival of the ``pr.context_*`` fields, which are all optional
+        and default to ``None``. Pre-1.1 JSON loads cleanly without the
+        fields; we just stamp the new version so downstream tooling
+        (audit, status renderers) sees a consistent value.
+
+        We deliberately do NOT touch versions outside ``{1.0}`` so that
+        an unrelated future bump (e.g. a hypothetical ``2.0``) does not
+        get silently downgraded back to ``1.1``.
+
+        This validator runs in ``mode="after"``, so the bump happens at
+        every load — including in-memory ``Contract.model_validate(...)``
+        calls — not lazily on the next save. The mutation is idempotent
+        (the conditional only fires when the value is exactly ``"1.0"``)
+        so re-running the validator on an already-migrated contract is
+        a no-op.
+
+        Note: the bump is silent — no ``AuditEntry`` is appended.
+        Operators inspecting the audit trail after a 1.0 → 1.1
+        promotion will not see a record of the change. Schema bumps
+        are uncommon enough that this is intentional; if a future
+        bump warrants audit visibility, a dedicated audit hook on
+        the migration validator is the right place to add it.
+        """
+        if self.schemaVersion == "1.0":
+            self.schemaVersion = "1.1"
+        return self
 
     @model_validator(mode="after")
     def _require_issue_or_pipeline_id(self) -> Contract:

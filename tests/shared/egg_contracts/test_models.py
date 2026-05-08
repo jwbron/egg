@@ -296,7 +296,11 @@ class TestContract:
                 url="https://github.com/owner/repo/issues/133",
             ),
         )
-        assert contract.schemaVersion == "1.0"
+        # schemaVersion default bumped from "1.0" to "1.1" in #2548 to
+        # track the addition of the optional ``pr.context_*`` fields.
+        # See ``test_pr_metadata.py::test_default_schemaversion_is_1_1``
+        # for the canonical pin.
+        assert contract.schemaVersion == "1.1"
         assert contract.issue.number == 133
         assert contract.current_phase == PipelinePhase.REFINE
         assert contract.phases == []

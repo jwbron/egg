@@ -1,0 +1,454 @@
+{
+  "issue": 2548,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Context PR for refine/plan artifacts + per-slice implement-phase BRC histories",
+  "summary": "Architecture analysis for landing refine/plan analysis docs, agent transcripts, and refine/plan BRC histories on a dedicated 'context PR' (egg/<id>/context, base=<pipeline.base_branch>) that slice-1 stacks on top of, plus splitting the implement-phase BRC history at write time into per-slice files (<id>-implement-slice-<N>.{json,md}) committed to each slice's integration branch before its PR opens. Hard switchover for new pipelines only; no backfill (HITL decision-4).",
+
+  "problem_statement": {
+    "description": "Slice PRs today carry only the slice's code diff; reviewers cannot see the refine/plan analysis docs, the planner's plan, the agent transcripts, or the BRC consensus history (proposals/NACKs/ACKs/CONFIRMs) that produced any of it. All those artifacts live on egg/<id>/work which is not in any slice PR's review surface against main. There is also no automatic mechanism today to merge egg/<id>/work into main at all — analysis/plan/BRC artifacts never reach main under the current setup.",
+    "goals": [
+      "Every PR reviewers approach carries (or links to) enough in-tree, in-diff context to understand the strategic decision (refine + plan) and the consensus that approved each artifact.",
+      "Refine/plan analysis docs, agent transcripts, and refine/plan BRC histories durably reach main via a reviewable PR.",
+      "Each slice PR's diff carries its own slice-specific implement-phase BRC consensus record so the consensus history is reviewable on the slice PR itself.",
+      "Close the 'work-branch never reaches main' gap by anchoring the slice stack on a context branch that does target main (per HITL feedback Q1)."
+    ],
+    "non_goals": [
+      "Backfilling in-flight pipelines (HITL decision-4: hard switchover, new pipelines only).",
+      "BRC-reviewing the context PR itself — it is doc-only auto-open, humans review on the PR (HITL decision-3).",
+      "Merge-gating on context PR before slicing starts — the pipeline does not block on its merge (HITL decision-3)."
+    ]
+  },
+
+  "hitl_resolutions": {
+    "decision-1": {
+      "question": "Where should refine/plan analysis docs and BRC consensus history live so they are reviewable on PRs targeting main?",
+      "selected": "Dedicated context PR (new egg/<id>/context branch based on main; slice-1 stacks on top of it)",
+      "implication": "Introduce a new branch egg/<id>/context and a new orchestrator step that creates it + opens a doc-only PR after plan_gate approval and before slicing starts."
+    },
+    "decision-2": {
+      "question": "How should the implement-phase BRC consensus history be split so each slice PR carries its own slice's history?",
+      "selected": "Split file at write time: orchestrator writes to .egg-state/brc-history/<id>-implement-slice-<N>.{json,md} (one per slice; no aggregate file)",
+      "implication": "_write_brc_history() (and its callers) must be slice-aware in the implement phase. The legacy <id>-implement.{json,md} aggregate path is removed for new pipelines (hard switchover per decision-4). _rewrite_brc_history_for_pr() must enumerate per-slice files."
+    },
+    "decision-3": {
+      "question": "Should the new context PR go through BRC review, or land as a doc-only PR auto-merged after plan_gate approval?",
+      "selected": "Doc-only auto-open (orchestrator opens; humans review on the PR; pipeline does not block on its merge before slicing)",
+      "implication": "No new BRC roster for the context PR; no plan_gate dependency on context PR merge; the orchestrator just opens the PR and proceeds to spawn slices. The context PR may be merged before, after, or never relative to slice PRs (humans choose)."
+    },
+    "decision-4": {
+      "question": "Rollout scope: which pipelines should the context-PR / per-slice BRC mechanism apply to?",
+      "selected": "Hard switchover, no backfill / no backwards compat",
+      "implication": "Implementation does not need code paths for in-flight pipelines that pre-date the change. Pydantic schema additions still need default=None so on-disk contracts from before the change can still be loaded for read-only inspection, but no migration path is required."
+    },
+    "decision-5": {
+      "question": "Where in the stack should the context PR sit (and what should slice-1's PR base be)?",
+      "selected": "Context PR base=<pipeline.base_branch> (NOT hardcoded main), slice-1 base=egg/<id>/context. Slice-1 stacks on context; context merges first, then slices cascade-merge.",
+      "implication": "All branch-base resolution must read from pipeline.base_branch / contract.repo.base_branch — never hardcode 'main'. The orchestrator already exposes this via Pipeline.repo / contract.base_branch; reuse it."
+    },
+    "feedback-1.Q1": {
+      "question": "Slice PRs target egg/<id>/work today and there's no automatic 'merge work to main' PR. Is the work-branch-as-base intentional and out of scope, or should this issue fix it?",
+      "answer": "In scope — fix as part of #2548. The work→main gap is the deeper problem; closing it via the context PR mechanism is on-scope.",
+      "implication": "After this lands, the slice stack anchors on egg/<id>/context (which targets <pipeline.base_branch>) instead of egg/<id>/work. The terminal slice's eventual cascade-merge reaches the base branch through context. egg/<id>/work continues to exist as the agent-output integration branch but no longer needs a 'merge to main' path."
+    },
+    "feedback-1.Q2": {
+      "question": "Should the context PR title/body reuse contract.pr.{title,description} or get separate context_title / context_description fields?",
+      "answer": "Add separate contract.pr.context_title / pr.context_description fields. Lets context framing differ from slice framing.",
+      "implication": "PRMetadata gains optional context_title and context_description fields. The planner emits both. Slice PRs continue to use contract.pr.{title,description,test_plan,manual_steps}; the context PR uses contract.pr.{context_title,context_description}."
+    },
+    "feedback-1.Q3": {
+      "question": "Should the context PR include per-phase agent transcripts (.egg-state/agent-outputs/<id>-{refine,plan}-*.{md,json}) or only final analysis.md / plan.md / BRC histories?",
+      "answer": "Include agent transcripts as well (.egg-state/agent-outputs/<id>-refine-*.md and similar). Maximum transparency.",
+      "implication": "The context-branch commit includes .egg-state/drafts/<id>-{analysis,plan}.md, .egg-state/brc-history/<id>-{refine,plan}.{json,md}, AND .egg-state/agent-outputs/<id>-{refine,plan}-*.{md,json}."
+    },
+    "feedback-1.Q4": {
+      "question": "Who authors the final 'commit BRC history to slice integration branch' commit?",
+      "answer": "Orchestrator-authored. Matches existing _commit_statefiles_to_worktree pattern; coder/tester gateway boundaries forbid them from pushing under .egg-state/brc-history/ anyway.",
+      "implication": "Reuse _commit_statefiles_to_worktree() (or a thin wrapper) and the orchestrator's existing synthetic-session push pattern. Do NOT route through coder/tester sessions."
+    },
+    "feedback-1.Q5": {
+      "question": "Should the implement-phase aggregate BRC also live on the context PR, or is per-slice sufficient?",
+      "answer": "Per-slice BRC only — each slice PR carries its own; no cross-slice aggregate file (consistent with decision-4).",
+      "implication": "No cross-slice aggregate <id>-implement.{json,md} is written. Each slice PR carries <id>-implement-slice-<N>.{json,md}. The context PR carries refine/plan BRC only."
+    }
+  },
+
+  "current_architecture": {
+    "branch_topology_today": {
+      "pipeline_branch": "egg/<id>/work — checked out as the orchestrator's per-pipeline worktree (after #2399). Receives all .egg-state writes (drafts, brc-history, contracts) and is where slice-1 currently bases from.",
+      "slice_branches": "egg/<id>/slice-N — created by gateway.create_slice_integration_branch() with parent_branch resolved as egg/<id>/work for slice-1, egg/<id>/slice-(N-1) for slice-N>1. Slice PRs base on parent_branch (line 12638 of orchestrator/routes/pipelines.py).",
+      "merge_target": "Slice PRs target egg/<id>/work or another slice branch — never main. egg/<id>/work itself is never automatically merged anywhere. Analysis/plan/BRC artifacts therefore never reach the base branch under current behavior.",
+      "orphan_fallback": "stacked_pr_reconciler._resolve_extant_new_base() (orchestrator/stacked_pr_reconciler.py:87-132) walks up dependencies[0] looking for an extant ancestor; ultimate fallback is pipeline_branch (egg/<id>/work)."
+    },
+    "brc_history_today": {
+      "writer": "_write_brc_history() (orchestrator/routes/pipelines.py:8110-8260) writes .egg-state/brc-history/<identifier>-<phase>.{md,json} from the message store, keyed only by phase name (no slice context).",
+      "shape": "One file per phase: <id>-refine.{md,json}, <id>-plan.{md,json}, <id>-implement.{md,json} (cross-slice aggregate today), <id>-pr.{md,json}.",
+      "persistence": "_persist_phase_brc_history() (lines 8355-8400) writes + commits via _commit_statefiles_to_worktree() at phase boundaries; called from complete_phase REST handler and the _run_pipeline auto-advance block.",
+      "pr_rewrite": "_rewrite_brc_history_for_pr() (lines 8265-8330) iterates completed phases and rewrites each phase's BRC history file before PR creation, then commits."
+    },
+    "statefile_commit_primitive": {
+      "function": "_commit_statefiles_to_worktree() at orchestrator/routes/pipelines.py:7179-7330. Stages files matching the pipeline_identifier prefix or pipeline_id, commits idempotently. All call sites are orchestrator-internal (lines 7593, 8311, 8392, 15909, 16453, 16917, 17096, 17466, 18117).",
+      "push_pattern": "Caller invokes spawner.gateway.push_worktree_branch() afterwards under a synthetic launcher-authenticated session. The pattern is the canonical 'orchestrator commits .egg-state and pushes' flow; coder/tester gateway boundaries forbid them from this surface."
+    },
+    "gateway_endpoints": {
+      "create_slice_integration_branch": "orchestrator/gateway_client.py:1696-1830. Pushes <parent_sha>:refs/heads/<integration_branch> via a synthetic launcher session. Gated by _SLICE_INTEGRATION_BRANCH_RE in gateway/gateway.py matching egg/<base>/(slice|phase)-N — the regex does NOT today admit egg/<base>/context.",
+      "create_pr": "orchestrator/gateway_client.py:1160-1252. Generic PR creation (used by _auto_create_pr today). Accepts title/body/head/base; reusable for the context PR.",
+      "create_slice_pr": "orchestrator/gateway_client.py:1257-1330. Slice-specific PR creation with program-narrative wiring (post-#2541, #2543). Not reused for context PR — different framing."
+    },
+    "contract_schema": {
+      "PRMetadata": "shared/egg_contracts/models.py:371-426. Fields: title, description, test_plan, manual_steps, deferred_actions. No context_title / context_description / context_pr_number / context_branch fields today.",
+      "Slice": "shared/egg_contracts/models.py:230-303. Carries id, name, dependencies, parent_branch_at_creation, commit, review_feedback. No per-slice BRC path / per-slice PR metadata fields.",
+      "no_SliceMetadata": "There is no SliceMetadata model. Per-slice BRC paths are implicit in the filename convention."
+    },
+    "phase_transition_path": {
+      "complete_phase": "orchestrator/routes/phases.py:769 (the REST handler). Resolves the 3-way HITL gate (#2004); on approve+accept, transitions through PHASE_TRANSITIONS (line 56-61) to the next phase.",
+      "auto_advance": "_run_pipeline (orchestrator/routes/pipelines.py:15429+) auto-advances phases via PHASE_HANDLERS once HITL clears.",
+      "implement_entry": "_run_implement_phase_slices() (line 12230) is the entry point that drives the slice DAG. The hook for 'create context PR' must run AFTER plan completion + plan_gate approval, BEFORE this function spawns the first slice."
+    },
+    "decomposition_constraint": "orchestrator/routes/pipelines.py is ~16,400 lines and being decomposed in #2261 (slice-15). Pre-allocated submodule clusters are documented in orchestrator/CLAUDE.md: _run_loop/, _concurrent_phase/, _pr_lifecycle/, _worktree_ops/. New code from this issue should slot into the appropriate cluster boundaries so it lands cleanly when #2261 slice-15 ships, OR ride alongside the existing monolith with clear function names."
+  },
+
+  "constraints": {
+    "technical": [
+      "Gateway file-boundary enforcement: only the orchestrator (and refine/plan agents writing to .egg-state/drafts) can push under .egg-state/brc-history/. The 'commit per-slice BRC history before slice PR opens' step MUST be orchestrator-authored.",
+      "Branch base must be pipeline.base_branch (or contract.repo.base_branch), NOT hardcoded 'main' (HITL decision-5).",
+      "_SLICE_INTEGRATION_BRANCH_RE in gateway/gateway.py currently admits egg/<base>/(slice|phase)-N but NOT egg/<base>/context — a regex extension or a new gateway endpoint is required.",
+      "Stacked-PR reconciler invariants: _resolve_extant_new_base() falls back to pipeline_branch when the ancestor chain is gone. With slice-1 anchored on context branch, the fallback should be context_branch (or pipeline.base_branch) — but only if the contract carries a context_branch reference; otherwise the legacy fallback should still apply.",
+      "BRC message store is keyed by phase name today. Per-slice splitting requires slice context to be available at write time. The implement-phase _write_brc_history() callers must be enriched to pass slice_id, OR the message-store filter must include slice metadata.",
+      "_rewrite_brc_history_for_pr() must enumerate per-slice files. The 'completed phases' iteration becomes per-(phase, slice_id) for the implement phase only.",
+      "Pydantic v2 schema additions on PRMetadata must default to None so loading older on-disk contracts during read-only inspection doesn't fail (decision-4 hard switchover means writes assume new fields, but reads of historic contracts must remain non-fatal)."
+    ],
+    "business_scope": [
+      "Hard switchover (decision-4): no backfill for in-flight pipelines. issue-2474-v2 (the reproduction case) does NOT get a retroactive context PR.",
+      "Doc-only auto-open (decision-3): the context PR opens automatically and the pipeline does NOT block on its human merge. Slice-1 spawns immediately after the context PR is opened, regardless of merge state.",
+      "Adjacent issues already merged: #2541 (slice PRs attributed to orchestrator), #2543 (every slice carries program narrative), #2538 (slice PR titles cleaned). These remain authoritative for slice PR title/body composition; the context PR is independent."
+    ],
+    "dependencies": [
+      "_commit_statefiles_to_worktree() is the canonical statefile commit primitive — reuse, don't replace.",
+      "gateway.create_slice_integration_branch() pattern is the canonical 'create branch on origin' primitive — extend the regex (or add a sibling endpoint) rather than introduce a new push pathway.",
+      "gateway.create_pr() is reusable for the context PR — no new gateway endpoint needed for PR creation itself.",
+      "Pipeline's base_branch must be reachable at the orchestrator's context-branch creation step. It is — Pipeline.repo carries it via the contract / pipeline metadata."
+    ]
+  },
+
+  "design": {
+    "summary": "Add a new orchestrator post-plan-gate step that (1) creates egg/<id>/context from <pipeline.base_branch>, (2) commits the refine/plan artifacts to it, (3) opens a doc-only PR with title/body from contract.pr.{context_title,context_description}, and (4) records the resulting PR number + branch on contract.pr. Modify _run_one_slice_inner so root slices base on context_branch (when present) instead of pipeline_branch. Modify _write_brc_history() and its implement-phase callers to emit per-slice files. Modify the orphan reconciler fallback to prefer context_branch over pipeline_branch when the chain is gone.",
+
+    "components": [
+      {
+        "id": "C1",
+        "name": "Context branch + context PR creation",
+        "responsibility": "After plan completion and plan_gate approval, create egg/<id>/context from <pipeline.base_branch> on origin, commit refine/plan artifacts and agent transcripts to it, open a doc-only PR.",
+        "key_files": [
+          "orchestrator/routes/pipelines.py — new function _create_context_pr(pipeline, worktree_repo_path, spawner, gateway_mode); call site in the auto-advance block in _run_pipeline (after _persist_phase_brc_history for plan, before _run_implement_phase_slices)",
+          "orchestrator/gateway_client.py — extend create_slice_integration_branch to admit a context branch name OR add a sibling create_branch_from_remote(parent_branch, branch_name) helper",
+          "gateway/gateway.py — extend _SLICE_INTEGRATION_BRANCH_RE (or a new exemption regex) to admit egg/<base>/context"
+        ],
+        "behavior": [
+          "Resolve base_branch = pipeline.base_branch or contract.repo.base_branch (NEVER hardcode 'main').",
+          "Create egg/<id>/context on origin from base_branch via gateway (synthetic launcher session, idempotent).",
+          "Materialize a worktree on egg/<id>/context (mirror of orchestrator's per-pipeline worktree pattern). Copy + commit the artifact set (analysis.md, plan.md, refine BRC, plan BRC, refine+plan agent transcripts) directly. The artifacts are already on egg/<id>/work — copy from the work worktree's filesystem.",
+          "Push egg/<id>/context to origin via the orchestrator's existing synthetic-session push.",
+          "Call gateway.create_pr(repo=pipeline.repo, title=contract.pr.context_title, body=contract.pr.context_description, head='egg/<id>/context', base=base_branch, agent_role='orchestrator', mode=gateway_mode).",
+          "Persist the PR URL/number on contract.pr.context_pr_number and the branch on contract.pr.context_branch via egg-contract / Pydantic update."
+        ],
+        "failure_handling": "If context branch creation OR PR open fails, log and continue WITHOUT setting context_pr_number — slice-1 then falls back to pipeline_branch (legacy behavior). Do NOT block slicing — decision-3 says doc-only auto-open. Surface the failure as a STATUS broadcast / overseer alert."
+      },
+      {
+        "id": "C2",
+        "name": "Per-slice implement-phase BRC history",
+        "responsibility": "Split implement-phase BRC history at write time into <id>-implement-slice-<N>.{json,md} per slice. Drop the cross-slice aggregate.",
+        "key_files": [
+          "orchestrator/routes/pipelines.py — _write_brc_history() (lines 8110-8260): add a slice_id parameter (Optional[str]) that, when set + phase=='implement', changes the output filename to <identifier>-implement-slice-<slice_id>.{md,json}",
+          "orchestrator/routes/pipelines.py — _persist_phase_brc_history() (lines 8355-8400): when phase=='implement', iterate over slices in scope and call _write_brc_history(slice_id=...) per slice; do NOT write the aggregate",
+          "orchestrator/routes/pipelines.py — _rewrite_brc_history_for_pr() (lines 8265-8330): for the implement phase, enumerate per-slice files instead of the single aggregate",
+          "orchestrator/routes/pipelines.py — slice-completion path in _run_one_slice_inner (around line 12631 before create_slice_pr): write the slice's BRC history, commit via _commit_statefiles_to_worktree, push to the slice integration branch BEFORE create_slice_pr opens the PR"
+        ],
+        "behavior": [
+          "Filter the message store by (phase=='implement', slice_id=<S>) — slice attribution comes from message metadata. Verify the message store carries slice metadata; if not, the producer/reviewer roles must include it on every implement-phase message they emit.",
+          "Filename: <identifier>-implement-slice-<slice_id>.{md,json}. No aggregate file written.",
+          "Commit timing: per-slice BRC is committed to the slice's integration branch as a final commit BEFORE create_slice_pr opens the PR for that slice. This puts the BRC history in the slice PR's diff.",
+          "The orchestrator's _run_one_slice_inner thread is the natural commit author — it already manages the slice integration branch and synthetic-session push pattern."
+        ],
+        "open_concern": "Verify whether the BRC message store today tags messages with slice_id during the implement phase. If not, message_store.get_messages() filtering must be extended OR the orchestrator's BRC-routing logic must inject slice_id into message metadata. Worth a quick spike during plan refinement before implementation begins."
+      },
+      {
+        "id": "C3",
+        "name": "Slice-1 base = context branch",
+        "responsibility": "When the contract carries a context_branch (i.e. context PR was created), slice-1's parent_branch resolves to that branch instead of pipeline_branch.",
+        "key_files": [
+          "orchestrator/routes/pipelines.py — _run_one_slice_inner (lines 12407-12410): change root-slice resolution to prefer contract.pr.context_branch when present, else pipeline_branch",
+          "orchestrator/routes/pipelines.py — _run_implement_phase_slices (lines 12230+): pass context_branch through to _run_one_slice_inner closure"
+        ],
+        "behavior": [
+          "Root slices (parent_slice_id is None) use parent_branch = contract.pr.context_branch if context_branch is present, else pipeline_branch.",
+          "Slice-N>1 unchanged: parent_branch = f'{issue_branch}/{parent_slice_id}'.",
+          "parent_branch_at_creation persistence captures the new value so the orphan reconciler can walk up correctly."
+        ]
+      },
+      {
+        "id": "C4",
+        "name": "Stacked-PR reconciler context-branch awareness",
+        "responsibility": "When the entire ancestor chain of an orphaned root slice is gone, fall back to context_branch (if present) instead of pipeline_branch.",
+        "key_files": [
+          "orchestrator/stacked_pr_reconciler.py — _resolve_extant_new_base() (lines 87-132): final fallback (line 132) becomes context_branch when present and extant, else pipeline_branch",
+          "orchestrator/stacked_pr_reconciler.py — caller of _resolve_extant_new_base must pass the context_branch reference (read from contract.pr.context_branch) into the helper signature"
+        ],
+        "behavior": [
+          "If context_branch is in extant_branches, return it as the fallback for root slices.",
+          "If context_branch is gone (e.g. the human merged + deleted it), fall back to pipeline.base_branch — root slices targeting the base branch are stable regardless.",
+          "Preserves existing behavior for pipelines that pre-date the change (no context_branch in contract → legacy fallback)."
+        ]
+      },
+      {
+        "id": "C5",
+        "name": "Contract schema: PRMetadata.context_*",
+        "responsibility": "Extend PRMetadata with optional context-PR fields the planner populates and the orchestrator persists.",
+        "key_files": [
+          "shared/egg_contracts/models.py — PRMetadata class (lines 371-426): add context_title (str, default=''), context_description (str, default=''), context_pr_number (int | None, default=None), context_branch (str | None, default=None)",
+          "shared/egg_contracts/contract.py / contract_io.py — ensure load_contract / save_contract round-trip the new fields without errors",
+          "shared/agent_prompts/planner-* — planner's PRMetadata-emission prompt + JSON schema gain context_title and context_description fields"
+        ],
+        "behavior": [
+          "Defaults of None / '' make Pydantic load older on-disk contracts non-fatally even though decision-4 says new pipelines only.",
+          "Planner is responsible for generating context_title (e.g. 'Context: <program-title>') and context_description (e.g. 'Strategic plan and BRC consensus history for issue #N. See <slice-1 PR link> and downstream slices for the implementation.')."
+        ]
+      },
+      {
+        "id": "C6",
+        "name": "Doc-updater / docs",
+        "responsibility": "Document the new branch topology, the per-slice BRC convention, the context PR's role, and the planner's context_title/context_description fields.",
+        "key_files": [
+          "docs/guides/sdlc-pipeline.md — branch topology section (today only mentions egg/<id>/work and egg/<id>/slice-N): add egg/<id>/context",
+          "docs/architecture/orchestrator.md — phase-transition diagram: add 'create context PR' step between plan completion and implement-phase slice spawning",
+          "docs/reference/agent-roles.md or wherever planner output schema lives: document context_title / context_description",
+          "shared/agent_prompts/planner-* prompts: instruct planner to emit context_title / context_description"
+        ]
+      },
+      {
+        "id": "C7",
+        "name": "Tests",
+        "responsibility": "Verify each component in isolation and the integration of context PR + slice-1 stacking.",
+        "key_files": [
+          "orchestrator/tests/test_pipelines_*.py — new tests for _create_context_pr (happy path + branch-creation-fail + PR-creation-fail)",
+          "orchestrator/tests/test_brc_history.py — _write_brc_history slice_id parameter, per-slice file naming, no aggregate file written",
+          "orchestrator/tests/test_run_implement_slices.py — slice-1 root resolution prefers context_branch when present, falls back to pipeline_branch when absent",
+          "orchestrator/tests/test_stacked_pr_reconciler.py — _resolve_extant_new_base context_branch fallback ordering",
+          "shared/egg_contracts/tests/test_models.py — PRMetadata new fields round-trip, defaults",
+          "integration_tests/ — end-to-end test where a multi-slice pipeline lands and we assert (a) the context PR exists with expected files in its diff, (b) slice-1 PR's base is the context branch, (c) each slice PR's diff carries its <id>-implement-slice-<N>.{json,md}"
+        ]
+      }
+    ],
+
+    "artifact_set_for_context_pr": {
+      "core_docs": [
+        ".egg-state/drafts/<id>-analysis.md",
+        ".egg-state/drafts/<id>-plan.md"
+      ],
+      "brc_histories": [
+        ".egg-state/brc-history/<id>-refine.{md,json}",
+        ".egg-state/brc-history/<id>-plan.{md,json}"
+      ],
+      "agent_transcripts": [
+        ".egg-state/agent-outputs/<id>-refine-*.md",
+        ".egg-state/agent-outputs/<id>-refine-*.json",
+        ".egg-state/agent-outputs/<id>-plan-*.md",
+        ".egg-state/agent-outputs/<id>-plan-*.json"
+      ],
+      "explicitly_excluded": [
+        "Implement-phase BRC history (per-slice; lives on slice PRs).",
+        "Cross-slice aggregate <id>-implement.{json,md} (not produced under decision-2).",
+        "Contract files (.egg-state/contracts/) — already merged on egg/<id>/work via existing mechanisms; not re-committed to context branch."
+      ]
+    },
+
+    "branch_topology_after_change": [
+      "<pipeline.base_branch> (e.g. main)",
+      "  ↑",
+      "egg/<id>/context  (NEW: doc-only PR, base=<base_branch>, head=egg/<id>/context)",
+      "  ↑",
+      "egg/<id>/slice-1  (PR base=egg/<id>/context, head=egg/<id>/slice-1)",
+      "  ↑",
+      "egg/<id>/slice-2  (PR base=egg/<id>/slice-1, head=egg/<id>/slice-2)",
+      "  ↑",
+      "...",
+      "",
+      "egg/<id>/work persists as the orchestrator's per-pipeline integration worktree but is no longer the merge anchor for the slice stack. It still receives all .egg-state/ writes during refine/plan; the context branch is materialized by copying those artifacts onto egg/<id>/context (created from base_branch on origin)."
+    ],
+
+    "alternatives_considered": [
+      {
+        "name": "Embed in slice-1's diff (Option B from refine analysis)",
+        "rejected_because": "HITL decision-1 selected Option A. Operator preferred separation of strategic context from slice-1's code review."
+      },
+      {
+        "name": "Render context into slice PR bodies (Option D from refine analysis)",
+        "rejected_because": "Not durable in git log / git blame; the issue's auditability requirement is unsatisfied."
+      },
+      {
+        "name": "Keep aggregate <id>-implement.{json,md} alongside per-slice files",
+        "rejected_because": "HITL decision-2 selected the 'split at write time' option (no aggregate) — simplifies _rewrite_brc_history_for_pr and avoids dual-write bugs."
+      },
+      {
+        "name": "BRC-review the context PR with reviewer_refine + reviewer_plan",
+        "rejected_because": "HITL decision-3 selected 'doc-only auto-open' — the context PR is informational; the strategic plan was already ACK'd in refine + plan BRC."
+      },
+      {
+        "name": "Hardcode 'main' as base for context PR",
+        "rejected_because": "HITL decision-5 explicitly amends Option 1 with base=<pipeline.base_branch> (NOT hardcoded). Pipelines may target develop / staging / other branches."
+      }
+    ]
+  },
+
+  "implementation_plan": {
+    "workstream_order": [
+      "WS1: PRMetadata schema additions (foundational; small surface; no behavior change)",
+      "WS2: _write_brc_history slice-aware writes (foundational for C2; unblocks WS5)",
+      "WS3: _create_context_pr + gateway exemption + planner context_title/context_description (the big new feature)",
+      "WS4: _run_one_slice_inner root-slice resolution + reconciler fallback (consumes context_branch from WS3)",
+      "WS5: Per-slice BRC commit before slice PR open (consumes WS2's slice-aware writer)",
+      "WS6: Doc updates (after behavior is stable)",
+      "WS7: Tests interleaved with each WS"
+    ],
+    "estimated_slices": 4,
+    "slice_proposal": [
+      {
+        "slice": "slice-1",
+        "name": "Schema + per-slice BRC writer",
+        "scope": "PRMetadata.context_* fields (default-tolerant), _write_brc_history slice_id parameter, message-store filtering verification.",
+        "rationale": "Smallest blast radius. Unlocks WS2-WS5 without changing visible behavior."
+      },
+      {
+        "slice": "slice-2",
+        "name": "Context PR creation + planner emission",
+        "scope": "_create_context_pr, gateway exemption for egg/<base>/context, planner prompt updates to emit context_title/context_description, contract persistence of context_pr_number/context_branch.",
+        "rationale": "Net-new feature; behavior gated on contract.pr.context_branch presence so it's safe to land before slice-3."
+      },
+      {
+        "slice": "slice-3",
+        "name": "Slice-1 root resolution + reconciler awareness + per-slice BRC commit",
+        "scope": "_run_one_slice_inner uses context_branch when present; stacked_pr_reconciler fallback prefers context_branch; per-slice BRC commit happens before create_slice_pr.",
+        "rationale": "Wires the new context branch into the slice flow. Must follow slice-2; before it, the context_branch field is unused at slice spawn."
+      },
+      {
+        "slice": "slice-4 (terminal)",
+        "name": "Docs + integration tests + cleanup of legacy aggregate write",
+        "scope": "docs/guides/sdlc-pipeline.md, docs/architecture/orchestrator.md, end-to-end integration test, removal of aggregate <id>-implement.{json,md} writes.",
+        "rationale": "Stabilization slice; the legacy aggregate-file write is removed only once the new path is proven."
+      }
+    ],
+    "key_files_touched": [
+      "shared/egg_contracts/models.py (MODIFY) — PRMetadata.context_* additions",
+      "shared/agent_prompts/planner-*.md (MODIFY) — emit context_title / context_description",
+      "orchestrator/routes/pipelines.py (MODIFY) — _write_brc_history, _persist_phase_brc_history, _rewrite_brc_history_for_pr, _run_implement_phase_slices, _run_one_slice_inner, NEW _create_context_pr",
+      "orchestrator/gateway_client.py (MODIFY) — extend create_slice_integration_branch admission OR add helper for context branch creation",
+      "gateway/gateway.py (MODIFY) — extend _SLICE_INTEGRATION_BRANCH_RE (or sibling exemption) for egg/<base>/context",
+      "orchestrator/stacked_pr_reconciler.py (MODIFY) — _resolve_extant_new_base context_branch fallback",
+      "docs/guides/sdlc-pipeline.md (MODIFY) — branch topology + context PR step",
+      "docs/architecture/orchestrator.md (MODIFY) — phase transition diagram",
+      "orchestrator/tests/test_*.py (NEW + MODIFY) — see C7",
+      "integration_tests/ (NEW) — multi-slice pipeline end-to-end with context PR assertion"
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R1",
+      "risk": "Context branch creation fails (gateway exemption regex / network error / parent SHA missing).",
+      "severity": "MEDIUM",
+      "mitigation": "Failure is non-fatal: log + STATUS broadcast + overseer alert; slice-1 falls back to pipeline_branch (legacy behavior). The doc-only auto-open posture (decision-3) explicitly tolerates this — the human can re-run or manually open the context PR. Track via a contract.pr.context_pr_creation_error field for audit if useful."
+    },
+    {
+      "id": "R2",
+      "risk": "BRC message store does not tag implement-phase messages with slice_id today, breaking the per-slice filter.",
+      "severity": "MEDIUM",
+      "mitigation": "Verify during plan-refine via a quick spike (grep for slice_id in message metadata in routes/signals + peer_consensus). If absent, slice-1 of this issue (schema + per-slice BRC writer) must include the metadata-injection fix on the producer/reviewer message-emission path. Tester role validates by inspecting captured messages."
+    },
+    {
+      "id": "R3",
+      "risk": "Stacked-PR reconciler walks up to a deleted context branch when human has merged + deleted it before all slices land.",
+      "severity": "LOW",
+      "mitigation": "_resolve_extant_new_base()'s walk + extant_branches check already handles deleted ancestors gracefully. Final fallback when context_branch is gone is pipeline.base_branch — root slices targeting the base branch directly are always stable. Add a unit test for this exact scenario."
+    },
+    {
+      "id": "R4",
+      "risk": "The orchestrator's per-pipeline worktree is checked out on egg/<id>/work; materializing egg/<id>/context requires either a second worktree or pushing a synthesized commit object via gateway.",
+      "severity": "MEDIUM",
+      "mitigation": "Two viable approaches: (a) add a temporary worktree at egg/<id>/context, copy the artifact set from the work worktree's filesystem, commit + push, drop the worktree; (b) build a tree object via git low-level commands and push the synthesized commit. Approach (a) is simpler and matches existing patterns. Spike during slice-2 planning to confirm worktree-add through the gateway is permitted from the orchestrator's session."
+    },
+    {
+      "id": "R5",
+      "risk": "Hard switchover breaks operators relying on the aggregate <id>-implement.{json,md} for offline analysis or historical tooling.",
+      "severity": "LOW",
+      "mitigation": "decision-4 explicitly accepts hard switchover. Document the rename in docs/guides/sdlc-pipeline.md and the release notes for the change. Existing files on disk in older pipelines are preserved (read-only)."
+    },
+    {
+      "id": "R6",
+      "risk": "orchestrator/routes/pipelines.py is at 16K+ lines and being decomposed in #2261; large additions risk merge conflicts with that effort.",
+      "severity": "MEDIUM",
+      "mitigation": "Coordinate with #2261 owners (probably overseer/operator). New code should slot into the pre-allocated _pr_lifecycle/ and _concurrent_phase/ submodule clusters per orchestrator/CLAUDE.md so that #2261 slice-15 absorbs them cleanly. Where decomposition is incomplete, place new functions immediately adjacent to their existing siblings (e.g. _create_context_pr next to _auto_create_pr at line 8870)."
+    },
+    {
+      "id": "R7",
+      "risk": "Planner role does not yet emit context_title / context_description; existing pipelines without them open a context PR with empty title/body.",
+      "severity": "LOW",
+      "mitigation": "PRMetadata defaults context_title to '' and context_description to ''. _create_context_pr falls back to a sensible default ('Context: ' + contract.pr.title; 'Strategic plan and BRC consensus history for issue #N. See linked slice PRs for implementation.') when the planner-supplied fields are empty. Slice-2 of the implementation includes the planner prompt update."
+    },
+    {
+      "id": "R8",
+      "risk": "Cherry-pick / merge ordering: if humans merge the context PR while slice-1 is still mid-review, slice-1 PR base becomes a deleted branch.",
+      "severity": "LOW",
+      "mitigation": "The stacked-PR reconciler (R3 mitigation) already handles this via the orphan-rebase mechanism; once context PR merges into base_branch, slice-1 reconciler retargets slice-1 to base_branch. Verify the cascade by an integration test that explicitly merges context first."
+    }
+  ],
+
+  "open_questions": [
+    {
+      "id": "Q1",
+      "question": "Does the BRC message store today carry slice_id metadata on every implement-phase message? If not, who injects it (producer agents, the orchestrator's BRC routing layer)?",
+      "context": "Per-slice BRC filtering depends on this. C2 mitigation R2 calls for a spike during plan-refine; surfacing here so the planner / task_planner can size the work.",
+      "recommendation": "task_planner: include a short spike task in slice-1 to confirm. If metadata is missing, add a sub-task to inject slice_id at message-emission time."
+    },
+    {
+      "id": "Q2",
+      "question": "Should context_branch be persisted on a per-pipeline state file (e.g. a contract.pr.context_branch field) or computed deterministically from pipeline_id (egg/<id>/context) at every read site?",
+      "context": "Deterministic computation (egg/<pipeline_identifier>/context) is simpler and avoids a contract write. Persisting allows future flexibility (e.g. multi-context-branch scenarios) but introduces a write-and-read invariant.",
+      "recommendation": "Compute deterministically from pipeline_identifier. Add the contract field only as a presence flag (context_pr_number != None ⇒ context branch was created; consumers compute the branch name)."
+    },
+    {
+      "id": "Q3",
+      "question": "What happens if the operator manually closes the context PR (without merging) mid-pipeline? Does slice-1 (already opened with base=context_branch) fail to merge later?",
+      "context": "PR closed without merge → context branch still exists on origin (not deleted automatically) → slice-1's base remains valid and merges into it normally.",
+      "recommendation": "No additional handling needed. Document the behavior. Optionally, the overseer monitor can flag a closed-without-merge context PR as an OVERSEER_ALERT for human attention."
+    }
+  ],
+
+  "metrics": {
+    "estimated_workstreams": 7,
+    "estimated_slices": 4,
+    "estimated_files_modified": 9,
+    "estimated_files_created": 3,
+    "estimated_lines_added": 800,
+    "blast_radius": "MEDIUM — touches branch topology, BRC history persistence, slice spawning, contract schema, gateway exemption regex; gated on plan_complete + context_branch presence so legacy/in-flight pipelines are unaffected."
+  },
+
+  "consensus_inputs_for_reviewer_plan": {
+    "what_to_check": [
+      "All five HITL decisions and all five feedback answers are reflected in the design (cross-reference hitl_resolutions section).",
+      "No hardcoded 'main' anywhere — every base reference reads pipeline.base_branch / contract.repo.base_branch (decision-5).",
+      "Per-slice BRC writes go to <id>-implement-slice-<N>.{json,md} only; no aggregate <id>-implement.{json,md} (decision-2).",
+      "Context PR is doc-only auto-open with no BRC roster and no merge gate (decision-3).",
+      "Hard switchover for new pipelines only — schema additions are default-tolerant but no backfill code path (decision-4).",
+      "Orchestrator-authored commits for both context-branch artifacts and per-slice BRC histories (Q4).",
+      "Context PR's artifact set includes refine + plan analysis + BRC + agent transcripts (Q3); excludes implement BRC and contract files.",
+      "Planner emits context_title / context_description as separate fields (Q2)."
+    ],
+    "what_to_NACK_on": [
+      "Any branch-base resolution that hardcodes 'main'.",
+      "Any code path that reintroduces the cross-slice <id>-implement.{json,md} aggregate file.",
+      "Any blocking on context PR merge before slice-1 spawns (would violate decision-3).",
+      "Any backfill / migration code path for in-flight pipelines (would violate decision-4).",
+      "Coder/tester role authoring the BRC history commit (would violate gateway boundaries + Q4)."
+    ]
+  }
+}

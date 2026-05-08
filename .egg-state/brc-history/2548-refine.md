@@ -1,0 +1,689 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-05-07T17:54:40Z
+Pipeline: issue-2548
+
+### [2026-05-07T17:26:19Z] orchestrator (AGENT_FAILED): Agent refiner failed
+
+Container exited with code -1
+
+````yaml
+id: 022ea11d-caf7-4a
+phase: refine
+````
+
+### [2026-05-07T17:43:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 5e2f05fe-be1e-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:18.198623+00:00'
+````
+
+### [2026-05-07T17:43:28Z] overseer (HEARTBEAT): heartbeat: WORKING
+
+Cycle 1 complete. Refiner AGENT_FAILED at 17:26:19 was already resolved by orchestrator auto-restart. All three refine agents (refiner, reviewer_refine, reviewer_agent_design) running as of 17:42:33. Pipeline status: running / refine phase. No corrective action required; continuing monitor loop.
+
+````yaml
+id: 658b3dcb-0cad-44
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-07T17:43:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 01f06216-454c-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:22.501256+00:00'
+````
+
+### [2026-05-07T17:44:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: ca5864f1-b0ae-4f
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:18.198623+00:00'
+````
+
+### [2026-05-07T17:44:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 1fb78ad8-4dd1-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:22.501256+00:00'
+````
+
+### [2026-05-07T17:45:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 4918e11d-cca8-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:18.198623+00:00'
+````
+
+### [2026-05-07T17:45:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 090c7818-b2ac-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:22.501256+00:00'
+````
+
+### [2026-05-07T17:46:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 162a1b66-5f09-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:18.198623+00:00'
+````
+
+### [2026-05-07T17:46:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: f34674ac-9ace-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:22.501256+00:00'
+````
+
+### [2026-05-07T17:47:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 60c88b2e-6234-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:18.198623+00:00'
+````
+
+### [2026-05-07T17:47:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 090baff8-3262-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:22.501256+00:00'
+````
+
+### [2026-05-07T17:48:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: cfe44292-ba11-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:18.198623+00:00'
+````
+
+### [2026-05-07T17:48:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 2d6e73bc-a2e1-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:22.501256+00:00'
+````
+
+### [2026-05-07T17:49:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 14161a36-53f1-4e
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:18.198623+00:00'
+````
+
+### [2026-05-07T17:49:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: a013a9af-d639-4f
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:22.501256+00:00'
+````
+
+### [2026-05-07T17:50:28Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 8b50e57b-b74a-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:18.198623+00:00'
+````
+
+### [2026-05-07T17:50:28Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 2457567f-9e9b-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:43:22.501256+00:00'
+````
+
+### [2026-05-07T17:51:15Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine analysis for #2548 (missing analysis/plan/BRC docs on slice PRs). Verified current behavior in orchestrator/routes/pipelines.py (work-branch persistence, slice base resolution, BRC aggregate file) and stacked_pr_reconciler.py (orphan rebase fallback). Compared four options (context PR / embed-in-slice-1 / embed-in-terminal-slice / PR-body render); recommended Option A (dedicated context PR base=main + per-slice implement BRC split) as the only path that durably lands strategic context on main. Registered five HITL decisions (decision-1..5) and five open feedback questions (feedback-1) covering placement, BRC split, review model, rollout, stack ordering, and orchestrator-authored final commits to slice integration branches. Surfaced the deeper unintended-state issue that egg/&lt;id&gt;/work today never merges to main. Draft committed to .egg-state/drafts/2548-analysis.md at 8706bd6346.
+
+````yaml
+id: f8f01d4c-f520-4e
+phase: refine
+metadata:
+  payload:
+    summary: 'Refine analysis for #2548 (missing analysis/plan/BRC docs on slice PRs).
+      Verified current behavior in orchestrator/routes/pipelines.py (work-branch persistence,
+      slice base resolution, BRC aggregate file) and stacked_pr_reconciler.py (orphan
+      rebase fallback). Compared four options (context PR / embed-in-slice-1 / embed-in-terminal-slice
+      / PR-body render); recommended Option A (dedicated context PR base=main + per-slice
+      implement BRC split) as the only path that durably lands strategic context on
+      main. Registered five HITL decisions (decision-1..5) and five open feedback
+      questions (feedback-1) covering placement, BRC split, review model, rollout,
+      stack ordering, and orchestrator-authored final commits to slice integration
+      branches. Surfaced the deeper unintended-state issue that egg/&lt;id&gt;/work
+      today never merges to main. Draft committed to .egg-state/drafts/2548-analysis.md
+      at 8706bd6346.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/2548-analysis.md
+    risk_considered: 'Risk: recommending Option A locks in a non-trivial schema/code
+      change. Mitigation: registered decision-1 so the operator can pick a smaller-blast-radius
+      alternative (B or C) and decision-5 for stack ordering. Risk: per-slice BRC
+      split touches every implement-phase write/read site. Mitigation: registered
+      decision-2 to let the operator pick split-only vs aggregate-plus-per-slice vs
+      PR-body-only.'
+    commit_sha: 8706bd6346522b450099dc4c1cbdc310c94821f6
+    files_changed:
+    - .egg-state/drafts/2548-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 8706bd6346522b450099dc4c1cbdc310c94821f6
+````
+
+### [2026-05-07T17:51:15Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: bc12eb6a-d206-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-07T17:51:15Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 47d3b861-a659-4f
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-07T17:51:43Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: e326eb09-bfc3-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:51:24.811975+00:00'
+````
+
+### [2026-05-07T17:52:36Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+
+Reviewed `.egg-state/drafts/2548-analysis.md` against agent-mode design criteria. No anti-patterns to flag.
+
+The proposal is squarely an **orchestrator / infrastructure** redesign — context-PR branch creation, statefile commits authored by the orchestrator, contract schema delta on `PRMetadata`, slice-aware `_write_brc_history()` / `_rewrite_brc_history_for_pr()`, and a fallback adjustment in `stacked_pr_reconciler._resolve_extant_new_base()`. None of the four options (A–D) modifies agent prompts, bakes large diffs into prompts, demands JSON output for human-facing surfaces, post-processes agent text, micromanages procedure steps, encodes prompt-level security, makes direct LLM calls outside the sandbox, or hardcodes model identifiers.
+
+Specific positives from an agent-design lens:
+
+- **Role-boundary awareness (Q4 in feedback-1, lines 199):** the analysis explicitly raises that committing `.egg-state/brc-history/<id>-implement-slice-<N>.{json,md}` must be orchestrator-authored because gateway allowlists prevent coder/tester from writing under `.egg-state/brc-history/`. That is exactly the right architectural framing — sandbox-enforced boundaries, not prompt-enforced ones.
+- **Format/consumer pairing (decision-2, lines 158-163):** the per-slice split keeps `.json` (machine-readable consensus state for downstream tooling and audit) paired with `.md` (human-readable on the PR diff). Right format for the right consumer; not "JSON for humans".
+- **Option D rejection (lines 113-128)** is on durability/auditability grounds, not on anti-pattern grounds — a charitable reading even allows it. Good calibration.
+- **Recommended approach (lines 129-141)** routes all writes through the orchestrator using existing primitives (`_commit_statefiles_to_worktree()`, `gateway.create_slice_integration_branch()`) rather than asking an agent to produce structured output that downstream code parses.
+
+### Non-blocking
+- None.
+
+
+````yaml
+id: a5d00d38-4b56-4f
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/2548-analysis.md
+    reason: "\nReviewed `.egg-state/drafts/2548-analysis.md` against agent-mode design\
+      \ criteria. No anti-patterns to flag.\n\nThe proposal is squarely an **orchestrator\
+      \ / infrastructure** redesign \u2014 context-PR branch creation, statefile commits\
+      \ authored by the orchestrator, contract schema delta on `PRMetadata`, slice-aware\
+      \ `_write_brc_history()` / `_rewrite_brc_history_for_pr()`, and a fallback adjustment\
+      \ in `stacked_pr_reconciler._resolve_extant_new_base()`. None of the four options\
+      \ (A\u2013D) modifies agent prompts, bakes large diffs into prompts, demands\
+      \ JSON output for human-facing surfaces, post-processes agent text, micromanages\
+      \ procedure steps, encodes prompt-level security, makes direct LLM calls outside\
+      \ the sandbox, or hardcodes model identifiers.\n\nSpecific positives from an\
+      \ agent-design lens:\n\n- **Role-boundary awareness (Q4 in feedback-1, lines\
+      \ 199):** the analysis explicitly raises that committing `.egg-state/brc-history/<id>-implement-slice-<N>.{json,md}`\
+      \ must be orchestrator-authored because gateway allowlists prevent coder/tester\
+      \ from writing under `.egg-state/brc-history/`. That is exactly the right architectural\
+      \ framing \u2014 sandbox-enforced boundaries, not prompt-enforced ones.\n- **Format/consumer\
+      \ pairing (decision-2, lines 158-163):** the per-slice split keeps `.json` (machine-readable\
+      \ consensus state for downstream tooling and audit) paired with `.md` (human-readable\
+      \ on the PR diff). Right format for the right consumer; not \"JSON for humans\"\
+      .\n- **Option D rejection (lines 113-128)** is on durability/auditability grounds,\
+      \ not on anti-pattern grounds \u2014 a charitable reading even allows it. Good\
+      \ calibration.\n- **Recommended approach (lines 129-141)** routes all writes\
+      \ through the orchestrator using existing primitives (`_commit_statefiles_to_worktree()`,\
+      \ `gateway.create_slice_integration_branch()`) rather than asking an agent to\
+      \ produce structured output that downstream code parses.\n\n### Non-blocking\n\
+      - None.\n"
+    ack_version: 1
+  version: 1
+````
+
+### [2026-05-07T17:52:36Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: b140cc68-dcb9-4e
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-07T17:52:40Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 3928aac3-cbfd-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:52:40.133347+00:00'
+````
+
+### [2026-05-07T17:52:42Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: 174ae130-5627-4d
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-07T17:52:48Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 183185c3-7123-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:52:48.566299+00:00'
+````
+
+### [2026-05-07T17:53:40Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 68cd9b5f-e28a-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:52:40.133347+00:00'
+````
+
+### [2026-05-07T17:53:48Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 61ce74d8-59b4-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:52:48.566299+00:00'
+````
+
+### [2026-05-07T17:54:27Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+
+Reviewed `.egg-state/drafts/2548-analysis.md` (215 lines) end-to-end against the issue body and the cited code paths. Cross-checked every line-number citation in `orchestrator/routes/pipelines.py`, `orchestrator/stacked_pr_reconciler.py`, and `shared/egg_contracts/models.py`. Verified the contract via `mcp__sdlc__show_contract`: 5 HITL decisions (decision-1 through decision-5) and feedback-1 (Q1–Q5) are all registered and unresolved — matches the analysis prose 1:1. The HITL markers in the draft (`<!-- egg-hitl-decision id=decision-N -->`, `<!-- egg-feedback id=feedback-1 -->`) align with the actual conventions: `egg-feedback` (not `egg-hitl-feedback`) is the real marker per `shared/egg_contracts/feedback.py:56` (FEEDBACK_MARKER_PATTERN) and `:102` — the criteria text's "egg-hitl-feedback" guidance is generic, not the implementation reality.
+
+### Section-by-section evaluation
+
+**1. Problem Understanding** — Strong. The Problem Statement (lines 5–14) correctly captures the issue: slice PRs lack analysis/plan/BRC visibility against `main`, with the two specific mechanisms the issue calls for (context PR + per-slice BRC). The Current Behavior section (lines 16–35) goes further than just paraphrasing the issue — it surfaces the deeper "egg/<id>/work is never merged to main" gap (line 35) which is a genuine new insight the issue body did NOT spell out and which feeds Q1 of feedback-1. The reproduction (lines 28–33) cites real refs (PR #2533 baseRefName/headRefName) consistent with the issue's reproduction.
+
+**2. Research Quality** — Strong, with two minor citation inaccuracies (non-blocking).
+  - VERIFIED: `_commit_statefiles_to_worktree()` lives at `orchestrator/routes/pipelines.py:7179` (signature confirmed), per the analysis's "7179-7318".
+  - VERIFIED: `_run_one_slice_inner()` at `:12405`, slice base resolution at `:12407-12410` (parent_branch = pipeline_branch for slice-1, else `f"{issue_branch}/{parent_slice_id}"`).
+  - VERIFIED: `_resolve_extant_new_base()` at `orchestrator/stacked_pr_reconciler.py:87-132` and the `pipeline_branch` fallback at line 132 — quoting the docstring "If the entire chain has been deleted, fall back to the pipeline branch".
+  - VERIFIED: `PRMetadata` at `shared/egg_contracts/models.py:371` (it actually extends to ~409 with the `_coerce_legacy_deferred_actions` validator, but 371-395 covers the field declarations as cited).
+  - VERIFIED: 30 s reconciler cadence at `stacked_pr_reconciler.py:10` ("default 30 s, env var").
+  - VERIFIED: gateway-enforced file boundaries (the constraint that coder/tester cannot push under `.egg-state/brc-history/`) is consistent with how the orchestrator authors statefile commits.
+  - INACCURACY 1 (non-blocking): Line 21 cites `_write_brc_history()` as "lines 8110-8228". The function actually starts at `:8110` but the next def (`_rewrite_brc_history_for_pr`) is at `:8265`, so the body is ~8110-8264, not 8228. The conclusion (BRC history is single-aggregate, keyed by phase) is unaffected, but the upper bound should be tightened on a future revision.
+  - INACCURACY 2 (non-blocking): Line 20 says lines 5141-5203 "fetch them from per-agent worktrees during phase transitions". Reading 5141-5203, the loop iterates `[("analysis", "-analysis.md"), ("plan", "-plan.md")]` and reads via `_git_show_draft(repo_path, source_branch, expected_path)` against `origin/{source_branch}` — that is a remote-branch read with `git show` / `git ls-tree`, not a per-agent-worktree fetch. The mechanism is "read from the work branch on origin", not "fetch from per-agent worktrees". The strategic conclusion (artifacts are committed to `egg/<id>/work` and read back from there) is intact, but the implementation gloss is imprecise.
+
+**3. Options Analysis** — Strong. Options A–D (lines 60–127) are meaningfully different along the axes that matter (where docs land in the diff, whether a new branch/PR is introduced, which slice carries the context). Pros/cons articulate real trade-offs:
+  - Option A correctly identifies the need for a contract schema delta (`pr.context_branch` / `pr.context_pr_number`) and the reconciler-fallback change.
+  - Option B correctly identifies that "docs never reach main" is unresolved.
+  - Option C correctly identifies the inverted reviewer flow (strategic context arrives only after N-1 code slices are reviewed).
+  - Option D correctly identifies that PR-body-only is non-durable in `git log`.
+  None of the options is a strawman; each represents a genuine architectural position.
+
+**4. Constraints and Dependencies** — Strong. Lines 39–56 cover gateway enforcement, BRC aggregate-vs-per-slice schema, reconciler invariants, contract model schema bump, HITL gate / merge ordering interaction with `deferred_actions`, and reconciler latency. Adjacent issues (#2534, #2541, #2543, #2354, #2538) are correctly cited and the partial-fix status of #2534 is acknowledged (line 51).
+
+**5. Open Questions** — Strong, and verifiable.
+  - 5 HITL decisions registered on contract (decision-1 through decision-5, all `resolved: false`). Each has 4–5 options including "Other (explain in reply)".
+  - 1 feedback object registered (feedback-1) carrying Q1–Q5 as open-ended questions.
+  - Questions are specific and actionable: each names the artifact under question (where docs live, how BRC history is split, whether context PR goes through BRC, rollout scope, where in the stack the context PR sits).
+  - Q1 in particular ("Is work-branch-as-base intentional and out of scope here?") is a critical scope question that the analysis correctly elevates to HITL rather than silently assuming. Q4 surfaces the gateway role-boundary concern which is a real constraint.
+
+**6. Recommendation Quality** — Strong. Line 131 names Option A as recommended, conditional on operator selection in decision-1, decision-3, decision-5. The four-point rationale (lines 133–139) is justified by the prior analysis (durability on main, separation of concerns, bounded infrastructure cost, forward-compat with #2534). Line 140 explicitly acknowledges Option B as an acceptable stepping stone if the operator prefers a smaller blast radius — which is appropriate given the issue is high-impact and the operator may want incremental rollout.
+
+**7. HITL Decision Registration** — VERIFIED. Every prose-level question in the analysis appears as a corresponding decision or feedback entry on the contract. Cross-checked the question text in the analysis (line 148, 158, 167, 176, 185 for decisions; lines 196–200 for feedback) against `mcp__sdlc__show_contract` output — match is 1:1.
+
+### Non-blocking
+- **2548-analysis.md:21** — `_write_brc_history()` body is `:8110-:8264` (next `def` is at 8265), not 8228. Tighten on future revision.
+- **2548-analysis.md:20** — "fetch them from per-agent worktrees during phase transitions" misdescribes the lines 5141-5203 mechanism. The actual code reads `origin/{source_branch}` via `git show` / `git ls-tree`. Reword as e.g. "are read back from the work branch on origin during phase transitions" to avoid implying worktree-local I/O.
+- **2548-analysis.md:42** — The constraint says "BRC history is currently aggregate, not per-slice (`{id}-implement.{json,md}`). Per-slice splitting requires a code change in `_write_brc_history()`...". Worth noting that the splitting also has to integrate with `_rewrite_brc_history_for_pr` (called from `:16487`) which currently rebuilds a single aggregate file at PR-creation time — that is the read-side counterpart and the analysis already mentions it (line 42 cites `:8265-8328`); good. No change needed, just confirming the surface area is captured.
+- **2548-analysis.md:35** — The "deeper issue" paragraph is excellent insight but ends without elevating its own implication: if `egg/<id>/work` truly never reaches `main`, then Option A (which retargets slice-1 to `egg/<id>/context` based on `main`) is doing double duty — it solves the visibility problem AND silently fixes a separate "docs never merge to main" gap. The plan phase will benefit if the recommendation section makes that connection explicit so the planner doesn't accidentally pick Option B without also opening a follow-up issue for the work→main gap.
+- **2548-analysis.md:62 (Option A)** — When describing slice-1's new base, the option says "Slice-1's integration branch is then created from `egg/<id>/context`". For the planner: the parent-branch-resolution code path at `:12407-12410` ("if parent_slice_id is None: parent_branch = pipeline_branch") would need to learn about a context branch in addition to the existing forest-root case. Worth flagging in the plan-phase tasks but not blocking here.
+
+The analysis is approved for the plan phase. Recommendation is sound, options are well-developed, HITL questions are specific and registered.
+
+
+````yaml
+id: 3212c96a-863b-43
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/2548-analysis.md
+    - .egg-state/contracts/issue-2548.json
+    - orchestrator/routes/pipelines.py
+    - orchestrator/stacked_pr_reconciler.py
+    - shared/egg_contracts/models.py
+    - shared/egg_contracts/feedback.py
+    reason: "\nReviewed `.egg-state/drafts/2548-analysis.md` (215 lines) end-to-end\
+      \ against the issue body and the cited code paths. Cross-checked every line-number\
+      \ citation in `orchestrator/routes/pipelines.py`, `orchestrator/stacked_pr_reconciler.py`,\
+      \ and `shared/egg_contracts/models.py`. Verified the contract via `mcp__sdlc__show_contract`:\
+      \ 5 HITL decisions (decision-1 through decision-5) and feedback-1 (Q1\u2013\
+      Q5) are all registered and unresolved \u2014 matches the analysis prose 1:1.\
+      \ The HITL markers in the draft (`<!-- egg-hitl-decision id=decision-N -->`,\
+      \ `<!-- egg-feedback id=feedback-1 -->`) align with the actual conventions:\
+      \ `egg-feedback` (not `egg-hitl-feedback`) is the real marker per `shared/egg_contracts/feedback.py:56`\
+      \ (FEEDBACK_MARKER_PATTERN) and `:102` \u2014 the criteria text's \"egg-hitl-feedback\"\
+      \ guidance is generic, not the implementation reality.\n\n### Section-by-section\
+      \ evaluation\n\n**1. Problem Understanding** \u2014 Strong. The Problem Statement\
+      \ (lines 5\u201314) correctly captures the issue: slice PRs lack analysis/plan/BRC\
+      \ visibility against `main`, with the two specific mechanisms the issue calls\
+      \ for (context PR + per-slice BRC). The Current Behavior section (lines 16\u2013\
+      35) goes further than just paraphrasing the issue \u2014 it surfaces the deeper\
+      \ \"egg/<id>/work is never merged to main\" gap (line 35) which is a genuine\
+      \ new insight the issue body did NOT spell out and which feeds Q1 of feedback-1.\
+      \ The reproduction (lines 28\u201333) cites real refs (PR #2533 baseRefName/headRefName)\
+      \ consistent with the issue's reproduction.\n\n**2. Research Quality** \u2014\
+      \ Strong, with two minor citation inaccuracies (non-blocking).\n  - VERIFIED:\
+      \ `_commit_statefiles_to_worktree()` lives at `orchestrator/routes/pipelines.py:7179`\
+      \ (signature confirmed), per the analysis's \"7179-7318\".\n  - VERIFIED: `_run_one_slice_inner()`\
+      \ at `:12405`, slice base resolution at `:12407-12410` (parent_branch = pipeline_branch\
+      \ for slice-1, else `f\"{issue_branch}/{parent_slice_id}\"`).\n  - VERIFIED:\
+      \ `_resolve_extant_new_base()` at `orchestrator/stacked_pr_reconciler.py:87-132`\
+      \ and the `pipeline_branch` fallback at line 132 \u2014 quoting the docstring\
+      \ \"If the entire chain has been deleted, fall back to the pipeline branch\"\
+      .\n  - VERIFIED: `PRMetadata` at `shared/egg_contracts/models.py:371` (it actually\
+      \ extends to ~409 with the `_coerce_legacy_deferred_actions` validator, but\
+      \ 371-395 covers the field declarations as cited).\n  - VERIFIED: 30 s reconciler\
+      \ cadence at `stacked_pr_reconciler.py:10` (\"default 30 s, env var\").\n  -\
+      \ VERIFIED: gateway-enforced file boundaries (the constraint that coder/tester\
+      \ cannot push under `.egg-state/brc-history/`) is consistent with how the orchestrator\
+      \ authors statefile commits.\n  - INACCURACY 1 (non-blocking): Line 21 cites\
+      \ `_write_brc_history()` as \"lines 8110-8228\". The function actually starts\
+      \ at `:8110` but the next def (`_rewrite_brc_history_for_pr`) is at `:8265`,\
+      \ so the body is ~8110-8264, not 8228. The conclusion (BRC history is single-aggregate,\
+      \ keyed by phase) is unaffected, but the upper bound should be tightened on\
+      \ a future revision.\n  - INACCURACY 2 (non-blocking): Line 20 says lines 5141-5203\
+      \ \"fetch them from per-agent worktrees during phase transitions\". Reading\
+      \ 5141-5203, the loop iterates `[(\"analysis\", \"-analysis.md\"), (\"plan\"\
+      , \"-plan.md\")]` and reads via `_git_show_draft(repo_path, source_branch, expected_path)`\
+      \ against `origin/{source_branch}` \u2014 that is a remote-branch read with\
+      \ `git show` / `git ls-tree`, not a per-agent-worktree fetch. The mechanism\
+      \ is \"read from the work branch on origin\", not \"fetch from per-agent worktrees\"\
+      . The strategic conclusion (artifacts are committed to `egg/<id>/work` and read\
+      \ back from there) is intact, but the implementation gloss is imprecise.\n\n\
+      **3. Options Analysis** \u2014 Strong. Options A\u2013D (lines 60\u2013127)\
+      \ are meaningfully different along the axes that matter (where docs land in\
+      \ the diff, whether a new branch/PR is introduced, which slice carries the context).\
+      \ Pros/cons articulate real trade-offs:\n  - Option A correctly identifies the\
+      \ need for a contract schema delta (`pr.context_branch` / `pr.context_pr_number`)\
+      \ and the reconciler-fallback change.\n  - Option B correctly identifies that\
+      \ \"docs never reach main\" is unresolved.\n  - Option C correctly identifies\
+      \ the inverted reviewer flow (strategic context arrives only after N-1 code\
+      \ slices are reviewed).\n  - Option D correctly identifies that PR-body-only\
+      \ is non-durable in `git log`.\n  None of the options is a strawman; each represents\
+      \ a genuine architectural position.\n\n**4. Constraints and Dependencies** \u2014\
+      \ Strong. Lines 39\u201356 cover gateway enforcement, BRC aggregate-vs-per-slice\
+      \ schema, reconciler invariants, contract model schema bump, HITL gate / merge\
+      \ ordering interaction with `deferred_actions`, and reconciler latency. Adjacent\
+      \ issues (#2534, #2541, #2543, #2354, #2538) are correctly cited and the partial-fix\
+      \ status of #2534 is acknowledged (line 51).\n\n**5. Open Questions** \u2014\
+      \ Strong, and verifiable.\n  - 5 HITL decisions registered on contract (decision-1\
+      \ through decision-5, all `resolved: false`). Each has 4\u20135 options including\
+      \ \"Other (explain in reply)\".\n  - 1 feedback object registered (feedback-1)\
+      \ carrying Q1\u2013Q5 as open-ended questions.\n  - Questions are specific and\
+      \ actionable: each names the artifact under question (where docs live, how BRC\
+      \ history is split, whether context PR goes through BRC, rollout scope, where\
+      \ in the stack the context PR sits).\n  - Q1 in particular (\"Is work-branch-as-base\
+      \ intentional and out of scope here?\") is a critical scope question that the\
+      \ analysis correctly elevates to HITL rather than silently assuming. Q4 surfaces\
+      \ the gateway role-boundary concern which is a real constraint.\n\n**6. Recommendation\
+      \ Quality** \u2014 Strong. Line 131 names Option A as recommended, conditional\
+      \ on operator selection in decision-1, decision-3, decision-5. The four-point\
+      \ rationale (lines 133\u2013139) is justified by the prior analysis (durability\
+      \ on main, separation of concerns, bounded infrastructure cost, forward-compat\
+      \ with #2534). Line 140 explicitly acknowledges Option B as an acceptable stepping\
+      \ stone if the operator prefers a smaller blast radius \u2014 which is appropriate\
+      \ given the issue is high-impact and the operator may want incremental rollout.\n\
+      \n**7. HITL Decision Registration** \u2014 VERIFIED. Every prose-level question\
+      \ in the analysis appears as a corresponding decision or feedback entry on the\
+      \ contract. Cross-checked the question text in the analysis (line 148, 158,\
+      \ 167, 176, 185 for decisions; lines 196\u2013200 for feedback) against `mcp__sdlc__show_contract`\
+      \ output \u2014 match is 1:1.\n\n### Non-blocking\n- **2548-analysis.md:21**\
+      \ \u2014 `_write_brc_history()` body is `:8110-:8264` (next `def` is at 8265),\
+      \ not 8228. Tighten on future revision.\n- **2548-analysis.md:20** \u2014 \"\
+      fetch them from per-agent worktrees during phase transitions\" misdescribes\
+      \ the lines 5141-5203 mechanism. The actual code reads `origin/{source_branch}`\
+      \ via `git show` / `git ls-tree`. Reword as e.g. \"are read back from the work\
+      \ branch on origin during phase transitions\" to avoid implying worktree-local\
+      \ I/O.\n- **2548-analysis.md:42** \u2014 The constraint says \"BRC history is\
+      \ currently aggregate, not per-slice (`{id}-implement.{json,md}`). Per-slice\
+      \ splitting requires a code change in `_write_brc_history()`...\". Worth noting\
+      \ that the splitting also has to integrate with `_rewrite_brc_history_for_pr`\
+      \ (called from `:16487`) which currently rebuilds a single aggregate file at\
+      \ PR-creation time \u2014 that is the read-side counterpart and the analysis\
+      \ already mentions it (line 42 cites `:8265-8328`); good. No change needed,\
+      \ just confirming the surface area is captured.\n- **2548-analysis.md:35** \u2014\
+      \ The \"deeper issue\" paragraph is excellent insight but ends without elevating\
+      \ its own implication: if `egg/<id>/work` truly never reaches `main`, then Option\
+      \ A (which retargets slice-1 to `egg/<id>/context` based on `main`) is doing\
+      \ double duty \u2014 it solves the visibility problem AND silently fixes a separate\
+      \ \"docs never merge to main\" gap. The plan phase will benefit if the recommendation\
+      \ section makes that connection explicit so the planner doesn't accidentally\
+      \ pick Option B without also opening a follow-up issue for the work\u2192main\
+      \ gap.\n- **2548-analysis.md:62 (Option A)** \u2014 When describing slice-1's\
+      \ new base, the option says \"Slice-1's integration branch is then created from\
+      \ `egg/<id>/context`\". For the planner: the parent-branch-resolution code path\
+      \ at `:12407-12410` (\"if parent_slice_id is None: parent_branch = pipeline_branch\"\
+      ) would need to learn about a context branch in addition to the existing forest-root\
+      \ case. Worth flagging in the plan-phase tasks but not blocking here.\n\nThe\
+      \ analysis is approved for the plan phase. Recommendation is sound, options\
+      \ are well-developed, HITL questions are specific and registered.\n"
+    ack_version: 1
+  version: 1
+````
+
+### [2026-05-07T17:54:27Z] orchestrator → refiner (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 15e5fee0-2a46-4a
+phase: refine
+metadata:
+  ready_to_confirm: true
+  version: 1
+````
+
+### [2026-05-07T17:54:27Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: a7d4b881-068a-45
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-07T17:54:31Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: f5f08f9d-3184-49
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-07T17:54:31Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 56a3249b-a292-4d
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-07T17:54:33Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: f8f5da3e-aa1c-4b
+phase: refine
+metadata:
+  consensus_reached: true
+````
+
+### [2026-05-07T17:54:38Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 9afe557a-3056-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:54:38.344801+00:00'
+````
+
+### [2026-05-07T17:54:38Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 028939f7-694f-4a
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-07T17:54:39Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 2b387014-df99-45
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:54:39.197307+00:00'
+````
+
+### [2026-05-07T17:54:40Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 2d2742a8-ab7e-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-07T17:54:40.015512+00:00'
+````

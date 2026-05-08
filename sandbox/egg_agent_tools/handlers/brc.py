@@ -14,6 +14,7 @@ from egg_agent_tools.handlers._gateway import (
     get_agent_role,
     get_pipeline_id,
     orchestrator_request,
+    resolve_slice_id,
 )
 from egg_agent_tools.handlers._gateway import maybe_attach_slice_id as _maybe_attach_slice_id
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -804,9 +805,16 @@ _BRC_HISTORY_TYPES: frozenset[str] = frozenset(
         "CONSENSUS_PROPOSE",
         "CONSENSUS_ACK",
         "CONSENSUS_NACK",
+        "CONSENSUS_WITHDRAW",
         "CONSENSUS_CONFIRMED",
         "CONSENSUS_RE_REVIEW",
-        "CONSENSUS_WITHDRAWN",
+        "CONSENSUS_OBLIGATION_RESOLVED",
+        "STATUS",
+        "HANDOFF",
+        "AGENT_FAILED",
+        "NUDGE",
+        "OVERSEER_ALERT",
+        "HEARTBEAT",
     }
 )
 
@@ -878,15 +886,34 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
     """Read consensus history for a peer from the local brc-history log.
 
     No CLI counterpart (decision-8): reads from the local
-    ``.egg-state/brc-history/<identifier>-<phase>.json`` file
-    written by ``orchestrator.routes.pipelines._write_brc_history``
-    so reviewers never have to hand-grep JSON off disk.
+    ``.egg-state/brc-history/`` files written by
+    ``orchestrator.routes.pipelines._write_brc_history`` so reviewers
+    never have to hand-grep JSON off disk.
+
+    File resolution mirrors the writer's per-slice partition (#2548):
+
+    * ``phase ∈ {refine, plan, pr}`` — reads the aggregate
+      ``{identifier}-{phase}.json`` file.
+    * ``phase == "implement"`` and ``EGG_SLICE_ID`` is set — reads the
+      per-slice ``{identifier}-implement-{slice_id}.json`` file. If a
+      sibling ``{identifier}-implement-unattributed.json`` exists
+      (cross-cutting messages without slice scope: HEARTBEAT,
+      OVERSEER_ALERT, AGENT_FAILED, etc.), its records are merged into
+      the response and re-sorted by timestamp so reviewers see the
+      slice transcript and the cross-cutting context interleaved.
+      Pass ``include_unattributed=False`` to skip the merge.
+    * ``phase == "implement"`` and ``EGG_SLICE_ID`` is unset — reads
+      the aggregate ``{identifier}-implement.json`` file (babysit_pr
+      and other non-slice pipelines).
 
     Security: caller-supplied ``pipeline_id``/``issue``/``repo_path``
     are ignored; the identifier and repo root are resolved server-side
     from ``EGG_PIPELINE_ID`` / ``EGG_ISSUE_NUMBER`` / ``EGG_REPO_PATH``
-    (risk_analyst R2 + reviewer_code NACK #1). The resolved file path
-    is canonicalised and asserted to sit under
+    (risk_analyst R2 + reviewer_code NACK #1). ``EGG_SLICE_ID`` is
+    validated against the canonical ``slice-<N>`` regex before being
+    interpolated into the filename — same defense-in-depth as the
+    writer-side seam (`orchestrator/routes/pipelines.py` ~line 8406).
+    The resolved file path is canonicalised and asserted to sit under
     ``<repo_root>/.egg-state/brc-history/``; anything else raises
     ``HandlerError``. ``peer_role`` must match ``[a-z0-9_-]``.
 
@@ -900,6 +927,11 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
             ``message_type``; accepts a single value or a list.
         limit (int): optional page size (default 50, max 500).
         cursor (str): opaque pagination token.
+        include_unattributed (bool): optional, default ``True``. When
+            reading a slice-scoped implement transcript, also merge
+            records from the sibling
+            ``{identifier}-implement-unattributed.json`` file. Set
+            ``False`` to read only the per-slice file.
 
     Response:
         { ok: True, phase: str, items: [...], next_cursor: str|None,
@@ -954,6 +986,14 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
         if limit > 500:
             raise HandlerError("'limit' must be <= 500")
 
+    raw_include = req.get("include_unattributed")
+    if raw_include is None:
+        include_unattributed = True
+    elif isinstance(raw_include, bool):
+        include_unattributed = raw_include
+    else:
+        raise HandlerError("'include_unattributed' must be a boolean if provided")
+
     cursor_state = _decode_cursor(req.get("cursor"))
     offset = cursor_state["offset"]
     prior_skipped = cursor_state["skipped_malformed"]
@@ -961,13 +1001,60 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
     identifier = _resolve_env_identifier_for_brc_history()
     repo_root = Path(os.environ.get("EGG_REPO_PATH") or os.getcwd()).resolve()
     history_dir = (repo_root / ".egg-state" / "brc-history").resolve()
-    history_file = (history_dir / f"{identifier}-{phase}.json").resolve()
-    # Containment check: catches symlinks / .. in identifier/phase that
-    # escape the allowed directory even after the env-only resolution.
-    if not history_file.is_relative_to(history_dir):
-        raise HandlerError("Resolved brc-history path escapes .egg-state/brc-history/")
 
-    if not history_file.exists():
+    # Mirror the writer's per-slice partition for the implement phase
+    # (#2548). When EGG_SLICE_ID is set and phase=="implement" we read
+    # the slice's transcript file and (by default) merge in the
+    # cross-cutting `unattributed` sibling. Other phases and non-slice
+    # implement runs read the aggregate file.
+    history_files: list[Path] = []
+    if phase == "implement":
+        # Defense-in-depth via the public _gateway helper: resolves
+        # EGG_SLICE_ID, validates against the canonical `^slice-<N>$`
+        # regex (same seam the orchestrator writer enforces at
+        # `pipelines.py` ~8406), and raises HandlerError on malformed
+        # values before we interpolate into the filename. Pass `{}` so
+        # caller-supplied `slice_id` is ignored — slice scope is an
+        # env-only signal here for the same cross-pipeline-read
+        # hardening as `_resolve_env_identifier_for_brc_history`.
+        slice_id_env = resolve_slice_id({})
+        if slice_id_env is not None:
+            slice_file = (history_dir / f"{identifier}-implement-{slice_id_env}.json").resolve()
+            history_files.append(slice_file)
+            if include_unattributed:
+                unattr_file = (history_dir / f"{identifier}-implement-unattributed.json").resolve()
+                history_files.append(unattr_file)
+        else:
+            history_files.append((history_dir / f"{identifier}-{phase}.json").resolve())
+    else:
+        history_files.append((history_dir / f"{identifier}-{phase}.json").resolve())
+
+    # Containment check on every resolved path: catches symlinks / .. in
+    # identifier/phase/slice_id that escape the allowed directory even
+    # after the env-only resolution and SLICE_ID_PATTERN validation.
+    for hf in history_files:
+        if not hf.is_relative_to(history_dir):
+            raise HandlerError("Resolved brc-history path escapes .egg-state/brc-history/")
+
+    records: list[Any] = []
+    any_existed = False
+    for hf in history_files:
+        if not hf.exists():
+            continue
+        any_existed = True
+        try:
+            chunk = json.loads(hf.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HandlerError(
+                f"Failed to read brc-history file for phase {phase!r}: {exc}"
+            ) from exc
+        if not isinstance(chunk, list):
+            raise HandlerError(
+                f"Malformed brc-history file for phase {phase!r}: expected a JSON array"
+            )
+        records.extend(chunk)
+
+    if not any_existed:
         return {
             "ok": True,
             "phase": phase,
@@ -976,13 +1063,6 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
             "total_available": 0,
             "skipped_malformed": prior_skipped,
         }
-
-    try:
-        records = json.loads(history_file.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HandlerError(f"Failed to read brc-history file for phase {phase!r}: {exc}") from exc
-    if not isinstance(records, list):
-        raise HandlerError(f"Malformed brc-history file for phase {phase!r}: expected a JSON array")
 
     filtered: list[dict[str, Any]] = []
     skipped_malformed = 0
@@ -995,6 +1075,12 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
         if message_types is not None and rec.get("message_type") not in message_types:
             continue
         filtered.append(rec)
+
+    # Re-sort merged records by timestamp so the per-slice transcript
+    # and the unattributed sibling interleave chronologically. Records
+    # without a timestamp sort last, in original order (stable sort).
+    if len(history_files) > 1:
+        filtered.sort(key=lambda r: (r.get("timestamp") is None, r.get("timestamp") or ""))
 
     total = len(filtered)
     total_skipped = prior_skipped + skipped_malformed
