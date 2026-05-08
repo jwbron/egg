@@ -9367,15 +9367,21 @@ _STATIC_CONTEXT_PR_FILE_GLOBS: tuple[str, ...] = (
 
 # Per-agent-output suffix patterns appended to ``<identifier>-<role>-``
 # for each role in the refine + plan rosters. ``-output.{json,md}`` is
-# the canonical filename written by ``save_agent_output``; the bare
-# ``-*.{json,md}`` patterns provide forward-compat for any future
-# secondary file (decisions, summaries) a role might emit alongside its
-# primary output.
+# the canonical filename written by ``save_agent_output`` (see
+# shared/egg_contracts/orchestrator.py:386); the explicit secondary
+# entries cover known sidecars a role may emit alongside its primary
+# output (decisions log, run summary).  The set is an explicit
+# allowlist on purpose — open-ended ``-*.{json,md}`` wildcards would
+# pick up arbitrary sidecar files an agent writes (raw prompts, debug
+# dumps, partial state) onto the publicly-reviewable context PR
+# (#2548 review issue 7).  Add new explicit entries when a new
+# sidecar shape ships.
 _AGENT_OUTPUT_SUFFIXES: tuple[str, ...] = (
     "-output.json",
     "-output.md",
-    "-*.json",
-    "-*.md",
+    "-decisions.json",
+    "-summary.json",
+    "-summary.md",
 )
 
 
@@ -9414,6 +9420,63 @@ def _refine_and_plan_role_values() -> list[str]:
     return values
 
 
+# Allowed shape of the pipeline identifier when formatted into a
+# ``.egg-state/`` path.  The orchestrator only ever produces bare
+# integer issue numbers or ``issue-<N>[-<qualifier>]`` /
+# ``custom-<hex>`` / ``pr-<N>`` IDs (see ``_pipeline_identifier`` and
+# ``_handle_run_agent_task``), all of which match this regex.
+# ``glob.escape`` further hardens the glob expansion against shell
+# metacharacters, but it does NOT escape ``..`` or ``/`` — this regex
+# closes that gap as defense-in-depth (#2548 review issue 10).
+_CONTEXT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+def _recover_existing_context_pr(
+    spawner: "ContainerSpawner",  # noqa: UP037
+    pipeline_id: str,
+    repo: str,
+    context_branch: str,
+    base_branch: str,
+    *,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> tuple[str, int] | None:
+    """Look up an already-open context PR for ``context_branch`` (#2548).
+
+    Used to recover from the persistence-failed-but-PR-exists state:
+    a prior ``_run_pipeline`` tick opened the PR successfully, then
+    its ``save_contract`` raised (disk full / lock contention /
+    orchestrator restart), so the contract still says
+    ``context_pr_number is None``.  When the next tick re-enters the
+    hook, ``gh pr create`` rejects the duplicate ``head→base`` PR
+    and ``create_pr`` raises (or returns ``None``).  This helper
+    queries ``gh pr list --head <context_branch>`` so the current
+    tick can populate the contract from the existing PR's number/URL
+    instead of spinning forever (#2548 review issue 1).
+
+    Returns ``(pr_url, pr_number)`` on a match, ``None`` otherwise.
+    Best-effort: a gateway error here yields ``None`` and the caller
+    surfaces the original create-PR failure.
+    """
+    try:
+        open_prs = spawner.gateway.list_open_prs(pipeline_id, repo, mode=gateway_mode)
+    except Exception as list_err:  # noqa: BLE001
+        logger.warning(
+            "Context PR hook: list_open_prs failed during recovery (#2548)",
+            pipeline_id=pipeline_id,
+            error=str(list_err),
+        )
+        return None
+    for pr in open_prs:
+        if pr.get("head_ref") == context_branch and pr.get("base_ref") == base_branch:
+            try:
+                pr_number = int(pr["number"])
+            except KeyError, ValueError, TypeError:
+                continue
+            pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+            return pr_url, pr_number
+    return None
+
+
 def _gather_context_pr_files(
     work_worktree: Path,
     identifier: int | str,
@@ -9435,6 +9498,19 @@ def _gather_context_pr_files(
 
     Used by :func:`_open_context_pr_for_pipeline`.
     """
+    # Reject any identifier that contains path-traversal or path-
+    # separator characters before formatting it into a glob.  Every
+    # production identifier matches the expected shape; this assert
+    # closes the residual gap that ``glob.escape`` does not cover
+    # (#2548 review issue 10).
+    identifier_str = str(identifier)
+    if not _CONTEXT_IDENTIFIER_RE.match(identifier_str):
+        logger.warning(
+            "Context PR hook: rejecting malformed identifier (#2548)",
+            identifier=identifier_str,
+        )
+        return []
+
     # Build the full glob set fresh per call so role-roster changes
     # picked up at module reload time take effect immediately.
     role_values = _refine_and_plan_role_values()
@@ -9450,7 +9526,7 @@ def _gather_context_pr_files(
     found: list[Path] = []
     seen: set[Path] = set()
     for template in glob_templates:
-        rel = template.format(identifier=glob.escape(str(identifier)))
+        rel = template.format(identifier=glob.escape(identifier_str))
         for match in glob.glob(str(work_worktree / rel)):
             p = Path(match)
             # ``is_symlink`` check defends against a future planted
@@ -9566,7 +9642,11 @@ def _open_context_pr_for_pipeline(
         )
         return None
 
-    identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
+    identifier = _pipeline_identifier(
+        pipeline.issue_number,
+        pipeline_id,
+        mode=getattr(pipeline, "mode", None),
+    )
     contract_id = identifier
     try:
         contract = load_contract(contract_id, worktree_repo_path)
@@ -9712,6 +9792,15 @@ def _open_context_pr_for_pipeline(
         # Copy files from the work worktree to the context worktree at
         # the same relative paths.  ``mkdir(parents=True)`` ensures the
         # directory tree exists in the fresh checkout.
+        #
+        # Symlink defense-in-depth (#2548 review issue 6): re-check
+        # ``is_symlink`` immediately before the copy and pass
+        # ``follow_symlinks=False`` so that even if the file flipped to a
+        # symlink between the gather and the copy (TOCTOU window —
+        # narrow but non-zero), the link is copied as-is rather than
+        # dereferencing onto the publicly-reviewable context PR.  The
+        # gather-side ``is_symlink`` filter is the primary gate; this
+        # re-check closes the residual race.
         for src in files_to_copy:
             try:
                 rel = src.relative_to(worktree_repo_path)
@@ -9722,9 +9811,17 @@ def _open_context_pr_for_pipeline(
                     src=str(src),
                 )
                 continue
+            if src.is_symlink():
+                logger.warning(
+                    "Context PR hook: file became a symlink between gather and "
+                    "copy, skipping (#2548)",
+                    pipeline_id=pipeline_id,
+                    src=str(src),
+                )
+                continue
             dst = wt_path / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            shutil.copy2(src, dst, follow_symlinks=False)
 
         # Commit via the existing helper so we inherit:
         # - ``--no-verify`` (orchestrator commits skip pre-commit hooks)
@@ -9783,6 +9880,15 @@ def _open_context_pr_for_pipeline(
                 pipeline_id=pipeline_id,
             )
             return None
+        # Recovery path (#2548 review issue 1): when ``create_pr``
+        # raises or returns no URL, the most likely cause is a
+        # duplicate head→base PR rejection — gh refuses the create
+        # because a prior tick's PR open succeeded but its
+        # save_contract failed, leaving ``context_pr_number is None``.
+        # Without recovery, every subsequent tick repeats the failed
+        # create + worktree dance forever.  Detect the existing PR via
+        # ``gh pr list`` and salvage its number/URL.
+        recovered = False
         try:
             pr_url = spawner.gateway.create_pr(
                 pipeline_id=pipeline_id,
@@ -9797,20 +9903,62 @@ def _open_context_pr_for_pipeline(
             )
         except Exception as pr_err:  # noqa: BLE001
             logger.warning(
-                "Context PR hook: create_pr raised, skipping (#2548)",
+                "Context PR hook: create_pr raised — attempting recovery (#2548)",
                 pipeline_id=pipeline_id,
                 error=str(pr_err),
             )
-            return None
-        if not pr_url:
-            logger.warning(
-                "Context PR hook: create_pr returned no URL (#2548)",
-                pipeline_id=pipeline_id,
+            pr_url = None
+            existing = _recover_existing_context_pr(
+                spawner,
+                pipeline_id,
+                pipeline.repo,
+                context_branch,
+                base_branch,
+                gateway_mode=gateway_mode,
             )
-            return None
+            if existing is None:
+                logger.warning(
+                    "Context PR hook: create_pr raised, no existing PR matched (#2548)",
+                    pipeline_id=pipeline_id,
+                    error=str(pr_err),
+                )
+                return None
+            pr_url, pr_number = existing
+            recovered = True
+            logger.info(
+                "Context PR hook: recovered existing context PR after create_pr raised (#2548)",
+                pipeline_id=pipeline_id,
+                context_branch=context_branch,
+                context_pr_number=pr_number,
+            )
+        if not pr_url and not recovered:
+            existing = _recover_existing_context_pr(
+                spawner,
+                pipeline_id,
+                pipeline.repo,
+                context_branch,
+                base_branch,
+                gateway_mode=gateway_mode,
+            )
+            if existing is None:
+                logger.warning(
+                    "Context PR hook: create_pr returned no URL, no existing PR matched (#2548)",
+                    pipeline_id=pipeline_id,
+                )
+                return None
+            pr_url, pr_number = existing
+            recovered = True
+            logger.info(
+                "Context PR hook: recovered existing context PR after create_pr "
+                "returned no URL (#2548)",
+                pipeline_id=pipeline_id,
+                context_branch=context_branch,
+                context_pr_number=pr_number,
+            )
 
-        match = re.search(r"/pull/(\d+)", pr_url)
-        pr_number = int(match.group(1)) if match else None
+        if not recovered:
+            match = re.search(r"/pull/(\d+)", pr_url)
+            pr_number = int(match.group(1)) if match else None
 
         logger.info(
             "Context PR hook: opened context PR (#2548)",
@@ -9847,6 +9995,7 @@ def _open_context_pr_for_pipeline(
     if pr_url is None:
         return None
 
+    contract_persisted = False
     try:
         with get_pipeline_state_lock(pipeline_id):
             contract_local = load_contract(contract_id, worktree_repo_path)
@@ -9855,6 +10004,7 @@ def _open_context_pr_for_pipeline(
                 if pr_number is not None:
                     contract_local.pr.context_pr_number = pr_number
                 save_contract(contract_local, worktree_repo_path)
+                contract_persisted = True
     except Exception as save_err:  # noqa: BLE001
         logger.warning(
             "Context PR hook: failed to persist context fields on contract "
@@ -9862,6 +10012,47 @@ def _open_context_pr_for_pipeline(
             pipeline_id=pipeline_id,
             error=str(save_err),
         )
+
+    # Durability: commit + push the contract change to the work
+    # branch so an orchestrator restart between save_contract and the
+    # next phase's commit cycle does not lose the context-PR linkage
+    # (#2548 review issue 5).  Mirrors the
+    # ``_persist_phase_gate_resolution`` pattern: best-effort commit,
+    # best-effort push.  A failure here leaves the contract on disk
+    # only — the next tick's ``_recover_existing_context_pr`` call
+    # path (#2548 review issue 1) is the safety net that backfills
+    # the contract from the live PR state on GitHub.
+    if contract_persisted and pipeline.branch:
+        try:
+            _commit_statefiles_to_worktree(
+                worktree_repo_path,
+                f"Persist context PR linkage for {identifier} (#2548)",
+                pipeline_identifier=identifier,
+                pipeline_id=pipeline_id,
+            )
+        except Exception as commit_err:  # noqa: BLE001
+            logger.warning(
+                "Context PR hook: failed to commit contract update "
+                "(continuing — restart-safe via recovery path) (#2548)",
+                pipeline_id=pipeline_id,
+                error=str(commit_err),
+            )
+        else:
+            try:
+                spawner.gateway.push_worktree_branch(
+                    pipeline_id=pipeline_id,
+                    repo_path=str(worktree_repo_path),
+                    branch=pipeline.branch,
+                    mode=gateway_mode,  # type: ignore[arg-type]
+                    base_branch=base_branch,
+                )
+            except Exception as push_err:  # noqa: BLE001
+                logger.warning(
+                    "Context PR hook: failed to push contract update "
+                    "(continuing — restart-safe via recovery path) (#2548)",
+                    pipeline_id=pipeline_id,
+                    error=str(push_err),
+                )
 
     return context_branch
 
@@ -18943,7 +19134,12 @@ def _run_pipeline(
             # transient infra problem cannot strand the plan→implement
             # transition (decision-3 / D3 of #2548).
             # ----------------------------------------------------------
-            if current_phase.value == "plan":
+            # CUSTOM-mode pipelines run a single phase and terminate
+            # (#1762) — they never advance to implement, so opening a
+            # context PR for them would orphan a PR on GitHub that has
+            # no slice PRs to stack on top of (#2548 review issue 3).
+            _ctx_is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
+            if current_phase.value == "plan" and not _ctx_is_custom_mode:
                 try:
                     _open_context_pr_for_pipeline(
                         pipeline,

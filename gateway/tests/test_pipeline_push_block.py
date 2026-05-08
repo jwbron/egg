@@ -1001,7 +1001,11 @@ class TestContextBranchExemption:
 
     def test_synthetic_session_context_branch_push_allowed(self, client):
         """Synthetic-session push to ``egg/issue-N/context`` is allowed."""
-        session = _make_session(synthetic=True, assigned_branch="egg/issue-2548/context")
+        session = _make_session(
+            synthetic=True,
+            pipeline_id="issue-2548",
+            assigned_branch="egg/issue-2548/context",
+        )
         patches = _push_context(session)
         with (
             patches[0],
@@ -1028,7 +1032,11 @@ class TestContextBranchExemption:
         regex alone is never enough; the synthetic flag must be set, and
         only the launcher can set it.
         """
-        session = _make_session(synthetic=False, assigned_branch="egg/issue-2548/context")
+        session = _make_session(
+            synthetic=False,
+            pipeline_id="issue-2548",
+            assigned_branch="egg/issue-2548/context",
+        )
         patches = _push_context(session)
         with (
             patches[0],
@@ -1050,7 +1058,11 @@ class TestContextBranchExemption:
 
     def test_synthetic_session_qualified_context_branch_push_allowed(self, client):
         """Qualifier-suffixed pipelines — ``egg/issue-N-v3/context`` — pass."""
-        session = _make_session(synthetic=True, assigned_branch="egg/issue-2474-v2/context")
+        session = _make_session(
+            synthetic=True,
+            pipeline_id="issue-2474-v2",
+            assigned_branch="egg/issue-2474-v2/context",
+        )
         patches = _push_context(session)
         with (
             patches[0],
@@ -1071,7 +1083,11 @@ class TestContextBranchExemption:
         """Multi-segment shapes (``egg/foo/bar/context``) are not produced
         by the orchestrator and the regex MUST reject them — same shape
         constraint as the slice integration branch regex."""
-        session = _make_session(synthetic=True, assigned_branch="egg/foo/bar/context")
+        session = _make_session(
+            synthetic=True,
+            pipeline_id="issue-2548",
+            assigned_branch="egg/foo/bar/context",
+        )
         patches = _push_context(session)
         with (
             patches[0],
@@ -1093,7 +1109,11 @@ class TestContextBranchExemption:
         ``exempt_type="context_branch"`` (distinct from
         ``slice_integration_branch``) so SIEM filters keying on
         ``exempt_type`` can tell them apart (#2548 review)."""
-        session = _make_session(synthetic=True, assigned_branch="egg/issue-2548/context")
+        session = _make_session(
+            synthetic=True,
+            pipeline_id="issue-2548",
+            assigned_branch="egg/issue-2548/context",
+        )
         patches = _push_context(session)
         with (
             patches[0],

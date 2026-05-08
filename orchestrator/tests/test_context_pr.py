@@ -99,6 +99,11 @@ def make_spawner():
         gw.fetch_branch.return_value = True
         gw.push_worktree_branch.return_value = PushResult(ok=True)
         gw.create_pr.return_value = pr_url
+        # Default to empty list so the post-#2548 recovery path
+        # (#2548 review issue 1) finds no existing PR and the original
+        # create_pr failure mode is preserved.  Tests that exercise the
+        # recovery path override this explicitly.
+        gw.list_open_prs.return_value = []
         spawner.gateway = gw
         return spawner
 
@@ -319,7 +324,14 @@ class TestOpenContextPRHappyPath:
     def test_pushes_branch_via_push_worktree_branch(self, tmp_path, pipeline, make_spawner):
         """The temp worktree is pushed via the orchestrator-trusted
         launcher-auth path (``push_worktree_branch``), with the right
-        branch and base_branch."""
+        branch and base_branch.
+
+        Two pushes are expected post-#2548 review issue 5: the context
+        branch (carrying the artifacts) and the work branch (carrying
+        the contract update for restart durability).  This test pins
+        that the *context-branch* push happens with the right kwargs;
+        the work-branch push is exercised by ``TestOpenContextPRDurability``.
+        """
         _seed_repo(tmp_path, identifier=2548)
         spawner = make_spawner()
         load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
@@ -329,9 +341,16 @@ class TestOpenContextPRHappyPath:
         ):
             _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
 
-        spawner.gateway.push_worktree_branch.assert_called_once()
-        push_kwargs = spawner.gateway.push_worktree_branch.call_args.kwargs
-        assert push_kwargs["branch"] == "egg/issue-2548/context"
+        ctx_pushes = [
+            c
+            for c in spawner.gateway.push_worktree_branch.call_args_list
+            if c.kwargs.get("branch") == "egg/issue-2548/context"
+        ]
+        assert len(ctx_pushes) == 1, (
+            f"context-branch push must happen exactly once, got: "
+            f"{spawner.gateway.push_worktree_branch.call_args_list}"
+        )
+        push_kwargs = ctx_pushes[0].kwargs
         assert push_kwargs["base_branch"] == "main"
         assert push_kwargs["pipeline_id"] == "issue-2548"
 
@@ -573,6 +592,226 @@ class TestOpenContextPRFailSoft:
 
 
 # ----------------------------------------------------------------------
+# Convergent idempotency: recover an existing PR after a prior tick's
+# save_contract failed (#2548 review issue 1)
+# ----------------------------------------------------------------------
+
+
+class TestOpenContextPRRecoverExistingPR:
+    """If a prior ``_run_pipeline`` tick opened the context PR but failed
+    to persist (orchestrator restart, disk full, lock contention), the
+    contract still says ``context_pr_number is None`` so the next tick
+    re-enters the hook.  ``gh pr create`` then fails (duplicate
+    head→base PR), and without recovery the contract stays out of sync
+    with GitHub forever.  These tests pin that the recovery path
+    queries ``list_open_prs`` and salvages the existing PR's number /
+    URL into the contract."""
+
+    def test_recovers_when_create_pr_raises_with_existing_pr(
+        self, tmp_path, pipeline, make_spawner
+    ):
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        spawner.gateway.create_pr.side_effect = RuntimeError(
+            "gh: a pull request for branch 'egg/issue-2548/context' already exists"
+        )
+        spawner.gateway.list_open_prs.return_value = [
+            {
+                "number": 4242,
+                "head_ref": "egg/issue-2548/context",
+                "base_ref": "main",
+            }
+        ]
+        load, save, saved = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        assert result == "egg/issue-2548/context", (
+            "recovery must surface the branch so the operator can correlate "
+            "the GitHub PR with the pipeline"
+        )
+        spawner.gateway.list_open_prs.assert_called_once()
+        assert saved, "contract must be persisted after recovery"
+        last = saved[-1]
+        assert last.pr.context_branch == "egg/issue-2548/context"
+        assert last.pr.context_pr_number == 4242, (
+            "recovery must populate the contract from the existing PR's number"
+        )
+
+    def test_recovers_when_create_pr_returns_no_url_with_existing_pr(
+        self, tmp_path, pipeline, make_spawner
+    ):
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner(pr_url=None)
+        spawner.gateway.list_open_prs.return_value = [
+            {
+                "number": 4242,
+                "head_ref": "egg/issue-2548/context",
+                "base_ref": "main",
+            }
+        ]
+        load, save, saved = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        assert result == "egg/issue-2548/context"
+        assert saved
+        assert saved[-1].pr.context_pr_number == 4242
+
+    def test_no_recovery_when_create_pr_raises_and_no_existing_pr(
+        self, tmp_path, pipeline, make_spawner
+    ):
+        """When ``list_open_prs`` returns no matching PR, the original
+        create_pr failure mode is preserved — return None, leave the
+        contract untouched."""
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        spawner.gateway.create_pr.side_effect = RuntimeError("gh api 502")
+        spawner.gateway.list_open_prs.return_value = []
+        load, save, saved = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        assert result is None
+        # No save_contract calls — must not synthesize a phantom number
+        # when no existing PR was found.
+        assert saved == []
+
+    def test_recovery_ignores_prs_with_mismatched_base_ref(self, tmp_path, pipeline, make_spawner):
+        """A stale PR pointing at a different base branch must NOT be
+        recovered — the branch shape is the same but the target diverges,
+        so the operator's intent (PR against ``pipeline.base_branch``) is
+        violated."""
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        spawner.gateway.create_pr.side_effect = RuntimeError("kaboom")
+        spawner.gateway.list_open_prs.return_value = [
+            {
+                "number": 99,
+                "head_ref": "egg/issue-2548/context",
+                # Wrong base — must not match.
+                "base_ref": "develop",
+            }
+        ]
+        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        assert result is None
+
+    def test_recovery_swallows_list_open_prs_failure(self, tmp_path, pipeline, make_spawner):
+        """A best-effort recovery: a gateway failure during
+        ``list_open_prs`` falls back to the original error path
+        (return None) rather than propagating."""
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        spawner.gateway.create_pr.side_effect = RuntimeError("kaboom")
+        spawner.gateway.list_open_prs.side_effect = RuntimeError("gateway 503")
+        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        assert result is None
+
+
+# ----------------------------------------------------------------------
+# Durability of the contract update (#2548 review issue 5)
+# ----------------------------------------------------------------------
+
+
+class TestOpenContextPRDurability:
+    """``save_contract`` only writes to disk — without a follow-up commit
+    + push to the work branch, an orchestrator restart between
+    ``save_contract`` and the next phase's commit cycle silently loses
+    the context-PR linkage.  These tests pin that the hook commits +
+    pushes the contract update so the linkage survives a restart."""
+
+    def test_contract_update_is_committed_and_pushed_after_pr_open(
+        self, tmp_path, pipeline, make_spawner, monkeypatch
+    ):
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        commits: list[tuple[Path, str]] = []
+
+        def _record_commit(worktree, message, *_, **__):
+            commits.append((worktree, message))
+
+        monkeypatch.setattr("routes.pipelines._commit_statefiles_to_worktree", _record_commit)
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        # The hook must commit twice: once on the temp context worktree
+        # for the artifact files, once on the work worktree for the
+        # contract update.  At minimum, one commit must target the work
+        # worktree path with a "context PR linkage" message.
+        contract_commits = [
+            (wt, msg) for wt, msg in commits if wt == tmp_path and "context PR linkage" in msg
+        ]
+        assert contract_commits, (
+            "contract update must be committed to the work worktree so "
+            "an orchestrator restart does not lose the context-PR linkage"
+        )
+
+        # And the work-branch push must include the contract update.
+        push_calls = spawner.gateway.push_worktree_branch.call_args_list
+        work_branch_pushes = [
+            c
+            for c in push_calls
+            if c.kwargs.get("branch") == pipeline.branch
+            and c.kwargs.get("repo_path") == str(tmp_path)
+        ]
+        assert work_branch_pushes, (
+            "contract update must be pushed to the work branch so the "
+            "next tick (or a fresh orchestrator) sees the linkage on origin"
+        )
+
+    def test_contract_commit_failure_does_not_re_raise(
+        self, tmp_path, pipeline, make_spawner, monkeypatch
+    ):
+        """If the commit/push fails, the hook still returns the branch
+        name — recovery on the next tick is the safety net."""
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+
+        # Make the contract commit raise (the artifact-files commit
+        # already ran inside the patched-helper neutralise_git fixture).
+        commit_calls: dict[str, int] = {"n": 0}
+
+        def _commit_raises(worktree, message, *_, **__):
+            commit_calls["n"] += 1
+            if "context PR linkage" in message:
+                raise RuntimeError("disk full mid-commit")
+
+        monkeypatch.setattr("routes.pipelines._commit_statefiles_to_worktree", _commit_raises)
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+        assert result == "egg/issue-2548/context"
+
+
+# ----------------------------------------------------------------------
 # Adversarial probes
 # ----------------------------------------------------------------------
 
@@ -739,6 +978,39 @@ class TestOpenContextPRAdversarial:
         assert result == "egg/issue-2548-v2/context"
         assert _CONTEXT_BRANCH_RE.match("egg/issue-2548-v2/context")
 
+    def test_gather_rejects_path_traversal_identifier(self, tmp_path):
+        """``glob.escape`` does not escape ``..`` or ``/`` — defense-in-depth
+        check rejects any identifier that does not match the production
+        shape so a future call site that bypasses ``_pipeline_identifier``
+        cannot smuggle a traversal payload into ``.egg-state/`` paths
+        (#2548 review issue 10)."""
+        _seed_repo(tmp_path, identifier=2548)
+        # Path traversal attempts.
+        assert _gather_context_pr_files(tmp_path, "../../etc/passwd") == []
+        assert _gather_context_pr_files(tmp_path, "foo/bar") == []
+        # Empty / leading-dot identifiers are also rejected.
+        assert _gather_context_pr_files(tmp_path, "") == []
+        assert _gather_context_pr_files(tmp_path, ".hidden") == []
+        # Valid shapes still work — sanity check the negative tests
+        # didn't accidentally break the happy path.
+        found = _gather_context_pr_files(tmp_path, 2548)
+        assert found, "valid identifier must still gather files"
+
+    def test_agent_output_suffix_set_is_explicit_allowlist(self):
+        """``_AGENT_OUTPUT_SUFFIXES`` must be an explicit allowlist, not
+        an open-ended wildcard set.  Wildcard suffixes (``-*.json``,
+        ``-*.md``) would pick up arbitrary sidecar files an agent
+        writes (debug dumps, partial state, raw prompts) onto the
+        publicly-reviewable context PR (#2548 review issue 7)."""
+        from routes.pipelines import _AGENT_OUTPUT_SUFFIXES
+
+        for suffix in _AGENT_OUTPUT_SUFFIXES:
+            assert "*" not in suffix, (
+                f"open-ended wildcard suffix {suffix!r} would let agents leak "
+                "arbitrary sidecar files onto the public context PR — keep "
+                "the suffix set as an explicit allowlist"
+            )
+
     def test_static_glob_inventory_matches_documented_artifact_set(self):
         """Pin the *static* portion of the curated glob set (the part
         that is NOT derived from ``get_roles_for_phase``).  Agent-
@@ -818,9 +1090,13 @@ class TestOpenContextPRCallSiteWiring:
         same code on a different phase MUST NOT re-open the context PR."""
         src = Path(__file__).parent.parent / "routes" / "pipelines.py"
         text = src.read_text()
-        # The call site must be inside an ``if current_phase.value == "plan":`` block.
+        # The call site must be inside an ``if current_phase.value == "plan"``
+        # block.  Allow optional extra ``and ...`` conjuncts between
+        # ``"plan"`` and ``:`` so the post-#2548 CUSTOM-mode gate (#2548
+        # review issue 3 — ``and not _ctx_is_custom_mode``) does not
+        # break this regression check.
         m = re.search(
-            r'if\s+current_phase\.value\s*==\s*"plan"\s*:\s*\n\s*try:\s*\n\s*'
+            r'if\s+current_phase\.value\s*==\s*"plan"[^\n:]*:\s*\n\s*try:\s*\n\s*'
             r"_open_context_pr_for_pipeline\(",
             text,
         )
@@ -829,10 +1105,41 @@ class TestOpenContextPRCallSiteWiring:
             "current_phase.value == 'plan' AND wrapped in try/except (D3)"
         )
 
+    def test_call_site_is_gated_on_non_custom_mode(self):
+        """CUSTOM-mode pipelines (#1762) terminate after a single phase
+        and never advance to implement — opening a context PR for them
+        would orphan a PR on GitHub with no slice PRs to stack on
+        (#2548 review issue 3).  Pin the gate so a refactor that drops
+        it is caught immediately."""
+        src = Path(__file__).parent.parent / "routes" / "pipelines.py"
+        text = src.read_text()
+        m = re.search(
+            r'if\s+current_phase\.value\s*==\s*"plan"\s+and\s+not\s+'
+            r"_ctx_is_custom_mode\s*:\s*\n\s*try:\s*\n\s*"
+            r"_open_context_pr_for_pipeline\(",
+            text,
+        )
+        assert m is not None, (
+            "_open_context_pr_for_pipeline call site must skip CUSTOM-mode "
+            "pipelines: they terminate after one phase and would orphan "
+            "the context PR (#2548 review issue 3)"
+        )
+
     def test_call_site_swallows_any_exception(self):
         """The call site catches a broad ``except`` so the hook can never
         block the plan→implement transition, even if the helper raises
-        on top of its own internal swallows."""
+        on top of its own internal swallows.
+
+        Regex brittleness (#2548 review issue 9): the pattern requires
+        the call's closing ``)`` to be followed (modulo whitespace) by
+        ``except``.  This is deliberate — it catches any refactor that
+        inserts logging, metric emission, or another helper call
+        between the helper invocation and its except clause, which
+        would silently widen the failure window.  If a future change
+        legitimately needs to do work between the call and the except
+        (e.g. debounce a respawn), update both this test AND the call
+        site comment in pipelines.py to spell out the new contract.
+        """
         src = Path(__file__).parent.parent / "routes" / "pipelines.py"
         text = src.read_text()
         # Locate the call and verify the surrounding ``except`` clause
