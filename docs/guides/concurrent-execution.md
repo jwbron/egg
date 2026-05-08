@@ -884,6 +884,125 @@ Both are also available as MCP tools (`restart_agent`, `restart_phase`) and CLI 
 | All agents exited cleanly, consensus incomplete | *(phase fails with exit code 1 — no advancement)* |
 | All agents exited with unresolved NACKs | Retry phase, Accept current state, Abort phase |
 
+## Slice PR Stack
+
+The implement phase opens a **stacked PR train** rather than a single PR
+against the pipeline base branch. Reviewers approaching any PR in the
+stack see the strategic context (analysis + plan + refine/plan BRC
+consensus) below them, and per-slice diffs that each carry their own
+implement-phase BRC history. The stack is introduced by
+[#2548](https://github.com/jwbron/egg/issues/2548); the structural
+goals are: (1) every PR that lands on `main` carries the consensus
+record that produced it; (2) reviewers no longer have to discover
+`.egg-state/drafts/` and `.egg-state/brc-history/` on a side branch;
+(3) the change is a hard switchover with no backwards-compat shim.
+
+**Stack shape (top-down):**
+
+```
+{pipeline.base_branch}                   (e.g. main)
+ ↑
+egg/<id>/context                         (Context PR — analysis + plan + refine/plan BRC)
+ ↑
+egg/<id>/slice-1                         (Slice-1 PR — slice-1 code + slice-1 BRC)
+ ↑
+egg/<id>/slice-2                         (Slice-2 PR — slice-2 code + slice-2 BRC)
+ ↑
+…                                        (subsequent slices stack onto their parent slice)
+```
+
+The base branch is taken from `pipeline.base_branch` (typically `main`,
+falling back to the repo default branch) — it is **not** hardcoded.
+Slices cascade-merge: once the context PR merges into the base branch,
+slice-1 retargets onto the base branch via the
+[stacked-PR rebase reconciler](../architecture/slice-dag.md#stacked-pr-rebase-reconciler);
+once slice-1 merges, slice-2 retargets, and so on through the chain.
+
+### Context PR is opened first
+
+After the plan phase completes and the plan_gate is approved, the
+orchestrator (not an agent) opens a doc-only **Context PR** before any
+slice spawns. The PR's purpose is to establish the program: reviewers
+approve the strategic direction (analysis + plan + the consensus that
+produced them) before any code lands.
+
+Mechanics:
+
+1. The orchestrator creates `egg/<id>/context` from the pipeline's
+   configured `base_branch` (NOT hardcoded to `main`).
+2. It commits the refine/plan artifacts to that branch:
+   - `.egg-state/drafts/<id>-analysis.md` (refine output)
+   - `.egg-state/drafts/<id>-plan.md` (plan output, with full
+     `yaml-tasks` block)
+   - `.egg-state/brc-history/<id>-refine.{md,json}` (refine BRC
+     consensus record)
+   - `.egg-state/brc-history/<id>-plan.{md,json}` (plan BRC consensus
+     record)
+   - `.egg-state/agent-outputs/<id>-refine-*.{md,json}` and
+     `<id>-plan-*.{md,json}` (per-phase agent transcripts — included
+     for maximum transparency)
+3. It opens the PR against the pipeline base branch using
+   `contract.pr.context_title` and `contract.pr.context_description`.
+   These are distinct from `contract.pr.title` / `pr.description`,
+   which are per-slice — letting the context PR carry program-level
+   framing (e.g. *"Strategic plan for #N"*) while slice PRs stay
+   focused on the slice's diff.
+4. The PR is **doc-only auto-open** (HITL decision-3): the orchestrator
+   opens it, humans review on the PR, and the pipeline does **not**
+   block on its merge before slicing begins. Slice-1 stacks on
+   `egg/<id>/context` immediately so the slice train can run in
+   parallel with reviewers approving the context.
+
+The context PR is recorded on the contract via four `pr.context_*`
+fields introduced in schema 1.1 (#2548 — pre-1.1 contracts auto-promote
+on load):
+
+| Field | Description |
+|-------|-------------|
+| `pr.context_title` | Title for the context PR (program-level framing). Authored by the planner. |
+| `pr.context_description` | Body for the context PR. Authored by the planner. |
+| `pr.context_branch` | The branch name (`egg/<id>/context`) — populated by the orchestrator when it creates the branch. |
+| `pr.context_pr_number` | The GitHub PR number — populated by the orchestrator when the PR is opened. |
+
+### Slice-1 base resolution
+
+With the context PR landing first in the stack, **slice-1's
+`parent_branch` resolves to `egg/<id>/context`** rather than
+`egg/<id>/work`. Subsequent slices (slice-2, slice-3, …) stack onto
+the preceding slice's integration branch as before — the change only
+affects the root-of-stack pointer.
+
+The stacked-PR reconciler's last-resort fallback (when a parent branch
+has been merged or deleted out from under an open child PR) prefers
+`egg/<id>/context` over the pipeline branch when retargeting orphaned
+slices. The context branch therefore acts as the canonical "program
+root" reference even after the work branch is gone.
+
+### Per-slice BRC history on each slice PR
+
+When a slice's implement-phase BRC reaches consensus, the orchestrator
+commits `.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}`
+to the slice integration branch as a final orchestrator-authored
+commit before the slice PR is opened. Each slice PR's diff therefore
+carries its own slice-scoped consensus history — reviewers approaching
+any PR in the stack see the proposals, ACKs, and NACKs that produced
+*that slice's* code, with cross-cutting messages (HEARTBEAT,
+OVERSEER_ALERT, AGENT_FAILED, …) captured in a sibling
+`<id>-implement-unattributed.{md,json}` file.
+
+The orchestrator-authored final commit is necessary because the
+`coder` and `tester` role boundaries forbid pushes under
+`.egg-state/brc-history/`; mirroring the existing
+`_commit_statefiles_to_worktree` pattern keeps history persistence
+deterministic regardless of which agent role last touched the slice.
+
+The aggregate `<id>-implement.{md,json}` file is **not** produced in
+slice-aware mode — this is a hard switchover with no backwards-compat
+shim (HITL decision-4). See
+[BRC History Link in PR Body](#brc-history-link-in-pr-body) for the
+link-line behaviour and the per-slice/unattributed natural-sort
+ordering.
+
 ## Per-Agent Worktree Isolation
 
 Each concurrent agent runs in its own isolated git worktree. This prevents agents from overwriting each other's uncommitted work, ensures a clean `git status` per agent, and surfaces merge conflicts explicitly at push time rather than silently in a shared working directory.
