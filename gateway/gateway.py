@@ -1083,6 +1083,15 @@ def config_reload() -> Response:
 # secret gates ``/api/v1/sessions/create``), so this exemption is not reachable
 # from a sandboxed agent's session token.
 _SLICE_INTEGRATION_BRANCH_RE = re.compile(r"^egg/[A-Za-z0-9][A-Za-z0-9_-]*/(?:slice|phase)-\d+$")
+# Context-branch shape for the synthetic-session exemption (#2548).
+# Matches ``egg/<base>/context`` — the doc-only branch that carries
+# refine/plan analysis docs and BRC consensus history so the strategic
+# narrative reaches ``main``.  The orchestrator creates this branch via the
+# same synthetic-session push path as slice integration branches; the
+# pipeline-session push block from #2028 must therefore exempt it the same
+# way.  Same trust model as ``_SLICE_INTEGRATION_BRANCH_RE``: only
+# launcher-gated synthetic sessions can ever opt into the exemption.
+_CONTEXT_BRANCH_RE = re.compile(r"^egg/[A-Za-z0-9][A-Za-z0-9_-]*/context$")
 
 
 @app.route("/api/v1/git/push", methods=["POST"])
@@ -1303,8 +1312,25 @@ def git_push() -> tuple[Response, int] | Response:
     # ``synthetic=True`` flag can only be set by the launcher (the
     # ``/api/v1/sessions/create`` endpoint is gated by ``require_launcher_auth``),
     # so a sandboxed agent's session token cannot reach this branch.
+    #
+    # Context-branch creation (#2548) follows the same pattern: the
+    # orchestrator creates ``egg/<base>/context`` from the pipeline's base
+    # branch via a synthetic-session push and then commits the refine/plan
+    # artifacts onto it.  Both shapes share the exemption — the synthetic-
+    # session check below is the load-bearing trust gate; the regex match
+    # only narrows which branches the exemption covers.
+    # ``is_slice_integration_push`` is a legacy variable name kept for the
+    # downstream audit-trail filter at the second event below; it now
+    # covers both slice-integration AND context-branch synthetic pushes.
+    # The branch-shape distinction is captured by ``is_context_push`` so
+    # the second exemption event below can emit a precise ``exempt_type``
+    # ("context_branch" vs "slice_integration_branch") and SIEM pipelines
+    # keying on ``exempt_type`` can tell them apart (#2548 review).
     is_slice_integration_push = False
-    if not is_infrastructure_push and _SLICE_INTEGRATION_BRANCH_RE.match(branch):
+    is_context_push = False
+    if not is_infrastructure_push and (
+        _SLICE_INTEGRATION_BRANCH_RE.match(branch) or _CONTEXT_BRANCH_RE.match(branch)
+    ):
         # ``Session.synthetic`` is a ``bool`` (default ``False``); only an
         # orchestrator-issued session can carry ``synthetic=True`` because
         # ``/api/v1/sessions/create`` is gated on the launcher secret.  Use
@@ -1315,6 +1341,7 @@ def git_push() -> tuple[Response, int] | Response:
         if hasattr(g, "session") and getattr(g.session, "synthetic", False) is True:
             is_slice_integration_push = True
             is_infrastructure_push = True
+            is_context_push = bool(_CONTEXT_BRANCH_RE.match(branch))
             audit_log(
                 "push_slice_integration_exempt",
                 "git_push",
@@ -1325,7 +1352,10 @@ def git_push() -> tuple[Response, int] | Response:
                     "refspec": refspec,
                     "branch": branch,
                     "reason": (
-                        "Synthetic-session slice integration branch push — "
+                        "Synthetic-session context branch push — "
+                        "orchestrator infrastructure (#2548)"
+                        if is_context_push
+                        else "Synthetic-session slice integration branch push — "
                         "orchestrator infrastructure (#2368)"
                     ),
                 },
@@ -1340,6 +1370,12 @@ def git_push() -> tuple[Response, int] | Response:
         if is_infrastructure_push or is_ckpt_repo:
             if is_ckpt_repo:
                 exempt_type = "checkpoint_repo"
+            elif is_context_push:
+                # Distinct ``exempt_type`` for context-branch pushes so
+                # SIEM pipelines that filter by the generic
+                # ``push_infrastructure_exempt`` event can tell them
+                # apart from slice-integration pushes (#2548 review).
+                exempt_type = "context_branch"
             elif is_slice_integration_push:
                 exempt_type = "slice_integration_branch"
             else:
