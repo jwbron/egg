@@ -129,13 +129,17 @@ The contract is a JSON document tracking the complete state of an issue through 
 > `context_pr_number` are populated by the orchestrator after the context
 > branch is created and the context PR is opened.
 >
-> **As of slice-1 (#2548 part 1)**, only the schema fields and the
-> planner-prompt advertisement are wired. The orchestrator
-> branch-creation and PR-opening hooks land in #2548 slices 3-4 — until
-> those slices merge, the four `pr.context_*` fields are
-> forward-compatibly inert: planners may emit `context_title` /
-> `context_description` and the values flow into `PRMetadata`, but
-> nothing acts on them yet.
+> **The context-PR mechanism is fully wired as of #2548.** After
+> plan-gate approval the orchestrator creates `egg/<pipeline_id>/context`
+> from the pipeline's base branch, copies the refine + plan artifacts
+> (analysis.md, plan.md, BRC history JSON/MD, and per-role agent
+> transcripts) onto a temp worktree committed to that branch, opens a
+> doc-only PR via `gh pr create`, and persists `context_branch` /
+> `context_pr_number` into the contract. Slice-1 stacks on the context
+> branch rather than the pipeline work branch, so the strategic narrative
+> is reachable through the slice PR diff. The stacked-PR reconciler
+> prefers the context branch over the pipeline branch when retargeting
+> orphaned child PRs whose entire ancestor chain has been deleted.
 
 ## HITL (Human-in-the-Loop) Mechanism
 
