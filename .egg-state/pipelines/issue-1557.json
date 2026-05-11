@@ -348,10 +348,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "**Reassess refine-output strategy**: when reassessing an epic that already has a Description on the Jira ticket, what should the refine apply step do with it?",
+      "context": "Open contract question decision-9, registered by an agent during the refine phase.",
+      "options": [
+        "Wholesale rewrite: replace the existing Description with the refined analysis (clean, but loses any operator-curated content)",
+        "Refined analysis appended/merged below a `## Previous Description` heading; agent prompt instructs to integrate and supersede where possible",
+        "Append-only: existing Description retained as-is; refined analysis added below an `## Updated Analysis (<date>)` heading (safest, but Description grows unboundedly across re-runs)",
+        "Operator chooses per-run via HITL at refine-approval time (offer rewrite vs merge as a separate decision in the analysis draft)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.296314Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.264258Z",
+  "updated_at": "2026-05-11T22:24:52.304652Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -365,6 +385,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null
 }
