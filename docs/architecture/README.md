@@ -193,6 +193,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 - [SDLC Pipeline](sdlc-pipeline.md) - Structurally enforced agent checkpoints
 - [Declarative Setup](declarative-setup.md) - Python-based setup
 - [Logging](logging.md) - Structured JSON logging
+- [Integration-Test Trust Boundary](integration-test-trust-boundary.md) - Test execution contexts (in-sandbox-agent / trusted-CI-runner / human-operator), fixture tier table, and hard-NACK rules for plan-phase Primitive-Existence (§9) and Trust-Boundary (§10) audits
 
 ## Why Wrappers, Not MCP
 

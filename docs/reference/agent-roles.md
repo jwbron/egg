@@ -120,7 +120,10 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 ### `reviewer_plan`
 
-**Purpose**: Review plan quality, task breakdown, dependencies, test strategy, and alignment with the analysis.
+**Purpose**: Review plan quality, task breakdown, dependencies, test strategy, and alignment with the analysis. Also performs two hard-NACK audits introduced in [#2594](https://github.com/jwbron/egg/issues/2594):
+
+- **§9 Primitive-Existence Audit**: For every class, function, HTTP route, env var, ConfigMap key, test fixture, CLI flag, or decorator named in the plan, runs `grep -rn` to verify it exists. Zero hits → hard NACK. `(NEW — task TASK-X-Y)` annotations exempt primitives the plan itself will create, provided the creating task's acceptance criteria actually produce the primitive and downstream tasks depend on it in the correct order.
+- **§10 Trust-Boundary Audit**: Verifies that named primitives are available in the execution context the plan assumes (`in-sandbox-agent`, `trusted-CI-runner`, or `human-operator`). Common hard NACKs: `ScriptedProvider` (unit-test-only) referenced from deployed-pod code; `orchestrator_url` / `gateway_url` pytest fixture used outside `integration_tests/local_pipeline/`; `@require_lifecycle_secret` routes called from sandbox agents. See [Integration-Test Trust Boundary](../architecture/integration-test-trust-boundary.md) for the authoritative tier → fixture / route mapping.
 
 **File access**: Same as `reviewer_refine`.
 
