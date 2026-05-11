@@ -9,15 +9,710 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "How should the remaining work (Parts A, E, F) be packaged into PRs?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "One PR containing A+E+F together (single review, atomic delivery)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Two PRs: E (ScriptedProvider + new tests) first, then A+F together (wire gate once tests proven green)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Three sequential PRs: E \u2192 A \u2192 F (smallest reviewable chunks, tightest bisect)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Two PRs: A+F (wiring + docs) first as advisory, then E (expansion) follow-up",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Where should the workflow_call into test-integration.yml live?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Inside .github/workflows/test.yml as a new `integration` job sibling of `unit` and `security`, included in the existing aggregate",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Inside .github/workflows/on-pull-request.yml as a separate workflow_call alongside the existing code review",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "A new top-level workflow file dedicated to integration tests with its own pull_request trigger",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Inline pull_request trigger added directly to test-integration.yml (no wrapper)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "What gating policy should the new integration check use at merge time?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Non-blocking from day 1; flip to required-for-merge after observed stability across ~10 PRs (matches issue text recommendation)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Required-for-merge from day 1 (riskier; flake risk erodes trust quickly)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Path-conditional required (e.g. only required when integration_tests/, gateway/, orchestrator/, or k8s/ paths change)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Required-for-merge from day 1 BUT with `continue-on-error: true` on flake-prone steps so transient failures don't fail the check",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "What is the precise scenario for test E.6 (Slice DAG with mid-flight restart_agent)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "3-slice DAG; restart slice-2's coder while it is in PROPOSE; assert slice-2's branch ref commit SHA is unchanged across the restart and the pipeline reaches PR_READY (prior-pipeline default for decision-7)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "2-slice DAG; restart slice-1's coder during slice-2's REVIEW; assert no cross-slice consensus inheritance (matches #2535 invariant)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "3-slice DAG; restart slice-2's coder mid-IMPLEMENT (before any PROPOSE); assert slice-2's worktree is recreated and a fresh PROPOSE eventually fires",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Generic restart-agent during any phase of any slice; assert the orchestrator never orphans the slice and reaches a terminal state",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "What is the acceptable wall-clock budget for the new Test / integration check on a PR, and what's the strategy if Part E's additions push it past that budget?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "15 min p95 target; shard by pytest mark/dir if breached",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "20 min p95 target; keep single-job, add parallel pytest-xdist workers if breached",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Whatever the existing test-integration.yml runs at (~5-10 min today, ~10-15 with Part E adds); no shard plan needed yet",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "No fixed budget; flag in a follow-up if PR latency becomes a complaint",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Should `make test-all` (the local-dev full-suite target) eventually include the integration tier once a documented k3s-on-host recipe exists, or stay unit-only?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Stay unit-only; `make test-integration` remains a separate explicit target (matches prior-pipeline default)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Fold integration tier into `make test-all` once k3s recipe lands (single source of truth for `everything green`)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Add a new `make test-everything` target that runs both; leave `test-all` unit-only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Decide later in a follow-up issue after observing local-dev demand",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "The existing `test_credential_security.py::TestCredentialIsolation` is currently skipped under k3s (per integration_tests/conftest.py docstring \u2014 it required docker-compose semantics that no longer exist). Should this gap be addressed in this issue, or out-of-scope?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Out-of-scope: keep skip in place; track in a follow-up issue separate from #2474",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add to Part E as a 9th k3s-native rewrite (delays Part E for credential-isolation rewrite)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Delete the test entirely (treat the credential-isolation invariant as already covered by other tests)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Convert to an xfail with a tracking issue link so it surfaces if it accidentally starts passing",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-11T05:34:17.562460Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "How should the remaining work (Parts A, E, F) be packaged into PRs?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "One PR containing A+E+F together (single review, atomic delivery)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Two PRs: E (ScriptedProvider + new tests) first, then A+F together (wire gate once tests proven green)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Three sequential PRs: E \u2192 A \u2192 F (smallest reviewable chunks, tightest bisect)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Two PRs: A+F (wiring + docs) first as advisory, then E (expansion) follow-up",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the remaining work (Parts A, E, F) be p...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T05:34:17.588915Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Where should the workflow_call into test-integration.yml live?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Inside .github/workflows/test.yml as a new `integration` job sibling of `unit` and `security`, included in the existing aggregate",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Inside .github/workflows/on-pull-request.yml as a separate workflow_call alongside the existing code review",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "A new top-level workflow file dedicated to integration tests with its own pull_request trigger",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Inline pull_request trigger added directly to test-integration.yml (no wrapper)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should the workflow_call into test-integrati...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T05:34:17.622204Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "What gating policy should the new integration check use at merge time?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Non-blocking from day 1; flip to required-for-merge after observed stability across ~10 PRs (matches issue text recommendation)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Required-for-merge from day 1 (riskier; flake risk erodes trust quickly)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Path-conditional required (e.g. only required when integration_tests/, gateway/, orchestrator/, or k8s/ paths change)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Required-for-merge from day 1 BUT with `continue-on-error: true` on flake-prone steps so transient failures don't fail the check",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What gating policy should the new integration chec...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T05:34:17.650583Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "What is the precise scenario for test E.6 (Slice DAG with mid-flight restart_agent)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "3-slice DAG; restart slice-2's coder while it is in PROPOSE; assert slice-2's branch ref commit SHA is unchanged across the restart and the pipeline reaches PR_READY (prior-pipeline default for decision-7)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "2-slice DAG; restart slice-1's coder during slice-2's REVIEW; assert no cross-slice consensus inheritance (matches #2535 invariant)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "3-slice DAG; restart slice-2's coder mid-IMPLEMENT (before any PROPOSE); assert slice-2's worktree is recreated and a fresh PROPOSE eventually fires",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Generic restart-agent during any phase of any slice; assert the orchestrator never orphans the slice and reaches a terminal state",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the precise scenario for test E.6 (Slice D...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T05:34:28.840020Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "What is the acceptable wall-clock budget for the new Test / integration check on a PR, and what's the strategy if Part E's additions push it past that budget?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "15 min p95 target; shard by pytest mark/dir if breached",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "20 min p95 target; keep single-job, add parallel pytest-xdist workers if breached",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Whatever the existing test-integration.yml runs at (~5-10 min today, ~10-15 with Part E adds); no shard plan needed yet",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "No fixed budget; flag in a follow-up if PR latency becomes a complaint",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the acceptable wall-clock budget for the n...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T05:34:28.879329Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Should `make test-all` (the local-dev full-suite target) eventually include the integration tier once a documented k3s-on-host recipe exists, or stay unit-only?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Stay unit-only; `make test-integration` remains a separate explicit target (matches prior-pipeline default)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Fold integration tier into `make test-all` once k3s recipe lands (single source of truth for `everything green`)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Add a new `make test-everything` target that runs both; leave `test-all` unit-only",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Decide later in a follow-up issue after observing local-dev demand",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should `make test-all` (the local-dev full-suite t...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T05:34:28.915966Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "The existing `test_credential_security.py::TestCredentialIsolation` is currently skipped under k3s (per integration_tests/conftest.py docstring \u2014 it required docker-compose semantics that no longer exist). Should this gap be addressed in this issue, or out-of-scope?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Out-of-scope: keep skip in place; track in a follow-up issue separate from #2474",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add to Part E as a 9th k3s-native rewrite (delays Part E for credential-isolation rewrite)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Delete the test entirely (treat the credential-isolation invariant as already covered by other tests)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Convert to an xfail with a tracking issue link so it surfaces if it accidentally starts passing",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: The existing `test_credential_security.py::TestCre...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T05:34:45.694940Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Flake guards: which sources of CI flake should we pre-emptively defend against in the workflow (image-import retry, kubectl wait timeouts, explicit cleanup on failure with kubectl-events artifact)? Any past CI flake you've observed that should be specifically pinned down?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Test E.3 (unpushed-commit salvage, #2429): the issue text says 'inject gateway push rejection (use existing restricted-path code path)'. Concretely \u2014 should the test push a docs file from the coder role to force a real 403, or is there a different restricted-path code path you'd prefer?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Test E.7 (phase-aware consensus timeouts): the issue says 'configure phase_configs.plan.consensus_timeout_s = 30; assert CONSENSUS_TIMEOUT event fires within 30\u00b15s'. The orchestrator's resolve_consensus_timeout_minutes uses MINUTES, not seconds. Should the test use minute-granular timing (e.g. 1-minute plan timeout, observe 60\u00b110s) or do we need to add second-granular config support first?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Test E.8 (Babysit-PR single final push): the issue mentions `_babysit_final_push_head_move_guard` at orchestrator/routes/pipelines.py \u2014 should the test assert via the gateway audit log of push events, or via observing git ls-remote on the PR head ref before/after each coder revision?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Once the new check is wired (non-blocking initially), what's the trigger for flipping required-for-merge? '10 PRs without flake' is mentioned in the issue \u2014 should this be a defined SLO (e.g. <1 flake per 20 runs measured over 2 weeks), or just maintainer's judgment?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Should Part F's `CLAUDE.md` text mention by name the specific tests added in Part E so future agents can locate them when they need similar coverage (e.g. 'use integration_tests/regression/test_slice_branch_env.py as the template for slice-spawn env-threading regressions'), or keep the note generic to avoid stale references?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 6 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Flake guards: which sources of CI flake should we pre-emptively defend against in the workflow (image-import retry, kubectl wait timeouts, explicit cleanup on failure with kubectl-events artifact)? Any past CI flake you've observed that should be specifically pinned down?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Test E.3 (unpushed-commit salvage, #2429): the issue text says 'inject gateway push rejection (use existing restricted-path code path)'. Concretely \u2014 should the test push a docs file from the coder role to force a real 403, or is there a different restricted-path code path you'd prefer?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Test E.7 (phase-aware consensus timeouts): the issue says 'configure phase_configs.plan.consensus_timeout_s = 30; assert CONSENSUS_TIMEOUT event fires within 30\u00b15s'. The orchestrator's resolve_consensus_timeout_minutes uses MINUTES, not seconds. Should the test use minute-granular timing (e.g. 1-minute plan timeout, observe 60\u00b110s) or do we need to add second-granular config support first?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Test E.8 (Babysit-PR single final push): the issue mentions `_babysit_final_push_head_move_guard` at orchestrator/routes/pipelines.py \u2014 should the test assert via the gateway audit log of push events, or via observing git ls-remote on the PR head ref before/after each coder revision?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Once the new check is wired (non-blocking initially), what's the trigger for flipping required-for-merge? '10 PRs without flake' is mentioned in the issue \u2014 should this be a defined SLO (e.g. <1 flake per 20 runs measured over 2 weeks), or just maintainer's judgment?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Should Part F's `CLAUDE.md` text mention by name the specific tests added in Part E so future agents can locate them when they need similar coverage (e.g. 'use integration_tests/regression/test_slice_branch_env.py as the template for slice-spawn env-threading regressions'), or keep the note generic to avoid stale references?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
