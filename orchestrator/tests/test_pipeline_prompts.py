@@ -3375,6 +3375,53 @@ class TestPlannerPromptSliceDagFraming:
                 "slice-DAG block (#2601)"
             )
 
+    def test_sequential_plan_yaml_example_uses_slices_key(self):
+        """The canonical YAML example must use ``slices:`` — agents copy the
+        example verbatim, so leaving ``phases:`` in the example silently
+        teaches the legacy key while the slice-DAG section says to prefer
+        ``slices:`` (review feedback on #2607)."""
+        prompt = self._sequential_plan_prompt()
+        assert "\nslices:\n" in prompt, (
+            "sequential planner YAML example must use 'slices:' as the "
+            "canonical key (parser still accepts 'phases:' as a backward-"
+            "compat alias, but new prompts should teach 'slices:')"
+        )
+        assert "\nphases:\n" not in prompt, (
+            "sequential planner YAML example still uses 'phases:' — switch "
+            "to 'slices:' to match the slice-DAG directive in the same prompt"
+        )
+
+    def test_concurrent_planner_yaml_example_uses_slices_key(self):
+        """Concurrent planner's canonical YAML example must use ``slices:``
+        (review feedback on #2607 — parallel to the sequential path)."""
+        prompt = self._concurrent_planner_prompt()
+        assert "\nslices:\n" in prompt, (
+            "concurrent planner YAML example must use 'slices:' as the "
+            "canonical key (parser still accepts 'phases:' as a backward-"
+            "compat alias, but new prompts should teach 'slices:')"
+        )
+        assert "\nphases:\n" not in prompt, (
+            "concurrent planner YAML example still uses 'phases:' — switch "
+            "to 'slices:' to match the slice-DAG directive in the same prompt"
+        )
+
+    def test_sequential_plan_carries_worked_example_and_jaccard(self):
+        """The sequential planner's slice-DAG block must now include the
+        worked ``serialized_chain_order`` example and the Jaccard fallback
+        heuristic, mirroring the concurrent path (review feedback on
+        #2607 flagged the asymmetry as a likely copy-paste oversight)."""
+        prompt = self._sequential_plan_prompt()
+        for needle in (
+            "Worked example",
+            "Jaccard",
+            "files_affected",
+        ):
+            assert needle in prompt, (
+                f"sequential planner missing concurrent-mirror token "
+                f"{needle!r} — the worked example + Jaccard fallback must "
+                "be present in both planner paths (#2607)"
+            )
+
 
 class TestReviewerBrcPreamble:
     """Tests that reviewer agents receive BRC preamble in concurrent mode."""
