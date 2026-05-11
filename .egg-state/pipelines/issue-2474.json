@@ -230,10 +230,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "What gating policy should the new integration check use at merge time?",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "Non-blocking from day 1; flip to required-for-merge after observed stability across ~10 PRs (matches issue text recommendation)",
+        "Required-for-merge from day 1 (riskier; flake risk erodes trust quickly)",
+        "Path-conditional required (e.g. only required when integration_tests/, gateway/, orchestrator/, or k8s/ paths change)",
+        "Required-for-merge from day 1 BUT with `continue-on-error: true` on flake-prone steps so transient failures don't fail the check",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T06:10:00.374833Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T06:10:00.334754Z",
+  "updated_at": "2026-05-11T06:10:00.385510Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -247,6 +267,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null
 }
