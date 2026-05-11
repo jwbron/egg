@@ -5,7 +5,7 @@
   "branch": "egg/issue-2474/work",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -308,10 +308,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-05-11T06:31:10.388010Z",
       "work_started_at": "2026-05-11T06:31:33.826454Z",
-      "completed_at": null,
+      "completed_at": "2026-05-11T10:33:39.337334Z",
       "containers": [
         {
           "container_id": "eb27cd25-83fa-485f-a7d3-03234b4bc827",
@@ -754,12 +754,12 @@
         {
           "cycle": 0,
           "started_at": "2026-05-11T06:31:33.826454Z",
-          "completed_at": null,
+          "completed_at": "2026-05-11T10:33:39.337217Z",
           "commit_sha": "3b2eb924e6d08f6444926cddfc9b6ad80f56eb40"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n\n### Non-blocking\n\n- `conftest.py:67` `hashlib.sha1` with `# noqa: S324` is fine for a stable digest.\n- `test_live_pod_guard.py:103` accepting status codes `{409, 412, 423}` as a refusal-shape sentinel is defensible — pick one and codify in a docstring once the actual orchestrator response shape settles.\n- `shared/egg_harness/testing/__init__.py` + `:scripted_provider.py` + `shared/tests/test_egg_harness/test_integration.py` shim + `test_scripted_provider.py` are internally consistent: both barrel and module export the same class object (verified by the new unit test's `is` check), `_stream_events` re-exports correctly, and existing call sites at `test_integration.py:203/276/360/402/473` resolve `ScriptedProvider(script)` unchanged. The ScriptedProvider promotion portion of the slice would ACK in isolation.\n\n### Sum\n\nHolistic Passes 1, 3, and 4 all NACK. The conftest helper expects (orchestrator URL, real orchestrator routes, real gateway audit route, flat config keys, `data.messages` response shape, `branch` in create body). Every test consumer hands it (gateway URL, partial paths, missing endpoint, nested config keys, top-level `messages` shape, no branch). This is the `__checkout__` shape from PR #2105 multiplied across an 8-test surface: each file is internally consistent, but the producer-consumer asymmetry between the conftest helper and the live services means the slice's primary advertised use case — passing on `main` and failing when reverted — cannot be satisfied as shipped.",
       "hitl_feedback": null,
       "phase_start_sha": "3b2eb924e6d08f6444926cddfc9b6ad80f56eb40",
       "agent_exits": [
@@ -1665,7 +1665,7 @@
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T10:32:39.274410Z",
+  "updated_at": "2026-05-11T10:33:39.337946Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1673,12 +1673,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n\n### Non-blocking\n\n- `conftest.py:67` `hashlib.sha1` with `# noqa: S324` is fine for a stable digest.\n- `test_live_pod_guard.py:103` accepting status codes `{409, 412, 423}` as a refusal-shape sentinel is defensible — pick one and codify in a docstring once the actual orchestrator response shape settles.\n- `shared/egg_harness/testing/__init__.py` + `:scripted_provider.py` + `shared/tests/test_egg_harness/test_integration.py` shim + `test_scripted_provider.py` are internally consistent: both barrel and module export the same class object (verified by the new unit test's `is` check), `_stream_events` re-exports correctly, and existing call sites at `test_integration.py:203/276/360/402/473` resolve `ScriptedProvider(script)` unchanged. The ScriptedProvider promotion portion of the slice would ACK in isolation.\n\n### Sum\n\nHolistic Passes 1, 3, and 4 all NACK. The conftest helper expects (orchestrator URL, real orchestrator routes, real gateway audit route, flat config keys, `data.messages` response shape, `branch` in create body). Every test consumer hands it (gateway URL, partial paths, missing endpoint, nested config keys, top-level `messages` shape, no branch). This is the `__checkout__` shape from PR #2105 multiplied across an 8-test surface: each file is internally consistent, but the producer-consumer asymmetry between the conftest helper and the live services means the slice's primary advertised use case — passing on `main` and failing when reverted — cannot be satisfied as shipped.",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-11T06:31:09.144574Z",
-  "version": 54,
+  "version": 55,
   "jira_ticket": null
 }
