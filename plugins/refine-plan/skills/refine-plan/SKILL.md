@@ -3,7 +3,7 @@ name: refine-plan
 description: "BRC-inspired iterated parallel review of an issue's refine + plan phases, locally and portably. Produces analysis.md, plan.md, and an egg-compatible Contract via role-typed subagents with evidence-backed verdicts."
 disable-model-invocation: true
 argument-hint: "[JIRA-1234 | issue# | description] [--repo owner/name]"
-allowed-tools: Agent Read Write Edit AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git remote:*) Bash(git -C * remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(python3:*) Bash(cat:*) Bash(cp:*)
+allowed-tools: Agent Read Write Edit AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git remote:*) Bash(git -C * remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(find:*) Bash(python3 *bin/validate-yaml-tasks:*) Bash(python3 *bin/emit-contract:*) Bash(cat:*) Bash(cp:*)
 ---
 
 # Refine + Plan (BRC-inspired local approximation of egg's refine/plan phases)
@@ -14,11 +14,11 @@ A local analogue of [egg's refine and plan phases](https://github.com/jwbron/egg
 - Refine team: `refiner` + `reviewer_refine` (+ `reviewer_agent_design` for the egg repo only)
 - Plan team: `architect` → (`task_planner` ∥ `risk_analyst`) → `reviewer_plan`
 - Evidence-backed verdicts: every ACK and NACK requires non-empty `artifact_references`
-- Bounded revision loop: 3 producer revisions per phase (matches `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES`)
+- Bounded revision loop: max **3 cycles per phase** (matches `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES = 3`; cycle 3's NACK escalates to HITL — see [Cycle bound](#cycle-bound))
 - Artifact layout under `.refine-plan-state/<id>/` mirrors `.egg-state/` subdirectories
 - Per-cycle verdict journal in `verdicts/cycle-<N>/`
 - Contract output matches `shared/egg_contracts/models.py::Contract` schema (loads cleanly through `Contract.model_validate`)
-- YAML appendix validated against `.egg/schemas/yaml-tasks.schema.json` shape
+- YAML appendix validated against `.egg/schemas/yaml-tasks.schema.json` shape (only `pr.title` is required; `pr.test_plan` is recommended-only and surfaces as a warning, not a failure — same split as `shared/egg_contracts/plan_parser.py::extract_pr_metadata_from_yaml`)
 
 ## What this is vs. what egg's BRC is
 
@@ -65,7 +65,38 @@ Each role's identity, rubric, and output schema lives in its own file under `<sk
 
 For each subagent invocation, the orchestrator (you, executing this skill) **reads the role file**, prepends it to a task-context block, and passes the result as the `prompt` to an `Agent` call with `subagent_type: "general-purpose"`. The role file is the stable rubric; the task-context block is what changes between invocations.
 
-`<skill-root>` resolves to the directory containing this `SKILL.md`. Compute it once at start (the SKILL.md path is known to the running session).
+### Resolving `<skill-root>`
+
+Claude Code does not expose the SKILL.md install path to the running session. Resolve `<skill-root>` once at start by trying these locations in order and using the first one whose `SKILL.md` exists. Cache the absolute path in a shell variable for the rest of the run:
+
+```bash
+SKILL_ROOT=""
+for candidate in \
+  "$HOME/.claude/plugins"/*/refine-plan/skills/refine-plan \
+  "$HOME/.claude/plugins/cache"/*/refine-plan/skills/refine-plan \
+  "$HOME/.claude/plugins/cache"/*/plugins/refine-plan/skills/refine-plan \
+  "$PWD/plugins/refine-plan/skills/refine-plan" \
+  "$PWD/skills/refine-plan"; do
+  if [ -f "$candidate/SKILL.md" ]; then
+    SKILL_ROOT="$candidate"
+    break
+  fi
+done
+if [ -z "$SKILL_ROOT" ]; then
+  SKILL_ROOT="$(find "$HOME/.claude/plugins" -maxdepth 6 -type f -name SKILL.md -path '*refine-plan*' 2>/dev/null | head -1)"
+  SKILL_ROOT="${SKILL_ROOT%/SKILL.md}"
+fi
+test -n "$SKILL_ROOT" || { echo "could not resolve skill-root" >&2; exit 1; }
+```
+
+The candidate list covers (a) the plugin install paths Claude Code uses (with and without the `cache/` and `plugins/` segments, since the marketplace-id segment is installer-internal), (b) a local-checkout install (running the skill directly out of an `egg/` clone), and (c) the legacy symlink install under the user's `~/.claude/skills/`. Subsequent shellouts use `"$SKILL_ROOT"`:
+
+```bash
+python3 "$SKILL_ROOT/bin/validate-yaml-tasks" <plan_path>
+python3 "$SKILL_ROOT/bin/emit-contract" <plan_path> <contract_path> <pipeline_id>
+```
+
+Read calls for role files (`Read` tool) likewise take `"$SKILL_ROOT/agents/<role>.md"` as the absolute path.
 
 ---
 
@@ -158,16 +189,22 @@ Every reviewer must return a single JSON object as its final response. The orche
 
 ### Cycle bound
 
-Each producer may be re-spawned at most **3 times per phase** (cycles 1–4 inclusive). On cycle 4 NACK, halt the auto-loop and ask via `AskUserQuestion`:
+A "cycle" is one **producer-then-reviewers** round: producer emits, reviewers verdict. The first cycle is cycle 1 (initial draft); each subsequent cycle is a producer revision driven by NACKs from the prior cycle.
+
+The local cap is **3 cycles per phase** total — matching `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES = 3` in `orchestrator/env_config.py:271` and the `local_cycles >= self._local_max_cycles` escalation check in `orchestrator/slice_scheduler.py:323`. Concretely: cycles 1, 2, and 3 are auto-driven; a NACK on cycle 3 halts the auto-loop and triggers HITL escalation rather than spawning a cycle 4.
+
+On cycle-3 NACK, ask via `AskUserQuestion`:
 
 ```
 Header:  "Cycle limit"
-Question: "Cycle 4 still has unresolved NACKs. What now?"
+Question: "Cycle 3 still has unresolved NACKs. What now?"
 Options:
   - "Force-accept current draft"        → record override, advance
-  - "One more revision with my guidance" → take free-text feedback, run cycle 5
+  - "One more revision with my guidance" → take free-text feedback, run cycle 4 (operator-extended)
   - "Abort phase"                       → exit, leave artifacts on disk
 ```
+
+Operator-extended cycles past 3 are explicitly opt-in and recorded in the HITL decision JSON (see [Force-accept is recorded](#operating-notes)) — the auto-loop never crosses the cap on its own.
 
 ### BRC history append
 
@@ -199,9 +236,9 @@ Also append a structured JSON record to `brc-history/<id>-<phase>.json`.
 
 **Goal**: produce `drafts/<id>-analysis.md` matching the analysis template, with both (or all three) reviewers ACKing on evidence.
 
-## Cycle loop (max 4 cycles)
+## Cycle loop (max 3 cycles — see [Cycle bound](#cycle-bound))
 
-For cycle N = 1..4:
+For cycle N = 1..3:
 
 1. **Spawn refiner** (single Agent call). Task context:
    - `task_brief`: <issue body / JIRA summary / free-text>
@@ -233,8 +270,8 @@ For cycle N = 1..4:
 
 5. **Aggregate**:
    - All ACK → write `verdicts/cycle-<N>/CONFIRMED-refine.json`, append BRC history with `resolution: advance`, exit loop.
-   - Any NACK and N ≤ 3 → append BRC history with `resolution: revise`, continue loop.
-   - Any NACK and N == 4 → trigger [cycle-limit AskUserQuestion](#cycle-bound). Record outcome.
+   - Any NACK and N < 3 → append BRC history with `resolution: revise`, continue loop.
+   - Any NACK and N == 3 → trigger [cycle-limit AskUserQuestion](#cycle-bound). Record outcome.
 
 ## HITL gate
 
@@ -269,9 +306,9 @@ Single Agent call. Task context:
 
 Wait for completion, read `architect-output.json`. The architect runs **once per phase**, not once per cycle — only re-run if a reviewer NACK specifically targets `key_design_decisions` or `ordering_constraints`.
 
-## Cycle loop (max 4 cycles)
+## Cycle loop (max 3 cycles — see [Cycle bound](#cycle-bound))
 
-For cycle N = 1..4:
+For cycle N = 1..3:
 
 1. **Spawn task_planner + risk_analyst in parallel** (one message, two Agent calls).
 
@@ -293,7 +330,7 @@ For cycle N = 1..4:
 3. **Validate the YAML appendix** by running the validator script:
 
    ```bash
-   python3 <skill-root>/bin/validate-yaml-tasks <plan_path>
+   python3 "$SKILL_ROOT/bin/validate-yaml-tasks" <plan_path>
    ```
 
    - Exit 0 / stdout starts with `OK:` → proceed to step 4.
@@ -301,7 +338,7 @@ For cycle N = 1..4:
      - Write `verdicts/cycle-<N>/NACK-yaml-validator.json` with the FAIL output as `feedback` and `["<plan_path>:#yaml-tasks"]` as `artifact_references`.
      - Skip step 4 for this cycle; jump to step 5.
 
-   The validator checks the same constraints described in `agents/task-planner.md`: presence of the `# yaml-tasks` fenced block, top-level `slices:` (or `phases:` legacy alias), TASK-ID pattern, role enum, required task fields, and the `pr:` block keys. It is portable — depends only on `python3` + PyYAML — and does not require the egg repo to be present.
+   The validator checks the same constraints described in `agents/task-planner.md`: presence of the `# yaml-tasks` fenced block, top-level `slices:` (or `phases:` legacy alias), TASK-ID pattern (with duplicate-id detection), role enum, required task fields, and `pr.title` (with `pr.test_plan` recommended-but-not-required, surfaced as a warning). It is portable — depends only on `python3` + PyYAML — and does not require the egg repo to be present.
 
 4. **Spawn reviewer_plan** (single Agent call). Task context:
    - `plan_path`, `analysis_path`, `architect_output_path`, `task_planner_output_path`, `risk_analyst_output_path`
@@ -312,19 +349,19 @@ For cycle N = 1..4:
 
 5. **Aggregate**:
    - reviewer_plan ACK and no yaml-validator NACK → write `verdicts/cycle-<N>/CONFIRMED-plan.json`, append BRC history, exit loop.
-   - NACK present and N ≤ 3 → revise. **Re-run policy**:
+   - NACK present and N < 3 → revise. **Re-run policy**:
      - YAML validator NACK or task_planner-specific NACK → re-run `task_planner` only
      - risk_analyst-specific NACK → re-run `risk_analyst` only
      - NACK that calls out architect's decisions → re-run `architect` (Step 2.0), then both parallel producers
      - Otherwise → re-run both parallel producers
-   - NACK and N == 4 → trigger cycle-limit AskUserQuestion.
+   - NACK and N == 3 → trigger cycle-limit AskUserQuestion.
 
 ## Emit contract
 
 On convergence, parse the plan's YAML appendix into a Contract at `contracts/<id>.json`:
 
 ```bash
-python3 <skill-root>/bin/emit-contract <plan_path> <contract_path> <pipeline_id> [--current-phase plan]
+python3 "$SKILL_ROOT/bin/emit-contract" <plan_path> <contract_path> <pipeline_id> [--current-phase plan]
 ```
 
 The emitter writes a Contract JSON matching `shared/egg_contracts/models.py::Contract` (schemaVersion 1.1) — egg-canonical field names (`pipeline_id`, `slices[].tasks[]`), `slice-<N>` / `task-<P>-<N>` lowercase IDs, lowercase `"pending"` status enum, `acceptance_criteria` (not `acceptance`), `files_affected` (not `files`), and the full set of optional fields egg expects (defaulted appropriately). Output loads cleanly through `Contract.model_validate` and round-trips identical. It runs without importing egg.
@@ -395,7 +432,7 @@ This skill does **not** create PRs, push branches, or update GitHub issues. Loca
 
 **Evidence is the line.** Reviewers with empty `artifact_references` are the same failure mode as egg reviewers rubber-stamping without attestations. Re-prompt; don't soften.
 
-**Don't pass producer self-attestation to reviewers.** Producers' `agent-outputs/*.json` contains self-summary. Reviewers read the *artifact* (`drafts/*.md`) and the handoff content they need for their rubric (e.g., reviewer_plan reads risk_analyst's output). They do not read the producer-being-reviewed's own self-rating. This is Delphi redaction; falls out because we pick what each reviewer reads.
+**Don't pass producer self-attestation to reviewers.** Producers' `agent-outputs/*.json` contains self-summary. Reviewers should read the *artifact* (`drafts/*.md`) and the handoff content they need for their rubric (e.g., reviewer_plan reads risk_analyst's output). They should not read the producer-being-reviewed's own self-rating. This is Delphi redaction *by convention*: the orchestrator names exactly which paths each reviewer is told to read in its task-context block, and the role files instruct reviewers to limit themselves to those. Reviewers are general-purpose subagents with the `Read` tool, so a reviewer that ignores its instructions could in principle read the producer's self-attestation (or the verdict-journal files) on its own — the redaction is enforced by prompt discipline, not by capability sandboxing. If you spot a reviewer citing producer self-attestation, NACK and re-prompt.
 
 **Force-accept is recorded.** Cycle-4 force-accept goes into the HITL decision JSON and BRC history `resolution: hitl-force-accept`. Don't silently advance.
 

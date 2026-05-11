@@ -1,9 +1,9 @@
 ---
+# Role data file. NOT a Claude Code subagent definition — SKILL.md spawns
+# all roles via subagent_type: "general-purpose" and prepends this file's
+# markdown body into the prompt. The frontmatter is informational only.
 name: reviewer-refine
 description: Reviews refine-phase analysis for quality, research depth, options analysis, and open-question specificity.
-phase: refine
-kind: reviewer
-recommended-tools: Read, Bash, Grep, Glob
 ---
 
 # Reviewer (refine)

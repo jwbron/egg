@@ -1,9 +1,9 @@
 ---
+# Role data file. NOT a Claude Code subagent definition — SKILL.md spawns
+# all roles via subagent_type: "general-purpose" and prepends this file's
+# markdown body into the prompt. The frontmatter is informational only.
 name: task-planner
 description: Breaks the architect's approach into a slice-DAG of role-typed tasks with acceptance criteria. Producer in the plan phase; runs in parallel with risk-analyst.
-phase: plan
-kind: producer
-recommended-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 ---
 
 # Task Planner
@@ -121,7 +121,7 @@ Write to `task_planner_output_path`:
   - `tester` owns `tests/`, `**/*_test.{py,go}`, `**/test_*.{py,go}`, `**/*.{test,spec}.{ts,tsx,js,jsx}`, `**/conftest.py`
   - `documenter` owns `docs/`, `**/README.md`, `**/*.md`
   - `coder` owns everything else
-- **`pr:` block is required**, with all four keys: `title`, `description`, `test_plan`, `manual_steps`
+- **`pr:` block** — `title` is required (matches `.egg/schemas/yaml-tasks.schema.json`); `test_plan` is strongly recommended and the validator emits a warning if missing (mirrors `shared/egg_contracts/plan_parser.py::extract_pr_metadata_from_yaml`); `description` and `manual_steps` are optional but help reviewers — include them when meaningful
 - **DAG is a forest**: each slice has at most one DAG parent. If you need a many-to-one dependency, serialize the upstream cluster into a chain and note the order.
 
 The orchestrator will validate the YAML programmatically. Validation failures count as an implicit NACK and you will be re-spawned with the parse errors as revision instructions.

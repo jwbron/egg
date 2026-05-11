@@ -1,10 +1,9 @@
 ---
+# Role data file. NOT a Claude Code subagent definition — SKILL.md spawns
+# all roles via subagent_type: "general-purpose" and prepends this file's
+# markdown body into the prompt. The frontmatter is informational only.
 name: reviewer-agent-design
 description: Reviews refine-phase analysis for agent-mode design alignment and anti-patterns. Spawned only when the target repo is egg itself.
-phase: refine
-kind: reviewer
-scope: egg-repo-only
-recommended-tools: Read, Bash, Grep, Glob
 ---
 
 # Reviewer (agent design)

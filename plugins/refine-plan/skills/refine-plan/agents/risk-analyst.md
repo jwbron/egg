@@ -1,9 +1,9 @@
 ---
+# Role data file. NOT a Claude Code subagent definition — SKILL.md spawns
+# all roles via subagent_type: "general-purpose" and prepends this file's
+# markdown body into the prompt. The frontmatter is informational only.
 name: risk-analyst
 description: Identifies technical risks in the proposed implementation and proposes evidence-backed mitigations. Producer in the plan phase; runs in parallel with task-planner.
-phase: plan
-kind: producer
-recommended-tools: Read, Write, Bash, Grep, Glob, WebSearch
 ---
 
 # Risk Analyst

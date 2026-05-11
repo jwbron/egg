@@ -65,12 +65,14 @@ def _normalise_dep(raw: str) -> str | None:
     Mirrors the logic in ``ParsedPhase.to_contract_slice`` so the
     planner can emit any of: ``slice-2``, ``phase-2``, ``slice 2``,
     or bare ``2`` (for short strings only). Returns ``None`` if no
-    valid number can be extracted.
+    valid number can be extracted. Case-insensitive on the
+    ``slice``/``phase`` token.
     """
     s = str(raw).strip()
-    if s.startswith("slice-"):
-        return s
-    if s.startswith("phase-"):
+    sl = s.lower()
+    if sl.startswith("slice-"):
+        return "slice-" + s[len("slice-") :]
+    if sl.startswith("phase-"):
         return "slice-" + s[len("phase-") :]
     m = re.search(r"(?:slice|phase)\s*(\d+)", s, re.IGNORECASE)
     if not m and len(s) <= 10:
@@ -78,6 +80,29 @@ def _normalise_dep(raw: str) -> str | None:
     if m:
         return f"slice-{m.group(1)}"
     return None
+
+
+def _slice_number_from_id(raw_id: object, fallback: int) -> int:
+    """Extract the integer slice number from a planner-emitted slice id.
+
+    Accepts ``"slice-3"``, ``"Slice-3"``, ``"phase-3"``, ``3`` (int), or
+    bare ``"3"``. Falls back to ``fallback`` when nothing parses — the
+    validator's ``slice_id_pattern`` check should have rejected the
+    unparseable case before we got here.
+    """
+    if raw_id is None:
+        return fallback
+    if isinstance(raw_id, int):
+        return raw_id
+    s = str(raw_id).strip().lower()
+    for prefix in ("slice-", "phase-"):
+        if s.startswith(prefix):
+            s = s[len(prefix) :]
+            break
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _emit_task(t: dict, slice_number: int) -> dict | None:
@@ -176,29 +201,32 @@ def _emit_pr(pr: dict | None) -> dict | None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 4 or len(argv) > 6:
-        print(
-            f"usage: {argv[0]} <plan.md> <contract.json> <pipeline_id> [--current-phase <phase>]",
-            file=sys.stderr,
-        )
+    usage = (
+        f"usage: {argv[0]} <plan.md> <contract.json> <pipeline_id> "
+        "[--current-phase <phase>]"
+    )
+    if len(argv) not in (4, 6):
+        print(usage, file=sys.stderr)
         return 2
 
     plan_path, out_path, pipeline_id = argv[1], argv[2], argv[3]
     current_phase = "plan"
-    if len(argv) >= 6:
+    if len(argv) == 6:
         if argv[4] != "--current-phase":
-            print(f"unexpected flag: {argv[4]}", file=sys.stderr)
+            print(f"unexpected flag: {argv[4]!r}\n{usage}", file=sys.stderr)
             return 2
         current_phase = argv[5]
         if current_phase not in VALID_PHASES:
             print(
-                f"invalid --current-phase {current_phase!r}; must be one of {sorted(VALID_PHASES)}",
+                f"invalid --current-phase {current_phase!r}; "
+                f"must be one of {sorted(VALID_PHASES)}",
                 file=sys.stderr,
             )
             return 2
 
     try:
-        plan = open(plan_path).read()
+        with open(plan_path) as f:
+            plan = f.read()
     except OSError as e:
         print(f"error: could not read {plan_path}: {e}", file=sys.stderr)
         return 1
@@ -224,11 +252,7 @@ def main(argv: list[str]) -> int:
     raw_slices = data.get("slices") or data.get("phases") or []
     slices: list[dict] = []
     for sl in raw_slices:
-        raw_num = sl.get("id")
-        try:
-            slice_number = int(str(raw_num).removeprefix("slice-").removeprefix("phase-"))
-        except TypeError, ValueError:
-            slice_number = len(slices) + 1
+        slice_number = _slice_number_from_id(sl.get("id"), fallback=len(slices) + 1)
         slices.append(_emit_slice(sl, slice_number))
 
     contract = {

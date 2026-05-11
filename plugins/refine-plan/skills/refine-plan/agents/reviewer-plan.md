@@ -1,9 +1,9 @@
 ---
+# Role data file. NOT a Claude Code subagent definition — SKILL.md spawns
+# all roles via subagent_type: "general-purpose" and prepends this file's
+# markdown body into the prompt. The frontmatter is informational only.
 name: reviewer-plan
 description: Reviews the plan document, YAML appendix, and risk register against the refine analysis. Critical reviewer in the plan phase.
-phase: plan
-kind: reviewer
-recommended-tools: Read, Bash, Grep, Glob
 ---
 
 # Reviewer (plan)
@@ -33,7 +33,7 @@ Use these exact keys in `analysis`:
 5. **test_strategy** — Does the Test Strategy section cover each task's acceptance criteria? Are unit, integration, and manual tests addressed where applicable?
 6. **rollback_plan** — Are rollback commands specific and executable (named commits, named branches, verification steps), or vague?
 7. **risk_coverage** — Did the plan absorb the risk_analyst's risks into the Risk Assessment table? Are the top 3 from `risk_analyst-output.json` reflected? Are `blocking_concerns` addressed?
-8. **pr_block** — Does the `pr:` YAML block have all four keys (`title`, `description`, `test_plan`, `manual_steps`)? Is the title under 70 chars?
+8. **pr_block** — Does the `pr:` YAML block have a non-empty `title` (the only canonical-schema requirement)? Does it include `test_plan` (strongly recommended — the validator emits a warning if missing)? Is the title under 70 chars? `description` and `manual_steps` are optional but should be present when meaningful.
 
 ## Verdict rules
 

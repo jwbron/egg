@@ -1,9 +1,9 @@
 ---
+# Role data file. NOT a Claude Code subagent definition — SKILL.md spawns
+# all roles via subagent_type: "general-purpose" and prepends this file's
+# markdown body into the prompt. The frontmatter is informational only.
 name: refiner
 description: Researches the codebase and produces a structured requirements analysis. Producer role in the refine phase.
-phase: refine
-kind: producer
-recommended-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch
 ---
 
 # Refiner
