@@ -106,8 +106,14 @@ jobs:
         # (ephemeral runner) — no real credentials are ever placed here.
         run: |
           mkdir -p "$HOME/.config/egg" "$HOME/repos" "$HOME/.egg-worktrees"
-          openssl rand -hex 32 > "$HOME/.config/egg/launcher-secret"
-          openssl rand -hex 32 > "$HOME/.config/egg/lifecycle-secret"
+          # `printf '%s'` (not `>`) so the secret files don't get a
+          # trailing newline. `kubectl create secret --from-file` keeps
+          # every byte of the file in the Secret value; a trailing
+          # `\n` then ends up inside the `Authorization: Bearer …`
+          # header at test time, which `http.client.putheader` rejects
+          # as "Invalid header value".
+          printf '%s' "$(openssl rand -hex 32)" > "$HOME/.config/egg/launcher-secret"
+          printf '%s' "$(openssl rand -hex 32)" > "$HOME/.config/egg/lifecycle-secret"
           printf 'CLAUDE_CODE_OAUTH_TOKEN=dummy\nGATEWAY_BOT_NAME=ci\n' \
             > "$HOME/.config/egg/secrets.env"
           printf 'local_repos:\n  paths: []\n' \

@@ -149,6 +149,11 @@ def _k8s_local_pipeline_stack() -> Generator[LocalPipelineStack]:
     if secret_result.returncode == 0 and secret_result.stdout:
         import base64
 
+        # `.strip()` because `kubectl create secret --from-file=<dir>`
+        # keeps every byte of the source file, including any trailing
+        # newline left by the upstream secret-generation step. A `\n`
+        # in `f"Bearer {launcher_secret}"` is an "Invalid header value"
+        # under `http.client.putheader`.
         launcher_secret = base64.b64decode(secret_result.stdout).decode().strip()
     else:
         launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
