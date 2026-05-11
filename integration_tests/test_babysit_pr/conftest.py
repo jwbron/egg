@@ -55,12 +55,11 @@ def _set_lifecycle_secret_env():
     Function-scoped: even though the autouse trigger only fires for
     tests under this conftest's directory, `scope="session"` would
     leave the env var set for the rest of the pytest session after
-    the first babysit_pr test runs. Other integration suites that
-    fall back to reading `EGG_LIFECYCLE_SECRET` from the test-process
-    env (e.g. `local_pipeline/conftest.py`'s gateway-secrets-lookup
-    fallback path) would then silently authenticate with a string
-    that doesn't match any deployed pod. Per-test setup/teardown
-    keeps the env override scoped to babysit_pr/ tests only.
+    the first babysit_pr test runs. Any future suite that falls back
+    to reading `EGG_LIFECYCLE_SECRET` from the test-process env would
+    then silently authenticate with a string that doesn't match any
+    deployed pod. Per-test setup/teardown keeps the env override
+    scoped to babysit_pr/ tests only.
 
     Also disables the gateway-readiness gate
     (`EGG_GATEWAY_READY_TIMEOUT_SECONDS=0`): `routes.pipelines`

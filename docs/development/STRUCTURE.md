@@ -394,18 +394,7 @@ integration_tests/
 │   ├── test_pipeline.py           # End-to-end implement-phase BRC cycle against a fixture PR
 │   ├── test_gateway.py            # Staging-branch push validation via the gateway
 │   └── test_escalation.py         # Early-exit paths (fork, merged, empty diff) and final-push head-move escalation
-├── local_pipeline/                # Orchestrator pipeline integration tests
-│   ├── conftest.py                # Pipeline test fixtures
-│   ├── helpers.py                 # Shared API helper functions for tests
-│   ├── test_api_validation.py     # API input validation tests
-│   ├── test_concurrent_pipelines.py  # Concurrent pipeline execution tests
-│   ├── test_error_recovery.py     # Error recovery scenario tests
-│   ├── test_hitl_edge_cases.py    # HITL decision edge case tests
-│   ├── test_k8s_deployment_tools.py  # End-to-end tests for MCP deployment diagnostic tools (k8s runtime)
-│   ├── test_local_pipeline.py     # Orchestrator pipeline tests
-│   ├── test_signals.py            # Signal handling tests
-│   ├── test_unified_pipeline_behavior.py  # Unified pipeline behavior tests
-│   └── test_worktree_integration.py  # Worktree lifecycle and pipeline isolation tests
+├── test_k8s_deployment_tools.py   # Auth-rejection regression suite for the #1759 deployment MCP routes
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures
     ├── test_happy_path.py         # Full pipeline success flow

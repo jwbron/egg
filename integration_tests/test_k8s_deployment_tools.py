@@ -1,13 +1,13 @@
 """Integration regression guards for the #1759 deployment MCP routes.
 
-TASK-4-1 acceptance: the five new orchestrator endpoints added for the
+TASK-4-1 acceptance: every orchestrator endpoint added for the
 Kubernetes deployment (``/api/v1/deployment/context``,
 ``/validate-manifests``, ``/prune-worktrees``,
-``/validate-network-isolation``, ``/rebuild-and-rollout``) — plus the
-progress-stream GET route — MUST enforce ``@require_lifecycle_secret``
-parity with #1769. A regression that leaves any of them open would let
-an in-cluster caller trigger the same kind of bypass the HITL
-auto-approval incident exposed.
+``/validate-network-isolation``, ``/rebuild-and-rollout``, ``/logs``)
+— plus the progress-stream GET route — MUST enforce
+``@require_lifecycle_secret`` parity with #1769. A regression that
+leaves any of them open would let an in-cluster caller trigger the same
+kind of bypass the HITL auto-approval incident exposed.
 
 These tests hit the running orchestrator with NO auth and with an
 obviously-wrong bearer and assert:
@@ -20,9 +20,10 @@ obviously-wrong bearer and assert:
    regression such as the 1769 one.
 
 The tests deliberately do NOT exercise the happy path — the lifecycle
-secret is not exposed through ``LocalPipelineStack`` because each
-deployment controls it out-of-band (k8s Secret / compose env). Happy-path
-behaviour is covered exhaustively by the route-level unit tests in
+secret is not exposed through the shared ``EggStack`` fixture
+(``integration_tests/conftest.py``) because each deployment controls it
+out-of-band (k8s Secret). Happy-path behaviour is covered exhaustively
+by the route-level unit tests in
 ``orchestrator/tests/test_deployment_routes.py`` which can mock the
 kubernetes/subprocess layer; this integration file focuses on the thing
 unit tests can't catch: a live Flask blueprint that someone forgot to
@@ -69,6 +70,11 @@ _DEPLOYMENT_ROUTES: list[tuple[str, str, dict | None]] = [
         "GET",
         None,
     ),
+    # /logs GET: query-string service is required by the handler, but
+    # @require_lifecycle_secret must fire before the handler runs, so
+    # the param doesn't need to match the allowlist for auth-reject
+    # regression coverage.
+    ("/api/v1/deployment/logs?service=gateway", "GET", None),
 ]
 
 

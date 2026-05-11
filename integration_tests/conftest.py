@@ -238,7 +238,9 @@ def _k8s_egg_stack() -> Generator[EggStack]:
         check=True,
     )
     orch_addr = orch_result.stdout.strip()
-    orchestrator_url = f"http://{orch_addr}" if ":" in orch_addr else ""
+    if ":" not in orch_addr:
+        pytest.fail(f"Could not discover orchestrator service address: {orch_addr}")
+    orchestrator_url = f"http://{orch_addr}"
 
     # Read launcher secret from the k8s secret
     secret_result = subprocess.run(
