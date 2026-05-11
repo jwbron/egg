@@ -147,6 +147,50 @@ class ReviewGraph:
         """Get all roles participating in the graph."""
         return self._producer_roles | self._reviewer_roles
 
+    def producer_roles(self) -> set[str]:
+        """Get all roles that act as producers in the graph.
+
+        Returned as a snapshot copy so callers can mutate or iterate without
+        risking concurrent modification of the internal set.
+        """
+        return set(self._producer_roles)
+
+    def reviewer_roles(self) -> set[str]:
+        """Get all roles that act as reviewers in the graph.
+
+        Returned as a snapshot copy so callers can mutate or iterate without
+        risking concurrent modification of the internal set.
+        """
+        return set(self._reviewer_roles)
+
+    def empty_pure_producers(self, producers_with_tasks: set[str]) -> set[str]:
+        """Producer roles that are pure-producers AND absent from
+        ``producers_with_tasks`` (#2581).
+
+        Single source of truth for the empty-pure-producer predicate
+        used by both the matrix-level seed
+        (``ApprovalMatrix.seed_auto_ack_for_empty_pure_producers``)
+        and the prompt-level shortcut flag
+        (``_run_concurrent_phase`` → ``is_pre_seeded_empty_producer``).
+        Without one helper, the two call sites can drift — e.g. a future
+        change adding a third skip condition would have to be applied to
+        both, and the prompt could appear without the matrix being seeded
+        (or vice versa).
+
+        A role qualifies as an empty pure producer iff:
+
+        * it is a producer in this graph (``is_producer``),
+        * it does not appear in ``producers_with_tasks``,
+        * it is not also a reviewer (``is_dual_role`` is False) — dual-role
+          producers (currently only TESTER) always run so they can
+          discharge their reviewer responsibilities.
+        """
+        return {
+            p
+            for p in self._producer_roles
+            if p not in producers_with_tasks and not self.is_dual_role(p)
+        }
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the graph."""
         return {

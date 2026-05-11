@@ -142,6 +142,7 @@ class ConcurrentPhaseExecutor:
         review_graph: ReviewGraph | None = None,
         roles: list[AgentRole] | None = None,
         slice_id: str | None = None,
+        producer_roles_with_tasks: set[str] | None = None,
     ) -> None:
         """Initialise the executor.
 
@@ -167,6 +168,17 @@ class ConcurrentPhaseExecutor:
                 ``egg/issue-N/{slice_id}/{role}/work`` so commits across
                 slices stay isolated. ``None`` preserves the pre-slicing
                 pipeline-scoped semantics.
+            producer_roles_with_tasks: Set of producer role names that
+                actually have at least one task in the slice's plan
+                (#2581). When provided, ``spawn_all`` calls
+                ``tracker.seed_auto_ack_for_empty_pure_producers`` after
+                registering agents so pure producers (CODER, DOCUMENTER)
+                with no tasks don't deadlock BRC consensus waiting for
+                reviewers to ACK an empty proposal. ``None`` (the
+                default) preserves the prior unconditional-roster
+                behavior; callers that don't know the slice's task list
+                yet (CUSTOM-mode, BABYSIT, prompt-mode pipelines) leave
+                it unset.
         """
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
@@ -174,6 +186,7 @@ class ConcurrentPhaseExecutor:
         self._review_graph = review_graph
         self._roles_override = roles
         self._slice_id = slice_id
+        self._producer_roles_with_tasks = producer_roles_with_tasks
         self._failure_times: list[datetime] = []
         self._lock = threading.Lock()
 
@@ -396,6 +409,28 @@ class ConcurrentPhaseExecutor:
         )
         for role in roles:
             tracker.register_agent(role.value)
+
+        # Pre-seed BRC consensus for pure producers that have no tasks in
+        # this slice (#2581). Without this, e.g. a tester-only or
+        # documenter-only slice still spawns CODER, which proposes an
+        # empty artifact list — and CODER's pure reviewers can NACK
+        # forever ("no code to review"), spiraling until
+        # ``max_revision_rounds``. The seeder records an empty proposal +
+        # synthetic ACKs from pure reviewers; dual-role reviewers (TESTER
+        # reviewing CODER) are intentionally left to run and decide.
+        # Skipped when callers don't supply the task-role set (CUSTOM-mode,
+        # BABYSIT, prompt-mode), preserving the prior behavior.
+        if self._producer_roles_with_tasks is not None:
+            auto_acked = tracker.seed_auto_ack_for_empty_pure_producers(
+                self._producer_roles_with_tasks
+            )
+            if auto_acked:
+                logger.info(
+                    "Pre-seeded BRC auto-ACK for empty pure producers",
+                    pipeline_id=self.pipeline.id,
+                    slice_id=self._slice_id,
+                    auto_acked=auto_acked,
+                )
 
         return self._spawn_roles(roles, agent_prompts or {})
 
