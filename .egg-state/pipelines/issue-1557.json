@@ -190,10 +190,30 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should this work be decomposed into slices? The work spans: (A) `submit_task` epic-input handling + issue-type detection, (B) refine prompt tweaks + apply step (`editJiraIssue` on epic Description), (C) plan prompt tweaks for per-node ticket-shaped descriptions, (D) plan apply step (`createJiraIssue` + `createIssueLink` + plan-node→key mapping), (E) orchestrator-direct Jira creds + Won't-Do transitions for reassess, (F) reassess-specific planning (consolidate/split/diff), (G) in-flight child detection (status + open-PR cross-check + remote-link fallback) + per-ticket HITL gating.",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Single slice: all parts ship together — [A+B+C+D+E+F+G] (1 PR)",
+        "Two slices with dependency: [foundation: A+B+C+D+E fresh-epic only] -> [reassess: F+G] (2 PRs)",
+        "Three slices with dependency: [foundation: A+B+C fresh refine] -> [planner+apply: D+E fresh] -> [reassess+in-flight: F+G] (3 PRs)",
+        "Two slices in parallel: [fresh-epic path: A+B+C+D+E] || [reassess+in-flight infra: F+G+E-reassess] (2 PRs, but B/D shared scope will need careful merge)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:51.960579Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:48.654211Z",
+  "updated_at": "2026-05-11T22:24:51.970852Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -207,6 +227,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
