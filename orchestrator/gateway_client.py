@@ -2173,13 +2173,17 @@ class GatewayClient:
                         base_sha=base_sha,
                     )
                     return True
-                raise GatewayError(
+                raise ContextBranchDiverged(
                     (
                         f"Context branch '{context_branch}' already exists at "
                         f"{existing_sha} but base '{base_branch}' resolves to "
                         f"{base_sha}; refusing to overwrite — caller must "
                         "investigate divergence (#2548)"
                     ),
+                    context_branch=context_branch,
+                    existing_sha=existing_sha,
+                    base_branch=base_branch,
+                    base_sha=base_sha,
                 )
 
             refspec = f"{base_sha}:refs/heads/{context_branch}"
@@ -3077,6 +3081,36 @@ class GatewayError(Exception):
         self.message = message
         self.status_code = status_code
         self.details = details
+
+
+class ContextBranchDiverged(GatewayError):
+    """Raised by :meth:`GatewayClient.create_context_branch` when
+    ``egg/<pipeline_id>/context`` already exists on origin at a SHA
+    that does not match the resolved base.
+
+    Subclasses :class:`GatewayError` so callers that broadly catch
+    ``GatewayError`` continue to fail-soft. Callers that want to treat
+    this case as "our own prior tick already pushed the artifact
+    commit" (after authoritatively checking GitHub state for an open
+    PR on the head branch) can catch this subclass specifically and
+    fall through to the artifact-push + create_pr flow — the push is
+    idempotent (fast-forward / no-op) over the prior tick's commit.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        context_branch: str,
+        existing_sha: str,
+        base_branch: str,
+        base_sha: str,
+    ):
+        super().__init__(message)
+        self.context_branch = context_branch
+        self.existing_sha = existing_sha
+        self.base_branch = base_branch
+        self.base_sha = base_sha
 
 
 # Singleton client instance

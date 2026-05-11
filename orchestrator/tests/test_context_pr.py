@@ -596,60 +596,36 @@ class TestOpenContextPRFailSoft:
 
 
 # ----------------------------------------------------------------------
-# Convergent idempotency: recover an existing PR after a prior tick's
-# save_contract failed (#2548 review issue 1)
+# Top-of-hook GitHub-state idempotency (#2582)
+#
+# Replaces the post-``create_pr``-failure recovery branches: the hook
+# now asks GitHub up-front whether a PR already exists on our head
+# branch, and salvages the linkage / fails-soft / proceeds based on a
+# three-way result.  Tests below pin each leg of that switch plus the
+# tick-2-opens-PR fall-through that motivated #2582.
 # ----------------------------------------------------------------------
 
 
-class TestOpenContextPRRecoverExistingPR:
-    """If a prior ``_run_pipeline`` tick opened the context PR but failed
-    to persist (orchestrator restart, disk full, lock contention), the
-    contract still says ``context_pr_number is None`` so the next tick
-    re-enters the hook.  ``gh pr create`` then fails (duplicate
-    head→base PR), and without recovery the contract stays out of sync
-    with GitHub forever.  These tests pin that the recovery path
-    queries ``list_open_prs`` and salvages the existing PR's number /
-    URL into the contract."""
+class TestOpenContextPRTopLevelIdempotency:
+    """Authoritative GitHub-state lookup at the top of the hook is the
+    single recovery surface for both partial-failure modes that the
+    contract-state fast path can't see:
 
-    def test_recovers_when_create_pr_raises_with_existing_pr(
-        self, tmp_path, pipeline, make_spawner
-    ):
+    * a prior tick opened the PR but lost ``save_contract`` (full
+      match on head+base → salvage the linkage and return);
+    * a prior tick pushed the artifact commit but failed ``create_pr``
+      (no match here, then ``ContextBranchDiverged`` on the
+      subsequent push attempt → fall through to artifact push +
+      create_pr).
+    """
+
+    def test_recovers_when_pr_already_exists_full_match(self, tmp_path, pipeline, make_spawner):
+        """A prior tick opened the PR but failed ``save_contract``.
+        The top-of-hook lookup finds the open PR on origin and
+        salvages the linkage without re-running the artifact push or
+        ``create_pr``."""
         _seed_repo(tmp_path, identifier=2548)
         spawner = make_spawner()
-        spawner.gateway.create_pr.side_effect = RuntimeError(
-            "gh: a pull request for branch 'egg/issue-2548/context' already exists"
-        )
-        spawner.gateway.list_open_prs.return_value = [
-            {
-                "number": 4242,
-                "head_ref": "egg/issue-2548/context",
-                "base_ref": "main",
-            }
-        ]
-        load, save, saved = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
-        with (
-            patch("egg_contracts.loader.load_contract", load),
-            patch("egg_contracts.loader.save_contract", save),
-        ):
-            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
-
-        assert result == "egg/issue-2548/context", (
-            "recovery must surface the branch so the operator can correlate "
-            "the GitHub PR with the pipeline"
-        )
-        spawner.gateway.list_open_prs.assert_called_once()
-        assert saved, "contract must be persisted after recovery"
-        last = saved[-1]
-        assert last.pr.context_branch == "egg/issue-2548/context"
-        assert last.pr.context_pr_number == 4242, (
-            "recovery must populate the contract from the existing PR's number"
-        )
-
-    def test_recovers_when_create_pr_returns_no_url_with_existing_pr(
-        self, tmp_path, pipeline, make_spawner
-    ):
-        _seed_repo(tmp_path, identifier=2548)
-        spawner = make_spawner(pr_url=None)
         spawner.gateway.list_open_prs.return_value = [
             {
                 "number": 4242,
@@ -665,19 +641,41 @@ class TestOpenContextPRRecoverExistingPR:
             result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
 
         assert result == "egg/issue-2548/context"
-        assert saved
-        assert saved[-1].pr.context_pr_number == 4242
+        spawner.gateway.list_open_prs.assert_called_once()
+        # No artifact push, no PR open — recovery short-circuits
+        # before any of that work.  Salvaging via ``list_open_prs``
+        # alone is the wedge fix from #2582.
+        spawner.gateway.create_context_branch.assert_not_called()
+        spawner.gateway.create_pr.assert_not_called()
+        # The contract update push to the work branch still fires so
+        # ``context_pr_number`` survives an orchestrator restart.
+        push_calls = spawner.gateway.push_worktree_branch.call_args_list
+        work_branch_pushes = [c for c in push_calls if c.kwargs.get("branch") == pipeline.branch]
+        assert work_branch_pushes, (
+            "contract update must be pushed to the work branch even on "
+            "the salvage path so the next tick sees the linkage on origin"
+        )
+        assert saved, "contract must be persisted after recovery"
+        last = saved[-1]
+        assert last.pr.context_branch == "egg/issue-2548/context"
+        assert last.pr.context_pr_number == 4242
 
-    def test_no_recovery_when_create_pr_raises_and_no_existing_pr(
+    def test_head_only_match_against_different_base_fails_soft(
         self, tmp_path, pipeline, make_spawner
     ):
-        """When ``list_open_prs`` returns no matching PR, the original
-        create_pr failure mode is preserved — return None, leave the
-        contract untouched."""
+        """A stale PR pointing at a different base branch must NOT be
+        adopted as ours — opening a second PR against our base while a
+        stale one points elsewhere would create two PRs on the same
+        head, so fail-soft and let an operator disentangle (#2582)."""
         _seed_repo(tmp_path, identifier=2548)
         spawner = make_spawner()
-        spawner.gateway.create_pr.side_effect = RuntimeError("gh api 502")
-        spawner.gateway.list_open_prs.return_value = []
+        spawner.gateway.list_open_prs.return_value = [
+            {
+                "number": 99,
+                "head_ref": "egg/issue-2548/context",
+                "base_ref": "develop",
+            }
+        ]
         load, save, saved = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
         with (
             patch("egg_contracts.loader.load_contract", load),
@@ -686,44 +684,22 @@ class TestOpenContextPRRecoverExistingPR:
             result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
 
         assert result is None
-        # No save_contract calls — must not synthesize a phantom number
-        # when no existing PR was found.
+        spawner.gateway.create_context_branch.assert_not_called()
+        spawner.gateway.create_pr.assert_not_called()
         assert saved == []
 
-    def test_recovery_ignores_prs_with_mismatched_base_ref(self, tmp_path, pipeline, make_spawner):
-        """A stale PR pointing at a different base branch must NOT be
-        recovered — the branch shape is the same but the target diverges,
-        so the operator's intent (PR against ``pipeline.base_branch``) is
-        violated."""
+    def test_list_open_prs_raises_fails_soft(self, tmp_path, pipeline, make_spawner):
+        """When the GH-state lookup itself raises, we have no idea what
+        GitHub's state is — fail-soft rather than risk a duplicate
+        ``create_pr`` (#2582).  Production ``list_open_prs`` swallows
+        its own errors and returns ``[]``, so this branch is unreachable
+        in normal operation, but the explicit fail-soft is pinned for
+        the test injection path and as a defense for any future change
+        that propagates errors."""
         _seed_repo(tmp_path, identifier=2548)
         spawner = make_spawner()
-        spawner.gateway.create_pr.side_effect = RuntimeError("kaboom")
-        spawner.gateway.list_open_prs.return_value = [
-            {
-                "number": 99,
-                "head_ref": "egg/issue-2548/context",
-                # Wrong base — must not match.
-                "base_ref": "develop",
-            }
-        ]
-        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
-        with (
-            patch("egg_contracts.loader.load_contract", load),
-            patch("egg_contracts.loader.save_contract", save),
-        ):
-            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
-
-        assert result is None
-
-    def test_recovery_swallows_list_open_prs_failure(self, tmp_path, pipeline, make_spawner):
-        """A best-effort recovery: a gateway failure during
-        ``list_open_prs`` falls back to the original error path
-        (return None) rather than propagating."""
-        _seed_repo(tmp_path, identifier=2548)
-        spawner = make_spawner()
-        spawner.gateway.create_pr.side_effect = RuntimeError("kaboom")
         spawner.gateway.list_open_prs.side_effect = RuntimeError("gateway 503")
-        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        load, save, saved = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
         with (
             patch("egg_contracts.loader.load_contract", load),
             patch("egg_contracts.loader.save_contract", save),
@@ -731,6 +707,76 @@ class TestOpenContextPRRecoverExistingPR:
             result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
 
         assert result is None
+        spawner.gateway.create_context_branch.assert_not_called()
+        spawner.gateway.create_pr.assert_not_called()
+        assert saved == []
+
+    def test_opens_pr_when_create_context_branch_diverges_with_no_pr(
+        self, tmp_path, pipeline, make_spawner
+    ):
+        """The #2582 wedge fix.  Tick 1 pushed the artifact commit then
+        failed ``create_pr``; tick 2 sees no open PR but
+        ``create_context_branch`` raises :class:`ContextBranchDiverged`
+        because origin's branch SHA != base_sha.  The hook must treat
+        the divergence (after a confirmed no-PR check) as "our prior
+        tick" and fall through to push + create_pr, opening the missing
+        PR instead of wedging forever."""
+        from gateway_client import ContextBranchDiverged
+
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        spawner.gateway.list_open_prs.return_value = []
+        spawner.gateway.create_context_branch.side_effect = ContextBranchDiverged(
+            "Context branch 'egg/issue-2548/context' already exists at deadbeef "
+            "but base 'main' resolves to cafef00d; refusing to overwrite",
+            context_branch="egg/issue-2548/context",
+            existing_sha="deadbeef",
+            base_branch="main",
+            base_sha="cafef00d",
+        )
+        load, save, saved = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        assert result == "egg/issue-2548/context"
+        # The hook MUST call create_pr — that's the missing operation
+        # the wedge had no path to recover.  Without this assertion the
+        # old "return None on divergence + no recoverable PR" wedge
+        # would still pass the rest of the test.
+        spawner.gateway.create_pr.assert_called_once()
+        assert saved
+        last = saved[-1]
+        assert last.pr.context_branch == "egg/issue-2548/context"
+        assert last.pr.context_pr_number == 4242
+
+    def test_non_divergence_create_context_branch_error_fails_soft(
+        self, tmp_path, pipeline, make_spawner
+    ):
+        """A plain ``GatewayError`` from ``create_context_branch``
+        (transport down, base ref missing) must NOT fall through —
+        the divergence-fallthrough only applies when the gateway tells
+        us specifically that the branch is at a divergent SHA, which
+        the typed :class:`ContextBranchDiverged` subclass identifies.
+        Other gateway errors still fail-soft as today."""
+        from gateway_client import GatewayError
+
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        spawner.gateway.list_open_prs.return_value = []
+        spawner.gateway.create_context_branch.side_effect = GatewayError("transport down")
+        load, save, saved = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            result = _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        assert result is None
+        spawner.gateway.create_pr.assert_not_called()
+        assert saved == []
 
 
 # ----------------------------------------------------------------------
