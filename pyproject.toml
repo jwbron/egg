@@ -33,7 +33,7 @@ dev = [
     "mcp[cli]>=1.20.0,<2.0.0",
     # Type stubs
     "types-PyYAML>=6.0",
-    "types-requests>=2.31",
+    "types-requests>=2.33.0.20260508",
     "types-waitress>=3.0",
     "fakeredis>=2.21.0",
     "starlette>=0.36.0,<1.0.0",
