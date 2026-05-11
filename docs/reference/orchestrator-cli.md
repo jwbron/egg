@@ -429,6 +429,43 @@ egg-orch consensus status
 
 The `consensus_producer_push` signal accepts `agent_role`, `commit_sha`, and optional `changed_files` parameters. When the producer is still in `WORKING` state, the signal is a no-op. See [Auto Re-Propose on Push/Commit](../guides/concurrent-execution.md#auto-re-propose-on-pushcommit).
 
+## Context PR Surfaces ([#2548](https://github.com/jwbron/egg/issues/2548))
+
+Slice-aware pipelines (issue-mode pipelines with `contract.slices`) open a **Context PR** before any slice spawns — see [Orchestrator Architecture: Context PR (slice-aware mode)](../architecture/orchestrator.md#context-pr-slice-aware-mode-2548) and the [Concurrent Execution Slice PR Stack](../guides/concurrent-execution.md#slice-pr-stack) section for the full mechanics. The Context PR is orchestrator-authored; `egg-orch` does **not** ship dedicated `--context-branch` / `--context-pr` flags. Operators inspect the Context PR through the same surfaces used for any other contract metadata:
+
+```bash
+# Inspect the contract's pr.context_* fields. The top-level --pipeline-id flag
+# goes BEFORE the subcommand; bare `egg-contract show` works when EGG_PIPELINE_ID
+# is exported.
+egg-contract --pipeline-id <pipeline-id> show
+# Look for: pr.context_title, pr.context_description, pr.context_branch, pr.context_pr_number
+
+# Pipeline status (current_phase / pending_decisions; does not include context-PR-specific fields)
+egg-orch pipeline status <pipeline-id>
+
+# Locate the open Context PR on GitHub once contract.pr.context_pr_number is set
+gh pr view <context_pr_number>
+gh pr list --head egg/<id>/context
+```
+
+The four `pr.context_*` fields are added in contract schema 1.1 (#2548 — pre-1.1 contracts auto-promote on load). The planner authors `context_title` / `context_description` during the plan phase (before plan_gate); the orchestrator populates `context_branch` and `context_pr_number` after plan_gate approval, when it creates the branch and opens the PR:
+
+| Field | Author | Description |
+|-------|--------|-------------|
+| `pr.context_title` | Planner | Title for the Context PR (program-level framing). |
+| `pr.context_description` | Planner | Body for the Context PR (program-level narrative). |
+| `pr.context_branch` | Orchestrator | Branch name (`egg/<id>/context`) — populated when the orchestrator creates the branch. |
+| `pr.context_pr_number` | Orchestrator | GitHub PR number — populated when the PR is opened. |
+
+The orchestrator manages the Context PR end-to-end (create branch, commit refine/plan artifacts + BRC history + agent transcripts, open PR via `GatewayClient.create_pr()` with `context_title` / `context_description`). There are no `egg-orch` verbs for opening or closing it manually. **Pipeline deletion does not clean up Context PRs:** `egg-orch pipeline delete <id>` only removes the pipeline tip branch (`egg/<id>/work`) and per-container worktree branches; the Context PR branch (`egg/<id>/context`) is a sibling of the pipeline tip — same convention as the slice integration branches `egg/<id>/slice-N` — and is **not** deleted (see `_cleanup_remote_branches` in `orchestrator/routes/pipelines.py`). To remove a Context PR opened by an unwanted run the operator must close the PR and delete the branch manually:
+
+```bash
+gh pr close <context_pr_number>
+git push origin --delete egg/<pipeline-id>/context  # (gateway-mediated push)
+```
+
+Per-slice implement-phase BRC history files written by the orchestrator (`.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` plus `<id>-implement-unattributed.{md,json}`) are visible in each slice PR's diff; the aggregate `<id>-implement.{md,json}` file is **not** produced in slice-aware mode. Babysit-pr and other non-slice runs continue to emit the single content-addressed file (`pr-<N>-<short-sha>-implement.{md,json}` for babysit). See [Orchestrator Architecture: BRC-history file naming](../architecture/orchestrator.md#brc-history-file-naming) for the full file-pattern table.
+
 ## Related CLIs
 
 - `egg-contract` — SDLC contract operations (tasks, decisions, feedback)

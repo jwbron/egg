@@ -1,0 +1,77 @@
+[
+  {
+    "id": "99ed7ea1-1425-4f",
+    "pipeline_id": "issue-2548",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-08T22:36:09.910364+00:00"
+    },
+    "timestamp": "2026-05-08T22:36:37.106667+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "adea7473-6c5c-41",
+    "pipeline_id": "issue-2548",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,CONSENSUS_PROPOSE,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-08T22:36:10.065907+00:00"
+    },
+    "timestamp": "2026-05-08T22:36:37.107447+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "ac8b5815-e7c5-4b",
+    "pipeline_id": "issue-2548",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-08T22:36:15.483471+00:00"
+    },
+    "timestamp": "2026-05-08T22:36:37.108948+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "0b7ab831-e9d3-42",
+    "pipeline_id": "issue-2548",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on OVERSEER_ALERT,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-08T22:36:17.766037+00:00"
+    },
+    "timestamp": "2026-05-08T22:36:37.109559+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "e6db08f4-26d1-4b",
+    "pipeline_id": "issue-2548",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-08T22:36:25.683674+00:00"
+    },
+    "timestamp": "2026-05-08T22:36:37.110730+00:00",
+    "phase": "pr"
+  }
+]
