@@ -71,8 +71,9 @@ class TestCommitAuthorshipRegistryRoundTrip:
         # as "this surface isn't available from the gateway" and skip.
         if register_resp.status_code in (401, 404):
             pytest.skip(
-                "Commit-authorship register not reachable via gateway session: "
-                f"{register_resp.status_code} (deploy ordering smoke)"
+                f"Commit-authorship register not reachable via gateway "
+                f"session ({register_resp.status_code}) — tracked: "
+                "https://github.com/jwbron/egg/issues/2605"
             )
         assert register_resp.status_code == 200
         assert register_resp.json().get("success") is True
@@ -84,7 +85,10 @@ class TestCommitAuthorshipRegistryRoundTrip:
             json_data={"shas": [sha]},
         )
         if lookup_resp.status_code in (401, 404):
-            pytest.skip("Commit-authorship lookup not reachable via gateway session")
+            pytest.skip(
+                "Commit-authorship lookup not reachable via gateway session — "
+                "tracked: https://github.com/jwbron/egg/issues/2605"
+            )
         assert lookup_resp.status_code == 200
         body = lookup_resp.json()
         assert body.get("attribution", {}).get(sha) == role
@@ -101,7 +105,10 @@ class TestCommitAuthorshipRegistryRoundTrip:
             json_data={"sha": sha, "role": "coder", "pipeline_id": "issue-1882"},
         )
         if first.status_code in (401, 404):
-            pytest.skip("register not reachable via gateway session")
+            pytest.skip(
+                "register not reachable via gateway session — "
+                "tracked: https://github.com/jwbron/egg/issues/2605"
+            )
         assert first.status_code == 200
 
         collision = egg_stack.api_request(
@@ -111,7 +118,10 @@ class TestCommitAuthorshipRegistryRoundTrip:
             json_data={"sha": sha, "role": "tester", "pipeline_id": "issue-1882"},
         )
         if collision.status_code in (401, 404):
-            pytest.skip("register not reachable via gateway session")
+            pytest.skip(
+                "register not reachable via gateway session — "
+                "tracked: https://github.com/jwbron/egg/issues/2605"
+            )
         assert collision.status_code == 409
         body = collision.json()
         assert body["existing_role"] == "coder"

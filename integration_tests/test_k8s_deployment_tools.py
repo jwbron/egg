@@ -81,13 +81,7 @@ def _call(
     headers: dict[str, str] | None,
 ) -> requests.Response:
     url = f"{orchestrator_url}{path}"
-    # Tag every request with the opt-out sentinel — these tests
-    # deliberately exercise the unauthenticated / bogus-bearer paths
-    # and the `_auto_inject_lifecycle_auth` conftest fixture would
-    # otherwise overwrite the test's auth shape with a valid bearer.
-    merged_headers = dict(headers or {})
-    merged_headers.setdefault("X-Egg-Test-Skip-Auto-Auth", "true")
-    kwargs: dict = {"timeout": 15, "headers": merged_headers}
+    kwargs: dict = {"timeout": 15, "headers": headers or {}}
     if json_body is not None:
         kwargs["json"] = json_body
     return requests.request(method, url, **kwargs)
@@ -208,65 +202,9 @@ class TestDeploymentRoutesRequireLifecycleSecret:
         _assert_auth_rejected(resp, f"{method} {path} (no Bearer prefix)")
 
 
-# ---------------------------------------------------------------------------
-# Discovery guard -- if someone adds a sixth /api/v1/deployment/* route
-# without updating _DEPLOYMENT_ROUTES, this fails loudly.
-# ---------------------------------------------------------------------------
-
-
-class TestDeploymentRouteCoverage:
-    """Enumerate routes under /api/v1/deployment/ and compare to the fixture.
-
-    Uses the orchestrator's own route-listing endpoint when available.  When
-    the endpoint isn't exposed (older orchestrator builds), the test
-    xfails cleanly rather than polluting the suite.
-    """
-
-    def test_all_deployment_routes_are_covered(self, orchestrator_url: str) -> None:
-        # Try a best-effort route discovery endpoint; if it doesn't exist,
-        # we accept the coverage gap and only rely on the parametrized
-        # regression tests above.
-        # Discovery call — go through the same opt-out path as `_call`
-        # above (this test class is explicitly auth-agnostic).
-        resp = requests.get(
-            f"{orchestrator_url}/api/v1/_routes",
-            timeout=10,
-            headers={"X-Egg-Test-Skip-Auto-Auth": "true"},
-        )
-        if resp.status_code in (404, 405):
-            pytest.xfail("Orchestrator does not expose /_routes; discovery skipped")
-
-        try:
-            body = resp.json()
-        except ValueError:
-            pytest.xfail("Orchestrator /_routes did not return JSON")
-
-        routes = body.get("routes", []) or body.get("data", {}).get("routes", [])
-        if not routes:
-            pytest.xfail("Orchestrator /_routes returned no payload")
-
-        deployment_rules = sorted(
-            r["rule"] if isinstance(r, dict) else r
-            for r in routes
-            if ("rule" in r if isinstance(r, dict) else True)
-            and "/api/v1/deployment" in (r["rule"] if isinstance(r, dict) else r)
-        )
-
-        # Every deployment rule the orchestrator exposes should have at least
-        # one entry in the fixture. Strip parameter placeholders for the
-        # comparison.
-        covered_patterns = {path for path, _, _ in _DEPLOYMENT_ROUTES}
-
-        def _normalize(rule: str) -> str:
-            # Flask renders path params like ``<stream_id>`` -- strip to a
-            # placeholder that matches our parametrize entries.
-            import re
-
-            return re.sub(r"<[^>]+>", "nonexistent-stream-0000", rule)
-
-        missing = [r for r in deployment_rules if _normalize(r) not in covered_patterns]
-        assert not missing, (
-            "New /api/v1/deployment/* routes exist in the orchestrator but "
-            "are not covered by the TASK-4-1 401 regression fixture. "
-            f"Add them to _DEPLOYMENT_ROUTES: {missing}"
-        )
+# A discovery test that enumerated `/api/v1/_routes` to cross-check the
+# manual `_DEPLOYMENT_ROUTES` fixture used to live here but xfailed
+# unconditionally because the orchestrator does not (and is not planned
+# to) expose a route-listing endpoint. The parametrized regression suite
+# above is the actual coverage; the discovery test added no signal.
+# Removed in PR #2602.

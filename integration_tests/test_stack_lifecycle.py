@@ -4,7 +4,6 @@ These tests verify the gateway starts correctly and sessions can be
 created, listed, heartbeated, and deleted without any GitHub connectivity.
 """
 
-import subprocess
 import time
 
 import pytest
@@ -30,48 +29,6 @@ class TestStackStartup:
         """Health endpoint is accessible without authentication."""
         resp = egg_stack.api_request("GET", "/api/v1/health")
         assert resp.status_code == 200
-
-    @pytest.mark.skip(
-        reason=(
-            "docker-era test: shells out to `docker ps` to find the gateway "
-            "container by `compose_project-gateway` name. Under k3s (the "
-            "only supported runtime after #2474) the gateway is a "
-            "Kubernetes pod, not a docker container, so the lookup returns "
-            "empty. Needs a `kubectl get pods -n egg-system ... && kubectl "
-            "exec ... pgrep squid` rewrite — tracked alongside the other "
-            "docker→kubectl test-infra TBDs noted in integration_tests/"
-            "conftest.py's module docstring."
-        )
-    )
-    def test_squid_process_running(self, egg_stack):
-        """Squid proxy process is running inside the gateway container."""
-        # Find the gateway container name
-        result = subprocess.run(
-            [
-                "docker",
-                "ps",
-                "--filter",
-                f"name={egg_stack.compose_project}-gateway",
-                "--format",
-                "{{.Names}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        container_name = result.stdout.strip()
-        assert container_name, "Gateway container not found"
-
-        # Check squid is running
-        result = subprocess.run(
-            ["docker", "exec", container_name, "pgrep", "-x", "squid"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        assert result.returncode == 0, "Squid process is not running in gateway container"
 
 
 @pytest.mark.integration

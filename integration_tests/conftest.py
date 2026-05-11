@@ -76,6 +76,7 @@ class EggStack(GatewayClientMixin):
     """
 
     gateway_url: str
+    orchestrator_url: str
     gateway_isolated_ip: str
     gateway_external_ip: str
     gateway_port: int
@@ -217,6 +218,28 @@ def _k8s_egg_stack() -> Generator[EggStack]:
     gateway_ip, gateway_port_str = gateway_addr.rsplit(":", 1)
     gateway_url = f"http://{gateway_ip}:{gateway_port_str}"
 
+    # Discover orchestrator URL from the same namespace. Consumed by
+    # `test_k8s_deployment_tools.py` for the lifecycle-auth regression
+    # suite (the only remaining caller).
+    orch_result = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            "egg-system",
+            "get",
+            "svc",
+            "orchestrator",
+            "-o",
+            "jsonpath={.spec.clusterIP}:{.spec.ports[0].port}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    orch_addr = orch_result.stdout.strip()
+    orchestrator_url = f"http://{orch_addr}" if ":" in orch_addr else ""
+
     # Read launcher secret from the k8s secret
     secret_result = subprocess.run(
         [
@@ -254,6 +277,7 @@ def _k8s_egg_stack() -> Generator[EggStack]:
 
     stack = EggStack(
         gateway_url=gateway_url,
+        orchestrator_url=orchestrator_url,
         gateway_isolated_ip=gateway_ip,
         gateway_external_ip=gateway_ip,
         gateway_port=int(gateway_port_str),
@@ -293,6 +317,12 @@ def egg_stack() -> Generator[EggStack]:
         )
 
     yield from _k8s_egg_stack()
+
+
+@pytest.fixture(scope="session")
+def orchestrator_url(egg_stack: EggStack) -> str:
+    """Orchestrator base URL discovered from the egg-system namespace."""
+    return egg_stack.orchestrator_url
 
 
 @pytest.fixture
@@ -418,8 +448,10 @@ def exec_in_container(
 
 
 _LEGACY_DOCKER_FIXTURE_SKIP = (
-    "legacy docker-network container fixtures are not supported under k3s — "
-    "k3s-native replacement TBD (see integration_tests/conftest.py docstring)"
+    "legacy docker-network container fixtures are not supported under k3s "
+    "(the only supported runtime after #2474). The properties these tests "
+    "check still hold under k3s; the test machinery needs a k3s-native "
+    "rewrite. Tracked: https://github.com/jwbron/egg/issues/2603."
 )
 
 
