@@ -9589,6 +9589,7 @@ def _open_context_pr_for_pipeline(
     worktree_repo_path: Path,
     *,
     gateway_mode: Literal["public", "private"] = "public",
+    source: str = "unknown",
 ) -> str | None:
     """Open the dedicated doc-only context PR (#2548).
 
@@ -9653,6 +9654,21 @@ def _open_context_pr_for_pipeline(
     (#2548 review note from reviewer_concurrency).
     """
     pipeline_id = pipeline.id
+
+    # Single "hook entered" log line emitted before any short-circuit so
+    # operators can confirm the hook was reached without grepping for the
+    # specific short-circuit string.  Surfaces the gap reported in #2593
+    # where the hook was wired into only one of the plan→implement
+    # transition paths and no log line appeared at all when the operator
+    # advanced via a different path.
+    _pipeline_mode = getattr(pipeline, "mode", None)
+    logger.info(
+        "Context PR hook entered (#2548)",
+        pipeline_id=pipeline_id,
+        source=source,
+        current_phase=getattr(pipeline.current_phase, "value", str(pipeline.current_phase)),
+        mode=getattr(_pipeline_mode, "value", str(_pipeline_mode)),
+    )
 
     # --- Step 1: load contract + sanity-check inputs ---
     if not pipeline.repo:
@@ -10209,6 +10225,114 @@ def _derive_producer_roles_with_tasks(
         return None
 
     return {(t.role or "coder") for t in _slice_obj.tasks}
+
+
+def _maybe_open_base_pr_for_plan_to_implement(
+    pipeline,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: Path,
+    *,
+    gateway_mode: Literal["public", "private"] = "public",
+    source: str,
+) -> None:
+    """Open the doc-only base/context PR for the plan→implement transition (#2548, #2593).
+
+    Single call site for every plan→implement code path:
+
+    * the inline auto-advance in :func:`_run_pipeline` (the path #2548
+      originally wired up);
+    * the ``advance_phase`` REST/MCP handler (force or normal advance
+      out of the plan phase);
+    * the HITL-approval recovery path in :func:`start_pipeline`
+      (re-spawning ``_run_pipeline`` after the human resolved the
+      plan_gate while the pipeline was AWAITING_HUMAN);
+    * the IMPLEMENT phase entry backstop (catches any future
+      transition path added without ceremony — the inner short-circuit
+      makes re-entry a no-op).
+
+    CUSTOM-mode pipelines run a single phase and terminate (#1762) —
+    they never advance to implement, so opening a context PR for them
+    would orphan a PR on GitHub that has no slice PRs to stack on top
+    of (#2548 review issue 3).  Skip them up front.
+
+    Failures are logged and swallowed: a transient infra problem in
+    this hook must not strand the plan→implement transition (decision-3
+    / D3 of #2548).  The inner short-circuits and the swallowed
+    exception path also emit a STATUS message on the pipeline event
+    bus so operators using ``wait-status`` / ``get_status`` see the
+    skipped/failed signal without having to grep orchestrator logs
+    (#2593).
+    """
+    pipeline_id = pipeline.id
+    _is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
+    if _is_custom_mode:
+        return
+    raised: Exception | None = None
+    try:
+        _open_context_pr_for_pipeline(
+            pipeline,
+            spawner,
+            worktree_repo_path,
+            gateway_mode=gateway_mode,
+            source=source,
+        )
+    except Exception as ctx_err:  # noqa: BLE001
+        raised = ctx_err
+        logger.warning(
+            "Context PR hook raised at plan→implement transition (continuing) (#2548)",
+            pipeline_id=pipeline_id,
+            source=source,
+            error=str(ctx_err),
+        )
+
+    # #2593 — surface "context PR not opened" on the pipeline message
+    # bus so operators using ``wait-status`` / ``get_status`` see the
+    # skip without having to grep orchestrator logs.  Only emit when
+    # the pipeline *should* have a context PR (has a remote and a
+    # base_branch) but doesn't, so we don't spam the bus for local
+    # mode pipelines that legitimately skip the hook.  Re-load the
+    # contract from disk to read the post-hook ``context_pr_number``
+    # rather than trusting the in-memory ``pipeline`` (the hook may
+    # have written through to disk under the per-pipeline state lock
+    # without mutating the caller's reference).
+    if pipeline.repo and pipeline.base_branch:
+        _ctx_pr_number: int | None = None
+        try:
+            from egg_contracts.loader import (
+                ContractNotFoundError as _CtxCNF,
+            )
+            from egg_contracts.loader import (
+                load_contract as _ctx_load,
+            )
+
+            _ctx_contract = _ctx_load(pipeline_id, worktree_repo_path)
+            if _ctx_contract.pr is not None:
+                _ctx_pr_number = _ctx_contract.pr.context_pr_number
+        except _CtxCNF:
+            pass
+        except Exception:  # noqa: BLE001
+            pass
+
+        if _ctx_pr_number is None:
+            try:
+                _reason = "raised" if raised is not None else "skipped"
+                _detail = f": {str(raised)[:200]}" if raised is not None else ""
+                report_pipeline_status(
+                    pipeline,
+                    event_type=(
+                        "context_pr.failed" if raised is not None else "context_pr.skipped"
+                    ),
+                    message=(
+                        f"Context PR not opened (source={source}, "
+                        f"reason={_reason}){_detail}. "
+                        "Slice stack will not have a path to the base "
+                        "branch until an operator opens one manually."
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                # Status reporting is best-effort — must not raise out
+                # of the swallow-all wrapper.
+                pass
 
 
 def _resolve_slice_1_context_branch_from_contract(
@@ -18541,6 +18665,27 @@ def _run_pipeline(
                 )
                 _emit_pipeline_event(pipeline, "phase.started")
 
+                # #2593 — implement-phase entry backstop.  Fires once
+                # on the PENDING→RUNNING transition into the IMPLEMENT
+                # phase, regardless of which transition path (inline
+                # auto-advance, ``advance_phase`` REST, HITL recovery,
+                # or any future path) got us here.  The inner
+                # ``context_pr_number`` short-circuit makes this a
+                # no-op when the PR was already opened on the
+                # plan-exit side, so the backstop only does real work
+                # when every other path missed it.  Belt-and-suspenders:
+                # makes "context PR exists when slice-1 spawns" a
+                # property of the IMPLEMENT phase rather than of one
+                # specific exit path from PLAN.
+                if current_phase == PipelinePhase.IMPLEMENT:
+                    _maybe_open_base_pr_for_plan_to_implement(
+                        pipeline,
+                        spawner,
+                        worktree_repo_path,
+                        gateway_mode=gateway_mode,
+                        source="implement_entry_backstop",
+                    )
+
             # Spawn overseer container for this phase's health monitoring.
             # The overseer is phase-scoped: spawned at phase start and torn
             # down at phase completion/advance/failure.  Each phase gets a
@@ -19791,33 +19936,21 @@ def _run_pipeline(
 
             # ----------------------------------------------------------
             # #2548 — open the doc-only context PR after plan_gate
-            # approval and BEFORE slice-1 provisioning.  The hook is
-            # idempotent on retry (re-entering this block is a no-op
-            # if ``contract.pr.context_pr_number`` is already set), so
-            # respawned _run_pipeline threads do not double-open.  Any
-            # failure inside the hook is logged and swallowed so a
-            # transient infra problem cannot strand the plan→implement
-            # transition (decision-3 / D3 of #2548).
+            # approval and BEFORE slice-1 provisioning.  Routed through
+            # the shared :func:`_maybe_open_base_pr_for_plan_to_implement`
+            # helper so this and the other three transition paths
+            # (advance_phase REST, HITL-approval recovery, implement-entry
+            # backstop) all share the same CUSTOM-mode guard, swallow-all
+            # semantics, and "hook entered" log line (#2593).
             # ----------------------------------------------------------
-            # CUSTOM-mode pipelines run a single phase and terminate
-            # (#1762) — they never advance to implement, so opening a
-            # context PR for them would orphan a PR on GitHub that has
-            # no slice PRs to stack on top of (#2548 review issue 3).
-            _ctx_is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
-            if current_phase.value == "plan" and not _ctx_is_custom_mode:
-                try:
-                    _open_context_pr_for_pipeline(
-                        pipeline,
-                        spawner,
-                        worktree_repo_path,
-                        gateway_mode=gateway_mode,
-                    )
-                except Exception as ctx_err:  # noqa: BLE001
-                    logger.warning(
-                        "Context PR hook raised at plan→implement transition (continuing) (#2548)",
-                        pipeline_id=pipeline_id,
-                        error=str(ctx_err),
-                    )
+            if current_phase.value == "plan":
+                _maybe_open_base_pr_for_plan_to_implement(
+                    pipeline,
+                    spawner,
+                    worktree_repo_path,
+                    gateway_mode=gateway_mode,
+                    source="run_pipeline_autoadvance",
+                )
 
             # Tear down the phase-scoped overseer before advancing.
             # Each phase gets a fresh overseer instance — no state carries
@@ -20484,6 +20617,70 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # CUSTOM-mode pipelines complete after their single
                     # phase — no auto-advance (#1762 TASK-2-9).
                     _is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
+
+                    # #2593 — populate contract from the plan draft and
+                    # open the doc-only base/context PR when the HITL
+                    # recovery is advancing the pipeline out of the
+                    # plan phase.  Without this, contract.pr is empty
+                    # (so the PR phase falls back to placeholder
+                    # title/body and the context PR hook short-circuits
+                    # on "contract has no pr block"), and the slice
+                    # stack ends up rooted on ``/work`` with no PR to
+                    # ``main`` — exactly the symptom reported on the
+                    # in-flight #2474 pipeline.  Mirrors the
+                    # plan-exit logic in ``advance_phase``
+                    # (routes/phases.py) and the auto-advance path in
+                    # ``_run_pipeline``.  Best-effort: failures warn
+                    # and continue so a transient infra problem cannot
+                    # strand the HITL recovery.
+                    _next_phase_peek = next_phases[0] if next_phases else None
+                    if (
+                        current_phase == PipelinePhase.PLAN
+                        and _next_phase_peek == PipelinePhase.IMPLEMENT
+                        and not _is_custom_mode
+                    ):
+                        _hitl_worktree_path = _resolve_pipeline_worktree_path(pipeline, repo_path)
+                        try:
+                            _pipeline_mode = pipeline.mode.value if pipeline.mode else "issue"
+                            _populate_contract_from_plan_safe(
+                                _hitl_worktree_path,
+                                pipeline_id,
+                                _pipeline_mode,
+                                pipeline.issue_number,
+                                source="advance_phase_force",
+                            )
+                            try:
+                                _commit_statefiles_to_worktree(
+                                    _hitl_worktree_path,
+                                    "Populate contract from plan on HITL plan-gate approval",
+                                    pipeline_identifier=_pipeline_identifier(
+                                        pipeline.issue_number, pipeline_id
+                                    ),
+                                    pipeline_id=pipeline_id,
+                                )
+                            except Exception as _hitl_commit_err:  # noqa: BLE001
+                                logger.warning(
+                                    "Failed to commit populated contract on HITL plan-gate approval (continuing) (#2593)",
+                                    pipeline_id=pipeline_id,
+                                    error=str(_hitl_commit_err),
+                                )
+                        except Exception as _hitl_pop_err:  # noqa: BLE001
+                            logger.warning(
+                                "Failed to run plan-exit populate on HITL recovery (continuing) (#2593)",
+                                pipeline_id=pipeline_id,
+                                error=str(_hitl_pop_err),
+                            )
+
+                        # Open the base/context PR now that the contract
+                        # is populated.  Idempotent on retry via the
+                        # inner ``context_pr_number`` short-circuit.
+                        _maybe_open_base_pr_for_plan_to_implement(
+                            pipeline,
+                            _get_spawner(),
+                            _hitl_worktree_path,
+                            gateway_mode=_gw_mode,
+                            source="hitl_resume",
+                        )
 
                     if not next_phases or _is_custom_mode:
                         # Terminal phase — pipeline complete.
