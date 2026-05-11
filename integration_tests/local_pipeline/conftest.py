@@ -474,13 +474,31 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
         )
     )
     for item in items:
-        # `pytest_collection_modifyitems` in a sub-conftest still fires
-        # for the whole session's items, so we have to narrow to this
-        # subtree explicitly. Without this, every test outside
-        # `local_pipeline/` would also be marked skip.
-        if "local_pipeline/" not in item.nodeid:
-            continue
-        # Keep auth-rejection regressions running — they are correct under k3s.
-        if "test_k8s_deployment_tools" in item.nodeid:
-            continue
-        item.add_marker(skip)
+        if _local_pipeline_nodeid_should_skip(item.nodeid):
+            item.add_marker(skip)
+
+
+def _local_pipeline_nodeid_should_skip(nodeid: str) -> bool:
+    """Predicate behind ``pytest_collection_modifyitems``.
+
+    Returns True iff the nodeid lives under
+    ``integration_tests/local_pipeline/`` AND is not the
+    ``test_k8s_deployment_tools`` auth-rejection suite.
+
+    Extracted so the regression test in
+    ``tests/config/test_local_pipeline_collection_skip.py`` can pin
+    the contract directly — without this seam the test would have to
+    import the whole conftest (which has relative imports and a
+    docker mock) just to exercise a pure string check.
+
+    Why ``startswith`` not substring ``in``: a parametrize id elsewhere
+    in the session (e.g. ``test_x[local_pipeline/foo]``) must NOT be
+    caught — only paths that actually live in this directory.
+    """
+    normalized = nodeid.replace("\\", "/")
+    if not normalized.startswith("integration_tests/local_pipeline/"):
+        return False
+    # Keep auth-rejection regressions running — they are correct under k3s.
+    if "test_k8s_deployment_tools" in normalized:
+        return False
+    return True

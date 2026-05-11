@@ -48,14 +48,19 @@ sys.modules.setdefault("docker.types", MagicMock())
 _TEST_LIFECYCLE_SECRET = "test-lifecycle-secret-babysit-integration"
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(autouse=True)
 def _set_lifecycle_secret_env():
-    """Set `EGG_LIFECYCLE_SECRET` for the babysit-integration session.
+    """Set `EGG_LIFECYCLE_SECRET` for the babysit-integration tests.
 
-    Session-scoped so the env var is restored after the subtree
-    finishes — prevents leaking a test secret into other integration
-    suites that hit live gateway/orchestrator pods (those read the
-    secret at pod start and don't care about the test-process env).
+    Function-scoped: even though the autouse trigger only fires for
+    tests under this conftest's directory, `scope="session"` would
+    leave the env var set for the rest of the pytest session after
+    the first babysit_pr test runs. Other integration suites that
+    fall back to reading `EGG_LIFECYCLE_SECRET` from the test-process
+    env (e.g. `local_pipeline/conftest.py`'s gateway-secrets-lookup
+    fallback path) would then silently authenticate with a string
+    that doesn't match any deployed pod. Per-test setup/teardown
+    keeps the env override scoped to babysit_pr/ tests only.
 
     Also disables the gateway-readiness gate
     (`EGG_GATEWAY_READY_TIMEOUT_SECONDS=0`): `routes.pipelines`

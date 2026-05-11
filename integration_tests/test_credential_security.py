@@ -144,13 +144,18 @@ class TestSessionSecurity:
         token itself is now the sole credential — `source_ip` is
         kept on the request for audit logging only.
 
-        This test guards that documented relaxation: a token used
-        from a "different" IP than the one declared at session
-        creation must NOT come back 401.  (Anything other than 401
-        from the auth layer is acceptable — the request may still
-        4xx for unrelated reasons like a missing repo or 500 if the
-        downstream handler hits an internal error, both of which
-        are out of scope for this auth-only assertion.)
+        This test guards that documented relaxation with two checks:
+
+        1. The response is not 401 — re-introducing the IP-binding
+           regression would surface here as a 401 from the auth layer.
+        2. Even if a future change does start returning 401 for an
+           unrelated auth reason, the response body must not contain
+           any of the substrings that would indicate IP-based
+           rejection logic specifically (the original pre-k3s error
+           paths surfaced phrases like "source ip", "ip mismatch",
+           "ip address"). This catches the case where a regression
+           re-introduces IP-binding but the test author also widens
+           the auth-error envelope, which would have masked check 1.
         """
         container_id = f"test-ip-bind-{time.time_ns()}"
         result = egg_stack.create_session(
@@ -173,6 +178,25 @@ class TestSessionSecurity:
             f"Source-IP mismatch should NOT reject under the post-k3s "
             f"auth model (see gateway/auth.py:120), but got 401: "
             f"{resp.text[:300]}"
+        )
+        # Belt-and-suspenders: even on an unexpected non-401 status,
+        # the response must not carry an IP-binding rejection signal.
+        body_lower = resp.text.lower()
+        ip_rejection_signals = (
+            "source ip",
+            "source_ip",
+            "ip mismatch",
+            "ip_mismatch",
+            "ip address mismatch",
+            "container ip",
+            "container_ip",
+        )
+        offenders = [s for s in ip_rejection_signals if s in body_lower]
+        assert not offenders, (
+            f"Response body contains IP-binding rejection signal(s) "
+            f"{offenders!r} — gateway/auth.py:120 documents that source "
+            f"IP is audit-only post-k3s. status={resp.status_code}, "
+            f"body={resp.text[:300]}"
         )
 
         egg_stack.delete_session(token)
