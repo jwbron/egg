@@ -4686,11 +4686,51 @@ class TestPlanReviewCriteriaAuditSections:
         # §9 / §10 are appended after the existing §8 role↔files
         # alignment section, not interleaved (preserves the existing
         # numbering the orchestrator-side validation tests rely on).
+        # Pin on the explicit §8 heading so a future addition of a
+        # criteria string containing the substring "Role" higher up
+        # cannot silently make this match the wrong section.
         criteria = _get_plan_review_criteria()
-        role_alignment_idx = criteria.index("Role")
+        role_alignment_idx = criteria.index("### 8.")
         primitive_idx = criteria.index("Primitive-Existence Audit")
         trust_idx = criteria.index("Trust-Boundary Audit")
         assert role_alignment_idx < primitive_idx < trust_idx
+
+    def test_primitive_existence_section_has_new_primitive_exception(self):
+        # The task_planner producer prompt tells the planner to mark
+        # plan-created primitives ``(NEW — task TASK-X-Y)``; §9 must
+        # recognize that annotation so the asymmetry does not cause
+        # false NACK loops on every plan that introduces a primitive.
+        criteria = _get_plan_review_criteria()
+        # Locate the §9 block specifically — assertions must hold
+        # within the section, not just somewhere in the criteria.
+        section_start = criteria.index("Primitive-Existence Audit")
+        section_end = criteria.index("Trust-Boundary Audit")
+        section = criteria[section_start:section_end]
+        assert "(NEW" in section
+        # The exception must be explicit that NEW-annotated primitives
+        # are not NACKed on missing-grep evidence.
+        assert "do not NACK" in section or "don't NACK" in section
+        # And it must direct the reviewer to verify the creating task
+        # actually produces the primitive.
+        assert "acceptance" in section.lower() or "creates" in section.lower()
+
+    def test_trust_boundary_section_describes_gateway_url_correctly(self):
+        # The §10 description used to claim parent ``conftest.py``
+        # exposes ``gateway_url`` as a fixture — it does not. The
+        # parent ``EggStack`` dataclass has it as an attribute; the
+        # standalone ``gateway_url`` pytest fixture lives only in
+        # ``local_pipeline/conftest.py``. Encode the correction so a
+        # future edit cannot silently reintroduce the bug.
+        criteria = _get_plan_review_criteria()
+        section_start = criteria.index("Trust-Boundary Audit")
+        section = criteria[section_start:]
+        # Must not assert the parent conftest "exposes" gateway_url.
+        assert "exposes only `gateway_url`" not in section
+        assert "exposes `gateway_url` only" not in section
+        # Must mention the env-vs-fixture distinction so reviewers
+        # don't conflate the agent's GATEWAY_URL runtime with pytest
+        # fixtures.
+        assert "GATEWAY_URL" in section
 
 
 class TestPlanProducerPromptsCitePrimitives:
@@ -4710,8 +4750,18 @@ class TestPlanProducerPromptsCitePrimitives:
         assert "#2594" in prompt
         # Calls out the categories of primitive worth citing.
         assert "ConfigMap" in prompt
-        # Calls out the trust-boundary / scope axis.
-        assert "unit-test-only" in prompt or "trusted-CI-runner" in prompt
+        # Calls out BOTH scope axes — purpose (unit-test-only vs
+        # deployed-pod) AND execution context (in-sandbox-agent vs
+        # trusted-CI-runner). Earlier wording conflated the two into
+        # a single axis, which obscured the actual decision the
+        # architect has to make.
+        assert "unit-test-only" in prompt
+        assert "deployed-pod" in prompt
+        assert "in-sandbox-agent" in prompt
+        assert "trusted-CI-runner" in prompt
+        # Names the orthogonality so the architect knows the axes
+        # are independent, not collapsed.
+        assert "orthogonal" in prompt or "independent" in prompt
 
     def test_task_planner_prompt_has_primitives_audit_block(self):
         prompt = _build_agent_prompt(

@@ -34,21 +34,39 @@ touches the orchestrator, gateway, or k3s cluster.
 Driven by an egg agent pod (coder, tester, documenter, reviewer,
 etc.). Code authored by an agent at SDLC time.
 
-**Sees:**
+This is **two distinct surfaces** that the audit must not conflate:
 
-- `gateway_url` (from `integration_tests/conftest.py`, the parent
-  conftest).
-- Gateway-mediated routes: `/api/v1/jira/*`, `/api/v1/confluence/*`,
-  `/api/v1/git/*`, `/api/v1/gh/*`, anthropic proxy, etc.
+1. The agent's **runtime** access to the gateway sidecar via the
+   `GATEWAY_URL` env var (set by `sandbox/entrypoint.py`). Production
+   code the agent writes — handlers, CLIs, helpers — reaches
+   gateway-mediated routes through this env. This surface is genuinely
+   available in-sandbox at agent runtime.
+2. The **pytest-fixture** surface a test the agent writes can resolve
+   at test collection time. Today **no pytest fixture in
+   `integration_tests/` is `in-sandbox-agent`-runnable** — every
+   integration-test fixture transitively depends on `egg_stack` or
+   `local_pipeline_stack`, both of which `pytest.skip` when
+   `_kubectl_available()` returns `False`, and sandbox agent pods do
+   not ship `kubectl`. A test the agent writes that uses any of these
+   fixtures will skip cleanly, not exercise the feature. The audit
+   should NACK plans that assume otherwise.
+
+**Sees (runtime, surface 1):**
+
+- Gateway-mediated routes via `GATEWAY_URL`: `/api/v1/jira/*`,
+  `/api/v1/confluence/*`, `/api/v1/git/*`, `/api/v1/gh/*`, anthropic
+  proxy, etc.
 - Outbound HTTP only via the gateway (private mode) when configured.
 
 **Does NOT see:**
 
-- `orchestrator_url`.
+- `orchestrator_url` (no such env exists in sandbox).
 - Any `@require_lifecycle_secret`-gated route (`EGG_LIFECYCLE_SECRET`
   is not present in sandbox pods).
 - Pod logs other than its own.
 - The k8s API. Cannot list, exec into, or restart sibling pods.
+- Any pytest fixture from `integration_tests/` at test-execution time
+  (the `_kubectl_available()` gate skips them).
 
 **Cannot:**
 
@@ -60,9 +78,11 @@ etc.). Code authored by an agent at SDLC time.
 - Drive another pipeline's HITL decisions, restart another agent,
   or cancel another task.
 
-**Test files for this tier live under:** `integration_tests/`
-(parent), and any sibling directory that doesn't add an
-orchestrator-scoped fixture.
+**Test files for this tier live under:** none today. Pytest-driven
+integration tests are `trusted-CI-runner`-tier. Agent-authored
+runtime code that calls gateway routes via `GATEWAY_URL` is not a
+pytest test and lives under the relevant production-code path
+(`sandbox/`, `shared/`, etc.).
 
 ### `trusted-CI-runner`
 
@@ -72,8 +92,25 @@ deployment. The runner is a trusted party: it holds
 `EGG_LIFECYCLE_SECRET`, it can reach orchestrator URLs directly, and
 it can read pod logs via `kubectl`.
 
-**Sees:** everything `in-sandbox-agent` sees, plus:
+`kubectl` is the actual gatekeeper for this tier. Both
+`egg_stack` (`integration_tests/conftest.py:284`) and
+`local_pipeline_stack` (`integration_tests/local_pipeline/conftest.py:244`)
+call `_kubectl_available()` and `pytest.skip` with a clear message
+when it returns `False`. Every other fixture transitively depends on
+one of those two, so the kubectl check propagates: a test running
+without kubectl skips, regardless of which fixture it uses.
 
+**Sees:**
+
+- All pytest fixtures in `integration_tests/` (parent) and
+  `integration_tests/local_pipeline/` (sibling).
+- `gateway_url` (`integration_tests/local_pipeline/conftest.py:261`)
+  and the parent `egg_stack.gateway_url` attribute
+  (`integration_tests/conftest.py:78`, accessed as
+  `egg_stack.gateway_url` — not a standalone fixture in the parent
+  conftest).
+- Gateway-mediated routes: `/api/v1/jira/*`, `/api/v1/confluence/*`,
+  `/api/v1/git/*`, `/api/v1/gh/*`, anthropic proxy, etc.
 - `orchestrator_url`
   (`integration_tests/local_pipeline/conftest.py:255`).
 - `launcher_secret` (`integration_tests/local_pipeline/conftest.py:267`)
@@ -94,9 +131,10 @@ it can read pod logs via `kubectl`.
 - `kubectl` access to pods in the deployed namespace.
 
 **Test files for this tier live under:**
+`integration_tests/` (parent) for gateway-only tests and
 `integration_tests/local_pipeline/` (k3s-backed local pipeline
-tests) and any sibling directory that explicitly requests the
-trusted-runner fixtures.
+tests) for orchestrator-scoped tests. Any sibling directory that
+explicitly requests the trusted-runner fixtures is in-scope.
 
 ### `human-operator`
 
@@ -107,24 +145,45 @@ a workflow decision the plan should call out, not a test path.
 
 ## Fixture tier table
 
+**No pytest fixture is `in-sandbox-agent`-runnable today.** Every
+fixture below transitively depends on `egg_stack` or
+`local_pipeline_stack`, both of which `pytest.skip` when
+`_kubectl_available()` returns `False`. The `in-sandbox-agent` tier
+sees the gateway via the `GATEWAY_URL` env var at agent runtime — it
+does not see any of these fixtures.
+
 | Fixture | Defined in | Tiers that see it |
 |---------|------------|-------------------|
-| `gateway_url` | `integration_tests/conftest.py:71` (parent `EggStack`) and re-exported in `integration_tests/local_pipeline/conftest.py:261` | `in-sandbox-agent`, `trusted-CI-runner` |
-| `egg_stack` | `integration_tests/conftest.py:277` | `in-sandbox-agent`, `trusted-CI-runner` |
-| `gateway_session` | `integration_tests/conftest.py:294` | `in-sandbox-agent`, `trusted-CI-runner` |
-| `isolated_container` | `integration_tests/conftest.py:428` | `in-sandbox-agent`, `trusted-CI-runner` |
-| `external_container` | `integration_tests/conftest.py:441` | `in-sandbox-agent`, `trusted-CI-runner` |
-| `test_container` | `integration_tests/conftest.py:454` | `in-sandbox-agent`, `trusted-CI-runner` |
-| `local_pipeline_stack` | `integration_tests/local_pipeline/conftest.py:238` | `trusted-CI-runner` only |
+| `egg_stack` | `integration_tests/conftest.py:277` (gates on `_kubectl_available()`) | `trusted-CI-runner` only |
+| `gateway_session` | `integration_tests/conftest.py:294` (depends on `egg_stack`) | `trusted-CI-runner` only |
+| `isolated_container` (legacy) | `integration_tests/conftest.py:428` (`_skip_if_k8s_backed` — skips under k3s) | `trusted-CI-runner` only, **and skips under the supported runtime** |
+| `external_container` (legacy) | `integration_tests/conftest.py:441` (`_skip_if_k8s_backed` — skips under k3s) | `trusted-CI-runner` only, **and skips under the supported runtime** |
+| `test_container` (legacy) | `integration_tests/conftest.py:454` (`_skip_if_k8s_backed` — skips under k3s) | `trusted-CI-runner` only, **and skips under the supported runtime** |
+| `local_pipeline_stack` | `integration_tests/local_pipeline/conftest.py:238` (gates on `_kubectl_available()`) | `trusted-CI-runner` only |
+| `gateway_url` | `integration_tests/local_pipeline/conftest.py:261` (depends on `local_pipeline_stack`) — **only definition; the parent conftest exposes `egg_stack.gateway_url` as an attribute on the `EggStack` dataclass at `integration_tests/conftest.py:78`, not as a standalone fixture** | `trusted-CI-runner` only |
 | `orchestrator_url` | `integration_tests/local_pipeline/conftest.py:255` | `trusted-CI-runner` only |
 | `launcher_secret` | `integration_tests/local_pipeline/conftest.py:267` | `trusted-CI-runner` only |
+
+The three legacy `*_container` fixtures live in the parent conftest
+for historical reasons but `pytest.skip` under k3s — the only
+supported runtime per the parent conftest's module docstring — so a
+plan that names them today produces a silently-passing test, not a
+real exercise. Treat them as awaiting k3s-native replacements (see
+`integration_tests/conftest.py:415-418`); NACK plans that depend on
+their behaviour.
 
 `pytest` resolves fixtures lexically from the nearest conftest
 upward. A test file under `integration_tests/foo/` sees the parent
 `integration_tests/conftest.py` but not the **sibling**
 `integration_tests/local_pipeline/conftest.py`. Plans that put a
-test that needs `orchestrator_url` outside `local_pipeline/` will
-fail at collection time — NACK the plan.
+test that needs `orchestrator_url` or `gateway_url` outside
+`local_pipeline/` will fail at collection time — NACK the plan.
+
+**Agent runtime ≠ pytest fixture.** Production code an agent writes
+that reaches `GATEWAY_URL` at runtime is `in-sandbox-agent`-tier
+even though no pytest fixture is. Audit both surfaces — a task that
+says "the agent calls gateway route X" is fine; a task that says
+"the agent's pytest test depends on `gateway_url`" is wrong.
 
 ## Scripted LLM trajectories
 
