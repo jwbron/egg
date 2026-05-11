@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Validate the # yaml-tasks fenced block inside a refine-plan plan.md.
+
+Usage:
+    validate-yaml-tasks <plan.md>
+
+Exits:
+    0  — block is valid; prints "OK: yaml-tasks valid (key=..., slices=N)"
+    1  — block missing or invalid; prints "FAIL:\\n  - <issue>" lines
+    2  — usage error or PyYAML missing
+
+The validator is intentionally separate from the contract emitter so it can be
+run as a fast pre-check before any reviewer subagent spawns. Output is
+machine-parseable: SKILL.md captures the FAIL block and forwards it to the
+task_planner subagent as revision instructions on the next BRC cycle.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+
+try:
+    import yaml
+except ImportError:
+    print("FAIL: PyYAML not installed (try: python3 -m pip install pyyaml)", file=sys.stderr)
+    sys.exit(2)
+
+FENCE_RE = re.compile(
+    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```",
+    re.DOTALL,
+)
+TASK_ID_RE = re.compile(r"^TASK-\d+-\d+$", re.IGNORECASE)
+VALID_ROLES = {"coder", "tester", "documenter"}
+REQUIRED_PR_KEYS = ("title", "description", "test_plan", "manual_steps")
+REQUIRED_TASK_FIELDS = ("description", "acceptance")
+
+
+def validate(plan_path: str) -> tuple[int, list[str]]:
+    try:
+        plan = open(plan_path).read()
+    except OSError as e:
+        return 1, [f"could not read {plan_path}: {e}"]
+
+    m = FENCE_RE.search(plan)
+    if not m:
+        return 1, ["no '# yaml-tasks' fenced block found"]
+
+    try:
+        data = yaml.safe_load(m.group(1))
+    except yaml.YAMLError as e:
+        return 1, [f"YAML parse error: {e}"]
+
+    if not isinstance(data, dict):
+        return 1, ["top-level is not a mapping"]
+
+    if "slices" in data:
+        tlk = "slices"
+    elif "phases" in data:
+        tlk = "phases"
+    else:
+        return 1, ["missing 'slices' or 'phases' top-level key"]
+
+    errors: list[str] = []
+    if not isinstance(data[tlk], list) or not data[tlk]:
+        errors.append(f"'{tlk}' must be a non-empty list")
+
+    for sl in data.get(tlk) or []:
+        if not isinstance(sl, dict):
+            errors.append(f"non-mapping entry under '{tlk}': {sl!r}")
+            continue
+        slice_id = sl.get("id", "<missing>")
+        for t in sl.get("tasks") or []:
+            tid = str(t.get("id", "")) if isinstance(t, dict) else ""
+            if not TASK_ID_RE.match(tid):
+                errors.append(f"slice {slice_id}: bad task id {t.get('id')!r}")
+            role = t.get("role") if isinstance(t, dict) else None
+            if role is not None and role not in VALID_ROLES:
+                errors.append(
+                    f"task {tid}: bad role {role!r} (must be one of {sorted(VALID_ROLES)})"
+                )
+            for fld in REQUIRED_TASK_FIELDS:
+                if not (isinstance(t, dict) and t.get(fld)):
+                    errors.append(f"task {tid}: missing {fld}")
+
+    pr = data.get("pr")
+    if not isinstance(pr, dict):
+        errors.append("missing or non-mapping 'pr' block")
+    else:
+        for k in REQUIRED_PR_KEYS:
+            if k not in pr:
+                errors.append(f"pr.{k} missing")
+
+    if errors:
+        return 1, errors
+
+    slice_count = len(data[tlk])
+    return 0, [f"yaml-tasks valid (key={tlk}, slices={slice_count})"]
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print(f"usage: {argv[0]} <plan.md>", file=sys.stderr)
+        return 2
+    code, messages = validate(argv[1])
+    if code == 0:
+        print(f"OK: {messages[0]}")
+    else:
+        print("FAIL:")
+        for m in messages:
+            print(f"  - {m}")
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

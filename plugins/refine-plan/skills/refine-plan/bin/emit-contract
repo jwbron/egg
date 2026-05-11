@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Parse a refine-plan plan.md and emit a portable Task contract JSON.
+
+Usage:
+    emit-contract <plan.md> <contract.json> <identifier>
+
+Exits:
+    0  — wrote the contract; prints "wrote <path>: N tasks across M slices"
+    1  — parse failure (the validator should have caught this; re-run it)
+    2  — usage error or PyYAML missing
+
+Output schema is a portable analogue of what
+`shared/egg_contracts/plan_parser.py` emits, intentionally kept independent
+so this script runs without importing egg:
+
+    {
+      "identifier": "<id>",
+      "tasks": [
+        {
+          "id": "TASK-N-M",
+          "slice_id": <int|str>,
+          "description": "...",
+          "acceptance": "...",
+          "role": "coder" | "tester" | "documenter",
+          "files": ["..."],
+          "status": "PENDING"
+        },
+        ...
+      ],
+      "pr": {"title", "description", "test_plan", "manual_steps"},
+      "source": "<plan_path>"
+    }
+
+Default role is "coder" when a task omits the `role` field (matches the
+default in `shared/egg_contracts/plan_parser.py`).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+
+try:
+    import yaml
+except ImportError:
+    print("error: PyYAML not installed (try: python3 -m pip install pyyaml)", file=sys.stderr)
+    sys.exit(2)
+
+FENCE_RE = re.compile(
+    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```",
+    re.DOTALL,
+)
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 4:
+        print(f"usage: {argv[0]} <plan.md> <contract.json> <identifier>", file=sys.stderr)
+        return 2
+
+    plan_path, out_path, identifier = argv[1], argv[2], argv[3]
+
+    try:
+        plan = open(plan_path).read()
+    except OSError as e:
+        print(f"error: could not read {plan_path}: {e}", file=sys.stderr)
+        return 1
+
+    m = FENCE_RE.search(plan)
+    if not m:
+        print(f"error: no '# yaml-tasks' fenced block in {plan_path}", file=sys.stderr)
+        return 1
+
+    try:
+        data = yaml.safe_load(m.group(1))
+    except yaml.YAMLError as e:
+        print(f"error: YAML parse error: {e}", file=sys.stderr)
+        return 1
+
+    if not isinstance(data, dict) or ("slices" not in data and "phases" not in data):
+        print("error: top-level structure invalid; run validate-yaml-tasks first", file=sys.stderr)
+        return 1
+
+    tlk = "slices" if "slices" in data else "phases"
+
+    tasks: list[dict] = []
+    for sl in data[tlk]:
+        for t in sl.get("tasks") or []:
+            tasks.append(
+                {
+                    "id": t["id"],
+                    "slice_id": sl["id"],
+                    "description": t["description"],
+                    "acceptance": t["acceptance"],
+                    "role": t.get("role", "coder"),
+                    "files": t.get("files", []),
+                    "status": "PENDING",
+                }
+            )
+
+    contract = {
+        "identifier": identifier,
+        "tasks": tasks,
+        "pr": data.get("pr", {}),
+        "source": plan_path,
+    }
+
+    try:
+        with open(out_path, "w") as f:
+            json.dump(contract, f, indent=2)
+            f.write("\n")
+    except OSError as e:
+        print(f"error: could not write {out_path}: {e}", file=sys.stderr)
+        return 1
+
+    print(f"wrote {out_path}: {len(tasks)} tasks across {len(data[tlk])} {tlk}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

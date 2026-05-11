@@ -265,51 +265,18 @@ For cycle N = 1..4:
 
 2. **Wait for both**. Write `bus/cycle-<N>/PROPOSE-task_planner.json` and `PROPOSE-risk_analyst.json`.
 
-3. **Validate the YAML appendix** with the validator below. On FAIL, treat as an implicit NACK from a synthetic reviewer `yaml-validator`:
-   - Write `bus/cycle-<N>/NACK-yaml-validator.json` with the validator's error output as `feedback` and `["<plan_path>:#yaml-tasks"]` as `artifact_references`.
-   - Skip step 4 for this cycle; jump to step 5.
-
-   Validator (run via Bash):
+3. **Validate the YAML appendix** by running the validator script:
 
    ```bash
-   python3 - "<plan_path>" <<'PY'
-   import json, re, sys, yaml
-   plan = open(sys.argv[1]).read()
-   m = re.search(r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```", plan, re.DOTALL)
-   if not m:
-       print("FAIL: no '# yaml-tasks' fenced block found"); sys.exit(1)
-   try:
-       data = yaml.safe_load(m.group(1))
-   except yaml.YAMLError as e:
-       print(f"FAIL: YAML parse error: {e}"); sys.exit(1)
-   if not isinstance(data, dict):
-       print("FAIL: top-level not a mapping"); sys.exit(1)
-   tlk = "slices" if "slices" in data else ("phases" if "phases" in data else None)
-   if tlk is None:
-       print("FAIL: missing 'slices' or 'phases' key"); sys.exit(1)
-   TASK_RE = re.compile(r"^TASK-\d+-\d+$", re.IGNORECASE)
-   VALID_ROLES = {"coder", "tester", "documenter"}
-   errors = []
-   for sl in data[tlk]:
-       for t in sl.get("tasks", []):
-           if not TASK_RE.match(str(t.get("id", ""))):
-               errors.append(f"bad task id: {t.get('id')!r}")
-           if t.get("role") and t["role"] not in VALID_ROLES:
-               errors.append(f"bad role {t['role']!r} on {t.get('id')}")
-           for fld in ("description", "acceptance"):
-               if not t.get(fld):
-                   errors.append(f"missing {fld} on {t.get('id')}")
-   pr = data.get("pr", {})
-   for k in ("title", "description", "test_plan", "manual_steps"):
-       if k not in pr:
-           errors.append(f"pr.{k} missing")
-   if errors:
-       print("FAIL:")
-       [print(f"  - {e}") for e in errors]
-       sys.exit(1)
-   print(f"OK: yaml-tasks valid (key={tlk}, slices={len(data[tlk])})")
-   PY
+   python3 <skill-root>/bin/validate-yaml-tasks <plan_path>
    ```
+
+   - Exit 0 / stdout starts with `OK:` → proceed to step 4.
+   - Exit 1 / stdout starts with `FAIL:` → treat the FAIL lines as an implicit NACK from a synthetic reviewer `yaml-validator`:
+     - Write `bus/cycle-<N>/NACK-yaml-validator.json` with the FAIL output as `feedback` and `["<plan_path>:#yaml-tasks"]` as `artifact_references`.
+     - Skip step 4 for this cycle; jump to step 5.
+
+   The validator checks the same constraints described in `agents/task-planner.md`: presence of the `# yaml-tasks` fenced block, top-level `slices:` (or `phases:` legacy alias), TASK-ID pattern, role enum, required task fields, and the `pr:` block keys. It is portable — depends only on `python3` + PyYAML — and does not require the egg repo to be present.
 
 4. **Spawn reviewer_plan** (single Agent call). Task context:
    - `plan_path`, `analysis_path`, `architect_output_path`, `task_planner_output_path`, `risk_analyst_output_path`
@@ -332,38 +299,10 @@ For cycle N = 1..4:
 On convergence, parse the plan's YAML appendix into a Task list at `contracts/<id>.json`:
 
 ```bash
-python3 - "<plan_path>" "<contract_path>" "<id>" <<'PY'
-import json, re, sys, yaml
-plan = open(sys.argv[1]).read()
-out_path = sys.argv[2]
-identifier = sys.argv[3]
-m = re.search(r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```", plan, re.DOTALL)
-data = yaml.safe_load(m.group(1))
-tlk = "slices" if "slices" in data else "phases"
-tasks = []
-for sl in data[tlk]:
-    for t in sl.get("tasks", []):
-        tasks.append({
-            "id": t["id"],
-            "slice_id": sl["id"],
-            "description": t["description"],
-            "acceptance": t["acceptance"],
-            "role": t.get("role", "coder"),
-            "files": t.get("files", []),
-            "status": "PENDING",
-        })
-contract = {
-    "identifier": identifier,
-    "tasks": tasks,
-    "pr": data.get("pr", {}),
-    "source": sys.argv[1],
-}
-json.dump(contract, open(out_path, "w"), indent=2)
-print(f"wrote contract: {len(tasks)} tasks across {len(data[tlk])} slices")
-PY
+python3 <skill-root>/bin/emit-contract <plan_path> <contract_path> <id>
 ```
 
-This is a portable analogue of `shared/egg_contracts/plan_parser.py` and emits the same shape downstream consumers can read.
+The emitter is a portable analogue of `shared/egg_contracts/plan_parser.py` and writes the same shape downstream consumers expect (`{identifier, tasks[], pr, source}`, default `role: "coder"`, all tasks start `status: "PENDING"`). It runs without importing egg.
 
 ## HITL gate
 
