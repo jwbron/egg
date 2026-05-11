@@ -3289,6 +3289,93 @@ class TestRefinePromptSliceDagFraming:
             )
 
 
+class TestPlannerPromptSliceDagFraming:
+    """Planner prompts must not contradict slice-DAG decomposition (#2601).
+
+    Both planner paths — ``_build_phase_prompt(phase="plan")`` (sequential)
+    and ``_build_agent_prompt(role_value="task_planner")`` (concurrent) —
+    used to open with ``CRITICAL CONSTRAINT — One Issue = One Workflow =
+    One PR`` and a follow-on ``do NOT propose multiple PRs`` line. That
+    directly contradicts the slice-DAG guidance the concurrent path already
+    carried and silently turned multi-slice refine-phase HITL decisions
+    into dead letters. This class is a negative-regression suite: the
+    opener must not return, and the slice-DAG framing must remain.
+    """
+
+    @staticmethod
+    def _sequential_plan_prompt() -> str:
+        return _build_phase_prompt(
+            phase="plan",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Implement the change.",
+            issue_number=100,
+        )
+
+    @staticmethod
+    def _concurrent_planner_prompt() -> str:
+        return _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Implement the change.",
+            issue_number=100,
+            concurrent=True,
+        )
+
+    def test_sequential_plan_drops_one_pr_opener(self):
+        prompt = self._sequential_plan_prompt()
+        for needle in (
+            "CRITICAL CONSTRAINT",
+            "One Issue = One Workflow = One PR",
+            "do NOT propose multiple PRs",
+        ):
+            assert needle not in prompt, (
+                f"sequential planner still carries removed opener {needle!r} — "
+                "this contradicts slice-DAG decomposition (#2601)"
+            )
+
+    def test_concurrent_planner_drops_one_pr_opener(self):
+        prompt = self._concurrent_planner_prompt()
+        for needle in (
+            "CRITICAL CONSTRAINT",
+            "One Issue = One Workflow = One PR",
+            "do NOT propose multiple PRs",
+        ):
+            assert needle not in prompt, (
+                f"concurrent planner still carries removed opener {needle!r} — "
+                "this contradicts slice-DAG decomposition (#2601)"
+            )
+
+    def test_sequential_plan_includes_slice_dag_guidance(self):
+        prompt = self._sequential_plan_prompt()
+        for needle in (
+            "Slice-DAG guidance (#2137)",
+            "stacked PR",
+            "Forest constraint",
+            "serialized_chain_order",
+        ):
+            assert needle in prompt, (
+                f"sequential planner missing slice-DAG token {needle!r} — "
+                "the two planner paths must stay aligned (#2601)"
+            )
+
+    def test_concurrent_planner_includes_slice_dag_guidance(self):
+        prompt = self._concurrent_planner_prompt()
+        for needle in (
+            "Slice-DAG guidance (#2137)",
+            "stacked PR",
+            "Forest constraint",
+            "serialized_chain_order",
+        ):
+            assert needle in prompt, (
+                f"concurrent planner missing slice-DAG token {needle!r} — "
+                "removing the One-PR opener must not have dropped the "
+                "slice-DAG block (#2601)"
+            )
+
+
 class TestReviewerBrcPreamble:
     """Tests that reviewer agents receive BRC preamble in concurrent mode."""
 
