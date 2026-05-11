@@ -128,14 +128,6 @@ jobs:
         # Secret in the `egg-system` namespace, but the namespace itself
         # is only created later by `kubectl apply -k k8s/...`. Pre-create
         # it here so the secret-create step succeeds.
-        #
-        # `EGG_IMAGE_TAG=latest` pins the tag so `make deploy`'s sed
-        # rewrite is a no-op against the `:latest` images that the prior
-        # build+import steps produced. Without this, `git describe`
-        # returns a commit SHA and the manifests reference an image tag
-        # we never imported → ImagePullBackOff.
-        env:
-          EGG_IMAGE_TAG: latest
         run: |
           kubectl create namespace egg-system --dry-run=client -o yaml | kubectl apply -f -
           make deploy
