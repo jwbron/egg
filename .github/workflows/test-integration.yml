@@ -71,6 +71,7 @@ jobs:
             attempt=$((attempt + 1))
             echo "::group::Image import attempt ${attempt}/${max_attempts}"
             if docker save egg-gateway:latest | sudo k3s ctr images import - \
+              && docker save egg-orchestrator:latest | sudo k3s ctr images import - \
               && docker save egg-sandbox:latest | sudo k3s ctr images import -; then
               echo "::endgroup::"
               echo "Image import succeeded on attempt ${attempt}"
@@ -89,7 +90,12 @@ jobs:
       - name: Deploy egg to k3s
         run: |
           kubectl apply -k k8s/overlays/local/
-          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s
+          # Deployment names in k8s/base/ are `gateway` and `orchestrator`
+          # (not `egg-gateway` / `egg-orchestrator`); the `egg-` prefix is
+          # only on container images. Wait on both deployments so a red
+          # orchestrator surfaces here, not as opaque test failures.
+          kubectl -n egg-system wait --for=condition=Available deployment/gateway --timeout=120s
+          kubectl -n egg-system wait --for=condition=Available deployment/orchestrator --timeout=120s
 
       - name: Run integration and security tests
         env:
