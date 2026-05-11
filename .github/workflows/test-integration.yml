@@ -65,6 +65,12 @@ jobs:
         # aborting the script.
         run: |
           set -eo pipefail
+          # `make deploy` rewrites manifest image tags from :latest to
+          # :$(EGG_IMAGE_TAG) (the git short SHA). k3s uses
+          # imagePullPolicy: IfNotPresent, so we must import both the
+          # :latest and the tagged variant or the pods will stay in
+          # ErrImagePull and the `kubectl wait` will time out.
+          EGG_IMAGE_TAG=$(git describe --always --dirty 2>/dev/null || echo latest)
           attempt=0
           max_attempts=3
           until [ "$attempt" -ge "$max_attempts" ]; do
@@ -72,7 +78,10 @@ jobs:
             echo "::group::Image import attempt ${attempt}/${max_attempts}"
             if docker save egg-gateway:latest | sudo k3s ctr images import - \
               && docker save egg-orchestrator:latest | sudo k3s ctr images import - \
-              && docker save egg-sandbox:latest | sudo k3s ctr images import -; then
+              && docker save egg-sandbox:latest | sudo k3s ctr images import - \
+              && docker save egg-gateway:"$EGG_IMAGE_TAG" | sudo k3s ctr images import - \
+              && docker save egg-orchestrator:"$EGG_IMAGE_TAG" | sudo k3s ctr images import - \
+              && docker save egg-sandbox:"$EGG_IMAGE_TAG" | sudo k3s ctr images import -; then
               echo "::endgroup::"
               echo "Image import succeeded on attempt ${attempt}"
               exit 0
