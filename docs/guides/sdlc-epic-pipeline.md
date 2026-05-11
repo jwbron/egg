@@ -21,13 +21,16 @@ The epic flow is the same pipeline shape (`refine` → `plan` → optional
 change:
 
 - **Refine sink** — after HITL approval, the refined analysis is written
-  to the epic's `Description` via the gateway's `editJiraIssue` route.
-  Decision-9 chose wholesale-rewrite over patch-merge.
+  to the epic's `Description` via the gateway's edit route
+  `POST /api/v1/jira/ticket/edit` (`jira_ticket_edit`). Decision-9
+  chose wholesale-rewrite over patch-merge.
 - **Plan sink** — after HITL approval, the planned child tasks are
-  materialised as Jira children under the epic (`createJiraIssue` with
-  either `parent` or `Epic Link`, plus `createIssueLink` for cross-task
-  edges). Obsolete children are transitioned to `Won't Do` by the
-  orchestrator directly.
+  materialised as Jira children under the epic via
+  `POST /api/v1/jira/ticket/create` (`jira_ticket_create`) with either
+  `parent` or `Epic Link`, plus
+  `POST /api/v1/jira/issue-link/create` (`jira_issue_link_create`) for
+  cross-task edges. Obsolete children are transitioned to `Won't Do`
+  by the orchestrator directly.
 
 No new pipeline phases, no new HITL surface, no new draft format on
 disk. The HITL surface is the existing `.egg-state/drafts/<id>-*.md`
@@ -83,9 +86,12 @@ unchanged.
 
 When `submit_task` receives a Jira key, the handler dispatches the new
 `detect_jira_issuetype` helper (`orchestrator/jira_epic_detect.py`),
-which calls the gateway's `GET /api/v1/jira/ticket/{key}` and reads
-`fields.issuetype.name`. When the value is `Epic`, the epic flow runs;
-otherwise today's single-ticket flow runs unchanged.
+which calls the gateway's ticket-read route
+`POST /api/v1/jira/ticket/get` (function `jira_ticket_get` at
+`gateway/gateway.py`; the key is passed in the JSON body as
+`{"ticket": "<KEY>"}`) and reads `fields.issuetype.name`. When the
+value is `Epic`, the epic flow runs; otherwise today's single-ticket
+flow runs unchanged.
 
 The detection probe sits on the critical path of `submit_task`, so it
 runs synchronously. A healthy gateway completes in ~2 s; the orchestrator
@@ -149,8 +155,11 @@ contains:
 When the human approves the refine draft, a new sandbox agent — the
 `apply_epic` agent — is spawned. It reads the approved draft from
 `.egg-state/drafts/<id>-analysis.md`, fetches the current epic
-Description, and wholesale-rewrites it via the gateway's
-`PUT /api/v1/jira/ticket/<KEY>/edit` route.
+Description, and wholesale-rewrites it via the gateway's edit route
+`POST /api/v1/jira/ticket/edit` (function `jira_ticket_edit` at
+`gateway/gateway.py`; body is `{"ticket": "<KEY>", "description":
+"<new body>", ...}`). The route translates internally to Atlassian's
+upstream `PUT /rest/api/3/issue/{key}`.
 
 **Concurrent-edit guard.** Before writing, the agent computes
 `sha256(current Description)` and compares it against
@@ -184,10 +193,10 @@ In the reassess path, the agent produces a **classified diff**:
 
 | Class | Meaning |
 |-------|---------|
-| `updated` | Existing child with revised scope; apply via `editJiraIssue` |
+| `updated` | Existing child with revised scope; apply via `jira_ticket_edit` |
 | `closed` | Existing child marked obsolete; apply via `Won't Do` transition |
 | `untouched` | Existing child unchanged |
-| `net-new` | Genuinely new child; apply via `createJiraIssue` |
+| `net-new` | Genuinely new child; apply via `jira_ticket_create` |
 | `consolidated` | N existing children collapse into one surviving key |
 | `split` | One existing child becomes N new plan nodes |
 | `in_flight` | Marked `do-not-modify-without-confirmation` — per-ticket HITL gate fires before any direct mutation |
@@ -225,7 +234,7 @@ parser ingests the YAML, the mapping is persisted to
 - `version` — schema version (forward-compat).
 - `idempotency_seed` — per-pipeline UUID stamped at refine-apply time,
   passed as Atlassian's `X-Atlassian-Idempotency-Key` on every
-  `createJiraIssue`. Retries after a successful-create-but-failed-record
+  `jira_ticket_create`. Retries after a successful-create-but-failed-record
   do **not** create a duplicate ticket.
 - `refine_description_sha256` — the epic Description hash from refine
   kick-off (powers the concurrent-edit guard above).
@@ -251,26 +260,41 @@ plan mode. It reads the plan draft's `epic_apply:` /
 output, and the hierarchy config (see [Operator setup](#operator-setup)),
 then performs the batch:
 
-1. `createJiraIssue` for each **net-new** node, using either `parent`
-   or `epicLink` per `resolve_hierarchy_field(project_key)`.
-2. `editJiraIssue` for each **`edit`** action target.
-3. For each **consolidation**: `editJiraIssue` on the survivor +
-   `addCommentToJiraIssue` redirect on the others. (The `Won't Do`
-   transition itself runs in the orchestrator — see
+1. `POST /api/v1/jira/ticket/create` (`jira_ticket_create`) for each
+   **net-new** node, using either `parent` or `epicLink` per
+   `resolve_hierarchy_field(project_key)`.
+2. `POST /api/v1/jira/ticket/edit` (`jira_ticket_edit`) for each
+   **`edit`** action target.
+3. For each **consolidation**: `jira_ticket_edit` on the survivor +
+   `POST /api/v1/jira/ticket/comment/add` (`jira_ticket_comment_add`)
+   redirect on the others. (The `Won't Do` transition itself runs in
+   the orchestrator — see
    [Won't-Do transitions](#wont-do-transitions).)
-4. For each **split**: `editJiraIssue` on the original to the
-   narrowed scope, `createJiraIssue` for the new nodes.
-5. `createIssueLink` for each cross-task edge.
+4. For each **split**: `jira_ticket_edit` on the original to the
+   narrowed scope, `jira_ticket_create` for the new nodes.
+5. `POST /api/v1/jira/issue-link/create` (`jira_issue_link_create`)
+   for each cross-task edge.
 
 After each call, the agent persists the updated `epic_apply` artifact
 via `mcp__sdlc__update_epic_apply`.
 
 ### 6. Won't-Do transitions
 
-The `transitions` verb is permanently off the agent-facing gateway
-(`gateway/jira_client.py` enforces `ALLOWED_METHODS = frozenset({"GET"})`
-plus a path denylist). Won't-Do therefore runs **orchestrator-direct**
-via the new `orchestrator/jira_transitions.py` client.
+The `transitions` verb is permanently off the agent-facing gateway.
+The gateway exposes a fixed set of per-verb Jira routes
+(`ticket/get`, `ticket/edit`, `ticket/create`,
+`ticket/comment/add`, `issue-link/create`, `ticket/comments`,
+`search`, plus the `execute` passthrough) — none of them call
+`transitions`, and the per-verb routes have hardcoded upstream paths
+that do not consult the generic path validator. The
+`/api/v1/jira/execute` passthrough is additionally GET-only
+(`ALLOWED_METHODS = frozenset({"GET"})` on `JiraClient`), and the
+denylist constant `JIRA_WRITE_VERBS_DENIED` in
+`gateway/jira_client.py` rejects `transitions` (plus `worklog`,
+`attachments`, and `watchers`) even if a future route were added by
+mistake. Together this leaves no agent-reachable transition path.
+Won't-Do therefore runs **orchestrator-direct** via the new
+`orchestrator/jira_transitions.py` client.
 
 The client:
 
@@ -343,9 +367,15 @@ This means:
 - Single-ticket pipelines (no `jira_parent_epic_key`) keep today's
   behaviour: no comment writeback, no extra Jira round-trip.
 
-Idempotency: before writing, the orchestrator checks whether the most
-recent N comments on the child ticket already contain the PR URL.
-Re-runs do not duplicate the comment.
+Idempotency: before writing, the orchestrator fetches the child's
+existing comments via the gateway's `POST /api/v1/jira/ticket/comments`
+route and checks whether any returned comment already contains the
+PR URL. The bound is the comment page Atlassian returns by default
+(50 most-recent at present); for tickets with very long discussion
+histories the check is best-effort — operators that re-run the PR
+phase after dozens of newer comments have pushed the original out of
+the page may see a duplicate comment. In practice the writeback only
+runs once per child PR, so this edge case is unlikely.
 
 When the gateway adds a future remote-link **write**, the comment
 writeback will be paired with a symmetric remote-link write. Today the
@@ -389,8 +419,9 @@ the sandbox-side `apply_epic` agent rather than from the orchestrator
 pod. This delivers the apply-step inside the agent's normal tool
 surface but means **gateway-level enforcement of the in-flight gate
 is not part of v1**: a buggy or prompt-injected agent could bypass the
-gate by skipping `register_in_flight_gate` and calling `editJiraIssue`
-or `addCommentToJiraIssue` on an in-flight target directly.
+gate by skipping `register_in_flight_gate` and calling
+`jira_ticket_edit` or `jira_ticket_comment_add` on an in-flight target
+directly.
 
 The orchestrator hardens this two ways within v1:
 
@@ -405,7 +436,7 @@ Every applied mutation is persisted on `epic_apply.applied_edits[]`, so
 a partial bypass surfaces in audit.
 
 **Full gateway-side enforcement** — an orchestrator-mediated dispatcher
-for every `editJiraIssue` / `addCommentToJiraIssue` call routed through
+for every `jira_ticket_edit` / `jira_ticket_comment_add` call routed through
 a server-side in-flight re-check — is **future hardening**, tracked as
 a planned follow-up issue once the v1 surface is stable. The trade-off
 is explicit: decision-11 already delegates per-call gateway dispatch to
@@ -492,7 +523,12 @@ Confluence spaces:
   plus the bounded write extension `ticket/create`, `ticket/edit`,
   `ticket/comment/add`, `issue-link/create`). The new
   `GET /api/v1/jira/ticket/{key}/remotelinks` read route powers
-  in-flight detection.
+  in-flight detection. This route uses `GET` with the key in the path
+  rather than the `POST /api/v1/jira/...` + body convention the other
+  Jira routes follow, mirroring Atlassian's upstream
+  `GET /rest/api/3/issue/{key}/remotelink` shape; the route is
+  read-only and rate-limited via the same per-GET retry semantics as
+  `jira_ticket_get`.
 - [Confluence Wrapper Reference](../reference/confluence-wrapper.md) —
   read-only space allowlist; the refine input gatherer pulls linked
   pages (decision-7).

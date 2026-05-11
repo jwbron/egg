@@ -121,14 +121,14 @@ The epic flow adds a synchronous detection probe to the critical path
 of `submit_task`. On a healthy gateway, total `submit_task` latency
 remains around 2 s for an epic key (the same shape as today's single
 ticket: handler validation + pipeline creation POST + the new
-`getJiraIssue` probe). The orchestrator emits a `STATUS` message when
+`jira_ticket_get` probe). The orchestrator emits a `STATUS` message when
 total `submit_task` latency exceeds 5 s so operators can tune the
 gateway / Atlassian round-trip if it drifts (architect oq-6 /
 risk_analyst R15 from the #1557 refine analysis).
 
 For non-Epic Jira keys the detection result is `Task` (or whatever the
 issuetype reports) and the handler falls through to the existing
-ticket-keyed flow — no extra cost beyond the one `getJiraIssue` call.
+ticket-keyed flow — no extra cost beyond the one `jira_ticket_get` call.
 
 For `issue_number` pipelines (GitHub issues, no Jira key), the
 detection probe is skipped entirely.
