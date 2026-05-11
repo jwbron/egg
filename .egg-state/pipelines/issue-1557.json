@@ -308,10 +308,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "**Confluence link discovery scope** during refine: where should the agent look for Confluence pages to pull?",
+      "context": "Open contract question decision-7, registered by an agent during the refine phase.",
+      "options": [
+        "Jira `remoteLinks` only (issue/{key}/remotelink); structured + reliable",
+        "Remote links + URL-scrape the epic description and existing-children descriptions for Confluence page URLs",
+        "Remote links + description URLs + linked Jira issues' remote links (recursive one level)",
+        "Operator-supplied list only (no auto-discovery) — pass Confluence page IDs as a `submit_task` parameter",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.217928Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.183199Z",
+  "updated_at": "2026-05-11T22:24:52.228779Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -325,6 +345,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18,
+  "version": 19,
   "jira_ticket": null
 }
