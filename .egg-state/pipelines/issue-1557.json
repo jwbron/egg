@@ -408,10 +408,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "**Reassess-trigger override on `submit_task`** (promoted from feedback-1 Q5 in response to NACK — structurally a decision, not open-ended feedback): `submit_task <EPIC-KEY>` auto-detects the reassess path when the epic has children. Should the operator be able to force the path explicitly?",
+      "context": "Open contract question decision-12, registered by an agent during the refine phase.",
+      "options": [
+        "No override: auto-detection only (smallest surface; operator must transition children away from the epic if they want a fresh-path treatment)",
+        "Add `--reassess` / `--fresh` mutex flags on `submit_task` to force the path. `--fresh` on an epic with children warns + asks the operator to confirm; `--reassess` on an epic with no children no-ops gracefully into the fresh path.",
+        "Single `--mode={auto,reassess,fresh}` parameter on `submit_task`; default `auto` preserves today's behavior, explicit overrides bypass detection without confirmation.",
+        "Add a non-`submit_task` `egg <whatever> reassess <EPIC-KEY>` admin subcommand for forced reassess, leaving `submit_task` auto-detect-only (keeps `submit_task` surface clean).",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.432265Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.392654Z",
+  "updated_at": "2026-05-11T22:24:52.442392Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -425,6 +445,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23,
+  "version": 24,
   "jira_ticket": null
 }
