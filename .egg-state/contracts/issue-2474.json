@@ -42,10 +42,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other (explain in reply): Three slices = three PRs. slice-1 = Part E (ScriptedProvider promotion + 8 new tests under integration_tests/regression/). slice-2 = Part A (wire test-integration.yml into test.yml as a new 'integration' job). slice-3 = Part F (CLAUDE.md + docs/guides/testing.md updates), depends on slice-1 because F's docs reference the regression subdir E creates. slice-1 and slice-2 run in parallel; slice-3 follows slice-1. The canned 'Three sequential PRs' option is wrong because slices can run in parallel \u2014 this is a slice-DAG with one dependency edge, not a serial chain. Plan phase MUST produce a 3-slice DAG and NOT a single-slice plan with multiple PRs. The refiner registered this decision as a 'PR count' question rather than a slice-DAG question; tracking issue for that framing confusion: #2584.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:14:50.554421Z",
       "debounce_until": null
     },
     {
@@ -80,10 +80,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Inside .github/workflows/test.yml as a new `integration` job sibling of `unit` and `security`, included in the existing aggregate\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:14:50.567003Z",
       "debounce_until": null
     },
     {
@@ -118,10 +118,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Required-for-merge from day 1 (riskier; flake risk erodes trust quickly)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:15:22.752624Z",
       "debounce_until": null
     },
     {
@@ -156,10 +156,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"3-slice DAG; restart slice-2's coder while it is in PROPOSE; assert slice-2's branch ref commit SHA is unchanged across the restart and the pipeline reaches PR_READY (prior-pipeline default for decision-7)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:15:22.769946Z",
       "debounce_until": null
     },
     {
@@ -194,10 +194,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Whatever the existing test-integration.yml runs at (~5-10 min today, ~10-15 with Part E adds); no shard plan needed yet\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:15:22.780894Z",
       "debounce_until": null
     },
     {
@@ -232,10 +232,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Stay unit-only; `make test-integration` remains a separate explicit target (matches prior-pipeline default)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:15:48.248391Z",
       "debounce_until": null
     },
     {
@@ -270,10 +270,33 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Out-of-scope: keep skip in place; track in a follow-up issue separate from #2474\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:15:48.382508Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n**decision-1 (PR/slice packaging)**: Three slices = three PRs. slice-1 = Part E (ScriptedProvider promotion + 8 new tests under integration_tests/regression/). slice-2 = Part A (wire test-integration.yml into test.yml as new 'integration' job). slice-3 = Part F (CLAUDE.md + docs/guides/testing.md). Soft dep: slice-3 depends on slice-1 (F's docs reference the regression subdir E creates). slice-1 and slice-2 can run in parallel. NOTE: The refiner registered this as a 'PR count' decision; the operator clarified it should be framed in slice-DAG terms. Plan phase must produce a 3-slice DAG, not a single-slice plan with multiple PRs. Tracking issue for the refiner's framing confusion: #2584.\n\n**decision-2 (where workflow_call lives)**: Inside .github/workflows/test.yml as a new 'integration' job sibling to 'unit' and 'security', included in the existing 'aggregate'. This keeps 'Test / aggregate' as the canonical required-check name (slice-2 implementation detail).\n\n**decision-3 (gating policy)**: Required-for-merge from day 1. NOT the issue text's recommended non-blocking-with-settle-in approach. Operator chose tighter gating; flake risk is accepted.\n\n**decision-4 (E.6 scenario)**: 3-slice DAG; restart slice-2's coder while it is in PROPOSE; assert slice-2's branch ref commit SHA is unchanged across the restart and the pipeline reaches PR_READY.\n\n**decision-5 (wall-clock budget)**: No fixed budget. Existing test-integration.yml runtime (~10-15 min after Part E adds) is acceptable. Flag in a follow-up if PR latency becomes a complaint; no shard plan needed yet.\n\n**decision-6 (test-all inclusion)**: Stay unit-only. `make test-integration` remains a separate explicit target. Do not fold integration tier into `make test-all`.\n\n**decision-7 (TestCredentialIsolation gap)**: Out-of-scope for #2474. Tracked in follow-up issue #2585.\n\n**Q1 (flake guards)**: Defend against image-import flakes (retry), kubectl wait timeouts (explicit deadlines), and on-failure capture (`kubectl get events --all-namespaces` + pod logs as workflow artifact). Standard k3s harness hardening set.\n\n**Q2 (E.3 push-rejection mechanism)**: Coder role pushes a docs file to force a real 403 from the gateway's restricted-path policy. Exercises the real code path; no mocks.\n\n**Q3 (E.7 timeout granularity)**: Use minute-granular timing. Configure `consensus_timeout_minutes_plan = 1`; observe CONSENSUS_TIMEOUT event fires within 60\u00b110s. Do NOT add second-granular config support in this pipeline \u2014 the existing minutes-based API is sufficient for the assertion. Update the test's docstring to note the issue text's `consensus_timeout_s = 30` was a typo (the real field is `consensus_timeout_minutes_<phase>`).\n\n**Q4 (E.8 push-counting method)**: Gateway audit log of push events. Authoritative source; counts every push attempt and outcome.\n\n**Q5 (required-flip SLO)**: N/A \u2014 operator chose Required-from-day-1 for decision-3, so the non-blocking \u2192 required transition does not exist.\n\n**Q6 (CLAUDE.md naming)**: Generic note pointing at integration_tests/regression/. No specific test files named \u2014 keeps the docs low-maintenance.\n\n## Scope Expansion (operator pre-refine instruction)\n\nWhen a new regression test fails against current `main`, the pipeline MUST diagnose the production-code root cause and fix it in the relevant slice's PR \u2014 these tests are designed to catch real regressions; closing those gaps is in scope. When a new test is itself broken or flaky, fix the test rather than skipping or marking xfail.\n\n## Plan-Phase Instructions\n\n- Produce a 3-slice DAG: slice-1 (E), slice-2 (A), slice-3 (F). slice-3 has dep on slice-1.\n- slice-1 owns: ScriptedProvider promotion to shared/egg_harness/testing/scripted_provider.py (+ shared/egg_harness/testing/__init__.py); 8 new tests in integration_tests/regression/ with shared conftest; minutes-based assertion in E.7; gateway-audit-log assertion in E.8; coder-pushes-docs-file mechanism for E.3; 3-slice/restart-slice-2-in-PROPOSE scenario for E.6.\n- slice-2 owns: workflow_call invocation in test.yml under a new 'integration' job, included in 'aggregate'; flake guards (image-import retry, kubectl wait timeouts, on-failure kubectl-events artifact); PR description must document the exact required-check name to flip in repo Settings \u2192 Branch protection.\n- slice-3 owns: Quick-Reference bullet in CLAUDE.md (`make test-integration  # Cross-module regressions; requires k3s (see docs/guides/testing.md)`); short Integration-tests subsection in CLAUDE.md after 'Key Entry Points' (generic, no named test files); top-level Integration-tests section in docs/guides/testing.md (k3s-only setup recipe, required-check name, CI gating notes).\n- Each slice's failing tests against `main` (if any) trigger production-code fixes in that slice's PR per the scope expansion above.",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:09:57.958332Z",
       "debounce_until": null
     }
   ],
@@ -679,37 +702,37 @@
       {
         "id": "Q1",
         "question": "Flake guards: which sources of CI flake should we pre-emptively defend against in the workflow (image-import retry, kubectl wait timeouts, explicit cleanup on failure with kubectl-events artifact)? Any past CI flake you've observed that should be specifically pinned down?",
-        "answer": null
+        "answer": "Image-import retry + kubectl wait timeouts + on-failure kubectl-events artifact. Standard k3s harness hardening: retry on image-import failures (2-3 attempts), set explicit deadlines on every kubectl wait call, capture `kubectl get events --all-namespaces -o yaml` plus pod logs as a workflow artifact on failure. No specific past flakes called out beyond the standard set."
       },
       {
         "id": "Q2",
         "question": "Test E.3 (unpushed-commit salvage, #2429): the issue text says 'inject gateway push rejection (use existing restricted-path code path)'. Concretely \u2014 should the test push a docs file from the coder role to force a real 403, or is there a different restricted-path code path you'd prefer?",
-        "answer": null
+        "answer": "Coder role pushes a docs file (e.g. a path under `docs/`) to force a real 403 from the gateway's restricted-path policy. Exercises the real code path with no mocks. Implement-phase coder may pick the exact path based on the gateway's current policy table."
       },
       {
         "id": "Q3",
         "question": "Test E.7 (phase-aware consensus timeouts): the issue says 'configure phase_configs.plan.consensus_timeout_s = 30; assert CONSENSUS_TIMEOUT event fires within 30\u00b15s'. The orchestrator's resolve_consensus_timeout_minutes uses MINUTES, not seconds. Should the test use minute-granular timing (e.g. 1-minute plan timeout, observe 60\u00b110s) or do we need to add second-granular config support first?",
-        "answer": null
+        "answer": "Use minute-granular timing. Configure `consensus_timeout_minutes_plan = 1`; assert CONSENSUS_TIMEOUT event fires within 60\u00b110s. Do NOT add second-granular config support in this pipeline \u2014 the existing minutes-based API is sufficient for the assertion. Test docstring should note the issue text's `consensus_timeout_s = 30` was a typo (the real field is `consensus_timeout_minutes_<phase>`)."
       },
       {
         "id": "Q4",
         "question": "Test E.8 (Babysit-PR single final push): the issue mentions `_babysit_final_push_head_move_guard` at orchestrator/routes/pipelines.py \u2014 should the test assert via the gateway audit log of push events, or via observing git ls-remote on the PR head ref before/after each coder revision?",
-        "answer": null
+        "answer": "Gateway audit log of push events. Authoritative source; counts every push attempt and outcome. `git ls-remote` would miss pushes that didn't move the ref."
       },
       {
         "id": "Q5",
         "question": "Once the new check is wired (non-blocking initially), what's the trigger for flipping required-for-merge? '10 PRs without flake' is mentioned in the issue \u2014 should this be a defined SLO (e.g. <1 flake per 20 runs measured over 2 weeks), or just maintainer's judgment?",
-        "answer": null
+        "answer": "N/A \u2014 operator chose Required-for-merge from day 1 for decision-4 (gating policy), so the non-blocking \u2192 required transition does not exist. If flake budget becomes an issue post-merge, the question can be revisited as a config rollback."
       },
       {
         "id": "Q6",
         "question": "Should Part F's `CLAUDE.md` text mention by name the specific tests added in Part E so future agents can locate them when they need similar coverage (e.g. 'use integration_tests/regression/test_slice_branch_env.py as the template for slice-spawn env-threading regressions'), or keep the note generic to avoid stale references?",
-        "answer": null
+        "answer": "Generic note pointing at `integration_tests/regression/`. No specific test files named \u2014 keeps the docs low-maintenance and avoids stale references if files are renamed in future work."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-11T06:16:16.000722Z",
     "comment_id": null,
     "debounce_until": null
   },
