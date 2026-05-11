@@ -12,7 +12,6 @@ import pytest
 pytest.importorskip("egg_harness.loop")
 
 import json
-from collections.abc import AsyncIterator
 from typing import Any
 
 from egg_harness.config import HarnessConfig, ProviderConfig
@@ -29,17 +28,22 @@ from egg_harness.providers.base import (
     ToolUseStart,
 )
 from egg_harness.result import AgentResult
+
+# Re-export the promoted ``ScriptedProvider`` API for tests that still
+# reference ``shared.tests.test_egg_harness.test_integration.ScriptedProvider``
+# (issue #2474, task-1-2).  Two re-export shims, not two definitions:
+# ``ScriptedProvider`` and ``_stream_events`` are imported from the
+# canonical module ``egg_harness.testing.scripted_provider`` so identity
+# is preserved across consumers.
+from egg_harness.testing.scripted_provider import (
+    ScriptedProvider,
+    _stream_events,  # noqa: F401 — re-export shim for legacy importers
+)
 from egg_harness.tools.registry import ToolResult
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _stream_events(events: list[StreamEvent]) -> AsyncIterator[StreamEvent]:
-    """Yield a list of StreamEvent objects as an async iterator."""
-    for event in events:
-        yield event
 
 
 def _text_turn(
@@ -125,42 +129,6 @@ def _multi_tool_turn(
 
 def _make_default_provider_config() -> ProviderConfig:
     return ProviderConfig(provider_type="anthropic", model="claude-opus-4-6")
-
-
-class ScriptedProvider:
-    """A mock provider that yields pre-scripted response sequences."""
-
-    def __init__(self, script: list[list[StreamEvent]]) -> None:
-        self._script = list(script)
-        self._call_index = 0
-        self.call_history: list[dict[str, Any]] = []
-
-    @property
-    def name(self) -> str:
-        return "scripted"
-
-    async def send_message(
-        self,
-        *,
-        messages: list,
-        tools: list | None = None,
-        system: str | None = None,
-        model: str | None = None,
-        max_tokens: int = 16384,
-        extra_headers: dict | None = None,
-    ) -> AsyncIterator[StreamEvent]:
-        self.call_history.append(
-            {
-                "messages": messages,
-                "tools": tools,
-                "system": system,
-                "model": model,
-            }
-        )
-        idx = min(self._call_index, len(self._script) - 1)
-        self._call_index += 1
-        async for event in _stream_events(self._script[idx]):
-            yield event
 
 
 class RecordingRegistry:
