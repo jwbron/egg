@@ -304,7 +304,9 @@ class TestDocumenterOnlySliceEndToEnd:
         assert coder_confirm["status"] == "confirmed"
         # CODER is in the confirmed set after a successful confirm —
         # the matrix-level proof that the seed survived end-to-end.
-        assert "coder" in tracker._confirmed
+        # Observed through the public ``confirmed_roles`` property
+        # rather than reaching into ``tracker._confirmed`` directly.
+        assert "coder" in tracker.confirmed_roles
 
     def test_seeded_coder_confirm_rejected_before_peers_propose(self, implement_graph):
         """The shortcut's expected-pending-acks path: the seeded CODER
@@ -407,11 +409,16 @@ class TestDocumenterOnlySliceEndToEnd:
 
         # CODER's confirm is now rejected — the shortcut's "if it
         # returns pending_acks with producer_not_fully_acked" branch.
+        # ``handle_confirmed`` returns ``message=guard.reason`` (see
+        # ``peer_consensus.py``), and the producer-not-fully-acked
+        # reason string is
+        # ``f"Producer {agent_role} cannot confirm: not fully ACKed. ..."``
+        # (``action_guards.py``). The ``producer_not_fully_acked``
+        # guard-name literal lives in ``guard.details`` only, not the
+        # message — assert on the reason substring.
         result = tracker.handle_confirmed("coder")
         assert result["status"] == "pending_acks"
-        assert "producer_not_fully_acked" in result["message"].lower() or (
-            "fully ack" in result["message"].lower()
-        )
+        assert "not fully ACKed" in result["message"]
 
 
 class TestDeriveProducerRolesWithTasks:

@@ -15140,6 +15140,7 @@ def _run_concurrent_phase(
     # Same predicate as ``ApprovalMatrix.seed_auto_ack_for_empty_pure_producers``
     # (both route through ``ReviewGraph.empty_pure_producers``) so the
     # prompt flag and the matrix seed cannot drift.
+    _pre_seeded_empty_producer_roles: set[str]
     if producer_roles_with_tasks is not None:
         _pre_seeded_empty_producer_roles = filtered_graph.empty_pure_producers(
             producer_roles_with_tasks
