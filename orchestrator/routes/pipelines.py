@@ -11105,11 +11105,12 @@ def _build_phase_prompt(
     elif phase == "plan":
         lines.extend(
             [
-                "Create a detailed implementation plan.",
-                "",
-                "**CRITICAL CONSTRAINT — One Issue = One Workflow = One PR.**",
-                "All tasks belong to a single pull request. Use phases and commits to",
-                "organise the work within that PR — do NOT propose multiple PRs.",
+                "Create a detailed implementation plan, decomposing the work into "
+                "slices per the slice-DAG guidance at the end of this section. The "
+                "implement-phase pipeline ships each slice as its own stacked PR. "
+                "A single-slice plan is fine when the work is cohesive; multi-slice "
+                "plans are required when an upstream refine-phase work-decomposition "
+                "HITL decision selected a multi-slice shape.",
                 "",
                 "Steps:",
                 "1. Review any prior analysis",
@@ -11146,12 +11147,12 @@ def _build_phase_prompt(
                 "    Pre-merge: any required steps before merging",
                 "    Post-merge: any required steps after merging",
                 *_PR_CONTEXT_YAML_EXAMPLE_LINES,
-                "phases:",
+                "slices:",
                 "  - id: 1",
                 "    name: |-",
-                "      Phase Name",
+                "      Slice Name",
                 "    goal: |-",
-                "      What this phase achieves",
+                "      What this slice achieves",
                 "    tasks:",
                 "      - id: TASK-1-1",
                 "        description: |-",
@@ -11166,12 +11167,74 @@ def _build_phase_prompt(
                 "",
                 *_YAML_TASKS_SAFETY_GUIDANCE,
                 "",
-                "Do NOT use a `pr_plan` key or propose multiple PRs.",
+                "Do NOT use a `pr_plan` key — slice packaging is owned by the "
+                "slice-DAG section below, not by an ad-hoc PR list.",
                 "",
                 "The `test_plan` field is **required** — describe both automated test "
                 "coverage and any manual verification steps. The `manual_steps` field "
                 "should list any pre-merge or post-merge actions required by the reviewer "
                 "or deployer; use an empty string if none.",
+                "",
+                # ----------------------------------------------------
+                # #2137 — slice-DAG planner guidance (mirrors the
+                # concurrent task_planner block; keep the two paths
+                # aligned so a refine-phase multi-slice HITL decision
+                # is honoured regardless of which planner runs).
+                # ----------------------------------------------------
+                "## Slice-DAG guidance (#2137)",
+                "",
+                "The implement-phase pipeline ships each plan **slice** (formerly "
+                "**phase**) as its own stacked PR. The plan you emit drives that "
+                "DAG; the rules below are mandatory.",
+                "",
+                "**Yaml key swap**: prefer the canonical ``slices:`` key in your "
+                "``# yaml-tasks`` block (the parser also accepts ``phases:`` for "
+                "backward compatibility). New plans should use ``slices:``.",
+                "",
+                "**Slice-sizing guidance (soft, advisory only)**: target ≤1,000 "
+                "LOC per slice where possible. The plan reviewer flags oversized "
+                "slices as advisory but does NOT reject on size.",
+                "",
+                "**Forest constraint (HARD)**: every slice must have at most ONE "
+                "DAG parent — the implement-phase pipeline ships every slice as a "
+                "stacked PR with exactly one base branch. Multi-parent slices "
+                "break the stacking invariant and are rejected at plan ingestion.",
+                "",
+                "**Auto-serialization rule for would-be multi-parent slices**: "
+                "when a slice would naturally have >1 parents, serialise the "
+                "upstream slices into a linear chain and record the chosen "
+                "ordering on the downstream slice's ``serialized_chain_order`` "
+                "field. The list names the upstream slice IDs in their chosen "
+                "serialization order.",
+                "",
+                "Worked example: if ``slice-3`` would naturally have "
+                "parents ``[slice-1, slice-2]``, instead emit:",
+                "",
+                "```yaml",
+                "  - id: 1",
+                "    name: |-",
+                "      Foundations",
+                "    # ... (root)",
+                "  - id: 2",
+                "    name: |-",
+                "      Middle",
+                "    dependencies:",
+                "      - slice-1",
+                "  - id: 3",
+                "    name: |-",
+                "      Downstream",
+                "    dependencies:",
+                "      - slice-2  # serialised — slice-2 is the only DAG parent",
+                "    serialized_chain_order:",
+                "      - slice-1",
+                "      - slice-2  # records that you deliberately picked",
+                "                 # slice-1 → slice-2 → slice-3",
+                "```",
+                "",
+                "Your judgement is the source of truth. The fallback heuristic "
+                "when you have no preference is: cluster would-be parents by "
+                "``files_affected`` Jaccard overlap (>0.3), then order by "
+                "descending downstream fan-out.",
                 "",
                 f"Write your plan to `{plan_path}`.",
                 "Commit and push the draft when done.",
@@ -13031,11 +13094,13 @@ def _build_agent_prompt(
         draft_path = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
         lines.extend(
             [
-                "Decompose the architecture analysis into a single-PR implementation plan.",
-                "",
-                "**CRITICAL CONSTRAINT — One Issue = One Workflow = One PR.**",
-                "All tasks belong to a single pull request. Use phases and commits to",
-                "organise the work within that PR — do NOT propose multiple PRs.",
+                "Decompose the architecture analysis into a slice-DAG implementation "
+                "plan. The implement-phase pipeline ships each slice as its own "
+                "stacked PR — see the ``## Slice-DAG guidance (#2137)`` section below "
+                "for the slice-shaping rules. A single-slice plan is fine when the "
+                "work is cohesive; multi-slice plans are required when an upstream "
+                "refine-phase work-decomposition HITL decision selected a "
+                "multi-slice shape.",
                 "",
                 "Steps:",
                 "1. Review the architecture analysis from the ARCHITECT agent",
@@ -13073,12 +13138,12 @@ def _build_agent_prompt(
                 "    Pre-merge: any required steps before merging",
                 "    Post-merge: any required steps after merging",
                 *_PR_CONTEXT_YAML_EXAMPLE_LINES,
-                "phases:",
+                "slices:",
                 "  - id: 1",
                 "    name: |-",
-                "      Phase Name",
+                "      Slice Name",
                 "    goal: |-",
-                "      What this phase achieves",
+                "      What this slice achieves",
                 "    tasks:",
                 "      - id: TASK-1-1",
                 "        description: |-",
@@ -13094,7 +13159,8 @@ def _build_agent_prompt(
                 "",
                 *_YAML_TASKS_SAFETY_GUIDANCE,
                 "",
-                "Do NOT use a `pr_plan` key or propose multiple PRs.",
+                "Do NOT use a `pr_plan` key — slice packaging is owned by the "
+                "slice-DAG section below, not by an ad-hoc PR list.",
                 "",
                 "The `test_plan` field is **required** — describe both automated test "
                 "coverage and any manual verification steps. The `manual_steps` field "

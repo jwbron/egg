@@ -3289,6 +3289,140 @@ class TestRefinePromptSliceDagFraming:
             )
 
 
+class TestPlannerPromptSliceDagFraming:
+    """Planner prompts must not contradict slice-DAG decomposition (#2601).
+
+    Both planner paths — ``_build_phase_prompt(phase="plan")`` (sequential)
+    and ``_build_agent_prompt(role_value="task_planner")`` (concurrent) —
+    used to open with ``CRITICAL CONSTRAINT — One Issue = One Workflow =
+    One PR`` and a follow-on ``do NOT propose multiple PRs`` line. That
+    directly contradicts the slice-DAG guidance the concurrent path already
+    carried and silently turned multi-slice refine-phase HITL decisions
+    into dead letters. This class is a negative-regression suite: the
+    opener must not return, and the slice-DAG framing must remain.
+    """
+
+    @staticmethod
+    def _sequential_plan_prompt() -> str:
+        return _build_phase_prompt(
+            phase="plan",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Implement the change.",
+            issue_number=100,
+        )
+
+    @staticmethod
+    def _concurrent_planner_prompt() -> str:
+        return _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Implement the change.",
+            issue_number=100,
+            concurrent=True,
+        )
+
+    def test_sequential_plan_drops_one_pr_opener(self):
+        prompt = self._sequential_plan_prompt()
+        for needle in (
+            "CRITICAL CONSTRAINT",
+            "One Issue = One Workflow = One PR",
+            "do NOT propose multiple PRs",
+        ):
+            assert needle not in prompt, (
+                f"sequential planner still carries removed opener {needle!r} — "
+                "this contradicts slice-DAG decomposition (#2601)"
+            )
+
+    def test_concurrent_planner_drops_one_pr_opener(self):
+        prompt = self._concurrent_planner_prompt()
+        for needle in (
+            "CRITICAL CONSTRAINT",
+            "One Issue = One Workflow = One PR",
+            "do NOT propose multiple PRs",
+        ):
+            assert needle not in prompt, (
+                f"concurrent planner still carries removed opener {needle!r} — "
+                "this contradicts slice-DAG decomposition (#2601)"
+            )
+
+    def test_sequential_plan_includes_slice_dag_guidance(self):
+        prompt = self._sequential_plan_prompt()
+        for needle in (
+            "Slice-DAG guidance (#2137)",
+            "stacked PR",
+            "Forest constraint",
+            "serialized_chain_order",
+        ):
+            assert needle in prompt, (
+                f"sequential planner missing slice-DAG token {needle!r} — "
+                "the two planner paths must stay aligned (#2601)"
+            )
+
+    def test_concurrent_planner_includes_slice_dag_guidance(self):
+        prompt = self._concurrent_planner_prompt()
+        for needle in (
+            "Slice-DAG guidance (#2137)",
+            "stacked PR",
+            "Forest constraint",
+            "serialized_chain_order",
+        ):
+            assert needle in prompt, (
+                f"concurrent planner missing slice-DAG token {needle!r} — "
+                "removing the One-PR opener must not have dropped the "
+                "slice-DAG block (#2601)"
+            )
+
+    def test_sequential_plan_yaml_example_uses_slices_key(self):
+        """The canonical YAML example must use ``slices:`` — agents copy the
+        example verbatim, so leaving ``phases:`` in the example silently
+        teaches the legacy key while the slice-DAG section says to prefer
+        ``slices:`` (review feedback on #2607)."""
+        prompt = self._sequential_plan_prompt()
+        assert "\nslices:\n" in prompt, (
+            "sequential planner YAML example must use 'slices:' as the "
+            "canonical key (parser still accepts 'phases:' as a backward-"
+            "compat alias, but new prompts should teach 'slices:')"
+        )
+        assert "\nphases:\n" not in prompt, (
+            "sequential planner YAML example still uses 'phases:' — switch "
+            "to 'slices:' to match the slice-DAG directive in the same prompt"
+        )
+
+    def test_concurrent_planner_yaml_example_uses_slices_key(self):
+        """Concurrent planner's canonical YAML example must use ``slices:``
+        (review feedback on #2607 — parallel to the sequential path)."""
+        prompt = self._concurrent_planner_prompt()
+        assert "\nslices:\n" in prompt, (
+            "concurrent planner YAML example must use 'slices:' as the "
+            "canonical key (parser still accepts 'phases:' as a backward-"
+            "compat alias, but new prompts should teach 'slices:')"
+        )
+        assert "\nphases:\n" not in prompt, (
+            "concurrent planner YAML example still uses 'phases:' — switch "
+            "to 'slices:' to match the slice-DAG directive in the same prompt"
+        )
+
+    def test_sequential_plan_carries_worked_example_and_jaccard(self):
+        """The sequential planner's slice-DAG block must now include the
+        worked ``serialized_chain_order`` example and the Jaccard fallback
+        heuristic, mirroring the concurrent path (review feedback on
+        #2607 flagged the asymmetry as a likely copy-paste oversight)."""
+        prompt = self._sequential_plan_prompt()
+        for needle in (
+            "Worked example",
+            "Jaccard",
+            "files_affected",
+        ):
+            assert needle in prompt, (
+                f"sequential planner missing concurrent-mirror token "
+                f"{needle!r} — the worked example + Jaccard fallback must "
+                "be present in both planner paths (#2607)"
+            )
+
+
 class TestReviewerBrcPreamble:
     """Tests that reviewer agents receive BRC preamble in concurrent mode."""
 

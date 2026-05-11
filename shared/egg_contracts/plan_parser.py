@@ -262,11 +262,13 @@ def parse_yaml_code_fence(content: str) -> tuple[dict[str, Any] | None, str, lis
     The code fence must be formatted as:
     ```yaml
     # yaml-tasks
-    phases:
+    slices:
       - id: 1
-        name: Phase Name
+        name: Slice Name
         ...
     ```
+
+    The legacy ``phases:`` key is also accepted for backward compatibility.
 
     Args:
         content: The document content
@@ -414,10 +416,10 @@ def parse_phases_from_yaml(
     """
     Parse phases and tasks from structured YAML (yaml-tasks code fence format).
 
-    Expected format:
+    Expected format (post-#2137):
     ```yaml
     # yaml-tasks
-    phases:
+    slices:
       - id: 1
         name: Setup
         goal: Initialize the project
@@ -428,6 +430,9 @@ def parse_phases_from_yaml(
             files:
               - schema.json
     ```
+
+    The legacy ``phases:`` key is accepted as an alias for ``slices:``;
+    when both are present, ``slices:`` wins.
 
     Args:
         yaml_data: Parsed YAML data from code fence
@@ -446,8 +451,10 @@ def parse_phases_from_yaml(
     slices_list = yaml_data.get("slices", [])
     legacy_phases_list = yaml_data.get("phases", [])
 
-    # Reject multi-PR format: pr_plan key indicates the LLM proposed
-    # multiple PRs, which violates the one-issue-one-PR constraint.
+    # Reject ad-hoc multi-PR `pr_plan` format. Slice packaging is owned by
+    # the `slices:` DAG (one slice = one stacked PR, post-#2137); `pr_plan`
+    # is not a supported decomposition format regardless of whether the
+    # plan ships as one or many PRs.
     if "pr_plan" in yaml_data:
         if not slices_list and not legacy_phases_list:
             # pr_plan without slices/phases means the LLM put the task
@@ -456,18 +463,21 @@ def parse_phases_from_yaml(
                 ParseWarning(
                     line_number=None,
                     message="'pr_plan' key found without 'slices' or 'phases' — "
-                    "the plan uses the unsupported multi-PR format. Each issue must "
-                    "produce exactly one PR using the 'slices' (canonical) or "
-                    "'phases' (legacy) key.",
-                    context="The 'pr_plan' multi-PR format is not supported",
+                    "'pr_plan' is not a supported decomposition format. Use the "
+                    "'slices' (canonical, post-#2137) or 'phases' (legacy) key "
+                    "to express the slice DAG; the implement-phase pipeline "
+                    "ships each slice as its own stacked PR.",
+                    context="The 'pr_plan' format is not supported; use 'slices'",
                 )
             ]
         warnings.append(
             ParseWarning(
                 line_number=None,
-                message="'pr_plan' key is not supported — use 'pr' (singular) instead. "
-                "Each issue must produce exactly one PR.",
-                context="The 'pr_plan' multi-PR format will be ignored",
+                message="'pr_plan' key is not supported — use the 'slices' key "
+                "to express the slice DAG, and the singular 'pr' key for the "
+                "per-PR metadata block (title, description, test_plan, "
+                "manual_steps).",
+                context="The 'pr_plan' format will be ignored; use 'slices' + 'pr'",
             )
         )
 
@@ -829,9 +839,11 @@ def extract_pr_metadata_from_yaml(
       manual_steps: |
         Pre-merge: any steps before merging
         Post-merge: any steps after merging
-    phases:
+    slices:
       ...
     ```
+
+    The legacy ``phases:`` key is accepted as an alias for ``slices:``.
 
     Args:
         yaml_data: Parsed YAML data from code fence or frontmatter
