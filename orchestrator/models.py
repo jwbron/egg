@@ -316,6 +316,169 @@ class HITLDecision(BaseModel):
         return v
 
 
+class EpicApplyEdit(BaseModel):
+    """A single mutation applied (or pending) against a Jira epic / child.
+
+    Produced by the ``apply_epic`` agent (TASK-1-10 + TASK-1-13) and
+    persisted on ``Pipeline.phases["plan"].artifacts["epic_apply"]``.
+    Idempotent re-runs skip entries with ``status == "applied"``;
+    ``summary_hash`` is sha256 over the call's logical payload so re-runs
+    detect "same edit, different timestamp" cleanly (#1557 R10 mitigation).
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    kind: Literal["create", "edit", "link", "comment"] = Field(
+        ..., description="Verb dispatched against the gateway."
+    )
+    target: str = Field(
+        ...,
+        description=(
+            "Jira key or planner-node id targeted by this edit. For "
+            "``create``, the value is the planner-node id until the "
+            "create succeeds and the resulting Jira key is captured on "
+            "``EpicApplyArtifact.plan_node_to_jira_key``."
+        ),
+    )
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Frozen request body / args passed to the gateway.",
+    )
+    summary_hash: str = Field(
+        default="",
+        description="sha256 of the logical payload for idempotent re-runs.",
+    )
+    applied_at: datetime | None = Field(
+        default=None,
+        description="When the edit was successfully applied (None until then).",
+    )
+    status: Literal["pending", "applied", "failed", "skipped"] = Field(
+        default="pending", description="Apply status."
+    )
+    error: str | None = Field(default=None, description="Upstream error on failure.")
+
+
+class EpicApplyWontDoEntry(BaseModel):
+    """A child ticket the planner marked for ``Won't Do`` transition.
+
+    Transitions stay off the agent-facing gateway (the gateway permanently
+    blocks ``transitions`` — see ``gateway/jira_client.py``); they run from
+    the orchestrator via :mod:`orchestrator.jira_transitions` after the
+    apply_epic agent finishes the create/edit/link batch (TASK-1-14).
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    child_key: str = Field(..., description="Jira child key (e.g. 'ENG-4567').")
+    wont_do_reason: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Why this child is obsolete after reassess. Surfaced to the "
+            "operator at decision-3 batch approval so 'transition is "
+            "permanent' is reviewed per-row (#1557 R6 mitigation)."
+        ),
+    )
+    status: Literal["pending", "applied", "failed", "already_in_state"] = Field(
+        default="pending", description="Transition status."
+    )
+    error: str | None = Field(default=None, description="Upstream error on failure.")
+
+
+class EpicApplyInFlightGate(BaseModel):
+    """An in-flight HITL gate raised by the apply step (TASK-1-13 + TASK-1-17).
+
+    Records every firing signal source (decision-8 OR semantics, #1557 R2
+    mitigation) so the operator sees the full evidence — not just the
+    first signal that fired.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    child_key: str = Field(..., description="Jira child key the gate guards.")
+    proposed_mutation: str = Field(
+        ..., min_length=1, description="Operator-readable description of the proposed action."
+    )
+    signal_source: list[Literal["jira_status", "orchestrator_pr_url", "remote_link"]] = Field(
+        default_factory=list,
+        description=(
+            "Every signal source that fired the in-flight classification. "
+            "Multiple sources are common — e.g. Jira 'In Progress' AND a "
+            "GitHub PR linked via remote_link both light up at once."
+        ),
+    )
+    signal_detail: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per-source detail (e.g. {'remote_link': 'https://github.com/foo/bar/pull/42'}).",
+    )
+    linked_pr_url: str | None = Field(
+        default=None,
+        description="GitHub PR URL discovered via remote_link or orchestrator state.",
+    )
+    decision_id: str | None = Field(
+        default=None,
+        description="The HITL decision id created for this gate (links back to Pipeline.decisions).",
+    )
+
+
+class EpicApplyArtifact(BaseModel):
+    """Persistent record of an epic-keyed pipeline's apply state.
+
+    Serialised to JSON and stored on
+    ``Pipeline.phases["plan"].artifacts["epic_apply"]`` (mirrors the
+    existing ``phases["pr"].artifacts["pr_url"]`` precedent).  Updated by
+    the ``apply_epic`` agent after every mutation so a partial-batch
+    failure can be resumed idempotently (#1557 TASK-1-7).
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    version: int = Field(
+        default=1,
+        ge=1,
+        description="Schema version. Forward-compat for #1557 R10 follow-ups.",
+    )
+    idempotency_seed: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Per-pipeline UUID stamped at refine-apply time. Passed as "
+            "Atlassian's ``X-Atlassian-Idempotency-Key`` on every "
+            "``createJiraIssue`` so a retry after a successful "
+            "create-but-failed-record does NOT create a duplicate ticket."
+        ),
+    )
+    refine_description_sha256: str | None = Field(
+        default=None,
+        description=(
+            "sha256 of the epic's Description as observed by the refine "
+            "input gatherer (TASK-1-9). The refine-apply step (TASK-1-10) "
+            "re-fetches and compares to detect concurrent-edit divergence "
+            "(architect ad-5)."
+        ),
+    )
+    plan_node_to_jira_key: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Mapping from planner-node id to the resulting Jira key after "
+            "the apply step ran ``createJiraIssue``. Re-runs use this to "
+            "skip nodes that already have keys (#1557 decision-10)."
+        ),
+    )
+    applied_edits: list[EpicApplyEdit] = Field(
+        default_factory=list,
+        description="Per-mutation status (idempotent re-runs skip applied entries).",
+    )
+    wont_do_batch: list[EpicApplyWontDoEntry] = Field(
+        default_factory=list,
+        description="Children scheduled for orchestrator-direct Won't-Do transition.",
+    )
+    in_flight_gates: list[EpicApplyInFlightGate] = Field(
+        default_factory=list,
+        description="Per-ticket HITL gates raised by the apply step for in-flight targets.",
+    )
+
+
 class CycleTiming(BaseModel):
     """Timing for a single review cycle within a phase."""
 
@@ -1002,6 +1165,105 @@ class Pipeline(BaseModel):
         if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", trimmed):
             raise ValueError("jira_ticket must match '<PROJECT>-<number>' (e.g. 'ENG-1234')")
         return trimmed
+
+    jira_epic_key: str | None = Field(
+        default=None,
+        description=(
+            "Atlassian Jira *epic* key (e.g. 'ENG-1234') the pipeline is "
+            "running against. Mutually-supplementary with ``jira_ticket``: "
+            "when the submit_task probe (#1557 TASK-1-2) detects an Epic "
+            "issuetype, the key is stored here and ``jira_ticket`` is "
+            "left None so existing single-ticket consumers branch correctly."
+        ),
+    )
+
+    @field_validator("jira_epic_key")
+    @classmethod
+    def _validate_jira_epic_key(cls, v: str | None) -> str | None:
+        """Permit either None or a standard Atlassian ticket key."""
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("jira_epic_key must be a string")
+        trimmed = v.strip()
+        if trimmed == "":
+            return None
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", trimmed):
+            raise ValueError(
+                "jira_epic_key must match '<PROJECT>-<number>' (e.g. 'ENG-1234')"
+            )
+        return trimmed
+
+    jira_effective_mode: Literal["fresh", "reassess"] | None = Field(
+        default=None,
+        description=(
+            "Resolved epic-detection mode after the submit_task probe "
+            "(#1557 TASK-1-3). 'fresh' = no existing children, 'reassess' "
+            "= children present. Downstream phases read this instead of "
+            "re-running the detection probe."
+        ),
+    )
+
+    jira_parent_epic_key: str | None = Field(
+        default=None,
+        description=(
+            "Parent epic key for fanned-out child pipelines (#1557 TASK-1-15). "
+            "Populated by the plan-gate Continue-to-implement fork "
+            "(TASK-1-16) so the child's PR phase can route the PR-link "
+            "writeback comment without an extra Jira round-trip."
+        ),
+    )
+
+    @field_validator("jira_parent_epic_key")
+    @classmethod
+    def _validate_jira_parent_epic_key(cls, v: str | None) -> str | None:
+        """Permit either None or a standard Atlassian ticket key."""
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("jira_parent_epic_key must be a string")
+        trimmed = v.strip()
+        if trimmed == "":
+            return None
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", trimmed):
+            raise ValueError(
+                "jira_parent_epic_key must match '<PROJECT>-<number>' (e.g. 'ENG-1234')"
+            )
+        return trimmed
+
+    def get_epic_apply(self) -> EpicApplyArtifact | None:
+        """Return the parsed ``epic_apply`` artifact, or None when unset.
+
+        Convenience accessor (#1557 TASK-1-7). The artifact lives JSON-
+        encoded at ``self.phases["plan"].artifacts["epic_apply"]``; callers
+        SHOULD use this getter rather than reaching into the raw dict so
+        future schema migrations are localised here.
+        """
+        plan_phase = self.phases.get(PipelinePhase.PLAN.value)
+        if plan_phase is None:
+            return None
+        raw = plan_phase.artifacts.get("epic_apply")
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        try:
+            return EpicApplyArtifact.model_validate(data)
+        except Exception:  # pragma: no cover — defensive against future migrations
+            return None
+
+    def set_epic_apply(self, artifact: EpicApplyArtifact) -> None:
+        """Persist the ``epic_apply`` artifact under ``phases["plan"]``.
+
+        The serialised form goes into ``artifacts["epic_apply"]`` so the
+        existing ``PhaseExecution.artifacts: dict[str, str]`` schema is
+        unchanged.
+        """
+        plan_phase = self.get_phase_execution(PipelinePhase.PLAN)
+        plan_phase.artifacts["epic_apply"] = artifact.model_dump_json()
+        self.updated_at = datetime.now(UTC)
 
     def get_phase_execution(self, phase: PipelinePhase) -> PhaseExecution:
         """Get or create phase execution state."""
