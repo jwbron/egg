@@ -188,6 +188,8 @@ class TestSessionSecurity:
             "ip mismatch",
             "ip_mismatch",
             "ip address mismatch",
+            "ip address rejected",
+            "ip binding",
             "container ip",
             "container_ip",
         )
