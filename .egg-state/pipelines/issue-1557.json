@@ -388,10 +388,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "**Apply-step execution location**: regardless of how the work is sliced (decision-1), the plan-phase needs to know where the apply step's gateway calls (`editJiraIssue`, `createJiraIssue`, `createIssueLink`, `addCommentToJiraIssue`) actually originate. This is a trust-boundary choice orthogonal to slicing. The Won't-Do transition is unambiguously orchestrator-only (no gateway path); the rest can go either way.",
+      "context": "Open contract question decision-11, registered by an agent during the refine phase.",
+      "options": [
+        "In-sandbox-agent for all gateway-mediated writes (a dedicated `apply-epic` agent runs after refine/plan approval and calls the gateway). Won't-Do transitions still orchestrator-only. Preserves gateway audit identity = session token; one extra agent invocation per phase.",
+        "Orchestrator-side for all writes (orchestrator opens its own gateway session token and issues the create/edit/link calls directly). Avoids the extra agent; introduces a new orchestrator-side gateway client + audit-identity story for non-transition writes.",
+        "Hybrid: gateway-mediated writes from a dedicated `apply-epic` agent for everything except `transitions`; orchestrator-only for `transitions` (the gateway-blocked verb). Maximises symmetry with today's 'agents write through the gateway' pattern.",
+        "All-orchestrator with no agent in the data path (writes go directly to Jira from the orchestrator using its credential surface, bypassing the gateway for create/edit/link as well). Worst symmetry, biggest cred surface; only worth considering if the gateway's create/edit/link become a bottleneck.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.380665Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.344901Z",
+  "updated_at": "2026-05-11T22:24:52.392654Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -405,6 +425,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
