@@ -520,16 +520,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T06:29:13.322268Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T06:30:38.249178Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"Plan looks solid. Verified the planner's claims:\\n\\n1. `.github-staging/` is a real egg convention (issue #2508) — gateway/tests/test_agent_restrictions_patterns.py:259 confirms coder can write under `.github-staging/`; shared/egg_restrictions/patterns.py:152 documents the rationale. Not a hallucination.\\n\\n2. 3-slice DAG matches operator instructions exactly: slice-1=E (root), slice-2=A (root), slice-3=F (depends on slice-1).\\n\\n3. All HITL answers from the refine phase context flowed through correctly: E.6 = 3-slice restart-in-PROPOSE with unchanged-ref assertion; E.7 = minute-granular (consensus_timeout_minutes_plan = 1, assert within 60±10s); E.8 = gateway audit log; E.3 = coder pushes docs/ file for real 403; F = generic note, no named test files; flake guards as specified.\\n\\n4. Reversion-fails check on each new regression test means a future regression of the underlying fix will be caught. Scope-expansion captured: 'if a new test surfaces a real regression against main, the production-code fix lands in this slice's PR'.\\n\\n5. Manual steps surfaced clearly: pre-merge slice-2 workflow_dispatch verification + human git mv from .github-staging/ to .github/; post-merge slice-2 admin flips `Test / aggregate` to required.\\n\\nProceed to implement phase.\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T06:29:13.463224Z",
+  "updated_at": "2026-05-11T06:30:38.266265Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -543,6 +543,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-11T06:16:18.678768Z",
-  "version": 37,
+  "version": 38,
   "jira_ticket": null
 }
