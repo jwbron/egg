@@ -237,7 +237,7 @@ def _k8s_egg_stack() -> Generator[EggStack]:
     import base64
 
     if secret_result.returncode == 0 and secret_result.stdout:
-        launcher_secret = base64.b64decode(secret_result.stdout).decode()
+        launcher_secret = base64.b64decode(secret_result.stdout).decode().strip()
     else:
         launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
 

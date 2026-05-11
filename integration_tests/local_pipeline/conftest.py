@@ -149,7 +149,7 @@ def _k8s_local_pipeline_stack() -> Generator[LocalPipelineStack]:
     if secret_result.returncode == 0 and secret_result.stdout:
         import base64
 
-        launcher_secret = base64.b64decode(secret_result.stdout).decode()
+        launcher_secret = base64.b64decode(secret_result.stdout).decode().strip()
     else:
         launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
 
@@ -176,7 +176,7 @@ def _k8s_local_pipeline_stack() -> Generator[LocalPipelineStack]:
     if lifecycle_result.returncode == 0 and lifecycle_result.stdout:
         import base64
 
-        lifecycle_secret = base64.b64decode(lifecycle_result.stdout).decode()
+        lifecycle_secret = base64.b64decode(lifecycle_result.stdout).decode().strip()
     else:
         lifecycle_secret = os.environ.get("EGG_LIFECYCLE_SECRET", secrets.token_urlsafe(32))
     config_dir = tempfile.mkdtemp(prefix="egg-lp-test-config-")
