@@ -81,7 +81,13 @@ def _call(
     headers: dict[str, str] | None,
 ) -> requests.Response:
     url = f"{orchestrator_url}{path}"
-    kwargs: dict = {"timeout": 15, "headers": headers or {}}
+    # Tag every request with the opt-out sentinel — these tests
+    # deliberately exercise the unauthenticated / bogus-bearer paths
+    # and the `_auto_inject_lifecycle_auth` conftest fixture would
+    # otherwise overwrite the test's auth shape with a valid bearer.
+    merged_headers = dict(headers or {})
+    merged_headers.setdefault("X-Egg-Test-Skip-Auto-Auth", "true")
+    kwargs: dict = {"timeout": 15, "headers": merged_headers}
     if json_body is not None:
         kwargs["json"] = json_body
     return requests.request(method, url, **kwargs)
@@ -220,7 +226,13 @@ class TestDeploymentRouteCoverage:
         # Try a best-effort route discovery endpoint; if it doesn't exist,
         # we accept the coverage gap and only rely on the parametrized
         # regression tests above.
-        resp = requests.get(f"{orchestrator_url}/api/v1/_routes", timeout=10)
+        # Discovery call — go through the same opt-out path as `_call`
+        # above (this test class is explicitly auth-agnostic).
+        resp = requests.get(
+            f"{orchestrator_url}/api/v1/_routes",
+            timeout=10,
+            headers={"X-Egg-Test-Skip-Auto-Auth": "true"},
+        )
         if resp.status_code in (404, 405):
             pytest.xfail("Orchestrator does not expose /_routes; discovery skipped")
 

@@ -85,6 +85,7 @@ class LocalPipelineStack:
     gateway_url: str
     orchestrator_url: str
     launcher_secret: str
+    lifecycle_secret: str
     compose_project: str
     config_dir: str
     repos_dir: str
@@ -151,6 +152,33 @@ def _k8s_local_pipeline_stack() -> Generator[LocalPipelineStack]:
         launcher_secret = base64.b64decode(secret_result.stdout).decode()
     else:
         launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
+
+    # Same lookup for `lifecycle-secret` — orchestrator's lifecycle-gated
+    # routes (#1769) require `Authorization: Bearer <lifecycle-secret>`
+    # and the value must match what the orchestrator pod was started
+    # with, hence reading from the same Secret.
+    lifecycle_result = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            "egg-system",
+            "get",
+            "secret",
+            "gateway-secrets",
+            "-o",
+            "jsonpath={.data.lifecycle-secret}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if lifecycle_result.returncode == 0 and lifecycle_result.stdout:
+        import base64
+
+        lifecycle_secret = base64.b64decode(lifecycle_result.stdout).decode()
+    else:
+        lifecycle_secret = os.environ.get("EGG_LIFECYCLE_SECRET", secrets.token_urlsafe(32))
     config_dir = tempfile.mkdtemp(prefix="egg-lp-test-config-")
     repos_dir = tempfile.mkdtemp(prefix="egg-lp-test-repos-")
     _write_test_config(config_dir, launcher_secret)
@@ -242,6 +270,7 @@ def _k8s_local_pipeline_stack() -> Generator[LocalPipelineStack]:
         gateway_url=gateway_url,
         orchestrator_url=orchestrator_url,
         launcher_secret=launcher_secret,
+        lifecycle_secret=lifecycle_secret,
         compose_project=f"k8s-{test_namespace}",
         config_dir=config_dir,
         repos_dir=repos_dir,
@@ -293,3 +322,87 @@ def gateway_url(local_pipeline_stack: LocalPipelineStack) -> str:
 def launcher_secret(local_pipeline_stack: LocalPipelineStack) -> str:
     """Launcher secret for gateway auth."""
     return local_pipeline_stack.launcher_secret
+
+
+@pytest.fixture(scope="session")
+def lifecycle_secret(local_pipeline_stack: LocalPipelineStack) -> str:
+    """Lifecycle secret for orchestrator auth."""
+    return local_pipeline_stack.lifecycle_secret
+
+
+# Sentinel header that tests can set to opt out of automatic
+# `Authorization: Bearer <lifecycle-secret>` injection on orchestrator
+# requests. The fixture strips it before the request goes out — it
+# never reaches the server, so the orchestrator sees a request with no
+# Authorization header and rejects it as designed (#1769).
+#
+# Used by `test_k8s_deployment_tools.py`, which deliberately exercises
+# the unauthenticated path to verify that every lifecycle-gated route
+# returns 401/503. Everything else gets auto-auth.
+_NO_AUTO_AUTH_HEADER = "X-Egg-Test-Skip-Auto-Auth"
+
+
+@pytest.fixture(autouse=True)
+def _auto_inject_lifecycle_auth(request, monkeypatch):
+    """Auto-attach `Authorization: Bearer <lifecycle-secret>` to every
+    `requests.*` call whose URL targets the orchestrator.
+
+    Why an autouse fixture instead of explicit `Authorization` kwargs
+    in every test: ~100 call sites across ten test files predate the
+    #1769 lifecycle-auth requirement on `routes.pipelines` /
+    `routes.deployment`. They were all written against an unauthenticated
+    orchestrator. Threading the bearer through every caller would touch
+    every test; this fixture localizes the dependency to the conftest.
+
+    Opt-out: set the `X-Egg-Test-Skip-Auto-Auth` request header.
+    """
+    # Skip injection entirely when local_pipeline_stack isn't requested
+    # — collection-time / docker-only tests have no orchestrator URL.
+    if "local_pipeline_stack" not in request.fixturenames:
+        # `lifecycle_secret` depends on `local_pipeline_stack`, so its
+        # presence implies the stack too. Either signal is enough.
+        if "lifecycle_secret" not in request.fixturenames:
+            yield
+            return
+
+    try:
+        import requests
+        from requests.sessions import Session
+    except ImportError:
+        yield
+        return
+
+    stack = request.getfixturevalue("local_pipeline_stack")
+    orch_url: str = stack.orchestrator_url
+    secret: str = stack.lifecycle_secret
+
+    def _inject(headers, url) -> dict:
+        """Return a copy of `headers` with Authorization added when
+        targeting the orchestrator and no Authorization is set."""
+        normalized = dict(headers) if headers else {}
+        # Opt-out: strip the sentinel and return unchanged.
+        if any(k.lower() == _NO_AUTO_AUTH_HEADER.lower() for k in normalized):
+            return {
+                k: v for k, v in normalized.items() if k.lower() != _NO_AUTO_AUTH_HEADER.lower()
+            }
+        if not isinstance(url, str) or not url.startswith(orch_url):
+            return normalized
+        if any(k.lower() == "authorization" for k in normalized):
+            return normalized
+        normalized["Authorization"] = f"Bearer {secret}"
+        return normalized
+
+    original_api_request = requests.api.request
+    original_session_request = Session.request
+
+    def wrapped_api_request(method, url, **kwargs):
+        kwargs["headers"] = _inject(kwargs.get("headers"), url)
+        return original_api_request(method, url, **kwargs)
+
+    def wrapped_session_request(self, method, url, **kwargs):
+        kwargs["headers"] = _inject(kwargs.get("headers"), url)
+        return original_session_request(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.api, "request", wrapped_api_request)
+    monkeypatch.setattr(Session, "request", wrapped_session_request)
+    yield

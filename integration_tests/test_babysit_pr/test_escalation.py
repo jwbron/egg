@@ -173,27 +173,20 @@ class TestFinalPushHeadMoveGuard:
         assert actual is None
         mock_run.assert_not_called()
 
-    @pytest.mark.xfail(
-        reason=(
-            "Pre-existing test/code divergence from #1756: the test asserts "
-            "fail-open behavior (transient git failure → ok=True, let the "
-            "subsequent push surface a non-fast-forward error), but the "
-            "production `_verify_pr_head_unchanged` was implemented "
-            "fail-closed (`return False, None` after exhausting retries) "
-            "to escalate via HITL rather than risk overwriting concurrent "
-            "work. The contract has to be settled — and the test rewritten "
-            "to match — before this can flip back to a hard pass. Marked "
-            "xfail rather than removed so the divergence stays visible."
-        ),
-        strict=False,
-    )
     @patch("routes.pipelines.subprocess.run")
-    def test_rev_parse_failure_does_not_block(self, mock_run):
-        """A transient git failure returns (True, None) rather than blocking the push.
+    def test_rev_parse_failure_is_fail_closed(self, mock_run):
+        """A persistent rev-parse failure escalates via HITL (fail-closed).
 
-        We cannot tell whether the head moved, so we do not falsely
-        escalate; the push proceeds and git itself will reject a
-        non-fast-forward attempt.
+        Per the helper's docstring: "if both attempts fail the function
+        returns (False, None) so that callers treat the result as
+        'unsafe' and escalate via HITL rather than silently allowing a
+        push that might overwrite concurrent work."
+
+        The mock provides 2 side-effects (fetch ok, rev-parse fail).
+        Attempt 1's rev-parse fails → retry. Attempt 2's fetch reuses
+        the iterator and StopIteration surfaces as an exception caught
+        by the function's defensive ``except Exception`` block, which
+        — since ``attempt == max_attempts`` — returns ``(False, None)``.
         """
         from routes.pipelines import _verify_pr_head_unchanged
 
@@ -205,5 +198,5 @@ class TestFinalPushHeadMoveGuard:
         ]
 
         ok, actual = _verify_pr_head_unchanged(pipeline, Path("/tmp/repo"))
-        assert ok is True
+        assert ok is False
         assert actual is None
