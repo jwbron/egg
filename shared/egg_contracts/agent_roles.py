@@ -86,6 +86,11 @@ class AgentRole(StrEnum):
     # Interface roles (external system interaction)
     OVERSEER = "overseer"
     INSPECTOR = "inspector"
+    # Jira-epic apply role (#1557 TASK-1-10). Runs in the sandbox like
+    # any other agent and dispatches gateway-mediated writes to materialise
+    # an epic-keyed pipeline's refine / plan outputs onto Jira (epic
+    # Description rewrite + child create/edit/link batch).
+    APPLY_EPIC = "apply_epic"
 
 
 class AgentStatus(StrEnum):
@@ -890,6 +895,58 @@ CONFLICT_RESOLVER_ROLE = AgentRoleDefinition(
 )
 
 
+# ---------------------------------------------------------------------------
+# Apply-Epic role definition (#1557 TASK-1-10)
+# ---------------------------------------------------------------------------
+APPLY_EPIC_ROLE = AgentRoleDefinition(
+    role=AgentRole.APPLY_EPIC,
+    description=(
+        "Materialises a Jira-epic-keyed pipeline's refine / plan output "
+        "onto Atlassian. Runs after the refine HITL approval (rewrites "
+        "the epic Description) and after the plan HITL approval (creates "
+        "child tickets, links them under the epic, and persists the "
+        "plan-node → Jira-key mapping)."
+    ),
+    category=AgentCategory.EXECUTION,
+    responsibilities=[
+        "Read the approved refine / plan draft",
+        "Call the gateway's Jira routes to create / edit / link children",
+        "Update the persisted `epic_apply` artifact after each call",
+        "Open a HITL gate (via mcp__sdlc__register_open_question) for "
+        "in-flight mutations and concurrent-edit divergence",
+    ],
+    dependencies=[],  # Always runs after a HITL approval — no peer-role deps.
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            # The agent only writes through MCP tools (epic_apply artifact)
+            # and through the gateway (Jira). It never touches source files,
+            # but it does need to write the structured-output JSON the
+            # orchestrator picks up post-run.
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "src/",
+            "lib/",
+            "shared/",
+            "gateway/",
+            "sandbox/",
+            "orchestrator/",
+            "docs/",
+            "tests/",
+            "test/",
+            ".egg-state/contracts/",
+            ".egg-state/drafts/",
+            ".egg-state/pipelines/",
+            ".egg-state/reviews/",
+            ".github/",
+        ],
+    ),
+    produces_outputs=["epic_apply_artifact"],
+    requires_inputs=["approved_refine_or_plan_draft"],
+)
+
+
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Execution roles
@@ -916,6 +973,8 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Interface roles
     AgentRole.OVERSEER: OVERSEER_ROLE,
     AgentRole.INSPECTOR: INSPECTOR_ROLE,
+    # Jira-epic apply role (#1557 TASK-1-10)
+    AgentRole.APPLY_EPIC: APPLY_EPIC_ROLE,
 }
 
 
@@ -955,6 +1014,9 @@ AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
     # Interface: observers, not contract authors
     AgentRole.OVERSEER: Role.SYSTEM,
     AgentRole.INSPECTOR: Role.SYSTEM,
+    # Jira-epic apply (#1557 TASK-1-10): runs in implementer mode so it
+    # can append edit/commit entries to its own ``epic_apply`` artifact.
+    AgentRole.APPLY_EPIC: Role.IMPLEMENTER,
 }
 
 
