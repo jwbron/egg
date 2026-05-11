@@ -70,6 +70,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
     },
+    "2148e5486f1e22b99aaf87f739909eed7d2f4018": {
+      "branch": "egg/issue-2474/slice-2",
+      "pipeline_id": "issue-2474",
+      "registered_at": "2026-05-11T06:43:32.607902+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "29f32adef7dc7df299583080c2653d3021ccc84b": {
       "branch": "egg/issue-2474/work",
       "pipeline_id": "issue-2474",
@@ -235,6 +242,13 @@
       "branch": "egg/issue-2474/slice-1",
       "pipeline_id": "issue-2474",
       "registered_at": "2026-05-06T22:42:38.240962+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
+    "79589b2b8b1d959043a17367202f2c0026e7db37": {
+      "branch": "egg/issue-2474/slice-1",
+      "pipeline_id": "issue-2474",
+      "registered_at": "2026-05-11T06:43:32.497811+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
