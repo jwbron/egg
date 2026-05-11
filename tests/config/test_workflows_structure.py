@@ -105,6 +105,91 @@ def test_integration_yml(test_integration_yml_text: str) -> dict:
     return yaml.safe_load(test_integration_yml_text)
 
 
+@pytest.mark.parametrize(
+    "workflow_filename",
+    [
+        pytest.param("test.yml", id="test.yml"),
+        pytest.param("test-integration.yml", id="test-integration.yml"),
+        pytest.param("lint.yml", id="lint.yml"),
+    ],
+)
+def test_aggregate_failure_branch_exits_nonzero(workflow_filename: str) -> None:
+    """Every aggregate-style gate's failure branch must ``exit 1``.
+
+    Every aggregate in the repo has the same shape: an ``if [[ … !=
+    success ]]; then …; else …; fi`` with ``passed=false`` /
+    ``passed=true`` written into ``$GITHUB_OUTPUT``. Under the default
+    GitHub Actions ``bash -eo pipefail`` shell, a failure branch that
+    only echoes diagnostics and falls through returns 0 — so the step
+    reports success, the aggregate job reports success, and a PR with
+    a red tier merges through the required check. The fix is a
+    trailing ``exit 1`` (or ``false`` — same exit code).
+
+    Covers all three aggregate gates simultaneously so the regression
+    cannot be reintroduced in any one of them without the suite
+    going red:
+
+    * ``test.yml::aggregate`` — the canonical ``Test / aggregate``
+      required-for-merge gate (slice-2 of #2474).
+    * ``test-integration.yml::aggregate`` — the reusable workflow's
+      internal aggregate (defense in depth for the
+      ``workflow_dispatch`` path, since ``uses:`` propagation usually
+      already fails the parent).
+    * ``lint.yml::aggregate`` — the ``Lint / aggregate`` gate, which
+      historically had the same fall-through bug.
+
+    Implementation note — the ``exit 1`` match is anchored to a
+    standalone-statement line via
+    ``re.search(r"^\\s*(exit\\s+1|false)\\s*$", …, re.MULTILINE)``,
+    NOT a plain substring check. The earlier substring version was
+    silently satisfied by the literal text ``exit 1`` inside the
+    warning comment immediately above the real ``exit 1`` statement
+    — so removing only the statement (a realistic regression mode
+    when a future developer "cleans up obsolete commentary") was not
+    caught. The anchored match requires the literal statement to be
+    the entire content of a line.
+    """
+    path = _resolve_workflow(workflow_filename)
+    if path is None:
+        pytest.skip(
+            f"neither .github-staging/workflows/{workflow_filename} nor "
+            f".github/workflows/{workflow_filename} found — repo is in "
+            "an unexpected state"
+        )
+    data = _load_yaml(path)
+    aggregate = data.get("jobs", {}).get("aggregate")
+    assert aggregate is not None, f"{workflow_filename}: missing `aggregate` job"
+    steps = aggregate.get("steps", [])
+    script_text = "\n".join(step.get("run", "") for step in steps if isinstance(step, dict))
+    # Locate the failure branch by anchoring on the ``passed=false``
+    # write into ``$GITHUB_OUTPUT`` (stable across all three
+    # aggregates) and consuming through to the ``else`` keyword.
+    failure_branch_match = re.search(
+        r"passed=false.*?(?=\belse\b)",
+        script_text,
+        re.DOTALL,
+    )
+    assert failure_branch_match is not None, (
+        f"{workflow_filename}: could not locate the aggregate's failure "
+        "branch — expected a `passed=false` write into $GITHUB_OUTPUT "
+        "followed by an `else` keyword"
+    )
+    failure_branch = failure_branch_match.group(0)
+    # Match ``exit 1`` (or ``false`` — same exit code, both fail the
+    # step under ``set -e``) as a STANDALONE statement on a line by
+    # itself. ``re.MULTILINE`` makes ``^`` / ``$`` line-anchored, so
+    # an ``exit 1`` inside a comment like ``# Without `exit 1`, …``
+    # does NOT satisfy this assertion.
+    assert re.search(r"^\s*(exit\s+1|false)\s*$", failure_branch, re.MULTILINE), (
+        f"{workflow_filename}: aggregate's failure branch does not "
+        "terminate with `exit 1` (or `false`) as a standalone "
+        "statement — the script falls through with a zero exit code "
+        "under `bash -eo pipefail` and the aggregate job reports "
+        "success even when a tier was red, defeating any "
+        "branch-protection rule that requires the aggregate check"
+    )
+
+
 class TestTestYmlStructure:
     """Invariants over ``test.yml`` (staged or final).
 
@@ -157,32 +242,18 @@ class TestTestYmlStructure:
             "['unit', 'security', 'integration'] (any order)"
         )
 
-    def test_aggregate_fails_on_red_tier(self, test_yml: dict) -> None:
-        """aggregate's check_all_passed script must FAIL the job on a red tier.
+    def test_aggregate_check_inspects_integration_result(self, test_yml: dict) -> None:
+        """aggregate's check_all_passed script must reference needs.integration.result.
 
-        Verifies two things, since one without the other is a
-        non-functional gate:
-
-        1. The script inspects ``needs.integration.result`` (so a red
-           integration tier reaches the failure branch at all).
-        2. The failure branch terminates with ``exit 1`` (so the step
-           — and therefore the aggregate job, and therefore the
-           canonical ``Test / aggregate`` required-for-merge check —
-           actually reports failure to GitHub).
-
-        Without the ``exit 1``, the failure branch falls through with
-        a zero exit code under the default GitHub Actions
-        ``bash -eo pipefail`` shell, the step reports success, the
-        aggregate job reports success, and a PR with a red tier
-        merges through the required check. Slice-2 of #2474 makes
-        ``Test / aggregate`` the canonical required-for-merge gate;
-        if the gate doesn't gate, that's the whole point of the
-        slice gone.
-
-        Additionally constrains the ``exit 1`` to appear AFTER the
-        failure-branch markers but BEFORE the ``else`` keyword — a
-        future regression that moved ``exit 1`` into the success
-        branch (or removed it entirely) is caught.
+        The if-all-passed check inspects every needed job's ``result``
+        so a red tier fails the aggregate. Slice-2 added the
+        integration tier; if a future change drops the
+        ``needs.integration.result`` reference, a red integration tier
+        would silently no-op the aggregate. (The companion check that
+        the failure branch actually ``exit 1``s lives in the
+        module-level parametrized
+        ``test_aggregate_failure_branch_exits_nonzero`` so it covers
+        ``test-integration.yml`` and ``lint.yml`` too.)
         """
         aggregate = test_yml["jobs"]["aggregate"]
         steps = aggregate.get("steps", [])
@@ -191,27 +262,6 @@ class TestTestYmlStructure:
             "aggregate job's check_all_passed script does not inspect "
             "`needs.integration.result` — a red integration tier would "
             "not fail the aggregate (plan task-2-1 (c))"
-        )
-        # The failure branch must terminate the script with a non-zero
-        # exit. Locate it by matching from a failure-branch marker
-        # (the "Some tests failed" echo) to the ``else`` keyword and
-        # require ``exit 1`` between them.
-        failure_branch_match = re.search(
-            r"echo\s+\"Some tests failed\".*?(?=\belse\b)",
-            script_text,
-            re.DOTALL,
-        )
-        assert failure_branch_match is not None, (
-            "could not locate aggregate's failure branch — expected "
-            '`echo "Some tests failed"` followed by an `else` branch'
-        )
-        failure_branch = failure_branch_match.group(0)
-        assert "exit 1" in failure_branch, (
-            "aggregate job's failure branch does not call `exit 1` — "
-            "the script falls through with a zero exit code under "
-            "`bash -eo pipefail` and the aggregate job reports success "
-            "even when a tier was red, defeating the canonical "
-            "`Test / aggregate` required-for-merge check"
         )
 
     def test_workflow_call_output_passed_preserved(self, test_yml: dict) -> None:
