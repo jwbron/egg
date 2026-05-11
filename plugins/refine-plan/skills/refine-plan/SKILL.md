@@ -8,7 +8,7 @@ allowed-tools: Agent Read Write Edit AskUserQuestion Bash(gh issue view:*) Bash(
 
 # Refine + Plan (local mirror of egg's refine/plan phases)
 
-A faithful local analogue of [egg's refine and plan phases](../sdlc/SKILL.md), using Claude Code subagents and a filesystem-based BRC bus. No orchestrator, no Redis, no experimental flags.
+A faithful local analogue of [egg's refine and plan phases](https://github.com/jwbron/egg/blob/main/skills/sdlc/SKILL.md), using Claude Code subagents and a filesystem-based BRC bus. No orchestrator, no Redis, no experimental flags.
 
 **Mirrored from egg:**
 - Refine team: `refiner` + `reviewer_refine` (+ `reviewer_agent_design` for the egg repo only)

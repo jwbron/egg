@@ -1,0 +1,21 @@
+{
+  "name": "refine-plan",
+  "description": "Local Claude Code mirror of egg's refine + plan phases. Runs an evidence-backed multi-agent refine + plan loop using subagent fan-out and a filesystem BRC bus. Portable, no orchestrator, no experimental flags.",
+  "version": "0.1.0",
+  "author": {
+    "name": "James Wiesebron",
+    "email": "jameswiesebron@khanacademy.org"
+  },
+  "homepage": "https://github.com/jwbron/egg/tree/main/plugins/refine-plan",
+  "repository": "https://github.com/jwbron/egg",
+  "license": "MIT",
+  "keywords": [
+    "egg",
+    "sdlc",
+    "refine",
+    "plan",
+    "brc",
+    "multi-agent-review",
+    "claude-code"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "egg-tools",
+  "description": "Claude Code plugins distributed from the egg repository. Each plugin packages one of egg's local skills (refine-plan, etc.) for install via the Claude Code plugin system.",
+  "owner": {
+    "name": "James Wiesebron",
+    "email": "jameswiesebron@khanacademy.org"
+  },
+  "plugins": [
+    {
+      "name": "refine-plan",
+      "source": "./plugins/refine-plan",
+      "description": "Local mirror of egg's refine + plan phases: role-typed subagents, evidence-backed multi-agent review, filesystem BRC bus, artifacts consistent with egg's .egg-state/ layout.",
+      "category": "sdlc",
+      "tags": ["egg", "sdlc", "refine", "plan", "brc", "multi-agent-review"]
+    }
+  ]
+}
