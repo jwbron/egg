@@ -115,8 +115,17 @@ jobs:
             for ns in egg-system egg-test-agents; do
               echo "===== Namespace: ${ns} ====="
               for pod in $(kubectl get pods -n "${ns}" -o name 2>/dev/null); do
-                echo "----- ${ns}/${pod} -----"
+                echo "----- ${ns}/${pod} (current) -----"
                 kubectl logs -n "${ns}" "${pod}" --all-containers=true --tail=-1 --prefix=true 2>&1 || true
+                # CrashLoopBackOff is the exact failure mode this artifact
+                # is meant to triage, and `kubectl logs` without
+                # `--previous` returns ONLY the current container
+                # instance's logs — so the crashing instance's stderr
+                # (the part the debugger actually needs) is invisible.
+                # Add a second pass for the previous instance; `|| true`
+                # keeps the call safe for pods with no previous instance.
+                echo "----- ${ns}/${pod} (previous) -----"
+                kubectl logs -n "${ns}" "${pod}" --all-containers=true --previous --tail=-1 --prefix=true 2>&1 || true
               done
               echo
               echo "===== Pods in ${ns} ====="
@@ -159,6 +168,13 @@ jobs:
             echo "passed=false" >> "$GITHUB_OUTPUT"
             echo "Integration tests failed"
             echo "  integration: ${{ needs.integration.result }}"
+            # Without `exit 1`, the failure branch falls through with a
+            # zero exit code and this aggregate job reports success even
+            # when the integration tier was red. For the reusable-workflow
+            # `uses:` path the caller's job-failure propagation usually
+            # also fails the parent's `integration` job, but the
+            # standalone `workflow_dispatch` path has no such backstop.
+            exit 1
           else
             echo "passed=true" >> "$GITHUB_OUTPUT"
             echo "All integration tests passed"

@@ -9060,8 +9060,12 @@ def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
         if target_dir and target_dir not in mkdir_dirs:
             mkdir_dirs.append(target_dir)
         target_abs = worktree_repo_path / target_rel
-        # Target may itself be a symlink; ``Path.exists()`` follows it,
-        # but ``lexists`` (Path.is_symlink) catches the broken-link case.
+        # ``Path.exists()`` follows symlinks and returns False for a
+        # broken link, so an existing-but-broken symlink would slip
+        # through the existence check and ``git mv`` would still refuse
+        # to overwrite it. ``Path.is_symlink()`` returns True regardless
+        # of whether the target resolves, so the disjunction catches
+        # regular files, valid symlinks, and broken symlinks.
         if target_abs.is_symlink() or target_abs.exists():
             move_cmds.append(f"git rm {target_rel}  # target exists; remove before mv")
         move_cmds.append(f"git mv {rel} {target_rel}")

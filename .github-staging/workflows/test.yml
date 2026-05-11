@@ -97,6 +97,11 @@ jobs:
             echo "  unit: ${{ needs.unit.result }}"
             echo "  security: ${{ needs.security.result }}"
             echo "  integration: ${{ needs.integration.result }}"
+            # Without this `exit 1`, the failure branch falls through with
+            # a zero exit code and the aggregate job — and the canonical
+            # required-for-merge `Test / aggregate` check — would report
+            # success regardless of which tier was red.
+            exit 1
           else
             echo "passed=true" >> "$GITHUB_OUTPUT"
             echo "All tests passed"

@@ -157,14 +157,32 @@ class TestTestYmlStructure:
             "['unit', 'security', 'integration'] (any order)"
         )
 
-    def test_aggregate_check_inspects_integration_result(self, test_yml: dict) -> None:
-        """aggregate's check_all_passed script must reference needs.integration.result.
+    def test_aggregate_fails_on_red_tier(self, test_yml: dict) -> None:
+        """aggregate's check_all_passed script must FAIL the job on a red tier.
 
-        The if-all-passed check inspects every needed job's
-        ``result`` so a red tier fails the aggregate. Slice-2 added
-        the integration tier; if a future change drops the
-        ``needs.integration.result`` reference, a red integration
-        tier would silently no-op the aggregate.
+        Verifies two things, since one without the other is a
+        non-functional gate:
+
+        1. The script inspects ``needs.integration.result`` (so a red
+           integration tier reaches the failure branch at all).
+        2. The failure branch terminates with ``exit 1`` (so the step
+           — and therefore the aggregate job, and therefore the
+           canonical ``Test / aggregate`` required-for-merge check —
+           actually reports failure to GitHub).
+
+        Without the ``exit 1``, the failure branch falls through with
+        a zero exit code under the default GitHub Actions
+        ``bash -eo pipefail`` shell, the step reports success, the
+        aggregate job reports success, and a PR with a red tier
+        merges through the required check. Slice-2 of #2474 makes
+        ``Test / aggregate`` the canonical required-for-merge gate;
+        if the gate doesn't gate, that's the whole point of the
+        slice gone.
+
+        Additionally constrains the ``exit 1`` to appear AFTER the
+        failure-branch markers but BEFORE the ``else`` keyword — a
+        future regression that moved ``exit 1`` into the success
+        branch (or removed it entirely) is caught.
         """
         aggregate = test_yml["jobs"]["aggregate"]
         steps = aggregate.get("steps", [])
@@ -173,6 +191,27 @@ class TestTestYmlStructure:
             "aggregate job's check_all_passed script does not inspect "
             "`needs.integration.result` — a red integration tier would "
             "not fail the aggregate (plan task-2-1 (c))"
+        )
+        # The failure branch must terminate the script with a non-zero
+        # exit. Locate it by matching from a failure-branch marker
+        # (the "Some tests failed" echo) to the ``else`` keyword and
+        # require ``exit 1`` between them.
+        failure_branch_match = re.search(
+            r"echo\s+\"Some tests failed\".*?(?=\belse\b)",
+            script_text,
+            re.DOTALL,
+        )
+        assert failure_branch_match is not None, (
+            "could not locate aggregate's failure branch — expected "
+            '`echo "Some tests failed"` followed by an `else` branch'
+        )
+        failure_branch = failure_branch_match.group(0)
+        assert "exit 1" in failure_branch, (
+            "aggregate job's failure branch does not call `exit 1` — "
+            "the script falls through with a zero exit code under "
+            "`bash -eo pipefail` and the aggregate job reports success "
+            "even when a tier was red, defeating the canonical "
+            "`Test / aggregate` required-for-merge check"
         )
 
     def test_workflow_call_output_passed_preserved(self, test_yml: dict) -> None:
