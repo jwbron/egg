@@ -252,6 +252,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
     },
+    "a7752e0f72d228f231196ce1e722fa8ed6045c0b": {
+      "branch": "egg/issue-2474/work",
+      "pipeline_id": "issue-2474",
+      "registered_at": "2026-05-11T05:36:44.659345+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "refiner"
+    },
     "a7a0b52efb0ff9ae4982d0bbfc5fa80211900781": {
       "branch": "egg/issue-2474/slice-1",
       "pipeline_id": "issue-2474",
