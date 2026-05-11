@@ -114,7 +114,14 @@ jobs:
         # `make deploy` handles secret creation, image-tag rewrite, host-
         # path envsubst, and waits on both `gateway` and `orchestrator`
         # deployments. Matches the local-dev invocation exactly.
-        run: make deploy
+        #
+        # `make k3s-secrets` (a prerequisite of `make deploy`) creates the
+        # Secret in the `egg-system` namespace, but the namespace itself
+        # is only created later by `kubectl apply -k k8s/...`. Pre-create
+        # it here so the secret-create step succeeds.
+        run: |
+          kubectl create namespace egg-system --dry-run=client -o yaml | kubectl apply -f -
+          make deploy
 
       - name: Run integration and security tests
         env:

@@ -124,7 +124,33 @@ def _k8s_local_pipeline_stack() -> Generator[LocalPipelineStack]:
         check=True,
     )
 
-    launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
+    # Read launcher-secret from the deployed gateway-secrets Secret so
+    # the test's bearer matches what the live gateway pod was started
+    # with. The previous code used a random/env-only token, which
+    # produced cluster-wide "Invalid launcher authorization token" 401s
+    # against every endpoint that the test then tried to hit.
+    secret_result = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            "egg-system",
+            "get",
+            "secret",
+            "gateway-secrets",
+            "-o",
+            "jsonpath={.data.launcher-secret}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if secret_result.returncode == 0 and secret_result.stdout:
+        import base64
+
+        launcher_secret = base64.b64decode(secret_result.stdout).decode()
+    else:
+        launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
     config_dir = tempfile.mkdtemp(prefix="egg-lp-test-config-")
     repos_dir = tempfile.mkdtemp(prefix="egg-lp-test-repos-")
     _write_test_config(config_dir, launcher_secret)
