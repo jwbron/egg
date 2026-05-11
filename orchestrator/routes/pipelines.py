@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 from uuid import uuid4
 
 import yaml
@@ -86,7 +86,11 @@ try:
     from ..container_spawner import ContainerSpawnError, SpawnFailureError, get_container_spawner
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
-    from ..gateway_client import GatewayError, _rebase_with_agent_output_autoresolve
+    from ..gateway_client import (
+        ContextBranchDiverged,
+        GatewayError,
+        _rebase_with_agent_output_autoresolve,
+    )
     from ..kubernetes_client import (
         LABEL_PIPELINE_ID,
         JobOperationError,
@@ -132,7 +136,11 @@ except ImportError:
         ContainerOperationError,
         DockerClientError,
     )
-    from gateway_client import GatewayError, _rebase_with_agent_output_autoresolve  # type: ignore
+    from gateway_client import (  # type: ignore
+        ContextBranchDiverged,
+        GatewayError,
+        _rebase_with_agent_output_autoresolve,
+    )
     from kubernetes_client import (  # type: ignore
         LABEL_PIPELINE_ID,
         JobOperationError,
@@ -9472,7 +9480,32 @@ def _refine_and_plan_role_values() -> list[str]:
 _CONTEXT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
-def _recover_existing_context_pr(
+class _ExistingPRLookup(NamedTuple):
+    """Result of the top-of-hook GitHub-state idempotency check.
+
+    Exactly one of the four shapes is populated at a time:
+
+    * ``matched=(url, number)`` — an open PR exists on ``head=context_branch``
+      with ``base=base_branch``; the hook salvages the linkage and returns.
+    * ``head_only_match=True`` — an open PR exists on ``head=context_branch``
+      but against a different base; opening a second PR would be wrong, so
+      the hook fails-soft.
+    * ``error=True`` — the gateway call raised; we have no idea what
+      GitHub's state is, so fail-soft.
+    * none of the above — no open PR matches our head branch; proceed
+      with the normal create_context_branch / push / create_pr flow.
+
+    Three-state result lives in a single helper so the hook's top-level
+    idempotency check is a straight-line switch instead of layered
+    exception handling around ``create_pr`` (#2582).
+    """
+
+    matched: tuple[str, int] | None = None
+    head_only_match: bool = False
+    error: bool = False
+
+
+def _lookup_existing_context_pr(
     spawner: "ContainerSpawner",  # noqa: UP037
     pipeline_id: str,
     repo: str,
@@ -9480,42 +9513,156 @@ def _recover_existing_context_pr(
     base_branch: str,
     *,
     gateway_mode: Literal["public", "private"] = "public",
-) -> tuple[str, int] | None:
-    """Look up an already-open context PR for ``context_branch`` (#2548).
+) -> _ExistingPRLookup:
+    """Authoritative GitHub-state check used at the top of the context-PR
+    hook (#2582).
 
-    Used to recover from the persistence-failed-but-PR-exists state:
-    a prior ``_run_pipeline`` tick opened the PR successfully, then
-    its ``save_contract`` raised (disk full / lock contention /
-    orchestrator restart), so the contract still says
-    ``context_pr_number is None``.  When the next tick re-enters the
-    hook, ``gh pr create`` rejects the duplicate ``head→base`` PR
-    and ``create_pr`` raises (or returns ``None``).  This helper
-    queries ``gh pr list --head <context_branch>`` so the current
-    tick can populate the contract from the existing PR's number/URL
-    instead of spinning forever (#2548 review issue 1).
+    Replaces the post-``create_pr``-failure recovery branches with a
+    single pre-flight lookup.  Returning the existing PR up-front lets
+    the hook skip all artifact-push work when a prior tick partially
+    succeeded (PR opened, contract not persisted) and lets it
+    distinguish "no PR yet — proceed" from "PR exists against a
+    different base — fail-soft" cleanly.
 
-    Returns ``(pr_url, pr_number)`` on a match, ``None`` otherwise.
-    Best-effort: a gateway error here yields ``None`` and the caller
-    surfaces the original create-PR failure.
+    See :class:`_ExistingPRLookup` for the result shape.
+
+    ``list_open_prs`` already returns ``[]`` on its own internal
+    errors, so a silent gateway failure surfaces here as a no-match
+    and the hook proceeds; in that case any actually-existing
+    duplicate PR will surface later as a ``create_pr`` rejection and
+    the hook will fail-soft.  A direct raise from the gateway client
+    (e.g. test injection) is treated as ``error=True`` so the hook
+    fails-soft rather than risk a duplicate.
     """
     try:
         open_prs = spawner.gateway.list_open_prs(pipeline_id, repo, mode=gateway_mode)
     except Exception as list_err:  # noqa: BLE001
         logger.warning(
-            "Context PR hook: list_open_prs failed during recovery (#2548)",
+            "Context PR hook: list_open_prs raised — failing-soft (#2582)",
             pipeline_id=pipeline_id,
             error=str(list_err),
         )
-        return None
+        return _ExistingPRLookup(error=True)
+
+    head_only = False
     for pr in open_prs:
-        if pr.get("head_ref") == context_branch and pr.get("base_ref") == base_branch:
-            try:
-                pr_number = int(pr["number"])
-            except KeyError, ValueError, TypeError:
-                continue
-            pr_url = f"https://github.com/{repo}/pull/{pr_number}"
-            return pr_url, pr_number
-    return None
+        if pr.get("head_ref") != context_branch:
+            continue
+        if pr.get("base_ref") != base_branch:
+            head_only = True
+            continue
+        try:
+            pr_number = int(pr["number"])
+        except KeyError, ValueError, TypeError:
+            continue
+        pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+        return _ExistingPRLookup(matched=(pr_url, pr_number))
+    return _ExistingPRLookup(head_only_match=head_only)
+
+
+def _persist_context_pr_linkage_on_contract(
+    *,
+    pipeline,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: Path,
+    contract_id,
+    context_branch: str,
+    pr_number: int | None,
+    pipeline_id: str,
+    identifier,
+    base_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> None:
+    """Write ``context_branch`` / ``context_pr_number`` onto the contract
+    and commit + push the contract update to the work branch.
+
+    Called from two sites in :func:`_open_context_pr_for_pipeline`:
+    the top-of-hook GitHub-state recovery path (when ``list_open_prs``
+    surfaces an existing PR for our head) and the happy path after a
+    fresh ``create_pr``.
+
+    Best-effort: every failure path logs and returns.  Nothing here
+    propagates to the caller — by the time we're here the PR is open
+    on GitHub, so a contract write or commit/push failure is a
+    durability nuance bounded by the same restart-window the rest of
+    the phase-commit code exhibits (#2548 review suggestion H), not a
+    pipeline-blocker.
+
+    A commit/push failure leaves the contract update on disk locally
+    but not on the work branch's remote.  The top-of-hook GH-state
+    check is the safety net on the next tick: it sees the open PR via
+    ``list_open_prs`` and re-attempts the persistence.
+    """
+    try:
+        from egg_contracts.loader import load_contract, save_contract
+    except ImportError as imp_err:
+        logger.warning(
+            "Context PR hook: egg_contracts.loader unavailable during persist (#2548)",
+            pipeline_id=pipeline_id,
+            error=str(imp_err),
+        )
+        return
+
+    contract_persisted = False
+    try:
+        with get_pipeline_state_lock(pipeline_id):
+            contract_local = load_contract(contract_id, worktree_repo_path)
+            if contract_local.pr is not None:
+                contract_local.pr.context_branch = context_branch
+                if pr_number is not None:
+                    contract_local.pr.context_pr_number = pr_number
+                save_contract(contract_local, worktree_repo_path)
+                contract_persisted = True
+    except Exception as save_err:  # noqa: BLE001
+        logger.warning(
+            "Context PR hook: failed to persist context fields on contract "
+            "(continuing — context PR is open) (#2548)",
+            pipeline_id=pipeline_id,
+            error=str(save_err),
+        )
+
+    if not (contract_persisted and pipeline.branch):
+        return
+
+    committed = False
+    try:
+        committed = _commit_statefiles_to_worktree(
+            worktree_repo_path,
+            f"Persist context PR linkage for {identifier} (#2548)",
+            pipeline_identifier=identifier,
+            pipeline_id=pipeline_id,
+        )
+    except Exception as commit_err:  # noqa: BLE001
+        logger.warning(
+            "Context PR hook: failed to commit contract update "
+            "(continuing — restart-safe via top-of-hook recovery) (#2548)",
+            pipeline_id=pipeline_id,
+            error=str(commit_err),
+        )
+        return
+
+    # Skip the push when the commit was a no-op — the helper is
+    # idempotent and returns ``False`` on re-entry where nothing
+    # changed.  An unconditional push would still be a fast-forward
+    # no-op against origin but would burn a network round-trip per
+    # tick (#2548 review suggestion D).
+    if not committed:
+        return
+    try:
+        spawner.gateway.push_worktree_branch(
+            pipeline_id=pipeline_id,
+            repo_path=str(worktree_repo_path),
+            branch=pipeline.branch,
+            mode=gateway_mode,  # type: ignore[arg-type]
+            base_branch=base_branch,
+        )
+    except Exception as push_err:  # noqa: BLE001
+        logger.warning(
+            "Context PR hook: failed to push contract update "
+            "(continuing — restart-safe via top-of-hook recovery) (#2548)",
+            pipeline_id=pipeline_id,
+            error=str(push_err),
+        )
 
 
 def _gather_context_pr_files(
@@ -9593,64 +9740,83 @@ def _open_context_pr_for_pipeline(
     """Open the dedicated doc-only context PR (#2548).
 
     Runs after plan_gate approval and before slice-1 provisioning.
-    Idempotent on retry: if ``contract.pr.context_pr_number`` is
-    already populated, the function logs and returns the existing
-    branch name unchanged.
 
-    Steps:
+    Two-tier idempotency:
 
-    1. Resolve the context branch name (``egg/<pipeline_id>/context``)
-       and load the contract.  Skip when the contract has no ``pr``
-       block, no remote, or no ``base_branch`` — those are pipeline
-       configurations the context PR mechanism cannot reasonably
-       target (e.g. ``mode=local``).
-    2. Call :meth:`GatewayClient.create_context_branch` to create the
-       branch on origin from ``pipeline.base_branch``.  Idempotent
-       across retries by gateway-side semantics.
-    3. Materialise a temporary git worktree on the context branch via
-       ``git worktree add``, copy the curated set of refine/plan
-       artifacts onto it (analysis.md, plan.md, refine + plan BRC
-       json/md, refine + plan agent transcripts), commit them via
-       :func:`_commit_statefiles_to_worktree` (orchestrator-authored,
-       ``--no-verify``), and push the branch through
-       :meth:`GatewayClient.push_worktree_branch`.
-    4. Open the PR via :meth:`GatewayClient.create_pr` with
-       ``base = pipeline.base_branch``,
-       ``head = egg/<pipeline_id>/context``,
-       ``title = contract.pr.context_title or contract.pr.title`` and
-       ``body = contract.pr.context_description or contract.pr.description``.
-       Doc-only auto-open: the pipeline does NOT block on its merge
-       before slicing (decision-3 of #2548).
-    5. Persist ``context_branch`` and ``context_pr_number`` on the
-       contract under the per-pipeline state lock and commit the
-       contract change to the work worktree.
+    1. **Contract-state fast path.** If
+       ``contract.pr.context_pr_number`` is already populated, return
+       the existing branch name immediately — no API calls.
+    2. **GitHub-state authoritative path.** Otherwise call
+       :func:`_lookup_existing_context_pr`. A prior tick may have opened
+       the PR but lost the ``save_contract`` write, or pushed the
+       artifact commit but failed ``create_pr``; both partial-failure
+       states are detectable as "open PR with our head" / "no PR
+       despite branch on origin" via a single ``gh pr list`` call.
+       Three outcomes:
 
-    Returns the context branch name on success (so the caller can log
-    it), or ``None`` when the hook short-circuited or the PR could not
-    be opened.  All failure modes are logged and swallowed: a failure
-    here must not strand the pipeline transition from plan to
-    implement (per the same #2219 / #2337 robustness pattern other
-    auto-advance helpers follow).
+       * Full match (head == context_branch, base == base_branch) →
+         persist the linkage on the contract and return the branch.
+         Replaces the post-``create_pr``-raised / post-``create_pr``-
+         returned-no-URL recovery handlers that the old structure
+         layered as ``except`` branches (#2582).
+       * Head-only match (different base_ref) → fail-soft: opening
+         another PR would create a second one against our base while
+         a stale one points elsewhere; an operator should disentangle
+         first.
+       * No match → proceed with the create_context_branch / push /
+         create_pr flow.
 
-    Idempotency model is convergent rather than mutually exclusive:
-    the top-of-function ``contract.pr.context_pr_number`` short-circuit
-    is read **without** holding the per-pipeline state lock.  If two
-    ``_run_pipeline`` ticks race past the check (e.g. a ``run_epoch``
-    transition while the prior tick was mid-flight), both perform the
-    heavy work — but the outcomes converge safely:
+    Steps after the lookup:
 
-    * gateway ``create_context_branch`` is no-op-on-same-SHA;
-    * ``git worktree add -B`` re-points the local branch at the prior
-      tick's pushed tip, file-copy is a no-op against identical
-      contents, ``_commit_statefiles_to_worktree`` skips when staged
-      is clean, ``push_worktree_branch`` is a fast-forward no-op;
-    * ``gh pr create`` rejects a duplicate ``head→base`` PR; the
-      failure path is logged and swallowed (the PR is already open).
+    3. :meth:`GatewayClient.create_context_branch` — pushes
+       ``base_sha:refs/heads/egg/<pipeline_id>/context``.  If divergence
+       is detected, the gateway raises
+       :class:`ContextBranchDiverged`; because step 2 has confirmed
+       there is no open PR on our head, the divergence is by elimination
+       our own prior tick's artifact push, so the hook falls through to
+       step 4 — the subsequent push is a fast-forward no-op over the
+       prior tick's commit.  Any other failure here is fail-soft.
+    4. Materialise a temporary git worktree on the context branch, copy
+       the curated refine/plan artifacts onto it, commit them via
+       :func:`_commit_statefiles_to_worktree`, and push the branch
+       through :meth:`GatewayClient.push_worktree_branch`.
+    5. Open the PR via :meth:`GatewayClient.create_pr` with
+       ``base = pipeline.base_branch``, ``head = egg/<pipeline_id>/context``,
+       title and body from the contract (``context_title`` /
+       ``context_description`` preferred, falling back to ``title`` /
+       ``description``).  Doc-only auto-open: the pipeline does NOT
+       block on its merge before slicing (decision-3 of #2548).
+    6. Persist ``context_branch`` / ``context_pr_number`` via
+       :func:`_persist_context_pr_linkage_on_contract`.
+
+    Returns the context branch name on success, or ``None`` when the
+    hook short-circuited or the PR could not be opened.  All failure
+    modes are logged and swallowed: a failure here must not strand the
+    plan→implement transition (per the same #2219 / #2337 robustness
+    pattern other auto-advance helpers follow).
+
+    Convergent idempotency under concurrent ``_run_pipeline`` ticks:
+    the contract-state fast path is read **without** holding the per-
+    pipeline state lock.  If two ticks race past it (e.g. a
+    ``run_epoch`` transition while the prior tick was mid-flight),
+    both perform the heavy work — but the outcomes converge safely:
+
+    * the GitHub-state lookup short-circuits the racer that arrives
+      after the first tick has opened the PR;
+    * ``create_context_branch`` is no-op-on-same-SHA, raises
+      ``ContextBranchDiverged`` on tip-after-our-push (the racer's
+      second-half) — both routes proceed without overwriting state;
+    * ``git worktree add -B`` re-points the local branch, file-copy is
+      a no-op against identical contents, ``_commit_statefiles_to_worktree``
+      skips when staged is clean, ``push_worktree_branch`` is a
+      fast-forward no-op;
+    * ``gh pr create`` rejects a duplicate head→base PR; the failure
+      path is logged and swallowed (the PR is already open) — the
+      racer will pick it up via the GitHub-state lookup on its next
+      tick.
 
     The design avoids holding a process-wide lock across a multi-second
-    network sequence; the gateway primitive's raise-on-divergence
-    semantics are the safety net for any genuinely incoherent state
-    (#2548 review note from reviewer_concurrency).
+    network sequence (#2548 review note from reviewer_concurrency).
     """
     pipeline_id = pipeline.id
 
@@ -9670,11 +9836,7 @@ def _open_context_pr_for_pipeline(
         return None
 
     try:
-        from egg_contracts.loader import (
-            ContractNotFoundError,
-            load_contract,
-            save_contract,
-        )
+        from egg_contracts.loader import ContractNotFoundError, load_contract
     except ImportError as imp_err:
         logger.warning(
             "Context PR hook: egg_contracts.loader unavailable, skipping (#2548)",
@@ -9715,7 +9877,7 @@ def _open_context_pr_for_pipeline(
 
     context_branch = f"egg/{pipeline_id}/context"
 
-    # --- Step 1 (cont.): idempotency on retry ---
+    # --- Step 1 (cont.): contract-state idempotency fast path ---
     if contract.pr.context_pr_number is not None:
         logger.info(
             "Context PR hook: context PR already opened — idempotent skip (#2548)",
@@ -9725,7 +9887,56 @@ def _open_context_pr_for_pipeline(
         )
         return contract.pr.context_branch or context_branch
 
-    # --- Step 2: create the branch on origin ---
+    # --- Step 2: GitHub-state idempotency check (#2582) ---
+    # Authoritative against partial-failure modes the contract-state
+    # fast path can't see: a prior tick may have opened the PR but lost
+    # the save_contract write (full match → salvage here), or pushed
+    # the artifact commit but failed create_pr (no match here — branch
+    # divergence on step 3 will be caught and we fall through).
+    lookup = _lookup_existing_context_pr(
+        spawner,
+        pipeline_id,
+        pipeline.repo,
+        context_branch,
+        base_branch,
+        gateway_mode=gateway_mode,
+    )
+    if lookup.error:
+        return None
+    if lookup.matched is not None:
+        recovered_url, recovered_number = lookup.matched
+        logger.info(
+            "Context PR hook: recovered existing context PR via top-of-hook "
+            "GitHub-state check (#2582)",
+            pipeline_id=pipeline_id,
+            context_branch=context_branch,
+            context_pr_number=recovered_number,
+            pr_url=recovered_url,
+        )
+        _persist_context_pr_linkage_on_contract(
+            pipeline=pipeline,
+            spawner=spawner,
+            worktree_repo_path=worktree_repo_path,
+            contract_id=contract_id,
+            context_branch=context_branch,
+            pr_number=recovered_number,
+            pipeline_id=pipeline_id,
+            identifier=identifier,
+            base_branch=base_branch,
+            gateway_mode=gateway_mode,
+        )
+        return context_branch
+    if lookup.head_only_match:
+        logger.warning(
+            "Context PR hook: an open PR exists on our head branch against "
+            "a different base — refusing to open a duplicate (#2582)",
+            pipeline_id=pipeline_id,
+            context_branch=context_branch,
+            expected_base=base_branch,
+        )
+        return None
+
+    # --- Step 3: create the branch on origin ---
     try:
         spawner.gateway.create_context_branch(
             pipeline_id,
@@ -9733,6 +9944,23 @@ def _open_context_pr_for_pipeline(
             base_branch=base_branch,
             agent_role="coder",
             mode=gateway_mode,  # type: ignore[arg-type]
+        )
+    except ContextBranchDiverged as branch_err:
+        # The branch exists at a divergent SHA but we just verified
+        # (step 2) that no open PR targets it.  By elimination this is
+        # our own prior tick's artifact push that never reached
+        # create_pr — proceed.  The subsequent push_worktree_branch is
+        # a fast-forward no-op over the prior tick's commit, and
+        # create_pr then opens the missing PR.  This is the wedge
+        # tracked by #2582.
+        logger.info(
+            "Context PR hook: create_context_branch raised divergence with "
+            "no open PR on our head — proceeding under the assumption that "
+            "the prior tick pushed but failed create_pr (#2582)",
+            pipeline_id=pipeline_id,
+            context_branch=context_branch,
+            existing_sha=branch_err.existing_sha,
+            base_sha=branch_err.base_sha,
         )
     except Exception as branch_err:  # noqa: BLE001
         logger.warning(
@@ -9743,7 +9971,7 @@ def _open_context_pr_for_pipeline(
         )
         return None
 
-    # --- Step 3: build a temp worktree, copy files, commit, push ---
+    # --- Step 4: build a temp worktree, copy files, commit, push ---
     import shutil
     import tempfile
 
@@ -9918,7 +10146,7 @@ def _open_context_pr_for_pipeline(
                 )
                 return None
 
-        # --- Step 4: open the PR ---
+        # --- Step 5: open the PR ---
         title = (contract.pr.context_title or contract.pr.title or "").strip()
         body = contract.pr.context_description or contract.pr.description or ""
         if not title:
@@ -9928,15 +10156,11 @@ def _open_context_pr_for_pipeline(
                 pipeline_id=pipeline_id,
             )
             return None
-        # Recovery path (#2548 review issue 1): when ``create_pr``
-        # raises or returns no URL, the most likely cause is a
-        # duplicate head→base PR rejection — gh refuses the create
-        # because a prior tick's PR open succeeded but its
-        # save_contract failed, leaving ``context_pr_number is None``.
-        # Without recovery, every subsequent tick repeats the failed
-        # create + worktree dance forever.  Detect the existing PR via
-        # ``gh pr list`` and salvage its number/URL.
-        recovered = False
+        # No in-band recovery: the top-of-hook GitHub-state check has
+        # already verified no PR exists on our head, so a create_pr
+        # failure here is a transient infrastructure issue (gh API
+        # down, rate-limit, etc.) — fail-soft and let the next tick
+        # retry from the top of the hook (#2582).
         try:
             pr_url = spawner.gateway.create_pr(
                 pipeline_id=pipeline_id,
@@ -9951,76 +10175,27 @@ def _open_context_pr_for_pipeline(
             )
         except Exception as pr_err:  # noqa: BLE001
             logger.warning(
-                "Context PR hook: create_pr raised — attempting recovery (#2548)",
+                "Context PR hook: create_pr raised — failing-soft (#2582)",
                 pipeline_id=pipeline_id,
                 error=str(pr_err),
             )
-            pr_url = None
-            existing = _recover_existing_context_pr(
-                spawner,
-                pipeline_id,
-                pipeline.repo,
-                context_branch,
-                base_branch,
-                gateway_mode=gateway_mode,
-            )
-            if existing is None:
-                logger.warning(
-                    "Context PR hook: create_pr raised, no existing PR matched (#2548)",
-                    pipeline_id=pipeline_id,
-                    error=str(pr_err),
-                )
-                return None
-            pr_url, pr_number = existing
-            recovered = True
-            logger.info(
-                "Context PR hook: recovered existing context PR after create_pr raised (#2548)",
+            return None
+        if not pr_url:
+            logger.warning(
+                "Context PR hook: create_pr returned no URL — failing-soft (#2582)",
                 pipeline_id=pipeline_id,
-                context_branch=context_branch,
-                context_pr_number=pr_number,
             )
-        if not pr_url and not recovered:
-            existing = _recover_existing_context_pr(
-                spawner,
-                pipeline_id,
-                pipeline.repo,
-                context_branch,
-                base_branch,
-                gateway_mode=gateway_mode,
-            )
-            if existing is None:
-                logger.warning(
-                    "Context PR hook: create_pr returned no URL, no existing PR matched (#2548)",
-                    pipeline_id=pipeline_id,
-                )
-                return None
-            pr_url, pr_number = existing
-            recovered = True
-            logger.info(
-                "Context PR hook: recovered existing context PR after create_pr "
-                "returned no URL (#2548)",
-                pipeline_id=pipeline_id,
-                context_branch=context_branch,
-                context_pr_number=pr_number,
-            )
+            return None
 
-        if not recovered:
-            match = re.search(r"/pull/(\d+)", pr_url)
-            pr_number = int(match.group(1)) if match else None
-
-            # Only log "opened" on a fresh create_pr success.  The
-            # recovery branches above already log
-            # "recovered existing context PR ..." with the matched PR
-            # number; emitting an "opened" line on top of that
-            # conflates creation with recovery for operators tailing
-            # logs (#2548 review suggestion A).
-            logger.info(
-                "Context PR hook: opened context PR (#2548)",
-                pipeline_id=pipeline_id,
-                context_branch=context_branch,
-                context_pr_number=pr_number,
-                pr_url=pr_url,
-            )
+        match = re.search(r"/pull/(\d+)", pr_url)
+        pr_number = int(match.group(1)) if match else None
+        logger.info(
+            "Context PR hook: opened context PR (#2548)",
+            pipeline_id=pipeline_id,
+            context_branch=context_branch,
+            context_pr_number=pr_number,
+            pr_url=pr_url,
+        )
     finally:
         # Clean up the temp worktree regardless of outcome.  Two-step:
         # ``git worktree remove`` releases the admin dir, then we drop
@@ -10045,91 +10220,22 @@ def _open_context_pr_for_pipeline(
         except Exception:  # noqa: BLE001
             pass
 
-    # --- Step 5: persist context_branch / context_pr_number on the contract ---
+    # --- Step 6: persist context_branch / context_pr_number on the contract ---
     if pr_url is None:
         return None
 
-    contract_persisted = False
-    try:
-        with get_pipeline_state_lock(pipeline_id):
-            contract_local = load_contract(contract_id, worktree_repo_path)
-            if contract_local.pr is not None:
-                contract_local.pr.context_branch = context_branch
-                if pr_number is not None:
-                    contract_local.pr.context_pr_number = pr_number
-                save_contract(contract_local, worktree_repo_path)
-                contract_persisted = True
-    except Exception as save_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: failed to persist context fields on contract "
-            "(continuing — context PR is open) (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(save_err),
-        )
-
-    # Durability: commit + push the contract change to the work
-    # branch so an orchestrator restart between save_contract and the
-    # next phase's commit cycle does not lose the context-PR linkage
-    # (#2548 review issue 5).  Mirrors the
-    # ``_persist_phase_gate_resolution`` pattern: best-effort commit,
-    # best-effort push.
-    #
-    # A failure here leaves the contract update on disk locally but
-    # not on the work branch's remote.  Recovery via
-    # ``_recover_existing_context_pr`` is NOT the safety net for this
-    # path: recovery only fires when ``context_pr_number is None``,
-    # and the in-memory ``save_contract`` above has already populated
-    # that field, so the next tick short-circuits at the idempotency
-    # check before reaching the recovery code.  The actual safety net
-    # is the local on-disk contract plus a subsequent phase commit
-    # cycle eventually pushing the worktree state — which means a
-    # commit/push failure here followed by an orchestrator restart
-    # before any later commit-cycle pushes is a real durability gap.
-    # That gap is bounded by how the orchestrator handles worktree
-    # provisioning across restarts (the same gap the rest of the
-    # phase-commit code exhibits) and is not worsened by this hook
-    # (#2548 review suggestion H).
-    if contract_persisted and pipeline.branch:
-        committed = False
-        try:
-            committed = _commit_statefiles_to_worktree(
-                worktree_repo_path,
-                f"Persist context PR linkage for {identifier} (#2548)",
-                pipeline_identifier=identifier,
-                pipeline_id=pipeline_id,
-            )
-        except Exception as commit_err:  # noqa: BLE001
-            logger.warning(
-                "Context PR hook: failed to commit contract update "
-                "(continuing — restart-safe via recovery path) (#2548)",
-                pipeline_id=pipeline_id,
-                error=str(commit_err),
-            )
-        else:
-            # Skip the push when the commit was a no-op — the helper
-            # is idempotent and returns ``False`` on re-entry where
-            # nothing changed (e.g. the contract already had the
-            # context_pr_number from a prior tick).  An unconditional
-            # push would still be a fast-forward no-op against origin
-            # but would burn a network round-trip per tick (#2548
-            # review suggestion D).
-            if committed:
-                try:
-                    spawner.gateway.push_worktree_branch(
-                        pipeline_id=pipeline_id,
-                        repo_path=str(worktree_repo_path),
-                        branch=pipeline.branch,
-                        mode=gateway_mode,  # type: ignore[arg-type]
-                        base_branch=base_branch,
-                    )
-                except Exception as push_err:  # noqa: BLE001
-                    logger.warning(
-                        "Context PR hook: failed to push contract update "
-                        "(continuing — restart-safe via recovery path) (#2548)",
-                        pipeline_id=pipeline_id,
-                        error=str(push_err),
-                    )
-
+    _persist_context_pr_linkage_on_contract(
+        pipeline=pipeline,
+        spawner=spawner,
+        worktree_repo_path=worktree_repo_path,
+        contract_id=contract_id,
+        context_branch=context_branch,
+        pr_number=pr_number,
+        pipeline_id=pipeline_id,
+        identifier=identifier,
+        base_branch=base_branch,
+        gateway_mode=gateway_mode,
+    )
     return context_branch
 
 
