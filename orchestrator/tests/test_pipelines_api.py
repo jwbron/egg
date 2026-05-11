@@ -1260,3 +1260,32 @@ class TestRuntimeStateLeakageOnBranchReuse:
         assert get_peer_consensus_tracker(pipeline_id) is None
         assert evaluator.get_state(pipeline_id)["agents"] == {}
         assert store.get_status(pipeline_id)["total"] == 0
+
+    def test_clear_runtime_state_evicts_context_pr_dedupe(self):
+        """#2599 review 2 item 1 — dedupe set keyed on pipeline_id alone
+        is per-lifecycle, not per-id.  Without eviction at the same
+        terminal-state hook the other backends use, a pipeline id reused
+        across runs inherits the prior run's emitted-event set and the
+        new run's failure goes unreported on the message bus.
+        """
+        from routes.pipelines import (
+            _clear_pipeline_runtime_state,
+            _context_pr_events_emitted,
+            _context_pr_events_emitted_lock,
+        )
+
+        pipeline_id = "issue-2599-test"
+        # Defensive: clear any leftover state from a prior test run
+        with _context_pr_events_emitted_lock:
+            _context_pr_events_emitted.pop(pipeline_id, None)
+
+        # Seed dedupe state — simulate a prior failed context-PR open
+        with _context_pr_events_emitted_lock:
+            _context_pr_events_emitted[pipeline_id] = {"context_pr.failed"}
+        assert pipeline_id in _context_pr_events_emitted
+
+        _clear_pipeline_runtime_state(pipeline_id, reason="test")
+
+        # Stale set would otherwise silently suppress a fresh pipeline's
+        # ``context_pr.failed`` emission.
+        assert pipeline_id not in _context_pr_events_emitted

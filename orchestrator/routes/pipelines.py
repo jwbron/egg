@@ -2073,6 +2073,25 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
             error=str(e),
         )
 
+    # #2599 review 2 item 1 — the context_pr.skipped / context_pr.failed
+    # dedupe set is also keyed by ``pipeline_id`` alone. Without this
+    # clear, a fresh pipeline that reuses an id from a prior terminal
+    # run (allowed — see branch-reuse logic for terminal-state pipelines)
+    # would inherit the prior run's emitted-event set; if the new run
+    # also fails to open its context PR, operators using ``wait-status``
+    # would see no event for the new failure. Same shape as #2053 (the
+    # other per-pipeline-id leak this function exists to plug).
+    try:
+        with _context_pr_events_emitted_lock:
+            _context_pr_events_emitted.pop(pipeline_id, None)
+    except Exception as e:
+        logger.warning(
+            "Failed to clear context PR event dedupe state",
+            pipeline_id=pipeline_id,
+            reason=reason,
+            error=str(e),
+        )
+
 
 def _mark_pipeline_records_terminated(
     store: StateStore,
