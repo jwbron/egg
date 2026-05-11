@@ -1246,10 +1246,14 @@ class TestOpenContextPRCallSiteWiring:
         src = Path(__file__).parent.parent / "routes" / "pipelines.py"
         text = src.read_text()
         # Look inside the wrapper for the CUSTOM-mode early return.
+        # The body between ``if _is_custom_mode:`` and the ``return``
+        # may contain a log line (#2593 review issue 10) — match
+        # non-greedy across comments/logging so the regression check
+        # still catches a missing return.
         m = re.search(
             r"def\s+_maybe_open_base_pr_for_plan_to_implement\b.+?"
             r"_is_custom_mode\s*=\s*getattr\(pipeline,\s*['\"]mode['\"],\s*None\)"
-            r"\s*==\s*PipelineMode\.CUSTOM.+?if\s+_is_custom_mode\s*:\s*\n\s*return",
+            r"\s*==\s*PipelineMode\.CUSTOM.+?if\s+_is_custom_mode\s*:.+?return\b",
             text,
             flags=re.DOTALL,
         )

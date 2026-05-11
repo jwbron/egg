@@ -10227,6 +10227,20 @@ def _derive_producer_roles_with_tasks(
     return {(t.role or "coder") for t in _slice_obj.tasks}
 
 
+# #2593 — dedupe of context_pr.skipped / context_pr.failed bus events.
+# The wrapper can run multiple times for the same pipeline (auto-advance
+# + implement-entry backstop, HITL recovery + backstop) and the inner
+# hook's idempotency makes those re-runs cheap — but the post-hook bus
+# emission is *not* idempotent on its own: on a real failure it sees
+# ``context_pr_number is None`` every time and would emit a duplicate
+# ``context_pr.failed`` / ``context_pr.skipped`` message.  Keyed on
+# ``(pipeline_id, event_type)`` so the first emission wins per event
+# kind; entries are not removed because once ``context_pr_number`` is
+# set we never reach the emit branch again.
+_context_pr_events_emitted: dict[str, set[str]] = {}
+_context_pr_events_emitted_lock = threading.Lock()
+
+
 def _maybe_open_base_pr_for_plan_to_implement(
     pipeline,
     spawner: "ContainerSpawner",  # noqa: UP037
@@ -10246,9 +10260,14 @@ def _maybe_open_base_pr_for_plan_to_implement(
     * the HITL-approval recovery path in :func:`start_pipeline`
       (re-spawning ``_run_pipeline`` after the human resolved the
       plan_gate while the pipeline was AWAITING_HUMAN);
-    * the IMPLEMENT phase entry backstop (catches any future
-      transition path added without ceremony — the inner short-circuit
-      makes re-entry a no-op).
+    * the IMPLEMENT phase entry backstop (fires once on the
+      PENDING→RUNNING transition into IMPLEMENT — paths that set
+      ``phase_execution.status = RUNNING`` before spawning the runner
+      thread (e.g. the ``advance_phase`` REST handler at
+      ``routes/phases.py:379``) bypass the backstop and so must call
+      the wrapper directly; the inner short-circuit on
+      ``context_pr_number`` makes any path that DOES re-enter the
+      backstop a no-op).
 
     CUSTOM-mode pipelines run a single phase and terminate (#1762) —
     they never advance to implement, so opening a context PR for them
@@ -10262,10 +10281,32 @@ def _maybe_open_base_pr_for_plan_to_implement(
     bus so operators using ``wait-status`` / ``get_status`` see the
     skipped/failed signal without having to grep orchestrator logs
     (#2593).
+
+    Bus emission semantics: the ``context_pr.skipped`` /
+    ``context_pr.failed`` event reflects *contract state* (does the
+    contract record a ``context_pr_number``?), NOT *PR state on
+    GitHub*.  The inner hook has late short-circuit paths that swallow
+    ``save_contract`` failures after the gateway has already opened
+    the PR on GitHub; in those rare cases the wrapper will see
+    ``context_pr_number is None`` and emit ``context_pr.skipped`` even
+    though a context PR exists on the remote.  Operators chasing a
+    skipped/failed event must therefore verify both ``contract.pr``
+    and the remote PR list before concluding the PR is genuinely
+    missing.
     """
     pipeline_id = pipeline.id
     _is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
     if _is_custom_mode:
+        # #2593 review issue 10 — keep the "hook ran" observability
+        # promise on CUSTOM-mode pipelines too.  Operators tracing
+        # transition paths via the ``Context PR hook entered`` line
+        # would otherwise see no log emission for CUSTOM mode and
+        # have to infer the skip from the pipeline config.
+        logger.info(
+            "Context PR hook skipped (CUSTOM mode) (#2548)",
+            pipeline_id=pipeline_id,
+            source=source,
+        )
         return
     raised: Exception | None = None
     try:
@@ -10294,34 +10335,46 @@ def _maybe_open_base_pr_for_plan_to_implement(
     # contract from disk to read the post-hook ``context_pr_number``
     # rather than trusting the in-memory ``pipeline`` (the hook may
     # have written through to disk under the per-pipeline state lock
-    # without mutating the caller's reference).
+    # without mutating the caller's reference).  Use
+    # ``_pipeline_identifier`` so the contract path matches the one the
+    # inner hook used (#2593 review issue 7) — both currently resolve
+    # to the same on-disk file, but pinning the resolution keeps the
+    # wrapper from drifting if the ISSUE-mode key logic ever changes.
     if pipeline.repo and pipeline.base_branch:
         _ctx_pr_number: int | None = None
+        _ctx_identifier = _pipeline_identifier(
+            pipeline.issue_number,
+            pipeline_id,
+            mode=getattr(pipeline, "mode", None),
+        )
         try:
-            from egg_contracts.loader import (
-                ContractNotFoundError as _CtxCNF,
-            )
-            from egg_contracts.loader import (
-                load_contract as _ctx_load,
-            )
+            from egg_contracts.loader import load_contract as _ctx_load
 
-            _ctx_contract = _ctx_load(pipeline_id, worktree_repo_path)
+            _ctx_contract = _ctx_load(_ctx_identifier, worktree_repo_path)
             if _ctx_contract.pr is not None:
                 _ctx_pr_number = _ctx_contract.pr.context_pr_number
-        except _CtxCNF:
-            pass
         except Exception:  # noqa: BLE001
+            # ContractNotFoundError and any other failure both converge
+            # on "we cannot read the post-hook state"; either way we
+            # fall through to the emit branch with _ctx_pr_number=None.
             pass
 
         if _ctx_pr_number is None:
+            event_type = "context_pr.failed" if raised is not None else "context_pr.skipped"
+            # Dedupe: a single failure on a pipeline should produce one
+            # event per kind, not one per transition path that re-ran
+            # the hook.  See ``_context_pr_events_emitted`` docstring.
+            with _context_pr_events_emitted_lock:
+                already = _context_pr_events_emitted.setdefault(pipeline_id, set())
+                if event_type in already:
+                    return
+                already.add(event_type)
             try:
                 _reason = "raised" if raised is not None else "skipped"
                 _detail = f": {str(raised)[:200]}" if raised is not None else ""
                 report_pipeline_status(
                     pipeline,
-                    event_type=(
-                        "context_pr.failed" if raised is not None else "context_pr.skipped"
-                    ),
+                    event_type=event_type,
                     message=(
                         f"Context PR not opened (source={source}, "
                         f"reason={_reason}){_detail}. "
@@ -17021,20 +17074,28 @@ def _populate_contract_from_plan_safe(
     pipeline_mode: str = "issue",
     issue_number: int | None = None,
     *,
-    source: Literal["plan_complete", "advance_phase_force"] = "advance_phase_force",
+    source: Literal[
+        "plan_complete",
+        "advance_phase_force",
+        "hitl_plan_gate_approval",
+    ] = "advance_phase_force",
     branch: str | None = None,
     current_phase: PipelinePhase | None = None,
 ) -> None:
     """Run :func:`_populate_contract_from_plan` without propagating failures.
 
-    Shared call path for the two code sites that run the populate step when a
-    pipeline leaves the ``plan`` phase: ``_run_pipeline``'s post-complete
-    block (``source="plan_complete"``) and ``advance_phase`` (used by the
-    MCP ``advance_phase`` tool, especially with ``force=true`` —
-    ``source="advance_phase_force"``).  Blocking the phase transition on
-    a populate failure would defeat the purpose of the advance hammer — see
-    #1941 — so the force-advance call site keeps the swallow-everything
-    behaviour.
+    Shared call path for the three code sites that run the populate step
+    when a pipeline leaves the ``plan`` phase: ``_run_pipeline``'s
+    post-complete block (``source="plan_complete"``), ``advance_phase``
+    (used by the MCP ``advance_phase`` tool, especially with
+    ``force=true`` — ``source="advance_phase_force"``), and the HITL
+    plan-gate approval path in :func:`start_pipeline`
+    (``source="hitl_plan_gate_approval"`` — operator approved the
+    plan_gate while the pipeline was AWAITING_HUMAN, recovery
+    re-spawns ``_run_pipeline``).  Blocking the phase transition on a
+    populate failure would defeat the purpose of the advance hammer
+    or recovery path — see #1941 — so all non-natural call sites
+    keep the swallow-everything behaviour.
 
     The natural plan-completion call site (``source="plan_complete"``)
     additionally raises :class:`PlanDraftMissingOnLocalError` when the
@@ -18667,16 +18728,18 @@ def _run_pipeline(
 
                 # #2593 — implement-phase entry backstop.  Fires once
                 # on the PENDING→RUNNING transition into the IMPLEMENT
-                # phase, regardless of which transition path (inline
-                # auto-advance, ``advance_phase`` REST, HITL recovery,
-                # or any future path) got us here.  The inner
-                # ``context_pr_number`` short-circuit makes this a
-                # no-op when the PR was already opened on the
-                # plan-exit side, so the backstop only does real work
-                # when every other path missed it.  Belt-and-suspenders:
-                # makes "context PR exists when slice-1 spawns" a
-                # property of the IMPLEMENT phase rather than of one
-                # specific exit path from PLAN.
+                # phase when the runner thread itself drives the
+                # transition: inline ``_run_pipeline`` auto-advance and
+                # the HITL-approval recovery in ``start_pipeline`` both
+                # leave ``phase_execution.status`` as ``PENDING`` and
+                # spawn the runner, so the backstop covers them.
+                # ``advance_phase`` (routes/phases.py:379) sets
+                # ``RUNNING`` before spawning, so the backstop does
+                # NOT fire from that path — that REST handler must
+                # therefore call the wrapper directly (and does, at
+                # ``routes/phases.py``).  The inner ``context_pr_number``
+                # short-circuit makes this a no-op when the PR was
+                # already opened on the plan-exit side.
                 if current_phase == PipelinePhase.IMPLEMENT:
                     _maybe_open_base_pr_for_plan_to_implement(
                         pipeline,
@@ -20485,6 +20548,13 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # No pending decisions — the polling thread died (e.g. restart)
             # but the human already resolved everything.  Recover based on
             # the latest phase_gate decision's resolution.
+            #
+            # #2593 review issue 1 — initialised before the lock so the
+            # post-lock deferred ``_maybe_open_base_pr_for_plan_to_implement``
+            # invocation has a stable name to read regardless of which
+            # branch inside the lock executes.
+            _hitl_open_context_pr_after_lock: bool = False
+            _hitl_pr_worktree_path: Path | None = None
             with get_pipeline_state_lock(pipeline_id):
                 pipeline = store.load_pipeline(pipeline_id)
 
@@ -20618,21 +20688,24 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # phase — no auto-advance (#1762 TASK-2-9).
                     _is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
 
-                    # #2593 — populate contract from the plan draft and
-                    # open the doc-only base/context PR when the HITL
-                    # recovery is advancing the pipeline out of the
-                    # plan phase.  Without this, contract.pr is empty
-                    # (so the PR phase falls back to placeholder
+                    # #2593 — populate contract from the plan draft when
+                    # the HITL recovery is advancing the pipeline out
+                    # of the plan phase.  Without this, contract.pr is
+                    # empty (so the PR phase falls back to placeholder
                     # title/body and the context PR hook short-circuits
                     # on "contract has no pr block"), and the slice
                     # stack ends up rooted on ``/work`` with no PR to
                     # ``main`` — exactly the symptom reported on the
-                    # in-flight #2474 pipeline.  Mirrors the
-                    # plan-exit logic in ``advance_phase``
-                    # (routes/phases.py) and the auto-advance path in
-                    # ``_run_pipeline``.  Best-effort: failures warn
-                    # and continue so a transient infra problem cannot
-                    # strand the HITL recovery.
+                    # in-flight #2474 pipeline.  Mirrors the plan-exit
+                    # logic in ``advance_phase`` (routes/phases.py)
+                    # and the auto-advance path in ``_run_pipeline``.
+                    # Best-effort: failures warn and continue so a
+                    # transient infra problem cannot strand the HITL
+                    # recovery.  The actual context-PR open is
+                    # deferred until after the lock is released
+                    # (#2593 review issue 1) so the multi-second
+                    # gateway sequence does not extend the
+                    # per-pipeline state lock's hold time.
                     _next_phase_peek = next_phases[0] if next_phases else None
                     if (
                         current_phase == PipelinePhase.PLAN
@@ -20647,7 +20720,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                 pipeline_id,
                                 _pipeline_mode,
                                 pipeline.issue_number,
-                                source="advance_phase_force",
+                                source="hitl_plan_gate_approval",
                             )
                             try:
                                 _commit_statefiles_to_worktree(
@@ -20664,6 +20737,34 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                     pipeline_id=pipeline_id,
                                     error=str(_hitl_commit_err),
                                 )
+
+                            # #2593 review issue 5 — the earlier
+                            # ``push_worktree_branch`` at line ~20598
+                            # ran *before* this populate commit, so
+                            # the populated ``contract.pr`` only
+                            # exists locally until the IMPLEMENT
+                            # phase's next phase-boundary sync.  Push
+                            # again now so any slice-agent container
+                            # that materialises a fresh worktree from
+                            # origin before that sync still sees
+                            # ``contract.pr``.  Mirrors the
+                            # auto-advance flow's pre-context-PR push
+                            # in ``_run_pipeline``.
+                            if pipeline.branch and _hitl_worktree_path != repo_path:
+                                try:
+                                    _get_spawner().gateway.push_worktree_branch(
+                                        pipeline_id=pipeline_id,
+                                        repo_path=str(_hitl_worktree_path),
+                                        branch=pipeline.branch,
+                                        mode=_gw_mode,
+                                        base_branch=pipeline.base_branch,
+                                    )
+                                except Exception as _hitl_push_err:  # noqa: BLE001
+                                    logger.warning(
+                                        "Failed to push populated contract on HITL plan-gate approval (continuing) (#2593)",
+                                        pipeline_id=pipeline_id,
+                                        error=str(_hitl_push_err),
+                                    )
                         except Exception as _hitl_pop_err:  # noqa: BLE001
                             logger.warning(
                                 "Failed to run plan-exit populate on HITL recovery (continuing) (#2593)",
@@ -20671,16 +20772,14 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                 error=str(_hitl_pop_err),
                             )
 
-                        # Open the base/context PR now that the contract
-                        # is populated.  Idempotent on retry via the
-                        # inner ``context_pr_number`` short-circuit.
-                        _maybe_open_base_pr_for_plan_to_implement(
-                            pipeline,
-                            _get_spawner(),
-                            _hitl_worktree_path,
-                            gateway_mode=_gw_mode,
-                            source="hitl_resume",
-                        )
+                        # Defer the context-PR open until after the
+                        # per-pipeline state lock is released — see
+                        # ``_open_context_pr_for_pipeline``'s
+                        # idempotency docstring on why this multi-
+                        # second network sequence must not run under
+                        # the lock (#2593 review issue 1).
+                        _hitl_open_context_pr_after_lock = True
+                        _hitl_pr_worktree_path = _hitl_worktree_path
 
                     if not next_phases or _is_custom_mode:
                         # Terminal phase — pipeline complete.
@@ -20770,6 +20869,23 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 from routes.phases import _clear_concurrent_state
 
                 _clear_concurrent_state(pipeline_id)
+
+            # #2593 review issue 1 — context-PR open moved out of the
+            # per-pipeline state lock so the multi-second gateway
+            # sequence (create_context_branch → file copy → commit →
+            # push → ``gh pr create``) no longer holds the lock and
+            # block concurrent ``advance_phase`` / status reads.  The
+            # helper is idempotent on its inner ``context_pr_number``
+            # short-circuit so a racing call from the runner thread's
+            # implement-entry backstop converges safely.
+            if _hitl_open_context_pr_after_lock and _hitl_pr_worktree_path is not None:
+                _maybe_open_base_pr_for_plan_to_implement(
+                    pipeline,
+                    _get_spawner(),
+                    _hitl_pr_worktree_path,
+                    gateway_mode=_gw_mode,
+                    source="hitl_resume",
+                )
 
             # Launch runner thread
             thread = threading.Thread(

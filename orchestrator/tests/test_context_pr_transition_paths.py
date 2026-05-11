@@ -105,6 +105,18 @@ def propagate_orchestrator_logs():
         pl_logger.propagate = prior
 
 
+@pytest.fixture(autouse=True)
+def reset_context_pr_dedupe():
+    """The wrapper dedupes ``context_pr.skipped`` / ``context_pr.failed``
+    via a module-level set keyed on ``pipeline_id`` (#2593 review issue
+    2).  Clear the set per test so tests that re-use the same pipeline
+    fixture do not see the dedupe from a sibling test's first call.
+    """
+    _pipelines_mod._context_pr_events_emitted.clear()
+    yield
+    _pipelines_mod._context_pr_events_emitted.clear()
+
+
 # ---------------------------------------------------------------------------
 # CUSTOM-mode guard
 # ---------------------------------------------------------------------------
@@ -123,6 +135,33 @@ class TestCustomModeGuard:
                 source="run_pipeline_autoadvance",
             )
         inner.assert_not_called()
+
+    def test_emits_skip_log_line_for_custom_mode(
+        self,
+        tmp_path,
+        custom_pipeline,
+        spawner,
+        caplog,
+        propagate_orchestrator_logs,
+    ):
+        """#2593 review issue 10 — CUSTOM-mode pipelines short-circuit
+        before the inner hook is invoked, but the wrapper still emits
+        a "hook skipped (CUSTOM mode)" log line so operators tracing
+        transition paths via log greps see one record per call site
+        (not silence)."""
+        with caplog.at_level(logging.INFO):
+            _maybe_open_base_pr_for_plan_to_implement(
+                custom_pipeline,
+                spawner,
+                tmp_path,
+                source="run_pipeline_autoadvance",
+            )
+        skipped = [
+            rec
+            for rec in caplog.records
+            if "Context PR hook skipped (CUSTOM mode)" in rec.getMessage()
+        ]
+        assert skipped, "expected a 'Context PR hook skipped (CUSTOM mode)' log line"
 
 
 # ---------------------------------------------------------------------------
@@ -366,56 +405,142 @@ class TestMessageBusEmission:
             )
         assert reports == [], "must not emit context_pr.* on local-mode pipelines (no remote)"
 
+    def test_repeated_invocations_dedupe_emitted_event(self, tmp_path, issue_pipeline, spawner):
+        """#2593 review issue 2 — the wrapper can run multiple times
+        for the same pipeline (auto-advance + implement-entry backstop,
+        HITL recovery + backstop).  The inner hook's idempotency
+        short-circuits the PR-creation work, but the bus emission
+        would otherwise fire on each invocation.  The wrapper must
+        dedupe so a single failure produces one ``context_pr.failed``
+        event, not one per call site."""
+        reports: list[tuple[str | None, str | None]] = []
+
+        def _fake_report(pipeline, event_type=None, message=None):
+            reports.append((event_type, message))
+
+        from egg_contracts.models import (
+            Contract,
+            IssueInfo,
+            PRMetadata,
+        )
+        from egg_contracts.models import (
+            PipelinePhase as ContractPhase,
+        )
+
+        contract = Contract(
+            issue=IssueInfo(number=2593, title="t", url=""),
+            pipeline_id="issue-2593",
+            current_phase=ContractPhase.PLAN,
+            pr=PRMetadata(title="t"),
+        )
+
+        def _fake_load(identifier, repo_root):
+            return contract
+
+        with (
+            patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch.object(_pipelines_mod, "report_pipeline_status", _fake_report),
+            patch("egg_contracts.loader.load_contract", _fake_load),
+        ):
+            inner.side_effect = RuntimeError("gateway down")
+            # Simulate auto-advance then implement-entry backstop.
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="run_pipeline_autoadvance",
+            )
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="implement_entry_backstop",
+            )
+
+        failed_events = [r for r in reports if r[0] == "context_pr.failed"]
+        assert len(failed_events) == 1, (
+            f"expected exactly one context_pr.failed event across two "
+            f"wrapper invocations for the same pipeline; got {reports!r}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Call-site wiring: the four transition paths route through the helper
 # ---------------------------------------------------------------------------
 
 
+def _collect_helper_call_sources(file_path: Path) -> list[str | None]:
+    """AST-walk ``file_path`` and return the ``source=`` kwarg literal
+    of every call to ``_maybe_open_base_pr_for_plan_to_implement``.
+
+    Returns one entry per call site (function definitions are NOT
+    counted — only ``ast.Call`` nodes).  A ``None`` entry means the
+    call site was found but its ``source`` kwarg was not a plain
+    string literal (a future refactor might dispatch on a variable —
+    flag for human review).
+    """
+    import ast
+
+    tree = ast.parse(file_path.read_text())
+    sources: list[str | None] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "_maybe_open_base_pr_for_plan_to_implement":
+            literal: str | None = None
+            for kw in node.keywords:
+                if kw.arg == "source" and isinstance(kw.value, ast.Constant):
+                    if isinstance(kw.value.value, str):
+                        literal = kw.value.value
+            sources.append(literal)
+    return sources
+
+
 class TestCallSiteWiring:
-    """Static / textual assertions that each known transition path
-    routes through ``_maybe_open_base_pr_for_plan_to_implement`` and
-    passes a recognised ``source`` value.  These guard against future
+    """AST-based assertions that each known transition path routes
+    through ``_maybe_open_base_pr_for_plan_to_implement`` and passes
+    a recognised ``source`` value.  These guard against future
     refactors silently breaking the wiring (regression class for
-    #2593)."""
+    #2593).
 
-    def test_run_pipeline_autoadvance_source_present(self):
-        src = (_orchestrator_path / "routes" / "pipelines.py").read_text()
-        assert 'source="run_pipeline_autoadvance"' in src
+    AST-based (#2593 review issue 8) so the count is not perturbed by
+    docstring examples that mention the helper name, by import-line
+    splits, or by string-literal occurrences in error messages.  The
+    function definition itself is an ``ast.FunctionDef`` and is not
+    counted.
+    """
 
-    def test_implement_entry_backstop_source_present(self):
-        src = (_orchestrator_path / "routes" / "pipelines.py").read_text()
-        assert 'source="implement_entry_backstop"' in src
-
-    def test_hitl_resume_source_present(self):
-        src = (_orchestrator_path / "routes" / "pipelines.py").read_text()
-        assert 'source="hitl_resume"' in src
-
-    def test_advance_phase_rest_source_present(self):
-        src = (_orchestrator_path / "routes" / "phases.py").read_text()
-        assert 'source="advance_phase_rest"' in src
-
-    def test_helper_called_from_all_four_sites(self):
-        """Belt-and-suspenders: count call sites of the helper across
-        both files.  Exactly four expected (run_pipeline auto-advance,
-        implement-entry backstop, HITL resume in pipelines.py, plus
-        advance_phase in phases.py).  An accidental refactor that
-        drops one will trip this."""
-        pl_src = (_orchestrator_path / "routes" / "pipelines.py").read_text()
-        ph_src = (_orchestrator_path / "routes" / "phases.py").read_text()
-        # Count call-site invocations, not the definition line.
-        pl_calls = pl_src.count("_maybe_open_base_pr_for_plan_to_implement(")
-        ph_calls = ph_src.count("_maybe_open_base_pr_for_plan_to_implement(")
-        # pipelines.py has 1 (definition) + 3 (autoadvance, backstop,
-        # HITL) = 4 occurrences of the bare name.
-        # phases.py has 1 (advance_phase REST handler).
-        assert pl_calls == 4, (
-            f"expected 4 occurrences of "
-            f"_maybe_open_base_pr_for_plan_to_implement( in pipelines.py "
-            f"(1 def + 3 call sites), got {pl_calls}"
+    def test_pipelines_py_has_expected_call_sites(self):
+        """``pipelines.py`` calls the helper from auto-advance,
+        implement-entry backstop, and HITL resume — three call sites
+        with three distinct, recognised source values.  The wrapper
+        definition itself is an ``ast.FunctionDef`` and is excluded
+        by the AST filter."""
+        pl_path = _orchestrator_path / "routes" / "pipelines.py"
+        sources = _collect_helper_call_sources(pl_path)
+        assert len(sources) == 3, (
+            f"expected 3 call sites in pipelines.py (auto-advance, "
+            f"implement-entry backstop, HITL resume), got {len(sources)} "
+            f"with sources {sources!r}"
         )
-        assert ph_calls == 1, (
-            f"expected 1 occurrence of "
-            f"_maybe_open_base_pr_for_plan_to_implement( in phases.py "
-            f"(advance_phase REST call site), got {ph_calls}"
+        # No call site should pass a non-literal ``source`` — that
+        # would defeat the per-path log tagging.
+        assert all(s is not None for s in sources), (
+            f"every helper call must pass source= as a string literal; got {sources!r}"
+        )
+        assert set(sources) == {
+            "run_pipeline_autoadvance",
+            "implement_entry_backstop",
+            "hitl_resume",
+        }, f"unexpected source values in pipelines.py: {sources!r}"
+
+    def test_phases_py_has_expected_call_site(self):
+        """``phases.py`` calls the helper exactly once, from the
+        plan→implement branch of the ``advance_phase`` REST/MCP
+        handler, with ``source="advance_phase_rest"``."""
+        ph_path = _orchestrator_path / "routes" / "phases.py"
+        sources = _collect_helper_call_sources(ph_path)
+        assert sources == ["advance_phase_rest"], (
+            f"expected 1 call site in phases.py with source='advance_phase_rest'; got {sources!r}"
         )
