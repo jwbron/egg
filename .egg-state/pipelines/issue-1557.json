@@ -249,10 +249,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "**Done children handling in the plan prompt**: when reassessing an epic that has children already in Done state, how should those Done children be presented to the planning agent?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Exclude Done children from the plan prompt entirely (cleanest signal — agent can't accidentally re-propose equivalent work)",
+        "Include Done children with an explicit `do-not-re-plan` marker (gives the agent context for what's already shipped so it can build on it; risk is the agent might re-propose anyway)",
+        "Include Done children's summary+description but redact acceptance criteria + scope (gives just enough context for follow-on planning without inviting re-implementation)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.096618Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.058675Z",
+  "updated_at": "2026-05-11T22:24:52.102624Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -266,6 +285,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null
 }
