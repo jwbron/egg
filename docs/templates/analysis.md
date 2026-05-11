@@ -51,7 +51,17 @@
 [Each open question is registered using `egg-contract add-decision` (multiple-choice)
 or `egg-contract add-feedback` (open-ended). Paste the markdown output of each
 registration command here. Questions written as plain text will not be seen by the
-human.]
+human.
+
+For **work-decomposition decisions** on multi-part tasks, frame the question on the
+slice-DAG shape, not on PR count. In egg, each slice has its own integration branch,
+agent team, BRC consensus, and PR, and sibling slices in the same wave run in parallel
+(see [Slice-DAG Implement Phase](../architecture/slice-dag.md)). Slice count = PR count
+by construction, so annotate the PR consequence in parentheses — e.g.
+`Two slices in parallel: [A] || [B+C] (2 PRs)`,
+`Two slices with dependency: [A] -> [B] (2 PRs)` — rather than registering an option
+list framed as "N PRs" or "N sequential PRs". The "sequential" wording is especially
+wrong because the slice scheduler does not require sibling slices to serialize.]
 
 ---
 

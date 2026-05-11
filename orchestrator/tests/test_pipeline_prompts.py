@@ -3218,6 +3218,77 @@ class TestRefinePromptTemplateFenceSeparation:
         assert "How to Populate Open Questions" in body
 
 
+class TestRefinePromptSliceDagFraming:
+    """Refine prompt must frame work-decomposition decisions in slice-DAG terms.
+
+    Regression for #2584: refiner used to register multi-part work-decomposition
+    decisions with options framed as PR count ("Two PRs: E first, then A+F",
+    "Three sequential PRs: E -> A -> F"). In egg, slices are the
+    work-decomposition primitive — each slice has its own branch + BRC consensus
+    + PR, and sibling slices in a wave run in parallel under the slice scheduler.
+    Slice count = PR count by construction, so the decision should name the
+    slice-DAG shape and annotate the PR consequence in parentheses; "N sequential
+    PRs" is doubly wrong because it forces serialization the scheduler does not
+    require.
+    """
+
+    @staticmethod
+    def _refine_prompt() -> str:
+        return _build_phase_prompt(
+            phase="refine",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Analyze this issue.",
+            issue_number=100,
+        )
+
+    def test_prompt_introduces_work_decomposition_section(self):
+        prompt = self._refine_prompt()
+        assert "Work-decomposition decisions" in prompt
+
+    def test_prompt_frames_decomposition_on_slices_not_pr_count(self):
+        prompt = self._refine_prompt()
+        # Slice-DAG vocabulary must appear in the work-decomposition guidance.
+        for needle in (
+            "decomposition primitive",
+            "decomposed into slices",
+            "slice-dag.md",
+            "in parallel",
+        ):
+            assert needle in prompt, f"slice-DAG framing token {needle!r} missing"
+
+    def test_prompt_provides_slice_shaped_example_options(self):
+        prompt = self._refine_prompt()
+        # The worked egg-contract add-decision example should show options
+        # framed on slice-DAG shape with the PR count as an annotation.
+        assert "Single slice: all parts ship together (1 PR)" in prompt
+        assert "Two slices in parallel: [A] || [B+C] (2 PRs)" in prompt
+        assert "Two slices with dependency: [A] -> [B] (2 PRs)" in prompt
+        assert "Three slices fully parallel: [A], [B], [C] (3 PRs)" in prompt
+
+    def test_prompt_warns_against_sequential_pr_framing(self):
+        prompt = self._refine_prompt()
+        # "N sequential PRs" framing must be explicitly called out as wrong.
+        assert '"N sequential PRs"' in prompt
+        assert "the slice scheduler does not require" in prompt
+
+    def test_decomposition_guidance_lives_outside_template_fence(self):
+        prompt = self._refine_prompt()
+        body = TestRefinePromptTemplateFenceSeparation._template_fence_body(prompt)
+        # The decomposition guidance is meta-protocol — it must not leak
+        # into the analysis-document template body that the refiner copies.
+        for needle in (
+            "Work-decomposition decisions",
+            "decomposition primitive",
+            "Single slice: all parts ship together (1 PR)",
+            "the slice scheduler does not require",
+        ):
+            assert needle not in body, (
+                f"decomposition guidance {needle!r} leaked into template "
+                "fence — refiner may transcribe it into the analysis document"
+            )
+
+
 class TestReviewerBrcPreamble:
     """Tests that reviewer agents receive BRC preamble in concurrent mode."""
 
