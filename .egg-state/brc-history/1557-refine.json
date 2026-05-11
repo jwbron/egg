@@ -1,0 +1,1131 @@
+[
+  {
+    "id": "d16cbfcb-705f-45",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:46:34.698177+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "39e00da8-c672-4e",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "reviewer_refine waiting for refiner to publish CONSENSUS_PROPOSE; draft at .egg-state/drafts/1557-analysis.md not present yet",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "refiner"
+    },
+    "timestamp": "2026-05-11T21:46:34.718862+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "190704df-3ef7-43",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:45.112026+00:00"
+    },
+    "timestamp": "2026-05-11T21:47:01.694310+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8ad2efb0-e035-4f",
+    "pipeline_id": "issue-1557",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 1 complete. Pipeline issue-1557 is running (phase: refine). Three agents active. Transient pipeline_unreachable alert resolved \u2014 BRC endpoint confirms healthy state. Continuing monitoring.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T21:47:01.706901+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "55297507-477c-4b",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:47:59.098727+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "fd236d53-a888-46",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:45.112026+00:00"
+    },
+    "timestamp": "2026-05-11T21:48:00.256920+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "be882a43-353a-4f",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:48:49.785269+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9c29fea3-7d0a-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:45.112026+00:00"
+    },
+    "timestamp": "2026-05-11T21:49:00.362893+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "724f108b-eaa2-40",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:49:49.831841+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1ed1a665-6d37-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:45.112026+00:00"
+    },
+    "timestamp": "2026-05-11T21:50:00.446369+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "02863f0f-fdae-41",
+    "pipeline_id": "issue-1557",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [medium]",
+    "body": "Refiner has been WORKING for 223 s with no BRC messages (stall threshold: 180 s). Reviewers are waiting on CONSENSUS_PROPOSE.\n\nDetail:\nPipeline issue-1557, refine phase. Container 1c829be2-3f61-48d9-92da-e1268afd9df7 (refiner) started at 2026-05-11T21:45:42Z. Zero heartbeats or proposals emitted via BRC channel. Draft .egg-state/drafts/1557-analysis.md not yet present. Both reviewer_refine and reviewer_agent_design are blocked WAITING_FOR_EVENT (CONSENSUS_PROPOSE). No blocking anomalies from detector (detector calibration artifact present). Stall threshold: overseer_agent_stall_seconds=180. Silent-agent threshold: 600 s.\n\nRecommended action:\nIf no CONSENSUS_PROPOSE appears within the next ~4 min (before the 600 s silent-agent trip wire), consider restarting the refiner container or inspecting its logs via `egg-checkpoint show` for the refiner role.",
+    "metadata": {},
+    "timestamp": "2026-05-11T21:50:15.354264+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7e4ed9cf-dc63-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:50:49.893347+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b2c772e8-fd3c-46",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:45.112026+00:00"
+    },
+    "timestamp": "2026-05-11T21:51:00.492311+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a8b0b45f-f753-47",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:51:49.948317+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "fc5ed488-4655-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:45.112026+00:00"
+    },
+    "timestamp": "2026-05-11T21:52:00.558337+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "909686cc-8374-4d",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:52:50.003454+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d2ac54ad-5671-44",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:45.112026+00:00"
+    },
+    "timestamp": "2026-05-11T21:53:00.645467+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "aae2568e-5e1f-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 7 overseer check-in. Refiner at 374s \u2014 context updated: 10 HITL decisions + 1 feedback form (5 Qs) registered, all unresolved. Refiner is doing analysis work (not stalled). Reviewers correctly WAITING_FOR_EVENT. Silent-agent threshold at 600s; ~3.7 min remaining. Overseer heartbeat dedup issue detected \u2014 varying state to reset timer.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "waiting_on": "refiner",
+      "since": "2026-05-11T21:51:57Z"
+    },
+    "timestamp": "2026-05-11T21:53:03.346457+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "538519f0-a518-43",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:53:50.060469+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1bcda71a-42a0-4e",
+    "pipeline_id": "issue-1557",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [high]",
+    "body": "ESCALATION: Refiner at 444s \u2014 no draft written, no BRC messages, no checkpoints. Silent-agent threshold (600s) in ~156s. Likely stalled.\n\nDetail:\nEvidence of stall: (1) 1557-analysis.md does not exist in .egg-state/drafts/ (all other draft files are pre-load timestamped 21:45); (2) zero BRC messages from refiner across entire session; (3) zero checkpoints saved; (4) 10 HITL decisions registered \u2014 may be from a prior session. Container 1c829be2-3f61-48d9-92da-e1268afd9df7 is running but agent appears dark. Both reviewers remain blocked WAITING_FOR_EVENT on CONSENSUS_PROPOSE. Elapsed: 444s. Threshold: 600s. Time remaining: ~156s.\n\nRecommended action:\nInspect refiner container logs immediately: egg-checkpoint show --role refiner --pipeline issue-1557. If logs show an LLM error, tool-call loop, or context overflow, restart the refiner container. The 10 pre-existing HITL decisions (decision-1 through decision-10) may need to be answered by operator before a restart can succeed if the refiner is waiting on them.",
+    "metadata": {},
+    "timestamp": "2026-05-11T21:54:20.972122+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "64990e5d-4820-41",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:45.112026+00:00"
+    },
+    "timestamp": "2026-05-11T21:54:21.049809+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "761187cc-7b67-41",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:46:31.540996+00:00"
+    },
+    "timestamp": "2026-05-11T21:54:59.249384+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ee13530a-7778-45",
+    "pipeline_id": "issue-1557",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 9 \u2014 overseer ACTIVE. Refiner at 523s, 77s to 600s silent-agent threshold. Detector in calibration_only mode \u2014 automated stall intervention suppressed. High-priority overseer alert 1bcda71a dispatched. Monitoring at max frequency.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T21:54:59.252829+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "42b8d277-d590-4e",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "Refine analysis for issue #1557 (Jira epic SDLC pipelines). Surveys existing submit_task Jira path, refine/plan prompts, Jira+Confluence gateway verbs; confirms #1556/#1924/#1931/#2137 are landed and #2289's in-flight handling is folded in. Surfaces runtime primitives (existing submit_task/EGG_JIRA_TICKET/_run_refine/_run_plan/PR-artifact plumbing plus new pieces: epic-input branch, reassess discovery, plan apply step, orchestrator-direct creds for the gateway-blocked Won't-Do transition, plan-node\u2192Jira-key mapping, in-flight HITL gate) with file:line evidence and execution-context scope for the plan-phase Primitive-Existence and Trust-Boundary audits. Registers 10 multiple-choice decisions (slice decomposition + the 4 inherited from the issue + 5 refiner-surfaced design choices) and 5 open-ended feedback questions. Recommends Option A (single slice, 1 PR) with Option B (foundation \u2192 reassess) as fallback. Complexity: high.",
+    "metadata": {
+      "payload": {
+        "summary": "Refine analysis for issue #1557 (Jira epic SDLC pipelines). Surveys existing submit_task Jira path, refine/plan prompts, Jira+Confluence gateway verbs; confirms #1556/#1924/#1931/#2137 are landed and #2289's in-flight handling is folded in. Surfaces runtime primitives (existing submit_task/EGG_JIRA_TICKET/_run_refine/_run_plan/PR-artifact plumbing plus new pieces: epic-input branch, reassess discovery, plan apply step, orchestrator-direct creds for the gateway-blocked Won't-Do transition, plan-node\u2192Jira-key mapping, in-flight HITL gate) with file:line evidence and execution-context scope for the plan-phase Primitive-Existence and Trust-Boundary audits. Registers 10 multiple-choice decisions (slice decomposition + the 4 inherited from the issue + 5 refiner-surfaced design choices) and 5 open-ended feedback questions. Recommends Option A (single slice, 1 PR) with Option B (foundation \u2192 reassess) as fallback. Complexity: high.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1557-analysis.md"
+        ],
+        "risk_considered": "Risk: missing a primitive in the audit table \u2192 plan phase will catch via the Primitive-Existence audit (#2594) and bounce back. Risk: over-registering decisions \u2192 operator gets more HITL clicks than necessary; mitigated by skipping the issue's already-resolved sub-section. Risk: under-registering \u2192 unstated assumptions land in plan; mitigated by registering every uncertainty surfaced during the survey (10 decisions + 5 feedback questions).",
+        "commit_sha": "4e2dd7886",
+        "files_changed": [
+          ".egg-state/drafts/1557-analysis.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "4e2dd7886"
+    },
+    "timestamp": "2026-05-11T21:54:59.682491+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9b8c9e96-8121-49",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T21:54:59.746953+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "609aee06-7652-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T21:54:59.749512+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "949017cd-9bba-44",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:55:06.478913+00:00"
+    },
+    "timestamp": "2026-05-11T21:55:27.226965+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1366f0b1-11ee-4a",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:55:06.478913+00:00"
+    },
+    "timestamp": "2026-05-11T21:56:21.540591+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "56ac2555-ee3a-4b",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "\nReviewed `.egg-state/drafts/1557-analysis.md` against agent-mode design criteria. No agent-mode anti-patterns found.\n\nSpecific things checked and approved:\n\n1. **Trust-boundary framing (lines 110\u2013115)** \u2014 The \"apply step\" placement is explicitly framed as a trust-boundary choice between in-sandbox-agent (via gateway, preserves audit trail) and trusted-CI-runner (orchestrator). The decision is correctly deferred to plan phase rather than railroaded; both options are named with their consequences. The Won't-Do transition is correctly identified as trusted-CI-runner-only (no gateway path).\n\n2. **Zero-credential invariant preserved (lines 64\u201373, line 122)** \u2014 The new orchestrator-direct Jira credential surface is constrained narrowly to `transitions` (the one verb permanently denylisted at the gateway per `JIRA_WRITE_VERBS_DENIED`). Constraint on line 122 explicitly states it \"must not be reused for ticket create / edit / comment / link, which all have gateway-mediated paths.\" This is the correct narrow exception, not a slippery-slope erosion of the gateway boundary.\n\n3. **Apply-time re-verification, not prompt trust (lines 123\u2013125)** \u2014 Idempotency and in-flight detection are framed as properties of the apply step, not the agent. The agent's `in_flight` annotation in the plan draft is advisory; the apply step re-checks at apply time because \"status / open-PR can change between plan approval and apply.\" This is the right pattern \u2014 server-side enforcement, agent output not trusted for security-relevant state.\n\n4. **HITL-driven plan/apply split is architecturally required, not an anti-pattern post-processing pipeline** \u2014 The plan apply step parsing the plan draft (markdown + YAML-frontmatter mapping per decision-10) is not an instance of \"scripts that parse agent output to take actions the agent could take directly.\" The split exists because the human reviews the plan draft before apply runs; this is the HITL gate. The decision-10 recommendation (inline YAML frontmatter in the plan draft) keeps the data structure operator-editable and version-controlled in the work branch.\n\n5. **No structured-output-for-humans** \u2014 Refine analysis and plan draft are markdown for operator review. The YAML-tasks appendix is structured by necessity (plan_parser.py consumes it) but is co-located with the human-readable plan.\n\n6. **Runtime Primitives table (lines 83\u2013108)** is lightweight metadata (file:line + execution context + one-line notes), not pre-fetched diffs/file contents. Sized appropriately for orienting the plan phase under #2594's primitive-existence audit.\n\n7. **No direct LLM API calls outside sandbox, no hardcoded model identifiers, no prompt-level security used as a substitute for sandbox-enforced constraints.**\n\n8. **No rigid agent procedures** \u2014 Options A\u2013D are framed as trade-offs, decisions 1\u201310 are explicit HITL decision points, feedback Q1\u2013Q5 are open-ended. The analysis surfaces objectives and constraints; the agents are not micromanaged.\n\nThe orchestrator-direct cred surface (feedback Q1) is the one piece that introduces new architectural surface area; the analysis correctly flags it as the most novel piece and constrains its scope sharply. From an agent-mode-design standpoint this is acceptable: it's a narrow, gateway-denylist-driven exception with its setup story registered for operator feedback rather than smuggled in as an implicit assumption.\n\nLGTM from the agent-design reviewer perspective. Deferring to reviewer_refine for substantive content review.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1557-analysis.md"
+        ],
+        "reason": "\nReviewed `.egg-state/drafts/1557-analysis.md` against agent-mode design criteria. No agent-mode anti-patterns found.\n\nSpecific things checked and approved:\n\n1. **Trust-boundary framing (lines 110\u2013115)** \u2014 The \"apply step\" placement is explicitly framed as a trust-boundary choice between in-sandbox-agent (via gateway, preserves audit trail) and trusted-CI-runner (orchestrator). The decision is correctly deferred to plan phase rather than railroaded; both options are named with their consequences. The Won't-Do transition is correctly identified as trusted-CI-runner-only (no gateway path).\n\n2. **Zero-credential invariant preserved (lines 64\u201373, line 122)** \u2014 The new orchestrator-direct Jira credential surface is constrained narrowly to `transitions` (the one verb permanently denylisted at the gateway per `JIRA_WRITE_VERBS_DENIED`). Constraint on line 122 explicitly states it \"must not be reused for ticket create / edit / comment / link, which all have gateway-mediated paths.\" This is the correct narrow exception, not a slippery-slope erosion of the gateway boundary.\n\n3. **Apply-time re-verification, not prompt trust (lines 123\u2013125)** \u2014 Idempotency and in-flight detection are framed as properties of the apply step, not the agent. The agent's `in_flight` annotation in the plan draft is advisory; the apply step re-checks at apply time because \"status / open-PR can change between plan approval and apply.\" This is the right pattern \u2014 server-side enforcement, agent output not trusted for security-relevant state.\n\n4. **HITL-driven plan/apply split is architecturally required, not an anti-pattern post-processing pipeline** \u2014 The plan apply step parsing the plan draft (markdown + YAML-frontmatter mapping per decision-10) is not an instance of \"scripts that parse agent output to take actions the agent could take directly.\" The split exists because the human reviews the plan draft before apply runs; this is the HITL gate. The decision-10 recommendation (inline YAML frontmatter in the plan draft) keeps the data structure operator-editable and version-controlled in the work branch.\n\n5. **No structured-output-for-humans** \u2014 Refine analysis and plan draft are markdown for operator review. The YAML-tasks appendix is structured by necessity (plan_parser.py consumes it) but is co-located with the human-readable plan.\n\n6. **Runtime Primitives table (lines 83\u2013108)** is lightweight metadata (file:line + execution context + one-line notes), not pre-fetched diffs/file contents. Sized appropriately for orienting the plan phase under #2594's primitive-existence audit.\n\n7. **No direct LLM API calls outside sandbox, no hardcoded model identifiers, no prompt-level security used as a substitute for sandbox-enforced constraints.**\n\n8. **No rigid agent procedures** \u2014 Options A\u2013D are framed as trade-offs, decisions 1\u201310 are explicit HITL decision points, feedback Q1\u2013Q5 are open-ended. The analysis surfaces objectives and constraints; the agents are not micromanaged.\n\nThe orchestrator-direct cred surface (feedback Q1) is the one piece that introduces new architectural surface area; the analysis correctly flags it as the most novel piece and constrains its scope sharply. From an agent-mode-design standpoint this is acceptable: it's a narrow, gateway-denylist-driven exception with its setup story registered for operator feedback rather than smuggled in as an implicit assumption.\n\nLGTM from the agent-design reviewer perspective. Deferring to reviewer_refine for substantive content review.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-11T21:56:23.328496+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "20bbce57-22e0-4a",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T21:56:23.367147+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "09c430a7-8ddb-4e",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_agent_design",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-11T21:56:26.227025+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5c015512-c0a4-47",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:27.185402+00:00"
+    },
+    "timestamp": "2026-05-11T21:56:27.212028+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f616f35f-21e1-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:29.738389+00:00"
+    },
+    "timestamp": "2026-05-11T21:56:29.834598+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9b67ac37-8661-49",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:27.185402+00:00"
+    },
+    "timestamp": "2026-05-11T21:57:27.276712+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1737c614-28e8-48",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:29.738389+00:00"
+    },
+    "timestamp": "2026-05-11T21:57:29.888552+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b95da3f7-5103-48",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:27.185402+00:00"
+    },
+    "timestamp": "2026-05-11T21:58:27.347681+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "05d6cc30-5124-49",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:29.738389+00:00"
+    },
+    "timestamp": "2026-05-11T21:58:29.953273+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "05d6d049-40b2-4a",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_refine for refiner",
+    "body": "\n## Section-by-section evaluation\n\nReviewed the full refine draft `.egg-state/drafts/1557-analysis.md` (288 lines), cross-referenced every file:line citation against the source, and verified the HITL surface against `egg-contract --issue 1557 show` (10 decisions + feedback-1 with Q1\u2013Q5 all registered, matching the open-question list verbatim).\n\n**Strengths.** Problem statement (lines 5\u201319) accurately restates the issue's fresh-vs-reassess split and the \"same pipeline, only IO sinks change\" framing. Current Behavior (21\u201381) cites `orchestrator/mcp_tools.py:1287\u20131310`, `pipelines.py:18993\u201318998`, `pipelines.py:5512\u20135560`, `pipelines.py:4142\u20134160`, `pipelines.py:8277`, `jira_client.py:399\u2013422`, `jira_client.py:133\u2013146`, `models.py:981\u20131004` \u2014 every one of these matches the source within a line or two. The denylist read (`transitions`/`worklog`/`attachments`/`watchers` permanently forbidden) is correct and is the right lever to justify the orchestrator-direct cred surface. The Runtime Primitives table (87\u2013108) is exactly the shape #2594 asks for. Constraints (119\u2013149) is thorough. The Recommended Approach (212\u2013235) is concretely justified, names Option B as the fallback path, and ties each per-decision secondary back to the analysis.\n\n### Blocking\n\n1. **`.egg-state/drafts/1557-analysis.md:110\u2013116` (Trust-boundary note) \u2014 apply-step-location is named as an open architectural question but never registered as a contract decision.** The note says \"there are two natural homes for the apply step\" (sandbox-agent via gateway vs trusted-CI-runner directly) and concludes \"this is registered as part of the slice-decomposition decision and surfaced for the plan phase to call out concretely.\" Decision-1 is purely about how to split the work into N PRs \u2014 its options enumerate (A+B+C+...+G) groupings, not apply-step location. The location is orthogonal to slicing: regardless of how many PRs ship, plan needs to know whether `editJiraIssue` / `createJiraIssue` / `createIssueLink` calls originate in-sandbox (via the gateway, preserving the existing audit identity) or orchestrator-side (requiring a new gateway client + session token + audit-identity story for non-transition writes). Plan phase cannot author the apply step without this. **Fix:** register `decision-11` with concrete options \u2014 (a) sandbox-agent via gateway for all writes (Won't-Do still orchestrator-only since it has no gateway path); (b) orchestrator direct via gateway for all writes; (c) hybrid \u2014 gateway-mediated writes from a dedicated `apply-epic` agent, orchestrator-only for `transitions`; (d) all-orchestrator (no agent in the apply data path). Then revise the trust-boundary note to point at decision-11 instead of decision-1.\n\n2. **`.egg-state/drafts/1557-analysis.md:227` (recommended secondary for decision-2) \u2014 \"auto-detect from epic-project metadata\" is recommended but the supporting primitive does not exist in the gateway.** The reasoning says it \"aligns with the gateway's existing project-metadata lookup support.\" I grepped `gateway/jira_client.py` and `gateway/` more broadly: there is no project-metadata or `get_project` verb. What does exist (`jira_client.py:505\u2013527`) is a per-site **configured** `epic_link_field` parameter on `create_issue`, sourced from `JiraPolicy.epic_link_field` \u2014 that is a config-flag, not auto-detection from project metadata, and it ships the choice in policy rather than discovering it from the project's `issuetype` scheme. The Current Behavior section also lists the Jira gateway verbs (`get_ticket`, `search`, `get_comments`, `create_issue`, `edit_issue`, `add_comment`, `create_issue_link`) \u2014 none of which return project-config. **Fix:** either (a) cite the specific gateway call that returns project metadata sufficient to choose between `parent` and `Epic Link` (and add that primitive to the table on line 87+); (b) revise the recommendation to a different option (opt-3 operator-config-mapping or opt-4 `submit_task`-param both work without a new gateway capability); or (c) explicitly call out that opt-1 requires a new gateway verb (`get_project_metadata` or similar) and add it as a `(new)` row in the primitives table so plan-phase audits surface it.\n\n3. **`.egg-state/drafts/1557-analysis.md:129` (Constraints \u2014 reassess JQL) \u2014 claim that the disjunctive query is \"harmless on a project with no `Epic Link` field\" is factually risky and uncited.** The text says: \"The query as written is harmless on a project with no `Epic Link` field \u2014 Jira just returns no matches on that disjunct.\" Jira's documented JQL behavior is the opposite: a search referencing a field that does not exist (or is not configured) on the searched project returns HTTP 400 with `\"Field 'Epic Link' does not exist or you do not have permission to view it.\"` \u2014 the OR clause does not gracefully no-match, the entire request fails. (This is also why the gateway exposes a configurable `epic_link_field` parameter rather than always emitting the literal string \"Epic Link\".) If this claim is wrong, the reassess child-discovery is broken on every `parent`-only / team-managed project, which is the bulk of newer Jira sites. **Fix:** either (a) cite a tested execution of the disjunctive query against a project lacking `Epic Link` to substantiate the no-match claim, or (b) revise the constraint to \"the apply step must issue two separate JQL queries (`parent = <EPIC>` and `\"Epic Link\" = <EPIC>`) \u2014 falling back gracefully when one returns 400 \u2014 and merge the results. The query shape should reuse the gateway's configured `epic_link_field` rather than hardcoding the string `Epic Link`.\" This also resolves the tension with the existing `epic_link_field` policy primitive at `jira_client.py:505`.\n\n### Non-blocking\n\n- **Constraints section inconsistent with trust-boundary note.** Lines 123\u2013125 refer to \"the plan apply step\" with definite article as if its home is settled (\"must be idempotent\", \"must refuse \u2026 without a per-ticket operator confirmation\", \"the apply step re-checks at apply time\"). The trust-boundary note (110\u2013116) says the location is open. Once decision-11 (above) exists, qualify each constraint with the conditional (\"regardless of where it runs, the apply step must \u2026\") or split the location-dependent constraints into the two branches under decision-11.\n\n- **Partial-apply recovery not addressed.** The reassess plan apply may create 6 children, edit 4, transition 3 to Won't Do. If it fails after creating 5/13, the mapping store (decision-10) records the partial state \u2014 but the analysis does not state whether re-running plan apply resumes-from-mapping or starts over. The \"must be idempotent\" line at 123 is the closest, but idempotence \u2260 resume-from-partial. **Fix:** add a constraint: \"the apply step must resume from the mapping store on re-run: any plan node whose `existing_key` (reassess) or `created_key` (fresh) is already present skips re-creation/re-edit; any cross-task link whose both endpoints exist in the mapping is re-created idempotently via `createIssueLink`'s `idempotency_key`.\"\n\n- **Concurrent-edit risk on epic Description.** The refine apply step writes the epic Description via `editJiraIssue`. If an operator manually edits the Description after refine kicks off but before apply runs (or during a long re-review cycle), the apply silently overwrites their edit. Worth surfacing \u2014 either as a constraint (compare-and-swap via Jira's `If-Match` etag if the gateway supports it; otherwise a fetch-and-diff check at apply time with a warn-on-divergent-content HITL prompt) or as a feedback question alongside Q1 (operator setup story for the orchestrator-direct cred path covers a related operational concern).\n\n- **Out-of-scope subsection missing.** The issue body has an explicit \"Out of scope (future follow-ups)\" listing (a) Jira-label-driven state machine, (b) implement-phase cross-child coordination. The analysis discusses these inline (line 19 mentions implement is out-of-scope beyond definition; line 231 cites the issue's \"out-of-scope\" framing for auto-spawn) but does not carry them forward as a dedicated subsection. Plan-phase reviewers should not have to grep prose for scope boundaries. **Fix:** add a brief `## Explicitly out of scope` section at the end of Constraints or before Open Questions, enumerating both items + decision-6's auto-spawn deferral.\n\n- **`feedback-1` Q5 (reassess override flag) is structurally a decision, not open-ended feedback.** The options are essentially {no, yes-flag-name-A, yes-flag-name-B, yes-with-different-semantics}. Multi-choice + Other fits the decision schema cleanly. **Fix:** promote Q5 to `decision-11` (or `-12` after the apply-step-location decision lands) with `submit_task` parameter shape options.\n\n- **Plan-apply ordering against Jira rate limits.** Constraints (136) calls out Jira rate-limiting on bulk creates and recommends serialization or the bulk endpoint. The dependency-ordering requirement is adjacent but missing: `createIssueLink` calls must follow the `createJiraIssue` calls for both endpoints \u2014 the plan apply step needs a two-pass execution model (create-all-nodes first, then create-all-links). Worth one line in Constraints since it shapes the apply step's pseudo-code.\n\n- **Minor citation tightness.** `mcp_tools.py:1287\u20131310` (line 25) cites the regex-validation block but the full pipeline-ID-derivation logic actually runs through ~line 1307; the cited range is slightly too narrow. Not a correctness issue \u2014 minor.\n\n### What's good\n\nEverything else holds up under spot-checking. The primitives table is the right shape for the #2594 plan-phase audits. The 10 contract decisions and 5 feedback questions on `egg-contract --issue 1557 show` match the open-question list in the draft 1:1 (verified). The Won't-Do-via-orchestrator architecture is correctly motivated by the gateway denylist at `jira_client.py:133\u2013146`. The hard prerequisites (#1556/#1924/#1931/#2137) are all in `closed` state as claimed.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\n## Section-by-section evaluation\n\nReviewed the full refine draft `.egg-state/drafts/1557-analysis.md` (288 lines), cross-referenced every file:line citation against the source, and verified the HITL surface against `egg-contract --issue 1557 show` (10 decisions + feedback-1 with Q1\u2013Q5 all registered, matching the open-question list verbatim).\n\n**Strengths.** Problem statement (lines 5\u201319) accurately restates the issue's fresh-vs-reassess split and the \"same pipeline, only IO sinks change\" framing. Current Behavior (21\u201381) cites `orchestrator/mcp_tools.py:1287\u20131310`, `pipelines.py:18993\u201318998`, `pipelines.py:5512\u20135560`, `pipelines.py:4142\u20134160`, `pipelines.py:8277`, `jira_client.py:399\u2013422`, `jira_client.py:133\u2013146`, `models.py:981\u20131004` \u2014 every one of these matches the source within a line or two. The denylist read (`transitions`/`worklog`/`attachments`/`watchers` permanently forbidden) is correct and is the right lever to justify the orchestrator-direct cred surface. The Runtime Primitives table (87\u2013108) is exactly the shape #2594 asks for. Constraints (119\u2013149) is thorough. The Recommended Approach (212\u2013235) is concretely justified, names Option B as the fallback path, and ties each per-decision secondary back to the analysis.\n\n### Blocking\n\n1. **`.egg-state/drafts/1557-analysis.md:110\u2013116` (Trust-boundary note) \u2014 apply-step-location is named as an open architectural question but never registered as a contract decision.** The note says \"there are two natural homes for the apply step\" (sandbox-agent via gateway vs trusted-CI-runner directly) and concludes \"this is registered as part of the slice-decomposition decision and surfaced for the plan phase to call out concretely.\" Decision-1 is purely about how to split the work into N PRs \u2014 its options enumerate (A+B+C+...+G) groupings, not apply-step location. The location is orthogonal to slicing: regardless of how many PRs ship, plan needs to know whether `editJiraIssue` / `createJiraIssue` / `createIssueLink` calls originate in-sandbox (via the gateway, preserving the existing audit identity) or orchestrator-side (requiring a new gateway client + session token + audit-identity story for non-transition writes). Plan phase cannot author the apply step without this. **Fix:** register `decision-11` with concrete options \u2014 (a) sandbox-agent via gateway for all writes (Won't-Do still orchestrator-only since it has no gateway path); (b) orchestrator direct via gateway for all writes; (c) hybrid \u2014 gateway-mediated writes from a dedicated `apply-epic` agent, orchestrator-only for `transitions`; (d) all-orchestrator (no agent in the apply data path). Then revise the trust-boundary note to point at decision-11 instead of decision-1.\n\n2. **`.egg-state/drafts/1557-analysis.md:227` (recommended secondary for decision-2) \u2014 \"auto-detect from epic-project metadata\" is recommended but the supporting primitive does not exist in the gateway.** The reasoning says it \"aligns with the gateway's existing project-metadata lookup support.\" I grepped `gateway/jira_client.py` and `gateway/` more broadly: there is no project-metadata or `get_project` verb. What does exist (`jira_client.py:505\u2013527`) is a per-site **configured** `epic_link_field` parameter on `create_issue`, sourced from `JiraPolicy.epic_link_field` \u2014 that is a config-flag, not auto-detection from project metadata, and it ships the choice in policy rather than discovering it from the project's `issuetype` scheme. The Current Behavior section also lists the Jira gateway verbs (`get_ticket`, `search`, `get_comments`, `create_issue`, `edit_issue`, `add_comment`, `create_issue_link`) \u2014 none of which return project-config. **Fix:** either (a) cite the specific gateway call that returns project metadata sufficient to choose between `parent` and `Epic Link` (and add that primitive to the table on line 87+); (b) revise the recommendation to a different option (opt-3 operator-config-mapping or opt-4 `submit_task`-param both work without a new gateway capability); or (c) explicitly call out that opt-1 requires a new gateway verb (`get_project_metadata` or similar) and add it as a `(new)` row in the primitives table so plan-phase audits surface it.\n\n3. **`.egg-state/drafts/1557-analysis.md:129` (Constraints \u2014 reassess JQL) \u2014 claim that the disjunctive query is \"harmless on a project with no `Epic Link` field\" is factually risky and uncited.** The text says: \"The query as written is harmless on a project with no `Epic Link` field \u2014 Jira just returns no matches on that disjunct.\" Jira's documented JQL behavior is the opposite: a search referencing a field that does not exist (or is not configured) on the searched project returns HTTP 400 with `\"Field 'Epic Link' does not exist or you do not have permission to view it.\"` \u2014 the OR clause does not gracefully no-match, the entire request fails. (This is also why the gateway exposes a configurable `epic_link_field` parameter rather than always emitting the literal string \"Epic Link\".) If this claim is wrong, the reassess child-discovery is broken on every `parent`-only / team-managed project, which is the bulk of newer Jira sites. **Fix:** either (a) cite a tested execution of the disjunctive query against a project lacking `Epic Link` to substantiate the no-match claim, or (b) revise the constraint to \"the apply step must issue two separate JQL queries (`parent = <EPIC>` and `\"Epic Link\" = <EPIC>`) \u2014 falling back gracefully when one returns 400 \u2014 and merge the results. The query shape should reuse the gateway's configured `epic_link_field` rather than hardcoding the string `Epic Link`.\" This also resolves the tension with the existing `epic_link_field` policy primitive at `jira_client.py:505`.\n\n### Non-blocking\n\n- **Constraints section inconsistent with trust-boundary note.** Lines 123\u2013125 refer to \"the plan apply step\" with definite article as if its home is settled (\"must be idempotent\", \"must refuse \u2026 without a per-ticket operator confirmation\", \"the apply step re-checks at apply time\"). The trust-boundary note (110\u2013116) says the location is open. Once decision-11 (above) exists, qualify each constraint with the conditional (\"regardless of where it runs, the apply step must \u2026\") or split the location-dependent constraints into the two branches under decision-11.\n\n- **Partial-apply recovery not addressed.** The reassess plan apply may create 6 children, edit 4, transition 3 to Won't Do. If it fails after creating 5/13, the mapping store (decision-10) records the partial state \u2014 but the analysis does not state whether re-running plan apply resumes-from-mapping or starts over. The \"must be idempotent\" line at 123 is the closest, but idempotence \u2260 resume-from-partial. **Fix:** add a constraint: \"the apply step must resume from the mapping store on re-run: any plan node whose `existing_key` (reassess) or `created_key` (fresh) is already present skips re-creation/re-edit; any cross-task link whose both endpoints exist in the mapping is re-created idempotently via `createIssueLink`'s `idempotency_key`.\"\n\n- **Concurrent-edit risk on epic Description.** The refine apply step writes the epic Description via `editJiraIssue`. If an operator manually edits the Description after refine kicks off but before apply runs (or during a long re-review cycle), the apply silently overwrites their edit. Worth surfacing \u2014 either as a constraint (compare-and-swap via Jira's `If-Match` etag if the gateway supports it; otherwise a fetch-and-diff check at apply time with a warn-on-divergent-content HITL prompt) or as a feedback question alongside Q1 (operator setup story for the orchestrator-direct cred path covers a related operational concern).\n\n- **Out-of-scope subsection missing.** The issue body has an explicit \"Out of scope (future follow-ups)\" listing (a) Jira-label-driven state machine, (b) implement-phase cross-child coordination. The analysis discusses these inline (line 19 mentions implement is out-of-scope beyond definition; line 231 cites the issue's \"out-of-scope\" framing for auto-spawn) but does not carry them forward as a dedicated subsection. Plan-phase reviewers should not have to grep prose for scope boundaries. **Fix:** add a brief `## Explicitly out of scope` section at the end of Constraints or before Open Questions, enumerating both items + decision-6's auto-spawn deferral.\n\n- **`feedback-1` Q5 (reassess override flag) is structurally a decision, not open-ended feedback.** The options are essentially {no, yes-flag-name-A, yes-flag-name-B, yes-with-different-semantics}. Multi-choice + Other fits the decision schema cleanly. **Fix:** promote Q5 to `decision-11` (or `-12` after the apply-step-location decision lands) with `submit_task` parameter shape options.\n\n- **Plan-apply ordering against Jira rate limits.** Constraints (136) calls out Jira rate-limiting on bulk creates and recommends serialization or the bulk endpoint. The dependency-ordering requirement is adjacent but missing: `createIssueLink` calls must follow the `createJiraIssue` calls for both endpoints \u2014 the plan apply step needs a two-pass execution model (create-all-nodes first, then create-all-links). Worth one line in Constraints since it shapes the apply step's pseudo-code.\n\n- **Minor citation tightness.** `mcp_tools.py:1287\u20131310` (line 25) cites the regex-validation block but the full pipeline-ID-derivation logic actually runs through ~line 1307; the cited range is slightly too narrow. Not a correctness issue \u2014 minor.\n\n### What's good\n\nEverything else holds up under spot-checking. The primitives table is the right shape for the #2594 plan-phase audits. The 10 contract decisions and 5 feedback questions on `egg-contract --issue 1557 show` match the open-question list in the draft 1:1 (verified). The Won't-Do-via-orchestrator architecture is correctly motivated by the gateway denylist at `jira_client.py:133\u2013146`. The hard prerequisites (#1556/#1924/#1931/#2137) are all in `closed` state as claimed.\n",
+        "artifact_references": [
+          ".egg-state/drafts/1557-analysis.md",
+          ".egg-state/contracts/issue-1557.json",
+          "orchestrator/mcp_tools.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/models.py",
+          "gateway/jira_client.py",
+          "gateway/confluence_client.py"
+        ],
+        "nack_version": 1
+      },
+      "reason": "\n## Section-by-section evaluation\n\nReviewed the full refine draft `.egg-state/drafts/1557-analysis.md` (288 lines), cross-referenced every file:line citation against the source, and verified the HITL surface against `egg-contract --issue 1557 show` (10 decisions + feedback-1 with Q1\u2013Q5 all registered, matching the open-question list verbatim).\n\n**Strengths.** Problem statement (lines 5\u201319) accurately restates the issue's fresh-vs-reassess split and the \"same pipeline, only IO sinks change\" framing. Current Behavior (21\u201381) cites `orchestrator/mcp_tools.py:1287\u20131310`, `pipelines.py:18993\u201318998`, `pipelines.py:5512\u20135560`, `pipelines.py:4142\u20134160`, `pipelines.py:8277`, `jira_client.py:399\u2013422`, `jira_client.py:133\u2013146`, `models.py:981\u20131004` \u2014 every one of these matches the source within a line or two. The denylist read (`transitions`/`worklog`/`attachments`/`watchers` permanently forbidden) is correct and is the right lever to justify the orchestrator-direct cred surface. The Runtime Primitives table (87\u2013108) is exactly the shape #2594 asks for. Constraints (119\u2013149) is thorough. The Recommended Approach (212\u2013235) is concretely justified, names Option B as the fallback path, and ties each per-decision secondary back to the analysis.\n\n### Blocking\n\n1. **`.egg-state/drafts/1557-analysis.md:110\u2013116` (Trust-boundary note) \u2014 apply-step-location is named as an open architectural question but never registered as a contract decision.** The note says \"there are two natural homes for the apply step\" (sandbox-agent via gateway vs trusted-CI-runner directly) and concludes \"this is registered as part of the slice-decomposition decision and surfaced for the plan phase to call out concretely.\" Decision-1 is purely about how to split the work into N PRs \u2014 its options enumerate (A+B+C+...+G) groupings, not apply-step location. The location is orthogonal to slicing: regardless of how many PRs ship, plan needs to know whether `editJiraIssue` / `createJiraIssue` / `createIssueLink` calls originate in-sandbox (via the gateway, preserving the existing audit identity) or orchestrator-side (requiring a new gateway client + session token + audit-identity story for non-transition writes). Plan phase cannot author the apply step without this. **Fix:** register `decision-11` with concrete options \u2014 (a) sandbox-agent via gateway for all writes (Won't-Do still orchestrator-only since it has no gateway path); (b) orchestrator direct via gateway for all writes; (c) hybrid \u2014 gateway-mediated writes from a dedicated `apply-epic` agent, orchestrator-only for `transitions`; (d) all-orchestrator (no agent in the apply data path). Then revise the trust-boundary note to point at decision-11 instead of decision-1.\n\n2. **`.egg-state/drafts/1557-analysis.md:227` (recommended secondary for decision-2) \u2014 \"auto-detect from epic-project metadata\" is recommended but the supporting primitive does not exist in the gateway.** The reasoning says it \"aligns with the gateway's existing project-metadata lookup support.\" I grepped `gateway/jira_client.py` and `gateway/` more broadly: there is no project-metadata or `get_project` verb. What does exist (`jira_client.py:505\u2013527`) is a per-site **configured** `epic_link_field` parameter on `create_issue`, sourced from `JiraPolicy.epic_link_field` \u2014 that is a config-flag, not auto-detection from project metadata, and it ships the choice in policy rather than discovering it from the project's `issuetype` scheme. The Current Behavior section also lists the Jira gateway verbs (`get_ticket`, `search`, `get_comments`, `create_issue`, `edit_issue`, `add_comment`, `create_issue_link`) \u2014 none of which return project-config. **Fix:** either (a) cite the specific gateway call that returns project metadata sufficient to choose between `parent` and `Epic Link` (and add that primitive to the table on line 87+); (b) revise the recommendation to a different option (opt-3 operator-config-mapping or opt-4 `submit_task`-param both work without a new gateway capability); or (c) explicitly call out that opt-1 requires a new gateway verb (`get_project_metadata` or similar) and add it as a `(new)` row in the primitives table so plan-phase audits surface it.\n\n3. **`.egg-state/drafts/1557-analysis.md:129` (Constraints \u2014 reassess JQL) \u2014 claim that the disjunctive query is \"harmless on a project with no `Epic Link` field\" is factually risky and uncited.** The text says: \"The query as written is harmless on a project with no `Epic Link` field \u2014 Jira just returns no matches on that disjunct.\" Jira's documented JQL behavior is the opposite: a search referencing a field that does not exist (or is not configured) on the searched project returns HTTP 400 with `\"Field 'Epic Link' does not exist or you do not have permission to view it.\"` \u2014 the OR clause does not gracefully no-match, the entire request fails. (This is also why the gateway exposes a configurable `epic_link_field` parameter rather than always emitting the literal string \"Epic Link\".) If this claim is wrong, the reassess child-discovery is broken on every `parent`-only / team-managed project, which is the bulk of newer Jira sites. **Fix:** either (a) cite a tested execution of the disjunctive query against a project lacking `Epic Link` to substantiate the no-match claim, or (b) revise the constraint to \"the apply step must issue two separate JQL queries (`parent = <EPIC>` and `\"Epic Link\" = <EPIC>`) \u2014 falling back gracefully when one returns 400 \u2014 and merge the results. The query shape should reuse the gateway's configured `epic_link_field` rather than hardcoding the string `Epic Link`.\" This also resolves the tension with the existing `epic_link_field` policy primitive at `jira_client.py:505`.\n\n### Non-blocking\n\n- **Constraints section inconsistent with trust-boundary note.** Lines 123\u2013125 refer to \"the plan apply step\" with definite article as if its home is settled (\"must be idempotent\", \"must refuse \u2026 without a per-ticket operator confirmation\", \"the apply step re-checks at apply time\"). The trust-boundary note (110\u2013116) says the location is open. Once decision-11 (above) exists, qualify each constraint with the conditional (\"regardless of where it runs, the apply step must \u2026\") or split the location-dependent constraints into the two branches under decision-11.\n\n- **Partial-apply recovery not addressed.** The reassess plan apply may create 6 children, edit 4, transition 3 to Won't Do. If it fails after creating 5/13, the mapping store (decision-10) records the partial state \u2014 but the analysis does not state whether re-running plan apply resumes-from-mapping or starts over. The \"must be idempotent\" line at 123 is the closest, but idempotence \u2260 resume-from-partial. **Fix:** add a constraint: \"the apply step must resume from the mapping store on re-run: any plan node whose `existing_key` (reassess) or `created_key` (fresh) is already present skips re-creation/re-edit; any cross-task link whose both endpoints exist in the mapping is re-created idempotently via `createIssueLink`'s `idempotency_key`.\"\n\n- **Concurrent-edit risk on epic Description.** The refine apply step writes the epic Description via `editJiraIssue`. If an operator manually edits the Description after refine kicks off but before apply runs (or during a long re-review cycle), the apply silently overwrites their edit. Worth surfacing \u2014 either as a constraint (compare-and-swap via Jira's `If-Match` etag if the gateway supports it; otherwise a fetch-and-diff check at apply time with a warn-on-divergent-content HITL prompt) or as a feedback question alongside Q1 (operator setup story for the orchestrator-direct cred path covers a related operational concern).\n\n- **Out-of-scope subsection missing.** The issue body has an explicit \"Out of scope (future follow-ups)\" listing (a) Jira-label-driven state machine, (b) implement-phase cross-child coordination. The analysis discusses these inline (line 19 mentions implement is out-of-scope beyond definition; line 231 cites the issue's \"out-of-scope\" framing for auto-spawn) but does not carry them forward as a dedicated subsection. Plan-phase reviewers should not have to grep prose for scope boundaries. **Fix:** add a brief `## Explicitly out of scope` section at the end of Constraints or before Open Questions, enumerating both items + decision-6's auto-spawn deferral.\n\n- **`feedback-1` Q5 (reassess override flag) is structurally a decision, not open-ended feedback.** The options are essentially {no, yes-flag-name-A, yes-flag-name-B, yes-with-different-semantics}. Multi-choice + Other fits the decision schema cleanly. **Fix:** promote Q5 to `decision-11` (or `-12` after the apply-step-location decision lands) with `submit_task` parameter shape options.\n\n- **Plan-apply ordering against Jira rate limits.** Constraints (136) calls out Jira rate-limiting on bulk creates and recommends serialization or the bulk endpoint. The dependency-ordering requirement is adjacent but missing: `createIssueLink` calls must follow the `createJiraIssue` calls for both endpoints \u2014 the plan apply step needs a two-pass execution model (create-all-nodes first, then create-all-links). Worth one line in Constraints since it shapes the apply step's pseudo-code.\n\n- **Minor citation tightness.** `mcp_tools.py:1287\u20131310` (line 25) cites the regex-validation block but the full pipeline-ID-derivation logic actually runs through ~line 1307; the cited range is slightly too narrow. Not a correctness issue \u2014 minor.\n\n### What's good\n\nEverything else holds up under spot-checking. The primitives table is the right shape for the #2594 plan-phase audits. The 10 contract decisions and 5 feedback questions on `egg-contract --issue 1557 show` match the open-question list in the draft 1:1 (verified). The Won't-Do-via-orchestrator architecture is correctly motivated by the gateway denylist at `jira_client.py:133\u2013146`. The hard prerequisites (#1556/#1924/#1931/#2137) are all in `closed` state as claimed.\n",
+      "revision_count": 1
+    },
+    "timestamp": "2026-05-11T21:59:23.344079+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3ffb435c-0804-4b",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T21:59:23.417046+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9fe1b15f-3949-46",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:59:27.988110+00:00"
+    },
+    "timestamp": "2026-05-11T21:59:28.037058+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3bb7baa7-3d1b-4f",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:29.738389+00:00"
+    },
+    "timestamp": "2026-05-11T21:59:30.022883+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3633824e-5c3d-41",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:59:27.988110+00:00"
+    },
+    "timestamp": "2026-05-11T22:00:28.210465+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "052e3f73-35c5-4f",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:29.738389+00:00"
+    },
+    "timestamp": "2026-05-11T22:00:30.101800+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "71c9333b-5783-4a",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:59:27.988110+00:00"
+    },
+    "timestamp": "2026-05-11T22:01:28.317169+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4b330a50-08ec-49",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:29.738389+00:00"
+    },
+    "timestamp": "2026-05-11T22:01:30.184063+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "50ae06a1-6d78-40",
+    "pipeline_id": "issue-1557",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 22\u219223 transition. Suspected reviewer_refine NACK \u2014 refiner now WORKING. BRC not complete. Monitoring re-proposal cycle.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-05-11T22:01:51.277615+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "55286ca3-2ef5-4b",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:59:27.988110+00:00"
+    },
+    "timestamp": "2026-05-11T22:02:28.414193+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5d2540aa-86fa-41",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T21:56:29.738389+00:00"
+    },
+    "timestamp": "2026-05-11T22:02:30.281677+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3880a5a1-869b-41",
+    "pipeline_id": "issue-1557",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 24. reviewer_refine NACKed refiner proposal. Refiner in WORKING state addressing NACK at 968s elapsed. Monitoring refiner NACK-response: 148s silent, threshold 180s. Calibration_only detector in effect.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:03:26.981464+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ffc776bf-47a5-4b",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "Re-proposal of refine analysis for #1557 addressing reviewer_refine NACK. Blocking fixes: (1) decision-11 registered for apply-step execution location, orthogonal to decision-1 slicing \u2014 trust-boundary note now references decision-11. (2) decision-2 secondary recommendation corrected from non-existent \"auto-detect from project metadata\" to opt-3 (operator-configurable via existing JiraPolicy.epic_link_field per-site config); primitives table now includes the policy primitive with file:line. (3) JQL \"harmless OR-disjunct\" claim corrected \u2014 Jira returns 400 on missing-field references; constraint revised to require two separate queries reading from the configured epic_link_field and tolerating 400. Non-blocking: resume-from-partial + two-pass + concurrent-edit constraints added; out-of-scope subsection added; Q5 promoted to decision-12; mcp_tools.py citation tightened; Options-Considered intro clarified to scope the four options to slicing only.",
+    "metadata": {
+      "payload": {
+        "summary": "Re-proposal of refine analysis for #1557 addressing reviewer_refine NACK. Blocking fixes: (1) decision-11 registered for apply-step execution location, orthogonal to decision-1 slicing \u2014 trust-boundary note now references decision-11. (2) decision-2 secondary recommendation corrected from non-existent \"auto-detect from project metadata\" to opt-3 (operator-configurable via existing JiraPolicy.epic_link_field per-site config); primitives table now includes the policy primitive with file:line. (3) JQL \"harmless OR-disjunct\" claim corrected \u2014 Jira returns 400 on missing-field references; constraint revised to require two separate queries reading from the configured epic_link_field and tolerating 400. Non-blocking: resume-from-partial + two-pass + concurrent-edit constraints added; out-of-scope subsection added; Q5 promoted to decision-12; mcp_tools.py citation tightened; Options-Considered intro clarified to scope the four options to slicing only.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1557-analysis.md"
+        ],
+        "risk_considered": "Risk: decision-11 may need reviewer_refine to re-validate that apply-step is genuinely orthogonal to slicing rather than redundant with decision-1; the analysis now states this explicitly. Risk: the \"two separate JQL queries\" approach (constraint at line 133) may itself surface a hierarchy-detection gap (when epic_link_field is \"parent\" and a project has zero matches, we can't distinguish \"no children\" from \"wrong field\"); the analysis flags this implicitly via the discovery-classification primitive. Risk: Q5 superseded but not removable from feedback bundle \u2014 analysis tells operator to ignore Q5 in favor of decision-12; minor UX friction acceptable for the cleaner schema fit.",
+        "commit_sha": "dfcf8dcb1",
+        "files_changed": [
+          ".egg-state/drafts/1557-analysis.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 2,
+      "commit_sha": "dfcf8dcb1"
+    },
+    "timestamp": "2026-05-11T22:03:27.398216+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7c094932-3f3f-40",
+    "pipeline_id": "issue-1557",
+    "from_role": "orchestrator",
+    "to_role": "reviewer_agent_design",
+    "message_type": "CONSENSUS_RE_REVIEW",
+    "subject": "Re-review required: refiner submitted new proposal v2",
+    "body": "Producer refiner has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.",
+    "metadata": {
+      "producer_role": "refiner",
+      "version": 2
+    },
+    "timestamp": "2026-05-11T22:03:27.398241+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9fa38547-51c1-46",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:03:27.474926+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "029dfdb3-bc88-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:03:27.485098+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "29a16986-3b98-41",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T22:03:32.149940+00:00"
+    },
+    "timestamp": "2026-05-11T22:03:58.424779+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9a7cc767-50ee-44",
+    "pipeline_id": "issue-1557",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [medium]",
+    "body": "Refiner silent 244s while addressing NACK (threshold: 180s). reviewer_refine NACKed v1 proposal; refiner in WORKING state since 21:59:23.\n\nDetail:\nPipeline issue-1557, refine phase, cycle 24. reviewer_refine NACKed the initial CONSENSUS_PROPOSE at v1 (commit 4e2dd7886). Refiner exited its wait loop at 21:59:23 and entered WORKING state to address the NACK. As of 22:03:27 UTC, refiner has been silent for 244s (last heartbeat: 21:59:23). Stall threshold: 180s. Silent-agent threshold: 600s \u2014 refiner must re-propose or emit a heartbeat within ~356s from now. reviewer_agent_design confirmed (waiting). reviewer_refine in post-NACK wait loop for CONSENSUS_PROPOSE since 21:59:27. No detector alerts (calibration_only mode). Container 1c829be2 (refiner) is running at 1064s elapsed. Prior precedent: refiner took 517s to produce initial analysis \u2014 NACK-response work may also be lengthy but should be faster.\n\nRecommended action:\nMonitor until 600s silent-agent threshold. If refiner exceeds 420s silence (~10 min into NACK-response at 22:09:23) without re-proposing, escalate to HIGH and consider inspecting refiner container logs via egg-checkpoint.",
+    "metadata": {},
+    "timestamp": "2026-05-11T22:04:02.469103+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e92e46db-113a-40",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:04:02.560165+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7606909d-e19d-45",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T22:04:07.909754+00:00"
+    },
+    "timestamp": "2026-05-11T22:04:07.932970+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4b78e5e1-fe8e-44",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "\nRe-reviewed v2 (`dfcf8dcb1`) \u2014 the diff against v1 addresses reviewer_refine's NACK with correctness/factual fixes and registers decision-11 for the apply-step execution location. From the agent-mode-design perspective, v2 strengthens the agent-mediated pattern; no anti-patterns introduced.\n\nSpecific things verified in v2:\n\n1. **decision-11 (apply-step execution location) now explicit and registered (lines 280\u2013281)** \u2014 The recommended secondary choice on line 253 is \"opt-3 \u2014 hybrid: gateway-mediated writes from a dedicated `apply-epic` agent for everything except `transitions`; orchestrator-only for transitions\". This preserves the canonical \"agents write through the gateway\" pattern and the gateway audit identity for all non-transition writes; the orchestrator-direct credential surface is sharply confined to the one gateway-denylisted verb. This is the right call from an agent-mode standpoint.\n\n2. **Trust-boundary note revised (line 110)** to reference decision-11 explicitly and scope itself to the **non-transition** apply step writes. Won't-Do remains unambiguously orchestrator-only. Clean separation.\n\n3. **Concurrent-edit guard on the epic Description (line 126)** \u2014 fetch-and-diff at apply time with HITL divergence prompt. Server-side enforcement, not prompt-level. Reuses the existing HITL plumbing rather than instructing the agent to \"be careful not to overwrite operator edits\". This is the correct pattern.\n\n4. **In-flight HITL gate language qualified with \"regardless of where it runs per decision-11\" (line 124)** \u2014 the non-bypassability of the gate is now stated independent of apply-step location, so the architectural invariant is preserved across decision-11's option space.\n\n5. **Idempotence vs. resume-from-partial split out (lines 123\u2013124)** \u2014 Mapping store (decision-10) is the durable record; apply step resumes from it on re-run; gateway `idempotency_key` semantics are leveraged for repeated link writes. All deterministic-apply concerns; no agent-mode design implications.\n\n6. **Two-pass execution (line 127)** \u2014 `create_issue_link` must follow all `create_issue` calls. Correctness constraint on the apply step; not an agent-mode concern. Compatible with either decision-11 option (agent or orchestrator can implement the two-pass).\n\n7. **JQL two-query fix (lines 41\u201343, line 129)** \u2014 Correctness fix; not agent-mode-relevant. The recommendation to source the field name from `JiraPolicy.epic_link_field` (and add the policy primitive to the runtime-primitives table, line 95) rather than hardcoding `\"Epic Link\"` keeps the per-site config flag as the single source of truth.\n\n8. **Explicitly-out-of-scope subsection (lines 155\u2013162)** \u2014 Reviewer-orienting metadata, not pre-fetched diff/content. Items are scope statements (Jira-label state machine, cross-child coordination, ETag enforcement, Forge/Connect, get_project_metadata, aggregate epic PR), each one or two lines. Helps plan-phase reviewers without baking content into prompts.\n\n9. **decision-12 (reassess-trigger override) promoted from Q5 (lines 281\u2013282)** \u2014 Operator-UX concern; not agent-mode-relevant. The Q5 supersession note is correctly handled (Q5 marked superseded, decision-12 enumerated).\n\n10. **No new direct LLM API calls, no model-ID hardcoding, no JSON-for-humans, no rigid step-by-step agent procedure-micromanagement, no large-diff pre-fetching** \u2014 same as v1 review.\n\nThe v2 changes don't introduce any agent-mode design anti-patterns; they actually clarify and strengthen the gateway-mediated agent-write pattern by registering decision-11 separately from slicing. LGTM from the agent-design reviewer perspective.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1557-analysis.md"
+        ],
+        "reason": "\nRe-reviewed v2 (`dfcf8dcb1`) \u2014 the diff against v1 addresses reviewer_refine's NACK with correctness/factual fixes and registers decision-11 for the apply-step execution location. From the agent-mode-design perspective, v2 strengthens the agent-mediated pattern; no anti-patterns introduced.\n\nSpecific things verified in v2:\n\n1. **decision-11 (apply-step execution location) now explicit and registered (lines 280\u2013281)** \u2014 The recommended secondary choice on line 253 is \"opt-3 \u2014 hybrid: gateway-mediated writes from a dedicated `apply-epic` agent for everything except `transitions`; orchestrator-only for transitions\". This preserves the canonical \"agents write through the gateway\" pattern and the gateway audit identity for all non-transition writes; the orchestrator-direct credential surface is sharply confined to the one gateway-denylisted verb. This is the right call from an agent-mode standpoint.\n\n2. **Trust-boundary note revised (line 110)** to reference decision-11 explicitly and scope itself to the **non-transition** apply step writes. Won't-Do remains unambiguously orchestrator-only. Clean separation.\n\n3. **Concurrent-edit guard on the epic Description (line 126)** \u2014 fetch-and-diff at apply time with HITL divergence prompt. Server-side enforcement, not prompt-level. Reuses the existing HITL plumbing rather than instructing the agent to \"be careful not to overwrite operator edits\". This is the correct pattern.\n\n4. **In-flight HITL gate language qualified with \"regardless of where it runs per decision-11\" (line 124)** \u2014 the non-bypassability of the gate is now stated independent of apply-step location, so the architectural invariant is preserved across decision-11's option space.\n\n5. **Idempotence vs. resume-from-partial split out (lines 123\u2013124)** \u2014 Mapping store (decision-10) is the durable record; apply step resumes from it on re-run; gateway `idempotency_key` semantics are leveraged for repeated link writes. All deterministic-apply concerns; no agent-mode design implications.\n\n6. **Two-pass execution (line 127)** \u2014 `create_issue_link` must follow all `create_issue` calls. Correctness constraint on the apply step; not an agent-mode concern. Compatible with either decision-11 option (agent or orchestrator can implement the two-pass).\n\n7. **JQL two-query fix (lines 41\u201343, line 129)** \u2014 Correctness fix; not agent-mode-relevant. The recommendation to source the field name from `JiraPolicy.epic_link_field` (and add the policy primitive to the runtime-primitives table, line 95) rather than hardcoding `\"Epic Link\"` keeps the per-site config flag as the single source of truth.\n\n8. **Explicitly-out-of-scope subsection (lines 155\u2013162)** \u2014 Reviewer-orienting metadata, not pre-fetched diff/content. Items are scope statements (Jira-label state machine, cross-child coordination, ETag enforcement, Forge/Connect, get_project_metadata, aggregate epic PR), each one or two lines. Helps plan-phase reviewers without baking content into prompts.\n\n9. **decision-12 (reassess-trigger override) promoted from Q5 (lines 281\u2013282)** \u2014 Operator-UX concern; not agent-mode-relevant. The Q5 supersession note is correctly handled (Q5 marked superseded, decision-12 enumerated).\n\n10. **No new direct LLM API calls, no model-ID hardcoding, no JSON-for-humans, no rigid step-by-step agent procedure-micromanagement, no large-diff pre-fetching** \u2014 same as v1 review.\n\nThe v2 changes don't introduce any agent-mode design anti-patterns; they actually clarify and strengthen the gateway-mediated agent-write pattern by registering decision-11 separately from slicing. LGTM from the agent-design reviewer perspective.\n",
+        "ack_version": 2
+      },
+      "version": 2
+    },
+    "timestamp": "2026-05-11T22:04:10.149974+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "6b0c7dd2-1daf-4c",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:04:10.203520+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "14806ba1-7952-4d",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T22:04:14.108296+00:00"
+    },
+    "timestamp": "2026-05-11T22:04:14.142645+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "655e3e0c-9b74-4e",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T22:04:17.955883+00:00"
+    },
+    "timestamp": "2026-05-11T22:04:17.981693+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f3d3c57c-8660-47",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:04:18.081474+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "cffbadf3-2506-42",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T22:04:22.653770+00:00"
+    },
+    "timestamp": "2026-05-11T22:04:22.686016+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a2d705fe-7244-40",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for refiner",
+    "body": "\n## Re-review (proposal v2) \u2014 all blocking NACK items addressed\n\nReviewed the diff (`dfcf8dcb1`: +38/-17 across `.egg-state/drafts/1557-analysis.md`) plus the new `gateway/jira_policy.py` primitive and the updated `egg-contract show` output (decisions 1\u201312 now registered, plus feedback-1 with Q5 marked superseded by decision-12).\n\n### Verifications\n\n**Blocking 1 \u2014 Apply-step-location decision** \u2713 Registered as `decision-11` with 4 concrete options (sandbox-agent / orchestrator / hybrid / all-orchestrator). Trust-boundary note at `.egg-state/drafts/1557-analysis.md:111\u2013116` now ends \"registered as **[decision-11]** \u2014 orthogonal to the slice-decomposition (decision-1) choice. Plan phase cannot author the apply step without decision-11 resolved.\" Recommended secondary (line 253) picks opt-3 hybrid with sound reasoning. Constraints at lines 124 and 127 now read \"regardless of where it runs per decision-11\" \u2014 the trust-boundary / constraints inconsistency is resolved as a side-effect.\n\n**Blocking 2 \u2014 Unsupported \"auto-detect from project metadata\" claim** \u2713 Recommendation for decision-2 (line 244) revised to opt-3 (per-site config via existing `JiraPolicy.epic_link_field`). Current Behavior `.egg-state/drafts/1557-analysis.md:49` now explicitly states \"There is **no `get_project_metadata` verb** in the gateway today; auto-detection in the sense of decision-2 opt-1 would require a new gateway verb.\" Primitives table line 96 now lists `JiraPolicy.epic_link_field` at `gateway/jira_policy.py:98\u2013193` \u2014 verified: line 98 is `class JiraPolicy:`, line 163 is `def epic_link_field(self) -> str:`, and the allowlist `_VALID_EPIC_LINK_FIELDS = frozenset({\"parent\", \"customfield_10014\"})` is at line 91 (adjacent to the cited range). The \"Explicitly out of scope\" section also calls out the absent verb explicitly at line 163: \"A new gateway `get_project_metadata` verb to auto-detect `parent` vs `Epic Link` per project. \u2026 If decision-2 lands on opt-1 (true auto-detect), adding that verb becomes in-scope.\" Good \u2014 opt-1 is no longer recommended-by-default but remains a real choice with its cost surfaced.\n\n**Blocking 3 \u2014 Reassess JQL \"harmless no-match\"** \u2713 Fully corrected. Line 44 now says: \"a *single* disjunctive JQL of the form `parent = <EPIC> OR \\\"Epic Link\\\" = <EPIC>` will return HTTP 400 on a project where `Epic Link` is not configured, so child-discovery must issue **two separate queries**\". Line 133 expands this in the Constraints section with the exact error string (`\"Field 'Epic Link' does not exist or you do not have permission to view it\"`), the merge semantics, and the requirement to source the field name from `JiraPolicy.epic_link_field` rather than hardcoding `\"Epic Link\"`. The primitives table row 93 ties the same fix to the `search` verb.\n\n### Non-blocking fixes (all addressed)\n\n- Constraints/trust-boundary consistency \u2014 fixed via the same edit as blocking 1.\n- Partial-apply recovery \u2014 new \"Resume-from-partial\" constraint at line 125, with explicit mapping-store-key skip semantics for both `existing_key` (reassess) and `created_key` (fresh) and `create_issue_link`'s `idempotency_key` reuse.\n- Two-pass execution ordering for `create_issue_link` \u2014 new constraint at line 126.\n- Concurrent-edit on epic Description \u2014 new constraint at line 129, with fetch-and-diff guard + future `If-Match` ETag path, and the latter explicitly carried into \"out of scope\" at line 161.\n- Out-of-scope subsection \u2014 added as a new section at lines 155\u2013164, enumerating all six items (label state machine, implement cross-child coordination, ETag concurrency, Forge/Connect transitions, `get_project_metadata` verb, aggregate epic PR).\n- Q5 \u2192 decision-12 \u2014 `egg-contract show` now lists decision-12; Q5 in feedback-1 is annotated \"Superseded by [decision-12]\" with an operator-facing instruction to ignore it. The strikethrough rendering is unambiguous.\n- `mcp_tools.py:1287\u20131310` citation tightened \u2014 line 25 now cites `:1287\u20131300` (validation) and `:1301\u20131307` (pipeline-ID derivation) as separate ranges; handler body cited as the broader `:1272\u20131381` in the section heading.\n\n### Independent spot-checks\n\n- `gateway/jira_policy.py:98\u2013193` is a real file (392 lines total), and the cited range contains `class JiraPolicy`, the `epic_link_field` property, and the fallback-on-malformed-config paths. Citation is loose but lands on the right primitive.\n- `egg-contract --issue 1557 show` lists all 12 decisions; `decision-11` and `decision-12` are well-formed (4 options each) and the wording mirrors the analysis.\n- The Options Considered intro at line 170 now states explicitly \"The four options below are slicing options only \u2014 they are the option set for **decision-1**. The apply-step-location options are enumerated under decision-11 and not duplicated here.\" \u2014 neatly disambiguates the scope of the four-option enumeration.\n- The Recommended Approach reasoning #1 (line 235) now lists \"decisions 2, 6, 9, 11\" instead of \"decisions 2, 6, 9\" \u2014 the decision-11 cross-reference is consistent.\n- No silently-introduced new claims that need new primitives. The new orchestrator-direct cred path remains in feedback Q1.\n\n### Non-blocking observations (no action required)\n\n- **Citation precision on `jira_policy.py:98\u2013193`**: the cited end (193) is one of several `_epic_link_field = _DEFAULT_EPIC_LINK_FIELD` fallback assignments in the constructor; a slightly tighter range would be `98\u2013170` (class + `epic_link_field` accessor) or `91\u2013193` to include the `_VALID_EPIC_LINK_FIELDS` allowlist at line 91. Not material for this review \u2014 the primitive lookup is unambiguous from the symbol name alone.\n- **Q5-in-feedback-1 left in place rather than deleted from the contract**: the contract still carries Q5 with answer=null, just superseded in prose. This is a contract-API limitation, not an analysis defect \u2014 operator sees the strikethrough + \"ignore Q5\" instruction and acts accordingly. Worth a follow-up at the contract-tooling level (a `mark_superseded` verb on feedback questions) but well outside this issue's scope.\n- **Decision-12 wording** in the contract drops the explanatory parenthetical that's in the draft (\"structurally a decision, not open-ended feedback\"). Minor; the four options carry the meaning.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1557-analysis.md",
+          ".egg-state/contracts/issue-1557.json",
+          "gateway/jira_policy.py",
+          "gateway/jira_client.py"
+        ],
+        "reason": "\n## Re-review (proposal v2) \u2014 all blocking NACK items addressed\n\nReviewed the diff (`dfcf8dcb1`: +38/-17 across `.egg-state/drafts/1557-analysis.md`) plus the new `gateway/jira_policy.py` primitive and the updated `egg-contract show` output (decisions 1\u201312 now registered, plus feedback-1 with Q5 marked superseded by decision-12).\n\n### Verifications\n\n**Blocking 1 \u2014 Apply-step-location decision** \u2713 Registered as `decision-11` with 4 concrete options (sandbox-agent / orchestrator / hybrid / all-orchestrator). Trust-boundary note at `.egg-state/drafts/1557-analysis.md:111\u2013116` now ends \"registered as **[decision-11]** \u2014 orthogonal to the slice-decomposition (decision-1) choice. Plan phase cannot author the apply step without decision-11 resolved.\" Recommended secondary (line 253) picks opt-3 hybrid with sound reasoning. Constraints at lines 124 and 127 now read \"regardless of where it runs per decision-11\" \u2014 the trust-boundary / constraints inconsistency is resolved as a side-effect.\n\n**Blocking 2 \u2014 Unsupported \"auto-detect from project metadata\" claim** \u2713 Recommendation for decision-2 (line 244) revised to opt-3 (per-site config via existing `JiraPolicy.epic_link_field`). Current Behavior `.egg-state/drafts/1557-analysis.md:49` now explicitly states \"There is **no `get_project_metadata` verb** in the gateway today; auto-detection in the sense of decision-2 opt-1 would require a new gateway verb.\" Primitives table line 96 now lists `JiraPolicy.epic_link_field` at `gateway/jira_policy.py:98\u2013193` \u2014 verified: line 98 is `class JiraPolicy:`, line 163 is `def epic_link_field(self) -> str:`, and the allowlist `_VALID_EPIC_LINK_FIELDS = frozenset({\"parent\", \"customfield_10014\"})` is at line 91 (adjacent to the cited range). The \"Explicitly out of scope\" section also calls out the absent verb explicitly at line 163: \"A new gateway `get_project_metadata` verb to auto-detect `parent` vs `Epic Link` per project. \u2026 If decision-2 lands on opt-1 (true auto-detect), adding that verb becomes in-scope.\" Good \u2014 opt-1 is no longer recommended-by-default but remains a real choice with its cost surfaced.\n\n**Blocking 3 \u2014 Reassess JQL \"harmless no-match\"** \u2713 Fully corrected. Line 44 now says: \"a *single* disjunctive JQL of the form `parent = <EPIC> OR \\\"Epic Link\\\" = <EPIC>` will return HTTP 400 on a project where `Epic Link` is not configured, so child-discovery must issue **two separate queries**\". Line 133 expands this in the Constraints section with the exact error string (`\"Field 'Epic Link' does not exist or you do not have permission to view it\"`), the merge semantics, and the requirement to source the field name from `JiraPolicy.epic_link_field` rather than hardcoding `\"Epic Link\"`. The primitives table row 93 ties the same fix to the `search` verb.\n\n### Non-blocking fixes (all addressed)\n\n- Constraints/trust-boundary consistency \u2014 fixed via the same edit as blocking 1.\n- Partial-apply recovery \u2014 new \"Resume-from-partial\" constraint at line 125, with explicit mapping-store-key skip semantics for both `existing_key` (reassess) and `created_key` (fresh) and `create_issue_link`'s `idempotency_key` reuse.\n- Two-pass execution ordering for `create_issue_link` \u2014 new constraint at line 126.\n- Concurrent-edit on epic Description \u2014 new constraint at line 129, with fetch-and-diff guard + future `If-Match` ETag path, and the latter explicitly carried into \"out of scope\" at line 161.\n- Out-of-scope subsection \u2014 added as a new section at lines 155\u2013164, enumerating all six items (label state machine, implement cross-child coordination, ETag concurrency, Forge/Connect transitions, `get_project_metadata` verb, aggregate epic PR).\n- Q5 \u2192 decision-12 \u2014 `egg-contract show` now lists decision-12; Q5 in feedback-1 is annotated \"Superseded by [decision-12]\" with an operator-facing instruction to ignore it. The strikethrough rendering is unambiguous.\n- `mcp_tools.py:1287\u20131310` citation tightened \u2014 line 25 now cites `:1287\u20131300` (validation) and `:1301\u20131307` (pipeline-ID derivation) as separate ranges; handler body cited as the broader `:1272\u20131381` in the section heading.\n\n### Independent spot-checks\n\n- `gateway/jira_policy.py:98\u2013193` is a real file (392 lines total), and the cited range contains `class JiraPolicy`, the `epic_link_field` property, and the fallback-on-malformed-config paths. Citation is loose but lands on the right primitive.\n- `egg-contract --issue 1557 show` lists all 12 decisions; `decision-11` and `decision-12` are well-formed (4 options each) and the wording mirrors the analysis.\n- The Options Considered intro at line 170 now states explicitly \"The four options below are slicing options only \u2014 they are the option set for **decision-1**. The apply-step-location options are enumerated under decision-11 and not duplicated here.\" \u2014 neatly disambiguates the scope of the four-option enumeration.\n- The Recommended Approach reasoning #1 (line 235) now lists \"decisions 2, 6, 9, 11\" instead of \"decisions 2, 6, 9\" \u2014 the decision-11 cross-reference is consistent.\n- No silently-introduced new claims that need new primitives. The new orchestrator-direct cred path remains in feedback Q1.\n\n### Non-blocking observations (no action required)\n\n- **Citation precision on `jira_policy.py:98\u2013193`**: the cited end (193) is one of several `_epic_link_field = _DEFAULT_EPIC_LINK_FIELD` fallback assignments in the constructor; a slightly tighter range would be `98\u2013170` (class + `epic_link_field` accessor) or `91\u2013193` to include the `_VALID_EPIC_LINK_FIELDS` allowlist at line 91. Not material for this review \u2014 the primitive lookup is unambiguous from the symbol name alone.\n- **Q5-in-feedback-1 left in place rather than deleted from the contract**: the contract still carries Q5 with answer=null, just superseded in prose. This is a contract-API limitation, not an analysis defect \u2014 operator sees the strikethrough + \"ignore Q5\" instruction and acts accordingly. Worth a follow-up at the contract-tooling level (a `mark_superseded` verb on feedback questions) but well outside this issue's scope.\n- **Decision-12 wording** in the contract drops the explanatory parenthetical that's in the draft (\"structurally a decision, not open-ended feedback\"). Minor; the four options carry the meaning.\n",
+        "ack_version": 2
+      },
+      "version": 2
+    },
+    "timestamp": "2026-05-11T22:04:58.894868+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d77448e1-d632-43",
+    "pipeline_id": "issue-1557",
+    "from_role": "orchestrator",
+    "to_role": "refiner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 2) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 2
+    },
+    "timestamp": "2026-05-11T22:04:58.894939+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c8285495-ab58-4a",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:04:58.945377+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "01645ebc-952f-46",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_refine",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-11T22:05:02.785019+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1cf38eee-1170-49",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:05:02.856543+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a6301a9b-c89f-44",
+    "pipeline_id": "issue-1557",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by refiner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-05-11T22:05:05.404648+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1306418f-4105-48",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T22:05:07.286192+00:00"
+    },
+    "timestamp": "2026-05-11T22:05:07.312850+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "16283857-f7a6-4d",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:05:07.409605+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3c81ce09-a054-4b",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T22:05:09.450898+00:00"
+    },
+    "timestamp": "2026-05-11T22:05:09.521101+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0a9f16dc-6f14-40",
+    "pipeline_id": "issue-1557",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T22:05:09.646370+00:00",
+    "phase": "refine"
+  }
+]
