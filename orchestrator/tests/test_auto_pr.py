@@ -525,6 +525,44 @@ class TestBuildPrBodyGithubStaging:
 
         assert "Move staged" not in body
 
+    def test_replacement_target_uses_git_rm_then_mv(self, tmp_path):
+        """When `.github/<rest>` already exists, emit `git rm` before `git mv`.
+
+        `git mv` refuses to overwrite an existing destination
+        (``fatal: destination exists … specify -f to overwrite``), so
+        the historic template that always emitted the plain form
+        broke for replacement scenarios (e.g. restaging an existing
+        workflow). The helper must detect occupied targets and emit
+        the `git rm`+`git mv` sequence so the documented procedure
+        actually runs cleanly.
+        """
+        pipeline = _make_pipeline()
+        # Staged file with a counterpart already living under `.github/`.
+        staging = tmp_path / ".github-staging" / "workflows"
+        staging.mkdir(parents=True)
+        (staging / "test.yml").write_text("name: test (new)\n")
+        existing = tmp_path / ".github" / "workflows"
+        existing.mkdir(parents=True)
+        (existing / "test.yml").write_text("name: test (old)\n")
+        # Also a brand-new staged file with no existing target — the
+        # rendered block should use plain `git mv` for that one.
+        (staging / "test-integration.yml").write_text("name: integration\n")
+
+        _title, body, _ = _build_pr_body(pipeline, tmp_path)
+
+        assert "git rm .github/workflows/test.yml" in body, (
+            "replacement target must be removed with `git rm` before "
+            "`git mv` (otherwise `git mv` aborts with 'destination "
+            "exists')"
+        )
+        assert "git mv .github-staging/workflows/test.yml .github/workflows/test.yml" in body
+        # New file (no existing target) gets the plain `git mv`, no `git rm`.
+        assert (
+            "git mv .github-staging/workflows/test-integration.yml "
+            ".github/workflows/test-integration.yml"
+        ) in body
+        assert "git rm .github/workflows/test-integration.yml" not in body
+
     def test_drops_step_when_staging_dir_is_symlink(self, tmp_path):
         """When `.github-staging` itself is a symlink, no step is emitted.
 

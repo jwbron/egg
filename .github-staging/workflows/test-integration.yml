@@ -51,10 +51,14 @@ jobs:
         # up to 3 attempts with a short backoff. Transient k3s
         # containerd import failures (rare but observed in #2556's
         # early runs) should not flake the entire integration tier.
-        # `set -o pipefail` ensures a `docker save` failure on the
-        # left side of the pipe propagates to the loop condition;
-        # otherwise an empty-pipe `k3s ctr images import` exit-0
-        # would falsely report success.
+        # `set -o pipefail` makes a `docker save` failure on the
+        # left side of the pipe propagate into the `if`'s test
+        # result (rather than being swallowed by an exit-0
+        # `k3s ctr images import` on the right side reading an
+        # empty stream); the surrounding `if … then exit 0 … fi`
+        # then keeps `set -e` suspended for the pipeline so a
+        # failure falls through to the next retry instead of
+        # aborting the script.
         run: |
           set -eo pipefail
           attempt=0

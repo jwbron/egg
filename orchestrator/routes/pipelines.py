@@ -9041,6 +9041,31 @@ def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
     if not staged_paths:
         return ""
 
+    # Compute concrete move commands per staged file, choosing
+    # ``git mv`` vs ``git rm`` + ``git mv`` based on whether the target
+    # ``.github/<rest>`` already exists.  ``git mv`` refuses to
+    # overwrite an existing destination, so a template that always
+    # emits the plain form breaks for replacement scenarios (e.g.
+    # restaging an existing workflow).
+    staging_prefix = ".github-staging/"
+    target_prefix = ".github/"
+    mkdir_dirs: list[str] = []
+    move_cmds: list[str] = []
+    for rel in staged_paths:
+        if not rel.startswith(staging_prefix):
+            continue
+        rest = rel[len(staging_prefix) :]
+        target_rel = f"{target_prefix}{rest}"
+        target_dir = target_rel.rsplit("/", 1)[0] if "/" in rest else target_prefix.rstrip("/")
+        if target_dir and target_dir not in mkdir_dirs:
+            mkdir_dirs.append(target_dir)
+        target_abs = worktree_repo_path / target_rel
+        # Target may itself be a symlink; ``Path.exists()`` follows it,
+        # but ``lexists`` (Path.is_symlink) catches the broken-link case.
+        if target_abs.is_symlink() or target_abs.exists():
+            move_cmds.append(f"git rm {target_rel}  # target exists; remove before mv")
+        move_cmds.append(f"git mv {rel} {target_rel}")
+
     lines = [
         "### Move staged `.github/` changes (auto-generated, issue #2508)",
         "",
@@ -9060,12 +9085,21 @@ def _build_github_staging_manual_step(worktree_repo_path: Path) -> str:
             "",
             "1. Review each staged file for correctness — these are proposed "
             "CI / repo-config changes that bypass the agent's normal sandbox.",
-            "2. Move each file from `.github-staging/<path>` to `.github/<path>`. For example:",
+            "2. Run the following to move each staged file into `.github/` "
+            "(commands below are pre-computed for this PR; replacement targets "
+            "are handled via `git rm` + `git mv` since `git mv` refuses to "
+            "overwrite an existing destination):",
             "   ```",
-            "   mkdir -p .github/workflows",
-            "   git mv .github-staging/workflows/test-e2e.yml .github/workflows/test-e2e.yml",
+        ]
+    )
+    for d in mkdir_dirs:
+        lines.append(f"   mkdir -p {d}")
+    for cmd in move_cmds:
+        lines.append(f"   {cmd}")
+    lines.extend(
+        [
             "   ```",
-            "   After the `git mv`, `.github-staging/` is no longer tracked "
+            "   After the moves, `.github-staging/` is no longer tracked "
             "by git (git doesn't track empty directories). Run "
             "`rm -rf .github-staging` locally if you want to clear any "
             "leftover empty subdirectories from your worktree.",
