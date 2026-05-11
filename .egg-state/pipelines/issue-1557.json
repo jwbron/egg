@@ -210,10 +210,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "**Hierarchy mechanism for child Jira tickets**: which field links children to the epic? Jira projects vary — older \"Classic\" company-managed projects use the `Epic Link` custom field, newer \"Next-gen\" / team-managed projects use the native `parent` field, and some projects support both. The gateway's `create_issue` accepts both `parent` and `epic_link` (mutually exclusive). How should the plan apply step decide which one to set?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Auto-detect from the target epic's project: probe Jira project metadata once at submit_task time and cache the choice for the rest of the pipeline",
+        "Always prefer `parent`; fall back to `Epic Link` only if `parent` create fails",
+        "Operator-configurable per Jira project (config file mapping project key -> field choice); error if no mapping found and ambiguous",
+        "Operator-supplied as a `submit_task` parameter (e.g. `jira_hierarchy_field`); default to `parent`",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.009633Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:51.970852Z",
+  "updated_at": "2026-05-11T22:24:52.020920Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -227,6 +247,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null
 }
