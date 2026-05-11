@@ -58,8 +58,8 @@ slice-DAG shape, not on PR count. In egg, each slice has its own integration bra
 agent team, BRC consensus, and PR, and sibling slices in the same wave run in parallel
 (see [Slice-DAG Implement Phase](../architecture/slice-dag.md)). Slice count = PR count
 by construction, so annotate the PR consequence in parentheses — e.g.
-`Two slices in parallel: [A] || [B+C] (2 PRs)`,
-`Two slices with dependency: [A] -> [B] (2 PRs)` — rather than registering an option
+`Two slices in parallel: A || B+C (2 PRs)`,
+`Two slices with dependency: A -> B (2 PRs)` — rather than registering an option
 list framed as "N PRs" or "N sequential PRs". The "sequential" wording is especially
 wrong because the slice scheduler does not require sibling slices to serialize.]
 
