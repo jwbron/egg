@@ -222,12 +222,23 @@ class TestTestYmlStructure:
             "`.github-staging/...` (the staged path is never invoked)"
         )
 
-    def test_integration_job_has_30_minute_timeout(self, test_yml: dict) -> None:
-        """integration job must set ``timeout-minutes: 30`` (plan task-2-1 (b))."""
-        integration = test_yml["jobs"]["integration"]
+    def test_integration_tier_has_30_minute_timeout(self, test_integration_yml: dict) -> None:
+        """Integration tier must enforce a 30-minute budget (plan task-2-1 (b)).
+
+        GitHub Actions rejects ``timeout-minutes`` on ``uses:`` caller
+        jobs (only name/uses/with/secrets/needs/if/permissions are
+        allowed there — actionlint enforces this), so the budget is
+        carried on the reusable workflow's own ``integration`` job
+        instead. Functionally equivalent: the reusable workflow runs
+        inside the caller's job, so its per-job timeout bounds the
+        same wall-clock window.
+        """
+        integration = test_integration_yml["jobs"]["integration"]
         assert integration.get("timeout-minutes") == 30, (
-            f"jobs.integration.timeout-minutes={integration.get('timeout-minutes')!r}; "
-            "expected 30 (plan task-2-1 (b))"
+            f"test-integration.yml jobs.integration.timeout-minutes="
+            f"{integration.get('timeout-minutes')!r}; expected 30 "
+            "(plan task-2-1 (b) — enforced on the reusable workflow "
+            "because actionlint disallows it on the caller `uses:` job)"
         )
 
     def test_aggregate_needs_includes_integration(self, test_yml: dict) -> None:

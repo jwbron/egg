@@ -56,11 +56,30 @@ jobs:
       - name: Run security scan
         run: make security
 
+  integration:
+    name: Integration Tests
+    # Required-from-day-1 per decision-3 of #2474. The reusable
+    # workflow lives at .github/workflows/test-integration.yml after
+    # the human reviewer performs the pre-merge `git mv` from
+    # .github-staging/. Folded into `aggregate` below so the
+    # canonical required-check name stays `Test / aggregate`.
+    #
+    # `timeout-minutes` is not valid for `uses:` caller jobs per the
+    # GitHub Actions spec (actionlint enforces this). The timeout is
+    # enforced inside test-integration.yml per-job instead.
+    uses: ./.github/workflows/test-integration.yml
+
   aggregate:
-    name: Aggregate Test Results
+    # Intentionally NO `name:` override here: the GitHub-rendered
+    # check name must be `Test / aggregate` (lowercase job-id) so it
+    # matches the canonical required-check name documented in
+    # decision-3 / `manual_steps` of #2474 ("repo admin flips
+    # `Test / aggregate` to required-for-merge"). Adding a `name:`
+    # override would render the check as `Test / <override>` and
+    # silently desync from the operator-flipped required-check.
     runs-on: ubuntu-latest
     if: always()
-    needs: [unit, security]
+    needs: [unit, security, integration]
     outputs:
       passed: ${{ steps.check.outputs.passed }}
     steps:
@@ -68,11 +87,18 @@ jobs:
         id: check
         run: |
           if [[ "${{ needs.unit.result }}" != "success" || \
-                "${{ needs.security.result }}" != "success" ]]; then
+                "${{ needs.security.result }}" != "success" || \
+                "${{ needs.integration.result }}" != "success" ]]; then
             echo "passed=false" >> "$GITHUB_OUTPUT"
             echo "Some tests failed"
             echo "  unit: ${{ needs.unit.result }}"
             echo "  security: ${{ needs.security.result }}"
+            echo "  integration: ${{ needs.integration.result }}"
+            # Without this `exit 1`, the failure branch falls through with
+            # a zero exit code and the aggregate job — and the canonical
+            # required-for-merge `Test / aggregate` check — would report
+            # success regardless of which tier was red.
+            exit 1
           else
             echo "passed=true" >> "$GITHUB_OUTPUT"
             echo "All tests passed"
