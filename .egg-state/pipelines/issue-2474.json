@@ -184,16 +184,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T05:40:34.926922Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T06:09:57.958332Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**decision-1 (PR/slice packaging)**: Three slices = three PRs. slice-1 = Part E (ScriptedProvider promotion + 8 new tests under integration_tests/regression/). slice-2 = Part A (wire test-integration.yml into test.yml as new 'integration' job). slice-3 = Part F (CLAUDE.md + docs/guides/testing.md). Soft dep: slice-3 depends on slice-1 (F's docs reference the regression subdir E creates). slice-1 and slice-2 can run in parallel. NOTE: The refiner registered this as a 'PR count' decision; the operator clarified it should be framed in slice-DAG terms. Plan phase must produce a 3-slice DAG, not a single-slice plan with multiple PRs. Tracking issue for the refiner's framing confusion: #2584.\\n\\n**decision-2 (where workflow_call lives)**: Inside .github/workflows/test.yml as a new 'integration' job sibling to 'unit' and 'security', included in the existing 'aggregate'. This keeps 'Test / aggregate' as the canonical required-check name (slice-2 implementation detail).\\n\\n**decision-3 (gating policy)**: Required-for-merge from day 1. NOT the issue text's recommended non-blocking-with-settle-in approach. Operator chose tighter gating; flake risk is accepted.\\n\\n**decision-4 (E.6 scenario)**: 3-slice DAG; restart slice-2's coder while it is in PROPOSE; assert slice-2's branch ref commit SHA is unchanged across the restart and the pipeline reaches PR_READY.\\n\\n**decision-5 (wall-clock budget)**: No fixed budget. Existing test-integration.yml runtime (~10-15 min after Part E adds) is acceptable. Flag in a follow-up if PR latency becomes a complaint; no shard plan needed yet.\\n\\n**decision-6 (test-all inclusion)**: Stay unit-only. `make test-integration` remains a separate explicit target. Do not fold integration tier into `make test-all`.\\n\\n**decision-7 (TestCredentialIsolation gap)**: Out-of-scope for #2474. Tracked in follow-up issue #2585.\\n\\n**Q1 (flake guards)**: Defend against image-import flakes (retry), kubectl wait timeouts (explicit deadlines), and on-failure capture (`kubectl get events --all-namespaces` + pod logs as workflow artifact). Standard k3s harness hardening set.\\n\\n**Q2 (E.3 push-rejection mechanism)**: Coder role pushes a docs file to force a real 403 from the gateway's restricted-path policy. Exercises the real code path; no mocks.\\n\\n**Q3 (E.7 timeout granularity)**: Use minute-granular timing. Configure `consensus_timeout_minutes_plan = 1`; observe CONSENSUS_TIMEOUT event fires within 60±10s. Do NOT add second-granular config support in this pipeline — the existing minutes-based API is sufficient for the assertion. Update the test's docstring to note the issue text's `consensus_timeout_s = 30` was a typo (the real field is `consensus_timeout_minutes_<phase>`).\\n\\n**Q4 (E.8 push-counting method)**: Gateway audit log of push events. Authoritative source; counts every push attempt and outcome.\\n\\n**Q5 (required-flip SLO)**: N/A — operator chose Required-from-day-1 for decision-3, so the non-blocking → required transition does not exist.\\n\\n**Q6 (CLAUDE.md naming)**: Generic note pointing at integration_tests/regression/. No specific test files named — keeps the docs low-maintenance.\\n\\n## Scope Expansion (operator pre-refine instruction)\\n\\nWhen a new regression test fails against current `main`, the pipeline MUST diagnose the production-code root cause and fix it in the relevant slice's PR — these tests are designed to catch real regressions; closing those gaps is in scope. When a new test is itself broken or flaky, fix the test rather than skipping or marking xfail.\\n\\n## Plan-Phase Instructions\\n\\n- Produce a 3-slice DAG: slice-1 (E), slice-2 (A), slice-3 (F). slice-3 has dep on slice-1.\\n- slice-1 owns: ScriptedProvider promotion to shared/egg_harness/testing/scripted_provider.py (+ shared/egg_harness/testing/__init__.py); 8 new tests in integration_tests/regression/ with shared conftest; minutes-based assertion in E.7; gateway-audit-log assertion in E.8; coder-pushes-docs-file mechanism for E.3; 3-slice/restart-slice-2-in-PROPOSE scenario for E.6.\\n- slice-2 owns: workflow_call invocation in test.yml under a new 'integration' job, included in 'aggregate'; flake guards (image-import retry, kubectl wait timeouts, on-failure kubectl-events artifact); PR description must document the exact required-check name to flip in repo Settings → Branch protection.\\n- slice-3 owns: Quick-Reference bullet in CLAUDE.md (`make test-integration  # Cross-module regressions; requires k3s (see docs/guides/testing.md)`); short Integration-tests subsection in CLAUDE.md after 'Key Entry Points' (generic, no named test files); top-level Integration-tests section in docs/guides/testing.md (k3s-only setup recipe, required-check name, CI gating notes).\\n- Each slice's failing tests against `main` (if any) trigger production-code fixes in that slice's PR per the scope expansion above.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T05:40:35.070303Z",
+  "updated_at": "2026-05-11T06:09:57.966459Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -207,6 +207,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11,
+  "version": 12,
   "jira_ticket": null
 }
