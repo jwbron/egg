@@ -24,6 +24,22 @@ A faithful local analogue of [egg's refine and plan phases](https://github.com/j
 - No version-bumping or open-NACK barrier — every cycle reviews the latest draft fresh
 - No automatic implement-phase handoff — produces artifacts you can hand to `/sdlc` or to a human
 
+## Compatibility with egg's full pipeline
+
+The goal is that artifacts from this skill are interchangeable with the same-named artifacts egg's orchestrator writes to `.egg-state/`. Each artifact's compat status:
+
+| Artifact | Egg writes? | Schema source | Compat status |
+|---|---|---|---|
+| `drafts/<id>-analysis.md` | yes | `docs/templates/analysis.md` | ✅ same template |
+| `drafts/<id>-plan.md` | yes | `docs/templates/plan.md` | ✅ same template + `# yaml-tasks` appendix |
+| `contracts/<id>.json` | yes | `shared/egg_contracts/models.py::Contract` (schemaVersion 1.1) | ✅ `emit-contract` output loads cleanly through `Contract.model_validate` and round-trips identical (see [Emit contract](#emit-contract)) |
+| `brc-history/<id>-<phase>.{md,json}` | yes | JSON is `[Message.to_dict(), …]` per `orchestrator/message_store.py::Message` | ⚠️ skill produces a deliberation log of similar intent but **shape is skill-specific**, not byte-compatible. The bus files under `bus/cycle-<N>/` are the authoritative live record. |
+| `agent-outputs/<id>-<role>-output.json` | yes | None — egg writes them but downstream agents read them as advisory context only, not validated | 🟰 shape is consumer-chosen; this skill's shapes (defined in `agents/<role>.md`) are skill-specific extensions |
+| `reviews/<id>-<phase>-<reviewer>-review.json` | **no** | `orchestrator/models.py::ReviewVerdict` exists but is in-memory only in egg; never persisted to disk | 🆕 skill-internal scaffolding; egg's pipeline has no equivalent disk artifact |
+| `bus/cycle-<N>/<verdict>-<role>.json` | **no** | n/a — egg uses a Redis Streams message bus | 🆕 skill-internal BRC bus |
+
+**Wire-compatible path**: if you run `/refine-plan` and want to feed the result into `/sdlc`'s implement phase, copy `contracts/<id>.json` into the target repo's `.egg-state/contracts/<id>.json`. Egg will load it via the same `Contract.model_validate` call.
+
 ## Role definitions
 
 Each role's identity, rubric, and output schema lives in its own file under `<skill-root>/agents/`:
@@ -296,13 +312,15 @@ For cycle N = 1..4:
 
 ## Emit contract
 
-On convergence, parse the plan's YAML appendix into a Task list at `contracts/<id>.json`:
+On convergence, parse the plan's YAML appendix into a Contract at `contracts/<id>.json`:
 
 ```bash
-python3 <skill-root>/bin/emit-contract <plan_path> <contract_path> <id>
+python3 <skill-root>/bin/emit-contract <plan_path> <contract_path> <pipeline_id> [--current-phase plan]
 ```
 
-The emitter is a portable analogue of `shared/egg_contracts/plan_parser.py` and writes the same shape downstream consumers expect (`{identifier, tasks[], pr, source}`, default `role: "coder"`, all tasks start `status: "PENDING"`). It runs without importing egg.
+The emitter writes a Contract JSON matching `shared/egg_contracts/models.py::Contract` (schemaVersion 1.1) — egg-canonical field names (`pipeline_id`, `slices[].tasks[]`), `slice-<N>` / `task-<P>-<N>` lowercase IDs, lowercase `"pending"` status enum, `acceptance_criteria` (not `acceptance`), `files_affected` (not `files`), and the full set of optional fields egg expects (defaulted appropriately). Output loads cleanly through `Contract.model_validate` and round-trips identical. It runs without importing egg.
+
+`<pipeline_id>` should match egg's pipeline-key convention: `issue-<N>` (optionally `issue-<N>-<qualifier>`) for issue-driven runs, or the JIRA key (e.g. `KORE-1234`) for ticket-driven runs.
 
 ## HITL gate
 
