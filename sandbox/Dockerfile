@@ -11,7 +11,7 @@
 # This stage has its own FROM so its cache is completely independent of the
 # base stage. Changes to base system packages (Stage 2) do NOT invalidate
 # the repo dependency cache, avoiding expensive npm install / go mod download.
-FROM ubuntu:22.04 AS repo-deps
+FROM ubuntu:26.04 AS repo-deps
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
@@ -58,7 +58,7 @@ RUN chmod +x /tmp/docker-setup.py && \
 # =============================================================================
 # Stage 2: base — system packages, Python 3.14, pip deps, Claude tools
 # =============================================================================
-FROM ubuntu:22.04 AS base
+FROM ubuntu:26.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 # Allow pip to install over distutils-managed system packages (safe in Docker).
