@@ -33,6 +33,12 @@ jobs:
 
       - name: Build containers
         run: |
+          # sandbox/Dockerfile COPYs `repo-deps/` (a gitignored build-context
+          # staging dir produced on demand by `make build`); we don't invoke
+          # `make build` here, so seed the marker explicitly. Matches the
+          # `mkdir -p repo-deps && touch repo-deps/.empty` step in the
+          # Makefile `build` target.
+          mkdir -p repo-deps && touch repo-deps/.empty
           docker build -t egg-gateway -f gateway/Dockerfile .
           docker build -t egg-sandbox -f sandbox/Dockerfile .
 
