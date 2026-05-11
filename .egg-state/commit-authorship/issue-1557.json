@@ -154,6 +154,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
     },
+    "7e1b45cacdcd0304f20efb6b8c57c2fe808919a9": {
+      "branch": "egg/issue-1557/work",
+      "pipeline_id": "issue-1557",
+      "registered_at": "2026-05-11T23:42:43.368829+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "8490d005152c95fed7abf3c9d3a2e7e27ad46d6c": {
       "branch": "egg/issue-1557/work",
       "pipeline_id": "issue-1557",
