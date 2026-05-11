@@ -9,15 +9,1110 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "How should this work be decomposed into slices? The work spans: (A) `submit_task` epic-input handling + issue-type detection, (B) refine prompt tweaks + apply step (`editJiraIssue` on epic Description), (C) plan prompt tweaks for per-node ticket-shaped descriptions, (D) plan apply step (`createJiraIssue` + `createIssueLink` + plan-node\u2192key mapping), (E) orchestrator-direct Jira creds + Won't-Do transitions for reassess, (F) reassess-specific planning (consolidate/split/diff), (G) in-flight child detection (status + open-PR cross-check + remote-link fallback) + per-ticket HITL gating.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Single slice: all parts ship together \u2014 [A+B+C+D+E+F+G] (1 PR)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Two slices with dependency: [foundation: A+B+C+D+E fresh-epic only] -> [reassess: F+G] (2 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Three slices with dependency: [foundation: A+B+C fresh refine] -> [planner+apply: D+E fresh] -> [reassess+in-flight: F+G] (3 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Two slices in parallel: [fresh-epic path: A+B+C+D+E] || [reassess+in-flight infra: F+G+E-reassess] (2 PRs, but B/D shared scope will need careful merge)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "**Hierarchy mechanism for child Jira tickets**: which field links children to the epic? Jira projects vary \u2014 older \"Classic\" company-managed projects use the `Epic Link` custom field, newer \"Next-gen\" / team-managed projects use the native `parent` field, and some projects support both. The gateway's `create_issue` accepts both `parent` and `epic_link` (mutually exclusive). How should the plan apply step decide which one to set?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Auto-detect from the target epic's project: probe Jira project metadata once at submit_task time and cache the choice for the rest of the pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Always prefer `parent`; fall back to `Epic Link` only if `parent` create fails",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Operator-configurable per Jira project (config file mapping project key -> field choice); error if no mapping found and ambiguous",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Operator-supplied as a `submit_task` parameter (e.g. `jira_hierarchy_field`); default to `parent`",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "**Reassess Won't Do transitions \u2014 batch vs per-ticket HITL**: when the reassess plan flags some pre-existing children as obsolete, should the orchestrator transition them all to Won't Do on plan approval, or require a separate per-ticket HITL confirmation? In-flight children (status mid-workflow OR has an open PR) already have a per-ticket HITL gate per the issue's resolved sub-section, so this question is about *Done\u2260relevant* and *To Do\u2192Won't Do* transitions on non-in-flight children only.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Single plan approval applies all Won't Do transitions atomically (operator sees the obsolete list in the plan draft and approves wholesale)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-ticket HITL gate for every Won't Do transition (each obsolete ticket gets its own decision in the HITL surface, mirroring the in-flight gate)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Single approval for *To Do* obsolete children; per-ticket gate only when transitioning a child that has any non-trivial history (comments, prior transitions, or linked tickets)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "**Done children handling in the plan prompt**: when reassessing an epic that has children already in Done state, how should those Done children be presented to the planning agent?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Exclude Done children from the plan prompt entirely (cleanest signal \u2014 agent can't accidentally re-propose equivalent work)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Include Done children with an explicit `do-not-re-plan` marker (gives the agent context for what's already shipped so it can build on it; risk is the agent might re-propose anyway)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Include Done children's summary+description but redact acceptance criteria + scope (gives just enough context for follow-on planning without inviting re-implementation)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "**Consolidation survivor selection (N existing children \u2192 1 plan node)**: when the reassess plan consolidates multiple existing tickets into a single node, which existing key should survive (edited in place) and which should be transitioned to Won't Do with a redirect comment?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Oldest ticket survives (lowest issue number) \u2014 preserves the longest history and link-graph",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Most-linked ticket survives (most inward/outward issue links + comments + watchers) \u2014 minimizes link-graph rewiring",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Agent picks per-consolidation with rationale in the plan draft; operator can override per-node before approval",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "First N-of-N retained by creation order (no heuristic, deterministic only)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "**Implement-phase trigger for created children**: after a plan is approved and child tickets are created in Jira, how should the implement phase get kicked off?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Manual: operator runs `submit_task <CHILD-KEY>` for each new child when ready (today's behavior for any Jira ticket; epic apply step just creates the tickets and stops)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Auto-spawn: orchestrator automatically calls `submit_task <CHILD-KEY>` for every created child immediately after plan approval (parallel kickoff of every leaf in the cross-task DAG)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Auto-spawn topologically: orchestrator spawns root nodes of the cross-task DAG immediately; downstream nodes spawn as their dependencies complete (respects `Blocks` / `Is blocked by` edges)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Auto-spawn opt-in: a `submit_task` parameter (e.g. `auto_implement_children=true`) controls whether the epic pipeline cascades into children",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "**Confluence link discovery scope** during refine: where should the agent look for Confluence pages to pull?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Jira `remoteLinks` only (issue/{key}/remotelink); structured + reliable",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Remote links + URL-scrape the epic description and existing-children descriptions for Confluence page URLs",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Remote links + description URLs + linked Jira issues' remote links (recursive one level)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Operator-supplied list only (no auto-discovery) \u2014 pass Confluence page IDs as a `submit_task` parameter",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "**In-flight detection signal precedence**: the issue lists three signals \u2014 Jira `fields.status.name` mid-workflow, orchestrator pipeline state with an open PR artifact, and Jira `remoteLinks` parsing for `github.com/.../pull/`. When two signals disagree (e.g. Jira status says `To Do` but orchestrator has an open PR), which wins for the `in_flight` classification?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "OR semantics (any positive signal => in_flight): conservative, may over-gate but never under-gates",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Orchestrator pipeline state wins (truth source: we know we shipped a PR); Jira status is informational only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Jira status wins (truth source: workflow state); orchestrator PR is informational only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "OR for `in_flight`-flag, but the *signal source* is logged on the HITL gate so the operator sees which signal fired",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "**Reassess refine-output strategy**: when reassessing an epic that already has a Description on the Jira ticket, what should the refine apply step do with it?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Wholesale rewrite: replace the existing Description with the refined analysis (clean, but loses any operator-curated content)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Refined analysis appended/merged below a `## Previous Description` heading; agent prompt instructs to integrate and supersede where possible",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Append-only: existing Description retained as-is; refined analysis added below an `## Updated Analysis (<date>)` heading (safest, but Description grows unboundedly across re-runs)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Operator chooses per-run via HITL at refine-approval time (offer rewrite vs merge as a separate decision in the analysis draft)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "**Plan-node \u2192 Jira-key mapping persistence**: the issue says \"Plan draft records the mapping from plan nodes \u2192 Jira keys so re-runs are idempotent.\" Where should this mapping live so subsequent re-runs (e.g. a second reassess) can find it?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Inline yaml-frontmatter block at the top of `.egg-state/drafts/<id>-plan.md` (human-readable + version-controlled in the work branch)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Separate `.egg-state/drafts/<id>-plan-mapping.yaml` file alongside the plan draft (cleaner separation; same branch)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Persisted as a pipeline artifact in `.egg-state/pipelines/<id>.json` under a new `epic_apply` key (matches today's `pr_url` artifact pattern; survives draft rewrites)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Stored on the epic's Jira ticket via a hidden custom field or a tagged Description footer (survives independent of the egg repo \u2014 strongest cross-environment idempotency)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "**Apply-step execution location**: regardless of how the work is sliced (decision-1), the plan-phase needs to know where the apply step's gateway calls (`editJiraIssue`, `createJiraIssue`, `createIssueLink`, `addCommentToJiraIssue`) actually originate. This is a trust-boundary choice orthogonal to slicing. The Won't-Do transition is unambiguously orchestrator-only (no gateway path); the rest can go either way.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "In-sandbox-agent for all gateway-mediated writes (a dedicated `apply-epic` agent runs after refine/plan approval and calls the gateway). Won't-Do transitions still orchestrator-only. Preserves gateway audit identity = session token; one extra agent invocation per phase.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Orchestrator-side for all writes (orchestrator opens its own gateway session token and issues the create/edit/link calls directly). Avoids the extra agent; introduces a new orchestrator-side gateway client + audit-identity story for non-transition writes.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: gateway-mediated writes from a dedicated `apply-epic` agent for everything except `transitions`; orchestrator-only for `transitions` (the gateway-blocked verb). Maximises symmetry with today's 'agents write through the gateway' pattern.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "All-orchestrator with no agent in the data path (writes go directly to Jira from the orchestrator using its credential surface, bypassing the gateway for create/edit/link as well). Worst symmetry, biggest cred surface; only worth considering if the gateway's create/edit/link become a bottleneck.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "**Reassess-trigger override on `submit_task`** (promoted from feedback-1 Q5 in response to NACK \u2014 structurally a decision, not open-ended feedback): `submit_task <EPIC-KEY>` auto-detects the reassess path when the epic has children. Should the operator be able to force the path explicitly?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "No override: auto-detection only (smallest surface; operator must transition children away from the epic if they want a fresh-path treatment)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add `--reassess` / `--fresh` mutex flags on `submit_task` to force the path. `--fresh` on an epic with children warns + asks the operator to confirm; `--reassess` on an epic with no children no-ops gracefully into the fresh path.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Single `--mode={auto,reassess,fresh}` parameter on `submit_task`; default `auto` preserves today's behavior, explicit overrides bypass detection without confirmation.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Add a non-`submit_task` `egg <whatever> reassess <EPIC-KEY>` admin subcommand for forced reassess, leaving `submit_task` auto-detect-only (keeps `submit_task` surface clean).",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-11T21:49:48.532436Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "How should this work be decomposed into slices? The work spans: (A) `submit_task` epic-input handling + issue-type detection, (B) refine prompt tweaks + apply step (`editJiraIssue` on epic Description), (C) plan prompt tweaks for per-node ticket-shaped descriptions, (D) plan apply step (`createJiraIssue` + `createIssueLink` + plan-node\u2192key mapping), (E) orchestrator-direct Jira creds + Won't-Do transitions for reassess, (F) reassess-specific planning (consolidate/split/diff), (G) in-flight child detection (status + open-PR cross-check + remote-link fallback) + per-ticket HITL gating.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Single slice: all parts ship together \u2014 [A+B+C+D+E+F+G] (1 PR)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Two slices with dependency: [foundation: A+B+C+D+E fresh-epic only] -> [reassess: F+G] (2 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Three slices with dependency: [foundation: A+B+C fresh refine] -> [planner+apply: D+E fresh] -> [reassess+in-flight: F+G] (3 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Two slices in parallel: [fresh-epic path: A+B+C+D+E] || [reassess+in-flight infra: F+G+E-reassess] (2 PRs, but B/D shared scope will need careful merge)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should this work be decomposed into slices? Th...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:49:55.036462Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "**Hierarchy mechanism for child Jira tickets**: which field links children to the epic? Jira projects vary \u2014 older \"Classic\" company-managed projects use the `Epic Link` custom field, newer \"Next-gen\" / team-managed projects use the native `parent` field, and some projects support both. The gateway's `create_issue` accepts both `parent` and `epic_link` (mutually exclusive). How should the plan apply step decide which one to set?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Auto-detect from the target epic's project: probe Jira project metadata once at submit_task time and cache the choice for the rest of the pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Always prefer `parent`; fall back to `Epic Link` only if `parent` create fails",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Operator-configurable per Jira project (config file mapping project key -> field choice); error if no mapping found and ambiguous",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Operator-supplied as a `submit_task` parameter (e.g. `jira_hierarchy_field`); default to `parent`",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Hierarchy mechanism for child Jira tickets**: wh...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:01.325712Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "**Reassess Won't Do transitions \u2014 batch vs per-ticket HITL**: when the reassess plan flags some pre-existing children as obsolete, should the orchestrator transition them all to Won't Do on plan approval, or require a separate per-ticket HITL confirmation? In-flight children (status mid-workflow OR has an open PR) already have a per-ticket HITL gate per the issue's resolved sub-section, so this question is about *Done\u2260relevant* and *To Do\u2192Won't Do* transitions on non-in-flight children only.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Single plan approval applies all Won't Do transitions atomically (operator sees the obsolete list in the plan draft and approves wholesale)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-ticket HITL gate for every Won't Do transition (each obsolete ticket gets its own decision in the HITL surface, mirroring the in-flight gate)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Single approval for *To Do* obsolete children; per-ticket gate only when transitioning a child that has any non-trivial history (comments, prior transitions, or linked tickets)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Reassess Won't Do transitions \u2014 batch vs per-tic...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:07.209255Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "**Done children handling in the plan prompt**: when reassessing an epic that has children already in Done state, how should those Done children be presented to the planning agent?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Exclude Done children from the plan prompt entirely (cleanest signal \u2014 agent can't accidentally re-propose equivalent work)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Include Done children with an explicit `do-not-re-plan` marker (gives the agent context for what's already shipped so it can build on it; risk is the agent might re-propose anyway)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Include Done children's summary+description but redact acceptance criteria + scope (gives just enough context for follow-on planning without inviting re-implementation)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Done children handling in the plan prompt**: whe...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:12.958532Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "**Consolidation survivor selection (N existing children \u2192 1 plan node)**: when the reassess plan consolidates multiple existing tickets into a single node, which existing key should survive (edited in place) and which should be transitioned to Won't Do with a redirect comment?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Oldest ticket survives (lowest issue number) \u2014 preserves the longest history and link-graph",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Most-linked ticket survives (most inward/outward issue links + comments + watchers) \u2014 minimizes link-graph rewiring",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Agent picks per-consolidation with rationale in the plan draft; operator can override per-node before approval",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "First N-of-N retained by creation order (no heuristic, deterministic only)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Consolidation survivor selection (N existing chi...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:19.373517Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "**Implement-phase trigger for created children**: after a plan is approved and child tickets are created in Jira, how should the implement phase get kicked off?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Manual: operator runs `submit_task <CHILD-KEY>` for each new child when ready (today's behavior for any Jira ticket; epic apply step just creates the tickets and stops)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Auto-spawn: orchestrator automatically calls `submit_task <CHILD-KEY>` for every created child immediately after plan approval (parallel kickoff of every leaf in the cross-task DAG)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Auto-spawn topologically: orchestrator spawns root nodes of the cross-task DAG immediately; downstream nodes spawn as their dependencies complete (respects `Blocks` / `Is blocked by` edges)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Auto-spawn opt-in: a `submit_task` parameter (e.g. `auto_implement_children=true`) controls whether the epic pipeline cascades into children",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Implement-phase trigger for created children**: ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:24.546723Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "**Confluence link discovery scope** during refine: where should the agent look for Confluence pages to pull?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Jira `remoteLinks` only (issue/{key}/remotelink); structured + reliable",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Remote links + URL-scrape the epic description and existing-children descriptions for Confluence page URLs",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Remote links + description URLs + linked Jira issues' remote links (recursive one level)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Operator-supplied list only (no auto-discovery) \u2014 pass Confluence page IDs as a `submit_task` parameter",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Confluence link discovery scope** during refine:...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:31.012956Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "**In-flight detection signal precedence**: the issue lists three signals \u2014 Jira `fields.status.name` mid-workflow, orchestrator pipeline state with an open PR artifact, and Jira `remoteLinks` parsing for `github.com/.../pull/`. When two signals disagree (e.g. Jira status says `To Do` but orchestrator has an open PR), which wins for the `in_flight` classification?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "OR semantics (any positive signal => in_flight): conservative, may over-gate but never under-gates",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Orchestrator pipeline state wins (truth source: we know we shipped a PR); Jira status is informational only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Jira status wins (truth source: workflow state); orchestrator PR is informational only",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "OR for `in_flight`-flag, but the *signal source* is logged on the HITL gate so the operator sees which signal fired",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **In-flight detection signal precedence**: the iss...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:36.886626Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "**Reassess refine-output strategy**: when reassessing an epic that already has a Description on the Jira ticket, what should the refine apply step do with it?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Wholesale rewrite: replace the existing Description with the refined analysis (clean, but loses any operator-curated content)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Refined analysis appended/merged below a `## Previous Description` heading; agent prompt instructs to integrate and supersede where possible",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Append-only: existing Description retained as-is; refined analysis added below an `## Updated Analysis (<date>)` heading (safest, but Description grows unboundedly across re-runs)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Operator chooses per-run via HITL at refine-approval time (offer rewrite vs merge as a separate decision in the analysis draft)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Reassess refine-output strategy**: when reassess...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:43.146367Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "**Plan-node \u2192 Jira-key mapping persistence**: the issue says \"Plan draft records the mapping from plan nodes \u2192 Jira keys so re-runs are idempotent.\" Where should this mapping live so subsequent re-runs (e.g. a second reassess) can find it?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Inline yaml-frontmatter block at the top of `.egg-state/drafts/<id>-plan.md` (human-readable + version-controlled in the work branch)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Separate `.egg-state/drafts/<id>-plan-mapping.yaml` file alongside the plan draft (cleaner separation; same branch)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Persisted as a pipeline artifact in `.egg-state/pipelines/<id>.json` under a new `epic_apply` key (matches today's `pr_url` artifact pattern; survives draft rewrites)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Stored on the epic's Jira ticket via a hidden custom field or a tagged Description footer (survives independent of the egg repo \u2014 strongest cross-environment idempotency)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Plan-node \u2192 Jira-key mapping persistence**: the ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:50:55.508715Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "**Orchestrator-direct Jira credentials configuration**: the issue notes the orchestrator needs its own Jira credentials (separate from the gateway) to apply Won't-Do transitions, since `transitions` is permanently denylisted from the agent-facing gateway. How should these credentials be provisioned and protected? Options to consider: env vars (e.g. `EGG_ORCH_JIRA_EMAIL`/`EGG_ORCH_JIRA_TOKEN`); a config file path; the existing gateway credential store (with a separate scope tag); a per-project credential map. Whichever path is chosen, please also clarify: (a) the operator-facing setup story (where they put the creds, how rotation works); (b) audit/logging expectations for transitions performed by the orchestrator.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "**Plan-node ticket-description structure**: every plan node becomes a Jira ticket body. Should we mandate a fixed structure in the plan prompt (e.g. `Problem statement / Scope / Acceptance criteria / Out of scope / Cross-links`) or leave the shape to the agent's judgement per node? If fixed, please describe the exact section ordering and any project-style conventions the operator wants surfaced.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "**Cross-task dependency representation in Jira**: the issue mentions `createIssueLink` (typ. `Blocks` / `Is blocked by`). Are there other link types operator-side projects use that we should support (e.g. `Relates to`, `Causes`)? Should the plan prompt allow the agent to choose the link type per edge, or always emit `Blocks` for cross-task DAG edges?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "**PR-link writeback to Jira ticket**: when a child ticket's implement phase produces a PR, should the orchestrator (or the gateway, via the agent) automatically add a remote-link / comment back to the Jira child so the operator can navigate Jira -> PR? This isn't in the issue's explicit scope but is a natural completion of the per-child-ticket-PR resolved decision.",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "**Reassess-trigger handling**: `submit_task <EPIC-KEY>` auto-detects the reassess path when the epic has children. Is there a need for an explicit `--reassess` / `--fresh` override on `submit_task` for the case where the operator wants to force one path (e.g. ignore stale children, or treat a fresh epic as a reassess of an external system)?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T21:59:53.909735Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "**Apply-step execution location**: regardless of how the work is sliced (decision-1), the plan-phase needs to know where the apply step's gateway calls (`editJiraIssue`, `createJiraIssue`, `createIssueLink`, `addCommentToJiraIssue`) actually originate. This is a trust-boundary choice orthogonal to slicing. The Won't-Do transition is unambiguously orchestrator-only (no gateway path); the rest can go either way.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "In-sandbox-agent for all gateway-mediated writes (a dedicated `apply-epic` agent runs after refine/plan approval and calls the gateway). Won't-Do transitions still orchestrator-only. Preserves gateway audit identity = session token; one extra agent invocation per phase.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Orchestrator-side for all writes (orchestrator opens its own gateway session token and issues the create/edit/link calls directly). Avoids the extra agent; introduces a new orchestrator-side gateway client + audit-identity story for non-transition writes.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: gateway-mediated writes from a dedicated `apply-epic` agent for everything except `transitions`; orchestrator-only for `transitions` (the gateway-blocked verb). Maximises symmetry with today's 'agents write through the gateway' pattern.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "All-orchestrator with no agent in the data path (writes go directly to Jira from the orchestrator using its credential surface, bypassing the gateway for create/edit/link as well). Worst symmetry, biggest cred surface; only worth considering if the gateway's create/edit/link become a bottleneck.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Apply-step execution location**: regardless of h...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T22:00:01.126950Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "**Reassess-trigger override on `submit_task`** (promoted from feedback-1 Q5 in response to NACK \u2014 structurally a decision, not open-ended feedback): `submit_task <EPIC-KEY>` auto-detects the reassess path when the epic has children. Should the operator be able to force the path explicitly?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "No override: auto-detection only (smallest surface; operator must transition children away from the epic if they want a fresh-path treatment)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add `--reassess` / `--fresh` mutex flags on `submit_task` to force the path. `--fresh` on an epic with children warns + asks the operator to confirm; `--reassess` on an epic with no children no-ops gracefully into the fresh path.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Single `--mode={auto,reassess,fresh}` parameter on `submit_task`; default `auto` preserves today's behavior, explicit overrides bypass detection without confirmation.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Add a non-`submit_task` `egg <whatever> reassess <EPIC-KEY>` admin subcommand for forced reassess, leaving `submit_task` auto-detect-only (keeps `submit_task` surface clean).",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Reassess-trigger override on `submit_task`** (pr...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "**Orchestrator-direct Jira credentials configuration**: the issue notes the orchestrator needs its own Jira credentials (separate from the gateway) to apply Won't-Do transitions, since `transitions` is permanently denylisted from the agent-facing gateway. How should these credentials be provisioned and protected? Options to consider: env vars (e.g. `EGG_ORCH_JIRA_EMAIL`/`EGG_ORCH_JIRA_TOKEN`); a config file path; the existing gateway credential store (with a separate scope tag); a per-project credential map. Whichever path is chosen, please also clarify: (a) the operator-facing setup story (where they put the creds, how rotation works); (b) audit/logging expectations for transitions performed by the orchestrator.",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "**Plan-node ticket-description structure**: every plan node becomes a Jira ticket body. Should we mandate a fixed structure in the plan prompt (e.g. `Problem statement / Scope / Acceptance criteria / Out of scope / Cross-links`) or leave the shape to the agent's judgement per node? If fixed, please describe the exact section ordering and any project-style conventions the operator wants surfaced.",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "**Cross-task dependency representation in Jira**: the issue mentions `createIssueLink` (typ. `Blocks` / `Is blocked by`). Are there other link types operator-side projects use that we should support (e.g. `Relates to`, `Causes`)? Should the plan prompt allow the agent to choose the link type per edge, or always emit `Blocks` for cross-task DAG edges?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "**PR-link writeback to Jira ticket**: when a child ticket's implement phase produces a PR, should the orchestrator (or the gateway, via the agent) automatically add a remote-link / comment back to the Jira child so the operator can navigate Jira -> PR? This isn't in the issue's explicit scope but is a natural completion of the per-child-ticket-PR resolved decision.",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "**Reassess-trigger handling**: `submit_task <EPIC-KEY>` auto-detects the reassess path when the epic has children. Is there a need for an explicit `--reassess` / `--fresh` override on `submit_task` for the case where the operator wants to force one path (e.g. ignore stale children, or treat a fresh epic as a reassess of an external system)?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
