@@ -1260,71 +1260,77 @@ class TestOpenContextPRCallSiteWiring:
 
     def test_call_site_is_gated_on_plan_phase(self):
         """The hook only fires after the plan phase — re-entering the
-        same code on a different phase MUST NOT re-open the context PR."""
+        same code on a different phase MUST NOT re-open the context PR.
+
+        After #2593 the call site routes through the shared
+        ``_maybe_open_base_pr_for_plan_to_implement`` wrapper, so the
+        regression check is against the wrapper invocation rather than
+        the inner ``_open_context_pr_for_pipeline`` call (the wrapper
+        owns the CUSTOM-mode guard and exception swallow now)."""
         src = Path(__file__).parent.parent / "routes" / "pipelines.py"
         text = src.read_text()
-        # The call site must be inside an ``if current_phase.value == "plan"``
-        # block.  Allow optional extra ``and ...`` conjuncts between
-        # ``"plan"`` and ``:`` so the post-#2548 CUSTOM-mode gate (#2548
-        # review issue 3 — ``and not _ctx_is_custom_mode``) does not
-        # break this regression check.
         m = re.search(
-            r'if\s+current_phase\.value\s*==\s*"plan"[^\n:]*:\s*\n\s*try:\s*\n\s*'
-            r"_open_context_pr_for_pipeline\(",
+            r'if\s+current_phase\.value\s*==\s*"plan"[^\n:]*:\s*\n\s*'
+            r"_maybe_open_base_pr_for_plan_to_implement\(",
             text,
         )
         assert m is not None, (
-            "_open_context_pr_for_pipeline call site must be gated on "
-            "current_phase.value == 'plan' AND wrapped in try/except (D3)"
+            "plan→implement call site must be gated on "
+            "current_phase.value == 'plan' and route through "
+            "_maybe_open_base_pr_for_plan_to_implement (D3, #2593)"
         )
 
     def test_call_site_is_gated_on_non_custom_mode(self):
         """CUSTOM-mode pipelines (#1762) terminate after a single phase
         and never advance to implement — opening a context PR for them
         would orphan a PR on GitHub with no slice PRs to stack on
-        (#2548 review issue 3).  Pin the gate so a refactor that drops
-        it is caught immediately."""
+        (#2548 review issue 3).  Under #2593 the CUSTOM-mode skip moved
+        from the call site into the
+        ``_maybe_open_base_pr_for_plan_to_implement`` wrapper so every
+        transition path inherits the same guard.  Pin the guard in the
+        wrapper body."""
         src = Path(__file__).parent.parent / "routes" / "pipelines.py"
         text = src.read_text()
+        # Look inside the wrapper for the CUSTOM-mode early return.
+        # The body between ``if _is_custom_mode:`` and the ``return``
+        # may contain a log line (#2593 review issue 10) — match
+        # non-greedy across comments/logging so the regression check
+        # still catches a missing return.
         m = re.search(
-            r'if\s+current_phase\.value\s*==\s*"plan"\s+and\s+not\s+'
-            r"_ctx_is_custom_mode\s*:\s*\n\s*try:\s*\n\s*"
-            r"_open_context_pr_for_pipeline\(",
-            text,
-        )
-        assert m is not None, (
-            "_open_context_pr_for_pipeline call site must skip CUSTOM-mode "
-            "pipelines: they terminate after one phase and would orphan "
-            "the context PR (#2548 review issue 3)"
-        )
-
-    def test_call_site_swallows_any_exception(self):
-        """The call site catches a broad ``except`` so the hook can never
-        block the plan→implement transition, even if the helper raises
-        on top of its own internal swallows.
-
-        Regex brittleness (#2548 review issue 9): the pattern requires
-        the call's closing ``)`` to be followed (modulo whitespace) by
-        ``except``.  This is deliberate — it catches any refactor that
-        inserts logging, metric emission, or another helper call
-        between the helper invocation and its except clause, which
-        would silently widen the failure window.  If a future change
-        legitimately needs to do work between the call and the except
-        (e.g. debounce a respawn), update both this test AND the call
-        site comment in pipelines.py to spell out the new contract.
-        """
-        src = Path(__file__).parent.parent / "routes" / "pipelines.py"
-        text = src.read_text()
-        # Locate the call and verify the surrounding ``except`` clause
-        # logs-and-continues.
-        # Allow flexible whitespace + trailing kwargs between the call and
-        # the closing paren before the matching except.
-        m = re.search(
-            r"_open_context_pr_for_pipeline\(.+?\)\s*\n\s*except\s+Exception",
+            r"def\s+_maybe_open_base_pr_for_plan_to_implement\b.+?"
+            r"_is_custom_mode\s*=\s*getattr\(pipeline,\s*['\"]mode['\"],\s*None\)"
+            r"\s*==\s*PipelineMode\.CUSTOM.+?if\s+_is_custom_mode\s*:.+?return\b",
             text,
             flags=re.DOTALL,
         )
         assert m is not None, (
-            "call site must be inside ``try: ...; except Exception``: a hook "
-            "failure must never escape into _run_pipeline (D3)"
+            "_maybe_open_base_pr_for_plan_to_implement must skip CUSTOM-mode "
+            "pipelines: they terminate after one phase and would orphan "
+            "the context PR (#2548 review issue 3, #2593)"
+        )
+
+    def test_call_site_swallows_any_exception(self):
+        """The hook can never block the plan→implement transition, even
+        if the inner helper raises on top of its own internal swallows
+        (D3 of #2548).  Under #2593 the swallow moved from the call
+        site into the
+        ``_maybe_open_base_pr_for_plan_to_implement`` wrapper so every
+        transition path inherits the same protection.  Pin the
+        try/except around the inner call inside the wrapper.
+        """
+        src = Path(__file__).parent.parent / "routes" / "pipelines.py"
+        text = src.read_text()
+        # The wrapper must wrap the inner _open_context_pr_for_pipeline
+        # call in a try/except Exception so any raise becomes a log line.
+        m = re.search(
+            r"def\s+_maybe_open_base_pr_for_plan_to_implement\b.+?"
+            r"try:\s*\n\s*_open_context_pr_for_pipeline\(.+?\)"
+            r"\s*\n\s*except\s+Exception",
+            text,
+            flags=re.DOTALL,
+        )
+        assert m is not None, (
+            "_maybe_open_base_pr_for_plan_to_implement must wrap "
+            "_open_context_pr_for_pipeline in try/except Exception so a "
+            "hook failure can never escape into the transition path (D3)"
         )
