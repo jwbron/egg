@@ -147,6 +147,22 @@ class ReviewGraph:
         """Get all roles participating in the graph."""
         return self._producer_roles | self._reviewer_roles
 
+    def producer_roles(self) -> set[str]:
+        """Get all roles that act as producers in the graph.
+
+        Returned as a snapshot copy so callers can mutate or iterate without
+        risking concurrent modification of the internal set.
+        """
+        return set(self._producer_roles)
+
+    def reviewer_roles(self) -> set[str]:
+        """Get all roles that act as reviewers in the graph.
+
+        Returned as a snapshot copy so callers can mutate or iterate without
+        risking concurrent modification of the internal set.
+        """
+        return set(self._reviewer_roles)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the graph."""
         return {

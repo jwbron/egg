@@ -253,25 +253,45 @@ class ApprovalMatrix:
           but right now no role besides TESTER is dual-role, and skipping
           here keeps the rule trivially aligned with the "tester always
           runs" intent.
-        * Otherwise record an empty proposal at version 1, then record
-          an ACK at version 1 from **every** critical reviewer of ``P``.
-          The ACK from a dual-role reviewer (e.g. TESTER reviewing
-          CODER) is a starting state, not a final say: if the
-          dual-role reviewer's own producer work later uncovers a need
-          for ``P`` to produce something, it can NACK at version 1, which
-          overrides the seeded ACK and forces ``P`` to re-propose at
-          version 2 via the normal flow.
+        * Otherwise call :meth:`record_proposal` to bump ``P``'s
+          ``proposal_version`` (returns the new version ``v``), then
+          record an ACK at version ``v`` from **every** critical reviewer
+          of ``P``. On the first invocation ``v == 1``; if the seeder is
+          ever invoked again on the same matrix (e.g. a retry path) ``v``
+          increments, and the new round of seeded ACKs lands at the new
+          version.
+
+        **Dual-role reviewer pre-ACK — known failure mode.** This method
+        seeds an ACK from **every** critical reviewer of ``P``, including
+        dual-role reviewers like TESTER reviewing CODER. The reviewer's
+        own producer work has not yet run, so its ACK of ``P`` is a
+        *starting state*, not a final verdict: if its own work later
+        uncovers a need for ``P`` to produce something, it can NACK at
+        version ``v``, which overrides the seeded ACK and forces ``P`` to
+        re-propose at version ``v+1`` via the normal flow. Operationally
+        this means if a dual-role reviewer's container crashes, deadlocks,
+        or otherwise fails to revisit ``P`` before its own work is done,
+        the seeded ACK becomes the final word — a false-positive ACK that
+        a future reader of the matrix will see as "TESTER ACKed CODER"
+        without TESTER ever having reviewed anything. Issue #2581's
+        proposed design left dual-role reviewers PENDING (silence reads
+        as "not done"); we trade that defensive default for "consensus
+        reachable when the dual-role reviewer never gets to it," because
+        the alternative is exactly the deadlock this seed exists to
+        prevent. Operators inspecting a stalled slice should treat
+        seeded TESTER→CODER ACKs as advisory rather than authoritative.
 
         The producer container is still spawned by the caller — this only
-        pre-seeds the matrix. If the agent later proposes for real, the
-        version bumps and the seeded ACKs are superseded by the normal
-        flow.
+        pre-seeds the matrix. The caller is responsible for telling the
+        empty pure producer (via its prompt) to skip its propose step;
+        otherwise the agent's real propose at version ``v+1`` invalidates
+        the seeded ACKs and the deadlock recurs.
 
         Returns the list of producer roles that were auto-ACKed (mostly
         useful for logging / tests).
         """
         auto_acked: list[str] = []
-        for producer in sorted(self._graph._producer_roles):
+        for producer in sorted(self._graph.producer_roles()):
             if producer in producers_with_tasks:
                 continue
             if self._graph.is_dual_role(producer):
