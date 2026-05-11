@@ -428,10 +428,50 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "**Orchestrator-direct Jira credentials configuration**: the issue notes the orchestrator needs its own Jira credentials (separate from the gateway) to apply Won't-Do transitions, since `transitions` is permanently denylisted from the agent-facing gateway. How should these credentials be provisioned and protected? Options to consider: env vars (e.g. `EGG_ORCH_JIRA_EMAIL`/`EGG_ORCH_JIRA_TOKEN`); a config file path; the existing gateway credential store (with a separate scope tag); a per-project credential map. Whichever path is chosen, please also clarify: (a) the operator-facing setup story (where they put the creds, how rotation works); (b) audit/logging expectations for transitions performed by the orchestrator.",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "**Plan-node ticket-description structure**: every plan node becomes a Jira ticket body. Should we mandate a fixed structure in the plan prompt (e.g. `Problem statement / Scope / Acceptance criteria / Out of scope / Cross-links`) or leave the shape to the agent's judgement per node? If fixed, please describe the exact section ordering and any project-style conventions the operator wants surfaced.",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "**Cross-task dependency representation in Jira**: the issue mentions `createIssueLink` (typ. `Blocks` / `Is blocked by`). Are there other link types operator-side projects use that we should support (e.g. `Relates to`, `Causes`)? Should the plan prompt allow the agent to choose the link type per edge, or always emit `Blocks` for cross-task DAG edges?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "**PR-link writeback to Jira ticket**: when a child ticket's implement phase produces a PR, should the orchestrator (or the gateway, via the agent) automatically add a remote-link / comment back to the Jira child so the operator can navigate Jira -> PR? This isn't in the issue's explicit scope but is a natural completion of the per-child-ticket-PR resolved decision.",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "**Reassess-trigger handling**: `submit_task <EPIC-KEY>` auto-detects the reassess path when the epic has children. Is there a need for an explicit `--reassess` / `--fresh` override on `submit_task` for the case where the operator wants to force one path (e.g. ignore stale children, or treat a fresh epic as a reassess of an external system)?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.483164Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.442392Z",
+  "updated_at": "2026-05-11T22:24:52.491802Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -445,6 +485,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
