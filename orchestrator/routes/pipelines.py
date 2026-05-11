@@ -10095,6 +10095,84 @@ def _open_context_pr_for_pipeline(
     return context_branch
 
 
+def _derive_producer_roles_with_tasks(
+    pipeline_id: str,
+    slice_id: str | None,
+    has_contract: bool,
+    worktree_repo_path: Path,
+) -> set[str] | None:
+    """Compute which producer roles have tasks in this slice's plan (#2581).
+
+    Drives both the matrix-level auto-ACK seed
+    (``ApprovalMatrix.seed_auto_ack_for_empty_pure_producers``) and the
+    prompt-level shortcut flag (``is_pre_seeded_empty_producer``) used
+    by ``_build_brc_preamble`` / ``_build_producer_orientation``.
+
+    Behavior:
+
+    * Returns ``None`` when ``slice_id`` is ``None`` or the pipeline has
+      no contract (CUSTOM-mode / BABYSIT / prompt-mode pipelines) —
+      preserves pre-#2581 unconditional-roster behavior, no seed.
+    * Otherwise loads the contract, locates the slice, and returns
+      ``{(task.role or "coder") for task in slice.tasks}``. ``Task.role``
+      is ``str | None`` and ``None`` is the execution-time coder default
+      per the contract schema.
+    * If the slice id is absent from the loaded contract, logs a WARNING
+      with ``available_slice_ids`` inlined and returns ``None`` — the
+      seed is skipped and pure producers in this slice will deadlock if
+      they have no tasks. Logged loud so operators can spot the safety
+      net being off.
+    * Narrowly catches ``ContractNotFoundError`` /
+      ``ContractValidationError`` / ``OSError`` from the loader — these
+      are recoverable load-time errors (missing branch checkout, malformed
+      contract, file IO failure). Logs a WARNING and returns ``None``.
+      Unknown exceptions (schema bumps, ``AttributeError`` on contract
+      model changes) propagate so they fail loudly during testing rather
+      than silently re-introducing the deadlock in production.
+
+    Extracted from ``_run_concurrent_phase`` so this load+derive path can
+    be unit-tested without spinning up containers — the production
+    call site is ``_run_concurrent_phase`` and the unit tests in
+    ``test_auto_ack_pure_producers.py`` patch the ``load_contract``
+    import via this module so the catch logic is exercised directly.
+    """
+    if slice_id is None or not has_contract:
+        return None
+
+    from egg_contracts.loader import (
+        ContractNotFoundError,
+        ContractValidationError,
+        load_contract,
+    )
+
+    try:
+        _contract = load_contract(pipeline_id, worktree_repo_path)
+    except (ContractNotFoundError, ContractValidationError, OSError) as exc:
+        logger.warning(
+            "Could not derive producer_roles_with_tasks for auto-ACK seeding — "
+            "pure producers in this slice may deadlock if they have no tasks",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        return None
+
+    _slice_obj = next((s for s in _contract.slices if s.id == slice_id), None)
+    if _slice_obj is None:
+        logger.warning(
+            "Slice id not found in contract — auto-ACK seeding off "
+            "for this run; pure producers in this slice may deadlock "
+            "if they have no tasks",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            available_slice_ids=[s.id for s in _contract.slices],
+        )
+        return None
+
+    return {(t.role or "coder") for t in _slice_obj.tasks}
+
+
 def _resolve_slice_1_context_branch_from_contract(
     pipeline_id: str,
     worktree_repo_path: Path,
@@ -11166,11 +11244,23 @@ def _build_brc_preamble(
                 "`global_zero_proposal` (other slice producers haven't "
                 "proposed yet), this is expected. Block on "
                 "`egg-orch message wait-loop --for STATUS --for "
-                "CONSENSUS_RE_REVIEW --for OVERSEER_ALERT`. On STATUS "
-                "with metadata `ready_to_confirm: true` (#2531), retry "
-                "`egg-orch consensus confirmed`. On `CONSENSUS_RE_REVIEW` "
-                "for your role, re-confirm (do not propose). On "
-                "`OVERSEER_ALERT`, surface it.\n"
+                "CONSENSUS_RE_REVIEW --for CONSENSUS_ACK --for "
+                "CONSENSUS_NACK --for OVERSEER_ALERT`. The "
+                "`CONSENSUS_ACK` / `CONSENSUS_NACK` subscriptions cover "
+                "the dual-role-NACK-recovery scenario: if a dual-role "
+                "reviewer (TESTER) NACKs your seeded ACKs while you "
+                "wait, the NACK breaks `is_fully_acked` and "
+                "`_collect_newly_ready_producers` stops emitting the "
+                "STATUS nudge — without these subscriptions the wait "
+                "would hang. On STATUS with metadata "
+                "`ready_to_confirm: true` (#2531), retry "
+                "`egg-orch consensus confirmed`. On `CONSENSUS_ACK` / "
+                "`CONSENSUS_NACK` for your role, retry "
+                "`egg-orch consensus confirmed` so the orchestrator "
+                "tells you whether you can proceed (success) or you've "
+                "hit the `producer_not_fully_acked` branch below. "
+                "On `CONSENSUS_RE_REVIEW` for your role, re-confirm "
+                "(do not propose). On `OVERSEER_ALERT`, surface it.\n"
                 "      - If it returns `status: pending_acks` with "
                 "`producer_not_fully_acked`, a dual-role reviewer (TESTER) "
                 "has NACKed the seeded version because its own work uncovered "
@@ -11871,8 +11961,8 @@ def _build_producer_orientation(
             "or stretch the slice's scope to author code/docs that the "
             "planner did not assign to you; the pre-seeded path exists "
             "precisely to let this slice reach consensus without your "
-            "contribution. Read the lifecycle shortcut block above, then "
-            "go directly to step 5 (CONFIRM)."
+            "contribution. Then follow the **Pre-seeded empty-producer "
+            "shortcut** block above, which replaces steps 2–5 below."
         )
     reviewer_awareness = ""
     if reviewers:
@@ -15024,56 +15114,15 @@ def _run_concurrent_phase(
     # tasks to (#2581). Used to pre-seed auto-ACKs for pure producers
     # (e.g. CODER, DOCUMENTER) that the planner didn't include —
     # otherwise their empty proposal can deadlock BRC consensus when
-    # reviewers NACK "nothing to review". Only meaningful for
-    # per-slice runs against a contracted pipeline; CUSTOM-mode,
-    # BABYSIT, and prompt-mode pipelines fall through to ``None``
+    # reviewers NACK "nothing to review". CUSTOM-mode, BABYSIT, and
+    # prompt-mode pipelines (and contract-load failures) get ``None``,
     # which preserves the pre-#2581 unconditional-roster behavior.
-    producer_roles_with_tasks: set[str] | None = None
-    if slice_id is not None and getattr(pipeline, "has_contract", True):
-        from egg_contracts.loader import (
-            ContractNotFoundError,
-            ContractValidationError,
-        )
-        from egg_contracts.loader import (
-            load_contract as _load_contract_for_seed,
-        )
-
-        try:
-            _contract = _load_contract_for_seed(pipeline.id, worktree_repo_path)
-            _slice_obj = next((s for s in _contract.slices if s.id == slice_id), None)
-            if _slice_obj is None:
-                # The slice id is well-formed but not in this contract — likely
-                # a contract-on-main vs slice-on-branch skew, or a bad slice id
-                # passed in. Log loud so operators can spot the safety net
-                # being off; let agents run unseeded.
-                logger.warning(
-                    "Slice id not found in contract — auto-ACK seeding off "
-                    "for this run; pure producers in this slice may deadlock "
-                    "if they have no tasks",
-                    pipeline_id=pipeline.id,
-                    slice_id=slice_id,
-                    available_slice_ids=[s.id for s in _contract.slices],
-                )
-            else:
-                # ``Task.role`` is ``str | None``; ``None`` is the
-                # execution-time coder default per the contract schema.
-                producer_roles_with_tasks = {(t.role or "coder") for t in _slice_obj.tasks}
-        except (ContractNotFoundError, ContractValidationError, OSError) as exc:
-            # Narrow catch (#2581 review): only swallow load-time errors we
-            # can reasonably recover from. Unknown exceptions (schema bumps,
-            # AttributeError on contract model changes) propagate so they're
-            # caught loudly during testing instead of silently re-introducing
-            # the deadlock in production. Logged at WARNING — operators need
-            # to know the safety net is off.
-            logger.warning(
-                "Could not derive producer_roles_with_tasks for auto-ACK seeding — "
-                "pure producers in this slice may deadlock if they have no tasks",
-                pipeline_id=pipeline.id,
-                slice_id=slice_id,
-                error_type=type(exc).__name__,
-                error=str(exc),
-            )
-            producer_roles_with_tasks = None
+    producer_roles_with_tasks = _derive_producer_roles_with_tasks(
+        pipeline.id,
+        slice_id,
+        getattr(pipeline, "has_contract", True),
+        worktree_repo_path,
+    )
 
     # Resolve base branch for diff commands in agent prompts.
     _resolved_base_branch = pipeline.base_branch
@@ -15088,14 +15137,15 @@ def _run_concurrent_phase(
     # block telling the agent to skip its propose step entirely — required
     # for the matrix-level seed to survive end-to-end (the agent's real
     # propose would bump the version and invalidate the seeded ACKs).
-    _pre_seeded_empty_producer_roles: set[str] = set()
+    # Same predicate as ``ApprovalMatrix.seed_auto_ack_for_empty_pure_producers``
+    # (both route through ``ReviewGraph.empty_pure_producers``) so the
+    # prompt flag and the matrix seed cannot drift.
     if producer_roles_with_tasks is not None:
-        for _candidate in filtered_graph.producer_roles():
-            if _candidate in producer_roles_with_tasks:
-                continue
-            if filtered_graph.is_dual_role(_candidate):
-                continue
-            _pre_seeded_empty_producer_roles.add(_candidate)
+        _pre_seeded_empty_producer_roles = filtered_graph.empty_pure_producers(
+            producer_roles_with_tasks
+        )
+    else:
+        _pre_seeded_empty_producer_roles = set()
 
     agent_prompts: dict[AgentRole, str] = {}
     for role in roles:

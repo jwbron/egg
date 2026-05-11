@@ -291,11 +291,12 @@ class ApprovalMatrix:
         useful for logging / tests).
         """
         auto_acked: list[str] = []
-        for producer in sorted(self._graph.producer_roles()):
-            if producer in producers_with_tasks:
-                continue
-            if self._graph.is_dual_role(producer):
-                continue
+        # ``empty_pure_producers`` is the single source of truth for "this
+        # role is a pure producer with no tasks in this slice" (#2581).
+        # ``_run_concurrent_phase`` uses the same helper to compute the
+        # prompt-level shortcut flag — keeping the prompt and the matrix
+        # state in lockstep.
+        for producer in sorted(self._graph.empty_pure_producers(producers_with_tasks)):
             version = self.record_proposal(producer)
             for reviewer in self._graph.critical_reviewers_for(producer):
                 self.record_ack(reviewer, producer, version=version)
