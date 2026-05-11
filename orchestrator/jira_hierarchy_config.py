@@ -32,15 +32,29 @@ Loader semantics:
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-import structlog
 import yaml
 
-logger = structlog.get_logger(__name__)
+# Add shared directory to path for egg_logging.
+_shared_path = Path(__file__).parent.parent / "shared"
+if _shared_path.exists() and str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
+
+try:
+    from egg_logging import get_logger
+except ImportError:  # pragma: no cover — exercised when egg_logging missing
+    import logging
+
+    def get_logger(name: str, **kwargs: Any) -> logging.Logger:  # type: ignore[misc]
+        return logging.getLogger(name)
+
+
+logger = get_logger("orchestrator.jira_hierarchy_config")
 
 
 HierarchyField = Literal["parent", "epic_link"]
@@ -151,10 +165,16 @@ def _parse_config(raw: dict[str, object], path: Path) -> JiraHierarchyConfig:
 class JiraHierarchyConfigManager:
     """Thread-safe mtime-caching loader for the hierarchy config."""
 
+    # Sentinel that cannot match any real ``st_mtime`` so the first call
+    # always triggers a reload. ``-1.0`` happened to collide with the
+    # "file missing" marker, which left _config=None forever on missing
+    # files until something touched the file.
+    _UNLOADED_SENTINEL = float("-inf")
+
     def __init__(self, config_path: Path | None = None):
         self.config_path = config_path or CONFIG_PATH
         self._config: JiraHierarchyConfig | None = None
-        self._cached_mtime: float = -1.0
+        self._cached_mtime: float = self._UNLOADED_SENTINEL
         self._lock = threading.Lock()
 
     def get_config(self) -> JiraHierarchyConfig:
