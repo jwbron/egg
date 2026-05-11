@@ -4710,9 +4710,11 @@ class TestPlanReviewCriteriaAuditSections:
         # The exception must be explicit that NEW-annotated primitives
         # are not NACKed on missing-grep evidence.
         assert "do not NACK" in section or "don't NACK" in section
-        # And it must direct the reviewer to verify the creating task
-        # actually produces the primitive.
-        assert "acceptance" in section.lower() or "creates" in section.lower()
+        # And it must direct the reviewer to verify the creating task's
+        # *acceptance criteria* — generic substrings like ``creates``
+        # are too permissive (could appear in an unrelated future
+        # example). Pin on the actual phrase the criteria uses.
+        assert "acceptance" in section.lower()
 
     def test_trust_boundary_section_describes_gateway_url_correctly(self):
         # The §10 description used to claim parent ``conftest.py``
@@ -4781,6 +4783,68 @@ class TestPlanProducerPromptsCitePrimitives:
         # NEW-primitive escape hatch (so the planner can name
         # primitives the plan itself will create).
         assert "(NEW" in prompt
+        # The producer must mirror §9's reviewer-side requirements for
+        # NEW-annotated primitives — acceptance-criteria coverage and
+        # dependency ordering. Without this the producer/reviewer pair
+        # is asymmetric and the planner cannot pre-empt the NACK.
+        assert "acceptance criteria" in prompt
+        assert "ordering" in prompt or "order" in prompt
+
+    def test_task_planner_prompt_describes_gateway_url_correctly(self):
+        # The producer prompt previously asserted that the parent
+        # `integration_tests/conftest.py` "exposes `gateway_url` only" —
+        # a falsehood that produces planner/reviewer asymmetry and
+        # false NACK loops. Pin the correction.
+        prompt = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        # Banned substrings: any wording that implies the parent
+        # conftest exposes a `gateway_url` pytest fixture.
+        assert "exposes `gateway_url` only" not in prompt
+        assert "exposes only `gateway_url`" not in prompt
+        # Required signals: the producer must distinguish the
+        # agent-runtime `GATEWAY_URL` env surface from pytest fixtures,
+        # and must name `local_pipeline/` as the only place the
+        # `gateway_url` pytest fixture is defined.
+        assert "GATEWAY_URL" in prompt
+        assert "local_pipeline/conftest.py" in prompt
+        # And must surface the kubectl-gated, no-fixture-in-sandbox
+        # reality so the planner does not place a fixture-using test
+        # in a sandbox-tier directory.
+        assert "in-sandbox-agent" in prompt
+
+    def test_no_plan_producer_prompt_mis_describes_gateway_url(self):
+        # Scan all three plan-producer prompts for the banned
+        # ``exposes ... gateway_url ... only`` falsehood. The previous
+        # iteration of this PR fixed `_get_plan_review_criteria` §10
+        # but left the same false claim in the task_planner producer
+        # prompt — a parallel-location regression. Lock the invariant
+        # across every producer prompt so this exact failure mode
+        # cannot recur on either side of the producer/reviewer split.
+        banned_substrings = (
+            "exposes `gateway_url` only",
+            "exposes only `gateway_url`",
+        )
+        for role in ("architect", "task_planner", "risk_analyst"):
+            prompt = _build_agent_prompt(
+                role_value=role,
+                phase="plan",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature\n\nDetail.",
+                issue_number=1,
+            )
+            for banned in banned_substrings:
+                assert banned not in prompt, (
+                    f"{role} prompt contains banned substring {banned!r} — "
+                    f"reintroduces the false parent-conftest gateway_url "
+                    f"claim from issue #2594 review"
+                )
 
     def test_risk_analyst_prompt_flags_runtime_primitive_risks(self):
         prompt = _build_agent_prompt(

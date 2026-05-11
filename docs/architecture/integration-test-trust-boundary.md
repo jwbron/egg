@@ -168,9 +168,14 @@ The three legacy `*_container` fixtures live in the parent conftest
 for historical reasons but `pytest.skip` under k3s — the only
 supported runtime per the parent conftest's module docstring — so a
 plan that names them today produces a silently-passing test, not a
-real exercise. Treat them as awaiting k3s-native replacements (see
-`integration_tests/conftest.py:415-418`); NACK plans that depend on
-their behaviour.
+real exercise. The skip *message* is the
+`_LEGACY_DOCKER_FIXTURE_SKIP` string constant at
+`integration_tests/conftest.py:415-418`; the actual skip *trigger* is
+the `_skip_if_k8s_backed` helper at
+`integration_tests/conftest.py:421`, which fires whenever
+`stack.compose_project.startswith("k8s-")`. Treat these fixtures as
+awaiting k3s-native replacements; NACK plans that depend on their
+behaviour.
 
 `pytest` resolves fixtures lexically from the nearest conftest
 upward. A test file under `integration_tests/foo/` sees the parent

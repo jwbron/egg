@@ -4690,10 +4690,24 @@ def _get_plan_review_criteria() -> str:
         "for the authoritative tier → fixture / route mapping.\n\n"
         "**NACK rule**: if a task's named primitives are not "
         "available in its declared (or implied) execution context, "
-        'NACK and name the specific mismatch (e.g. "task TASK-1-8 '
-        "writes an in-sandbox-agent pytest test depending on the "
-        "`gateway_url` fixture, but that fixture is "
-        '`trusted-CI-runner`-only and skips when kubectl is absent").\n'
+        "NACK and name the specific mismatch. Common forms — NACK "
+        "each one:\n\n"
+        '- "task TASK-1-8 writes an in-sandbox-agent pytest test '
+        "depending on the `gateway_url` fixture, but that fixture is "
+        '`trusted-CI-runner`-only and skips when kubectl is absent"\n'
+        '- "task TASK-2-3 places a test that imports '
+        "`orchestrator_url` under `integration_tests/foo/` — pytest "
+        "resolves fixtures lexically from the nearest conftest "
+        "upward, so a sibling of `local_pipeline/` cannot see that "
+        'fixture and the test fails at collection time"\n'
+        '- "task TASK-3-1 calls a `@require_lifecycle_secret` route '
+        "from an `in-sandbox-agent`-context handler — "
+        "`EGG_LIFECYCLE_SECRET` is not present in sandbox pods, so "
+        'the route returns 403"\n'
+        '- "task TASK-4-2 references `ScriptedProvider` from '
+        "`sandbox/` (or any deployed-pod path) — it is a unit-test "
+        "double under `shared/tests/`, not a runtime-injectable "
+        'provider"\n'
     )
 
 
@@ -12959,18 +12973,41 @@ def _build_agent_prompt(
                 "verify *before* writing the task). If the primitive does not "
                 "exist yet because the task itself will create it, mark it "
                 "`(NEW — task TASK-X-Y)` so the plan reviewer doesn't NACK on "
-                "missing-primitive evidence.",
+                "missing-primitive evidence. When you mark a primitive "
+                "`(NEW — task TASK-X-Y)`, you MUST also: (a) ensure the "
+                "referenced task's acceptance criteria actually produce that "
+                "primitive in the form the plan uses (right kind, right "
+                'module, right scope — not just "adds the feature"), and '
+                "(b) order downstream tasks that consume the primitive "
+                "**after** the creating task in the slice DAG. The plan "
+                "reviewer's §9 exception verifies both; mismatches NACK.",
                 "2. **Cite trust-boundary scope.** Some primitives exist but "
                 "are unavailable in the execution context the task assumes. "
                 "Canonical example: `ScriptedProvider` is unit-test-only; "
                 "deployed agent pods run the real provider. Likewise the "
-                "`integration_tests/` fixture tiering — parent "
-                "`integration_tests/conftest.py` exposes `gateway_url` only; "
-                "`integration_tests/local_pipeline/conftest.py` is the "
-                "trusted-CI-runner tier that adds `orchestrator_url` and "
-                "lifecycle-secret-gated routes. Tasks that need the trusted "
-                "tier MUST live under (or below) `local_pipeline/` or an "
-                "equivalent trusted directory. See "
+                "`integration_tests/` fixture tiering — the only "
+                "`gateway_url` pytest fixture lives at "
+                "`integration_tests/local_pipeline/conftest.py:261` and is "
+                "kubectl-gated via `local_pipeline_stack`. The parent "
+                "`integration_tests/conftest.py` does **not** expose "
+                "`gateway_url` as a fixture; it exposes `gateway_url` as an "
+                "attribute on the `EggStack` dataclass "
+                "(`integration_tests/conftest.py:78`), accessed as "
+                "`egg_stack.gateway_url`, not as a fixture-injectable "
+                "parameter. `orchestrator_url` and lifecycle-secret-gated "
+                "routes are also `local_pipeline/`-only. **No pytest fixture "
+                "in `integration_tests/` is `in-sandbox-agent`-runnable "
+                "today** — every fixture transitively depends on `egg_stack` "
+                "or `local_pipeline_stack`, both of which `pytest.skip` when "
+                "`_kubectl_available()` returns `False`. Tasks that need any "
+                "of `gateway_url` / `orchestrator_url` as a pytest fixture "
+                "MUST live under (or below) `local_pipeline/` or an "
+                "equivalent trusted directory. Verify with "
+                "`grep -rn 'def gateway_url' integration_tests/` — exactly "
+                "one hit. The agent-runtime `GATEWAY_URL` env is a "
+                "**separate surface** from pytest fixtures; production code "
+                "an agent writes can reach the gateway sidecar through it, "
+                "but that is not a pytest test. See "
                 "`docs/architecture/integration-test-trust-boundary.md`.",
                 "",
                 "Recommended shape: a short `## Primitives` section in the "
