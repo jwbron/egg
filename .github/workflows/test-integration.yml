@@ -87,15 +87,34 @@ jobs:
           echo "Image import failed after ${max_attempts} attempts" >&2
           exit 1
 
-      - name: Deploy egg to k3s
+      - name: Seed local config for `make deploy`
+        # `make deploy` reads `~/.config/egg/` to build the `gateway-secrets`
+        # k8s Secret (`make k3s-secrets`) and envsubsts host-mount paths
+        # (`$EGG_HOST_HOME/repos`, `$EGG_HOST_HOME/.egg-worktrees`) from
+        # the local overlay. On a fresh CI runner none of these exist;
+        # seed test values + empty mount points so the same `make deploy`
+        # invocation works in CI as locally. Secrets are random per-run
+        # (ephemeral runner) — no real credentials are ever placed here.
         run: |
-          kubectl apply -k k8s/overlays/local/
-          # Deployment names in k8s/base/ are `gateway` and `orchestrator`
-          # (not `egg-gateway` / `egg-orchestrator`); the `egg-` prefix is
-          # only on container images. Wait on both deployments so a red
-          # orchestrator surfaces here, not as opaque test failures.
-          kubectl -n egg-system wait --for=condition=Available deployment/gateway --timeout=120s
-          kubectl -n egg-system wait --for=condition=Available deployment/orchestrator --timeout=120s
+          mkdir -p "$HOME/.config/egg" "$HOME/repos" "$HOME/.egg-worktrees"
+          openssl rand -hex 32 > "$HOME/.config/egg/launcher-secret"
+          openssl rand -hex 32 > "$HOME/.config/egg/lifecycle-secret"
+          printf 'CLAUDE_CODE_OAUTH_TOKEN=dummy\nGATEWAY_BOT_NAME=ci\n' \
+            > "$HOME/.config/egg/secrets.env"
+          printf 'local_repos:\n  paths: []\n' \
+            > "$HOME/.config/egg/repositories.yaml"
+          chmod 600 "$HOME/.config/egg"/*
+
+      - name: Install envsubst
+        # `make deploy` requires the `envsubst` binary (gettext); not
+        # preinstalled on github-hosted ubuntu-latest runners.
+        run: sudo apt-get install -y --no-install-recommends gettext-base
+
+      - name: Deploy egg to k3s
+        # `make deploy` handles secret creation, image-tag rewrite, host-
+        # path envsubst, and waits on both `gateway` and `orchestrator`
+        # deployments. Matches the local-dev invocation exactly.
+        run: make deploy
 
       - name: Run integration and security tests
         env:
