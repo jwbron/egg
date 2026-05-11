@@ -174,10 +174,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-05-11T06:16:20.403524Z",
       "work_started_at": "2026-05-11T06:16:47.272278Z",
-      "completed_at": null,
+      "completed_at": "2026-05-11T06:28:47.075382Z",
       "containers": [
         {
           "container_id": "08748b0b-02cc-45a4-b0bc-926d1d3ca0a7",
@@ -512,7 +512,7 @@
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T06:28:46.800696Z",
+  "updated_at": "2026-05-11T06:28:47.075462Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -526,6 +526,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-11T06:16:18.678768Z",
-  "version": 34,
+  "version": 35,
   "jira_ticket": null
 }
