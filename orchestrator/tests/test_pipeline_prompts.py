@@ -4721,3 +4721,243 @@ class TestPlanReviewCriteriaReflectsOrchestratorSideValidation:
         # the plan didn't exist yet). Make sure it doesn't reappear.
         criteria = _get_plan_review_criteria()
         assert "absence of that section" not in criteria.lower()
+
+
+class TestPlanReviewCriteriaAuditSections:
+    """Issue #2594 — plan-phase reviewers must perform a
+    Primitive-Existence Audit (§9) and a Trust-Boundary Audit (§10) so
+    plans whose tasks depend on nonexistent or wrong-tier primitives
+    are NACKed cheaply at plan-phase instead of expensively at
+    implement-phase."""
+
+    def test_criteria_has_primitive_existence_audit_section(self):
+        criteria = _get_plan_review_criteria()
+        assert "Primitive-Existence Audit" in criteria
+        # Hard-NACK framing per the issue.
+        assert "hard NACK" in criteria
+        # Issue reference threads back to #2594.
+        assert "#2594" in criteria
+        # Prescribes grep evidence and a verbatim-command rule.
+        assert "grep -rn" in criteria
+        # Anchors with the #2474 evidence so reviewers see the cost
+        # of skipping the audit.
+        assert "ScriptedProvider" in criteria
+
+    def test_criteria_has_trust_boundary_audit_section(self):
+        criteria = _get_plan_review_criteria()
+        assert "Trust-Boundary Audit" in criteria
+        # Names all three execution contexts.
+        assert "in-sandbox-agent" in criteria
+        assert "trusted-CI-runner" in criteria
+        assert "human-operator" in criteria
+        # References the authoritative doc.
+        assert "integration-test-trust-boundary.md" in criteria
+
+    def test_criteria_audit_sections_appear_after_role_alignment(self):
+        # §9 / §10 are appended after the existing §8 role↔files
+        # alignment section, not interleaved (preserves the existing
+        # numbering the orchestrator-side validation tests rely on).
+        # Pin on the explicit §8 heading so a future addition of a
+        # criteria string containing the substring "Role" higher up
+        # cannot silently make this match the wrong section.
+        criteria = _get_plan_review_criteria()
+        role_alignment_idx = criteria.index("### 8.")
+        primitive_idx = criteria.index("Primitive-Existence Audit")
+        trust_idx = criteria.index("Trust-Boundary Audit")
+        assert role_alignment_idx < primitive_idx < trust_idx
+
+    def test_primitive_existence_section_has_new_primitive_exception(self):
+        # The task_planner producer prompt tells the planner to mark
+        # plan-created primitives ``(NEW — task TASK-X-Y)``; §9 must
+        # recognize that annotation so the asymmetry does not cause
+        # false NACK loops on every plan that introduces a primitive.
+        criteria = _get_plan_review_criteria()
+        # Locate the §9 block specifically — assertions must hold
+        # within the section, not just somewhere in the criteria.
+        section_start = criteria.index("Primitive-Existence Audit")
+        section_end = criteria.index("Trust-Boundary Audit")
+        section = criteria[section_start:section_end]
+        assert "(NEW" in section
+        # The exception must be explicit that NEW-annotated primitives
+        # are not NACKed on missing-grep evidence.
+        assert "do not NACK" in section or "don't NACK" in section
+        # And it must direct the reviewer to verify the creating task's
+        # *acceptance criteria* — generic substrings like ``creates``
+        # are too permissive (could appear in an unrelated future
+        # example). Pin on the actual phrase the criteria uses.
+        assert "acceptance" in section.lower()
+
+    def test_trust_boundary_section_describes_gateway_url_correctly(self):
+        # The §10 description used to claim parent ``conftest.py``
+        # exposes ``gateway_url`` as a fixture — it does not. The
+        # parent ``EggStack`` dataclass has it as an attribute; the
+        # standalone ``gateway_url`` pytest fixture lives only in
+        # ``local_pipeline/conftest.py``. Encode the correction so a
+        # future edit cannot silently reintroduce the bug.
+        criteria = _get_plan_review_criteria()
+        section_start = criteria.index("Trust-Boundary Audit")
+        section = criteria[section_start:]
+        # Must not assert the parent conftest "exposes" gateway_url.
+        assert "exposes only `gateway_url`" not in section
+        assert "exposes `gateway_url` only" not in section
+        # Must mention the env-vs-fixture distinction so reviewers
+        # don't conflate the agent's GATEWAY_URL runtime with pytest
+        # fixtures.
+        assert "GATEWAY_URL" in section
+
+
+class TestPlanProducerPromptsCitePrimitives:
+    """Issue #2594 — producer prompts (architect / task_planner /
+    risk_analyst) must direct the producer to cite runtime primitives
+    in a form the plan-phase audit can verify."""
+
+    def test_architect_prompt_directs_primitive_citation(self):
+        prompt = _build_agent_prompt(
+            role_value="architect",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "#2594" in prompt
+        # Calls out the categories of primitive worth citing.
+        assert "ConfigMap" in prompt
+        # Calls out BOTH scope axes — purpose (unit-test-only vs
+        # deployed-pod) AND execution context (in-sandbox-agent vs
+        # trusted-CI-runner). Earlier wording conflated the two into
+        # a single axis, which obscured the actual decision the
+        # architect has to make.
+        assert "unit-test-only" in prompt
+        assert "deployed-pod" in prompt
+        assert "in-sandbox-agent" in prompt
+        assert "trusted-CI-runner" in prompt
+        # Names the orthogonality so the architect knows the axes
+        # are independent, not collapsed.
+        assert "orthogonal" in prompt or "independent" in prompt
+
+    def test_task_planner_prompt_has_primitives_audit_block(self):
+        prompt = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "Primitives audit (#2594)" in prompt
+        # References the trust-boundary doc.
+        assert "integration-test-trust-boundary.md" in prompt
+        # Names the local_pipeline/ vs parent-conftest distinction so
+        # planners know where trusted-tier tests must live.
+        assert "local_pipeline" in prompt
+        # NEW-primitive escape hatch (so the planner can name
+        # primitives the plan itself will create).
+        assert "(NEW" in prompt
+        # The producer must mirror §9's reviewer-side requirements for
+        # NEW-annotated primitives — acceptance-criteria coverage and
+        # dependency ordering. Without this the producer/reviewer pair
+        # is asymmetric and the planner cannot pre-empt the NACK.
+        # Scope these assertions to bullet 1 of the audit block (the
+        # (NEW — …) symmetry text) — both "acceptance criteria" and
+        # "order"/"ordering" appear independently elsewhere in the
+        # task_planner prompt, so a flat ``in prompt`` check would
+        # pass from unrelated sources even if the symmetry text were
+        # deleted.
+        new_block_start = prompt.index("(NEW — task TASK-X-Y)")
+        new_block_end = prompt.index(
+            "2. **Cite trust-boundary scope.**",
+            new_block_start,
+        )
+        new_block = prompt[new_block_start:new_block_end]
+        assert "acceptance criteria" in new_block
+        assert "order" in new_block.lower()
+
+    def test_task_planner_prompt_describes_gateway_url_correctly(self):
+        # The producer prompt previously asserted that the parent
+        # `integration_tests/conftest.py` "exposes `gateway_url` only" —
+        # a falsehood that produces planner/reviewer asymmetry and
+        # false NACK loops. Pin the correction.
+        prompt = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        # Banned substrings: any wording that implies the parent
+        # conftest exposes a `gateway_url` pytest fixture.
+        assert "exposes `gateway_url` only" not in prompt
+        assert "exposes only `gateway_url`" not in prompt
+        # Required signals: the producer must distinguish the
+        # agent-runtime `GATEWAY_URL` env surface from pytest fixtures,
+        # and must name `local_pipeline/` as the only place the
+        # `gateway_url` pytest fixture is defined.
+        assert "GATEWAY_URL" in prompt
+        assert "local_pipeline/conftest.py" in prompt
+        # And must surface the kubectl-gated, no-fixture-in-sandbox
+        # reality so the planner does not place a fixture-using test
+        # in a sandbox-tier directory.
+        assert "in-sandbox-agent" in prompt
+
+    def test_no_plan_producer_prompt_mis_describes_gateway_url(self):
+        # Scan all three plan-producer prompts for the banned
+        # ``exposes ... gateway_url ... only`` falsehood. The previous
+        # iteration of this PR fixed `_get_plan_review_criteria` §10
+        # but left the same false claim in the task_planner producer
+        # prompt — a parallel-location regression. Lock the invariant
+        # across every producer prompt so this exact failure mode
+        # cannot recur on either side of the producer/reviewer split.
+        banned_substrings = (
+            "exposes `gateway_url` only",
+            "exposes only `gateway_url`",
+        )
+        for role in ("architect", "task_planner", "risk_analyst"):
+            prompt = _build_agent_prompt(
+                role_value=role,
+                phase="plan",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature\n\nDetail.",
+                issue_number=1,
+            )
+            for banned in banned_substrings:
+                assert banned not in prompt, (
+                    f"{role} prompt contains banned substring {banned!r} — "
+                    f"reintroduces the false parent-conftest gateway_url "
+                    f"claim from issue #2594 review"
+                )
+
+    def test_risk_analyst_prompt_flags_runtime_primitive_risks(self):
+        prompt = _build_agent_prompt(
+            role_value="risk_analyst",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "#2594" in prompt
+        # References the canonical #2474 failure mode.
+        assert "#2474" in prompt
+
+
+class TestRefinerOrientationSurfacesPrimitives:
+    """Issue #2594 — refiner phase-orientation should ask the refiner to
+    surface runtime-primitive assumptions at the phase_gate so the
+    plan-phase audit's candidate list is pre-named."""
+
+    def test_refiner_orientation_mentions_primitive_surfacing(self):
+        # Refine-phase, refiner-role orientation text comes from
+        # _build_producer_orientation, the same helper used for other
+        # producer roles.
+        orientation = _build_producer_orientation(
+            role_value="refiner",
+            phase="refine",
+            reviewers=[],
+        )
+        assert "#2594" in orientation
+        # The three execution contexts named in the criteria.
+        assert "in-sandbox-agent" in orientation
+        assert "trusted-CI-runner" in orientation

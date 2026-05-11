@@ -4604,7 +4604,118 @@ def _get_plan_review_criteria() -> str:
         "print('\\n'.join(v(r.to_contract_slices())))\"`. "
         "Errors here would predict a push-time `403 "
         "restricted_path_modified` — NACK the planner and quote the "
-        "structured errors verbatim if any surface.\n"
+        "structured errors verbatim if any surface.\n\n"
+        "### 9. Primitive-Existence Audit (hard NACK, see #2594)\n"
+        "Plans are cheap to NACK at this phase and expensive to NACK "
+        "at implement-phase (8+ pod spawns per slice, ~60–90 min "
+        "wall clock per implement cycle). For #2474, a single "
+        "`grep -rn ScriptedProvider sandbox/ k8s/ orchestrator/` "
+        "returning zero hits would have prevented ~10.7 h of "
+        "compute. Do that grep **now**.\n\n"
+        "For every primitive the plan names — class, function, HTTP "
+        "route, env var, ConfigMap key, test fixture, CLI flag, "
+        "decorator — produce a small evidence table in your review "
+        "document. Example shape:\n\n"
+        "| primitive | kind | grep | result |\n"
+        "|-----------|------|------|--------|\n"
+        "| `ScriptedProvider` | class | `grep -rn 'class ScriptedProvider' sandbox/ k8s/ orchestrator/` | 0 hits → NACK |\n"
+        "| `orchestrator_url` fixture | fixture | `grep -rn 'def orchestrator_url' integration_tests/` | `integration_tests/local_pipeline/conftest.py:NN` — sibling, not parent (see §10) |\n\n"
+        "Prescribed greps by kind:\n"
+        "- **class / function**: `grep -rn '<NAME>' <relevant dirs>` "
+        "finds at least one definition site.\n"
+        "- **HTTP route**: blueprint registers the path + method the "
+        "plan uses (search `orchestrator/routes/` and `gateway/`).\n"
+        "- **env var / ConfigMap key**: a consumer the plan assumes "
+        "actually reads it.\n"
+        "- **test fixture**: defined in a conftest **reachable from "
+        "the test's directory** (parent vs sibling matters — see §10).\n"
+        "- **CLI flag**: parser registers it.\n\n"
+        "**NACK rule**: any named primitive whose grep returns zero "
+        "hits in the directories the plan implies is a hard NACK. "
+        "Quote the failed command verbatim in your verdict so the "
+        "planner can re-draft. If the primitive exists but in a "
+        "different form than the plan assumes (different module, "
+        "different signature, different scope — e.g. unit-test-only "
+        "vs deployed-pod), NACK and quote the actual `file:line`.\n\n"
+        "**Exception — `(NEW — task TASK-X-Y)` annotations.** Plans "
+        "introduce new primitives by design; the producer prompt "
+        "tells the planner to mark such primitives "
+        "`(NEW — task TASK-X-Y)` so the audit doesn't false-NACK "
+        "the very task that creates them. When you see this "
+        "annotation: **do not NACK on missing-grep evidence**. "
+        "Instead verify that the referenced task's acceptance "
+        "criteria genuinely create the primitive in the form the "
+        "plan uses (right kind, right module, right scope), and "
+        "that downstream tasks consuming the primitive depend on "
+        "the creating task. NACK only if the creating task does "
+        "not actually produce the primitive or the dependency "
+        "ordering is wrong.\n\n"
+        "### 10. Trust-Boundary Audit (hard NACK, see #2594)\n"
+        "Some primitives exist but are not available in the "
+        "execution context the plan assumes. The canonical example: "
+        "`ScriptedProvider` is a unit-test-only fake; deployed agent "
+        "pods (`sandbox/`) run the real provider, so a k3s "
+        "integration test cannot inject canned LLM trajectories "
+        "into a deployed pod without separate infra work. The "
+        "`integration_tests/` fixture layout encodes a parallel "
+        "distinction along the **pytest-fixture** axis: the "
+        "`gateway_url` and `orchestrator_url` fixtures are both "
+        "defined only in `integration_tests/local_pipeline/conftest.py` "
+        "and both transitively depend on `local_pipeline_stack`, "
+        "which `pytest.skip`s when kubectl is unavailable. The "
+        "parent `integration_tests/conftest.py` exposes `egg_stack` "
+        "(also kubectl-gated) — `egg_stack.gateway_url` is an "
+        "attribute on the `EggStack` dataclass, not a standalone "
+        "fixture. There is no `in-sandbox-agent`-runnable pytest "
+        "fixture in `integration_tests/` today; the in-sandbox-agent "
+        "tier reaches the gateway via the `GATEWAY_URL` env at "
+        "agent runtime, which is a separate surface from pytest "
+        "fixtures.\n\n"
+        "For each task that interacts with the orchestrator, "
+        "gateway, or k3s cluster, identify the **execution context** "
+        "and confirm the named primitives are available in that "
+        "context:\n\n"
+        "- **in-sandbox-agent** — driven by an egg agent pod. "
+        "Production code the agent writes reaches gateway-mediated "
+        "routes via the `GATEWAY_URL` env var. No `orchestrator_url`. "
+        "No lifecycle-secret-gated routes. Cannot inject "
+        "ScriptedProvider into a pod. **No pytest fixture in "
+        "`integration_tests/` resolves here today** — every fixture "
+        "is kubectl-gated and skips in the sandbox.\n"
+        "- **trusted-CI-runner** — driven by pytest from outside "
+        "the cluster (CI / dev machine running `make test` against "
+        "k3s). Sees every pytest fixture in `integration_tests/` "
+        "(parent and `local_pipeline/`), including `gateway_url`, "
+        "`orchestrator_url`, lifecycle-secret-gated routes, and "
+        "`kubectl` pod-log access. Test files live under "
+        "`integration_tests/` (gateway-only) or "
+        "`integration_tests/local_pipeline/` (orchestrator-scoped).\n"
+        "- **human-operator** — manual / `egg-orch` CLI. Not a "
+        "test-execution context; flag any task that implicitly "
+        "requires this.\n\n"
+        "See "
+        "`docs/architecture/integration-test-trust-boundary.md` "
+        "for the authoritative tier → fixture / route mapping.\n\n"
+        "**NACK rule**: if a task's named primitives are not "
+        "available in its declared (or implied) execution context, "
+        "NACK and name the specific mismatch. Common forms — NACK "
+        "each one:\n\n"
+        '- "task TASK-1-8 writes an in-sandbox-agent pytest test '
+        "depending on the `gateway_url` fixture, but that fixture is "
+        '`trusted-CI-runner`-only and skips when kubectl is absent"\n'
+        '- "task TASK-2-3 places a test that imports '
+        "`orchestrator_url` under `integration_tests/foo/` — pytest "
+        "resolves fixtures lexically from the nearest conftest "
+        "upward, so a sibling of `local_pipeline/` cannot see that "
+        'fixture and the test fails at collection time"\n'
+        '- "task TASK-3-1 calls a `@require_lifecycle_secret` route '
+        "from an `in-sandbox-agent`-context handler — "
+        "`EGG_LIFECYCLE_SECRET` is not present in sandbox pods, so "
+        'the route returns 403"\n'
+        '- "task TASK-4-2 references `ScriptedProvider` from '
+        "`sandbox/` (or any deployed-pod path) — it is a unit-test "
+        "double under `shared/tests/`, not a runtime-injectable "
+        'provider"\n'
     )
 
 
@@ -12294,7 +12405,16 @@ def _build_producer_orientation(
             return (
                 "read the prior review feedback carefully. Understand exactly "
                 "what concerns were raised and what changes are expected. Check "
-                "the current state of the code before making modifications." + reviewer_awareness
+                "the current state of the code before making modifications. "
+                "When the draft you are refining is an analysis or plan, "
+                "surface every runtime-primitive assumption explicitly at the "
+                "phase_gate (see #2594) — name each class, function, route, "
+                "env var, ConfigMap key, fixture, CLI flag, or decorator the "
+                "downstream plan will depend on, with `file:line` evidence "
+                "and execution-context scope (in-sandbox-agent vs "
+                "trusted-CI-runner vs human-operator). This makes the "
+                "plan-phase Primitive-Existence and Trust-Boundary audits "
+                "cheap." + reviewer_awareness
             )
 
     # Generic fallback
@@ -12875,6 +12995,23 @@ def _build_agent_prompt(
                 "4. Identify key files, constraints, and dependencies",
                 "5. Consider multiple implementation approaches",
                 "6. Recommend an approach with justification and document technical decisions",
+                "7. **Surface runtime-primitive assumptions explicitly (see #2594).** "
+                "When your analysis mentions a class, function, HTTP route, env var, "
+                "ConfigMap key, test fixture, CLI flag, or decorator, cite it with "
+                "`file:line` evidence (`grep -rn` is enough). Call out scope on "
+                "**both** of the following orthogonal axes when either matters: "
+                "(a) **purpose** — is the primitive unit-test-only (e.g. a test "
+                "double like `ScriptedProvider`) vs deployed-pod / production "
+                "code; (b) **execution context** — does the consumer run as "
+                "`in-sandbox-agent` (agent pod, reaches gateway via `GATEWAY_URL`) "
+                "vs `trusted-CI-runner` (pytest from outside the cluster, sees "
+                "`orchestrator_url` / lifecycle-secret-gated routes / kubectl). A "
+                "primitive can be unit-test-only but invoked from either runner, "
+                "or deployed-pod-only but called from either runner — these are "
+                "independent dimensions, so spell out whichever applies. Buried "
+                "runtime assumptions are the dominant cause of expensive "
+                "implement-phase NACKs; surfacing them here makes the plan-phase "
+                "audit cheap.",
                 "",
                 f"Write your analysis to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
                 "",
@@ -12965,6 +13102,67 @@ def _build_agent_prompt(
                 "or deployer; use an empty string if none.",
                 "",
                 # ----------------------------------------------------
+                # #2594 — primitives audit (cheap plan-phase NACK)
+                # ----------------------------------------------------
+                "## Primitives audit (#2594)",
+                "",
+                "Plan-phase NACKs are cheap; implement-phase NACKs on missing "
+                "primitives are expensive (8+ pod spawns per slice, ~60–90 min "
+                "per cycle). Make the audit cheap by **pre-citing every "
+                "primitive your tasks depend on**. For each named class, "
+                "function, HTTP route, env var, ConfigMap key, test fixture, "
+                "CLI flag, or decorator your plan references:",
+                "",
+                "1. **Cite existence** with `file:line` (use `grep -rn` to "
+                "verify *before* writing the task). If the primitive does not "
+                "exist yet because the task itself will create it, mark it "
+                "`(NEW — task TASK-X-Y)` so the plan reviewer doesn't NACK on "
+                "missing-primitive evidence. When you mark a primitive "
+                "`(NEW — task TASK-X-Y)`, you MUST also: (a) ensure the "
+                "referenced task's acceptance criteria actually produce that "
+                "primitive in the form the plan uses (right kind, right "
+                'module, right scope — not just "adds the feature"), and '
+                "(b) order downstream tasks that consume the primitive "
+                "**after** the creating task in the slice DAG. The plan "
+                "reviewer's §9 exception verifies both; mismatches NACK.",
+                "2. **Cite trust-boundary scope.** Some primitives exist but "
+                "are unavailable in the execution context the task assumes. "
+                "Canonical example: `ScriptedProvider` is unit-test-only; "
+                "deployed agent pods run the real provider. Likewise the "
+                "`integration_tests/` fixture tiering — the only "
+                "`gateway_url` pytest fixture lives at "
+                "`integration_tests/local_pipeline/conftest.py:261` and is "
+                "kubectl-gated via `local_pipeline_stack`. The parent "
+                "`integration_tests/conftest.py` does **not** expose "
+                "`gateway_url` as a fixture; it exposes `gateway_url` as an "
+                "attribute on the `EggStack` dataclass "
+                "(`integration_tests/conftest.py:78`), accessed as "
+                "`egg_stack.gateway_url`, not as a fixture-injectable "
+                "parameter. `orchestrator_url` and lifecycle-secret-gated "
+                "routes are also `local_pipeline/`-only. **No pytest fixture "
+                "in `integration_tests/` is `in-sandbox-agent`-runnable "
+                "today** — every fixture transitively depends on `egg_stack` "
+                "or `local_pipeline_stack`, both of which `pytest.skip` when "
+                "`_kubectl_available()` returns `False`. Tasks that need any "
+                "of `gateway_url` / `orchestrator_url` as a pytest fixture "
+                "MUST live under (or below) `local_pipeline/` or an "
+                "equivalent trusted directory. Verify with "
+                "`grep -rn 'def gateway_url' integration_tests/` — exactly "
+                "one hit. The agent-runtime `GATEWAY_URL` env is a "
+                "**separate surface** from pytest fixtures; production code "
+                "an agent writes can reach the gateway sidecar through it, "
+                "but that is not a pytest test. See "
+                "`docs/architecture/integration-test-trust-boundary.md`.",
+                "",
+                "Recommended shape: a short `## Primitives` section in the "
+                "prose with one row per primitive (name, `file:line`, "
+                "execution-context scope). The plan reviewer will run the "
+                "Primitive-Existence Audit (criteria §9) and Trust-Boundary "
+                "Audit (criteria §10) against this table; both are hard "
+                "NACKs when a named primitive has no grep hit or is used "
+                "outside its scope.",
+                "",
+                # ----------------------------------------------------
                 # #2137 — slice-DAG planner guidance
                 # ----------------------------------------------------
                 "## Slice-DAG guidance (#2137)",
@@ -13048,6 +13246,16 @@ def _build_agent_prompt(
                 "4. Assess impact and likelihood of each risk",
                 "5. Propose mitigation strategies and rollback plans",
                 "6. Flag areas that need human review",
+                "7. **Flag runtime-primitive and trust-boundary risks (see "
+                "#2594).** Plans that depend on classes, fixtures, routes, "
+                "or env vars which don't exist in the form the plan assumes "
+                "— or which exist but only in a different execution context "
+                "than the task uses (e.g. unit-test-only `ScriptedProvider` "
+                "vs deployed agent pods; `orchestrator_url` fixture defined "
+                "only in `integration_tests/local_pipeline/conftest.py` vs "
+                "in-sandbox-agent tests) — are a recurring high-impact "
+                "failure mode (see #2474). Call these out explicitly so the "
+                "plan reviewer can audit them.",
                 "",
                 f"Write your risk assessment to `.egg-state/agent-outputs/{_identifier}-risk_analyst-output.json`.",
                 "",
