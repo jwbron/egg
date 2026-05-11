@@ -22,7 +22,7 @@ The implement phase is **out of scope** beyond definition: after plan apply, `su
 
 ### `submit_task` Jira input handling
 
-[`orchestrator/mcp_tools.py:1287–1310`](../../orchestrator/mcp_tools.py) accepts an optional `jira_ticket` parameter alongside `issue_number`. Validation is a regex (`^[A-Za-z][A-Za-z0-9]+-[0-9]+$`), the key is uppercased, and a pipeline ID is derived as `<TICKET>` (or `<TICKET>-<qualifier>` if disambiguation is needed). The key is then used as:
+[`orchestrator/mcp_tools.py:1272–1381`](../../orchestrator/mcp_tools.py) (handler body) accepts an optional `jira_ticket` parameter alongside `issue_number`. Validation is a regex (`^[A-Za-z][A-Za-z0-9]+-[0-9]+$`) at `:1287–1300`, the key is uppercased, and pipeline-ID derivation runs through `:1301–1307` as `<TICKET>` (or `<TICKET>-<qualifier>` if disambiguation is needed). The key is then used as:
 
 - Pipeline ID (matches the `<EPIC-KEY>[-<qualifier>]` convention the issue describes — **already there**).
 - Branch name (`egg/{pipeline_id}`).
@@ -41,15 +41,15 @@ Refine and plan phase prompts are built inline in `_run_refine` / `_run_plan` in
 Reads ([`gateway/jira_client.py:399–422`](../../gateway/jira_client.py) and surrounding):
 
 - `get_ticket(key, fields, expand)` — fetches a ticket; the caller can request `fields=["status", "issuetype", "parent", ...]`. `fields.issuetype.name` and `fields.status.name` are accessible from the raw JSON response — **no client-side filtering** needs to be added for epic-type detection or in-flight status checks; the caller just has to know to inspect those fields.
-- `search(jql, fields, next_page_token, max_results)` — JQL search with cursor pagination. This is the natural call for `parent = <EPIC-KEY> OR "Epic Link" = <EPIC-KEY>` to discover existing children in the reassess path.
+- `search(jql, fields, next_page_token, max_results)` — JQL search with cursor pagination. Used to discover existing children in the reassess path — but see Constraints below: a *single* disjunctive JQL of the form `parent = <EPIC> OR "Epic Link" = <EPIC>` will return HTTP 400 on a project where `Epic Link` is not configured, so child-discovery must issue **two separate queries** (one per hierarchy field, using the configured `JiraPolicy.epic_link_field` value rather than hardcoded `"Epic Link"`) and merge the results.
 - `get_comments(key)` — comment retrieval.
 
 Writes ([`gateway/jira_client.py`](../../gateway/jira_client.py), shipped in #1924):
 
-- `create_issue(project_key, issuetype, summary, description, labels, parent, epic_link, idempotency_key)` — supports both `parent` and `epic_link` (mutually exclusive). This is exactly the verb the plan apply step needs.
+- `create_issue(project_key, issuetype, summary, description, labels, parent, epic_link, epic_link_field=...)` — `parent` and `epic_link` are mutually exclusive ([`jira_client.py:557–569`](../../gateway/jira_client.py)). The `epic_link_field` parameter at `:505–527` defaults to `"parent"` and is sourced from [`JiraPolicy.epic_link_field`](../../gateway/jira_policy.py) (`:98–193`) — a **per-site config flag** in `JIRA_POLICY_YAML`, allowlisted in `_VALID_EPIC_LINK_FIELDS`. **Important**: this is operator-configured per Atlassian site, not auto-detected per project. There is **no `get_project_metadata` verb** in the gateway today; auto-detection in the sense of decision-2 opt-1 would require a new gateway verb.
 - `edit_issue(key, summary, description, labels, idempotency_key)` — for both the refine sink (write epic Description) and the reassess update-in-place path.
 - `add_comment(key, body, idempotency_key)` — for redirect comments on consolidated / split tickets.
-- `create_issue_link(link_type, inward_key, outward_key, comment, idempotency_key)` — for cross-task DAG edges (Blocks / Is blocked by).
+- `create_issue_link(link_type, inward_key, outward_key, comment, idempotency_key)` — for cross-task DAG edges (Blocks / Is blocked by). Note: link types are project-scoped, so the chosen `link_type` may not exist in every project. Apply step needs a fail-soft path.
 
 Hard denylist (permanent, [`gateway/jira_client.py:133–146`](../../gateway/jira_client.py) — `JIRA_WRITE_VERBS_DENIED`): `transitions`, `worklog`, `attachments`, `watchers`. **`transitions` is permanently off-limits to agents.** This is the architectural reason the issue's reassess apply step says "**Orchestrator** directly transitions flagged-obsolete children to Won't Do using its own Jira credentials" — there is no gateway path, and there is not going to be one.
 
@@ -90,9 +90,10 @@ Per [#2594](https://github.com/jwbron/egg/issues/2594), the plan phase will perf
 | `Pipeline.jira_ticket` field | [`orchestrator/models.py:981–1004`](../../orchestrator/models.py) | trusted-CI-runner | Exists; reused as-is for epic key. |
 | `EGG_JIRA_TICKET` sandbox env var | [`orchestrator/routes/pipelines.py:18993–18998`](../../orchestrator/routes/pipelines.py) | in-sandbox-agent | Exists; reused. |
 | Gateway `get_ticket(key, fields, expand)` | [`gateway/jira_client.py:399–422`](../../gateway/jira_client.py) | in-sandbox-agent (HTTP) | Exists; caller reads `fields.issuetype.name`, `fields.status.name`, `fields.description` from raw JSON. |
-| Gateway `search(jql, fields, ...)` | [`gateway/jira_client.py`](../../gateway/jira_client.py) | in-sandbox-agent (HTTP) | Exists; reassess uses JQL `parent = <EPIC> OR "Epic Link" = <EPIC>`. |
+| Gateway `search(jql, fields, ...)` | [`gateway/jira_client.py`](../../gateway/jira_client.py) | in-sandbox-agent (HTTP) | Exists; reassess issues **two separate JQL queries** (`parent = <EPIC>` and `<epic_link_field> = <EPIC>`) and merges — single disjunctive query fails with HTTP 400 on projects missing one field. |
 | Gateway `edit_issue(key, summary, description, ...)` | [`gateway/jira_client.py`](../../gateway/jira_client.py) | in-sandbox-agent (HTTP) — **but apply step likely runs orchestrator-side** | Exists; sink for both refine (epic Description) and reassess (child update). See trust-boundary note below. |
-| Gateway `create_issue(project_key, issuetype, summary, description, parent, epic_link, ...)` | [`gateway/jira_client.py`](../../gateway/jira_client.py) | in-sandbox-agent (HTTP) — **see note** | Exists; mutually-exclusive `parent` vs `epic_link` choice driven by decision-2. |
+| Gateway `create_issue(project_key, issuetype, summary, description, parent, epic_link, epic_link_field, ...)` | [`gateway/jira_client.py:505–569`](../../gateway/jira_client.py) | in-sandbox-agent (HTTP) — **see note** | Exists; mutually-exclusive `parent` vs `epic_link` choice driven by decision-2; `epic_link_field` itself sourced from `JiraPolicy.epic_link_field` per-site config. |
+| `JiraPolicy.epic_link_field` (per-site config) | [`gateway/jira_policy.py:98–193`](../../gateway/jira_policy.py) | gateway policy | Exists; operator-configured allowlisted field name (default `"parent"`). |
 | Gateway `add_comment(key, body, ...)` | [`gateway/jira_client.py`](../../gateway/jira_client.py) | in-sandbox-agent (HTTP) | Exists; used for redirect comments on consolidate / split. |
 | Gateway `create_issue_link(link_type, inward, outward, ...)` | [`gateway/jira_client.py`](../../gateway/jira_client.py) | in-sandbox-agent (HTTP) | Exists; for Blocks edges (decision-driven link-type per feedback Q3). |
 | `JIRA_WRITE_VERBS_DENIED` denylist | [`gateway/jira_client.py:133–146`](../../gateway/jira_client.py) | gateway policy | **Hard primitive**: `transitions` not addable. Forces orchestrator-direct path for Won't Do. |
@@ -107,12 +108,12 @@ Per [#2594](https://github.com/jwbron/egg/issues/2594), the plan phase will perf
 | **(new)** Plan-node → Jira-key mapping store | _to be added_ | trusted-CI-runner | Persistence location is decision-10. |
 | **(new)** In-flight HITL gate | _to be added_ | trusted-CI-runner | Per-ticket gate for mutations on `in_flight` children; signals per decision-8. |
 
-**Trust-boundary note**: there are two natural homes for the **apply step** (write epic Description, create children, link, transition):
+**Trust-boundary note**: there are two natural homes for the **non-transition** apply step writes (write epic Description, create children, link, comment):
 
-1. **In-sandbox-agent** via the gateway, executed by a dedicated `apply-epic` agent at the end of refine and end of plan. This matches today's "agents write through the gateway" pattern, preserves the gateway audit trail, and keeps the orchestrator out of the data path for tickets/descriptions.
+1. **In-sandbox-agent** via the gateway, executed by a dedicated `apply-epic` agent at the end of refine and end of plan. This matches today's "agents write through the gateway" pattern, preserves the gateway audit identity (session token), and keeps the orchestrator out of the data path for tickets/descriptions.
 2. **Trusted-CI-runner (orchestrator)** calling the gateway directly. Avoids spinning up an extra agent for what is largely deterministic; but means the orchestrator needs a gateway client and an HTTP session token, which raises questions about which session and which audit identity the writes get attributed to.
 
-The Won't-Do transition is unambiguously **trusted-CI-runner only** (because it has no gateway path). The remaining writes can go either way — this is registered as part of the slice-decomposition decision and surfaced for the plan phase to call out concretely.
+The Won't-Do transition is unambiguously **trusted-CI-runner only** (because it has no gateway path). The remaining writes are registered as **[decision-11]** — orthogonal to the slice-decomposition (decision-1) choice. Plan phase cannot author the apply step without decision-11 resolved.
 
 ## Constraints
 
@@ -120,19 +121,22 @@ The Won't-Do transition is unambiguously **trusted-CI-runner only** (because it 
 
 - Zero-credential invariant for the sandbox container persists. Agents must continue to reach Jira only through the gateway. The `transitions` denylist stays.
 - The new orchestrator-direct Jira credential surface is **only** for transitions — it must not be reused for ticket create / edit / comment / link, which all have gateway-mediated paths. This keeps audit, project-allowlist, and rate-limit policy applied consistently to the bulk of writes.
-- The plan apply step must be **idempotent**: re-running plan apply on the same plan draft must not duplicate child tickets, double-link, or re-fire Won't-Do transitions. The plan-node → key mapping is the durable record (decision-10).
-- The `in_flight` HITL gate is non-bypassable: the plan apply step must refuse edit / Won't-Do / consolidate-away mutations on any child marked `in_flight` without a per-ticket operator confirmation (per the issue's resolved sub-section). Creates that *depend on* an in-flight child go through.
+- The plan apply step (regardless of where it runs per decision-11) must be **idempotent**: re-running plan apply on the same plan draft must not duplicate child tickets, double-link, or re-fire Won't-Do transitions. The plan-node → key mapping (decision-10) is the durable record.
+- **Resume-from-partial**: the apply step must resume from the mapping store on re-run. Any plan node whose `existing_key` (reassess) or `created_key` (fresh) is already present in the mapping skips re-creation/re-edit; any cross-task link whose both endpoints exist in the mapping is re-issued via `create_issue_link`'s `idempotency_key` (which the gateway already supports). Idempotence ≠ resume — both must be designed for explicitly because a partial-apply (5/13 created) is a probable failure mode given Jira rate limiting + multi-call apply.
+- **Two-pass execution**: cross-task `create_issue_link` calls must follow *all* `create_issue` calls — both endpoints must exist before linking. The apply step is therefore a two-pass model: (a) create-or-edit all plan nodes; (b) link all cross-task edges. Bulk-creating Won't-Do transitions and consolidation redirect comments can happen in pass (b) or a third pass — design is open per plan-phase.
+- The `in_flight` HITL gate is non-bypassable: the plan apply step (regardless of where it runs per decision-11) must refuse edit / Won't-Do / consolidate-away mutations on any child marked `in_flight` without a per-ticket operator confirmation (per the issue's resolved sub-section). Creates that *depend on* an in-flight child go through.
 - In-flight detection is a property of the apply step, not the agent. The agent reads the same signals and writes the `in_flight` annotation into the plan draft, but the apply step re-checks at apply time (status / open-PR can change between plan approval and apply).
+- **Concurrent-edit on the epic Description**: the refine apply step writes the epic Description via `edit_issue`. If an operator manually edits the Description between refine kick-off and apply (or during a long re-review cycle), the apply will silently overwrite their edit. The apply step **must** fetch-and-diff the current Description against the version the agent saw, and surface a divergence-confirmation HITL prompt if they differ. If the gateway can support optimistic concurrency via an `If-Match` ETag on `edit_issue` in a future iteration, that is the preferred long-term path; for v1, the fetch-and-diff guard at apply time is the minimum bar.
 
 **Operational:**
 
-- The reassess JQL `parent = <EPIC-KEY> OR "Epic Link" = <EPIC-KEY>` must work on projects that use only one of the two hierarchy mechanisms (decision-2). The query as written is harmless on a project with no `Epic Link` field — Jira just returns no matches on that disjunct.
+- The reassess child-discovery query **cannot** be a single disjunctive JQL of the form `parent = <EPIC> OR "Epic Link" = <EPIC>`. Jira returns HTTP 400 (`"Field 'Epic Link' does not exist or you do not have permission to view it"`) when a referenced custom field isn't configured on the searched project — the OR clause does not gracefully no-match, the entire request fails. The apply step / discovery code must therefore issue **two separate JQL queries** (`parent = <EPIC>` and `<epic_link_field_value> = <EPIC>`, where `<epic_link_field_value>` is sourced from `JiraPolicy.epic_link_field` rather than hardcoded — `parent` projects yield the second query as a tautology that we should skip, `Epic Link` projects make the first either empty or 400), tolerate 400s per query, and merge the results.
 - The plan draft can grow large for reassess (every pre-existing child plus net-new). `_read_phase_draft` reads the full file; no streaming. Should be fine in practice (epics with 50 children produce drafts comparable to today's larger plan files).
 - Per-child-ticket PR shape means the epic does **not** produce a single epic-level PR. The orchestrator's existing per-pipeline `pr_url` artifact remains per-child; there is no aggregate "epic PR" object.
 
 **External (Atlassian):**
 
-- Custom fields for Epic Link vary by Jira site — the gateway already supports a per-site Epic Link field-ID override (verified during #1556 / #1924), so no new API work is needed here, just config.
+- Custom fields for Epic Link vary by Jira site — the gateway already supports a per-site Epic Link field-ID override via `JiraPolicy.epic_link_field` ([`gateway/jira_policy.py:98–193`](../../gateway/jira_policy.py)). The discovery + apply code must read this config value rather than hardcode `"Epic Link"` — see the JQL note above.
 - Jira rate limiting on bulk creates: an epic that decomposes into 30+ children generates a `create_issue` burst at apply time. The gateway has rate-limit handling; the apply step should serialize creates (or use Jira's bulk create endpoint if the gateway supports it — needs plan-phase check).
 - Issue link types are project-scoped — `Blocks` / `Is blocked by` are near-universal but not guaranteed. The apply step should fail soft (log warning + skip the link, plan node still applies) if a configured link type is missing.
 
@@ -148,9 +152,22 @@ The Won't-Do transition is unambiguously **trusted-CI-runner only** (because it 
 
 All hard prerequisites are landed.
 
+## Explicitly out of scope
+
+Listed explicitly so plan-phase reviewers do not have to grep prose for scope boundaries. From the issue's `## What this issue is not` and `## Out of scope (future follow-ups)` sections, plus deferrals surfaced by this analysis:
+
+- **Jira-label-driven state machine** (`egg-sdlc` / `egg-awaiting-response`). MVP uses the existing MCP / draft HITL surface.
+- **Implement-phase cross-child coordination, ordering, and scheduling.** Per decision-6's recommended secondary (manual `submit_task <CHILD-KEY>`), MVP stops at child-ticket creation; downstream auto-spawning is a future follow-up.
+- **Optimistic-concurrency `If-Match` ETag enforcement on `edit_issue`.** v1 mitigates concurrent-edit via the fetch-and-diff guard at apply time only. ETag-based protection can land later if it becomes necessary.
+- **Forge / Connect-app integration for Jira workflow transitions.** Out of scope per #1556; transitions stay orchestrator-direct only.
+- **A new gateway `get_project_metadata` verb to auto-detect `parent` vs `Epic Link` per project.** The current `JiraPolicy.epic_link_field` per-site config is the v1 mechanism (decision-2 opt-3 path). If decision-2 lands on opt-1 (true auto-detect), adding that verb becomes in-scope.
+- **Aggregate "epic PR".** Per-child-ticket PRs (issue's resolved sub-section) explicitly preclude this.
+
 ## Options Considered
 
-The big shape questions for this issue are (1) where the apply step runs (sandbox-agent vs orchestrator), (2) how much epic-specific structure the prompts mandate, (3) how the plan-node → key mapping is persisted, (4) how aggressively the orchestrator auto-spawns implement pipelines for created children, and (5) how the work is decomposed into slices. The slice-decomposition choice (decision-1) and the auto-spawn choice (decision-6) and the mapping-persistence choice (decision-10) are the headline ones; the rest are mostly closed by the issue itself.
+The big shape questions for this issue are (1) how the work is decomposed into slices (decision-1, options A–D below), (2) where the apply step runs (decision-11, orthogonal to slicing), (3) how much epic-specific structure the prompts mandate (feedback Q2), (4) how the plan-node → key mapping is persisted (decision-10), and (5) how aggressively the orchestrator auto-spawns implement pipelines for created children (decision-6). The slice-decomposition choice (decision-1), the apply-step location (decision-11), and the mapping-persistence choice (decision-10) are the headline ones; the rest are mostly closed by the issue itself.
+
+The four options below are slicing options only — they are the option set for **decision-1**. The apply-step-location options are enumerated under decision-11 and not duplicated here.
 
 ### Option A: Single-slice end-to-end (1 PR)
 
@@ -215,7 +232,7 @@ The big shape questions for this issue are (1) where the apply step runs (sandbo
 
 Reasoning:
 
-1. **The reassess + in-flight code paths share scaffolding with the fresh path, not extend it.** The fresh-epic plan apply already needs the plan-node → key mapping store (decision-10), the gateway create / link calls (decisions 2, 6, 9), and the per-node ticket-description structure (feedback Q2). Reassess adds child-discovery, the diff annotation, and the Won't-Do transition — all of which slot into the same apply step. Splitting them creates rework at the seam.
+1. **The reassess + in-flight code paths share scaffolding with the fresh path, not extend it.** The fresh-epic plan apply already needs the plan-node → key mapping store (decision-10), the gateway create / link calls (decisions 2, 6, 9, 11), and the per-node ticket-description structure (feedback Q2). Reassess adds child-discovery, the diff annotation, and the Won't-Do transition — all of which slot into the same apply step. Splitting them creates rework at the seam.
 2. **The orchestrator-direct cred surface (E) is the most architecturally novel piece** but it is also the smallest one — a credential file read, a transition helper, and audit logging. It is the kind of thing that benefits from being landed in the same PR as its only caller (the reassess apply step), so the cred surface and its enforcement live together.
 3. **In-flight detection (G) is genuinely small** given the orchestrator already tracks `pr_url` and the gateway already exposes `fields.status.name`. The HITL gate reuses the existing decision-registration plumbing.
 4. **Option B is a safety net, not a goal.** If the orchestrator-direct cred design becomes contentious in plan phase, peeling F + G off into slice 2 is mechanical: the fresh-epic path doesn't transition anything and doesn't gate on in-flight, so slice 1 has a clean closing surface.
@@ -224,7 +241,7 @@ The work-decomposition decision (decision-1) is registered for the operator with
 
 The recommended secondary choices (the operator overrides via the registered decisions):
 
-- **decision-2 (hierarchy mechanism)**: **auto-detect from epic-project metadata** at submit_task time. Cleanest operator setup story; aligns with the gateway's existing project-metadata lookup support.
+- **decision-2 (hierarchy mechanism)**: **opt-3 — operator-configurable per Jira site via the existing `JiraPolicy.epic_link_field` config** ([`gateway/jira_policy.py:98–193`](../../gateway/jira_policy.py)). The gateway already has this primitive; v1 reuses it instead of introducing a new `get_project_metadata` verb (opt-1, which would add a hardware-existence primitive). Opt-3's per-project map is the natural extension if multiple projects per site need different fields; opt-4 (`submit_task` param) and opt-1 (true auto-detect) are forward-compatible upgrades.
 - **decision-3 (Won't Do batch vs per-ticket)**: **batch on single plan approval** for non-in-flight children. Per-ticket gates exist for in-flight already; adding a second per-ticket gate on stale-To-Do children inflates HITL surface for low-risk transitions.
 - **decision-4 (Done children in plan prompt)**: **exclude Done children entirely**. Cleanest signal; the diff annotation in the plan draft can still surface "Done children left untouched: X, Y, Z" as a one-line audit note without feeding them into the prompt.
 - **decision-5 (consolidation survivor)**: **agent picks per-consolidation with rationale, operator overrides per-node before approval**. Heuristic-only options (oldest / most-linked) miss too many real-world cases; full operator picking is high-friction. The agent-with-rationale path matches the rest of the plan draft's information-dense + operator-editable model.
@@ -233,6 +250,8 @@ The recommended secondary choices (the operator overrides via the registered dec
 - **decision-8 (in-flight signal precedence)**: **OR semantics with signal-source logged on the HITL gate** (option 4). Conservative + transparent — the operator sees which signal fired.
 - **decision-9 (reassess refine output)**: **wholesale rewrite**. The refine prompt is specifically instructed to produce a self-contained epic Description; preserving the prior Description below it makes the field grow unboundedly across re-runs. Operators wanting history can read the Description's revision history.
 - **decision-10 (plan-node → key mapping)**: **inline yaml-frontmatter in the plan draft**. Human-readable, version-controlled in the work branch, survives draft rewrites because it's part of the draft itself; matches the operator-editable model of the rest of the plan doc.
+- **decision-11 (apply-step execution location)**: **opt-3 — hybrid: gateway-mediated writes from a dedicated `apply-epic` agent for everything except `transitions`; orchestrator-only for transitions** (the gateway-blocked verb). Maximises symmetry with today's "agents write through the gateway" pattern, preserves the gateway audit identity for non-transition writes, and confines the new orchestrator-direct credential surface to its narrowly-justified single caller.
+- **decision-12 (reassess-trigger override)**: **opt-2 — `--reassess` / `--fresh` mutex flags on `submit_task`** with confirmation prompts on `--fresh` against an epic that has children. Matches the explicit-override pattern operators expect; auto-detect (opt-1) is the default; the explicit-`--mode` flag (opt-3) is a less idiomatic shape; the admin-subcommand (opt-4) splits the surface unnecessarily.
 
 ## Open Questions
 
@@ -257,6 +276,8 @@ These were settled in the issue's `## Resolved` section and are not registered a
 - **[decision-8]** In-flight detection signal precedence — OR / orchestrator-wins / Jira-wins / OR-with-source-logged.
 - **[decision-9]** Reassess refine-output strategy — wholesale rewrite / merge / append / per-run HITL.
 - **[decision-10]** Plan-node → Jira-key mapping persistence — inline yaml-frontmatter / separate yaml file / pipeline artifact / hidden Jira custom field.
+- **[decision-11]** Apply-step execution location — sandbox-agent / orchestrator / hybrid / all-orchestrator-no-gateway. Orthogonal to decision-1's slicing; needed by plan phase regardless.
+- **[decision-12]** Reassess-trigger override on `submit_task` — auto-only / `--reassess`/`--fresh` flags / `--mode={auto,reassess,fresh}` / admin subcommand. (Promoted from feedback-1 Q5 in response to reviewer NACK; Q5 itself is now superseded by this decision — operator should ignore Q5 in the feedback bundle.)
 
 ### Open-ended feedback
 
@@ -266,7 +287,7 @@ Bundled under **[feedback-1]**:
 - **Q2** Plan-node ticket-description structure — fixed sections vs agent-discretion.
 - **Q3** Cross-task dependency representation — Jira link types supported beyond Blocks / Is-blocked-by.
 - **Q4** PR-link writeback to Jira ticket — automatic remote-link / comment when a child's implement opens a PR.
-- **Q5** `submit_task --reassess` / `--fresh` override flag — should auto-detection be overridable?
+- **Q5** ~~`submit_task --reassess` / `--fresh` override flag — should auto-detection be overridable?~~ **Superseded by [decision-12]** (promoted in response to NACK feedback; structurally a multi-choice decision, not open-ended feedback). Operator: please answer decision-12 and ignore Q5.
 
 ## Complexity Assessment
 
