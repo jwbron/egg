@@ -230,10 +230,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "**Reassess Won't Do transitions — batch vs per-ticket HITL**: when the reassess plan flags some pre-existing children as obsolete, should the orchestrator transition them all to Won't Do on plan approval, or require a separate per-ticket HITL confirmation? In-flight children (status mid-workflow OR has an open PR) already have a per-ticket HITL gate per the issue's resolved sub-section, so this question is about *Done≠relevant* and *To Do→Won't Do* transitions on non-in-flight children only.",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "Single plan approval applies all Won't Do transitions atomically (operator sees the obsolete list in the plan draft and approves wholesale)",
+        "Per-ticket HITL gate for every Won't Do transition (each obsolete ticket gets its own decision in the HITL surface, mirroring the in-flight gate)",
+        "Single approval for *To Do* obsolete children; per-ticket gate only when transitioning a child that has any non-trivial history (comments, prior transitions, or linked tickets)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.052501Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.020920Z",
+  "updated_at": "2026-05-11T22:24:52.058675Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -247,6 +266,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null
 }
