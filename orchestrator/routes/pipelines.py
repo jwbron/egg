@@ -9551,10 +9551,11 @@ def _lookup_existing_context_pr(
         if pr.get("base_ref") != base_branch:
             head_only = True
             continue
-        try:
-            pr_number = int(pr["number"])
-        except KeyError, ValueError, TypeError:
-            continue
+        # ``list_open_prs`` (gateway_client.py:2302-2317) already filters
+        # entries without ``number`` / ``head_ref`` and casts to ``int``
+        # before returning, so ``pr["number"]`` is always a present int
+        # here — trust the producer's contract.
+        pr_number = int(pr["number"])
         pr_url = f"https://github.com/{repo}/pull/{pr_number}"
         return _ExistingPRLookup(matched=(pr_url, pr_number))
     return _ExistingPRLookup(head_only_match=head_only)
@@ -9925,7 +9926,7 @@ def _open_context_pr_for_pipeline(
             base_branch=base_branch,
             gateway_mode=gateway_mode,
         )
-        return context_branch
+        return contract.pr.context_branch or context_branch
     if lookup.head_only_match:
         logger.warning(
             "Context PR hook: an open PR exists on our head branch against "
@@ -9953,6 +9954,15 @@ def _open_context_pr_for_pipeline(
         # a fast-forward no-op over the prior tick's commit, and
         # create_pr then opens the missing PR.  This is the wedge
         # tracked by #2582.
+        #
+        # Why "by elimination" holds: (a) the gateway restricts pushes
+        # to ``egg/``-prefixed branches bound to a per-session token,
+        # so no agent outside this pipeline can write to
+        # ``egg/<pipeline_id>/context``; (b) ``pipeline_id`` carries a
+        # UUID component so cross-pipeline collisions on the same
+        # branch name are vanishingly unlikely.  Together these mean a
+        # divergent SHA on our context branch can only have been
+        # produced by a prior tick of *this* pipeline.
         logger.info(
             "Context PR hook: create_context_branch raised divergence with "
             "no open PR on our head — proceeding under the assumption that "
