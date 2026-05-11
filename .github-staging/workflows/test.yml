@@ -1,0 +1,108 @@
+name: Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_call:
+    outputs:
+      passed:
+        description: 'Whether all tests passed'
+        value: ${{ jobs.aggregate.outputs.passed }}
+  workflow_dispatch:  # Allow manual testing
+
+concurrency:
+  group: test-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run unit tests
+        run: |
+          make test-all PYTEST_ARGS="--cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing --cov-fail-under=80"
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run security scan
+        run: make security
+
+  integration:
+    name: Integration Tests
+    # Required-from-day-1 per decision-3 of #2474. The reusable
+    # workflow lives at .github/workflows/test-integration.yml after
+    # the human reviewer performs the pre-merge `git mv` from
+    # .github-staging/. Folded into `aggregate` below so the
+    # canonical required-check name stays `Test / aggregate`.
+    #
+    # `timeout-minutes` historically wasn't in the documented
+    # keyword set for `uses:` caller jobs in GitHub Actions, but is
+    # honored in practice. The test-integration.yml reusable
+    # workflow also carries per-job `timeout-minutes` as a defense
+    # in depth so the budget is enforced regardless.
+    uses: ./.github/workflows/test-integration.yml
+    timeout-minutes: 30
+
+  aggregate:
+    # Intentionally NO `name:` override here: the GitHub-rendered
+    # check name must be `Test / aggregate` (lowercase job-id) so it
+    # matches the canonical required-check name documented in
+    # decision-3 / `manual_steps` of #2474 ("repo admin flips
+    # `Test / aggregate` to required-for-merge"). Adding a `name:`
+    # override would render the check as `Test / <override>` and
+    # silently desync from the operator-flipped required-check.
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [unit, security, integration]
+    outputs:
+      passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Check all jobs passed
+        id: check
+        run: |
+          if [[ "${{ needs.unit.result }}" != "success" || \
+                "${{ needs.security.result }}" != "success" || \
+                "${{ needs.integration.result }}" != "success" ]]; then
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "Some tests failed"
+            echo "  unit: ${{ needs.unit.result }}"
+            echo "  security: ${{ needs.security.result }}"
+            echo "  integration: ${{ needs.integration.result }}"
+            # Without this `exit 1`, the failure branch falls through with
+            # a zero exit code and the aggregate job — and the canonical
+            # required-for-merge `Test / aggregate` check — would report
+            # success regardless of which tier was red.
+            exit 1
+          else
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "All tests passed"
+          fi

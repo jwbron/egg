@@ -1,0 +1,520 @@
+[
+  {
+    "id": "89e97189-2f90-4b",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:20.828138+00:00"
+    },
+    "timestamp": "2026-05-11T05:32:20.858641+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a2e99bcc-7cdb-41",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:47.083705+00:00"
+    },
+    "timestamp": "2026-05-11T05:32:47.935124+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e9e3e104-8c08-49",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Reviewer prepared; awaiting refiner CONSENSUS_PROPOSE.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "refiner"
+    },
+    "timestamp": "2026-05-11T05:32:47.977766+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c20cc59e-5705-4e",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:20.828138+00:00"
+    },
+    "timestamp": "2026-05-11T05:33:20.896194+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b1ff3c0d-ab09-4c",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:47.083705+00:00"
+    },
+    "timestamp": "2026-05-11T05:33:47.989830+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "35b003c8-4b49-41",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:20.828138+00:00"
+    },
+    "timestamp": "2026-05-11T05:34:20.941663+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3a1d8e3f-cc09-46",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:47.083705+00:00"
+    },
+    "timestamp": "2026-05-11T05:34:50.099062+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "45f8d742-5f41-44",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:20.828138+00:00"
+    },
+    "timestamp": "2026-05-11T05:35:21.084918+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4d49b4c7-3fc7-4a",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:47.083705+00:00"
+    },
+    "timestamp": "2026-05-11T05:35:50.157182+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f27623a5-7ad7-40",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:20.828138+00:00"
+    },
+    "timestamp": "2026-05-11T05:36:21.168129+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9afdc296-0902-49",
+    "pipeline_id": "issue-2474",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [high]",
+    "body": "Refiner agent is silent: 266s elapsed with zero heartbeats (stall threshold: 180s) in pipeline issue-2474 refine phase\n\nDetail:\nContainer b10980f6-54f9-43e9-bc62-24d59162852c (role: refiner) started at 2026-05-11T05:31:22Z. As of cycle 1 at 05:35:35Z, the message bus shows 8 messages total \u2014 all HEARTBEAT type \u2014 all emitted by reviewer_agent_design and reviewer_refine. The refiner has emitted zero messages. BRC history for refiner is empty. Both reviewers are healthy but blocked on WAITING_FOR_EVENT (CONSENSUS_PROPOSE). overseer_agent_stall_seconds threshold is 180s; refiner elapsed is 266s.\n\nRecommended action:\nInspect refiner container logs (container b10980f6-54f9-43e9-bc62-24d59162852c) to determine if the agent is stuck in a slow operation, looping silently, or has crashed. Consider restarting the refiner if logs show no forward progress.",
+    "metadata": {},
+    "timestamp": "2026-05-11T05:36:22.288197+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "55f77b6c-8945-42",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:32:47.083705+00:00"
+    },
+    "timestamp": "2026-05-11T05:37:12.128112+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "99569e6c-0628-4c",
+    "pipeline_id": "issue-2474",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "Refine analysis for #2474 remaining work (Parts A, E, F). PR #2556 already shipped Parts B+C+D \u2014 docker-runtime cleanup, tests/functional/ deletion, test-e2e.yml retirement \u2014 so this draft scopes to: (A) wire orphan test-integration.yml into PR CI; (E) promote ScriptedProvider to public shared/egg_harness/testing/ + add 8 k3s regression tests under integration_tests/regression/ pinning #2428/#2429/#2420/#2430 plus four state-machine invariants; (F) add CLAUDE.md Quick Reference bullet + subsection and docs/guides/testing.md Integration tests section (k3s only per operator pre-refine direction). Recommends Option B \u2014 ship E first, then A+F follow-up \u2014 so the gate's first run already covers the regression categories that motivated this issue. Surfaces 7 multi-choice decisions (PR shape, workflow location, gating policy, E.6 scenario shape, wall-clock budget, test-all fold-in, TestCredentialIsolation gap) and 6 free-form feedback questions (flake guards, push-rejection mechanism, phase-timeout minute-vs-second mismatch, audit-log assertion shape, settle-in SLO, generic-vs-named-tests in CLAUDE.md). Acknowledges resolved-in-pre-refine items (ScriptedProvider target path, regression subdir layout, k3s-only docs).",
+    "metadata": {
+      "payload": {
+        "summary": "Refine analysis for #2474 remaining work (Parts A, E, F). PR #2556 already shipped Parts B+C+D \u2014 docker-runtime cleanup, tests/functional/ deletion, test-e2e.yml retirement \u2014 so this draft scopes to: (A) wire orphan test-integration.yml into PR CI; (E) promote ScriptedProvider to public shared/egg_harness/testing/ + add 8 k3s regression tests under integration_tests/regression/ pinning #2428/#2429/#2420/#2430 plus four state-machine invariants; (F) add CLAUDE.md Quick Reference bullet + subsection and docs/guides/testing.md Integration tests section (k3s only per operator pre-refine direction). Recommends Option B \u2014 ship E first, then A+F follow-up \u2014 so the gate's first run already covers the regression categories that motivated this issue. Surfaces 7 multi-choice decisions (PR shape, workflow location, gating policy, E.6 scenario shape, wall-clock budget, test-all fold-in, TestCredentialIsolation gap) and 6 free-form feedback questions (flake guards, push-rejection mechanism, phase-timeout minute-vs-second mismatch, audit-log assertion shape, settle-in SLO, generic-vs-named-tests in CLAUDE.md). Acknowledges resolved-in-pre-refine items (ScriptedProvider target path, regression subdir layout, k3s-only docs).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2474-analysis.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "a7752e0f72d228f231196ce1e722fa8ed6045c0b",
+        "files_changed": [
+          ".egg-state/drafts/2474-analysis.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "a7752e0f72d228f231196ce1e722fa8ed6045c0b"
+    },
+    "timestamp": "2026-05-11T05:37:12.443847+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "bb6eb0d9-49f8-48",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T05:37:12.492656+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2bf8a170-1638-40",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T05:37:12.537595+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5fb86869-8f98-4d",
+    "pipeline_id": "issue-2474",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:37:17.036753+00:00"
+    },
+    "timestamp": "2026-05-11T05:37:43.677198+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4da1193c-c06c-4b",
+    "pipeline_id": "issue-2474",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:37:17.036753+00:00"
+    },
+    "timestamp": "2026-05-11T05:38:32.141850+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2e9f6c70-33bf-4f",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "\nReviewed `.egg-state/drafts/2474-analysis.md` (415 lines) against agent-mode design criteria (`docs/guides/agent-mode-design.md`). No agent-mode anti-patterns found.\n\nSpecifically checked:\n- **Pre-fetching**: None. The analysis cites file paths + line numbers (e.g. `orchestrator/kubernetes_spawner.py:755-757`, `shared/tests/test_egg_harness/test_integration.py:130`) but does not bake file contents or large diffs into prompts.\n- **Structured-output-for-humans / post-processing pipelines / prompt-level security**: N/A \u2014 this is a planning document, not a new prompt or output schema.\n- **Rigid procedures**: The 8 test scenarios in Part E describe *what* to verify (e.g. \"kubectl get pod -o yaml to assert each slice coder's EGG_BRANCH points at its slice ref\" at line 92, \"configure phase_configs.plan.consensus_timeout_s = 30; assert CONSENSUS_TIMEOUT event fires within 30\u00b15s\" at the issue body) \u2014 these are test objectives, not agent step-by-step micromanagement.\n- **Direct LLM API calls / Agent-SDK bypass**: N/A. No new LLM-calling code introduced. The `ScriptedProvider` promotion at lines 60-67 / 130-136 is the *opposite* of an anti-pattern \u2014 it canonicalises an in-process scripted LLM provider so integration tests can hand each agent role a canned trajectory without real Anthropic API calls. That's a sandboxing win, not a concern.\n- **Hardcoded model identifiers**: N/A \u2014 no model strings appear in the analysis.\n\nPart F's docs work (lines 32-36, decision/feedback Q6 at 390-395) \u2014 adding a `make test-integration` Quick Reference bullet, an Integration-tests subsection in `CLAUDE.md`, and a top-level Integration-tests section in `docs/guides/testing.md` \u2014 is exactly the \"lightweight orienting metadata\" the philosophy endorses. It tells agents the tier exists and points at it; it doesn't constrain their exploration.\n\n### Non-blocking\n- **2474-analysis.md:390-395 (feedback Q6)** \u2014 Either choice (named tests vs. generic pointer in `CLAUDE.md`) is agent-design-neutral. Named tests aid discoverability but create staleness risk; generic pointers are durable but force a grep step. If the operator picks \"named\", consider committing to a refresh hook (or a stale-link linter) so the doc doesn't drift; otherwise the generic pointer is the safer default.\n- **2474-analysis.md:130-136 (ScriptedProvider promotion)** \u2014 When the implement phase ships `shared/egg_harness/testing/scripted_provider.py`, please add a one-line module docstring naming it as the canonical scripted-LLM trajectory provider for integration tests, so agents writing new integration tests grep-find it instead of re-rolling their own scripted provider. Pure orientation/discoverability nudge; not blocking.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2474-analysis.md"
+        ],
+        "reason": "\nReviewed `.egg-state/drafts/2474-analysis.md` (415 lines) against agent-mode design criteria (`docs/guides/agent-mode-design.md`). No agent-mode anti-patterns found.\n\nSpecifically checked:\n- **Pre-fetching**: None. The analysis cites file paths + line numbers (e.g. `orchestrator/kubernetes_spawner.py:755-757`, `shared/tests/test_egg_harness/test_integration.py:130`) but does not bake file contents or large diffs into prompts.\n- **Structured-output-for-humans / post-processing pipelines / prompt-level security**: N/A \u2014 this is a planning document, not a new prompt or output schema.\n- **Rigid procedures**: The 8 test scenarios in Part E describe *what* to verify (e.g. \"kubectl get pod -o yaml to assert each slice coder's EGG_BRANCH points at its slice ref\" at line 92, \"configure phase_configs.plan.consensus_timeout_s = 30; assert CONSENSUS_TIMEOUT event fires within 30\u00b15s\" at the issue body) \u2014 these are test objectives, not agent step-by-step micromanagement.\n- **Direct LLM API calls / Agent-SDK bypass**: N/A. No new LLM-calling code introduced. The `ScriptedProvider` promotion at lines 60-67 / 130-136 is the *opposite* of an anti-pattern \u2014 it canonicalises an in-process scripted LLM provider so integration tests can hand each agent role a canned trajectory without real Anthropic API calls. That's a sandboxing win, not a concern.\n- **Hardcoded model identifiers**: N/A \u2014 no model strings appear in the analysis.\n\nPart F's docs work (lines 32-36, decision/feedback Q6 at 390-395) \u2014 adding a `make test-integration` Quick Reference bullet, an Integration-tests subsection in `CLAUDE.md`, and a top-level Integration-tests section in `docs/guides/testing.md` \u2014 is exactly the \"lightweight orienting metadata\" the philosophy endorses. It tells agents the tier exists and points at it; it doesn't constrain their exploration.\n\n### Non-blocking\n- **2474-analysis.md:390-395 (feedback Q6)** \u2014 Either choice (named tests vs. generic pointer in `CLAUDE.md`) is agent-design-neutral. Named tests aid discoverability but create staleness risk; generic pointers are durable but force a grep step. If the operator picks \"named\", consider committing to a refresh hook (or a stale-link linter) so the doc doesn't drift; otherwise the generic pointer is the safer default.\n- **2474-analysis.md:130-136 (ScriptedProvider promotion)** \u2014 When the implement phase ships `shared/egg_harness/testing/scripted_provider.py`, please add a one-line module docstring naming it as the canonical scripted-LLM trajectory provider for integration tests, so agents writing new integration tests grep-find it instead of re-rolling their own scripted provider. Pure orientation/discoverability nudge; not blocking.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-11T05:38:44.604480+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "6bcd6f89-0220-48",
+    "pipeline_id": "issue-2474",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T05:38:44.665427+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "82f5a8ab-2b6a-47",
+    "pipeline_id": "issue-2474",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:38:50.105424+00:00"
+    },
+    "timestamp": "2026-05-11T05:38:50.174424+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "74f2e51d-5176-47",
+    "pipeline_id": "issue-2474",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 7: monitoring BRC review phase \u2014 refiner PROPOSED, both reviewers WORKING. Emitting periodic heartbeat.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T05:38:52.445468+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f73c9e38-f3eb-4f",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_agent_design",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-11T05:38:53.641384+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "873b7e60-f860-44",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:38:58.315773+00:00"
+    },
+    "timestamp": "2026-05-11T05:38:58.414924+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c2987d01-92b7-43",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for refiner",
+    "body": "\nReviewed `.egg-state/drafts/2474-analysis.md` (415 lines) plus all referenced source files and the contract. The refine output is high quality \u2014 concrete, well-grounded, and properly externalises uncertainty as HITL decisions/feedback. Verified every load-bearing factual claim against the actual codebase. ACK.\n\n### Section-by-section evaluation\n\n**1. Problem Understanding** \u2014 Strong. The split between \"shipped in PR #2556 (B, C, D)\" and \"remaining (A, E, F)\" matches the issue body verbatim. The three remaining items are crisply scoped: Part A is wiring `test-integration.yml` into a PR workflow, Part E is 8 new k3s tests + `ScriptedProvider` promotion, Part F is `CLAUDE.md` + `docs/guides/testing.md` notes. Desired outcome stated explicitly at lines 38\u201341.\n\n**2. Research Quality** \u2014 Excellent. Every factual claim I spot-checked holds:\n- `test-integration.yml` triggers: only `workflow_call`, `workflow_dispatch` (confirmed lines 4 & 9 of the workflow). No PR workflow `uses` it (`grep -l 'test-integration.yml' .github/workflows/*.yml` returns nothing).\n- `ScriptedProvider` at `shared/tests/test_egg_harness/test_integration.py:130` with 5 consumers at lines 203, 276, 360, 402, 473 (`grep -n` confirms exactly those line numbers).\n- `_stream_events` helper at line 39 (called out at line 64 of the analysis).\n- `resolve_consensus_timeout_minutes` at `orchestrator/models.py:27` uses MINUTES \u2014 the analysis correctly flags that the issue text's `consensus_timeout_s = 30` mismatches the actual field name `consensus_timeout_minutes_<phase>` (lines 41\u201346 of models.py).\n- EGG_BRANCH at `orchestrator/kubernetes_spawner.py:755-757` exactly as cited.\n- `live_pods_present` / `force=true` branch in `orchestrator/routes/pipelines.py:992-1074` confirmed.\n- `TestCredentialIsolation` skip explained in `integration_tests/conftest.py` lines 7\u201319.\n- `TEST_PACKAGES` in `scripts/select_tests/_constants.py` does NOT contain `integration_tests` \u2014 narrowing claim correct.\n\nThe CI wiring table at lines 47\u201352 is accurate (`on-pull-request.yml` uses `pull_request`/`workflow_dispatch`; `test.yml` has `unit`, `security`, `aggregate` jobs, where `aggregate` is the canonical required-check name).\n\n**3. Options Analysis** \u2014 Four options (A=one PR, B=E\u2192A+F, C=E\u2192A\u2192F, D=A+F\u2192E) are meaningfully different along the \"atomic-vs-staged\" axis. Pros/cons for each are concrete: bisect granularity, settle-in window cleanliness, temporal coupling of docs to the new directory, gate-first-wins coverage. Option D is correctly identified as the weakest because it lands the gate before the regression coverage that motivates the gate.\n\n**4. Constraints and Dependencies** \u2014 Seven distinct constraints (lines 116\u2013157), each genuinely actionable: CI runner cost, flake budget, file-boundary discipline for the refiner role, ScriptedProvider becoming public API surface, required-check name discoverability, phase-timeout API granularity (minutes vs seconds), test-selector narrowing exclusion, k3s-only runtime. The \"ScriptedProvider becomes public API\" framing is the right lens \u2014 once it lives under `shared/egg_harness/testing/` we own it.\n\n**5. Open Questions / HITL Registration** \u2014 Verified via `mcp__sdlc__show_contract`:\n- 7 multiple-choice decisions present (`decision-1` through `decision-7`), each with 5 options that match the analysis text verbatim.\n- `feedback-1` present with Q1\u2013Q6 matching the analysis.\n- Every prose open question in the analysis has a corresponding contract entry. The \"Resolved in Pre-Refine\" sub-section honestly distinguishes between operator-resolved (k3s-only, multi-PR direction) and issue-body-specified (`ScriptedProvider` target path, `integration_tests/regression/` location) \u2014 these correctly are NOT re-asked.\n- Q3 (consensus_timeout_minutes vs _s) is a substantive validation finding that surfaces an implicit issue-body bug; this is exactly the kind of refinement-phase value-add we want.\n\n**6. Recommendation Quality** \u2014 Option B is the right call, justified by gate-value-vs-coverage timing, settle-in cleanliness, smaller diffs, and avoidance of docs/temporal-coupling. Lines 270\u2013275 correctly mark the recommendation as conditional on operator's answer to decision-1 \u2014 no silent assumption locked in.\n\n**7. Complexity Assessment** \u2014 Brief but accurate. \"Medium\" is right: no architectural change, risk concentrated in CI flake observation, plausibly 2\u20133 PRs. Adequate for refine.\n\n### Non-blocking\n\n- **`.egg-state/drafts/2474-analysis.md:64`** \u2014 `_stream_events` is correctly called out but the prose under \"ScriptedProvider location\" doesn't mention that promoting `ScriptedProvider` will also need to move (or re-implement) the module-private `_stream_events` helper at line 39 since it's used inside `ScriptedProvider.create()`. Minor; the implement phase will figure this out but worth flagging here saves a coder iteration.\n- **`.egg-state/drafts/2474-analysis.md:137-142`** \u2014 \"If we wire integration into `test.yml`, that name stays correct\" is true for the *aggregate* job but a *new* job named `integration` would also surface a new check `Test / integration`. Branch protection can be set to pin either `Test / aggregate` (whose `needs:` would gate on it) or the more specific `Test / integration` directly. The analysis could note that decision-2's options each have slightly different check-name implications \u2014 but this is fine to defer to plan/implement since the constraint is correctly flagged.\n- **feedback-1 Q2** \u2014 Could be sharpened by referencing the concrete restricted-paths machinery (`gateway/policy.py`'s restricted-path list / `RESTRICTED_PATHS` semantics) that today causes pushes to be rejected. Useful context for the implement-phase agent but the question as written is still answerable.\n- **decision-3 prior-pipeline default framing (line 304)** \u2014 Says the \"issue body recommendation\" is \"captured as the prior-pipeline default in decision-3 options\". Strictly speaking the prior pipeline did not resolve decision-3; opt-1 just happens to match the issue body's recommended policy. Minor wording polish only.\n- **Complexity Assessment** \u2014 \"Risk is concentrated in CI flake observation rather than code complexity\" is the right call but doesn't surface the second risk: maintenance commitment from exposing `ScriptedProvider` as a stable public API in `shared/egg_harness/testing/`. Small.\n\nNone of the above are blocking. The analysis is ready to hand to the plan phase.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2474-analysis.md",
+          ".github/workflows/test-integration.yml",
+          ".github/workflows/test.yml",
+          ".github/workflows/on-pull-request.yml",
+          "shared/tests/test_egg_harness/test_integration.py",
+          "orchestrator/models.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/kubernetes_spawner.py",
+          "integration_tests/conftest.py",
+          "scripts/select_tests/_constants.py",
+          ".egg-state/contracts/issue-2474.json"
+        ],
+        "reason": "\nReviewed `.egg-state/drafts/2474-analysis.md` (415 lines) plus all referenced source files and the contract. The refine output is high quality \u2014 concrete, well-grounded, and properly externalises uncertainty as HITL decisions/feedback. Verified every load-bearing factual claim against the actual codebase. ACK.\n\n### Section-by-section evaluation\n\n**1. Problem Understanding** \u2014 Strong. The split between \"shipped in PR #2556 (B, C, D)\" and \"remaining (A, E, F)\" matches the issue body verbatim. The three remaining items are crisply scoped: Part A is wiring `test-integration.yml` into a PR workflow, Part E is 8 new k3s tests + `ScriptedProvider` promotion, Part F is `CLAUDE.md` + `docs/guides/testing.md` notes. Desired outcome stated explicitly at lines 38\u201341.\n\n**2. Research Quality** \u2014 Excellent. Every factual claim I spot-checked holds:\n- `test-integration.yml` triggers: only `workflow_call`, `workflow_dispatch` (confirmed lines 4 & 9 of the workflow). No PR workflow `uses` it (`grep -l 'test-integration.yml' .github/workflows/*.yml` returns nothing).\n- `ScriptedProvider` at `shared/tests/test_egg_harness/test_integration.py:130` with 5 consumers at lines 203, 276, 360, 402, 473 (`grep -n` confirms exactly those line numbers).\n- `_stream_events` helper at line 39 (called out at line 64 of the analysis).\n- `resolve_consensus_timeout_minutes` at `orchestrator/models.py:27` uses MINUTES \u2014 the analysis correctly flags that the issue text's `consensus_timeout_s = 30` mismatches the actual field name `consensus_timeout_minutes_<phase>` (lines 41\u201346 of models.py).\n- EGG_BRANCH at `orchestrator/kubernetes_spawner.py:755-757` exactly as cited.\n- `live_pods_present` / `force=true` branch in `orchestrator/routes/pipelines.py:992-1074` confirmed.\n- `TestCredentialIsolation` skip explained in `integration_tests/conftest.py` lines 7\u201319.\n- `TEST_PACKAGES` in `scripts/select_tests/_constants.py` does NOT contain `integration_tests` \u2014 narrowing claim correct.\n\nThe CI wiring table at lines 47\u201352 is accurate (`on-pull-request.yml` uses `pull_request`/`workflow_dispatch`; `test.yml` has `unit`, `security`, `aggregate` jobs, where `aggregate` is the canonical required-check name).\n\n**3. Options Analysis** \u2014 Four options (A=one PR, B=E\u2192A+F, C=E\u2192A\u2192F, D=A+F\u2192E) are meaningfully different along the \"atomic-vs-staged\" axis. Pros/cons for each are concrete: bisect granularity, settle-in window cleanliness, temporal coupling of docs to the new directory, gate-first-wins coverage. Option D is correctly identified as the weakest because it lands the gate before the regression coverage that motivates the gate.\n\n**4. Constraints and Dependencies** \u2014 Seven distinct constraints (lines 116\u2013157), each genuinely actionable: CI runner cost, flake budget, file-boundary discipline for the refiner role, ScriptedProvider becoming public API surface, required-check name discoverability, phase-timeout API granularity (minutes vs seconds), test-selector narrowing exclusion, k3s-only runtime. The \"ScriptedProvider becomes public API\" framing is the right lens \u2014 once it lives under `shared/egg_harness/testing/` we own it.\n\n**5. Open Questions / HITL Registration** \u2014 Verified via `mcp__sdlc__show_contract`:\n- 7 multiple-choice decisions present (`decision-1` through `decision-7`), each with 5 options that match the analysis text verbatim.\n- `feedback-1` present with Q1\u2013Q6 matching the analysis.\n- Every prose open question in the analysis has a corresponding contract entry. The \"Resolved in Pre-Refine\" sub-section honestly distinguishes between operator-resolved (k3s-only, multi-PR direction) and issue-body-specified (`ScriptedProvider` target path, `integration_tests/regression/` location) \u2014 these correctly are NOT re-asked.\n- Q3 (consensus_timeout_minutes vs _s) is a substantive validation finding that surfaces an implicit issue-body bug; this is exactly the kind of refinement-phase value-add we want.\n\n**6. Recommendation Quality** \u2014 Option B is the right call, justified by gate-value-vs-coverage timing, settle-in cleanliness, smaller diffs, and avoidance of docs/temporal-coupling. Lines 270\u2013275 correctly mark the recommendation as conditional on operator's answer to decision-1 \u2014 no silent assumption locked in.\n\n**7. Complexity Assessment** \u2014 Brief but accurate. \"Medium\" is right: no architectural change, risk concentrated in CI flake observation, plausibly 2\u20133 PRs. Adequate for refine.\n\n### Non-blocking\n\n- **`.egg-state/drafts/2474-analysis.md:64`** \u2014 `_stream_events` is correctly called out but the prose under \"ScriptedProvider location\" doesn't mention that promoting `ScriptedProvider` will also need to move (or re-implement) the module-private `_stream_events` helper at line 39 since it's used inside `ScriptedProvider.create()`. Minor; the implement phase will figure this out but worth flagging here saves a coder iteration.\n- **`.egg-state/drafts/2474-analysis.md:137-142`** \u2014 \"If we wire integration into `test.yml`, that name stays correct\" is true for the *aggregate* job but a *new* job named `integration` would also surface a new check `Test / integration`. Branch protection can be set to pin either `Test / aggregate` (whose `needs:` would gate on it) or the more specific `Test / integration` directly. The analysis could note that decision-2's options each have slightly different check-name implications \u2014 but this is fine to defer to plan/implement since the constraint is correctly flagged.\n- **feedback-1 Q2** \u2014 Could be sharpened by referencing the concrete restricted-paths machinery (`gateway/policy.py`'s restricted-path list / `RESTRICTED_PATHS` semantics) that today causes pushes to be rejected. Useful context for the implement-phase agent but the question as written is still answerable.\n- **decision-3 prior-pipeline default framing (line 304)** \u2014 Says the \"issue body recommendation\" is \"captured as the prior-pipeline default in decision-3 options\". Strictly speaking the prior pipeline did not resolve decision-3; opt-1 just happens to match the issue body's recommended policy. Minor wording polish only.\n- **Complexity Assessment** \u2014 \"Risk is concentrated in CI flake observation rather than code complexity\" is the right call but doesn't surface the second risk: maintenance commitment from exposing `ScriptedProvider` as a stable public API in `shared/egg_harness/testing/`. Small.\n\nNone of the above are blocking. The analysis is ready to hand to the plan phase.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-11T05:39:49.884762+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7486e10f-f00f-4c",
+    "pipeline_id": "issue-2474",
+    "from_role": "orchestrator",
+    "to_role": "refiner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-11T05:39:49.884837+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b2d0c31f-92d6-48",
+    "pipeline_id": "issue-2474",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T05:39:49.942351+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a65dd31a-1439-4c",
+    "pipeline_id": "issue-2474",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by refiner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-11T05:39:52.989510+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7bbe0d1f-131d-4d",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T05:39:53.077902+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "05167b30-7c82-42",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_refine",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-05-11T05:39:57.570338+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "def64f73-8b93-41",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:40:00.526115+00:00"
+    },
+    "timestamp": "2026-05-11T05:40:00.557191+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d2c810bd-7fb9-4b",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T05:40:00.634382+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "bb749d47-139e-49",
+    "pipeline_id": "issue-2474",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:40:01.164974+00:00"
+    },
+    "timestamp": "2026-05-11T05:40:01.193710+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "f79fea0c-ba91-48",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T05:40:02.079885+00:00"
+    },
+    "timestamp": "2026-05-11T05:40:02.114616+00:00",
+    "phase": "refine"
+  }
+]
