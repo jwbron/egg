@@ -369,16 +369,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T06:10:00.594050Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T06:15:50.637022Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Image-import retry + kubectl wait timeouts + on-failure kubectl-events artifact. Standard k3s harness hardening: retry on image-import failures (2-3 attempts), set explicit deadlines on every kubectl wait call, capture `kubectl get events --all-namespaces -o yaml` plus pod logs as a workflow artifact on failure. No specific past flakes called out beyond the standard set.\", \"Q2\": \"Coder role pushes a docs file (e.g. a path under `docs/`) to force a real 403 from the gateway's restricted-path policy. Exercises the real code path with no mocks. Implement-phase coder may pick the exact path based on the gateway's current policy table.\", \"Q3\": \"Use minute-granular timing. Configure `consensus_timeout_minutes_plan = 1`; assert CONSENSUS_TIMEOUT event fires within 60±10s. Do NOT add second-granular config support in this pipeline — the existing minutes-based API is sufficient for the assertion. Test docstring should note the issue text's `consensus_timeout_s = 30` was a typo (the real field is `consensus_timeout_minutes_<phase>`).\", \"Q4\": \"Gateway audit log of push events. Authoritative source; counts every push attempt and outcome. `git ls-remote` would miss pushes that didn't move the ref.\", \"Q5\": \"N/A — operator chose Required-for-merge from day 1 for decision-4 (gating policy), so the non-blocking → required transition does not exist. If flake budget becomes an issue post-merge, the question can be revisited as a config rollback.\", \"Q6\": \"Generic note pointing at `integration_tests/regression/`. No specific test files named — keeps the docs low-maintenance and avoids stale references if files are renamed in future work.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T06:15:48.296218Z",
+  "updated_at": "2026-05-11T06:15:50.641818Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -392,6 +392,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 27,
+  "version": 28,
   "jira_ticket": null
 }
