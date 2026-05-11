@@ -10810,6 +10810,34 @@ def _build_phase_prompt(
                 'They edit the comment to add their responses and check "Submit '
                 'feedback" when done. The pipeline will resume with the feedback '
                 "available in the contract.\n",
+                "**Work-decomposition decisions** — when the task spans multiple "
+                "independently-implementable parts, the question to register is "
+                "**how to decompose the work into slices**, not how to package PRs. "
+                "In egg, slices are the decomposition primitive: each slice has its "
+                "own integration branch, agent team, BRC consensus, and PR, and "
+                "sibling slices in the same wave run in **parallel** "
+                "(see `docs/architecture/slice-dag.md`). Slice count = PR count by "
+                "construction, so frame the decision on the slice-DAG shape and "
+                "annotate the PR consequence in parentheses — do not frame it on "
+                "the PR count. Never offer "
+                '"N sequential PRs"-style options: that wording forces serialization '
+                "that the slice scheduler does not require and teaches the operator "
+                "the wrong mental model. Example:",
+                "```bash",
+                "egg-contract add-decision \\",
+                '  --question "How should this work be decomposed into slices?" \\',
+                "  --options \\",
+                '    "Single slice: all parts ship together (1 PR)" \\',
+                '    "Two slices in parallel: [A] || [B+C] (2 PRs)" \\',
+                '    "Two slices with dependency: [A] -> [B] (2 PRs)" \\',
+                '    "Three slices fully parallel: [A], [B], [C] (3 PRs)" \\',
+                "  --format markdown",
+                "```",
+                "Name the parts inside the brackets so the operator can see which "
+                "concrete work each slice owns. If a would-be slice has more than "
+                "one DAG parent, note it — the plan phase rejects multi-parent "
+                "slices and the planner will need to serialise the upstream cluster "
+                "into a chain.\n",
                 "**DO NOT:**",
                 "- Write questions as plain markdown text without running "
                 "`egg-contract add-decision` or `egg-contract add-feedback`",
