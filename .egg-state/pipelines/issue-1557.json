@@ -282,10 +282,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T22:24:52.137082Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T22:52:29.163690Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Agent picks per-consolidation with rationale in the plan draft; operator can override per-node before approval\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -471,7 +471,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:46:03.016757Z",
+  "updated_at": "2026-05-11T22:52:29.171824Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -485,6 +485,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 29,
+  "version": 30,
   "jira_ticket": null
 }
