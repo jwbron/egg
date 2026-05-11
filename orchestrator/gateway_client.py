@@ -2173,13 +2173,21 @@ class GatewayClient:
                         base_sha=base_sha,
                     )
                     return True
-                raise GatewayError(
+                # Typed subclass so the hook caller can distinguish
+                # "diverged because a prior tick already pushed our own
+                # artifacts" (recoverable via gh pr list) from other
+                # GatewayError causes that are unrecoverable.
+                raise ContextBranchDiverged(
                     (
                         f"Context branch '{context_branch}' already exists at "
                         f"{existing_sha} but base '{base_branch}' resolves to "
                         f"{base_sha}; refusing to overwrite — caller must "
                         "investigate divergence (#2548)"
                     ),
+                    context_branch=context_branch,
+                    existing_sha=existing_sha,
+                    base_branch=base_branch,
+                    base_sha=base_sha,
                 )
 
             refspec = f"{base_sha}:refs/heads/{context_branch}"
@@ -3077,6 +3085,34 @@ class GatewayError(Exception):
         self.message = message
         self.status_code = status_code
         self.details = details
+
+
+class ContextBranchDiverged(GatewayError):
+    """Raised by :meth:`GatewayClient.create_context_branch` when the
+    context branch already exists on origin at a SHA that does not
+    match the base.
+
+    Subclasses :class:`GatewayError` so existing callers that broadly
+    catch ``GatewayError`` continue to work; new callers that want to
+    recover from a prior tick's post-push, pre-contract-persist
+    partial failure can catch this subclass specifically and salvage
+    the open PR via ``_recover_existing_context_pr``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        context_branch: str,
+        existing_sha: str,
+        base_branch: str,
+        base_sha: str,
+    ):
+        super().__init__(message)
+        self.context_branch = context_branch
+        self.existing_sha = existing_sha
+        self.base_branch = base_branch
+        self.base_sha = base_sha
 
 
 # Singleton client instance

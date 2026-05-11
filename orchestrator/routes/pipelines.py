@@ -86,7 +86,11 @@ try:
     from ..container_spawner import ContainerSpawnError, SpawnFailureError, get_container_spawner
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
-    from ..gateway_client import GatewayError, _rebase_with_agent_output_autoresolve
+    from ..gateway_client import (
+        ContextBranchDiverged,
+        GatewayError,
+        _rebase_with_agent_output_autoresolve,
+    )
     from ..kubernetes_client import (
         LABEL_PIPELINE_ID,
         JobOperationError,
@@ -132,7 +136,11 @@ except ImportError:
         ContainerOperationError,
         DockerClientError,
     )
-    from gateway_client import GatewayError, _rebase_with_agent_output_autoresolve  # type: ignore
+    from gateway_client import (  # type: ignore
+        ContextBranchDiverged,
+        GatewayError,
+        _rebase_with_agent_output_autoresolve,
+    )
     from kubernetes_client import (  # type: ignore
         LABEL_PIPELINE_ID,
         JobOperationError,
@@ -9480,6 +9488,125 @@ def _recover_existing_context_pr(
     return None
 
 
+def _persist_context_pr_linkage_on_contract(
+    *,
+    pipeline,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: Path,
+    contract_id,
+    context_branch: str,
+    pr_number: int | None,
+    pipeline_id: str,
+    identifier,
+    base_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> None:
+    """Persist ``context_branch`` / ``context_pr_number`` on the
+    contract and commit + push the contract update to the work branch.
+
+    Called from two sites in :func:`_open_context_pr_for_pipeline`:
+
+    * after a fresh ``create_pr`` (or recovery on create_pr failure)
+      successfully resolves a PR URL/number, and
+    * after :class:`ContextBranchDiverged` recovery (#2548 review
+      issue 1) salvages an existing PR — the prior tick already
+      pushed our artifacts to origin so we only need to write the
+      linkage.
+
+    Best-effort: every failure path logs and returns; nothing here
+    propagates to the caller (the PR is already open on GitHub, so
+    a contract write or commit/push failure is a durability nuance,
+    not a pipeline-blocker).  Mirrors the
+    ``_persist_phase_gate_resolution`` pattern.
+
+    A commit/push failure leaves the contract update on disk locally
+    but not on the work branch's remote.  ``_recover_existing_context_pr``
+    is NOT the safety net for that local-only state: recovery only
+    fires when ``context_pr_number is None``, and the in-memory
+    ``save_contract`` here has already populated that field, so the
+    next tick short-circuits at the hook's idempotency check before
+    reaching recovery.  The actual safety net is the local on-disk
+    contract plus a subsequent phase commit cycle eventually pushing
+    the worktree state — which means a commit/push failure here
+    followed by an orchestrator restart before any later commit-cycle
+    pushes is a real durability gap.  That gap is bounded by how the
+    orchestrator handles worktree provisioning across restarts (the
+    same gap the rest of the phase-commit code exhibits) and is not
+    worsened by this hook (#2548 review suggestion H).
+    """
+    try:
+        from egg_contracts.loader import load_contract, save_contract
+    except ImportError as imp_err:
+        logger.warning(
+            "Context PR hook: egg_contracts.loader unavailable during persist",
+            pipeline_id=pipeline_id,
+            error=str(imp_err),
+        )
+        return
+
+    contract_persisted = False
+    try:
+        with get_pipeline_state_lock(pipeline_id):
+            contract_local = load_contract(contract_id, worktree_repo_path)
+            if contract_local.pr is not None:
+                contract_local.pr.context_branch = context_branch
+                if pr_number is not None:
+                    contract_local.pr.context_pr_number = pr_number
+                save_contract(contract_local, worktree_repo_path)
+                contract_persisted = True
+    except Exception as save_err:  # noqa: BLE001
+        logger.warning(
+            "Context PR hook: failed to persist context fields on contract "
+            "(continuing — context PR is open) (#2548)",
+            pipeline_id=pipeline_id,
+            error=str(save_err),
+        )
+
+    if not (contract_persisted and pipeline.branch):
+        return
+
+    committed = False
+    try:
+        committed = _commit_statefiles_to_worktree(
+            worktree_repo_path,
+            f"Persist context PR linkage for {identifier} (#2548)",
+            pipeline_identifier=identifier,
+            pipeline_id=pipeline_id,
+        )
+    except Exception as commit_err:  # noqa: BLE001
+        logger.warning(
+            "Context PR hook: failed to commit contract update "
+            "(continuing — restart-safe via recovery path) (#2548)",
+            pipeline_id=pipeline_id,
+            error=str(commit_err),
+        )
+        return
+
+    # Skip the push when the commit was a no-op — the helper is
+    # idempotent and returns ``False`` on re-entry where nothing
+    # changed (e.g. the contract already had the context_pr_number
+    # from a prior tick).  An unconditional push would still be a
+    # fast-forward no-op against origin but would burn a network
+    # round-trip per tick (#2548 review suggestion D).
+    if not committed:
+        return
+    try:
+        spawner.gateway.push_worktree_branch(
+            pipeline_id=pipeline_id,
+            repo_path=str(worktree_repo_path),
+            branch=pipeline.branch,
+            mode=gateway_mode,  # type: ignore[arg-type]
+            base_branch=base_branch,
+        )
+    except Exception as push_err:  # noqa: BLE001
+        logger.warning(
+            "Context PR hook: failed to push contract update "
+            "(continuing — restart-safe via recovery path) (#2548)",
+            pipeline_id=pipeline_id,
+            error=str(push_err),
+        )
+
+
 def _gather_context_pr_files(
     work_worktree: Path,
     identifier: int | str,
@@ -9632,11 +9759,7 @@ def _open_context_pr_for_pipeline(
         return None
 
     try:
-        from egg_contracts.loader import (
-            ContractNotFoundError,
-            load_contract,
-            save_contract,
-        )
+        from egg_contracts.loader import ContractNotFoundError, load_contract
     except ImportError as imp_err:
         logger.warning(
             "Context PR hook: egg_contracts.loader unavailable, skipping (#2548)",
@@ -9696,6 +9819,65 @@ def _open_context_pr_for_pipeline(
             agent_role="coder",
             mode=gateway_mode,  # type: ignore[arg-type]
         )
+    except ContextBranchDiverged as branch_err:
+        # The branch already exists at a different SHA — almost always
+        # because a prior tick pushed our artifact commit but lost the
+        # ``save_contract`` write (disk full / lock contention /
+        # orchestrator restart between push and contract persist).
+        # ``_recover_existing_context_pr`` salvages the open PR via
+        # ``gh pr list`` and we persist the linkage so subsequent ticks
+        # idempotent-skip at the top of this hook.  Without this
+        # recovery branch the create_pr / no-URL recovery paths below
+        # are unreachable — the divergence raise short-circuits past
+        # them — and the pipeline never opens a context PR for the
+        # rest of its lifetime.
+        logger.warning(
+            "Context PR hook: create_context_branch raised divergence — "
+            "attempting recovery via existing PR lookup",
+            pipeline_id=pipeline_id,
+            base_branch=base_branch,
+            existing_sha=branch_err.existing_sha,
+            base_sha=branch_err.base_sha,
+        )
+        recovered = _recover_existing_context_pr(
+            spawner,
+            pipeline_id,
+            pipeline.repo,
+            context_branch,
+            base_branch,
+            gateway_mode=gateway_mode,
+        )
+        if recovered is None:
+            logger.warning(
+                "Context PR hook: create_context_branch divergence with no "
+                "recoverable PR — skipping (#2548)",
+                pipeline_id=pipeline_id,
+                base_branch=base_branch,
+                error=str(branch_err),
+            )
+            return None
+        recovered_url, recovered_number = recovered
+        logger.info(
+            "Context PR hook: recovered existing context PR after "
+            "create_context_branch divergence (#2548)",
+            pipeline_id=pipeline_id,
+            context_branch=context_branch,
+            context_pr_number=recovered_number,
+            pr_url=recovered_url,
+        )
+        _persist_context_pr_linkage_on_contract(
+            pipeline=pipeline,
+            spawner=spawner,
+            worktree_repo_path=worktree_repo_path,
+            contract_id=contract_id,
+            context_branch=context_branch,
+            pr_number=recovered_number,
+            pipeline_id=pipeline_id,
+            identifier=identifier,
+            base_branch=base_branch,
+            gateway_mode=gateway_mode,
+        )
+        return context_branch
     except Exception as branch_err:  # noqa: BLE001
         logger.warning(
             "Context PR hook: create_context_branch failed, skipping (#2548)",
@@ -10011,86 +10193,18 @@ def _open_context_pr_for_pipeline(
     if pr_url is None:
         return None
 
-    contract_persisted = False
-    try:
-        with get_pipeline_state_lock(pipeline_id):
-            contract_local = load_contract(contract_id, worktree_repo_path)
-            if contract_local.pr is not None:
-                contract_local.pr.context_branch = context_branch
-                if pr_number is not None:
-                    contract_local.pr.context_pr_number = pr_number
-                save_contract(contract_local, worktree_repo_path)
-                contract_persisted = True
-    except Exception as save_err:  # noqa: BLE001
-        logger.warning(
-            "Context PR hook: failed to persist context fields on contract "
-            "(continuing — context PR is open) (#2548)",
-            pipeline_id=pipeline_id,
-            error=str(save_err),
-        )
-
-    # Durability: commit + push the contract change to the work
-    # branch so an orchestrator restart between save_contract and the
-    # next phase's commit cycle does not lose the context-PR linkage
-    # (#2548 review issue 5).  Mirrors the
-    # ``_persist_phase_gate_resolution`` pattern: best-effort commit,
-    # best-effort push.
-    #
-    # A failure here leaves the contract update on disk locally but
-    # not on the work branch's remote.  Recovery via
-    # ``_recover_existing_context_pr`` is NOT the safety net for this
-    # path: recovery only fires when ``context_pr_number is None``,
-    # and the in-memory ``save_contract`` above has already populated
-    # that field, so the next tick short-circuits at the idempotency
-    # check before reaching the recovery code.  The actual safety net
-    # is the local on-disk contract plus a subsequent phase commit
-    # cycle eventually pushing the worktree state — which means a
-    # commit/push failure here followed by an orchestrator restart
-    # before any later commit-cycle pushes is a real durability gap.
-    # That gap is bounded by how the orchestrator handles worktree
-    # provisioning across restarts (the same gap the rest of the
-    # phase-commit code exhibits) and is not worsened by this hook
-    # (#2548 review suggestion H).
-    if contract_persisted and pipeline.branch:
-        committed = False
-        try:
-            committed = _commit_statefiles_to_worktree(
-                worktree_repo_path,
-                f"Persist context PR linkage for {identifier} (#2548)",
-                pipeline_identifier=identifier,
-                pipeline_id=pipeline_id,
-            )
-        except Exception as commit_err:  # noqa: BLE001
-            logger.warning(
-                "Context PR hook: failed to commit contract update "
-                "(continuing — restart-safe via recovery path) (#2548)",
-                pipeline_id=pipeline_id,
-                error=str(commit_err),
-            )
-        else:
-            # Skip the push when the commit was a no-op — the helper
-            # is idempotent and returns ``False`` on re-entry where
-            # nothing changed (e.g. the contract already had the
-            # context_pr_number from a prior tick).  An unconditional
-            # push would still be a fast-forward no-op against origin
-            # but would burn a network round-trip per tick (#2548
-            # review suggestion D).
-            if committed:
-                try:
-                    spawner.gateway.push_worktree_branch(
-                        pipeline_id=pipeline_id,
-                        repo_path=str(worktree_repo_path),
-                        branch=pipeline.branch,
-                        mode=gateway_mode,  # type: ignore[arg-type]
-                        base_branch=base_branch,
-                    )
-                except Exception as push_err:  # noqa: BLE001
-                    logger.warning(
-                        "Context PR hook: failed to push contract update "
-                        "(continuing — restart-safe via recovery path) (#2548)",
-                        pipeline_id=pipeline_id,
-                        error=str(push_err),
-                    )
+    _persist_context_pr_linkage_on_contract(
+        pipeline=pipeline,
+        spawner=spawner,
+        worktree_repo_path=worktree_repo_path,
+        contract_id=contract_id,
+        context_branch=context_branch,
+        pr_number=pr_number,
+        pipeline_id=pipeline_id,
+        identifier=identifier,
+        base_branch=base_branch,
+        gateway_mode=gateway_mode,
+    )
 
     return context_branch
 
