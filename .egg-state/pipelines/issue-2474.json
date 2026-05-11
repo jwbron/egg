@@ -244,10 +244,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T06:10:00.374833Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T06:15:17.784678Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Required-for-merge from day 1 (riskier; flake risk erodes trust quickly)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -378,7 +378,7 @@
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T06:14:50.448398Z",
+  "updated_at": "2026-05-11T06:15:17.821400Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -392,6 +392,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
