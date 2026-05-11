@@ -8157,6 +8157,119 @@ def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
     }
 
 
+def _writeback_pr_link_to_jira_child(pipeline, pr_url: str) -> None:
+    """Post a comment on a Jira child ticket linking back to a fresh PR URL.
+
+    #1557 TASK-1-15: when an implement-phase child pipeline (fanned out
+    by the plan-gate Continue-to-implement fork at TASK-1-16) opens its
+    PR, write back a comment on its Jira ticket so operators can navigate
+    epic → child → PR in Jira without leaving the tool.
+
+    Trigger condition:
+        Only fires when ``pipeline.jira_parent_epic_key`` is set on the
+        child pipeline. Single-ticket / non-epic pipelines keep today's
+        behaviour (no extra Jira round-trip).
+
+    Idempotency:
+        Walks the most recent comments on the child ticket and skips
+        when the PR URL already appears in the comment body — re-runs
+        of the PR phase (e.g. after a transient failure) MUST NOT
+        duplicate the comment.
+
+    Failure mode:
+        Logged + swallowed by the caller — Jira outages must not block
+        PR-phase completion.
+
+    NOTE: Remote-link writeback is symmetric and would land on the
+    same call site, but the gateway only ships remote-link READS in
+    this PR (TASK-1-6); the write companion is a planned follow-up.
+    """
+    epic_key = getattr(pipeline, "jira_parent_epic_key", None)
+    if not epic_key:
+        return
+    child_key = getattr(pipeline, "jira_ticket", None)
+    if not child_key:
+        return
+    if not pr_url:
+        return
+
+    # Build a small, deterministic comment body so the idempotency check
+    # is a substring match.
+    comment_body = (
+        f"Auto-link from egg SDLC pipeline: implementation PR opened at "
+        f"{pr_url} (parent epic: {epic_key})."
+    )
+
+    try:
+        from gateway_client import GatewayClient
+    except ImportError:  # pragma: no cover
+        from orchestrator.gateway_client import GatewayClient  # type: ignore
+
+    gateway = GatewayClient()
+
+    # 1. Idempotency: fetch recent comments and short-circuit if the PR
+    #    URL is already mentioned.
+    try:
+        comments_response = gateway._make_request(
+            "/api/v1/jira/ticket/comments",
+            method="POST",
+            data={"ticket": child_key},
+        )
+        payload = comments_response.get("data") or comments_response or {}
+        comments = payload.get("comments") if isinstance(payload, dict) else None
+        if isinstance(comments, list):
+            for comment in comments[-20:]:  # most recent 20 only — keeps the scan bounded
+                body = comment.get("body") if isinstance(comment, dict) else None
+                # Body can be ADF or rendered HTML; either way a substring
+                # check is safe — we control the comment text exactly.
+                if isinstance(body, str) and pr_url in body:
+                    logger.info(
+                        "jira_pr_link_writeback_skipped_duplicate",
+                        child_key=child_key,
+                        pr_url=pr_url,
+                    )
+                    return
+                if isinstance(body, dict):
+                    serialised = json.dumps(body)
+                    if pr_url in serialised:
+                        logger.info(
+                            "jira_pr_link_writeback_skipped_duplicate",
+                            child_key=child_key,
+                            pr_url=pr_url,
+                        )
+                        return
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "jira_pr_link_writeback_idempotency_check_failed",
+            child_key=child_key,
+            error=str(exc),
+        )
+        # Fail-open: proceed with the writeback even when the check
+        # fails — duplicating a single PR-link comment is preferable to
+        # silently dropping the writeback on a transient Atlassian
+        # outage.
+
+    # 2. Post the comment.
+    try:
+        gateway._make_request(
+            "/api/v1/jira/ticket/comment/add",
+            method="POST",
+            data={"ticket": child_key, "body": comment_body},
+        )
+        logger.info(
+            "jira_pr_link_writeback_complete",
+            child_key=child_key,
+            epic_key=epic_key,
+            pr_url=pr_url,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "jira_pr_link_writeback_post_failed",
+            child_key=child_key,
+            error=str(exc),
+        )
+
+
 def _handle_pr_creation_failure(
     pipeline_id: str,
     current_phase: str,
@@ -8282,6 +8395,23 @@ def _finalize_pr_phase_failed(
             if head_sha is not None:
                 reloaded.pr_head_sha = head_sha
             store.save_pipeline(reloaded)
+
+        # #1557 TASK-1-15 — PR-link writeback. When this implement-phase
+        # pipeline is a fanned-out child of a Jira epic (TASK-1-16 sets
+        # ``jira_parent_epic_key`` at fan-out time), post a comment on
+        # the child Jira ticket linking back to the PR URL.  Best-effort:
+        # any failure is logged and swallowed so a Jira outage can't
+        # block PR-phase completion.  Idempotent on re-runs (the helper
+        # walks the most recent N comments and skips when the PR URL is
+        # already present).
+        try:
+            _writeback_pr_link_to_jira_child(reloaded, pr_url)
+        except Exception as wb_err:  # noqa: BLE001
+            logger.warning(
+                "jira_pr_link_writeback_failed",
+                pipeline_id=pipeline_id,
+                error=str(wb_err),
+            )
         return False
 
     failure_reason = (
