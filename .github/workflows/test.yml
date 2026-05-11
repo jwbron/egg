@@ -64,13 +64,10 @@ jobs:
     # .github-staging/. Folded into `aggregate` below so the
     # canonical required-check name stays `Test / aggregate`.
     #
-    # `timeout-minutes` historically wasn't in the documented
-    # keyword set for `uses:` caller jobs in GitHub Actions, but is
-    # honored in practice. The test-integration.yml reusable
-    # workflow also carries per-job `timeout-minutes` as a defense
-    # in depth so the budget is enforced regardless.
+    # `timeout-minutes` is not valid for `uses:` caller jobs per the
+    # GitHub Actions spec (actionlint enforces this). The timeout is
+    # enforced inside test-integration.yml per-job instead.
     uses: ./.github/workflows/test-integration.yml
-    timeout-minutes: 30
 
   aggregate:
     # Intentionally NO `name:` override here: the GitHub-rendered
