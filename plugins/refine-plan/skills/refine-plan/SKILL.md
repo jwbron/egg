@@ -1,28 +1,37 @@
 ---
 name: refine-plan
-description: "Local Claude-Code mirror of egg's refine + plan phases: role-typed subagents, evidence-backed multi-agent review with a filesystem BRC bus, artifacts consistent with egg's .egg-state/ layout. Portable; no orchestrator, no experimental flags."
+description: "BRC-inspired iterated parallel review of an issue's refine + plan phases, locally and portably. Produces analysis.md, plan.md, and an egg-compatible Contract via role-typed subagents with evidence-backed verdicts."
 disable-model-invocation: true
 argument-hint: "[JIRA-1234 | issue# | description] [--repo owner/name]"
 allowed-tools: Agent Read Write Edit AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git remote:*) Bash(git -C * remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(python3:*) Bash(cat:*) Bash(cp:*)
 ---
 
-# Refine + Plan (local mirror of egg's refine/plan phases)
+# Refine + Plan (BRC-inspired local approximation of egg's refine/plan phases)
 
-A faithful local analogue of [egg's refine and plan phases](https://github.com/jwbron/egg/blob/main/skills/sdlc/SKILL.md), using Claude Code subagents and a filesystem-based BRC bus. No orchestrator, no Redis, no experimental flags.
+A local analogue of [egg's refine and plan phases](https://github.com/jwbron/egg/blob/main/skills/sdlc/SKILL.md), using Claude Code subagents and a filesystem verdict journal. **Not** real BRC — see [What this is vs. what egg's BRC is](#what-this-is-vs-what-eggs-brc-is) for the honest framing. Portable; no orchestrator, no Redis, no experimental flags.
 
-**Mirrored from egg:**
+**What this gets you (egg's BRC value, not its protocol):**
 - Refine team: `refiner` + `reviewer_refine` (+ `reviewer_agent_design` for the egg repo only)
 - Plan team: `architect` → (`task_planner` ∥ `risk_analyst`) → `reviewer_plan`
 - Evidence-backed verdicts: every ACK and NACK requires non-empty `artifact_references`
-- Cycle bound: 3 producer revisions per phase (matches `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES`)
+- Bounded revision loop: 3 producer revisions per phase (matches `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES`)
 - Artifact layout under `.refine-plan-state/<id>/` mirrors `.egg-state/` subdirectories
-- BRC deliberation persisted as files in `bus/cycle-<N>/`
+- Per-cycle verdict journal in `verdicts/cycle-<N>/`
+- Contract output matches `shared/egg_contracts/models.py::Contract` schema (loads cleanly through `Contract.model_validate`)
 - YAML appendix validated against `.egg/schemas/yaml-tasks.schema.json` shape
 
-**Intentionally simplified:**
-- No Redis message bus; reviewers don't exchange in-flight NACKs within a cycle (they do see prior-cycle NACKs on revision)
-- No version-bumping or open-NACK barrier — every cycle reviews the latest draft fresh
-- No automatic implement-phase handoff — produces artifacts you can hand to `/sdlc` or to a human
+## What this is vs. what egg's BRC is
+
+Egg's BRC is a real protocol: producer broadcasts on a Redis bus, reviewers concurrently judge, an open-NACK barrier blocks producer convergence while NACKs are unresolved, version bumps un-confirm stale ACKs, agents see each other's in-flight messages. The Python orchestrator drives the state machine deterministically.
+
+This skill captures the **value** of that protocol — independent multi-reviewer perspectives, evidence discipline, bounded revision — without implementing the **mechanics**. Specifically:
+
+- **Iterated, not concurrent.** Each cycle is producer-then-parallel-reviewers-then-aggregate, serialized by the orchestrating skill. Reviewers within a cycle run in parallel (via batched `Agent` tool calls), but they don't see each other's verdicts mid-flight.
+- **No real bus.** `verdicts/cycle-<N>/` is a passive journal of cycle outcomes, not a live message bus. Filenames borrow BRC vocabulary (`PROPOSE`, `ACK`, `NACK`, `CONFIRMED`) for legibility; the mechanism is just "parent writes after observing each subagent's output."
+- **No version tracking.** Every cycle reviews the latest draft fresh; no stale-ACK un-confirmation, no open-NACK barrier.
+- **No mid-cycle producer revision.** Producer is spawn-and-wait; it cannot react to a reviewer's mid-flight NACK.
+
+Real BRC over genuinely concurrent agent teams would need either Claude Code's experimental Agent Teams feature (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) or the `SendMessage` tool for resuming long-lived background agents. The latter is platform-broken as of Claude Code 2.1.79 (see [anthropics/claude-code#36196](https://github.com/anthropics/claude-code/issues/36196) — `SendMessage` is referenced in the Agent tool output but isn't actually exposed to the model). Upgrade-path work is tracked in [egg#2612](https://github.com/jwbron/egg/issues/2612).
 
 ## Compatibility with egg's full pipeline
 
@@ -33,10 +42,10 @@ The goal is that artifacts from this skill are interchangeable with the same-nam
 | `drafts/<id>-analysis.md` | yes | `docs/templates/analysis.md` | ✅ same template |
 | `drafts/<id>-plan.md` | yes | `docs/templates/plan.md` | ✅ same template + `# yaml-tasks` appendix |
 | `contracts/<id>.json` | yes | `shared/egg_contracts/models.py::Contract` (schemaVersion 1.1) | ✅ `emit-contract` output loads cleanly through `Contract.model_validate` and round-trips identical (see [Emit contract](#emit-contract)) |
-| `brc-history/<id>-<phase>.{md,json}` | yes | JSON is `[Message.to_dict(), …]` per `orchestrator/message_store.py::Message` | ⚠️ skill produces a deliberation log of similar intent but **shape is skill-specific**, not byte-compatible. The bus files under `bus/cycle-<N>/` are the authoritative live record. |
+| `brc-history/<id>-<phase>.{md,json}` | yes | JSON is `[Message.to_dict(), …]` per `orchestrator/message_store.py::Message` | ⚠️ skill produces a deliberation log of similar intent but **shape is skill-specific**, not byte-compatible. The verdict files under `verdicts/cycle-<N>/` are the authoritative per-cycle record. |
 | `agent-outputs/<id>-<role>-output.json` | yes | None — egg writes them but downstream agents read them as advisory context only, not validated | 🟰 shape is consumer-chosen; this skill's shapes (defined in `agents/<role>.md`) are skill-specific extensions |
 | `reviews/<id>-<phase>-<reviewer>-review.json` | **no** | `orchestrator/models.py::ReviewVerdict` exists but is in-memory only in egg; never persisted to disk | 🆕 skill-internal scaffolding; egg's pipeline has no equivalent disk artifact |
-| `bus/cycle-<N>/<verdict>-<role>.json` | **no** | n/a — egg uses a Redis Streams message bus | 🆕 skill-internal BRC bus |
+| `verdicts/cycle-<N>/<verdict>-<role>.json` | **no** | n/a — egg uses a Redis Streams message bus | 🆕 skill-internal verdict journal (BRC-inspired, not a real bus) |
 
 **Wire-compatible path**: if you run `/refine-plan` and want to feed the result into `/sdlc`'s implement phase, copy `contracts/<id>.json` into the target repo's `.egg-state/contracts/<id>.json`. Egg will load it via the same `Contract.model_validate` call.
 
@@ -85,7 +94,7 @@ For each subagent invocation, the orchestrator (you, executing this skill) **rea
   drafts/                # analysis.md, plan.md
   agent-outputs/         # *-output.json handoff JSONs
   reviews/               # canonical per-reviewer verdict copies
-  bus/                   # filesystem BRC bus (per-cycle)
+  verdicts/              # per-cycle verdict journal (BRC-inspired; not a live bus)
     cycle-1/
   brc-history/           # derived human-readable summaries
   contracts/             # parsed Task records from plan.md yaml-tasks
@@ -126,9 +135,9 @@ For every role invocation:
 3. **Call** `Agent` with `subagent_type: "general-purpose"`, the composed prompt, and a `description` like `"refiner cycle 1"` or `"reviewer-plan cycle 2"`.
 4. **Parallel fan-out**: when multiple roles can run in parallel (both refine reviewers; both plan parallel producers), send **one message with multiple `Agent` tool calls** so they execute concurrently.
 
-### The BRC bus
+### The verdict journal
 
-For each cycle, the orchestrator writes/reads files at `bus/cycle-<N>/`:
+For each cycle, the orchestrator writes/reads files at `verdicts/cycle-<N>/`:
 
 | Filename pattern | Meaning | Written by |
 |---|---|---|
@@ -137,7 +146,7 @@ For each cycle, the orchestrator writes/reads files at `bus/cycle-<N>/`:
 | `NACK-<reviewer>.json` | Reviewer rejects | Same as ACK |
 | `CONFIRMED-<phase>.json` | All critical reviewers ACKed in this cycle | Orchestrator |
 
-The bus is the deliberation source of truth. `brc-history/<id>-<phase>.md` is generated from the bus contents at the end of each cycle for human readability.
+The journal is the per-cycle deliberation record. Filename verbs (`PROPOSE`, `ACK`, `NACK`, `CONFIRMED`) borrow BRC vocabulary for legibility — but this is **not** a live message bus; nothing reads or reacts to these files mid-cycle. The orchestrating skill writes them after observing each subagent's output. `brc-history/<id>-<phase>.md` is generated from the journal contents at the end of each cycle for human readability.
 
 ### Verdict validation
 
@@ -145,7 +154,7 @@ Every reviewer must return a single JSON object as its final response. The orche
 
 1. Parses the JSON. If malformed → re-prompt that single reviewer once with "Your previous response was invalid JSON. Re-emit the verdict JSON only, no surrounding prose."
 2. Checks `artifact_references` is a non-empty array of strings. If empty → re-prompt that reviewer once with "Your `artifact_references` was empty. Include at least one specific file:line citation you verified before re-emitting."
-3. Writes the validated verdict to `bus/cycle-<N>/<verdict>-<reviewer>.json` AND to `reviews/<id>-<phase>-<reviewer>-review.json`.
+3. Writes the validated verdict to `verdicts/cycle-<N>/<verdict>-<reviewer>.json` AND to `reviews/<id>-<phase>-<reviewer>-review.json`.
 
 ### Cycle bound
 
@@ -199,9 +208,9 @@ For cycle N = 1..4:
    - `analysis_path`: `<abs>/.refine-plan-state/<id>/drafts/<id>-analysis.md`
    - `handoff_path`: `<abs>/.refine-plan-state/<id>/agent-outputs/<id>-refiner-output.json`
    - `repo`: `<owner/name>`
-   - if N > 1: `prior_nacks` from previous cycle's bus
+   - if N > 1: `prior_nacks` from previous cycle's verdict files
 
-2. **Wait for completion**, read both output files. Write `bus/cycle-<N>/PROPOSE-refiner.json`:
+2. **Wait for completion**, read both output files. Write `verdicts/cycle-<N>/PROPOSE-refiner.json`:
    ```json
    {
      "cycle": <N>, "producer": "refiner",
@@ -217,13 +226,13 @@ For cycle N = 1..4:
 
    Task context for each reviewer:
    - `analysis_path`: same as above
-   - `verdict_path`: `bus/cycle-<N>/<verdict>-<reviewer-role>.json` (reviewer writes here as its final action)
+   - `verdict_path`: `verdicts/cycle-<N>/<verdict>-<reviewer-role>.json` (reviewer writes here as its final action)
    - if N > 1: `prior_nacks` from this reviewer's previous-cycle NACK (if any)
 
 4. **Wait for both/all reviewers**, validate each verdict per [Verdict validation](#verdict-validation).
 
 5. **Aggregate**:
-   - All ACK → write `bus/cycle-<N>/CONFIRMED-refine.json`, append BRC history with `resolution: advance`, exit loop.
+   - All ACK → write `verdicts/cycle-<N>/CONFIRMED-refine.json`, append BRC history with `resolution: advance`, exit loop.
    - Any NACK and N ≤ 3 → append BRC history with `resolution: revise`, continue loop.
    - Any NACK and N == 4 → trigger [cycle-limit AskUserQuestion](#cycle-bound). Record outcome.
 
@@ -279,7 +288,7 @@ For cycle N = 1..4:
 
    if N > 1: each producer gets its own `prior_nacks` filtered to NACKs about its own output.
 
-2. **Wait for both**. Write `bus/cycle-<N>/PROPOSE-task_planner.json` and `PROPOSE-risk_analyst.json`.
+2. **Wait for both**. Write `verdicts/cycle-<N>/PROPOSE-task_planner.json` and `PROPOSE-risk_analyst.json`.
 
 3. **Validate the YAML appendix** by running the validator script:
 
@@ -289,20 +298,20 @@ For cycle N = 1..4:
 
    - Exit 0 / stdout starts with `OK:` → proceed to step 4.
    - Exit 1 / stdout starts with `FAIL:` → treat the FAIL lines as an implicit NACK from a synthetic reviewer `yaml-validator`:
-     - Write `bus/cycle-<N>/NACK-yaml-validator.json` with the FAIL output as `feedback` and `["<plan_path>:#yaml-tasks"]` as `artifact_references`.
+     - Write `verdicts/cycle-<N>/NACK-yaml-validator.json` with the FAIL output as `feedback` and `["<plan_path>:#yaml-tasks"]` as `artifact_references`.
      - Skip step 4 for this cycle; jump to step 5.
 
    The validator checks the same constraints described in `agents/task-planner.md`: presence of the `# yaml-tasks` fenced block, top-level `slices:` (or `phases:` legacy alias), TASK-ID pattern, role enum, required task fields, and the `pr:` block keys. It is portable — depends only on `python3` + PyYAML — and does not require the egg repo to be present.
 
 4. **Spawn reviewer_plan** (single Agent call). Task context:
    - `plan_path`, `analysis_path`, `architect_output_path`, `task_planner_output_path`, `risk_analyst_output_path`
-   - `verdict_path`: `bus/cycle-<N>/<verdict>-reviewer-plan.json`
+   - `verdict_path`: `verdicts/cycle-<N>/<verdict>-reviewer-plan.json`
    - if N > 1: `prior_nacks`
 
    Wait, validate verdict per [Verdict validation](#verdict-validation).
 
 5. **Aggregate**:
-   - reviewer_plan ACK and no yaml-validator NACK → write `bus/cycle-<N>/CONFIRMED-plan.json`, append BRC history, exit loop.
+   - reviewer_plan ACK and no yaml-validator NACK → write `verdicts/cycle-<N>/CONFIRMED-plan.json`, append BRC history, exit loop.
    - NACK present and N ≤ 3 → revise. **Re-run policy**:
      - YAML validator NACK or task_planner-specific NACK → re-run `task_planner` only
      - risk_analyst-specific NACK → re-run `risk_analyst` only
@@ -362,7 +371,7 @@ Artifacts:
   agent-outputs/<id>-{refiner,architect,task_planner,risk_analyst}-output.json
   reviews/<id>-{refine-*,plan-*}-review.json
   reviews/<id>-{refine,plan}-hitl-decision.json
-  bus/cycle-*/                   ← full BRC deliberation record
+  verdicts/cycle-*/              ← per-cycle verdict journal
   brc-history/<id>-{refine,plan}.{md,json}
   contracts/<id>.json            ← <n> tasks across <n> slices
 
