@@ -73,7 +73,13 @@ jobs:
     timeout-minutes: 30
 
   aggregate:
-    name: Aggregate Test Results
+    # Intentionally NO `name:` override here: the GitHub-rendered
+    # check name must be `Test / aggregate` (lowercase job-id) so it
+    # matches the canonical required-check name documented in
+    # decision-3 / `manual_steps` of #2474 ("repo admin flips
+    # `Test / aggregate` to required-for-merge"). Adding a `name:`
+    # override would render the check as `Test / <override>` and
+    # silently desync from the operator-flipped required-check.
     runs-on: ubuntu-latest
     if: always()
     needs: [unit, security, integration]
