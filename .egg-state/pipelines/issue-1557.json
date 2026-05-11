@@ -302,10 +302,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T22:24:52.175407Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T22:52:31.158359Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Human decides at the plan approval gate: the gate offers Stop-after-plan vs Continue-to-implement. If Continue, the existing sliced implement phase runs — each child ticket is its own slice in the slice DAG, opening stacked PRs and updating each ticket as its slice is picked up. No submit_task param or auto-spawn at submit time; the choice lives on the gate.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -471,7 +471,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:52:29.171824Z",
+  "updated_at": "2026-05-11T22:52:31.166925Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -485,6 +485,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 30,
+  "version": 31,
   "jira_ticket": null
 }
