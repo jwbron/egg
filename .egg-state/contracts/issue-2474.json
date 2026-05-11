@@ -8,7 +8,348 @@
   "pipeline_id": "issue-2474",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Part E \u2014 Promote ScriptedProvider + 8 new k3s regression tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create `shared/egg_harness/testing/__init__.py` (exports\n`ScriptedProvider`) and `shared/egg_harness/testing/scripted_provider.py`\ncontaining the `ScriptedProvider` class plus its\n`_stream_events` helper, copied verbatim from\n`shared/tests/test_egg_harness/test_integration.py` (lines\n39-43 and 130-163 at HEAD). Keep the existing public\nsurface identical: constructor takes `script: list[list[StreamEvent]]`;\n`name` property returns `\"scripted\"`; `send_message`\ncoroutine yields `StreamEvent` objects from the next\nscripted entry and records `call_history`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`python -c \"from egg_harness.testing import ScriptedProvider; p = ScriptedProvider([]); assert p.name == 'scripted'; print('ok')\"`\nprints `ok`. `make lint` passes.",
+          "files_affected": [
+            "shared/egg_harness/testing/__init__.py",
+            "shared/egg_harness/testing/scripted_provider.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `shared/tests/test_egg_harness/test_integration.py`,\nreplace the inline `class ScriptedProvider:` definition and\nits private `_stream_events` helper with re-export shims\nfrom `egg_harness.testing.scripted_provider`. The five\nexisting call sites (lines 203, 276, 360, 402, 473 at HEAD)\nmust continue to resolve `ScriptedProvider(script)`\nunchanged. The unrelated `RecordingRegistry` class stays\ninline.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`grep -n \"^class ScriptedProvider\\|^async def _stream_events\" shared/tests/test_egg_harness/test_integration.py`\nreturns no hits. `make test` passes the\n`shared/tests/test_egg_harness/test_integration.py` suite.",
+          "files_affected": [
+            "shared/tests/test_egg_harness/test_integration.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add `shared/tests/test_egg_harness/test_scripted_provider.py`\nwith two tests: (a) `from egg_harness.testing import\nScriptedProvider` resolves and the class is the same object\nimported from `egg_harness.testing.scripted_provider`; (b)\nconstruct `ScriptedProvider([])`, assert `.name ==\n\"scripted\"` and `.call_history == []`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`.venv/bin/pytest shared/tests/test_egg_harness/test_scripted_provider.py -q`\nshows 2 passed.",
+          "files_affected": [
+            "shared/tests/test_egg_harness/test_scripted_provider.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-4",
+          "description": "Create `integration_tests/regression/__init__.py` (empty)\nand `integration_tests/regression/conftest.py`. The conftest\nre-exports the parent `integration_tests/conftest.py`\nfixtures so existing k8s harness fixtures (egg_stack,\nkubectl helpers, etc.) are available without rewiring, and\nadds three regression-specific helpers used by the 8 new\ntests: (a) `start_pipeline(test_request)` that mints a\ndeterministic pipeline_id from the test nodeid and returns\na started pipeline; (b) `pod_env(pipeline_id, role)` that\nshells out to `kubectl get pod -o jsonpath` and returns the\nnamed container's env-var dict; (c) `gateway_audit_log_pushes(pipeline_id, ref)`\nthat reads the gateway audit log for push events targeting\n`ref` and returns the list ordered by timestamp.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`.venv/bin/pytest --collect-only integration_tests/regression/ -q`\nreports 0 errors. The three helpers are importable from\n`integration_tests.regression.conftest`. `make lint` passes.",
+          "files_affected": [
+            "integration_tests/regression/__init__.py",
+            "integration_tests/regression/conftest.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add `integration_tests/regression/test_slice_branch_env.py`\ncovering #2428 (slice-spawn EGG_BRANCH threading). Spin up\na 2-slice DAG pipeline using the conftest's `start_pipeline`\nhelper; once both slice coders are scheduled, call\n`pod_env(pipeline_id, \"coder\", slice_id=N)` for each slice;\nassert each pod's `EGG_BRANCH` value matches its slice's\nref (`egg/<issue>/slice-N/work` or equivalent). Inline\nassertion message must reference #2428 so test failures\npoint at the regression. Mark with `@pytest.mark.integration`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`.venv/bin/pytest integration_tests/regression/test_slice_branch_env.py -v`\npasses on `main`. Reverting #2428's `_compose_branch_env`\nfix on a scratch branch causes the test to fail with the\ninline #2428 message.",
+          "files_affected": [
+            "integration_tests/regression/test_slice_branch_env.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-6",
+          "description": "Add `integration_tests/regression/test_live_pod_guard.py`\ncovering #2420 (live-pod guard on restart). Start a\npipeline; wait for at least one agent pod to be Running;\ncall `start_pipeline` again with `force=False`; assert the\nresponse refuses with the live-pod-guard error. Retry with\n`force=True`; assert it succeeds and the new pipeline\nreplaces the old one (different scheduling timestamp on the\nnew pod set). Mark with `@pytest.mark.integration`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting #2420's guard makes the\nsecond `start_pipeline(force=False)` call succeed and the\ntest fails on the refusal assertion.",
+          "files_affected": [
+            "integration_tests/regression/test_live_pod_guard.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-7",
+          "description": "Add `integration_tests/regression/test_unpushed_commit_salvage.py`\ncovering #2429 (unpushed-commit salvage). Drive a coder\nagent into a state where it tries to push a file under\n`docs/` (which is outside coder's gateway-allowed paths) \u2014\nthis forces a real 403 from the gateway's restricted-path\npolicy with no mocks (HITL Q2). Assert (a) the push fails,\n(b) a recovery branch ref appears on origin before the\nworktree is torn down (matching #2429's salvage code path),\n(c) the recovery ref points at the unpushed commit SHA.\nMark with `@pytest.mark.integration`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting #2429's salvage code path\ncauses the recovery-ref-exists assertion to fail with a\nmessage naming #2429.",
+          "files_affected": [
+            "integration_tests/regression/test_unpushed_commit_salvage.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-8",
+          "description": "Add `integration_tests/regression/test_hitl_round_trip.py`\ncovering #2430 (HITL alive-signal bypass). Use\n`ScriptedProvider` (imported from `egg_harness.testing`) to\ndrive a refiner that registers an HITL decision via\n`register_open_question`. Observe the pipeline transition\nto AWAITING_HUMAN. Call `provide_input` resolving the\ndecision. Assert (a) the pipeline resumes within a bounded\ndeadline, (b) phase_complete fires for refine, (c) the\ndownstream plan phase actually starts. Mark with\n`@pytest.mark.integration`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting #2430's alive-signal\nbypass fix causes the resume-within-deadline assertion to\ntime out and fail.",
+          "files_affected": [
+            "integration_tests/regression/test_hitl_round_trip.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-9",
+          "description": "Add `integration_tests/regression/test_brc_single_cycle.py`\ncovering the BRC happy-path invariant. Drive a single\nproducer/reviewer phase to completion using\n`ScriptedProvider`. Count BRC messages by type using\n`mcp__brc__read_peer_artifact` or direct\n`egg-orch message list --type CONSENSUS_*` queries. Assert\nexactly 1 `CONSENSUS_PROPOSE`, N `CONSENSUS_ACK` (one per\nreviewer in the roster), 0 `CONSENSUS_NACK`, and 1\n`CONSENSUS_CONFIRMED`. Mark with `@pytest.mark.integration`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. If a future change makes the\nproducer emit two PROPOSE messages, the exact-count\nassertion fires.",
+          "files_affected": [
+            "integration_tests/regression/test_brc_single_cycle.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-10",
+          "description": "Add `integration_tests/regression/test_slice_dag_restart.py`\ncovering test E.6 (decision-4). Spin up a 3-slice DAG\npipeline. Wait until slice-2's coder reaches PROPOSE state\n(observe via the `CONSENSUS_PROPOSE` message from\nslice-2's coder role). Record slice-2's branch ref commit\nSHA via `git ls-remote origin egg/<issue>/slice-2/work` or\nequivalent. Call `restart_agent` on slice-2's coder. Wait\nfor the agent to recover. Assert (a) slice-2's branch ref\ncommit SHA is unchanged across the restart, (b) the\npipeline eventually reaches `PR_READY`. Mark with\n`@pytest.mark.integration`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting #2535's\nslice-N-doesn't-inherit-slice-(N-1)-consensus invariant\n(or any future regression that changes slice-2's ref on\nrestart) trips the unchanged-SHA assertion. Deterministic\ncheckpoints \u2014 no wall-clock sleeps.",
+          "files_affected": [
+            "integration_tests/regression/test_slice_dag_restart.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-11",
+          "description": "Add `integration_tests/regression/test_phase_aware_timeout.py`\ncovering test E.7 (HITL Q3). Configure\n`consensus_timeout_minutes_plan = 1` via the contract /\norchestrator phase_configs API. Have the plan-phase\nplanner role not emit any CONSENSUS_PROPOSE (use a\nScriptedProvider that returns silent turns). Assert\n`CONSENSUS_TIMEOUT` event fires within 60\u00b110s of plan\nphase start. Docstring must note the issue text's\n`consensus_timeout_s = 30` was a typo \u2014 the real field is\n`consensus_timeout_minutes_<phase>`. Mark with\n`@pytest.mark.integration`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Setting the timeout to 10 minutes\non a scratch branch causes the within-60\u00b110s assertion to\nfail.",
+          "files_affected": [
+            "integration_tests/regression/test_phase_aware_timeout.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-1-12",
+          "description": "Add `integration_tests/regression/test_babysit_pr_single_push.py`\ncovering test E.8 (HITL Q4). Drive a babysit-PR run through\n2 coder revisions using ScriptedProvider trajectories. After\nBRC reaches CONFIRMED, query the **gateway audit log of\npush events** (via `gateway_audit_log_pushes` from\nconftest, HITL Q4 \u2014 authoritative source) for pushes\ntargeting the PR head ref. Assert exactly 1 successful\npush to the PR head ref across the full babysit-PR run.\nMark with `@pytest.mark.integration`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test passes on `main`. Reverting\n`_babysit_final_push_head_move_guard` (orchestrator/routes/pipelines.py)\ncauses a second push to land on the head ref and the\nexact-count assertion fires.",
+          "files_affected": [
+            "integration_tests/regression/test_babysit_pr_single_push.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Part A \u2014 Wire test-integration.yml into PR CI as Test / integration",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create `.github-staging/workflows/test.yml` carrying the\nfull end-state of `.github/workflows/test.yml` with the\nfollowing changes layered on top of HEAD:\n(a) add a new `integration:` job sibling to `unit:` and\n    `security:` that `uses: ./.github/workflows/test-integration.yml`\n    (the reusable workflow's path AFTER the human `git mv`\n    completes \u2014 staged path itself is not invoked);\n(b) add `timeout-minutes: 30` to the new `integration:` job;\n(c) update `aggregate:` `needs:` from `[unit, security]` to\n    `[unit, security, integration]` and add `integration`\n    to the `if all jobs passed` check so a red integration\n    tier fails the aggregate;\n(d) keep the existing `pull_request:` trigger, the\n    `workflow_call` output `passed`, and the `concurrency:`\n    block unchanged.\nStage path is `.github-staging/workflows/test.yml` (NOT\n`.github/workflows/test.yml`). The orchestrator's PR\nbuilder will surface a Pre-merge Obligation asking the\nhuman reviewer to `git mv` it into place.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`.github-staging/workflows/test.yml` exists and is tracked\nby git. `yamllint` (if installed) passes; `.venv/bin/python\n-c \"import yaml; yaml.safe_load(open('.github-staging/workflows/test.yml'))\"`\nparses successfully. The file's `jobs.aggregate.needs` is\n`[unit, security, integration]` and `jobs.integration.uses`\nreferences `./.github/workflows/test-integration.yml`.",
+          "files_affected": [
+            ".github-staging/workflows/test.yml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-2-2",
+          "description": "Create `.github-staging/workflows/test-integration.yml`\ncarrying the full end-state of the existing reusable\nworkflow with the three HITL-Q1 flake guards layered on:\n(a) wrap the \"Import images into k3s\" step in a retry loop\n    with 2-3 attempts (sleep between attempts) \u2014 recover\n    from transient image-import flakes;\n(b) ensure every `kubectl wait` call has an explicit\n    `--timeout=120s` (or longer where justified); existing\n    calls already have 120s \u2014 verify and add where missing;\n(c) add a final `if: failure()` step that runs\n    `kubectl get events --all-namespaces -o yaml > k3s-debug-events.yaml`\n    plus collects pod logs via `kubectl logs -n egg-system\n    --tail=-1 --all-containers=true --prefix=true >\n    k3s-debug-pods.log` and uploads both as a `k3s-debug`\n    workflow artifact via `actions/upload-artifact@v4`.\nKeep the existing `workflow_call` and `workflow_dispatch`\ntriggers; keep the existing `aggregate:` job structure.\nStage path is `.github-staging/workflows/test-integration.yml`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`.github-staging/workflows/test-integration.yml` exists,\ntracked by git, parses as YAML. Image-import step has a\nretry wrapper. There is an `if: failure()` artifact-upload\nstep uploading `k3s-debug-events.yaml` and\n`k3s-debug-pods.log`. Every `kubectl wait` has\n`--timeout=` set.",
+          "files_affected": [
+            ".github-staging/workflows/test-integration.yml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Part F \u2014 Document the integration tier in CLAUDE.md and docs/guides/testing.md",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update `CLAUDE.md`:\n(a) Add a new bullet inside the existing \"Quick Reference\"\n    fenced code block (immediately after the existing\n    `make test-all` line):\n    ``make test-integration  # Cross-module regressions; requires k3s (see docs/guides/testing.md)``.\n(b) Add a new short subsection titled \"## Integration\n    tests\" immediately after the existing \"## Key Entry\n    Points\" section. Three or four sentences max. Point at\n    `integration_tests/regression/` as the home for\n    cross-module / state-machine regression coverage.\n    Mention the required-check name is `Test / aggregate`\n    and that `make test-integration` requires a local k3s.\n    Refer to `docs/guides/testing.md` for the setup recipe.\n    **Do NOT name any specific test files** (HITL Q6).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`CLAUDE.md` contains both the new bullet and the new\nsubsection in the specified locations. `grep -n \"test_slice_branch_env\\|test_unpushed_commit_salvage\\|test_live_pod_guard\\|test_hitl_round_trip\\|test_brc_single_cycle\\|test_slice_dag_restart\\|test_phase_aware_timeout\\|test_babysit_pr_single_push\" CLAUDE.md`\nreturns no hits (HITL Q6 generic-only constraint).\n`make lint` passes.",
+          "files_affected": [
+            "CLAUDE.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update `docs/guides/testing.md` with a new top-level\n\"Integration tests\" section containing three subsections:\n(1) \"What it covers\" \u2014 k3s + mocked LLMs, exercises\n    gateway/container/network/policy boundaries; the home\n    of cross-module / state-machine regression coverage at\n    `integration_tests/regression/`.\n(2) \"Running locally\" \u2014 k3s-on-host setup recipe. **k3s\n    ONLY** \u2014 do NOT document kind or minikube as\n    alternatives (carry-forward from v2-analysis\n    decision-2). Note macOS users need a Linux VM. Mention\n    the required-check name (`Test / aggregate`) and the\n    `make test-integration` Make target.\n(3) \"CI gating\" \u2014 the integration tier runs on every PR as\n    the `Test / integration` job and is folded into\n    `Test / aggregate` (the canonical required check).\n    Note that `make test-all` remains unit-only\n    (decision-6) \u2014 integration tier is opt-in via the\n    dedicated target. **Do NOT name any specific test\n    files** (HITL Q6).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`docs/guides/testing.md` contains the new \"Integration\ntests\" section with the three subsections. `grep -in\n\"kind\\|minikube\" docs/guides/testing.md` returns no hits\nin the new section (existing pre-issue mentions in other\nsections, if any, are left untouched). `grep -n\n\"test_slice_branch_env\\|test_unpushed_commit_salvage\\|test_live_pod_guard\\|test_hitl_round_trip\\|test_brc_single_cycle\\|test_slice_dag_restart\\|test_phase_aware_timeout\\|test_babysit_pr_single_push\" docs/guides/testing.md`\nreturns no hits. `make lint` passes.",
+          "files_affected": [
+            "docs/guides/testing.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": []
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -297,6 +638,18 @@
       "resolution": "## Resolved Questions\n\n**decision-1 (PR/slice packaging)**: Three slices = three PRs. slice-1 = Part E (ScriptedProvider promotion + 8 new tests under integration_tests/regression/). slice-2 = Part A (wire test-integration.yml into test.yml as new 'integration' job). slice-3 = Part F (CLAUDE.md + docs/guides/testing.md). Soft dep: slice-3 depends on slice-1 (F's docs reference the regression subdir E creates). slice-1 and slice-2 can run in parallel. NOTE: The refiner registered this as a 'PR count' decision; the operator clarified it should be framed in slice-DAG terms. Plan phase must produce a 3-slice DAG, not a single-slice plan with multiple PRs. Tracking issue for the refiner's framing confusion: #2584.\n\n**decision-2 (where workflow_call lives)**: Inside .github/workflows/test.yml as a new 'integration' job sibling to 'unit' and 'security', included in the existing 'aggregate'. This keeps 'Test / aggregate' as the canonical required-check name (slice-2 implementation detail).\n\n**decision-3 (gating policy)**: Required-for-merge from day 1. NOT the issue text's recommended non-blocking-with-settle-in approach. Operator chose tighter gating; flake risk is accepted.\n\n**decision-4 (E.6 scenario)**: 3-slice DAG; restart slice-2's coder while it is in PROPOSE; assert slice-2's branch ref commit SHA is unchanged across the restart and the pipeline reaches PR_READY.\n\n**decision-5 (wall-clock budget)**: No fixed budget. Existing test-integration.yml runtime (~10-15 min after Part E adds) is acceptable. Flag in a follow-up if PR latency becomes a complaint; no shard plan needed yet.\n\n**decision-6 (test-all inclusion)**: Stay unit-only. `make test-integration` remains a separate explicit target. Do not fold integration tier into `make test-all`.\n\n**decision-7 (TestCredentialIsolation gap)**: Out-of-scope for #2474. Tracked in follow-up issue #2585.\n\n**Q1 (flake guards)**: Defend against image-import flakes (retry), kubectl wait timeouts (explicit deadlines), and on-failure capture (`kubectl get events --all-namespaces` + pod logs as workflow artifact). Standard k3s harness hardening set.\n\n**Q2 (E.3 push-rejection mechanism)**: Coder role pushes a docs file to force a real 403 from the gateway's restricted-path policy. Exercises the real code path; no mocks.\n\n**Q3 (E.7 timeout granularity)**: Use minute-granular timing. Configure `consensus_timeout_minutes_plan = 1`; observe CONSENSUS_TIMEOUT event fires within 60\u00b110s. Do NOT add second-granular config support in this pipeline \u2014 the existing minutes-based API is sufficient for the assertion. Update the test's docstring to note the issue text's `consensus_timeout_s = 30` was a typo (the real field is `consensus_timeout_minutes_<phase>`).\n\n**Q4 (E.8 push-counting method)**: Gateway audit log of push events. Authoritative source; counts every push attempt and outcome.\n\n**Q5 (required-flip SLO)**: N/A \u2014 operator chose Required-from-day-1 for decision-3, so the non-blocking \u2192 required transition does not exist.\n\n**Q6 (CLAUDE.md naming)**: Generic note pointing at integration_tests/regression/. No specific test files named \u2014 keeps the docs low-maintenance.\n\n## Scope Expansion (operator pre-refine instruction)\n\nWhen a new regression test fails against current `main`, the pipeline MUST diagnose the production-code root cause and fix it in the relevant slice's PR \u2014 these tests are designed to catch real regressions; closing those gaps is in scope. When a new test is itself broken or flaky, fix the test rather than skipping or marking xfail.\n\n## Plan-Phase Instructions\n\n- Produce a 3-slice DAG: slice-1 (E), slice-2 (A), slice-3 (F). slice-3 has dep on slice-1.\n- slice-1 owns: ScriptedProvider promotion to shared/egg_harness/testing/scripted_provider.py (+ shared/egg_harness/testing/__init__.py); 8 new tests in integration_tests/regression/ with shared conftest; minutes-based assertion in E.7; gateway-audit-log assertion in E.8; coder-pushes-docs-file mechanism for E.3; 3-slice/restart-slice-2-in-PROPOSE scenario for E.6.\n- slice-2 owns: workflow_call invocation in test.yml under a new 'integration' job, included in 'aggregate'; flake guards (image-import retry, kubectl wait timeouts, on-failure kubectl-events artifact); PR description must document the exact required-check name to flip in repo Settings \u2192 Branch protection.\n- slice-3 owns: Quick-Reference bullet in CLAUDE.md (`make test-integration  # Cross-module regressions; requires k3s (see docs/guides/testing.md)`); short Integration-tests subsection in CLAUDE.md after 'Key Entry Points' (generic, no named test files); top-level Integration-tests section in docs/guides/testing.md (k3s-only setup recipe, required-check name, CI gating notes).\n- Each slice's failing tests against `main` (if any) trigger production-code fixes in that slice's PR per the scope expansion above.",
       "resolved_by": "human",
       "resolved_at": "2026-05-11T06:09:57.958332Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Image-import retry + kubectl wait timeouts + on-failure kubectl-events artifact. Standard k3s harness hardening: retry on image-import failures (2-3 attempts), set explicit deadlines on every kubectl wait call, capture `kubectl get events --all-namespaces -o yaml` plus pod logs as a workflow artifact on failure. No specific past flakes called out beyond the standard set.\", \"Q2\": \"Coder role pushes a docs file (e.g. a path under `docs/`) to force a real 403 from the gateway's restricted-path policy. Exercises the real code path with no mocks. Implement-phase coder may pick the exact path based on the gateway's current policy table.\", \"Q3\": \"Use minute-granular timing. Configure `consensus_timeout_minutes_plan = 1`; assert CONSENSUS_TIMEOUT event fires within 60\u00b110s. Do NOT add second-granular config support in this pipeline \u2014 the existing minutes-based API is sufficient for the assertion. Test docstring should note the issue text's `consensus_timeout_s = 30` was a typo (the real field is `consensus_timeout_minutes_<phase>`).\", \"Q4\": \"Gateway audit log of push events. Authoritative source; counts every push attempt and outcome. `git ls-remote` would miss pushes that didn't move the ref.\", \"Q5\": \"N/A \u2014 operator chose Required-for-merge from day 1 for decision-4 (gating policy), so the non-blocking \u2192 required transition does not exist. If flake budget becomes an issue post-merge, the question can be revisited as a config rollback.\", \"Q6\": \"Generic note pointing at `integration_tests/regression/`. No specific test files named \u2014 keeps the docs low-maintenance and avoids stale references if files are renamed in future work.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:15:50.637022Z",
       "debounce_until": null
     }
   ],
@@ -694,7 +1047,17 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Wire integration tests into PR CI; expand coverage (#2474)",
+    "description": "The `test-integration.yml` reusable workflow exists and is solid\n(k3s + mocked LLMs, exercises gateway/container/network/policy\nboundaries), but no PR workflow invokes it \u2014 so PRs merge to\n`main` without integration tests running. Recent in-process\nstate-mutation regressions (#2428 slice-spawn env threading,\n#2429 unpushed-commit salvage, #2420 live-pod guard on restart,\n#2430 HITL alive-signal bypass) all merged through CI green\nbecause the integration tier had no PR gate AND no scenarios\nexercising those code paths.\n\nThis issue ships the remaining post-#2556 work as a 3-slice\nstacked-PR train:\n\n1. **slice-1 (Part E) \u2014 Test infrastructure + 8 new regressions.**\n   Promotes `ScriptedProvider` from `shared/tests/test_egg_harness/test_integration.py`\n   to a public testing API at `shared/egg_harness/testing/scripted_provider.py`,\n   then adds 8 new k3s regression tests under\n   `integration_tests/regression/` covering #2428, #2429, #2420,\n   #2430, BRC single-cycle consensus, slice-DAG mid-flight\n   restart, phase-aware consensus timeouts (minute-granular),\n   and babysit-PR single-final-push (gateway-audit-log\n   assertion).\n2. **slice-2 (Part A) \u2014 Wire integration tests into PR CI.**\n   Stages new `.github-staging/workflows/test.yml` and\n   `.github-staging/workflows/test-integration.yml` \u2014 coder is\n   blocked from `.github/`, so the human reviewer performs the\n   `git mv` before merge. Adds an `integration:` job sibling to\n   `unit:` and `security:`, included in `aggregate:` so the\n   canonical required-check name stays `Test / aggregate`.\n   Hardens `test-integration.yml` with image-import retry,\n   explicit `kubectl wait` timeouts, and an on-failure\n   `k3s-debug` artifact. Required-for-merge from day 1\n   (operator-chosen, no settle-in window).\n3. **slice-3 (Part F) \u2014 Document the integration tier.**\n   Adds a `make test-integration` Quick-Reference bullet and a\n   short \"Integration tests\" subsection in `CLAUDE.md` after\n   \"Key Entry Points\"; adds a top-level \"Integration tests\"\n   section in `docs/guides/testing.md` with the k3s-only setup\n   recipe, required-check name, and CI gating notes. Generic\n   references only \u2014 no specific test filenames called out.\n\nslice-1 and slice-2 are independent roots and run in parallel.\nslice-3 stacks on slice-1 because its docs reference the\n`integration_tests/regression/` directory slice-1 creates.\n\nNet effect after the stack merges: every PR runs the integration\ntier, the canonical `Test / aggregate` check covers it, and\nagents have a documented entry point for adding cross-module /\nstate-machine regression coverage.",
+    "test_plan": "- Automated:\n  * `make lint` \u2014 passes on every slice via the existing `Lint` workflow.\n  * `make test-all` \u2014 unit suite stays green on every slice; new tests in `integration_tests/regression/` are NOT collected here (testpaths exclude).\n  * `make test-integration` \u2014 passes locally on k3s after slice-1; passes in CI on every PR once slice-2 lands.\n  * New unit test `shared/tests/test_egg_harness/test_scripted_provider.py` guards the promoted public API.\n  * Each of the 8 new regression tests in slice-1 includes an inline reversion check \u2014 reverting the production fix it covers makes the test fail with a clear assertion. Verified by manually reverting each fix on a scratch branch.\n- Manual:\n  * After slice-1 merges: optional `workflow_dispatch` of `test-integration.yml` against slice-1's branch to confirm CI green ahead of slice-2's wiring.\n  * After slice-2 merges: confirm `Test / integration` appears on a sample PR and `Test / aggregate` depends on it.\n  * After slice-2 merges: repo admin flips `Test / aggregate` to required-for-merge in Settings \u2192 Branch protection.\n  * After slice-3 merges: a contributor follows the new `docs/guides/testing.md` k3s-on-host recipe on a fresh laptop / Linux VM and reaches `make test-integration` green.",
+    "manual_steps": "Pre-merge (slice-2): trigger `test-integration.yml` via `workflow_dispatch` against slice-2's branch; confirm green before merging (the check becomes required-from-day-1 on merge, so a red first run blocks all PRs).\nPre-merge (slice-2): human reviewer runs `git mv .github-staging/workflows/test.yml .github/workflows/test.yml` and `git mv .github-staging/workflows/test-integration.yml .github/workflows/test-integration.yml`, commits, and pushes to slice-2's branch before merge. (coder cannot write under .github/; orchestrator surfaces this as a Pre-merge Obligation on slice-2's PR body.)\nPost-merge (slice-2): repo admin flips `Test / aggregate` to required-for-merge in Settings \u2192 Branch protection. Required-from-day-1 per decision-3.",
+    "context_title": null,
+    "context_description": null,
+    "context_branch": null,
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": {
     "id": "feedback-1",
     "phase": "refine",

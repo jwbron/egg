@@ -1,0 +1,648 @@
+[
+  {
+    "id": "c88c412d-dbb9-41",
+    "pipeline_id": "issue-2474",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "STATUS CHANGE: pipeline transitioned from awaiting_human to running. Human answered decision-1. Switching to active monitoring.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T06:16:46.524564+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "01ed5415-4aa2-4b",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "reviewer_plan waiting for producer proposals from architect, risk_analyst, task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-05-11T06:22:41.257053+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d1e7c313-456b-45",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "reviewer_plan waiting for producer proposals from architect, risk_analyst, task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-05-11T06:22:41.345953+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7cb7a360-8777-4b",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan for #2474 (Parts A/E/F): 3-slice DAG matching the operator's resolved decisions. slice-1 (Part E) = root, owns ScriptedProvider promotion to shared/egg_harness/testing/scripted_provider.py plus 8 new k3s regression tests under integration_tests/regression/ (covers #2428, #2429, #2420, #2430, BRC happy-path, slice-DAG restart-in-PROPOSE per decision-4, minute-granular phase-aware timeout per HITL Q3, gateway-audit-log push-counting per HITL Q4); coder-pushes-docs-file mechanism for E.3 per HITL Q2. slice-2 (Part A) = root parallel to slice-1, stages .github-staging/workflows/{test,test-integration}.yml for human git mv pre-merge (coder is blocked from .github/), adds integration: job sibling to unit:/security: folded into aggregate: so the canonical required-check name stays Test / aggregate (decision-2), required-for-merge from day 1 (decision-3), HITL-Q1 flake guards (image-import retry, kubectl wait timeouts, on-failure k3s-debug artifact). slice-3 (Part F) depends on slice-1; generic CLAUDE.md + docs/guides/testing.md updates with k3s-only recipe (no kind/minikube alternatives per v2 decision-2 carry-forward), no specific test filenames named per HITL Q6. Forest constraint satisfied (slice-3 has one DAG parent). Per-slice acceptance criteria each include a reversion check so reviewers can validate the regression coverage. Plan written to .egg-state/drafts/2474-plan.md.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan for #2474 (Parts A/E/F): 3-slice DAG matching the operator's resolved decisions. slice-1 (Part E) = root, owns ScriptedProvider promotion to shared/egg_harness/testing/scripted_provider.py plus 8 new k3s regression tests under integration_tests/regression/ (covers #2428, #2429, #2420, #2430, BRC happy-path, slice-DAG restart-in-PROPOSE per decision-4, minute-granular phase-aware timeout per HITL Q3, gateway-audit-log push-counting per HITL Q4); coder-pushes-docs-file mechanism for E.3 per HITL Q2. slice-2 (Part A) = root parallel to slice-1, stages .github-staging/workflows/{test,test-integration}.yml for human git mv pre-merge (coder is blocked from .github/), adds integration: job sibling to unit:/security: folded into aggregate: so the canonical required-check name stays Test / aggregate (decision-2), required-for-merge from day 1 (decision-3), HITL-Q1 flake guards (image-import retry, kubectl wait timeouts, on-failure k3s-debug artifact). slice-3 (Part F) depends on slice-1; generic CLAUDE.md + docs/guides/testing.md updates with k3s-only recipe (no kind/minikube alternatives per v2 decision-2 carry-forward), no specific test filenames named per HITL Q6. Forest constraint satisfied (slice-3 has one DAG parent). Per-slice acceptance criteria each include a reversion check so reviewers can validate the regression coverage. Plan written to .egg-state/drafts/2474-plan.md.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2474-plan.md"
+        ],
+        "risk_considered": "Risk inventory in plan: (a) new tests may surface real regressions against main \u2014 handled per operator scope-expansion (fix prod code in slice-1's PR); (b) required-from-day-1 amplifies flake \u2014 HITL Q1 flake guards mitigate; (c) ScriptedProvider API drift \u2014 existing 5 in-suite consumers act as canaries; (d) E.6 timing \u2014 deterministic checkpoints not wall-clock sleeps; (e) .github-staging/ git-mv risk \u2014 orchestrator surfaces obligation on PR body + manual_steps spells out exact commands; (f) TestCredentialIsolation skip \u2014 out of scope per decision-7 / follow-up #2585.",
+        "commit_sha": "7f6de0f1bb673780ef32ecee76281b3ca8e18d71",
+        "files_changed": [
+          ".egg-state/drafts/2474-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "7f6de0f1bb673780ef32ecee76281b3ca8e18d71"
+    },
+    "timestamp": "2026-05-11T06:22:41.791204+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ae9ab703-3598-40",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:22:53.269736+00:00"
+    },
+    "timestamp": "2026-05-11T06:23:11.220844+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "73f3cc9a-a3fc-40",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:22:53.269736+00:00"
+    },
+    "timestamp": "2026-05-11T06:24:09.464339+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d112d4f9-6818-4a",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architect analysis for #2474 Parts A/E/F. Parts B/C/D shipped in PR #2556. Remaining work decomposes into a 3-slice DAG per decision-1: slice-1 (Part E \u2014 promote ScriptedProvider to shared/egg_harness/testing/, add 8 k3s regression tests under integration_tests/regression/), slice-2 (Part A \u2014 add 'integration:' job to test.yml as sibling of unit/security so Test/aggregate remains the canonical required-check name per decision-2 and is required-from-day-1 per decision-3), slice-3 (Part F \u2014 generic CLAUDE.md + docs/guides/testing.md updates per Q6). slice-1 and slice-2 are siblings (no edge); slice-3 has one dep edge from slice-1 because Part F's docs reference the regression subdir slice-1 creates. Analysis names: key design choices (ScriptedProvider location, workflow_call placement, E.6 3-slice mid-PROPOSE scenario, E.7 minute-granular timing via consensus_timeout_minutes_plan=1, E.8 kubectl-logs scrape of gateway audit_log since there is no /api/v1/audit endpoint, E.3 coder-pushes-docs-file 403, generic Part F docs); 8 risks for risk_analyst (notably R5 scope-expansion cross-role coordination and R7 slice-2 .github/ role-eligibility verification \u2014 task_planner's commit 7f6de0f1b already shows this risk realized via .github-staging/ approach); seed acceptance criteria for task_planner. Architect did not touch any non-allowed paths.",
+    "metadata": {
+      "payload": {
+        "summary": "Architect analysis for #2474 Parts A/E/F. Parts B/C/D shipped in PR #2556. Remaining work decomposes into a 3-slice DAG per decision-1: slice-1 (Part E \u2014 promote ScriptedProvider to shared/egg_harness/testing/, add 8 k3s regression tests under integration_tests/regression/), slice-2 (Part A \u2014 add 'integration:' job to test.yml as sibling of unit/security so Test/aggregate remains the canonical required-check name per decision-2 and is required-from-day-1 per decision-3), slice-3 (Part F \u2014 generic CLAUDE.md + docs/guides/testing.md updates per Q6). slice-1 and slice-2 are siblings (no edge); slice-3 has one dep edge from slice-1 because Part F's docs reference the regression subdir slice-1 creates. Analysis names: key design choices (ScriptedProvider location, workflow_call placement, E.6 3-slice mid-PROPOSE scenario, E.7 minute-granular timing via consensus_timeout_minutes_plan=1, E.8 kubectl-logs scrape of gateway audit_log since there is no /api/v1/audit endpoint, E.3 coder-pushes-docs-file 403, generic Part F docs); 8 risks for risk_analyst (notably R5 scope-expansion cross-role coordination and R7 slice-2 .github/ role-eligibility verification \u2014 task_planner's commit 7f6de0f1b already shows this risk realized via .github-staging/ approach); seed acceptance criteria for task_planner. Architect did not touch any non-allowed paths.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2474-architect-output.json"
+        ],
+        "risk_considered": "8 risks enumerated in the artifact under risks_for_risk_analyst: R1 single-replica gateway log scraping fragility for E.8; R2 E.7 60s+ wall-clock pushing job past existing budget; R3 required-from-day-1 means single flake blocks PRs (operator-accepted); R4 E.6 restart timing requires PROPOSE-phase synchronization via scripted provider; R5 scope-expansion clause means slice-1 may need both tester and coder roles if a test surfaces a real regression; R6 ScriptedProvider promotion canary regression on the existing 5 consumers; R7 slice-2 .github/ role-eligibility must be checked by task planner (already realized in 7f6de0f1b via staging-dir approach); R8 Calico install retry. Each risk has a mitigation seed.",
+        "commit_sha": "f0ff897d613769793febab42a73f6926496811a7",
+        "files_changed": [
+          ".egg-state/agent-outputs/2474-architect-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "f0ff897d613769793febab42a73f6926496811a7"
+    },
+    "timestamp": "2026-05-11T06:24:09.926941+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a7926058-0ad0-4a",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:24:20.799071+00:00"
+    },
+    "timestamp": "2026-05-11T06:24:39.840527+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e2a4b59b-e4d3-4e",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for #2474 plan phase. Identified 11 technical risks across CI reliability, scope, test implementability, compatibility, and security. Overall risk: MEDIUM; recommendation: PROCEED_WITH_MITIGATIONS. Top risks: R1 (HIGH) Required-from-day-1 gating concentrates flake risk on day one with 8 brand-new k3s scenarios \u2014 operator accepted but a flake-fallback posture should be pre-committed; R2 (HIGH) test.yml `aggregate` job's needs[] and result-conditional must be extended to include the new `integration` sibling job or the gate silently reports false success on integration failures; R3 (HIGH) operator's scope-expansion rule (failing-against-main tests trigger production-code fixes in slice-1 PR) opens unbounded scope on slice-1 \u2014 task-planner should reserve conditional task slots and the plan must include a HITL escape valve for substantial fixes. Medium risks: R4 ScriptedProvider promotion + 5 in-tree call sites; R5 E.8 push-counting has no gateway HTTP endpoint (recommend log-scraping over a new endpoint); R6 'Test / aggregate' check name silently coupled to workflow `name:` field. Low: R7-R11 covering test brittleness, slice-3 merge-order coupling, wall-clock budget, pytest auto-collection, and E.7 timeout tolerance. Three human-review areas registered, rollback plan documents per-slice revertibility, recommendations include flake-guard primitives (image-import retry, kubectl event capture) for slice-2.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for #2474 plan phase. Identified 11 technical risks across CI reliability, scope, test implementability, compatibility, and security. Overall risk: MEDIUM; recommendation: PROCEED_WITH_MITIGATIONS. Top risks: R1 (HIGH) Required-from-day-1 gating concentrates flake risk on day one with 8 brand-new k3s scenarios \u2014 operator accepted but a flake-fallback posture should be pre-committed; R2 (HIGH) test.yml `aggregate` job's needs[] and result-conditional must be extended to include the new `integration` sibling job or the gate silently reports false success on integration failures; R3 (HIGH) operator's scope-expansion rule (failing-against-main tests trigger production-code fixes in slice-1 PR) opens unbounded scope on slice-1 \u2014 task-planner should reserve conditional task slots and the plan must include a HITL escape valve for substantial fixes. Medium risks: R4 ScriptedProvider promotion + 5 in-tree call sites; R5 E.8 push-counting has no gateway HTTP endpoint (recommend log-scraping over a new endpoint); R6 'Test / aggregate' check name silently coupled to workflow `name:` field. Low: R7-R11 covering test brittleness, slice-3 merge-order coupling, wall-clock budget, pytest auto-collection, and E.7 timeout tolerance. Three human-review areas registered, rollback plan documents per-slice revertibility, recommendations include flake-guard primitives (image-import retry, kubectl event capture) for slice-2.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2474-risk_analyst-output.json"
+        ],
+        "risk_considered": "Standard k3s integration-test flake risk under Required-from-day-1 gating; scope-creep risk from operator's scope-expansion rule; CI-correctness risk if test.yml aggregate job needs[] isn't extended; test-implementability risk for E.8 gateway-audit-log assertion (no HTTP endpoint exists today); compatibility risk on ScriptedProvider promotion to a public package submodule.",
+        "commit_sha": "11878486aa6f9a6ed141807d8952ca77c65ddba5",
+        "files_changed": [
+          ".egg-state/agent-outputs/2474-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "11878486aa6f9a6ed141807d8952ca77c65ddba5"
+    },
+    "timestamp": "2026-05-11T06:24:40.319421+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "86f00c89-a157-4a",
+    "pipeline_id": "issue-2474",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-11T06:24:40.319449+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "95a01080-1bcc-42",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:22:53.269736+00:00"
+    },
+    "timestamp": "2026-05-11T06:25:09.531145+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6c0a4449-796c-4b",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:24:20.799071+00:00"
+    },
+    "timestamp": "2026-05-11T06:25:35.861607+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e26e5f00-ff35-4c",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-11T06:26:01.671072+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2eee831c-bc85-4f",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:26:09.568131+00:00"
+    },
+    "timestamp": "2026-05-11T06:26:34.740717+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eb44f2c5-63ea-4f",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:22:53.269736+00:00"
+    },
+    "timestamp": "2026-05-11T06:26:34.741817+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "56e2e78c-c6aa-48",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:24:20.799071+00:00"
+    },
+    "timestamp": "2026-05-11T06:26:35.925452+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1c355b58-cb07-4f",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:22:53.269736+00:00"
+    },
+    "timestamp": "2026-05-11T06:27:24.639140+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "90493cf0-7648-40",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:26:09.568131+00:00"
+    },
+    "timestamp": "2026-05-11T06:27:24.658059+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "472c3f9a-9903-42",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:24:20.799071+00:00"
+    },
+    "timestamp": "2026-05-11T06:27:35.959244+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e143cc91-7c90-4d",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "Plan correctly implements the operator's decision-8 resolution: 3-slice DAG (slice-1=Part E ScriptedProvider promotion + 8 k3s regression tests, slice-2=Part A workflow wiring, slice-3=Part F docs depends on slice-1), slice-1 and slice-2 run in parallel. All HITL answers reflected: E.3 uses coder-pushes-docs-file mechanism (TASK-1-7); E.6 = 3-slice DAG with restart slice-2's coder in PROPOSE (TASK-1-10); E.7 uses minutes-based timing consensus_timeout_minutes_plan=1 observing 60\u00b110s (TASK-1-11); E.8 uses gateway audit log of push events (TASK-1-12); decision-3 required-from-day-1 documented in slice-2 manual_steps and PR description; flake guards image-import retry + kubectl wait timeouts + on-failure k3s-debug artifact in TASK-2-2; slice-3 Quick-Reference bullet wording matches operator's directive; no specific test filenames in docs per Q6. The .github-staging/ approach in slice-2 is the documented pattern from #2508 (verified via shared/egg_restrictions/hints.py:44-55) since coder/tester/documenter are all blocked from .github/workflows/ \u2014 the PR builder auto-surfaces the git mv obligation. Production-code-fix scope-expansion is acknowledged in slice-1 rationale. Plan is acceptance-criterion-driven with concrete grep/pytest invocations.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2474-plan.md"
+        ],
+        "reason": "Plan correctly implements the operator's decision-8 resolution: 3-slice DAG (slice-1=Part E ScriptedProvider promotion + 8 k3s regression tests, slice-2=Part A workflow wiring, slice-3=Part F docs depends on slice-1), slice-1 and slice-2 run in parallel. All HITL answers reflected: E.3 uses coder-pushes-docs-file mechanism (TASK-1-7); E.6 = 3-slice DAG with restart slice-2's coder in PROPOSE (TASK-1-10); E.7 uses minutes-based timing consensus_timeout_minutes_plan=1 observing 60\u00b110s (TASK-1-11); E.8 uses gateway audit log of push events (TASK-1-12); decision-3 required-from-day-1 documented in slice-2 manual_steps and PR description; flake guards image-import retry + kubectl wait timeouts + on-failure k3s-debug artifact in TASK-2-2; slice-3 Quick-Reference bullet wording matches operator's directive; no specific test filenames in docs per Q6. The .github-staging/ approach in slice-2 is the documented pattern from #2508 (verified via shared/egg_restrictions/hints.py:44-55) since coder/tester/documenter are all blocked from .github/workflows/ \u2014 the PR builder auto-surfaces the git mv obligation. Production-code-fix scope-expansion is acknowledged in slice-1 rationale. Plan is acceptance-criterion-driven with concrete grep/pytest invocations.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-11T06:28:16.393249+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c6eced89-5cd6-4e",
+    "pipeline_id": "issue-2474",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-11T06:28:16.393328+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f7ea5a42-f269-4c",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T06:28:16.452761+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a3f81abe-741f-42",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-11T06:28:19.460388+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "128a1f60-0f47-44",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T06:28:19.583362+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b195f1a8-1dd8-47",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:28:25.339168+00:00"
+    },
+    "timestamp": "2026-05-11T06:28:25.450138+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2d9f3e5c-ae8b-46",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "Architect output is comprehensive and structurally sound. Scope clarification correctly excludes Parts B/C/D (shipped in PR #2556) and constrains to Parts A/E/F. Slice DAG matches operator's resolution exactly: 3 slices, slice-1 (Part E) + slice-2 (Part A) parallel roots, slice-3 (Part F) depends on slice-1 \u2014 single-edge forest, no serialized_chain_order needed. Key design choices fully justified with explicit alternatives-rejected entries: ScriptedProvider lands at shared/egg_harness/testing/ (public test-helper pattern cf. django.test/fastapi.testclient), workflow_call kept inside test.yml to preserve canonical Test/aggregate required-check name, E.6 mid-PROPOSE-restart scenario chosen to exercise #2535 cross-slice-inheritance invariant, E.7 minute-granular per Q3 (issue text typo flagged in docstring), E.8 gateway-audit-log via kubectl-logs scraping (no /api/v1/audit endpoint exists \u2014 verified at gateway.py:828), E.3 docs-file 403 (stable restricted path), Q6-generic docs. 8 risks identified for risk_analyst with concrete indicators and mitigation seeds. Seed acceptance criteria for task_planner are concrete (grep/pytest invocations). References block correctly anchors all decisions and key file locations. Internal consistency check passes \u2014 architect's slice_dag matches task_planner's plan structurally.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2474-architect-output.json"
+        ],
+        "reason": "Architect output is comprehensive and structurally sound. Scope clarification correctly excludes Parts B/C/D (shipped in PR #2556) and constrains to Parts A/E/F. Slice DAG matches operator's resolution exactly: 3 slices, slice-1 (Part E) + slice-2 (Part A) parallel roots, slice-3 (Part F) depends on slice-1 \u2014 single-edge forest, no serialized_chain_order needed. Key design choices fully justified with explicit alternatives-rejected entries: ScriptedProvider lands at shared/egg_harness/testing/ (public test-helper pattern cf. django.test/fastapi.testclient), workflow_call kept inside test.yml to preserve canonical Test/aggregate required-check name, E.6 mid-PROPOSE-restart scenario chosen to exercise #2535 cross-slice-inheritance invariant, E.7 minute-granular per Q3 (issue text typo flagged in docstring), E.8 gateway-audit-log via kubectl-logs scraping (no /api/v1/audit endpoint exists \u2014 verified at gateway.py:828), E.3 docs-file 403 (stable restricted path), Q6-generic docs. 8 risks identified for risk_analyst with concrete indicators and mitigation seeds. Seed acceptance criteria for task_planner are concrete (grep/pytest invocations). References block correctly anchors all decisions and key file locations. Internal consistency check passes \u2014 architect's slice_dag matches task_planner's plan structurally.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-11T06:28:28.535941+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "625f6414-e37d-4d",
+    "pipeline_id": "issue-2474",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-11T06:28:28.536003+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "34ebcacc-da49-4d",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T06:28:28.598882+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1054f078-a288-49",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-11T06:28:31.757420+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4ed15b06-547f-4e",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T06:28:31.867650+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1f72062c-cd15-48",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:28:34.238453+00:00"
+    },
+    "timestamp": "2026-05-11T06:28:34.270581+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "244f6b5d-97b2-40",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:28:35.312721+00:00"
+    },
+    "timestamp": "2026-05-11T06:28:35.384465+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c61e5889-5f18-45",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "Risk assessment is thorough (11 risks across ci_reliability/ci_correctness/scope/test_implementability/compatibility/release_coordination/performance/test_flakiness categories) with concrete indicators, affected_files, mitigation strategies, effort estimates, and residual_risk for each. Three risks correctly flagged for human review with suggested reviewer routing: R1 (Required-from-day-1 flake-fallback posture \u2014 pre-commit recovery plan), R3 (scope-expansion HITL escape valve \u2014 slice-1 unbounded scope creep prevention), R5 (E.8 push-counting mechanism \u2014 log-scrape vs new endpoint). R2 (aggregate.needs gap) is the highest-leverage finding \u2014 gates the actual fix for the original issue. Implementation recommendations REC1-REC7 are actionable and consistent with architect's design choices. Rollback plan is concrete (per-slice revert order, no data loss, no downtime). Performance/security/compatibility assessments are appropriately scoped. The risk register provides a good safety net for implement phase. Minor: R10 (pytest auto-collection in shared/egg_harness/testing/) is a good defensive concern that should be captured in __init__.py docstring per the recommendation. Overall risk verdict MEDIUM with PROCEED_WITH_MITIGATIONS is defensible.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2474-risk_analyst-output.json"
+        ],
+        "reason": "Risk assessment is thorough (11 risks across ci_reliability/ci_correctness/scope/test_implementability/compatibility/release_coordination/performance/test_flakiness categories) with concrete indicators, affected_files, mitigation strategies, effort estimates, and residual_risk for each. Three risks correctly flagged for human review with suggested reviewer routing: R1 (Required-from-day-1 flake-fallback posture \u2014 pre-commit recovery plan), R3 (scope-expansion HITL escape valve \u2014 slice-1 unbounded scope creep prevention), R5 (E.8 push-counting mechanism \u2014 log-scrape vs new endpoint). R2 (aggregate.needs gap) is the highest-leverage finding \u2014 gates the actual fix for the original issue. Implementation recommendations REC1-REC7 are actionable and consistent with architect's design choices. Rollback plan is concrete (per-slice revert order, no data loss, no downtime). Performance/security/compatibility assessments are appropriately scoped. The risk register provides a good safety net for implement phase. Minor: R10 (pytest auto-collection in shared/egg_harness/testing/) is a good defensive concern that should be captured in __init__.py docstring per the recommendation. Overall risk verdict MEDIUM with PROCEED_WITH_MITIGATIONS is defensible.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-11T06:28:40.430771+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e7718a01-7a31-44",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:28:40.889240+00:00"
+    },
+    "timestamp": "2026-05-11T06:28:40.941681+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f47d5d3a-37f9-40",
+    "pipeline_id": "issue-2474",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-05-11T06:28:43.329602+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "52478e93-a7bc-42",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T06:28:43.554349+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5ed665e5-f229-47",
+    "pipeline_id": "issue-2474",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T06:28:43.571096+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e34a8a73-6415-4f",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-11T06:28:43.577117+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1825eb50-c3ad-45",
+    "pipeline_id": "issue-2474",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:28:47.413403+00:00"
+    },
+    "timestamp": "2026-05-11T06:28:47.433676+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7a847f90-2bc8-43",
+    "pipeline_id": "issue-2474",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-11T06:28:47.595983+00:00"
+    },
+    "timestamp": "2026-05-11T06:28:47.628477+00:00",
+    "phase": "plan"
+  }
+]
