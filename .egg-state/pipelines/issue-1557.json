@@ -368,10 +368,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "**Plan-node → Jira-key mapping persistence**: the issue says \"Plan draft records the mapping from plan nodes → Jira keys so re-runs are idempotent.\" Where should this mapping live so subsequent re-runs (e.g. a second reassess) can find it?",
+      "context": "Open contract question decision-10, registered by an agent during the refine phase.",
+      "options": [
+        "Inline yaml-frontmatter block at the top of `.egg-state/drafts/<id>-plan.md` (human-readable + version-controlled in the work branch)",
+        "Separate `.egg-state/drafts/<id>-plan-mapping.yaml` file alongside the plan draft (cleaner separation; same branch)",
+        "Persisted as a pipeline artifact in `.egg-state/pipelines/<id>.json` under a new `epic_apply` key (matches today's `pr_url` artifact pattern; survives draft rewrites)",
+        "Stored on the epic's Jira ticket via a hidden custom field or a tagged Description footer (survives independent of the egg repo — strongest cross-environment idempotency)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.337049Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.304652Z",
+  "updated_at": "2026-05-11T22:24:52.344901Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -385,6 +405,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null
 }
