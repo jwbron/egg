@@ -322,10 +322,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T22:24:52.217928Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T22:52:58.201780Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Remote links + description URLs + linked Jira issues' remote links (recursive one level)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -471,7 +471,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:52:31.166925Z",
+  "updated_at": "2026-05-11T22:52:58.209222Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -485,6 +485,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 31,
+  "version": 32,
   "jira_ticket": null
 }
