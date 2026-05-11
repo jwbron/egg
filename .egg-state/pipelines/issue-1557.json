@@ -462,16 +462,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T22:24:52.483164Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T22:59:04.128463Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Reuse the existing ~/.config/egg/secrets.env (gateway pattern). The orchestrator's transition helper reads Atlassian creds via the same resolver pattern as gateway/jira_credentials.py — checks ATLASSIAN_BASE_URL/USERNAME/API_TOKEN first, falls back to JIRA_* per-key. No new cred surface, no new file. Operator setup: add ATLASSIAN_API_TOKEN (or JIRA_API_TOKEN) to secrets.env if not already present. Rotation is the same as the gateway's. Audit/logging: orchestrator emits a structured log line per transition (epic_key, child_key, from_status, to_status, principal=ATLASSIAN_USERNAME).\", \"Q2\": \"Mandate fixed structure with sections in this order: Problem statement / Scope / Acceptance criteria / Out of scope / Cross-links. Matches the issue's 'fully-formed Jira ticket body' goal and makes downstream `submit_task <CHILD-KEY>` predictable.\", \"Q3\": \"Agent picks per-edge from a default allowlist of `Blocks`, `Is blocked by`, `Relates to`. Plan draft shows the chosen link type and rationale per edge so operator can override before approval.\", \"Q4\": \"Yes — remote-link via the gateway from the implement / apply agent. Adds an issue/{key}/remotelink entry pointing at the PR URL when the PR is opened. Natural completion of per-child-ticket-PRs; uses existing gateway primitives.\", \"Q5\": \"Add a single `--mode={auto,reassess,fresh}` parameter to submit_task. Default `auto` preserves today's behavior; explicit overrides bypass detection without confirmation. (This is the same answer as decision-13.)\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:56:48.492749Z",
+  "updated_at": "2026-05-11T22:59:04.136440Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -485,6 +485,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 37,
+  "version": 38,
   "jira_ticket": null
 }
