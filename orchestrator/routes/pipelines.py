@@ -14946,6 +14946,34 @@ def _run_concurrent_phase(
     ]
     filtered_graph = ReviewGraph(filtered_edges)
 
+    # Determine which producer roles the slice's plan actually assigns
+    # tasks to (#2581). Used to pre-seed auto-ACKs for pure producers
+    # (e.g. CODER, DOCUMENTER) that the planner didn't include —
+    # otherwise their empty proposal can deadlock BRC consensus when
+    # reviewers NACK "nothing to review". Only meaningful for
+    # per-slice runs against a contracted pipeline; CUSTOM-mode,
+    # BABYSIT, and prompt-mode pipelines fall through to ``None``
+    # which preserves the pre-#2581 unconditional-roster behavior.
+    producer_roles_with_tasks: set[str] | None = None
+    if slice_id is not None and getattr(pipeline, "has_contract", True):
+        try:
+            from egg_contracts.loader import load_contract as _load_contract_for_seed
+
+            _contract = _load_contract_for_seed(pipeline.id, worktree_repo_path)
+            _slice_obj = next((s for s in _contract.slices if s.id == slice_id), None)
+            if _slice_obj is not None:
+                # ``Task.role`` is ``str | None``; ``None`` is the
+                # execution-time coder default per the contract schema.
+                producer_roles_with_tasks = {(t.role or "coder") for t in _slice_obj.tasks}
+        except Exception:
+            logger.debug(
+                "Could not derive producer_roles_with_tasks for auto-ACK seeding",
+                pipeline_id=pipeline.id,
+                slice_id=slice_id,
+                exc_info=True,
+            )
+            producer_roles_with_tasks = None
+
     # Resolve base branch for diff commands in agent prompts.
     _resolved_base_branch = pipeline.base_branch
     if not _resolved_base_branch:
@@ -14999,6 +15027,7 @@ def _run_concurrent_phase(
         review_graph=filtered_graph,
         roles=roles,
         slice_id=slice_id,
+        producer_roles_with_tasks=producer_roles_with_tasks,
     )
 
     # Spawn all agents with their prompts.

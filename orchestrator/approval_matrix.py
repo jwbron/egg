@@ -232,6 +232,56 @@ class ApprovalMatrix:
             return False
         return not bool(prev_refs & new_refs)
 
+    def seed_auto_ack_for_empty_pure_producers(self, producers_with_tasks: set[str]) -> list[str]:
+        """Pre-seed proposal + critical-reviewer ACKs for pure producers
+        whose role has no tasks in this slice.
+
+        Prevents a BRC deadlock (#2581) where a producer-only slice (e.g.
+        tester-only or documenter-only) leaves CODER with no work but
+        still spawned: CODER's critical reviewers (REVIEWER_CODE et al.)
+        have nothing to review and may NACK indefinitely, since the
+        protocol requires every critical reviewer to ACK at the latest
+        version.
+
+        Behavior, per producer ``P`` in the graph not present in
+        ``producers_with_tasks``:
+
+        * Skip ``P`` if ``graph.is_dual_role(P)`` — a dual-role producer
+          (e.g. TESTER also reviews CODER) must always run so it can
+          discharge its reviewer responsibilities for the *other*
+          producers; auto-ACKing it as a producer is fine in principle,
+          but right now no role besides TESTER is dual-role, and skipping
+          here keeps the rule trivially aligned with the "tester always
+          runs" intent.
+        * Otherwise record an empty proposal at version 1, then record
+          an ACK at version 1 from **every** critical reviewer of ``P``.
+          The ACK from a dual-role reviewer (e.g. TESTER reviewing
+          CODER) is a starting state, not a final say: if the
+          dual-role reviewer's own producer work later uncovers a need
+          for ``P`` to produce something, it can NACK at version 1, which
+          overrides the seeded ACK and forces ``P`` to re-propose at
+          version 2 via the normal flow.
+
+        The producer container is still spawned by the caller — this only
+        pre-seeds the matrix. If the agent later proposes for real, the
+        version bumps and the seeded ACKs are superseded by the normal
+        flow.
+
+        Returns the list of producer roles that were auto-ACKed (mostly
+        useful for logging / tests).
+        """
+        auto_acked: list[str] = []
+        for producer in sorted(self._graph._producer_roles):
+            if producer in producers_with_tasks:
+                continue
+            if self._graph.is_dual_role(producer):
+                continue
+            version = self.record_proposal(producer)
+            for reviewer in self._graph.critical_reviewers_for(producer):
+                self.record_ack(reviewer, producer, version=version)
+            auto_acked.append(producer)
+        return auto_acked
+
     def is_fully_acked(self, producer: str) -> bool:
         """Check if all critical reviewers have ACKed the producer's latest proposal.
 
