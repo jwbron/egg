@@ -4787,8 +4787,20 @@ class TestPlanProducerPromptsCitePrimitives:
         # NEW-annotated primitives — acceptance-criteria coverage and
         # dependency ordering. Without this the producer/reviewer pair
         # is asymmetric and the planner cannot pre-empt the NACK.
-        assert "acceptance criteria" in prompt
-        assert "ordering" in prompt or "order" in prompt
+        # Scope these assertions to bullet 1 of the audit block (the
+        # (NEW — …) symmetry text) — both "acceptance criteria" and
+        # "order"/"ordering" appear independently elsewhere in the
+        # task_planner prompt, so a flat ``in prompt`` check would
+        # pass from unrelated sources even if the symmetry text were
+        # deleted.
+        new_block_start = prompt.index("(NEW — task TASK-X-Y)")
+        new_block_end = prompt.index(
+            "2. **Cite trust-boundary scope.**",
+            new_block_start,
+        )
+        new_block = prompt[new_block_start:new_block_end]
+        assert "acceptance criteria" in new_block
+        assert "order" in new_block.lower()
 
     def test_task_planner_prompt_describes_gateway_url_correctly(self):
         # The producer prompt previously asserted that the parent
