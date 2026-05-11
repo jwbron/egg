@@ -1,0 +1,150 @@
+name: Integration Tests
+
+on:
+  workflow_call:
+    outputs:
+      passed:
+        description: 'Whether all integration tests passed'
+        value: ${{ jobs.aggregate.outputs.passed }}
+  workflow_dispatch:  # Allow manual testing
+
+jobs:
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    # The 30-min budget set on the caller (.github/workflows/test.yml)
+    # is repeated here as defense in depth so the budget is enforced
+    # whether this workflow is invoked via `uses:` or via
+    # `workflow_dispatch`.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Build containers
+        run: |
+          docker build -t egg-gateway -f gateway/Dockerfile .
+          docker build -t egg-sandbox -f sandbox/Dockerfile .
+
+      - name: Set up k3s
+        run: |
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
+          # Install Calico CNI
+          scripts/install-calico.sh
+          # Wait for node to be ready
+          kubectl wait --for=condition=Ready node --all --timeout=120s
+
+      - name: Import images into k3s
+        # Flake guard (HITL Q1 of #2474): retry the image-import step
+        # up to 3 attempts with a short backoff. Transient k3s
+        # containerd import failures (rare but observed in #2556's
+        # early runs) should not flake the entire integration tier.
+        run: |
+          set -e
+          attempt=0
+          max_attempts=3
+          until [ "$attempt" -ge "$max_attempts" ]; do
+            attempt=$((attempt + 1))
+            echo "::group::Image import attempt ${attempt}/${max_attempts}"
+            if docker save egg-gateway:latest | sudo k3s ctr images import - \
+              && docker save egg-sandbox:latest | sudo k3s ctr images import -; then
+              echo "::endgroup::"
+              echo "Image import succeeded on attempt ${attempt}"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "Image import failed on attempt ${attempt}"
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Sleeping 5s before retry..."
+              sleep 5
+            fi
+          done
+          echo "Image import failed after ${max_attempts} attempts" >&2
+          exit 1
+
+      - name: Deploy egg to k3s
+        run: |
+          kubectl apply -k k8s/overlays/local/
+          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s
+
+      - name: Run integration and security tests
+        env:
+          EGG_RUNTIME: kubernetes
+          KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+        run: |
+          PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
+            -m "integration or security" \
+            --timeout=300
+
+      - name: Collect k3s debug artifacts on failure
+        # Flake guard (HITL Q1 of #2474): on any prior-step failure,
+        # capture cluster-wide events and per-pod logs so the
+        # debugger doesn't have to reproduce locally to triage a CI
+        # flake. Uploaded as a single `k3s-debug` workflow artifact.
+        if: failure()
+        run: |
+          set +e
+          echo "Collecting cluster events..."
+          kubectl get events --all-namespaces -o yaml > k3s-debug-events.yaml 2>&1 || true
+          echo "Collecting pod logs..."
+          {
+            for ns in egg-system egg-test-agents; do
+              echo "===== Namespace: ${ns} ====="
+              kubectl logs -n "${ns}" --tail=-1 --all-containers=true --prefix=true --selector="" 2>&1 || true
+              echo
+              echo "===== Pods in ${ns} ====="
+              kubectl get pods -n "${ns}" -o wide 2>&1 || true
+              echo
+            done
+          } > k3s-debug-pods.log 2>&1 || true
+          ls -la k3s-debug-events.yaml k3s-debug-pods.log || true
+
+      - name: Upload k3s debug artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k3s-debug
+          path: |
+            k3s-debug-events.yaml
+            k3s-debug-pods.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kubectl delete namespace egg-test-agents --ignore-not-found=true 2>/dev/null || true
+          kubectl delete namespace egg-system --ignore-not-found=true 2>/dev/null || true
+          /usr/local/bin/k3s-uninstall.sh 2>/dev/null || true
+
+  aggregate:
+    name: Aggregate Integration Test Results
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [integration]
+    outputs:
+      passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Check all jobs passed
+        id: check
+        run: |
+          if [[ "${{ needs.integration.result }}" != "success" ]]; then
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "Integration tests failed"
+            echo "  integration: ${{ needs.integration.result }}"
+          else
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "All integration tests passed"
+          fi
