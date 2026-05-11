@@ -651,6 +651,29 @@
       "resolved_by": "human",
       "resolved_at": "2026-05-11T06:15:50.637022Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Plan looks solid. Verified the planner's claims:\n\n1. `.github-staging/` is a real egg convention (issue #2508) \u2014 gateway/tests/test_agent_restrictions_patterns.py:259 confirms coder can write under `.github-staging/`; shared/egg_restrictions/patterns.py:152 documents the rationale. Not a hallucination.\n\n2. 3-slice DAG matches operator instructions exactly: slice-1=E (root), slice-2=A (root), slice-3=F (depends on slice-1).\n\n3. All HITL answers from the refine phase context flowed through correctly: E.6 = 3-slice restart-in-PROPOSE with unchanged-ref assertion; E.7 = minute-granular (consensus_timeout_minutes_plan = 1, assert within 60\u00b110s); E.8 = gateway audit log; E.3 = coder pushes docs/ file for real 403; F = generic note, no named test files; flake guards as specified.\n\n4. Reversion-fails check on each new regression test means a future regression of the underlying fix will be caught. Scope-expansion captured: 'if a new test surfaces a real regression against main, the production-code fix lands in this slice's PR'.\n\n5. Manual steps surfaced clearly: pre-merge slice-2 workflow_dispatch verification + human git mv from .github-staging/ to .github/; post-merge slice-2 admin flips `Test / aggregate` to required.\n\nProceed to implement phase.",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-11T06:30:38.249178Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
