@@ -32,15 +32,13 @@ jobs:
         run: uv sync --extra dev
 
       - name: Build containers
-        run: |
-          # sandbox/Dockerfile COPYs `repo-deps/` (a gitignored build-context
-          # staging dir produced on demand by `make build`); we don't invoke
-          # `make build` here, so seed the marker explicitly. Matches the
-          # `mkdir -p repo-deps && touch repo-deps/.empty` step in the
-          # Makefile `build` target.
-          mkdir -p repo-deps && touch repo-deps/.empty
-          docker build -t egg-gateway -f gateway/Dockerfile .
-          docker build -t egg-sandbox -f sandbox/Dockerfile .
+        # Use `make build` so CI matches local dev: same `repo-deps/`
+        # marker prep, same image set (gateway/orchestrator/sandbox),
+        # same tags. Drift between inline `docker build` here and
+        # `make build` locally is how the `repo-deps/` regression
+        # went latent until slice-2 of #2474 promoted this workflow
+        # into PR-CI.
+        run: make build
 
       - name: Set up k3s
         run: |
@@ -97,10 +95,12 @@ jobs:
         env:
           EGG_RUNTIME: kubernetes
           KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-        run: |
-          PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
-            -m "integration or security" \
-            --timeout=300
+        # `make test-integration` selects `-m "integration or security"`
+        # (see Makefile); CI and local invocation now run the same
+        # command. Drift between the two is what let the `repo-deps/`
+        # build regression sit latent until slice-2 of #2474 wired
+        # this workflow into PR-CI.
+        run: make test-integration
 
       - name: Collect k3s debug artifacts on failure
         # Flake guard (HITL Q1 of #2474): on any prior-step failure,

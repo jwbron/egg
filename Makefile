@@ -390,8 +390,12 @@ security: sync-venv-if-uv
 # ============================================================================
 
 test-integration: export PYTHONPATH := shared
-test-integration: venv  ## Run integration tests on k3s (cross-module regressions)
-	$(PYTEST) integration_tests -v -m integration --timeout=300
+test-integration: venv  ## Run integration + security tests on k3s
+	# Selects `integration or security` (not just `integration`) so a
+	# single `make test-integration` covers the entire k3s tier — what
+	# CI runs as `Test / integration`. `make test-security` remains
+	# available for security-only runs.
+	$(PYTEST) integration_tests -v -m "integration or security" --timeout=300
 
 test-security: export PYTHONPATH := shared
 test-security: venv  ## Run security/pentesting tests
