@@ -382,10 +382,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T22:24:52.337049Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T22:56:23.243949Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Persisted as a pipeline artifact in `.egg-state/pipelines/<id>.json` under a new `epic_apply` key (matches today's `pr_url` artifact pattern; survives draft rewrites)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -471,7 +471,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:56:20.757654Z",
+  "updated_at": "2026-05-11T22:56:23.251148Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -485,6 +485,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 34,
+  "version": 35,
   "jira_ticket": null
 }
