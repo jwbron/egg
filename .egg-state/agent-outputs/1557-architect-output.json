@@ -1,0 +1,471 @@
+{
+  "issue": 1557,
+  "pipeline_id": "issue-1557",
+  "phase": "plan",
+  "role": "architect",
+  "title": "Add SDLC pipeline support for Jira epics",
+  "summary": "Plan-phase architecture analysis for #1557 — extend the existing submit_task pipeline so a Jira epic key is a first-class SDLC unit of work. Two new IO sinks (refine→epic Description; plan→child Jira tickets) and one new orchestrator-side credential surface (Won't-Do transitions, which are permanently denylisted from the gateway) are the headline deltas. Refine and plan phases reuse the same draft+HITL surface (.egg-state/drafts/<id>-*.md) and the same contract store. All 12 HITL decisions and 5 feedback Q&A were resolved in refine. Slicing chose Option A (single slice, A+B+C+D+E+F+G, 1 PR — decision-1). Apply-step location chose hybrid (decision-11): in-sandbox apply-epic agent for editJiraIssue / createJiraIssue / createIssueLink / addCommentToJiraIssue; orchestrator-direct only for the transitions verb. Hierarchy uses JiraPolicy.epic_link_field per-site config (decision-2 opt-3). Reassess-trigger override is a single --mode={auto,reassess,fresh} param on submit_task (decision-12 opt-3). Mapping persists as a new epic_apply key on the pipeline artifact (.egg-state/pipelines/<id>.json) per decision-10. All hard prerequisites (#1556, #1924, #1931, #2137) are landed.",
+
+  "scope_clarification": {
+    "in_scope": [
+      "(A) submit_task epic-input handling: detect Jira issuetype.name == 'Epic' after first get_ticket; route through the epic path. Add --mode={auto,reassess,fresh} param (decision-12 opt-3).",
+      "(B) Refine prompt tweak: tell the agent the destination is an epic Description (self-contained problem statement + scope, not ticket-shaped). On HITL approval, an apply-epic agent calls gateway editJiraIssue (wholesale rewrite — decision-9) and records the prior Description fetch+diff guard.",
+      "(C) Plan prompt tweak: produce, per node, a fully-formed Jira ticket body (Problem statement / Scope / Acceptance criteria / Out of scope / Cross-links — fixed structure per feedback Q2). Plan parser remains the existing egg_contracts.plan_parser entrypoint; the yaml-tasks appendix gains new fields (existing_key, action: create|edit|consolidate|split|wont_do|untouched, link_edges).",
+      "(D) Plan apply step (epic case): two-pass execution by the apply-epic agent through the gateway — pass 1 createJiraIssue + editJiraIssue + addCommentToJiraIssue (consolidation redirects); pass 2 createIssueLink for cross-task edges. Each call carries an idempotency_key derived from plan-node id + commit SHA. Mapping (plan-node → Jira key) written to .egg-state/pipelines/<id>.json under epic_apply.",
+      "(E) Orchestrator-direct Jira credentials + Won't-Do transition helper: new shared module (shared/egg_jira_orchestrator/transitions.py or similar) that reads ~/.config/egg/secrets.env via a resolver mirroring gateway/jira_credentials.py (ATLASSIAN_* then JIRA_* fallback per-key); helper POSTs to /rest/api/3/issue/{key}/transitions. Helper invoked only after plan-apply, only for non-in-flight children flagged obsolete. Emits structured audit log (epic_key, child_key, from_status, to_status, principal).",
+      "(F) Reassess child discovery + classification + plan diff: two separate JQL searches (parent = <EPIC> ; <epic_link_field> = <EPIC>) merged; classify into to_do / done / in_flight (per decision-4: Done children excluded from prompt; in_flight passed in with do-not-modify-without-confirmation marker). Plan prompt receives the (to_do + in_flight) set with status + open-PR signals attached.",
+      "(G) In-flight detection (per decision-8 opt-4 — OR semantics, signal-source logged on HITL gate): three signals — Jira fields.status.name in {In Progress, In Review, Code Review, Blocked, …}; orchestrator pipeline-state with open PR (canonical via _get_pr_info on pipeline_id=<CHILD-KEY>); ticket remoteLinks with github.com/…/pull/ URLs. Per-ticket HITL gate registered for any mutation (edit / consolidate-away / Won't-Do) on an in_flight child; creates that merely depend on an in_flight child apply normally.",
+      "(F-bis) Plan apply's consolidation survivor selection (decision-5): agent emits per-consolidation survivor + rationale in the plan draft; operator overrides per-node before plan approval (no heuristic).",
+      "(G-bis) PR-link writeback to Jira (feedback Q4): when a child's implement opens a PR (_auto_create_pr at pipelines.py:9430), gateway-add a remoteLink on the child key pointing at the PR URL. Cross-task dependency link types allowlist from {Blocks, Is blocked by, Relates to}, agent-chosen per-edge with rationale (feedback Q3).",
+      "(I) Confluence link discovery (decision-7 opt-3): refine sweep gathers Jira remoteLinks + URL-scrape of epic Description and existing-children Descriptions + remoteLinks of linked Jira issues (recursive one level)."
+    ],
+    "out_of_scope": [
+      "Jira-label-driven state machine (egg-sdlc / egg-awaiting-response) — explicitly deferred by issue's `What this issue is not`.",
+      "Implement-phase cross-child coordination/auto-spawn — decision-6 resolved to 'operator decides at the plan approval gate (Stop-after-plan vs Continue-to-implement)'. The implement orchestration for that 'Continue' branch is just today's per-child submit_task path applied to each plan node; no new auto-spawn scheduling logic.",
+      "A new gateway get_project_metadata verb to auto-detect parent vs Epic Link per project — decision-2 opt-3 reuses JiraPolicy.epic_link_field. Auto-detect (opt-1) is a future upgrade.",
+      "Lifting the JIRA_WRITE_VERBS_DENIED denylist for transitions — off the table by #1556 scope.",
+      "Optimistic-concurrency If-Match ETag on edit_issue — v1 uses fetch-and-diff guard only.",
+      "Aggregate epic-level PR — issue explicitly resolved per-child-ticket PRs.",
+      "Bulk-create Jira endpoint — serialize creates through gateway for v1; revisit if rate-limit pressure justifies adding bulk support (would need gateway change)."
+    ]
+  },
+
+  "key_decisions_consumed": {
+    "decision-1_slicing": "Option A — single slice, A+B+C+D+E+F+G, 1 PR. The architect agrees with this resolution; the reassess code path shares scaffolding with the fresh path (same plan apply, same gateway calls), so splitting them inflates seam cost. All sub-deliverables (A–G) are wired into one PR per the chosen option.",
+    "decision-2_hierarchy_field": "Operator-configurable per Jira project — sourced from JiraPolicy.epic_link_field (gateway/jira_policy.py:163–170). The apply step passes this through to create_issue(..., epic_link_field=<configured>). No gateway verb addition needed; reuses the per-site primitive that already exists.",
+    "decision-3_wont_do_gating": "Batch on single plan approval — operator sees the obsolete list in the plan draft, approves wholesale. Per-ticket gate exists only for in_flight (decision-8 + the resolved in-flight sub-section).",
+    "decision-4_done_children": "Exclude entirely from plan prompt. Diff annotation in plan draft can still note 'Done children left untouched: X, Y, Z' as a one-line audit (does not feed the prompt).",
+    "decision-5_consolidation_survivor": "Agent picks per-consolidation with rationale; operator overrides per-node in the plan draft before approval. Survivor selection serialized into the plan draft's yaml-tasks (existing_key field).",
+    "decision-6_implement_trigger": "Operator decides at the plan-approval gate: Stop-after-plan vs Continue-to-implement. The Continue branch uses today's sliced implement phase; each child ticket is its own slice in the slice DAG. No submit_task param and no auto-spawn at submit time.",
+    "decision-7_confluence_discovery": "Remote links + Description URLs + linked Jira issues' remote links (recursive one level).",
+    "decision-8_in_flight_precedence": "OR semantics with signal-source logged on HITL gate. The HITL prompt names which signal fired (status / orch-pipeline / ticket-remotelink).",
+    "decision-9_reassess_refine_output": "Wholesale rewrite of epic Description. Apply step still fetch-and-diffs against the version the agent saw, surfacing a divergence HITL if an operator manually edited in the interim.",
+    "decision-10_mapping_persistence": "Pipeline artifact (.egg-state/pipelines/<id>.json under a new `epic_apply` key). Survives draft rewrites; matches today's pr_url artifact pattern.",
+    "decision-11_apply_location": "Hybrid: in-sandbox apply-epic agent for editJiraIssue / createJiraIssue / createIssueLink / addCommentToJiraIssue (through the gateway, with the gateway audit identity = session token); orchestrator-direct only for transitions (the gateway-blocked verb). Preserves 'agents write through the gateway' symmetry for everything that has a gateway path.",
+    "decision-12_mode_param": "Single --mode={auto,reassess,fresh} parameter on submit_task. Default 'auto' preserves today's behavior; explicit overrides bypass detection. New optional MCP param on submit_task signature.",
+    "feedback_q1_orch_creds": "Reuse ~/.config/egg/secrets.env (same file gateway/jira_credentials.py reads). Orchestrator-side helper mirrors that resolver pattern in a new shared module — ATLASSIAN_* then JIRA_* fallback per-key. Rotation = same as gateway's. Audit = structured log per transition.",
+    "feedback_q2_ticket_body": "Fixed structure: Problem statement / Scope / Acceptance criteria / Out of scope / Cross-links. Section ordering enforced in plan prompt + validated by plan parser (or a thin post-parse validator).",
+    "feedback_q3_link_types": "Agent picks per-edge from default allowlist {Blocks, Is blocked by, Relates to}; plan draft surfaces choice + rationale; operator overrides per-edge.",
+    "feedback_q4_pr_writeback": "Implement-phase opens PR → gateway adds remoteLink on the child key pointing at the PR URL (uses gateway's addRemoteLink verb if present, otherwise add via the gateway's existing remote-link primitive; verify primitive existence below)."
+  },
+
+  "current_state": {
+    "submit_task_handler": {
+      "schema": "orchestrator/mcp_tools.py:67-127 (MCP tool schema)",
+      "handler_body": "orchestrator/mcp_tools.py:1272-1381 (_handle_submit_task)",
+      "existing_params": [
+        "description (str, required)",
+        "repo (str, required)",
+        "issue_number (int, optional)",
+        "branch (str, optional)",
+        "base_branch (str, optional)",
+        "jira_ticket (str, optional) — regex ^[A-Za-z][A-Za-z0-9]+-[0-9]+$ validated at 1287-1300",
+        "qualifier (str, optional)",
+        "config (object, optional)",
+        "analysis (str, optional)",
+        "plan (str, optional)",
+        "source_branch (str, optional)",
+        "source_artifact_prefix (str, optional)"
+      ],
+      "new_param_slot": "Add `mode: Literal['auto', 'reassess', 'fresh'] = 'auto'` as a sibling of jira_ticket in the MCP schema (around lines 100-105). Validation in the handler body picks the branch after the jira_ticket regex check at 1287-1300.",
+      "epic_detection": "submit_task does NOT fetch ticket content today (no get_ticket call from orchestrator). Two viable patterns: (a) orchestrator-side issuetype probe via the orchestrator GatewayClient (would need a new Jira read shim on GatewayClient, not present today — see gap below); (b) lazy detection inside the refine agent itself (agent calls jira ticket get, switches prompt branch via EGG_PIPELINE_MODE env, writes the mode back to contract). Pattern (b) defers the issuetype probe to the agent and avoids adding a Jira shim to GatewayClient; pattern (a) makes routing deterministic at create_pipeline time. Recommend (a) for cleaner routing — see Architecture Decisions § Issue-Type Detection."
+    },
+    "pipeline_model": {
+      "Pipeline_class": "orchestrator/models.py:816+ (root Pydantic model)",
+      "jira_ticket_field": "orchestrator/models.py:981-1004",
+      "add_decision_helper": "orchestrator/models.py:1016 (in-memory decision tracking; not the contract-store path)",
+      "new_epic_apply_field": "Add a typed model `EpicApplyArtifact` (created_keys: dict[str, str] plan_node→jira_key; edited_keys: list[str]; wont_do_keys: list[str]; link_edges: list[LinkEdge]; refine_description_sha256: str; idempotency_seed: str) and slot it onto Pipeline as an Optional field around 982. Persisted in .egg-state/pipelines/<id>.json."
+    },
+    "phase_prompts": {
+      "builder": "orchestrator/routes/pipelines.py:11039-11689 (_build_phase_prompt — refine + plan via inline f-strings + conditional blocks)",
+      "agent_dispatcher": "orchestrator/routes/pipelines.py:12746+ (_build_agent_prompt — refiner / coder delegate to _build_phase_prompt; architect / task_planner / risk_analyst get a custom prompt fed handoff data via EGG_HANDOFF_DATA env var)",
+      "analysis_roles_receive_full_issue": "orchestrator/routes/pipelines.py:5615, 5705, 5724 — architect/task_planner/risk_analyst get full issue context (preserved for epic case)",
+      "epic_branch_addition": "Add a new conditional block in _build_phase_prompt keyed off `pipeline.mode == 'reassess' or epic-detected`. Two new prompt fragments: (i) refine epic-Description framing; (ii) plan per-node ticket-body fixed-structure + cross-task DAG link-type allowlist + diff annotation for reassess (updated/closed/untouched/net-new/consolidated/split/in_flight)."
+    },
+    "draft_io": {
+      "read": "orchestrator/routes/pipelines.py:5531-5560 (_read_phase_draft — reads .egg-state/drafts/<identifier>-<phase>.md, with sensible fallbacks)",
+      "naming": "Drafts named `<pipeline_id>-analysis.md` / `<pipeline_id>-plan.md`. Pipeline_id for an epic is the epic key (e.g. `KORE-1234`). No changes needed."
+    },
+    "phase_transition_path": {
+      "advance_phase": "orchestrator/routes/phases.py:224 (POST /api/v1/pipelines/{id}/phase — refine→plan, plan→implement, etc.)",
+      "complete_phase": "orchestrator/routes/phases.py:806 (flips execution.status to COMPLETE; does NOT auto-advance)",
+      "no_existing_apply_hook": "There is NO post-approval 'apply' hook in the codebase today. Decision-11's hybrid model means we add an apply step that runs *after* HITL approval and *before* the phase transition. The cleanest place is a new dispatcher in orchestrator/routes/phases.py that on advance_phase from refine (when pipeline.mode != fresh and epic-detected) spawns an `apply-epic` agent slice for the refine sink, and on advance_phase from plan does the same for the plan sink. The orchestrator-direct transitions helper runs server-side immediately after the apply-epic agent's slice completes."
+    },
+    "gateway_jira_surface": {
+      "get_ticket": "gateway/jira_client.py:399-422 — caller reads fields.issuetype.name, fields.status.name, fields.description, fields.parent from raw JSON",
+      "create_issue": "gateway/jira_client.py:496-583 (parent + epic_link mutually exclusive at 557-569; epic_link_field param at 504-506)",
+      "edit_issue": "gateway/jira_client.py:585-656 (summary/description/labels + idempotency_key)",
+      "add_comment": "gateway/jira_client.py:658-692",
+      "create_issue_link": "gateway/jira_client.py:694-743 (link_type, inward_key, outward_key, comment, idempotency_key)",
+      "denylist": "gateway/jira_client.py:133-146 — JIRA_WRITE_VERBS_DENIED contains {transitions, worklog, attachments, watchers}",
+      "search": "gateway/jira_client.py — JQL search with cursor pagination (used for reassess child-discovery, two-query pattern)",
+      "remote_link_add": "Verify exists — feedback Q4 needs gateway addRemoteLink primitive. If absent, gateway adds it OR the apply-epic agent uses execute_raw passthrough. Plan must include a primitive-existence check (see Gaps below)."
+    },
+    "gateway_policy": {
+      "epic_link_field_config": "gateway/jira_policy.py:163-170 — per-site JiraPolicy.epic_link_field (default 'parent'); allowlist _VALID_EPIC_LINK_FIELDS"
+    },
+    "orchestrator_gateway_client": {
+      "class": "orchestrator/gateway_client.py:200 — GatewayClient (HTTP client used by orchestrator for git/session ops)",
+      "factory": "orchestrator/gateway_client.py:3120 — get_gateway_client()",
+      "no_jira_shim_today": "GatewayClient does NOT have Jira read/write methods today. Pattern (a) issue-type detection in orchestrator requires either adding such methods OR keeping issue-type detection inside the apply-epic agent and the refine agent (see Issue-Type Detection decision below)."
+    },
+    "confluence_gateway": {
+      "client": "gateway/confluence_client.py — get_page (628), search_cql (918), get_page_descendants (673), get_page_inline_comments, get_page_footer_comments, list_spaces, execute_raw (GET-only passthrough)",
+      "status": "Production-ready, read-only; no changes needed."
+    },
+    "credentials": {
+      "gateway_jira": "gateway/jira_credentials.py — reads ~/.config/egg/secrets.env via JiraCredentialsManager; ATLASSIAN_* precedence then JIRA_* fallback per-key",
+      "orchestrator_today": "Orchestrator has NO Jira credential reader today. Exports only EGG_JIRA_TICKET (advisory label, not a secret). Tests assert this invariant.",
+      "new_orch_reader": "Add a shared module readable by the orchestrator process (shared/egg_jira_orchestrator/credentials.py and transitions.py) that mirrors the gateway resolver's secrets-env pattern. NOT imported from gateway (process boundary)."
+    },
+    "pipeline_state_artifacts": {
+      "store": ".egg-state/pipelines/<id>.json — Pipeline JSON snapshot",
+      "pr_url_pattern": "phases.pr.artifacts.pr_url, populated by _auto_create_pr at pipelines.py:9430+",
+      "_get_pr_info": "orchestrator/routes/pipelines.py:4161-4179 — parses PR number from URL; canonical for 'child has open PR' lookup keyed by pipeline_id == <CHILD-KEY>"
+    },
+    "plan_parser": {
+      "module": "shared/egg_contracts/plan_parser.py",
+      "entry": "parse_plan(content: str) -> ParseResult (line 1065); parse_plan_file(path) (line 1234)",
+      "today_expects": "YAML code fence OR YAML frontmatter OR markdown-regex fallback. The plan apply step for epics extends the yaml-tasks shape with new keys (existing_key, action, link_edges, in_flight, survivor_rationale). Parser changes are additive."
+    },
+    "hitl_decision_plumbing": {
+      "sync": "orchestrator/routes/pipelines.py:17915-17980 (_sync_contract_decisions_from_agent)",
+      "queue_and_await": "orchestrator/routes/pipelines.py:17982-18100+ (_queue_and_await_contract_decisions) — promotes contract decisions into orchestrator DecisionQueue post-phase-gate; resolves up to 4 per MCP batch (#1956)",
+      "register": "mcp__sdlc__register_open_question (and the CLI equivalent egg-contract add-decision) — used as-is for the per-ticket in_flight gate at plan-apply time"
+    }
+  },
+
+  "architecture_overview": {
+    "headline": "Three IO sinks: epic Description (gateway editJiraIssue); child tickets + links + comments (gateway create_issue + create_issue_link + add_comment); Won't-Do transitions (orchestrator-direct POST). One new shared credential module for the orchestrator-direct path. One new pipeline-artifact key (epic_apply) for idempotent re-apply.",
+    "component_breakdown": [
+      {
+        "name": "submit_task epic-input handling",
+        "owner_role": "task_planner→coder",
+        "files": ["orchestrator/mcp_tools.py:67-127 (schema)", "orchestrator/mcp_tools.py:1272-1381 (handler)"],
+        "delta": "Add `mode` MCP param (decision-12). At handler entry, if jira_ticket is set and mode != 'fresh', orchestrator calls a new GatewayClient.get_jira_issuetype(<KEY>) shim (new method on GatewayClient) to probe issuetype.name; if 'Epic' AND children exist (via the two-JQL discovery) AND mode == 'auto', set pipeline.mode = 'reassess'; otherwise pipeline.mode = 'fresh'. The mode lands on the Pipeline model + EGG_PIPELINE_MODE env passed to the sandbox.",
+        "new_primitives": [
+          "MCP schema param `mode` (validated allowlist)",
+          "Pipeline.mode field (Literal['auto', 'reassess', 'fresh'])",
+          "GatewayClient.get_jira_issuetype + .jira_search shim (light HTTP wrappers around gateway routes)",
+          "EGG_PIPELINE_MODE sandbox env var"
+        ]
+      },
+      {
+        "name": "Refine prompt + epic-Description sink",
+        "owner_role": "task_planner→coder",
+        "files": ["orchestrator/routes/pipelines.py:11039-11689 (_build_phase_prompt)"],
+        "delta": "New conditional block keyed off pipeline.mode in {'reassess', 'fresh'} AND epic-detected: prompt frames the analysis as a self-contained epic Description (problem statement + scope), not a refined ticket statement. In reassess mode, prompt is given the existing-children diff (status + open-PR signals attached). On HITL approval (advance_phase refine→plan), a new dispatcher in orchestrator/routes/phases.py spawns an `apply-epic` agent slice that calls gateway editJiraIssue on the epic key with the refine draft body. Apply step fetches the current Description first; if the SHA-256 differs from the snapshot the agent saw (recorded in epic_apply.refine_description_sha256), it registers a divergence-confirmation HITL decision and waits.",
+        "new_primitives": [
+          "Epic-branch f-string fragment in _build_phase_prompt",
+          "apply-epic agent role (sandbox container; uses gateway session token)",
+          "Refine→plan dispatcher hook in phases.py",
+          "epic_apply.refine_description_sha256 in the pipeline artifact"
+        ]
+      },
+      {
+        "name": "Plan prompt + per-node ticket bodies + cross-task DAG",
+        "owner_role": "task_planner→coder",
+        "files": ["orchestrator/routes/pipelines.py (_build_phase_prompt + _build_agent_prompt)", "shared/egg_contracts/plan_parser.py"],
+        "delta": "Plan prompt mandates per-node sections in order: Problem statement / Scope / Acceptance criteria / Out of scope / Cross-links (feedback Q2). Cross-task DAG edges agent-chosen from {Blocks, Is blocked by, Relates to} (feedback Q3). yaml-tasks gain optional fields: existing_key, action (create/edit/consolidate/split/wont_do/untouched), link_edges (list of (target_node_id, link_type, rationale)), in_flight, survivor_rationale. Plan parser change is additive — new fields default to None; existing tests still pass.",
+        "new_primitives": [
+          "Plan-prompt fixed-structure fragment",
+          "yaml-tasks schema extension (existing_key, action, link_edges, in_flight, survivor_rationale)",
+          "plan_parser extension (optional fields)"
+        ]
+      },
+      {
+        "name": "Plan apply step — two-pass create/edit/link/comment",
+        "owner_role": "task_planner→coder",
+        "files": ["new orchestrator/routes/phases.py dispatcher", "new apply-epic agent prompt"],
+        "delta": "On advance_phase plan→implement, the dispatcher spawns the apply-epic agent slice with the plan draft + epic_apply mapping context. Agent: (Pass 1) for each yaml-task with action == create OR split, call gateway create_issue(epic_link or parent set from JiraPolicy.epic_link_field); for action == edit OR consolidate (survivor), call edit_issue; for action == consolidate (non-survivor), call add_comment with the redirect message; record every (plan_node_id, jira_key) in epic_apply.created_keys / .edited_keys. (Pass 2) for each link_edge, call create_issue_link with idempotency_key = sha256(plan_node_id + target + commit_sha). All gateway calls carry idempotency_key (gateway already supports per-call idempotency). After both passes, the orchestrator-direct transition helper runs server-side for every yaml-task with action == wont_do that is NOT marked in_flight; in_flight wont_do entries spawn per-ticket HITL gates first.",
+        "new_primitives": [
+          "apply-epic agent prompt (new template)",
+          "epic_apply pipeline-artifact schema (EpicApplyArtifact pydantic model)",
+          "idempotency_key derivation helper",
+          "Two-pass apply runner (orchestrator dispatcher)"
+        ]
+      },
+      {
+        "name": "Orchestrator-direct Won't-Do transitions",
+        "owner_role": "task_planner→coder",
+        "files": ["new shared/egg_jira_orchestrator/credentials.py", "new shared/egg_jira_orchestrator/transitions.py", "orchestrator/routes/phases.py (dispatcher)"],
+        "delta": "credentials.py mirrors gateway/jira_credentials.py: reads ~/.config/egg/secrets.env (or EGG_SECRETS_PATH); ATLASSIAN_USERNAME / ATLASSIAN_API_TOKEN with JIRA_* fallback; raises JiraOrchestratorCredentialsUnavailable if any of base_url / username / token is missing (orchestrator caller logs WARN + falls back to recording the wont_do entries as 'requires_manual_transition: true' in epic_apply rather than failing the whole apply). transitions.py: thin POST to /rest/api/3/issue/{key}/transitions/ using a transition_id resolved via GET /transitions (workflow-state-name → id, with a Won't Do allowlist). Emits structured audit log per transition: epic_key, child_key, from_status, to_status, principal=ATLASSIAN_USERNAME, transition_id, http_status.",
+        "new_primitives": [
+          "JiraOrchestratorCredentialsManager (new)",
+          "transitions.execute_wont_do(child_key, epic_key) helper (new)",
+          "Audit log line format (new structured logger event_type=jira_orchestrator_transition)",
+          "Won't-Do workflow-state-name allowlist (config; defaults to {'Won\\'t Do', 'Wont Do', 'Won\\'t do'})"
+        ]
+      },
+      {
+        "name": "Reassess child discovery + classification",
+        "owner_role": "task_planner→coder",
+        "files": ["orchestrator-side discovery helper in routes/pipelines.py (or new orchestrator/jira_reassess.py)"],
+        "delta": "Two-pass JQL via GatewayClient.jira_search shim: (a) `parent = <EPIC>`; (b) `<JiraPolicy.epic_link_field> = <EPIC>` (skipped when the configured field is 'parent' — tautology). Both queries tolerate HTTP 400 (custom-field-missing) and merge results. For each child: fetch get_ticket with fields=['status', 'issuetype', 'parent', 'description', 'remoteLinks'] (single batched GET per child — Jira batched GET is not free; for >20 children, plan-time decision on whether to pre-batch or per-child). Classify into {to_do, done, in_flight} via decision-8 OR logic; record signal_source. Feed (to_do + in_flight) into the plan prompt; record (done) only as a plan-draft footer audit note (decision-4).",
+        "new_primitives": [
+          "GatewayClient.jira_search shim",
+          "GatewayClient.get_jira_issue shim",
+          "ChildClassifier (new)",
+          "ChildClassification dataclass (key, status, signal_source, in_flight: bool)"
+        ]
+      },
+      {
+        "name": "In-flight detection + per-ticket HITL gate",
+        "owner_role": "task_planner→coder",
+        "files": ["orchestrator/jira_reassess.py (in_flight signal collection)", "orchestrator/routes/pipelines.py (HITL gate registration in apply runner)"],
+        "delta": "Signal 1: status.name in IN_FLIGHT_STATUSES allowlist (configurable; defaults to {'In Progress', 'In Review', 'Code Review', 'Blocked'}). Signal 2: GET ~ orchestrator/.egg-state/pipelines/<CHILD-KEY>.json — if phases.pr.artifacts.pr_url present AND PR is open (use _get_pr_info to validate), in_flight=True. Signal 3: scan ticket remoteLinks for github.com/.../pull/<n> URLs (via gateway). OR all three; record `in_flight_signal_source` = which fired. Apply runner: before calling edit_issue / add_comment(redirect)/transition on any in_flight child, register an mcp__sdlc__register_open_question per-ticket with the proposed mutation + signal source; pause apply until resolution.",
+        "new_primitives": [
+          "IN_FLIGHT_STATUSES allowlist",
+          "InFlightDetector (new)",
+          "Per-ticket HITL gate registration helper (reuses mcp__sdlc__register_open_question)"
+        ]
+      },
+      {
+        "name": "PR-link writeback to Jira (feedback Q4)",
+        "owner_role": "task_planner→coder",
+        "files": ["orchestrator/routes/pipelines.py:9430+ (_auto_create_pr post-hook)"],
+        "delta": "After _auto_create_pr opens a PR for a child pipeline whose pipeline_id is a Jira key, fire a gateway addRemoteLink call (or post a comment if the addRemoteLink primitive is not available — see Gaps) targeting the child key with the PR URL + title. Idempotent via remoteLink globalId derived from pipeline_id.",
+        "new_primitives": [
+          "Optional gateway addRemoteLink verb (primitive-existence check pending — see Gaps)",
+          "PR-link writeback post-hook"
+        ]
+      },
+      {
+        "name": "Confluence link discovery during refine (decision-7 opt-3)",
+        "owner_role": "task_planner→coder",
+        "files": ["refine prompt fragment in _build_phase_prompt"],
+        "delta": "Refine prompt enumerates the three sources: (i) gateway remoteLinks on the epic key; (ii) URL-scrape the epic Description body for Confluence URLs (atlassian.net/wiki/spaces); (iii) for each linked Jira issue (via issueLinks), fetch its remoteLinks too (recursive one level). All gateway-mediated; no new orchestrator code. Refine agent uses confluence_client.get_page / search_cql as needed."
+      }
+    ],
+    "sub_slice_structure_within_option_A": "Single-slice Option-A still benefits from a logical sub-ordering within the implement phase. Suggested sub-task DAG (task_planner consumes this):\n\n1. **Foundation**: Pipeline.mode field + EGG_PIPELINE_MODE env + EpicApplyArtifact pydantic model + epic_apply pipeline-artifact persistence. No behavior change yet.\n2. **GatewayClient shims**: jira_search, get_jira_issue, get_jira_issuetype (only Jira read shims) on orchestrator GatewayClient. Unit-tested against a stub gateway.\n3. **submit_task wiring**: mode param + issuetype detection + reassess child discovery + classification. Routes pipeline.mode at create_pipeline time.\n4. **Prompts**: refine + plan epic-branch fragments in _build_phase_prompt; plan_parser yaml-tasks extension.\n5. **Apply-epic agent**: new agent role; prompt template; sandbox-side gateway-mediated apply (create/edit/link/comment).\n6. **Orchestrator-direct transitions**: shared/egg_jira_orchestrator credentials + transitions module; structured audit log; Won't-Do executor.\n7. **In-flight HITL gate**: signal aggregation + per-ticket gate registration in the apply runner.\n8. **PR-link writeback**: _auto_create_pr post-hook (depends on gateway primitive existence).\n9. **Tests + docs**: integration tests for end-to-end fresh-epic and reassess paths; CLAUDE.md + docs/guides update.\n\nThese sub-tasks share a single PR (decision-1) but the task_planner should still produce the DAG so reviewers can audit sequentially.",
+    "trust_boundaries": [
+      "GATEWAY-MEDIATED WRITES: editJiraIssue (epic Description + child edits), createJiraIssue (new children + splits), createIssueLink (cross-task edges), addCommentToJiraIssue (consolidation redirects), addRemoteLink (PR writeback, if primitive present). Execution context: in-sandbox-agent (apply-epic agent). Gateway audit identity = session token. JiraPolicy.epic_link_field per-site config applies.",
+      "ORCHESTRATOR-DIRECT (no gateway): Won't-Do transitions only. Execution context: trusted-CI-runner (orchestrator). Credentials read from ~/.config/egg/secrets.env via the new shared/egg_jira_orchestrator/credentials.py resolver. NEVER reused for create/edit/link/comment — gateway path is canonical for those. The new credential reader must NOT import from gateway/* (process-boundary symmetry); shared/* is the right home.",
+      "ORCHESTRATOR-DIRECT READS (light): the orchestrator already calls the gateway for git/session ops via GatewayClient; adding three light Jira read shims (issuetype probe, search, get_issue) is a small extension that keeps the trust boundary intact (orchestrator → gateway HTTP → Atlassian). The orchestrator does NOT add a direct Atlassian path for reads.",
+      "HITL GATE BYPASS — NON-BYPASSABLE: the in_flight per-ticket gate is enforced server-side in the apply runner (orchestrator), not in the agent prompt. The agent records the proposed mutation; the apply runner refuses to invoke edit/comment/transition on an in_flight child until the per-ticket HITL is resolved. This is the only way to prevent a buggy agent prompt from bypassing the gate.",
+      "ZERO-CREDENTIAL SANDBOX INVARIANT: the apply-epic agent runs in the sandbox container; it inherits only the gateway session token (no Jira creds). The new shared/egg_jira_orchestrator module runs orchestrator-side only — its secrets file is NEVER mounted into the sandbox."
+    ]
+  },
+
+  "runtime_primitives_audit": {
+    "rationale": "Per issue #2594, plan-phase explicitly audits primitive-existence and trust-boundary scope. Each row names the primitive, file:line evidence, purpose axis (prod/test-only), and execution-context axis (in-sandbox-agent vs trusted-CI-runner).",
+    "primitives": [
+      {"primitive": "submit_task(jira_ticket=...) MCP tool", "evidence": "orchestrator/mcp_tools.py:67-127, 1272-1381", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner (orchestrator handler)", "status": "exists; extend with `mode` param"},
+      {"primitive": "Pipeline.jira_ticket field", "evidence": "orchestrator/models.py:981-1004", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "exists; add sibling .mode field"},
+      {"primitive": "EGG_JIRA_TICKET env var", "evidence": "orchestrator/routes/pipelines.py:19286-19289 (corrected from the refine analysis's wrong line)", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent", "status": "exists; add EGG_PIPELINE_MODE sibling"},
+      {"primitive": "Gateway get_ticket(key, fields, expand)", "evidence": "gateway/jira_client.py:399-422", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent (HTTP via gateway) — also called by orchestrator GatewayClient shim for issuetype probe", "status": "exists; caller reads fields.issuetype.name / fields.status.name / fields.description / fields.parent from raw JSON"},
+      {"primitive": "Gateway search (JQL)", "evidence": "gateway/jira_client.py", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent + orchestrator (via new shim)", "status": "exists; called twice for reassess discovery (parent= AND <epic_link_field>=)"},
+      {"primitive": "Gateway create_issue(... parent, epic_link, epic_link_field)", "evidence": "gateway/jira_client.py:496-583", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent (apply-epic agent)", "status": "exists; mutually-exclusive parent/epic_link choice driven by JiraPolicy.epic_link_field"},
+      {"primitive": "Gateway edit_issue(key, summary, description, ..., idempotency_key)", "evidence": "gateway/jira_client.py:585-656", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent", "status": "exists"},
+      {"primitive": "Gateway add_comment", "evidence": "gateway/jira_client.py:658-692", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent", "status": "exists"},
+      {"primitive": "Gateway create_issue_link(link_type, inward, outward, comment, idempotency_key)", "evidence": "gateway/jira_client.py:694-743", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent", "status": "exists"},
+      {"primitive": "JIRA_WRITE_VERBS_DENIED denylist", "evidence": "gateway/jira_client.py:133-146", "purpose": "deployed-pod (policy)", "execution_context": "gateway", "status": "exists; transitions PERMANENTLY denylisted — drives the orchestrator-direct path"},
+      {"primitive": "JiraPolicy.epic_link_field per-site config", "evidence": "gateway/jira_policy.py:163-170", "purpose": "deployed-pod (config)", "execution_context": "gateway", "status": "exists; reused for decision-2 opt-3 mechanism"},
+      {"primitive": "_build_phase_prompt / _build_agent_prompt", "evidence": "orchestrator/routes/pipelines.py:11039-11689 / :12746+", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "exists; add epic-branch fragments"},
+      {"primitive": "_read_phase_draft", "evidence": "orchestrator/routes/pipelines.py:5531-5560", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "exists; no changes"},
+      {"primitive": "_get_pr_info / _auto_create_pr", "evidence": "orchestrator/routes/pipelines.py:4161-4179 / :9430+", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "exists; _auto_create_pr gets a post-hook for PR-link writeback"},
+      {"primitive": "Confluence client (get_page, search_cql, get_page_descendants)", "evidence": "gateway/confluence_client.py:628, 918, 673", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent", "status": "exists; no changes"},
+      {"primitive": "GatewayClient (orchestrator-side HTTP client)", "evidence": "orchestrator/gateway_client.py:200, factory at :3120", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "exists; ADD three Jira read shims (get_jira_issuetype, jira_search, get_jira_issue)"},
+      {"primitive": "advance_phase / complete_phase routes", "evidence": "orchestrator/routes/phases.py:224, :806", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "exists; ADD apply-epic dispatch hook on refine→plan and plan→implement transitions"},
+      {"primitive": "Plan parser (parse_plan)", "evidence": "shared/egg_contracts/plan_parser.py:1065, parse_plan_file:1234", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "exists; ADD optional fields (existing_key, action, link_edges, in_flight, survivor_rationale)"},
+      {"primitive": "HITL register_open_question", "evidence": "mcp__sdlc__register_open_question (MCP tool); orchestrator/routes/pipelines.py:17915-18100+ (sync + queue + await)", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner (orchestrator side) + in-sandbox-agent (caller side)", "status": "exists; reused as-is for per-ticket in_flight gate"},
+      {"primitive": "_handle_submit_task validation regex ^[A-Za-z][A-Za-z0-9]+-[0-9]+$", "evidence": "orchestrator/mcp_tools.py:1287-1300", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "exists; covers epic keys (Jira epic keys follow the same KEY-N pattern)"},
+      {"primitive": "**(new)** Pipeline.mode field", "evidence": "TBD orchestrator/models.py near line 982", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner + sandbox (via env)", "status": "**to be added** — Literal['auto', 'reassess', 'fresh']"},
+      {"primitive": "**(new)** EpicApplyArtifact pydantic model + .egg-state/pipelines/<id>.json `epic_apply` key", "evidence": "TBD orchestrator/models.py", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "**to be added** — schema in component-breakdown above"},
+      {"primitive": "**(new)** apply-epic agent role", "evidence": "TBD sandbox config", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent", "status": "**to be added** — agent prompt template + role wiring"},
+      {"primitive": "**(new)** shared/egg_jira_orchestrator/credentials.py + transitions.py", "evidence": "TBD new module", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner only", "status": "**to be added** — mirrors gateway/jira_credentials.py resolver pattern; never imported by gateway and never reachable from sandbox"},
+      {"primitive": "**(new)** JiraOrchestratorCredentialsUnavailable exception", "evidence": "TBD new module", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "**to be added**"},
+      {"primitive": "**(new)** Won't Do transition allowlist + workflow-state-name resolver", "evidence": "TBD new module", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "**to be added** — defaults to {'Won\\'t Do', 'Wont Do', 'Won\\'t do'}; operator-configurable"},
+      {"primitive": "**(new)** IN_FLIGHT_STATUSES allowlist", "evidence": "TBD new module", "purpose": "deployed-pod", "execution_context": "trusted-CI-runner", "status": "**to be added** — defaults to {'In Progress', 'In Review', 'Code Review', 'Blocked'}; operator-configurable"},
+      {"primitive": "**(new)** Gateway addRemoteLink verb (PR writeback)", "evidence": "GAP — verify in gateway/jira_client.py whether this primitive exists today", "purpose": "deployed-pod", "execution_context": "in-sandbox-agent", "status": "**TO BE VERIFIED IN PLAN PHASE** — if absent, either add the verb OR use the gateway's execute_raw passthrough OR fall back to add_comment with a PR URL"}
+    ],
+    "purpose_vs_execution_context_axes": {
+      "principle": "Per #2594, the two axes are orthogonal. A primitive can be unit-test-only or production; it can be invoked from in-sandbox-agent or from trusted-CI-runner. Below are the cells that matter for this issue.",
+      "in_sandbox_agent_production_writes": ["gateway create_issue / edit_issue / add_comment / create_issue_link (apply-epic agent path)"],
+      "trusted_ci_runner_production_writes": ["shared/egg_jira_orchestrator/transitions.execute_wont_do (orchestrator-direct path)"],
+      "in_sandbox_agent_production_reads": ["gateway get_ticket / search / confluence_client.* (refine agent path)"],
+      "trusted_ci_runner_production_reads": ["orchestrator-side gateway-shim Jira reads (issuetype probe + reassess discovery at create_pipeline time)"],
+      "unit_test_only": ["test fixtures for ChildClassifier, InFlightDetector, EpicApplyArtifact serialization — all live under tests/ and never deployed"]
+    }
+  },
+
+  "architecture_decisions": [
+    {
+      "id": "ad-1",
+      "title": "Issue-Type Detection — orchestrator-side at create_pipeline time, not lazy in the refine agent",
+      "decision": "Add three Jira read shims on the orchestrator's GatewayClient (get_jira_issuetype, jira_search, get_jira_issue) so submit_task can probe issuetype.name immediately. Why: routing the pipeline through the fresh vs reassess vs ticket branches at create_pipeline time keeps the rest of the orchestrator deterministic. Lazy detection inside the refine agent would push branch-routing into prompt-conditional logic + later env-var write-back, which is much harder to reason about and harder to test.",
+      "trade_off": "Adds three light shim methods to GatewayClient (~30 LOC each). Worth it for determinism."
+    },
+    {
+      "id": "ad-2",
+      "title": "Apply Step Execution — Decision-11 Hybrid implemented as dispatcher hook on advance_phase",
+      "decision": "Refine apply (epic Description) fires from the orchestrator phase-advance dispatcher (on refine→plan); plan apply (children + links + comments) fires from the same dispatcher (on plan→implement). Each apply is implemented as a one-off `apply-epic` agent slice in the sandbox, with the gateway session token providing audit identity. The orchestrator-direct transition helper runs server-side immediately after the apply-epic agent's plan-phase slice completes. Why: keeps the gateway audit story uniform with today's 'agents write through the gateway' pattern; confines the orchestrator-direct credential surface to its single justified caller (transitions).",
+      "trade_off": "Two extra agent invocations per epic pipeline. Acceptable for v1; can be inlined later if cost matters."
+    },
+    {
+      "id": "ad-3",
+      "title": "Idempotency — per-call idempotency_key + epic_apply mapping",
+      "decision": "Every create_issue / edit_issue / create_issue_link / add_comment call carries an idempotency_key derived from sha256(plan_node_id + action + commit_sha[:12]). epic_apply.created_keys / .edited_keys / .link_edges / .wont_do_keys serve as the durable resume marker. On re-apply, the runner checks each entry against the mapping before issuing the gateway call. The gateway already supports the idempotency_key parameter on these verbs (jira_client.py).",
+      "trade_off": "Slightly chatty epic_apply state; mitigated by Pydantic serialization + the existing pipeline-snapshot persistence path."
+    },
+    {
+      "id": "ad-4",
+      "title": "Two-Pass Apply — Create/Edit before Link",
+      "decision": "Pass 1: all create/edit/comment calls. Pass 2: all create_issue_link calls. Why: every link needs both endpoints to exist. Won't-Do transitions can fire in Pass 1 (transitions don't depend on links) but only AFTER any consolidation-survivor edit and after per-ticket in_flight HITL resolves.",
+      "trade_off": "Marginal latency cost; correctness gain is decisive."
+    },
+    {
+      "id": "ad-5",
+      "title": "Concurrent-Edit Guard on Epic Description — fetch-and-diff (v1)",
+      "decision": "Apply-epic agent fetches the current Description before calling edit_issue. Computes sha256 of the fetched body. If it diverges from the snapshot the refine agent saw (recorded as epic_apply.refine_description_sha256), registers an mcp__sdlc__register_open_question with the diff and pauses apply until operator resolves. Why: the gateway does not support optimistic-concurrency (If-Match ETag) on edit_issue today; fetch-and-diff is the minimum bar against silent overwrites of manual edits.",
+      "trade_off": "Two round-trips per refine apply (fetch + edit). Acceptable; optimistic-concurrency is a future follow-up."
+    },
+    {
+      "id": "ad-6",
+      "title": "Orchestrator Jira Credential Module Location — shared/egg_jira_orchestrator/",
+      "decision": "New shared/egg_jira_orchestrator/credentials.py + transitions.py mirroring gateway/jira_credentials.py's resolver pattern but in a separate package importable by orchestrator/* only. Reads ~/.config/egg/secrets.env (or EGG_SECRETS_PATH). Does NOT import from gateway/*. Why: process-boundary symmetry — the orchestrator and gateway are separate processes; the orchestrator gets its own credential reader that happens to read the same file.",
+      "trade_off": "Modest code duplication with gateway/jira_credentials.py. Worth it for the trust-boundary clarity."
+    },
+    {
+      "id": "ad-7",
+      "title": "In-Flight Gate Enforcement — Server-Side, Not Prompt-Side",
+      "decision": "The apply-epic agent records the proposed mutation per in_flight child. The orchestrator-side apply runner checks in_flight at apply time (status / open-PR can change between plan approval and apply) and refuses to invoke any mutating call on an in_flight child until the per-ticket HITL gate is resolved. The agent prompt frames the gate informationally; enforcement is server-side. Why: a buggy or prompt-injected agent must not be able to bypass the gate.",
+      "trade_off": "Requires the apply runner to re-fetch status before each mutation. Acceptable cost; mitigated by batching status fetches per pipeline run."
+    },
+    {
+      "id": "ad-8",
+      "title": "Plan Mapping Persistence — Pipeline Artifact, Not Plan Draft",
+      "decision": "epic_apply lives on .egg-state/pipelines/<id>.json (Pipeline pydantic field), not inline yaml-frontmatter in the plan draft (which was the architect-recommended fallback). The operator-resolved decision-10 stands; matches today's pr_url pattern; survives plan-draft rewrites.",
+      "trade_off": "None — operator-resolved decision."
+    },
+    {
+      "id": "ad-9",
+      "title": "Reassess Discovery — Two-Query JQL, Tolerate-400, Merge",
+      "decision": "Single disjunctive JQL of the form `parent = <K> OR \"Epic Link\" = <K>` returns HTTP 400 when one custom field is missing on the searched project. Use two separate queries, tolerate per-query 400s, merge results. The second query (`<epic_link_field> = <EPIC>`) is skipped as a tautology when JiraPolicy.epic_link_field == 'parent'.",
+      "trade_off": "Two queries per epic; rate-limit cost is trivial."
+    },
+    {
+      "id": "ad-10",
+      "title": "Done-Children Surfacing — Footer Audit Note in Plan Draft",
+      "decision": "Decision-4 excludes Done children from the plan prompt. They are surfaced only as a one-line plan-draft footer ('Done children left untouched: X, Y, Z') so the operator sees the full reassessment picture without inviting agent re-planning.",
+      "trade_off": "None — operator-resolved decision; footer note is mechanical."
+    }
+  ],
+
+  "interfaces": {
+    "submit_task_new_param": "mode: Literal['auto', 'reassess', 'fresh'] = 'auto' (MCP schema + Pipeline model)",
+    "epic_apply_artifact_schema": {
+      "refine_description_sha256": "str — sha256 of the epic Description the refine agent saw",
+      "applied_refine_at": "datetime | None — apply timestamp for refine sink",
+      "created_keys": "dict[plan_node_id: str, jira_key: str] — net-new children (action=create or split)",
+      "edited_keys": "dict[plan_node_id: str, jira_key: str] — existing children edited in place",
+      "wont_do_keys": "list[{key: str, transition_id: str, at: datetime, http_status: int}]",
+      "link_edges": "list[{from_key: str, to_key: str, link_type: str, idempotency_key: str, applied_at: datetime}]",
+      "consolidation_redirects": "list[{survivor_key: str, redirected_key: str, comment_at: datetime}]",
+      "in_flight_gate_resolutions": "list[{key: str, mutation: str, hitl_decision_id: str, resolved: bool, decision: str}]",
+      "idempotency_seed": "str — commit_sha[:12] at plan-approval time"
+    },
+    "gateway_client_new_shims": [
+      "get_jira_issuetype(key: str) -> str | None",
+      "jira_search(jql: str, fields: list[str], max_results: int = 50) -> list[dict]",
+      "get_jira_issue(key: str, fields: list[str] = ('status', 'issuetype', 'parent', 'description', 'remoteLinks')) -> dict"
+    ],
+    "yaml_tasks_extension_fields": [
+      "existing_key: str | None — Jira key for reassess (None for net-new)",
+      "action: Literal['create', 'edit', 'consolidate_survivor', 'consolidate_redirected', 'split_origin', 'split_new', 'wont_do', 'untouched']",
+      "link_edges: list[{target_node_id: str, link_type: Literal['Blocks', 'Is blocked by', 'Relates to'], rationale: str}]",
+      "in_flight: bool",
+      "in_flight_signal_source: list[Literal['status', 'orch_pipeline_pr', 'remote_link']] — when in_flight is True",
+      "survivor_rationale: str | None — for action == consolidate_survivor"
+    ]
+  },
+
+  "open_questions_for_plan_phase": [
+    {
+      "id": "oq-1",
+      "question": "Does the gateway expose an addRemoteLink verb on Jira tickets today? Feedback Q4 (PR-link writeback) needs it. Verify by reading gateway/jira_client.py for 'remote', 'addRemoteLink', or grep gateway/routes for /jira/.../remotelink. If absent: (a) extend the gateway with this verb (small) OR (b) use the gateway's execute_raw passthrough OR (c) fall back to add_comment with the PR URL. Plan should land (a) if missing; (c) is the no-fallback fallback.",
+      "blocking": false,
+      "owner": "task_planner"
+    },
+    {
+      "id": "oq-2",
+      "question": "Should the orchestrator's GatewayClient.jira_search shim cap max_results, or stream/paginate? An epic with 200 children could hit single-page limits. Recommend: cap at 100 per call + cursor-paginate via gateway's existing pagination support.",
+      "blocking": false,
+      "owner": "task_planner"
+    },
+    {
+      "id": "oq-3",
+      "question": "Where exactly does the apply-epic agent slice get spawned from? Today's slice scheduler lives in orchestrator/routes/pipelines.py around _create_slice_pipeline. Need to confirm whether 'one-off agent slice' = a real new sliced pipeline or a synchronous in-process agent invocation. Recommend: a synchronous agent invocation (NOT a new pipeline) — it shares the parent pipeline_id + branch + state and is short-lived.",
+      "blocking": true,
+      "owner": "task_planner"
+    },
+    {
+      "id": "oq-4",
+      "question": "How does the apply-epic agent get the gateway session token? Today's sandbox containers receive a session token via GatewayClient.register_session. The apply-epic agent needs the same plumbing — confirm that register_session can be invoked from a non-implement-phase context, or whether a separate session-token plumbing is needed for refine/plan apply runs.",
+      "blocking": true,
+      "owner": "task_planner"
+    },
+    {
+      "id": "oq-5",
+      "question": "Does the orchestrator-direct transition helper need a dedicated principal (e.g. egg-orchestrator-bot@…)? Or does it reuse ATLASSIAN_USERNAME? Feedback Q1 says reuse, but operators may want a distinct identity for transitions so the audit trail is clearer. Plan can land 'reuse ATLASSIAN_USERNAME by default; allow EGG_ORCH_JIRA_USERNAME override' to give both paths.",
+      "blocking": false,
+      "owner": "task_planner"
+    },
+    {
+      "id": "oq-6",
+      "question": "Reassess child discovery + classification adds latency at submit_task time (issuetype probe + two JQL queries + one get_ticket per child). For an epic with 50 children, that's ~52 gateway calls. Plan should decide: (a) do this synchronously at submit_task (blocks the caller); (b) defer to refine-phase entry and surface progress; (c) split into a 'discovery' microphase. Recommend (a) for v1 — the caller is the operator's host session which can wait a few seconds. Re-evaluate if the latency materializes as a complaint.",
+      "blocking": false,
+      "owner": "task_planner"
+    }
+  ],
+
+  "test_strategy_hooks": {
+    "unit": [
+      "EpicApplyArtifact pydantic serialization round-trip",
+      "ChildClassifier OR-semantics for in_flight (status / pr_url / remote_link cells)",
+      "JiraOrchestratorCredentialsManager — secrets.env precedence (ATLASSIAN_* over JIRA_*)",
+      "Two-query JQL discovery — tolerate 400 on missing custom field, merge results",
+      "plan_parser parse_plan round-trips with new optional fields and existing tests still pass",
+      "submit_task accepts and validates the new `mode` param (auto/reassess/fresh) and rejects unknown values",
+      "Won't-Do transition allowlist + workflow-state-name → transition_id resolution"
+    ],
+    "integration": [
+      "End-to-end fresh epic (no children): submit_task <EPIC-KEY> → refine produces analysis → HITL approve → epic Description written → plan produces 3-node decomposition → HITL approve → 3 children created + 2 links + 0 transitions",
+      "End-to-end reassess: epic with 5 children (2 To Do, 1 In Progress, 1 Done, 1 stale) → discovery classifies correctly → plan diff shows {updated: 2, consolidated: 1 → 1 survivor + 1 redirect, in_flight: 1 (per-ticket HITL gate), untouched: 1 Done, wont_do: 0 (operator approves the survivor consolidation but skips wont_do on the in_flight one)} → apply step idempotent on re-run",
+      "Concurrent-edit guard: manually edit the epic Description between refine kick-off and apply; verify the divergence HITL fires",
+      "In-flight gate non-bypass: agent emits a wont_do for an in_flight child; apply runner refuses until per-ticket HITL is resolved",
+      "PR-link writeback: implement a child → PR opens → remoteLink appears on the child key (if oq-1 lands gateway primitive)"
+    ],
+    "trust_boundary_assertions": [
+      "Sandbox container never sees ATLASSIAN_API_TOKEN / JIRA_API_TOKEN in env (existing test pattern continues to assert)",
+      "shared/egg_jira_orchestrator is imported only by orchestrator/*, never by gateway/* or sandbox/*",
+      "JIRA_WRITE_VERBS_DENIED denylist still rejects transitions called through the agent path (regression guard)"
+    ]
+  },
+
+  "risks_for_risk_analyst": [
+    "R1 — Orchestrator-direct credential surface is novel; mistakes here are credential-leak risks. Mitigation: shared/egg_jira_orchestrator never imported by sandbox-bound code; tests assert the import boundary.",
+    "R2 — Won't-Do transition could fire on the wrong child (e.g. agent misclassifies). Mitigation: server-side in_flight re-check at apply time; transition allowlist constrained to Won't-Do-equivalent states; structured audit log per transition.",
+    "R3 — Bulk-create rate-limit pressure at apply time (epic with 30+ children). Mitigation: serialize gateway calls; reuse gateway's existing rate-limit retry; defer bulk-create endpoint to a follow-up.",
+    "R4 — Concurrent-edit silent overwrite of operator's epic Description edit. Mitigation: ad-5 fetch-and-diff + divergence HITL.",
+    "R5 — In-flight gate bypass via buggy agent prompt. Mitigation: ad-7 server-side enforcement, not prompt-side.",
+    "R6 — Plan-node → key mapping corruption (manual edits to .egg-state/pipelines/<id>.json). Mitigation: Pydantic schema validation on load; re-apply path is idempotent so a wiped mapping just re-creates (with new keys — potential duplicate-ticket risk, see R7).",
+    "R7 — Mapping wipe + re-apply duplicates Jira tickets. Mitigation: idempotency_key derived from plan_node_id + commit_sha gives the gateway a dedupe handle for re-creates within the same plan commit; cross-commit dedupe requires the mapping (so the operational guidance is 'never wipe the mapping').",
+    "R8 — Per-site Epic Link field misconfiguration causes silent hierarchy break (children created without parent). Mitigation: apply step verifies the configured field is set on the create_issue response; fails loud if missing.",
+    "R9 — Custom link types like 'Blocks' / 'Is blocked by' may not exist in every project. Mitigation: fail-soft (log + skip + record in epic_apply.link_edges with applied_at=None); operator sees the report in the plan-apply summary.",
+    "R10 — Cross-task DAG cycles in agent output. Mitigation: plan parser validates the link_edges form a DAG (topological-sort check); cyclic plan rejected with a NACK message.",
+    "R11 — Reassess discovery latency on huge epics (200+ children) blocks submit_task. Mitigation: max_results cap + cursor pagination + a configurable discovery cap (default 200). Beyond cap: error with a clear operator message.",
+    "R12 — JiraPolicy.epic_link_field operator misconfig (typo). Mitigation: gateway already allowlists via _VALID_EPIC_LINK_FIELDS — invalid values rejected at gateway startup."
+  ],
+
+  "complexity_assessment": {
+    "level": "high",
+    "rationale": "Touches MCP tool surface, two phase prompts, a brand-new apply step pattern, a new credential surface, in-flight detection across three signals, per-ticket HITL gating, idempotent mapping persistence, and trust-boundary changes across orchestrator/gateway/sandbox. Mitigated by all hard prerequisites being landed and by the resolved 12 decisions narrowing the design space significantly."
+  },
+
+  "next_steps_for_peers": {
+    "task_planner": "Convert the component-breakdown (9 components) into yaml-tasks. Honor the sub-slice ordering (1→9) inside the single slice. Each task should name file:line targets from the runtime_primitives_audit. Resolve oq-3 and oq-4 (apply-epic agent slice plumbing + session token) before finalizing the apply-step tasks.",
+    "risk_analyst": "Score R1–R12 (and add anything missed). Pay special attention to R1, R2, R5 (security-adjacent), and R11 (UX/perf at scale). Cross-check ad-5 (concurrent-edit guard) sufficiency — is fetch-and-diff really enough for v1, or should we treat any divergence as a hard fail rather than a HITL?",
+    "reviewer_plan": "Audit primitive-existence claims in runtime_primitives_audit (especially the 'new' rows + the GAP row oq-1 addRemoteLink). Audit trust-boundary partitioning (gateway vs orchestrator-direct vs sandbox). Confirm decision-11 hybrid is implemented as ad-2 specifies (dispatcher hook → apply-epic agent slice → orchestrator-direct transitions)."
+  }
+}

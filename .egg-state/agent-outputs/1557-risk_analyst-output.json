@@ -1,0 +1,438 @@
+{
+  "issue": 1557,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: Add SDLC pipeline support for Jira epics (single-slice, hybrid apply-step execution)",
+  "summary": "Technical risk assessment for the single-slice Option-A delivery covering submit_task epic-input + issue-type detection, refine/plan prompt tweaks, refine apply (epic Description sink), plan apply (createJiraIssue + createIssueLink), orchestrator-direct Won't-Do transitions, reassess-specific planning (consolidate/split/diff), in-flight detection with per-ticket HITL gating, and the dedicated apply-epic agent (decision-11 hybrid: gateway-mediated writes from agent for non-transition verbs, orchestrator-direct only for transitions). Overall risk is HIGH because the work pierces the orchestrator's zero-credential invariant for the Won't-Do transition path — explicitly accepted in feedback-1 Q1, but architecturally novel and the most-quoted invariant in the codebase. Six risks (R1, R2, R6, R7, R10, R12) require explicit operator review or design decisions before implement begins; the remaining risks are mitigable with disciplined plan-phase task allocation and reviewer NACK criteria.",
+
+  "overall_risk_level": "HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Orchestrator-direct Jira credential surface pierces the zero-credential invariant",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "Adding Jira credentials to the orchestrator process violates the documented and test-enforced invariant 'orchestrator container never sees API keys'. Once introduced for transitions, the surface tends to grow (future Jira verbs, future third-party services); the test guarding the invariant (orchestrator/tests/test_start_pipeline.py:1450-1456) will need explicit narrowing (i.e. 'orchestrator MAY read Jira creds but MUST NOT inject them into sandbox_env') and any drift in that narrowing is a quiet path to credential leakage into agent containers.",
+      "description": "Today the orchestrator holds zero third-party credentials by construction. The test at orchestrator/tests/test_start_pipeline.py:1450-1456 explicitly asserts that orchestrator/routes/pipelines.py never writes JIRA_BASE_URL / JIRA_USERNAME / JIRA_API_TOKEN into sandbox_env, and the assertion message cites 'zero-credential invariant (issue #1556 risk R7)' verbatim. docs/architecture/credential-injection.md:1-8 declares 'Container never sees API keys, OAuth tokens, or GitHub tokens'. Issue #1557 requires the orchestrator to perform `POST /rest/api/3/issue/{key}/transitions` directly because `transitions` is on the gateway's permanent denylist (gateway/jira_client.py:133-146, double-gated at validate_jira_api_path lines 247 + 276). Feedback-1 Q1 sets the direction: reuse the existing ~/.config/egg/secrets.env file (the same one the gateway already reads via gateway/jira_credentials.py:56-59) with the same ATLASSIAN_*/JIRA_* precedence (gateway/jira_credentials.py:154-177). That path is the lowest-impact choice but it has three sharp edges: (a) the orchestrator container must mount the host's secrets.env or the operator must provision an orchestrator-local copy — neither is set up today; (b) the existing zero-credential test must be revised to allow Jira creds at the orchestrator-process level while still forbidding sandbox_env injection — easy to get wrong; (c) the orchestrator gains a new cred-rotation responsibility (gateway/jira_credentials.py:242-249 reload_jira_credentials() pattern must be ported or referenced).",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/tests/test_start_pipeline.py",
+        "docs/architecture/credential-injection.md",
+        "shared/egg_orchestrator/jira_transitions.py",
+        "gateway/jira_credentials.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan must explicitly tightly scope the orchestrator-direct cred path: (1) Reuse gateway/jira_credentials.py's parse_env_file + ATLASSIAN_*/JIRA_* precedence by importing it from a shared submodule rather than reimplementing — single source of truth for parsing; (2) place the orchestrator-direct transition helper in a NEW module (e.g. shared/egg_orchestrator/jira_transitions.py) whose ONLY public verb is `transition_issue(key, transition_name)` — no edit/create/link/comment, so future scope expansion requires touching a deliberately small module and triggers reviewer attention; (3) revise the zero-credential test at orchestrator/tests/test_start_pipeline.py:1450-1456 to assert two distinct properties — (a) orchestrator MAY read Jira creds from the same secrets.env file as the gateway, (b) orchestrator MUST NOT propagate JIRA_BASE_URL/JIRA_USERNAME/JIRA_API_TOKEN/ATLASSIAN_BASE_URL/ATLASSIAN_USERNAME/ATLASSIAN_API_TOKEN into sandbox_env; (4) emit a structured audit log line per transition with `{operation: 'jira_transition', epic_key, child_key, from_status, to_status, principal, idempotency_key, pipeline_id}` matching gateway/phase_transition.py:249-273 schema; (5) document the new invariant boundary in docs/architecture/credential-injection.md and link to the test; (6) reviewer_plan should treat omission of any of (1)-(5) as a blocking NACK.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — even with tight scoping the new surface exists and must be maintained. Future contributors may not understand why the orchestrator MAY read Jira creds but MUST NOT pass them; the test+docs pair is the principal guardrail."
+      },
+      "requires_human_review": true,
+      "review_reason": "The operator has accepted the cred-surface direction in feedback-1 Q1 but the plan needs explicit operator sign-off on the *narrowing* of the existing zero-credential test. Specifically: does the operator want the orchestrator-side cred path gated behind a feature flag (e.g. `EGG_ENABLE_ORCH_JIRA_TRANSITIONS=true`) so default-off installs preserve the strict invariant, or is the new path simply always-on once creds are present? Plan should surface this as a follow-up HITL decision before implement."
+    },
+    {
+      "id": "R2",
+      "title": "`apply-epic` agent role is not yet defined — primitive-existence audit will flag (#2594)",
+      "category": "primitive_existence",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "The plan's hybrid execution model (decision-11 opt-3) names a dedicated apply-epic agent that does NOT exist in shared/egg_contracts/agent_roles.py AgentRole enum today, is not in get_roles_for_phase()'s plan roster, and has no AgentRoleDefinition entry. The reviewer_plan phase-audit at #2594 will (correctly) flag this as a missing runtime primitive and NACK the plan unless the plan explicitly schedules the role registration as a contract task with file:line evidence.",
+      "description": "shared/egg_contracts/agent_roles.py:46-88 enumerates the canonical AgentRole values (ARCHITECT, TASK_PLANNER, RISK_ANALYST, REFINER, REVIEWER_*) and shared/egg_contracts/agent_roles.py:149 defines AgentRoleDefinition with file-write boundaries. Grep finds zero matches for 'APPLY_EPIC' or 'apply_epic' across the repository. The plan-phase roster at get_roles_for_phase() (shared/egg_contracts/agent_roles.py:1285-1328) likewise has no slot. Decision-11's chosen path requires this agent to exist as a first-class role with: (a) an AgentRole enum entry; (b) an AgentRoleDefinition with file-write boundaries permitting `editJiraIssue`/`createJiraIssue`/`createIssueLink`/`addCommentToJiraIssue` callouts (gateway calls — no file writes per se, but the role still needs a sandbox spawner branch); (c) registration in get_roles_for_phase() either as part of plan or as a new post-plan apply phase; (d) a prompt template (analogous to today's plan/refine prompt builders); (e) sandbox container provisioning that mounts the gateway socket — the same as existing agents but possibly with additional secret hooks for the orchestrator-direct transition signal. Without these pieces explicitly scheduled, implement-phase will hit the missing-role gap and either fail or silently fall back to an existing role doing things outside its boundary.",
+      "affected_files": [
+        "shared/egg_contracts/agent_roles.py",
+        "orchestrator/routes/pipelines.py",
+        "shared/egg_agent/prompts/",
+        "sandbox/"
+      ],
+      "mitigation": {
+        "strategy": "Task-planner MUST allocate explicit contract tasks for: (1) Add APPLY_EPIC to the AgentRole enum at shared/egg_contracts/agent_roles.py:46-88 with full AgentRoleDefinition (boundaries, role description, included tools); (2) Register the role in get_roles_for_phase() — recommend a NEW pseudo-phase 'apply' (or 'plan_apply') rather than overloading 'plan' so the BRC consensus surface stays clean (the apply step is producer-only with no co-running reviewer); (3) Create a prompt template at shared/egg_agent/prompts/apply_epic.* that reads the approved plan-draft YAML mapping, the in-flight decision resolutions, and the consolidation/split survivor selections, then issues the gateway calls in the prescribed order (create -> link -> comment); (4) Add a sandbox spawner branch in orchestrator/routes/pipelines.py if the apply-epic agent has different mount/env requirements; (5) Reviewer_plan should treat the absence of any of (1)-(4) from the contract tasks as a blocking NACK at primitive-existence audit time. If the apply-epic step is small enough to merit a single hardcoded function rather than a full agent role (which is the issue's original 'apply step' framing rather than 'apply agent'), decision-11's resolution must be revisited — the operator picked opt-3 'dedicated apply-epic agent' explicitly, so this fallback should escalate to HITL.",
+        "effort": "MEDIUM-HIGH (new role + new pseudo-phase) | LOW (if a function-only apply step is acceptable, contradicting decision-11)",
+        "residual_risk": "LOW — once the contract tasks are present the primitive will exist by the time the apply step runs. The residual is operator-side: a new pseudo-phase is a real surface-area change to the orchestrator's phase machine."
+      },
+      "requires_human_review": true,
+      "review_reason": "The plan-phase choice between 'a new APPLY_EPIC agent role + new apply pseudo-phase' vs 'orchestrator-internal apply function called post-plan-approval' is a concrete architectural decision implied but not directly named by decision-11. Decision-11 says 'dedicated apply-epic agent' which strongly suggests the role+phase route, but the cost is non-trivial (new AgentRole entry + new phase + new prompt + new sandbox spawner branch + new BRC schema for apply). Plan-phase should either confirm the role+phase route in writing or register a fresh HITL to escalate the cost-benefit before implement begins."
+    },
+    {
+      "id": "R3",
+      "title": "In-flight detection requires O(N) iteration over all pipelines — no reverse index by child key",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "Reassess-path plan phase must determine, for every pre-existing child ticket, whether the orchestrator already has an in-flight pipeline for that key (the canonical 'open PR' signal per decision-8's OR semantics with source-logging). Today's state store offers only StateStore.list_pipelines() + StateStore.load_pipeline(id), so the detection walks every pipeline on disk and parses its phases.pr.artifacts. For an epic with 30+ children on a host that has run 1000+ pipelines historically, the disk reads dominate refine/plan wall-clock.",
+      "description": "orchestrator/state_store.py:1164-1173 exposes list_pipelines() returning all pipeline IDs (file scan on .egg-state/pipelines/) and load_pipeline(id) at line 634-659 (per-file JSON load + Pydantic validation). _get_pr_info() at orchestrator/routes/pipelines.py:4161-4179 reads pr_url from phases['pr'].artifacts['pr_url']. There is NO reverse index keyed by jira_ticket or pipeline_id-as-child-key; the in-flight sweep must iterate ALL pipelines, filter by jira_ticket field, and inspect each one's pr-phase artifacts. The plan-prompt build also has to do this BEFORE prompting the agent (the in-flight annotation has to appear in the plan-prompt context), so the latency is on the critical path of plan-phase startup. For small hosts (10 pipelines) this is unnoticeable; for long-lived hosts the cost compounds.",
+      "affected_files": [
+        "orchestrator/state_store.py",
+        "orchestrator/routes/pipelines.py",
+        "shared/egg_orchestrator/in_flight_detection.py"
+      ],
+      "mitigation": {
+        "strategy": "Two options, in increasing cost: (A) ACCEPT THE O(N) COST FOR V1 — list_pipelines() is fast (directory listing); load_pipeline() per file is bounded by JSON size (~few KB each); even 1000 pipelines should complete in <2 s. Document the bound in a comment, add an integration test that exercises a 100-pipeline scenario, and ship. (B) ADD A LIGHTWEIGHT INDEX — extend StateStore with a new method `find_pipelines_by_jira_ticket(key) -> list[Pipeline]` backed by either an in-memory cache rebuilt on startup or a separate index file (.egg-state/indexes/by-jira-ticket.json) maintained incrementally on every save_pipeline. Option B is the right long-term answer but introduces a new state file + invalidation discipline. Recommendation: ship (A) with an integration test asserting a 100-pipeline iteration completes in <500 ms wall-clock; promote to (B) if real-world reassess sweeps exceed 5 s.",
+        "effort": "LOW (A) | MEDIUM (B)",
+        "residual_risk": "LOW (A on small hosts) | MEDIUM (A on long-lived hosts, mitigated by integration-test bound)"
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "Project-allowlist + per-site epic_link_field config can deny reassess child-discovery JQL on misconfigured projects",
+      "category": "configuration",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Reassess's child-discovery sweep issues two JQL queries — `parent = <EPIC>` and `<epic_link_field> = <EPIC>` (per the refine analysis's primitive table). The search verb rejects queries whose project keys are not in the operator's allowlist (gateway/jira_search.py:55-128). If the epic's project is not on the allowlist, the reassess sweep returns zero children and the plan-phase silently treats the epic as 'fresh' — every pre-existing child becomes a candidate for re-creation, leading to duplicate child tickets in Jira.",
+      "description": "gateway/jira_search.py:120-126 rejects with `jira_search_rejected` when any extracted project key is not in `allowed`. The allowlist is operator-configured via JIRA_POLICY_YAML (gateway/jira_policy.py:98-193, sibling to epic_link_field). If the operator allowlists project FOO for `search` but not project BAR, and someone runs `submit_task BAR-1234`, the child-discovery JQL `parent = BAR-1234` will be rejected — but the orchestrator may not have a clean way to surface this in the plan-prompt. The same risk applies to the epic_link_field: if a site's epic_link_field is misconfigured (e.g. pointing at a custom field that exists in project FOO but not project BAR), the second JQL returns HTTP 400 from Atlassian. The refine analysis correctly identified the merge-and-tolerate-400 pattern; the plan must surface BOTH the search-rejected (gateway policy) AND the upstream-400 (Atlassian) cases distinctly so a misconfigured allowlist doesn't silently downgrade to fresh-path.",
+      "affected_files": [
+        "gateway/jira_search.py",
+        "gateway/jira_policy.py",
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan must require: (1) submit_task with a Jira-epic key MUST probe the gateway's child-discovery JQL paths during pipeline initialization (before refine runs) and fail-fast with an actionable error if BOTH queries are rejected by the gateway (allowlist miss). The error message must name the missing allowlist entry verbatim. (2) If exactly ONE of the two queries is rejected (e.g. parent-only allowlisted but custom-field path not), the pipeline should LOG-AND-PROCEED rather than fail — the merge-and-tolerate semantics from refine analysis already accommodate this. (3) For the Atlassian-400 case (field missing in the project), the apply step must distinguish 'field-missing' from other 400 errors and log them at WARN; do not treat them as fatal. (4) Reviewer_plan should NACK if the plan doesn't include integration-test fixtures covering: (a) project-not-allowlisted, (b) one-path-allowlisted-other-rejected, (c) Atlassian-400-on-field-missing. (5) Document JIRA_POLICY_YAML expectations in the operator setup story so an operator running submit_task for a new project knows to allowlist it first.",
+        "effort": "LOW-MEDIUM",
+        "residual_risk": "LOW — once the fail-fast + log-and-proceed split is in place, misconfiguration produces a clear error rather than data corruption."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "Jira write idempotency is in-process + 5-min TTL — re-runs across phases or process restarts may create duplicate child tickets",
+      "category": "data_integrity",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "The gateway's Jira-write idempotency cache (gateway/jira_idempotency.py:66-143) is in-memory single-process with a 5-minute TTL. If the apply step partially completes (e.g. creates 3 of 10 children, then crashes), a re-run more than 5 minutes later — OR a re-run on a different gateway pod, OR a re-run after a gateway restart — will NOT see the existing idempotency keys and will re-issue createJiraIssue calls. Each successful re-issue produces a NEW child ticket in Jira (gateway create_issue cannot dedupe via Jira itself; Jira has no upsert). The 'plan-node → key mapping' artifact (decision-10) is meant to be the long-lived dedup, but if the apply step doesn't read the mapping BEFORE calling create_issue, the local idempotency cache won't save it.",
+      "description": "gateway/jira_idempotency.py:66 sets IDEMPOTENCY_TTL_SECONDS=300 (5 min). The cache is keyed on the verb + project_key + key tuple and lives in process memory (gateway/jira_idempotency.py:83-143). At-most-once semantics (line 46) mean 429s are NOT retried for write verbs. Concurrent miss scenarios (line 37-40) accept last-write-wins. The plan-node → key mapping per decision-10 is the operator-selected dedup store (pipelines.<id>.json under phases.plan.artifacts.epic_apply). For this to be correct the apply-epic agent MUST: (a) read the mapping FIRST; (b) skip any plan-node whose mapping entry has a non-empty Jira key; (c) write back the mapping ATOMICALLY after each successful create. Skipping (a)-(c) — for example, by relying on the gateway's idempotency cache alone — guarantees duplicate ticket creation under any of the four scenarios above.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "shared/egg_agent/prompts/apply_epic.*",
+        ".egg-state/pipelines/<id>.json"
+      ],
+      "mitigation": {
+        "strategy": "Plan must require the apply-epic agent to implement a strict 'mapping-first' protocol: (1) Read phases.plan.artifacts.epic_apply at the start of apply, deserialize the plan-node → key mapping; (2) For each plan node, BEFORE calling createJiraIssue, check whether the mapping already has a non-empty Jira key — if so, skip the create entirely (consider it the dedup); (3) After each successful createJiraIssue response, immediately persist the (node-id, jira-key) pair back to the mapping artifact via a small orchestrator-side write helper (since phases.<phase>.artifacts is dict[str,str], the mapping must be JSON-serialized into a string value — call this out in the schema notes); (4) The same protocol applies to createIssueLink (key the mapping entry on `(src_node, dst_node, link_type)`) and addCommentToJiraIssue (key on `(survivor_key, redirect_to_key)`); (5) edit_issue is naturally idempotent (last-write-wins semantically equals the planned state). Reviewer_plan should NACK the plan if the mapping-first protocol is not specified in the apply-epic prompt template or task acceptance criteria. Note: phases.<phase>.artifacts is dict[str,str] per orchestrator/models.py:363-384 — the mapping must be JSON-stringified before writing; the plan should specify the exact JSON schema.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW — once the mapping-first protocol is implemented and the apply step is the only writer, re-runs across process boundaries are safe. Risk converts to a documentation+enforcement concern (always mapping-first, never gateway-idempotency-only)."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Won't-Do transition is permanent and not rolled back — incorrect classification leaves obsolete tickets stuck",
+      "category": "data_integrity",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "Decision-3 chose batch-on-plan-approval for Won't-Do transitions on non-in-flight obsolete children. If the agent misclassifies a still-relevant child as 'obsolete', the orchestrator-direct transition fires and the ticket lands in Won't Do. Reversing a Jira workflow transition requires either an inverse transition (if the operator's workflow has one) or manual intervention; there is no orchestrator-side undo. For an epic with comments / linked tickets / dependent work, the human cost of recovering a wrongly-Won't-Done child is high.",
+      "description": "Decision-3's resolution mandates 'Single plan approval applies all Won't Do transitions atomically; operator sees the obsolete list in the plan draft and approves wholesale.' The HITL gate is the plan-draft diff, not a per-ticket confirmation (per-ticket is reserved for in-flight tickets per decision-8). The operator IS in the loop — they see the obsolete list and approve — but the granularity is coarse: approving the plan approves all transitions. Plan-draft fidelity matters: if the diff renders all 30 candidates in a single block, the operator may approve without scrutinizing each one. The transition itself is irreversible without operator workflow knowledge; orchestrator's transition helper cannot un-transition. The HITL surface for plan approval today (the .egg-state/drafts/<id>-plan.md doc) is not optimized for per-row scrutiny — it's a single markdown file that the operator reads top-to-bottom.",
+      "affected_files": [
+        ".egg-state/drafts/<id>-plan.md",
+        "shared/egg_orchestrator/jira_transitions.py",
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan must require the plan-draft to render the Won't-Do candidates with: (a) explicit section header `## Tickets to be transitioned to Won't Do` near the top of the file (not buried at the end); (a-2) per-row REASON (the agent's specific evidence for why the child is obsolete — e.g. 'scope already covered by Refined Description section X'); (b) per-row warning '⚠ This transition is permanent and not auto-reversed'; (c) the operator's existing edit-the-draft escape hatch is preserved — operator can delete lines from the candidates list to skip individual transitions before approving the plan. Reviewer_plan should NACK if any of (a)-(c) is missing from the plan prompt's output spec. Additionally, the orchestrator-side transition helper must (d) log the operator's plan-draft commit SHA alongside each transition (so the audit trail includes 'approved as of this draft revision') and (e) tolerate transition-already-done idempotently (Jira will reject if the workflow doesn't permit the same transition twice; treat the rejection as success-on-retry). Plan should also surface this risk explicitly in the operator-facing plan summary so an operator approving without per-row scrutiny knows the cost.",
+        "effort": "LOW",
+        "residual_risk": "MEDIUM — the human-in-the-loop is the principal mitigation; agent misclassification combined with operator inattention is the residual exposure. The plan-draft formatting changes lower but do not eliminate that exposure."
+      },
+      "requires_human_review": true,
+      "review_reason": "Decision-3 was chosen as batch-on-approval rather than per-ticket-HITL, accepting the friction-vs-safety tradeoff. The plan should re-surface the cost (permanent, no rollback) in the plan-draft template so the operator's wholesale-approve gesture is informed. Recommend reviewer_plan ACKs only if the plan prompt template explicitly emits the ⚠-warning and per-row reasons."
+    },
+    {
+      "id": "R7",
+      "title": "Trust-boundary: the `transitions` denylist is per-verb, not per-domain — orchestrator-direct path must not re-grow gateway surface",
+      "category": "trust_boundary",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "Once an orchestrator-side helper exists to call `POST /rest/api/3/issue/{key}/transitions`, the path of least resistance for future Jira write needs (e.g. attachments, worklog, watchers — ALL on the same hard denylist at gateway/jira_client.py:133-146) is to extend the helper rather than re-litigate the denylist. Each extension is a new violation of the trust boundary the gateway exists to enforce.",
+      "description": "gateway/jira_client.py:133-146 denies four path segments — `transitions`, `worklog`, `attachments`, `watchers` — as JIRA_WRITE_VERBS_DENIED. These are denied because they're high-blast-radius mutations the gateway cannot policy-check (workflow transitions reorder state machines; worklog mutations affect time-tracking and downstream automations; attachments + watchers are low-value-for-agents-but-high-risk-if-misused). The whole point of the denylist is that agents — running on potentially-compromised LLM trajectories — cannot reach these verbs. Adding an orchestrator-direct path opens one of them. The other three remain denied at the gateway, but if an operator ever asks 'can you also handle worklog?' the path of least resistance is to add a second helper alongside the transition helper — and then suddenly the orchestrator's denylist-bypass surface has four verbs, not one. There is no per-domain gating today (e.g. 'orchestrator can transition but only in the context of an epic reassess apply'), and that's both desirable (simpler invariant) and dangerous (future scope creep is easier).",
+      "affected_files": [
+        "shared/egg_orchestrator/jira_transitions.py",
+        "gateway/jira_client.py",
+        "docs/architecture/credential-injection.md"
+      ],
+      "mitigation": {
+        "strategy": "Plan must mandate: (1) The new orchestrator-direct Jira module has EXACTLY ONE public function (`transition_issue` or equivalent), and that function only accepts the verb 'transitions' as a hardcoded constant — no parameterizable verb. (2) The module's docstring states verbatim: 'This module is the ONLY orchestrator-direct Jira write path. Adding additional verbs (worklog, attachments, watchers) requires a new HITL decision and explicit operator approval per the trust-boundary rationale documented in <file>.' (3) Add a lint check or CI script (similar to the existing test_start_pipeline.py zero-credential assertion) that grep-asserts no `requests.post(.../issue/.../worklog`, `requests.post(.../issue/.../attachments`, `requests.post(.../issue/.../watchers` calls exist outside the gateway. (4) Document in docs/architecture/credential-injection.md that the transition-helper exists as a deliberate carve-out and that future requests to handle other denylisted verbs must re-litigate via HITL. Reviewer_plan should treat omission of any of (1)-(4) as a blocking NACK.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the lint+docs combo makes future scope expansion visible during code review. The residual is purely operator-side: 'can we add worklog?' must always be answered through HITL rather than a quiet helper expansion."
+      },
+      "requires_human_review": true,
+      "review_reason": "The trust-boundary carve-out is the issue's most subtle architectural decision. Operator should confirm in the plan-approval gate that the orchestrator-direct surface remains exactly one verb (transitions) and that any future expansion goes through HITL. Plan should surface this as an explicit acceptance criterion the reviewer_plan can verify."
+    },
+    {
+      "id": "R8",
+      "title": "Link-type project-scoping: `Blocks` / `Is blocked by` may not exist in every Jira project",
+      "category": "third_party_compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "createIssueLink takes a `link_type` string (gateway/jira_client.py); link types are configured per-project in Jira. If the operator's epic-project has a customized link-type catalog (e.g. only `Relates to`, no `Blocks`), the apply step's cross-task DAG edges fail to create and the dependency graph is silent — the agent's plan-time intent (Blocks edges) does not survive to Jira.",
+      "description": "Jira link types live in project configuration. Common defaults (Blocks/Is blocked by, Relates to, Duplicates, Clones) exist in most off-the-shelf projects but are configurable per-project. The gateway's create_issue_link verb accepts any link_type string and forwards it; Atlassian returns 400 if the link type doesn't exist. Feedback-1 Q3's resolution is 'agent picks per-edge from a default allowlist of Blocks, Is blocked by, Relates to; plan draft shows the chosen link type and rationale per edge so operator can override'. The default allowlist still depends on those three names existing in the project — which is not guaranteed.",
+      "affected_files": [
+        "gateway/jira_client.py",
+        "shared/egg_agent/prompts/apply_epic.*",
+        ".egg-state/drafts/<id>-plan.md"
+      ],
+      "mitigation": {
+        "strategy": "Plan must require: (1) The apply-epic agent's link-creation pass catches 400 responses from createIssueLink, treats them as 'link-type-not-supported', logs at WARN with the {src_key, dst_key, link_type, project} tuple, and emits an OVERSEER_ALERT so the operator knows their plan-time dependency graph didn't fully land; (2) The plan prompt template explicitly lists Blocks/Is blocked by/Relates to as the default candidates and instructs the agent to fall back to a project-supported alternative only when the operator has overridden via plan-draft annotation; (3) Optionally (FUTURE, not v1), add a gateway read verb that lists available link types per project so the agent can pick a guaranteed-supported one at plan time. v1 ships with the catch-and-warn fallback only.",
+        "effort": "LOW",
+        "residual_risk": "LOW-MEDIUM — partial dependency graphs are surfaced as warnings; the operator can manually add the missing edges. Risk is silent partial graphs if warnings are missed, which is why the OVERSEER_ALERT is part of the mitigation."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "Confluence recursive-one-level link discovery (decision-7) can blow up refine context",
+      "category": "performance",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "Decision-7's resolution opts for 'Remote links + description URLs + linked Jira issues' remote links (recursive one level)'. For an epic with many linked Jira issues, each with many remote links, the refine-phase input can balloon to hundreds of Confluence pages — exceeding the agent's context window, slowing refine, and surfacing irrelevant material.",
+      "description": "The recursive-one-level expansion is: start from the epic's own remoteLinks + Description URLs; for each linked Jira issue, fetch its remoteLinks too. There's no per-page size limit in the gateway's Confluence verbs (gateway/confluence_client.py exposes get_page returning the full body). A real-world epic with 20 linked tickets each having 5 remote-linked pages would pull 100 pages plus the epic's own; each page can be 5-50 KB of markdown — easily 1-5 MB of refine input. Modern LLMs handle this but slowly, and the agent's signal-to-noise drops as the input gets noisier.",
+      "affected_files": [
+        "shared/egg_agent/prompts/refine.*",
+        "gateway/confluence_client.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan should require: (1) Per-page size cap (e.g. 50 KB) applied at fetch time — if a page exceeds the cap, include only the first N KB plus a 'truncated, see <URL> for full' marker; (2) Page-count cap (e.g. 50 unique pages) for the whole recursive expansion — if exceeded, prioritize the epic's own remote links over the recursively-discovered ones and emit a STATUS message naming which pages were dropped; (3) Deduplication by page ID across the recursive walk (avoid double-counting a page reachable via multiple paths). v1 ships with conservative caps and an explicit log line on truncation so the operator can tune the limits later. Reviewer_plan should NACK if the caps are not specified in the refine prompt or fetch helper.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the caps trade completeness for latency; an operator with unusually large epics can raise them via config."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R10",
+      "title": "Plan-node → key mapping schema in phases.plan.artifacts.epic_apply must be defined precisely",
+      "category": "primitive_existence",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "Decision-10 resolved to persist the mapping as `.egg-state/pipelines/<id>.json` under a new `epic_apply` key on the plan-phase artifacts. The artifacts field is typed `dict[str, str]` (orchestrator/models.py:363-384), so a structured mapping must be JSON-serialized into a single string value. The plan must specify the schema (node-id format, key shape, link-mapping shape, comment-mapping shape, version field) precisely enough that the apply-epic agent and the orchestrator-side transition helper agree byte-for-byte.",
+      "description": "orchestrator/models.py:363-384 defines PhaseExecution.artifacts as `dict[str, str]`. Storing a nested mapping requires JSON-serializing the value side: `phases['plan'].artifacts['epic_apply'] = json.dumps({...})`. Without a defined schema both producer (apply-epic agent) and consumer (re-run dedup logic) will diverge — one might use `plan_node_<n>` while the other uses `node-<n>`; one might key links on `(src, dst, type)` and the other on `<src>-><dst>`. The schema must capture: (a) version field for forward-compat; (b) per-node entry with stable node_id + jira_key + last_applied_at + last_applied_summary_hash (for change detection on re-runs); (c) per-link entry with src_node, dst_node, link_type, jira_link_id; (d) per-comment entry with target_key, comment_id, redirect_to_key; (e) per-transition entry with key, from_status, to_status, applied_at. The orchestrator's idempotent-retry logic depends on this schema being read+matched correctly.",
+      "affected_files": [
+        "orchestrator/models.py",
+        "shared/egg_agent/prompts/apply_epic.*",
+        "shared/egg_orchestrator/jira_transitions.py"
+      ],
+      "mitigation": {
+        "strategy": "Task-planner MUST allocate a contract task that defines the epic_apply schema as a Pydantic model in (e.g.) shared/egg_contracts/epic_apply.py with full field-level docstrings AND a JSON-schema export. The apply-epic agent's prompt template MUST reference this schema verbatim; the orchestrator-side transition helper MUST validate the schema on read. Reviewer_plan should NACK if the schema is not specified as a separate contract task with a file:line plan target. Recommended top-level structure: `{version: 1, nodes: [{node_id, jira_key, summary_hash, applied_at}, ...], links: [...], comments: [...], transitions: [...]}`. The plan should also specify how the schema handles re-runs that change a node (e.g. summary edited): the apply step compares the summary_hash and decides between no-op vs editJiraIssue.",
+        "effort": "LOW-MEDIUM",
+        "residual_risk": "LOW — once the schema is a Pydantic model with tests, drift is detectable on every CI run."
+      },
+      "requires_human_review": true,
+      "review_reason": "The schema defines the contract between two new code paths (apply-epic agent, orchestrator transition helper) and must be operator-reviewable since it determines what re-run behavior looks like. Plan should surface a draft of the Pydantic model fields for operator sign-off; this is a one-time decision that's expensive to change later."
+    },
+    {
+      "id": "R11",
+      "title": "submit_task --mode={auto,reassess,fresh} adds a new public-API surface — backward compatibility risk",
+      "category": "api_compatibility",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "Decision-12 chose opt-3: a single `--mode={auto,reassess,fresh}` parameter on submit_task. submit_task is the principal entry point for the entire SDLC pipeline (callable from MCP and from CLI), so adding a parameter requires updating: (a) the MCP tool schema; (b) the CLI argparse; (c) the orchestrator's pipeline-state model if --mode is persisted (for re-run determinism); (d) any host-side automation that calls submit_task today. Default=auto preserves today's behavior but the param itself becomes part of the public surface.",
+      "description": "orchestrator/mcp_tools.py:66-127 + :1272-1381 defines the submit_task MCP tool. Adding a `mode` parameter to the tool schema is non-breaking (existing callers omit it, get auto), but introduces a new validation surface (must reject mode='foo' that isn't in the allowlist) and must be reflected in the per-pipeline state file (Pipeline model) so a re-run picks up the same mode. The Pipeline model at orchestrator/models.py:816-882 (and the jira_ticket field at :981-1004) is the natural home — add `mode: Literal['auto','reassess','fresh'] = 'auto'`. Default-auto preserves today's behavior; the param ONLY matters when the operator forces fresh on an epic that has children (degenerate, must surface a warning) or forces reassess on an epic without children (no-op, log-and-fallback-to-fresh).",
+      "affected_files": [
+        "orchestrator/mcp_tools.py",
+        "orchestrator/models.py",
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan should require: (1) Add the mode parameter to the submit_task MCP tool schema with a strict Literal allowlist; (2) Persist the resolved mode on the Pipeline model so re-runs are deterministic (an operator using --mode=fresh once doesn't get auto-reassessed on the next re-run); (3) For mode=fresh on an epic with children, emit a CONFIRMATION HITL decision rather than auto-proceeding (matches decision-12 'explicit overrides bypass detection without confirmation' minus the safety belt of warning when fresh-on-existing-children is destructive — recommend tightening); (4) For mode=reassess on a childless epic, log a WARN and degrade to fresh — do not error. Reviewer_plan should ACK if (1)-(2) are present and (3)-(4) are documented as behavior; (3) tighter-than-decision-12 is a plan-phase recommendation to operator.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the param is purely additive; the principal concern is that operator scripts using --mode=fresh on a populated epic could accidentally re-create duplicates. (3) above mitigates this."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R12",
+      "title": "PR-link writeback (feedback Q4) introduces gateway calls from the implement phase — out-of-scope creep",
+      "category": "scope",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "Feedback-1 Q4's resolution is 'Yes — remote-link via the gateway from the implement / apply agent. Adds an issue/{key}/remotelink entry pointing at the PR URL when the PR is opened.' This is described as 'natural completion' but it's a new gateway call from the implement phase (or a new post-implement apply step) that touches code outside the issue's stated MVP scope ('Implement phase: out of scope for this issue beyond definition'). Implement-phase changes are easy to under-test relative to refine/plan-phase changes.",
+      "description": "The remote-link writeback is conceptually small — a single createRemoteLink-style gateway call (today's gateway/jira_client.py has the issue/remotelink endpoint accessible via the generic write path), gated on PR-open success. But the issue's main scope is refine/plan, and feedback Q4 plus decision-6 (implement-trigger HITL gate) push implement-phase changes into the single slice. The risk is two-fold: (a) the slice grows from refine+plan into refine+plan+implement, which inflates the PR diff and the review surface; (b) implement-phase test coverage today is thinner than refine/plan-phase coverage (today the pipeline ends at PR open with limited integration tests for the post-PR hooks). The remote-link writeback specifically depends on the orchestrator knowing the PR's parent Jira child key — that linkage exists via pipeline.jira_ticket but the implement phase's `_auto_create_pr` hook would need to be extended to call createRemoteLink with that key.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "gateway/jira_client.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan should: (1) Confirm explicitly whether the PR-link writeback is in scope for this slice. The refine analysis's option A (single slice, all parts) implicitly includes it but the issue text's 'out of scope' framing of implement-phase argues for deferral. (2) If kept in scope, allocate it as a separate contract task and clarify the hook point — recommend `_auto_create_pr` at orchestrator/routes/pipelines.py:8296 fires a follow-up `add_remote_link(jira_key, pr_url)` gateway call when pipeline.jira_ticket is set. (3) If deferred, register a follow-up issue and update decision-6's resolution to clarify that PR-link writeback ships separately. (4) Reviewer_plan should treat ambiguity here as a blocking NACK — the slice scope must be unambiguous before implement begins. Recommendation: keep it in scope (the issue's plan-approval-gate also adds implement-shape behavior) but allocate it as a distinct contract task.",
+        "effort": "LOW (the call itself) | n/a (deferral)",
+        "residual_risk": "LOW once scope is decided."
+      },
+      "requires_human_review": true,
+      "review_reason": "Decision-6 + feedback Q4 together quietly pull implement-phase changes into a refine+plan slice. Operator should explicitly affirm at plan-approval that the slice includes the PR-link writeback hook (or defer it). The plan-approval-gate's existing Stop-after-plan-vs-Continue-to-implement option already moves implement into scope; PR-link writeback is the smallest additional implement-phase change, but treating it as 'free' is the wrong default."
+    },
+    {
+      "id": "R13",
+      "title": "Per-ticket HITL gate for in-flight children inflates the decisions list and lacks reverse-lookup by ticket key",
+      "category": "ux_correctness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Decision-8 mandates per-ticket HITL gating for in-flight children; the HITL decision-ID scheme today is sequential per-pipeline (orchestrator/models.py:1026 `f'decision-{len(self.decisions) + 1}'`). For a reassess of an epic with 15 in-flight children, the plan phase registers 15 sequential decisions (`decision-1`..`decision-15`) plus the wholesale Won't-Do approval; the operator's HITL surface is a wall of decisions with no per-ticket identification baked into the ID. Mapping back from `decision-12` to 'this is the gate for FOO-1234' requires reading the question text every time.",
+      "description": "orchestrator/models.py:277-308 + :1016-1038 defines HITLDecision with auto-incrementing ID. Multiple decisions per phase are supported but every decision is a peer in the flat list (models.py:844). For per-ticket HITL the question body has to carry the ticket key; the ID itself is opaque. The HITL surface in .egg-state/drafts/ and via mcp__sdlc__register_open_question doesn't currently render decisions grouped by tag or ticket. For an epic with many in-flight children this is a UX scaling problem: the operator must scroll through a long flat list to find the FOO-1234 decision and approve/skip per ticket.",
+      "affected_files": [
+        "orchestrator/models.py",
+        "orchestrator/routes/pipelines.py",
+        ".egg-state/drafts/<id>-plan.md"
+      ],
+      "mitigation": {
+        "strategy": "Plan should require: (1) Each per-ticket HITL decision MUST include the ticket key as the first words of the question text (e.g. 'FOO-1234: this in-flight child is targeted for ... Approve?') so a flat-list reader can grep by key; (2) The plan-draft should include an explicit `## In-flight ticket decisions` index section listing `decision-N -> FOO-1234` mappings near the top, so the operator can navigate efficiently; (3) Consider extending HITLDecision with an optional `tags` or `subject_key` field (a small model change) to enable structured filtering — this is FUTURE work, v1 ships with the question-text convention. Reviewer_plan should NACK if (1)-(2) are not specified in the plan prompt template.",
+        "effort": "LOW",
+        "residual_risk": "LOW — convention-based mitigation is fragile but bounded. Structured tags are a future improvement."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R14",
+      "title": "Concurrent pipelines targeting the same epic key can race the apply step",
+      "category": "concurrency",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "Two operators (or two automation flows) running submit_task on the same epic key concurrently will produce two pipelines with the same identifier base. The orchestrator's state store keys by pipeline_id (with qualifier suffix for disambiguation per the refine analysis), but both pipelines may reach the apply step around the same time and issue overlapping Jira mutations.",
+      "description": "orchestrator/state_store.py loads/saves pipelines keyed by pipeline_id. The refine analysis says the pipeline-ID derivation 'matches the <EPIC-KEY>[-<qualifier>] convention' but doesn't specify how concurrent runs against the same epic are reconciled. If both runs reach apply, they'll both read phases.plan.artifacts.epic_apply and both write back — last-write-wins on the mapping artifact, but Jira itself has no write barrier; both can create duplicate children. The gateway idempotency cache (5-min in-process) prevents same-second duplicates but not 10-second-apart re-issues.",
+      "affected_files": [
+        "orchestrator/state_store.py",
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": {
+        "strategy": "Plan should: (1) Require the orchestrator to refuse a NEW pipeline for the same Jira ticket key if an existing pipeline is still in the apply phase (or beyond plan-approved). The check is StateStore.list_pipelines() filtered by jira_ticket field; the same iteration cost as R3 applies. (2) Optionally take a lightweight filesystem lock (`.egg-state/locks/<EPIC-KEY>.lock`) for the duration of apply; the lock is removed on apply completion or pipeline failure. (3) For v1, (1) is sufficient; (2) is FUTURE if real-world races are observed. Reviewer_plan should NACK if (1) is not specified.",
+        "effort": "LOW",
+        "residual_risk": "LOW — race window is narrow; (1) closes the major-impact case (two concurrent operator runs)."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R15",
+      "title": "Issue-type detection at submit_task requires a new orchestrator-side gateway call to get_ticket — adds round-trip latency",
+      "category": "performance",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "impact": "Today submit_task does NOT fetch ticket content at pipeline creation (refine analysis confirms this). To detect 'is this an epic?' the orchestrator (or a thin pre-pipeline-creation step) must call get_ticket to read fields.issuetype.name. This adds a Jira API round-trip to every submit_task call that supplies jira_ticket, even when the caller knows it's a regular ticket.",
+      "description": "orchestrator/mcp_tools.py:1272-1381 today treats the Jira ticket key as 'advisory labelling' — no validation against Jira itself. The new flow needs to know whether the key is an epic to choose between the existing ticket path and the new epic path. Options: (a) Force the caller to pass an explicit `issue_type` or `is_epic` hint (push the decision back to the caller); (b) Always call get_ticket at submit_task and read issuetype.name (adds 200-500 ms round-trip on every submit_task call); (c) Defer detection to the refine phase (which already calls get_ticket as the first thing); (d) Combine (a) + (c) — accept a hint, validate during refine. The refine analysis recommends (c) — but the apply-step plumbing needs the choice known earlier (the plan prompt has to be epic-shaped). Recommended: defer to refine, have refine emit the issue_type into the contract, and have plan read it from the contract.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/mcp_tools.py",
+        "shared/egg_agent/prompts/refine.*"
+      ],
+      "mitigation": {
+        "strategy": "Plan should require: (1) Detection happens once in the refine phase (the agent calls jira ticket get as part of normal refine workflow); (2) Refine emits a structured field `issue_type` into the contract (or pipeline state under phases.refine.artifacts) so plan reads it without a second Jira call; (3) submit_task accepts an optional `--issue-type=epic` HINT to short-circuit detection for callers that already know — useful for the new --mode=reassess override since that already implies epic. Reviewer_plan should NACK if (1)-(2) are not specified. Latency impact is negligible since refine already calls get_ticket as part of its workflow.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the detection is a single field read piggybacking on refine's existing call."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R16",
+      "title": "Reviewer_plan's primitive-existence + trust-boundary audits (#2594) must check the new surfaces named above",
+      "category": "review_completeness",
+      "severity": "MEDIUM",
+      "likelihood": "CERTAIN",
+      "impact": "Issue #1557's refine analysis correctly identified the runtime primitives the plan must audit. If reviewer_plan does NOT explicitly audit each of (a) the apply-epic agent role registration, (b) the orchestrator-direct credential surface, (c) the epic_apply mapping schema, (d) the search-allowlist gate, and (e) the link-type fallback path, then NACKs on the plan will likely happen only at implement-time — much more expensive to fix.",
+      "description": "Per the per-plan-phase audit doctrine (#2594, #2598), the reviewer_plan inspects primitive-existence and trust-boundary fidelity before ACKing. The refine analysis already surfaced the primitive table; the plan must (i) extend that table with the new primitives the plan introduces (apply-epic agent role, orchestrator-direct cred module, epic_apply schema), and (ii) the reviewer must audit them. This is procedural: the plan must NAME the primitives clearly enough that the reviewer's checklist is unambiguous.",
+      "affected_files": [
+        ".egg-state/drafts/1557-plan.md"
+      ],
+      "mitigation": {
+        "strategy": "Plan must include an explicit `## Runtime Primitives Introduced by This Plan` section enumerating: (1) APPLY_EPIC AgentRole + AgentRoleDefinition; (2) shared/egg_orchestrator/jira_transitions.py module; (3) epic_apply Pydantic schema (R10); (4) submit_task --mode parameter (R11); (5) per-ticket in-flight HITL decision convention (R13); (6) refine-emitted issue_type contract field (R15). Each row should name the file:line target where the primitive will be added. Reviewer_plan should treat the absence of any of (1)-(6) as a blocking NACK at primitive-audit time. This converts an implicit reviewer expectation into an explicit plan artifact.",
+        "effort": "LOW",
+        "residual_risk": "LOW — once the table is in the plan, the audit becomes mechanical."
+      },
+      "requires_human_review": false
+    }
+  ],
+
+  "rollback_strategy": {
+    "summary": "Rollback for #1557 is layered because the work touches code, configuration, and third-party state (Jira). Code rollback is standard (revert the PR); configuration rollback is operator-side (remove the orchestrator's Jira creds from secrets.env); Jira state rollback is partial-or-impossible — created child tickets can be transitioned to Won't Do but not deleted, edited descriptions can be reverted only if the operator preserved a copy, and Won't-Do transitions on obsolete children cannot be auto-reversed without operator workflow knowledge.",
+    "code_rollback": "Standard git revert of the merged PR. Reverts the submit_task --mode param, the apply-epic agent, the orchestrator-direct transition module, and the prompt templates. Safe — no live data depends on the rolled-back code.",
+    "config_rollback": "Operator removes (or never adds) the ATLASSIAN_API_TOKEN / JIRA_API_TOKEN entries from ~/.config/egg/secrets.env that the orchestrator needs for transitions. The system degrades to today's behavior (no orchestrator-side Jira access) without errors as long as no submit_task with --mode=reassess is in flight.",
+    "jira_state_rollback": "Partial. (a) Child tickets created in error remain in Jira; the operator must transition them to Won't Do or delete them manually. (b) Description edits to the epic Description are reversible only if the operator captures the previous Description before approving refine (recommendation: orchestrator should log the previous Description to the audit trail). (c) Won't-Do transitions on flagged-obsolete children cannot be automatically reversed; operator must use Jira's reverse workflow transition or comment-and-relabel. (d) Created cross-task links can be deleted via the gateway. Recommendation: the apply-epic agent's audit log must record every mutation in enough detail that a human can manually undo it.",
+    "incremental_rollback_path": "If only the orchestrator-direct transition path is problematic, deploy a config flag (EGG_DISABLE_ORCH_JIRA_TRANSITIONS=true) that skips the transition step and surfaces it as a fresh HITL decision per obsolete ticket. This preserves the reassess UX without the cred surface; the operator manually transitions in Jira instead. This degradation mode should be documented as the operator's first-resort fallback if the cred surface is later judged unacceptable."
+  },
+
+  "areas_requiring_human_review": [
+    "R1 — orchestrator-direct credential surface narrowing: feature-flag vs always-on (operator picks before implement)",
+    "R2 — apply-epic agent: full AgentRole+pseudo-phase vs orchestrator-internal apply function (operator confirms decision-11 intent)",
+    "R6 — Won't-Do batch approval rendering quality: plan-draft must include per-row reasons + ⚠ permanence warnings",
+    "R7 — trust-boundary carve-out scope: orchestrator-direct module remains exactly one verb (transitions); future additions require HITL",
+    "R10 — epic_apply mapping schema: operator-reviewable Pydantic model fields before implement",
+    "R12 — PR-link writeback scope: in-slice or deferred to follow-up issue"
+  ],
+
+  "runtime_primitive_and_trust_boundary_flags": {
+    "note": "Per issue #2594, the plan-phase audit explicitly checks primitive-existence and trust-boundary fidelity. This section consolidates the primitive-existence + trust-boundary risks across R1-R16 for the reviewer's convenience.",
+    "primitives_that_do_not_exist_today": [
+      {
+        "primitive": "APPLY_EPIC AgentRole + AgentRoleDefinition",
+        "evidence": "grep finds zero matches for APPLY_EPIC across shared/egg_contracts/agent_roles.py:46-88 (AgentRole enum) and :149 (AgentRoleDefinition).",
+        "risk_id": "R2",
+        "scope": "in-sandbox-agent (when the apply step runs as an agent)"
+      },
+      {
+        "primitive": "shared/egg_orchestrator/jira_transitions.py module",
+        "evidence": "No such file exists today. The orchestrator has zero third-party credentials per test_start_pipeline.py:1450-1456 and gateway/jira_credentials.py is sandboxed to the gateway process.",
+        "risk_id": "R1, R7",
+        "scope": "trusted-CI-runner (orchestrator)"
+      },
+      {
+        "primitive": "phases.plan.artifacts.epic_apply schema (Pydantic model)",
+        "evidence": "phases[...].artifacts is dict[str,str] at orchestrator/models.py:363-384. No epic_apply schema is defined.",
+        "risk_id": "R10",
+        "scope": "trusted-CI-runner (orchestrator reads on re-run)"
+      },
+      {
+        "primitive": "submit_task --mode={auto,reassess,fresh} parameter",
+        "evidence": "orchestrator/mcp_tools.py:1272-1381 (handler body) and Pipeline.jira_ticket at orchestrator/models.py:981-1004 have no mode field today.",
+        "risk_id": "R11",
+        "scope": "host-trusted (MCP caller)"
+      },
+      {
+        "primitive": "Per-ticket in-flight HITL decision convention (decision IDs grouped by ticket key)",
+        "evidence": "orchestrator/models.py:1026 generates sequential decision IDs with no per-subject grouping; no tagging surface exists.",
+        "risk_id": "R13",
+        "scope": "host-trusted (HITL surface)"
+      },
+      {
+        "primitive": "refine-emitted issue_type contract field",
+        "evidence": "submit_task does not call get_ticket today; issue-type detection deferred to refine, but no contract field exists for the refined value.",
+        "risk_id": "R15",
+        "scope": "in-sandbox-agent (refine emits) -> trusted-CI-runner (plan consumes)"
+      },
+      {
+        "primitive": "Reverse-index lookup pipelines-by-jira-ticket (for in-flight detection)",
+        "evidence": "orchestrator/state_store.py:1164-1173 list_pipelines() requires O(N) iteration; no reverse index exists.",
+        "risk_id": "R3",
+        "scope": "trusted-CI-runner (orchestrator)"
+      }
+    ],
+    "trust_boundary_risks": [
+      {
+        "boundary": "orchestrator process now holds Jira API token (today: zero third-party creds)",
+        "evidence": "test_start_pipeline.py:1450-1456 + docs/architecture/credential-injection.md:1-8",
+        "risk_id": "R1, R7",
+        "mitigation_summary": "Single-public-verb module (transition only); revised zero-cred test asserts orchestrator MUST NOT pass JIRA_* into sandbox_env; lint check on disallowed denylisted-verb HTTP calls outside the gateway; docs cross-reference."
+      },
+      {
+        "boundary": "transitions denylist remains the only carve-out — worklog/attachments/watchers stay denied",
+        "evidence": "gateway/jira_client.py:133-146 + :247 + :276",
+        "risk_id": "R7",
+        "mitigation_summary": "Hardcoded verb constant in the orchestrator helper; lint-asserts against other denied paths; docs explicit about HITL-gated future expansion."
+      },
+      {
+        "boundary": "apply-epic agent makes gateway-mediated writes (createJiraIssue, editJiraIssue, createIssueLink, addCommentToJiraIssue) — symmetric with existing 'agents write through gateway' pattern",
+        "evidence": "decision-11 opt-3 (hybrid); gateway/jira_client.py:496-743 write verbs already exist",
+        "risk_id": "R2",
+        "mitigation_summary": "Existing gateway audit identity preserved; no new trust boundary crossed for gateway-mediated verbs. The boundary risk is fully captured in R1/R7 for the transition path only."
+      }
+    ],
+    "primitives_that_exist_but_in_a_different_execution_context": [
+      {
+        "primitive": "gateway/jira_credentials.py (gateway process)",
+        "needed_in": "trusted-CI-runner (orchestrator process)",
+        "current_scope": "gateway process only",
+        "risk": "Reusing the gateway's parse_env_file is fine but the orchestrator container must mount the host's secrets.env (or have an orchestrator-local copy). If the orchestrator runs in a different container without the mount, the cred read will fail at runtime — not at startup, since loading is lazy on first transition call.",
+        "risk_id": "R1",
+        "mitigation_summary": "Plan must specify the mount/provisioning story for the orchestrator container in the operator setup documentation. Reviewer should NACK if missing."
+      }
+    ]
+  },
+
+  "external_research_summary": {
+    "summary": "External research is not strictly required for this issue — the third-party dependencies (Jira Cloud REST API v3, Confluence REST API v2) are stable and already integrated through the gateway. The Atlassian deprecation cycle is well-documented; no breaking changes are scheduled in v3 for the next 6 months. The principal external concern is Atlassian's rate-limiting (already handled at the gateway via 429 retries on GET; write verbs are at-most-once per gateway/jira_idempotency.py:46), and the project-and-link-type-configurability that varies per Atlassian site (covered in R4 and R8). No CVEs in the gateway's dependency tree affect Jira/Confluence transport.",
+    "rate_limits": "Atlassian Cloud rate limits are per-user and per-IP, typically several hundred requests/minute. The gateway's 429 handler caps Retry-After at 30s on GETs and does not retry writes (gateway/jira_client.py:374-395). A reassess sweep of an epic with 50 in-flight children will issue ~100 read requests + ~30 writes — well under the rate limit for a healthy operator.",
+    "audit_events": "gateway already emits jira_upstream_rate_limited and jira_search_rejected audit events; the orchestrator-direct transition path should emit a parallel jira_transition_applied / jira_transition_failed pair (R1 mitigation)."
+  }
+}
