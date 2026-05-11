@@ -469,6 +469,12 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
         )
     )
     for item in items:
+        # `pytest_collection_modifyitems` in a sub-conftest still fires
+        # for the whole session's items, so we have to narrow to this
+        # subtree explicitly. Without this, every test outside
+        # `local_pipeline/` would also be marked skip.
+        if "local_pipeline/" not in item.nodeid:
+            continue
         # Keep auth-rejection regressions running — they are correct under k3s.
         if "test_k8s_deployment_tools" in item.nodeid:
             continue

@@ -31,6 +31,18 @@ class TestStackStartup:
         resp = egg_stack.api_request("GET", "/api/v1/health")
         assert resp.status_code == 200
 
+    @pytest.mark.skip(
+        reason=(
+            "docker-era test: shells out to `docker ps` to find the gateway "
+            "container by `compose_project-gateway` name. Under k3s (the "
+            "only supported runtime after #2474) the gateway is a "
+            "Kubernetes pod, not a docker container, so the lookup returns "
+            "empty. Needs a `kubectl get pods -n egg-system ... && kubectl "
+            "exec ... pgrep squid` rewrite — tracked alongside the other "
+            "docker→kubectl test-infra TBDs noted in integration_tests/"
+            "conftest.py's module docstring."
+        )
+    )
     def test_squid_process_running(self, egg_stack):
         """Squid proxy process is running inside the gateway container."""
         # Find the gateway container name
