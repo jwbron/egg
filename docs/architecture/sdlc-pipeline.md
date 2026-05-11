@@ -129,7 +129,7 @@ The contract is a JSON document tracking the complete state of an issue through 
 > `context_pr_number` are populated by the orchestrator after the context
 > branch is created and the context PR is opened.
 >
-> **The context-PR mechanism is fully wired as of #2548 / #2593.** After
+> **The context-PR mechanism is fully wired as of #2593 (gap from #2548 closed).** After
 > plan-gate approval the orchestrator creates `egg/<pipeline_id>/context`
 > from the pipeline's base branch, copies the refine + plan artifacts
 > (analysis.md, plan.md, BRC history JSON/MD, and per-role agent
