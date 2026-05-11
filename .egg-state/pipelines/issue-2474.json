@@ -270,10 +270,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "What is the acceptable wall-clock budget for the new Test / integration check on a PR, and what's the strategy if Part E's additions push it past that budget?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "15 min p95 target; shard by pytest mark/dir if breached",
+        "20 min p95 target; keep single-job, add parallel pytest-xdist workers if breached",
+        "Whatever the existing test-integration.yml runs at (~5-10 min today, ~10-15 with Part E adds); no shard plan needed yet",
+        "No fixed budget; flag in a follow-up if PR latency becomes a complaint",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T06:10:00.459957Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T06:10:00.426653Z",
+  "updated_at": "2026-05-11T06:10:00.468642Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -287,6 +307,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null
 }
