@@ -4650,3 +4650,117 @@ class TestPlanReviewCriteriaReflectsOrchestratorSideValidation:
         # the plan didn't exist yet). Make sure it doesn't reappear.
         criteria = _get_plan_review_criteria()
         assert "absence of that section" not in criteria.lower()
+
+
+class TestPlanReviewCriteriaAuditSections:
+    """Issue #2594 — plan-phase reviewers must perform a
+    Primitive-Existence Audit (§9) and a Trust-Boundary Audit (§10) so
+    plans whose tasks depend on nonexistent or wrong-tier primitives
+    are NACKed cheaply at plan-phase instead of expensively at
+    implement-phase."""
+
+    def test_criteria_has_primitive_existence_audit_section(self):
+        criteria = _get_plan_review_criteria()
+        assert "Primitive-Existence Audit" in criteria
+        # Hard-NACK framing per the issue.
+        assert "hard NACK" in criteria
+        # Issue reference threads back to #2594.
+        assert "#2594" in criteria
+        # Prescribes grep evidence and a verbatim-command rule.
+        assert "grep -rn" in criteria
+        # Anchors with the #2474 evidence so reviewers see the cost
+        # of skipping the audit.
+        assert "ScriptedProvider" in criteria
+
+    def test_criteria_has_trust_boundary_audit_section(self):
+        criteria = _get_plan_review_criteria()
+        assert "Trust-Boundary Audit" in criteria
+        # Names all three execution contexts.
+        assert "in-sandbox-agent" in criteria
+        assert "trusted-CI-runner" in criteria
+        assert "human-operator" in criteria
+        # References the authoritative doc.
+        assert "integration-test-trust-boundary.md" in criteria
+
+    def test_criteria_audit_sections_appear_after_role_alignment(self):
+        # §9 / §10 are appended after the existing §8 role↔files
+        # alignment section, not interleaved (preserves the existing
+        # numbering the orchestrator-side validation tests rely on).
+        criteria = _get_plan_review_criteria()
+        role_alignment_idx = criteria.index("Role")
+        primitive_idx = criteria.index("Primitive-Existence Audit")
+        trust_idx = criteria.index("Trust-Boundary Audit")
+        assert role_alignment_idx < primitive_idx < trust_idx
+
+
+class TestPlanProducerPromptsCitePrimitives:
+    """Issue #2594 — producer prompts (architect / task_planner /
+    risk_analyst) must direct the producer to cite runtime primitives
+    in a form the plan-phase audit can verify."""
+
+    def test_architect_prompt_directs_primitive_citation(self):
+        prompt = _build_agent_prompt(
+            role_value="architect",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "#2594" in prompt
+        # Calls out the categories of primitive worth citing.
+        assert "ConfigMap" in prompt
+        # Calls out the trust-boundary / scope axis.
+        assert "unit-test-only" in prompt or "trusted-CI-runner" in prompt
+
+    def test_task_planner_prompt_has_primitives_audit_block(self):
+        prompt = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "Primitives audit (#2594)" in prompt
+        # References the trust-boundary doc.
+        assert "integration-test-trust-boundary.md" in prompt
+        # Names the local_pipeline/ vs parent-conftest distinction so
+        # planners know where trusted-tier tests must live.
+        assert "local_pipeline" in prompt
+        # NEW-primitive escape hatch (so the planner can name
+        # primitives the plan itself will create).
+        assert "(NEW" in prompt
+
+    def test_risk_analyst_prompt_flags_runtime_primitive_risks(self):
+        prompt = _build_agent_prompt(
+            role_value="risk_analyst",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "#2594" in prompt
+        # References the canonical #2474 failure mode.
+        assert "#2474" in prompt
+
+
+class TestRefinerOrientationSurfacesPrimitives:
+    """Issue #2594 — refiner phase-orientation should ask the refiner to
+    surface runtime-primitive assumptions at the phase_gate so the
+    plan-phase audit's candidate list is pre-named."""
+
+    def test_refiner_orientation_mentions_primitive_surfacing(self):
+        # Refine-phase, refiner-role orientation text comes from
+        # _build_producer_orientation, the same helper used for other
+        # producer roles.
+        orientation = _build_producer_orientation(
+            role_value="refiner",
+            phase="refine",
+            reviewers=[],
+        )
+        assert "#2594" in orientation
+        # The three execution contexts named in the criteria.
+        assert "in-sandbox-agent" in orientation
+        assert "trusted-CI-runner" in orientation
