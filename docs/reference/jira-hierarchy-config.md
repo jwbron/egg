@@ -69,7 +69,7 @@ projects:
 ```
 
 When the plan apply step creates a child under epic `ENG-100`, the
-loader returns `parent`; the `createJiraIssue` call sets
+loader returns `parent`; the `jira_ticket_create` call sets
 `fields.parent = {"key": "ENG-100"}`. For an epic under `SEC-50`, the
 loader returns `epic_link`; the call sets the project's `Epic Link`
 custom field instead.
