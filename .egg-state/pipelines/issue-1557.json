@@ -328,10 +328,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "**In-flight detection signal precedence**: the issue lists three signals — Jira `fields.status.name` mid-workflow, orchestrator pipeline state with an open PR artifact, and Jira `remoteLinks` parsing for `github.com/.../pull/`. When two signals disagree (e.g. Jira status says `To Do` but orchestrator has an open PR), which wins for the `in_flight` classification?",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "OR semantics (any positive signal => in_flight): conservative, may over-gate but never under-gates",
+        "Orchestrator pipeline state wins (truth source: we know we shipped a PR); Jira status is informational only",
+        "Jira status wins (truth source: workflow state); orchestrator PR is informational only",
+        "OR for `in_flight`-flag, but the *signal source* is logged on the HITL gate so the operator sees which signal fired",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-11T22:24:52.257407Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-11T22:24:52.228779Z",
+  "updated_at": "2026-05-11T22:24:52.264258Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -345,6 +365,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null
 }
