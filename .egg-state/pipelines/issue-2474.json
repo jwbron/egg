@@ -204,10 +204,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-11T06:10:00.281792Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-11T06:14:48.214328Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other (explain in reply): Three slices = three PRs. slice-1 = Part E (ScriptedProvider promotion + 8 new tests under integration_tests/regression/). slice-2 = Part A (wire test-integration.yml into test.yml as a new 'integration' job). slice-3 = Part F (CLAUDE.md + docs/guides/testing.md updates), depends on slice-1 because F's docs reference the regression subdir E creates. slice-1 and slice-2 run in parallel; slice-3 follows slice-1. The canned 'Three sequential PRs' option is wrong because slices can run in parallel — this is a slice-DAG with one dependency edge, not a serial chain. Plan phase MUST produce a 3-slice DAG and NOT a single-slice plan with multiple PRs. The refiner registered this decision as a 'PR count' question rather than a slice-DAG question; tracking issue for that framing confusion: #2584.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -378,7 +378,7 @@
     }
   ],
   "created_at": "2026-05-11T05:30:52.352956Z",
-  "updated_at": "2026-05-11T06:10:00.603115Z",
+  "updated_at": "2026-05-11T06:14:48.221953Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -392,6 +392,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null
 }
