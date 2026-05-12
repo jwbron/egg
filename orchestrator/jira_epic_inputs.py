@@ -31,9 +31,10 @@ import hashlib
 import json
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Add shared directory to path for egg_logging.
 _shared_path = Path(__file__).parent.parent / "shared"

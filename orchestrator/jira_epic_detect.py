@@ -28,9 +28,10 @@ isn't a hard prerequisite for running the probe.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 # Add shared directory to path for egg_logging.
 _shared_path = Path(__file__).parent.parent / "shared"
