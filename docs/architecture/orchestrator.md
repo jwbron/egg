@@ -126,7 +126,7 @@ The Jira-epic SDLC pipelines introduced by [issue #1557](https://github.com/jwbr
 
 Instead, transitions land via a **separate orchestrator-only gateway route**, `POST /api/v1/jira/ticket/transition`, gated on **loopback / cluster-internal source + launcher-secret bearer token**. The applier in the sandbox writes Won't-Do candidates to a handoff JSON (see `plugins/refine-plan/skills/refine-plan/agents/applier.md`'s "Out of scope: Won't-Do transitions" section). The intended end-state has an orchestrator-side `_drain_wontdo_batch_after_apply` hook reading the handoff after apply-phase BRC consensus and calling `/transition` once per entry via `orchestrator/wontdo_drain.py::run_wontdo_drain`, out of band from the HITL HTTP response so Jira API latency does not block operator approvals.
 
-**Current implementation status (slice-2 partial).** The route and the drain helper are landed (`gateway/gateway.py::jira_ticket_transition` + `orchestrator/wontdo_drain.py::{load_wontdo_handoff,run_wontdo_drain}` from commit `d5c9a94fa`), but the call site that wires `run_wontdo_drain` into the apply-phase CONSENSUS_CONFIRMED event has **not yet landed** — no orchestrator code currently reads the applier's `*-wontdo.json` file. Until a follow-up commit adds the call site (the planned `_drain_wontdo_batch_after_apply` hook in `orchestrator/routes/pipelines.py`), applier-produced Won't-Do handoffs sit on disk as a no-op. Operators who need a Won't-Do batch drained today can invoke `python3 -c "from orchestrator.wontdo_drain import run_wontdo_drain; …"` against the handoff path manually, or wait for the call site to land. This section is otherwise correct in describing the end-state design and the gateway-side enforcement that IS live.
+**Current implementation status (slice-2 partial).** The route and the drain helper are landed (`gateway/gateway.py::jira_ticket_transition` + `orchestrator/wontdo_drain.py::{load_wontdo_handoff,run_wontdo_drain}` from commit `d5c9a94fa`), but the call site that wires `run_wontdo_drain` into the apply-phase CONSENSUS_CONFIRMED event has **not yet landed** — no orchestrator code currently reads the applier's `*-wontdo.json` file. The follow-up work belongs to **coder scope** (adding `_drain_wontdo_batch_after_apply` to `orchestrator/routes/pipelines.py`'s apply-phase exit path) and is tracked under the slice-2 / TASK-2-7 follow-up. Until that commit lands, applier-produced Won't-Do handoffs sit on disk as a no-op. Operators who need a Won't-Do batch drained today can invoke `python3 -c "from orchestrator.wontdo_drain import run_wontdo_drain; …"` against the handoff path manually, or wait for the call site to land. This section is otherwise correct in describing the end-state design and the gateway-side enforcement that IS live.
 
 ### Trust model
 
@@ -181,6 +181,42 @@ The k8s manifests for both pods reference the same `Secret` resource so a single
 Sandbox / agent pods **do** receive the launcher secret — they need it to authenticate session-creation against the agent-facing routes. With the launcher secret in hand, what stops a compromised sandbox from calling `/transition` directly:
 
 1. **NetworkPolicy on the gateway pod (operator-owned, primary defense).** The expected production deployment restricts `/transition` ingress to the orchestrator's pod selector via a Kubernetes NetworkPolicy (or equivalent CNI ACL). This is what actually denies sandbox subnets — the gateway-side `_is_in_cluster_source` only excludes external traffic; on a flat overlay every pod's source IP falls inside `is_loopback | is_private | is_link_local`, including sandboxes. **If NetworkPolicy is not enforced, a sandbox with the launcher secret CAN reach the route** (gate 2 below is the only remaining barrier).
+
+   **Reference NetworkPolicy shape** (operator-deployable starting point — adapt labels to your cluster's selector scheme):
+
+   ```yaml
+   apiVersion: networking.k8s.io/v1
+   kind: NetworkPolicy
+   metadata:
+     name: gateway-transition-orchestrator-only
+     namespace: egg-system
+   spec:
+     podSelector:
+       matchLabels:
+         app: gateway
+     policyTypes:
+       - Ingress
+     ingress:
+       # Allow all pods in egg-system to reach the gateway on the
+       # agent-facing port (9848) — unchanged from baseline.
+       - from:
+           - namespaceSelector:
+               matchLabels:
+                 kubernetes.io/metadata.name: egg-system
+           ports:
+             - port: 9848
+       # /transition is on the same port as other gateway routes, so
+       # NetworkPolicy cannot scope by URL path. The operator can:
+       #   (a) move /transition to a separate listener on a different
+       #       port and apply a tighter from: rule to that port, OR
+       #   (b) keep /transition on the shared listener and rely on the
+       #       launcher-secret bearer + loopback gates above. The egg
+       #       reference deployment uses (b) — see "Launcher-secret
+       #       reuse" for the rationale.
+   ```
+
+   Path-level scoping (option a) is the cleanest fit for the trust model documented above but requires a small gateway-side refactor to split listeners; option b matches the landed code. Operators who can't enforce NetworkPolicy at all (managed environments without it) should treat the launcher secret with sandbox-grade rotation discipline — see the rotation section below.
+
 2. **The agent-facing path explicitly denies the `transition` verb.** Even with `/transition` reachable, the agent-facing Jira routes block the underlying transition verb via `JIRA_WRITE_VERBS_DENIED` — but note that the `/transition` route is the orchestrator-only escape hatch and does **not** go through `JIRA_WRITE_VERBS_DENIED`. The agent-path deny protects only the agent-facing `/jira/ticket/*` surface, not the orchestrator-only path. So in the no-NetworkPolicy configuration, the launcher secret + the loopback gate together are the effective trust boundary on the orchestrator-only route.
 
 #### Rotation
