@@ -408,8 +408,16 @@ def advisory_blocker_graph() -> ReviewGraph:
 
 
 __all__ = [
+    # HITL HTTP round-trip helpers (#2474, #2634).
     "deterministic_pipeline_id",
     "lifecycle_bearer",
     "lifecycle_secret",
     "regression_pipeline_id",
+    # k3s slice-spawn helpers (#2632). The ``spawner`` fixture is
+    # consumed via pytest injection rather than a direct import, but is
+    # listed here so the public surface mirrors what ``import *`` would
+    # expose and IDE auto-imports / ``dir(conftest)`` stay honest.
+    "env_from_pod",
+    "kubectl_get_pod_yaml",
+    "spawner",
 ]
