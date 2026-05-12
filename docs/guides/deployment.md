@@ -249,8 +249,10 @@ to populate `.venv`, `npm ci` to populate `node_modules`) are **not**
 applied to the published image. Operators relying on prebuilt deps —
 including the project's own `.venv` for `make test` / `make lint` — should
 build the image locally with `make build` and import it via
-`make k3s-import` rather than pulling from GHCR. Tracking issue: see #2499
-for context on why `make build` is the supported path for `build_commands`.
+`make k3s-import` rather than pulling from GHCR. `make build` runs
+`scripts/prepare-sandbox-build-context.py` to populate `repo-deps/` from
+your `repositories.yaml` before the Docker build, so per-repo deps are
+included (see #2499).
 
 ### Using Pre-built Images
 
