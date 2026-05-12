@@ -1301,3 +1301,186 @@ class TestWriteAuthHeader:
             assert req.headers["authorization"] == fake_creds.basic_auth_header()
             # Content-Type set on every write (we always send a body).
             assert req.headers["content-type"] == "application/json"
+
+
+# =============================================================================
+# get_remote_links  (#1557 TASK-1-6)
+#
+# Read-only — issues ``GET /rest/api/3/issue/{key}/remotelink``.  Mirrors the
+# semantics of ``get_ticket`` / ``get_comments``: a 404 collapses to a
+# ``{"status": "not_found", ...}`` envelope, and Atlassian's bare-list
+# response is wrapped in ``{"remoteLinks": [...]}`` so the route's ``data``
+# envelope has a consistent shape across reads.
+# =============================================================================
+
+
+class TestGetRemoteLinks:
+    def test_targets_remotelink_path(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, json=[])
+
+        client = _make_client(handler, fake_creds)
+        client.get_remote_links("FOO-1")
+
+        assert len(captured) == 1
+        assert captured[0].method == "GET"
+        # No query params for remote links — defence in depth.
+        url = str(captured[0].url)
+        assert url.startswith("https://example.atlassian.net/rest/api/3/issue/FOO-1/remotelink")
+
+    def test_bare_array_response_wrapped_in_envelope(self, fake_creds: JiraCredentials):
+        """Atlassian returns a bare JSON array; the upstream ``_safe_json``
+        helper wraps non-dict bodies as ``{"data": [...]}`` so callers
+        always get a dict back."""
+        payload = [
+            {
+                "id": 1,
+                "object": {"url": "https://confluence/x", "title": "Doc"},
+            },
+            {
+                "id": 2,
+                "object": {
+                    "url": "https://github.com/foo/bar/pull/7",
+                    "title": "PR #7",
+                },
+            },
+        ]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        client = _make_client(handler, fake_creds)
+        body = client.get_remote_links("ENG-1")
+        # ``_safe_json`` always returns a dict; bare lists land under "data".
+        assert isinstance(body, dict)
+        assert body == {"data": payload}
+
+    def test_empty_array_response(self, fake_creds: JiraCredentials):
+        """An empty array still yields a dict envelope so the route
+        doesn't have to special-case the no-links case."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=[])
+
+        client = _make_client(handler, fake_creds)
+        body = client.get_remote_links("ENG-1")
+        assert isinstance(body, dict)
+        assert body == {"data": []}
+
+    def test_dict_response_passes_through(self, fake_creds: JiraCredentials):
+        """If Atlassian ever returns a dict envelope (vs. the bare list it
+        does today), ``get_remote_links`` forwards it unchanged."""
+        dict_payload = {"remoteLinks": [{"id": 1}]}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=dict_payload)
+
+        client = _make_client(handler, fake_creds)
+        body = client.get_remote_links("ENG-1")
+        assert body == dict_payload
+
+    def test_404_returns_not_found_envelope(self, fake_creds: JiraCredentials):
+        """A 404 mirrors ``get_ticket`` / ``get_comments`` behaviour and
+        returns the ``not_found`` envelope rather than raising."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"errorMessages": ["nope"]})
+
+        client = _make_client(handler, fake_creds)
+        body = client.get_remote_links("FOO-99")
+        assert body == {
+            "status": "not_found",
+            "key": "FOO-99",
+            "upstream_status": 404,
+        }
+
+    def test_500_raises_upstream_error(self, fake_creds: JiraCredentials):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="boom")
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError) as exc_info:
+            client.get_remote_links("FOO-1")
+        assert exc_info.value.status_code == 500
+        # ``path`` is recorded on the exception so audit / gateway error
+        # responses can identify the call.
+        assert "remotelink" in exc_info.value.path
+
+    def test_403_raises_upstream_error(self, fake_creds: JiraCredentials):
+        """Forbidden (e.g. cross-project read) surfaces as 403 verbatim — the
+        route turns this into the standard upstream-error path."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(403, json={"errorMessages": ["denied"]})
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError) as exc_info:
+            client.get_remote_links("FOO-1")
+        assert exc_info.value.status_code == 403
+
+    def test_auth_header_included(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, json=[])
+
+        client = _make_client(handler, fake_creds)
+        client.get_remote_links("FOO-1")
+        assert captured[0].headers["authorization"] == fake_creds.basic_auth_header()
+        # Accept JSON.
+        assert "application/json" in captured[0].headers["accept"]
+
+    def test_429_retries_once_honouring_retry_after(
+        self, fake_creds: JiraCredentials, monkeypatch: pytest.MonkeyPatch
+    ):
+        """``get_remote_links`` is a GET → it shares the 429 retry-once
+        behaviour with ``get_ticket`` / ``get_comments``."""
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(429, headers={"Retry-After": "1"})
+            return httpx.Response(200, json=[])
+
+        slept: list[float] = []
+        monkeypatch.setattr(jira_client.time, "sleep", lambda s: slept.append(s))
+
+        client = _make_client(handler, fake_creds)
+        body = client.get_remote_links("FOO-1")
+        # The bare-list response is wrapped by ``_safe_json`` under "data".
+        assert body == {"data": []}
+        assert calls["n"] == 2
+        assert slept == [1]
+
+    def test_429_after_retry_raises(
+        self, fake_creds: JiraCredentials, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Two back-to-back 429s surface as ``JiraUpstreamError(429)``."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, headers={"Retry-After": "1"})
+
+        monkeypatch.setattr(jira_client.time, "sleep", lambda _s: None)
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError) as exc_info:
+            client.get_remote_links("FOO-1")
+        assert exc_info.value.status_code == 429
+
+    def test_no_query_params_sent(self, fake_creds: JiraCredentials):
+        """The remote-link request takes no query parameters — the URL is
+        pinned to the resource path so an upstream change can't smuggle
+        ``expand`` or ``fields`` into the request."""
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, json=[])
+
+        client = _make_client(handler, fake_creds)
+        client.get_remote_links("FOO-1")
+        assert dict(captured[0].url.params) == {}

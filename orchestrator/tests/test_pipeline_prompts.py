@@ -4961,3 +4961,336 @@ class TestRefinerOrientationSurfacesPrimitives:
         # The three execution contexts named in the criteria.
         assert "in-sandbox-agent" in orientation
         assert "trusted-CI-runner" in orientation
+
+
+# ---------------------------------------------------------------------------
+# #1557 TASK-1-8 / TASK-1-11 — Jira-epic pipeline prompt branches
+# ---------------------------------------------------------------------------
+
+
+class TestBuildPhasePromptEpicModeRefine:
+    """Refine-phase epic-mode preamble (#1557 TASK-1-8).
+
+    When ``jira_epic_key`` is set, the refine prompt must:
+    - Reframe the destination as the epic's Description (wholesale rewrite).
+    - Tell the agent NOT to decompose into tickets (that's plan-phase work).
+    - Include the epic key verbatim.
+    - Add reassess vs fresh language depending on ``jira_effective_mode``.
+
+    The non-epic (today's) path stays byte-identical when
+    ``jira_epic_key=None``.
+    """
+
+    def test_refine_epic_mode_includes_epic_key(self):
+        """The epic key appears verbatim in the rendered prompt."""
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        assert "ENG-1234" in result
+
+    def test_refine_epic_mode_has_epic_description_framing(self):
+        """Epic-mode refine prompt frames output as 'epic Description'.
+
+        Asserts the destination-line language so the refiner knows it's
+        not writing a ticket-scoped refinement.
+        """
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        assert "## Epic-mode (Jira)" in result
+        assert "epic" in result.lower()
+        assert "Description" in result
+        # The destination framing from #1557 decision-9
+        assert "wholesale rewrite" in result
+
+    def test_refine_epic_mode_warns_against_decomposition(self):
+        """Refiner is told NOT to decompose into individual tickets."""
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        # The refiner must defer ticket decomposition to plan phase.
+        assert "plan phase" in result.lower()
+        assert (
+            "decompose the work into tickets yourself" in result or "not try to" in result.lower()
+        )
+
+    def test_refine_epic_mode_fresh_branch(self):
+        """Fresh-mode renders the 'clean slate' language only."""
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        assert "**fresh**" in result
+        # Reassess-only sentences MUST NOT appear in fresh mode.
+        assert "**reassess**" not in result
+        assert "what work is already done" not in result.lower()
+
+    def test_refine_epic_mode_reassess_branch(self):
+        """Reassess mode pulls in the existing-children context + 3-axis ask."""
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            issue_number=1557,
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="reassess",
+        )
+        assert "**reassess**" in result
+        # The three axes the refiner should surface explicitly.
+        assert "(a) what" in result
+        assert "(b) what" in result
+        assert "(c) what" in result
+        # References the refine-input artifact path.
+        assert "1557-refine-input.json" in result
+        # The 'fresh' label must NOT appear when reassess is active.
+        assert "**fresh**" not in result
+
+    def test_refine_epic_mode_reassess_uses_pipeline_id_when_no_issue(self):
+        """When there is no issue number, the path falls back to pipeline id."""
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="local",
+            prompt="Analyze the issue",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="reassess",
+        )
+        # No issue number → use pipeline_id in the path
+        assert "pid-1557-refine-input.json" in result
+
+    def test_refine_non_epic_omits_epic_section(self):
+        """When ``jira_epic_key`` is None, the epic block is absent."""
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            jira_epic_key=None,
+            jira_effective_mode=None,
+        )
+        assert "## Epic-mode (Jira)" not in result
+        assert "wholesale rewrite" not in result
+        assert "ENG-1234" not in result
+
+
+class TestBuildPhasePromptEpicModePlan:
+    """Plan-phase epic-mode preamble (#1557 TASK-1-11).
+
+    When ``jira_epic_key`` is set, the plan prompt must:
+    - Frame output as Jira child tickets under the epic.
+    - Enforce per-node ticket-shaped description structure
+      (Problem / Scope / AC / OOS / Cross-links).
+    - Constrain cross-task link types to the allowlist.
+    - Add reassess-specific classification + Won't-Do permanence warning
+      when ``jira_effective_mode == "reassess"``.
+    """
+
+    def test_plan_epic_mode_includes_epic_key(self):
+        """The epic key appears in the rendered plan prompt."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        assert "ENG-1234" in result
+        assert "## Epic-mode plan output (Jira)" in result
+
+    def test_plan_epic_mode_renders_ticket_shaped_description_structure(self):
+        """Per-node ticket-body structure is named explicitly.
+
+        The plan prompt must list the five required sections so the
+        planner emits them for every node.
+        """
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        # The five required ticket-body sections (feedback Q2)
+        assert "Problem" in result
+        assert "Scope" in result
+        assert "Acceptance criteria" in result
+        assert "Out of scope" in result
+        assert "Cross-links" in result
+        # Surfaced as a mandatory ticket-body structure
+        assert "ticket-body structure" in result
+
+    def test_plan_epic_mode_link_type_allowlist(self):
+        """Cross-task link types are constrained to the allowlist."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        assert "Blocks" in result
+        assert "Is blocked by" in result
+        assert "Relates to" in result
+
+    def test_plan_epic_mode_emits_yaml_block_names(self):
+        """Plan-draft `# yaml-tasks` extras are explicitly named."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        assert "epic_apply:" in result
+        assert "consolidations:" in result
+        assert "splits:" in result
+
+    def test_plan_epic_mode_reassess_branch_classification(self):
+        """Reassess mode lists the per-child classifications."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            issue_number=1557,
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="reassess",
+        )
+        assert "**Reassess mode**" in result
+        # The classification labels named in the prompt
+        for label in ("updated", "consolidated", "split", "net-new", "wont_do"):
+            assert label in result
+        # References the existing-children sweep
+        assert "1557-existing-children.json" in result
+
+    def test_plan_epic_mode_reassess_includes_wont_do_warning(self):
+        """Reassess plan-output rendering surfaces the Won't-Do permanence warning."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            issue_number=1557,
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="reassess",
+        )
+        # The exact wording surfaces the permanence concern (#1557 R6)
+        assert "permanent" in result
+        assert "not auto-reversed" in result
+        assert "wont_do_reason" in result
+
+    def test_plan_epic_mode_reassess_includes_consolidation_survivor_rule(self):
+        """Reassess mode names the consolidation survivor field."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            issue_number=1557,
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="reassess",
+        )
+        # Consolidation survivor must be recorded per-consolidation
+        assert "survivor" in result.lower()
+        assert "decision-5" in result
+
+    def test_plan_epic_mode_fresh_omits_reassess_language(self):
+        """Fresh-mode plan prompt MUST NOT include reassess-specific language."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            jira_epic_key="ENG-1234",
+            jira_effective_mode="fresh",
+        )
+        # Reassess-mode-only labels MUST NOT appear when fresh
+        assert "**Reassess mode**" not in result
+        assert "existing-children.json" not in result
+        # The Won't-Do permanence warning is reassess-only too
+        assert "not auto-reversed" not in result
+
+    def test_plan_non_epic_omits_epic_section(self):
+        """Non-epic plan prompt is byte-clean of the epic-mode block."""
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            jira_epic_key=None,
+            jira_effective_mode=None,
+        )
+        assert "## Epic-mode plan output (Jira)" not in result
+        assert "epic_apply:" not in result
+        assert "ENG-1234" not in result
+        # The slice-DAG language stays present (not gated on epic mode)
+        assert "slice-DAG" in result.lower() or "Slice-DAG" in result
+
+
+class TestBuildPhasePromptEpicModeByteIdenticalNonEpic:
+    """Guards the 'byte-identical to today's prompt when None' contract.
+
+    Asserts that the rendered prompt does not include any epic-mode
+    markers when the kwargs are absent. Counterpart to the explicit
+    'omits epic section' tests, but framed as a regression guard.
+    """
+
+    def test_refine_byte_identical_when_kwargs_absent(self):
+        """The refine prompt is identical with kwargs absent vs ``None``."""
+        without = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+        )
+        with_none = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            jira_epic_key=None,
+            jira_effective_mode=None,
+        )
+        assert without == with_none
+
+    def test_plan_byte_identical_when_kwargs_absent(self):
+        """The plan prompt is identical with kwargs absent vs ``None``."""
+        without = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+        )
+        with_none = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1557",
+            pipeline_mode="issue",
+            prompt="Plan the work",
+            jira_epic_key=None,
+            jira_effective_mode=None,
+        )
+        assert without == with_none
