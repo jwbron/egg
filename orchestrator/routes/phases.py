@@ -1065,38 +1065,39 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         if pipeline.branch and worktree_path != store.repo_path:
             try:
                 identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
-                committed = _commit_statefiles_to_worktree(
+                _commit_statefiles_to_worktree(
                     worktree_path,
                     f"Populate contract for {identifier} (#2629)",
                     pipeline_identifier=identifier,
                     pipeline_id=pipeline_id,
                 )
-                # Skip the push when the commit was a no-op — the helper
-                # is idempotent and the contents on origin already
-                # match.  An unconditional push would still fast-forward
-                # to a no-op but would burn a gateway round-trip.  Mark
-                # the success case explicitly so a second
-                # ``populate_contract`` call on an already-populated
-                # pipeline does not return ``pushed_to_origin=False``
-                # and mislead the operator into a manual push attempt.
-                if committed:
-                    gateway_mode, _ = _compute_gateway_mode(pipeline)
-                    push_result = _get_spawner().gateway.push_worktree_branch(
+                # Push unconditionally — a no-op commit does NOT imply
+                # origin matches local.  The per-pipeline worktree is
+                # long-lived (see ``resolve_worktree_path``) and may
+                # carry commits ahead of origin from a prior failed
+                # push.  Pushing unconditionally fast-forwards in the
+                # safe case (origin already matches → no-op push) and
+                # delivers the un-pushed commit in the dangerous one
+                # (the exact wedge #2629 was opened against).  The
+                # ``populate_contract`` route is an operator-initiated
+                # recovery primitive, not a hot loop, so the gateway
+                # round-trip is cheap relative to the correctness
+                # benefit.
+                gateway_mode, _ = _compute_gateway_mode(pipeline)
+                push_result = _get_spawner().gateway.push_worktree_branch(
+                    pipeline_id=pipeline_id,
+                    repo_path=str(worktree_path),
+                    branch=pipeline.branch,
+                    mode=gateway_mode,
+                    base_branch=pipeline.base_branch,
+                )
+                pushed_to_origin = bool(push_result)
+                if not pushed_to_origin:
+                    logger.warning(
+                        "populate_contract: push failed (continuing)",
                         pipeline_id=pipeline_id,
-                        repo_path=str(worktree_path),
-                        branch=pipeline.branch,
-                        mode=gateway_mode,
-                        base_branch=pipeline.base_branch,
+                        detail=push_result.describe(),
                     )
-                    pushed_to_origin = bool(push_result)
-                    if not pushed_to_origin:
-                        logger.warning(
-                            "populate_contract: push failed (continuing)",
-                            pipeline_id=pipeline_id,
-                            detail=push_result.describe(),
-                        )
-                else:
-                    pushed_to_origin = True
             except Exception as persist_err:  # noqa: BLE001
                 logger.warning(
                     "populate_contract: persist to origin failed (continuing)",

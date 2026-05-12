@@ -107,6 +107,9 @@ class TestPopulateContractEndpoint:
         mock_resolve_wt.return_value = Path("/tmp/wt")
         mock_commit.return_value = False
         mock_gw_mode.return_value = ("public", None)
+        push_result = MagicMock()
+        push_result.__bool__.return_value = True
+        mock_spawner.return_value.gateway.push_worktree_branch.return_value = push_result
 
         with patch(
             "egg_contracts.loader.load_contract",
@@ -117,8 +120,6 @@ class TestPopulateContractEndpoint:
         assert resp.status_code == 200
         call_kwargs = mock_populate.call_args[1]
         assert call_kwargs["pipeline_mode"] == "issue"
-        # Mock is stacked but unused in this no-op path.
-        mock_spawner.return_value.gateway.push_worktree_branch.assert_not_called()
 
     @patch("routes.pipelines._populate_contract_from_plan")
     @patch("routes.resolve_worktree_path")
@@ -391,7 +392,7 @@ class TestPopulateContractEndpoint:
     @patch("routes.pipelines._populate_contract_from_plan")
     @patch("routes.resolve_worktree_path")
     @patch("routes.phases.get_state_store_for_pipeline")
-    def test_commit_noop_skips_push(
+    def test_commit_noop_still_pushes(
         self,
         mock_get_store,
         mock_resolve_wt,
@@ -401,16 +402,17 @@ class TestPopulateContractEndpoint:
         mock_spawner,
         client,
     ):
-        """When the commit short-circuits (nothing staged), skip the push —
-        contents on origin already match, so report
-        ``pushed_to_origin=True`` (#2629).
+        """When the commit short-circuits (nothing staged), the push
+        still runs — a no-op commit does NOT imply origin matches local
+        (#2629).
 
-        The helper is idempotent on identical contents, so a no-op commit
-        means the orchestrator's local HEAD already matches the
-        previously-pushed state on origin.  Reporting ``False`` here
-        would mislead an operator running a second ``populate_contract``
-        on an already-recovered pipeline into thinking the recovery
-        failed.
+        The per-pipeline worktree is long-lived and may carry commits
+        ahead of origin from a prior failed push.  Pushing
+        unconditionally fast-forwards in the safe case (origin already
+        matches → no-op push) and delivers the un-pushed commit in the
+        dangerous one.  Reporting ``pushed_to_origin=True`` here
+        requires the push to actually report success — we do not
+        infer it from the no-op commit alone.
         """
         pipeline = _make_pipeline()
         mock_store = MagicMock()
@@ -419,7 +421,10 @@ class TestPopulateContractEndpoint:
         mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
         mock_commit.return_value = False
         mock_gw_mode.return_value = ("public", None)
+        push_result = MagicMock()
+        push_result.__bool__.return_value = True
         gateway = mock_spawner.return_value.gateway
+        gateway.push_worktree_branch.return_value = push_result
 
         with patch(
             "egg_contracts.loader.load_contract",
@@ -430,7 +435,70 @@ class TestPopulateContractEndpoint:
         assert resp.status_code == 200
         data = json.loads(resp.data)
         assert data["data"]["pushed_to_origin"] is True
-        gateway.push_worktree_branch.assert_not_called()
+        gateway.push_worktree_branch.assert_called_once()
+
+    @patch("routes.pipelines._get_spawner")
+    @patch("routes.pipelines._compute_gateway_mode")
+    @patch("routes.pipelines._commit_statefiles_to_worktree")
+    @patch("routes.pipelines._populate_contract_from_plan")
+    @patch("routes.resolve_worktree_path")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_failed_push_retry_with_noop_commit_still_reports_failure(
+        self,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_populate,
+        mock_commit,
+        mock_gw_mode,
+        mock_spawner,
+        client,
+    ):
+        """Regression for the failed-push-then-retry recovery scenario
+        (#2629).
+
+        Models the post-failure retry state: a prior ``populate_contract``
+        call committed locally but the push failed, leaving local HEAD
+        ahead of origin by one commit.  The operator retries — the
+        file on disk now matches HEAD so ``_commit_statefiles_to_worktree``
+        returns ``False`` (no-op commit) — but the un-pushed commit is
+        still on local only.
+
+        The route must still attempt the push.  If the push fails again
+        (gateway down, ``non_fast_forward``, etc.), ``pushed_to_origin``
+        must be ``False`` so the operator does not interpret a no-op
+        commit as success when origin is in fact still empty.  The
+        original wedge #2629 was opened against was a caller silently
+        treating ``pushed_to_origin=True`` as "contract is on origin"
+        when it was not.
+        """
+        pipeline = _make_pipeline()
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+        mock_get_store.return_value = (mock_store, pipeline)
+        mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
+        # Second-call shape: file already matches HEAD locally → no-op.
+        mock_commit.return_value = False
+        mock_gw_mode.return_value = ("public", None)
+        gateway = mock_spawner.return_value.gateway
+        # Push fails again — origin still does not have the contract.
+        gateway.push_worktree_branch.return_value = PushResult(
+            ok=False,
+            category="non_fast_forward",
+            detail="(fetch first)",
+        )
+
+        with patch(
+            "egg_contracts.loader.load_contract",
+            side_effect=Exception("skip"),
+        ):
+            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        # The push was attempted (no shortcut from no-op commit) and
+        # its failure was honored (no false success).
+        gateway.push_worktree_branch.assert_called_once()
+        assert data["data"]["pushed_to_origin"] is False
 
     @patch("routes.pipelines._get_spawner")
     @patch("routes.pipelines._compute_gateway_mode")
@@ -463,6 +531,9 @@ class TestPopulateContractEndpoint:
         mock_resolve_wt.return_value = worktree_path
         mock_commit.return_value = False
         mock_gw_mode.return_value = ("public", None)
+        push_result = MagicMock()
+        push_result.__bool__.return_value = True
+        mock_spawner.return_value.gateway.push_worktree_branch.return_value = push_result
 
         with patch(
             "egg_contracts.loader.load_contract",
@@ -476,5 +547,3 @@ class TestPopulateContractEndpoint:
         mock_populate.assert_called_once()
         call_kwargs = mock_populate.call_args[1]
         assert call_kwargs["repo_path"] == worktree_path
-        # Mock is stacked but unused in this no-op path.
-        mock_spawner.return_value.gateway.push_worktree_branch.assert_not_called()
