@@ -212,8 +212,8 @@ Each `build_commands` entry has:
 **Fail-fast contract (since #2087):** A non-zero exit from any command, a missing watch-files directory, or a `persist_dirs` / `persist_system_dirs` entry that doesn't exist after the commands run all abort the image build. Earlier behavior printed a warning and continued, which silently produced empty `/opt/prebuilt-deps/<repo>/` trees. Path-traversal rejection in `persist_dirs` remains warn-and-skip — it's a security control, not a misconfiguration we want to crash on.
 
 **How it works:**
-1. `create_dockerfile()` copies each repo's watch files from `local_repos.paths` into the build context at `~/.config/egg/repo-deps/<repo-name>/`
-2. `compute_build_hash()` includes watch file contents, so the image rebuilds automatically when dependency files change
+1. `make build` runs `scripts/prepare-sandbox-build-context.py`, which calls `populate_build_context()` to copy each repo's watch files from `local_repos.paths` into the build context at `<repo-root>/repo-deps/<repo-name>/` and write a `manifest.json` next to them
+2. The `COPY repo-deps/` layer in the Dockerfile keys on watch-file contents, so a change to (e.g.) `package-lock.json` invalidates the dependency layer on the next `make build`
 3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from `manifest.json` (since `repositories.yaml` is unavailable in the build context) and executes them in order
 4. All repos' dependencies are installed into the **same image** — no per-repo images
 5. After commands run, `persist_build_dirs()` copies `persist_dirs` entries to `/opt/prebuilt-deps/<repo>/` and `persist_system_dirs` entries to `/opt/prebuilt-deps/__egg_system_dirs__/<abs_path>/` inside the image
@@ -221,10 +221,10 @@ Each `build_commands` entry has:
 7. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` copies `persist_dirs` directories into the mounted repo (skipping files that already exist)
 
 **Key properties:**
-- Repos without `build_commands` are unaffected (backwards compatible)
-- Docker layer caching means no rebuild when dependencies are unchanged
+- Repos without `build_commands` are skipped — they get no entry in `repo-deps/`. If no repos have `build_commands` and no `extra_packages` are configured, `repo-deps/.empty` is written so the Dockerfile `COPY` step still has a valid source.
+- Docker layer caching is the only rebuild trigger; unchanged watch files mean unchanged image
 - `persist_dirs` is for repo-relative directories (e.g., `node_modules`); `persist_system_dirs` is for absolute-path system installations (e.g., `/usr/local/go`)
-- Changing `persist_dirs` or `persist_system_dirs` alone does not trigger a rebuild — add or modify a `watch_files` entry or use `egg --rebuild`
+- Changing `persist_dirs` or `persist_system_dirs` alone does not trigger a rebuild — add or modify a `watch_files` entry, or run `make build --no-cache` (or `docker build --no-cache` for the sandbox image)
 - The existing `docker_setup.extra_packages` (apt/dnf) remains for OS-level packages; `build_commands` is for project-level dependencies
 - Both `build_commands` and `extra_packages` are included in `manifest.json` for the Docker build context
 

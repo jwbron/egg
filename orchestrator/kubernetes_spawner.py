@@ -762,6 +762,31 @@ class KubernetesSpawner:
                 # owner/repo string used by the overseer auto-issue verb
                 # (issue #1962) and the gateway's overseer guardrails.
                 environment["EGG_PIPELINE_REPO"] = pipeline_repo
+                # #2528: sandbox containers don't have repositories.yaml
+                # mounted, so the orchestrator pre-resolves the per-repo
+                # role-pattern override here and passes it as a JSON
+                # env var. ``shared.egg_restrictions.patterns`` checks
+                # this env var first before attempting a filesystem
+                # lookup. Failures are non-fatal — the lookup degrades
+                # to the global defaults.
+                try:
+                    import json as _json
+
+                    from egg_restrictions.patterns import (
+                        load_repo_pattern_override,
+                    )
+
+                    snapshot = load_repo_pattern_override(pipeline_repo)
+                    if snapshot:
+                        environment["EGG_PIPELINE_REPO_PATTERNS_JSON"] = _json.dumps(
+                            {pipeline_repo: snapshot}
+                        )
+                except Exception:
+                    logger.exception(
+                        "Failed to pre-resolve role-pattern override for sandbox; "
+                        "falling back to defaults",
+                        repo=pipeline_repo,
+                    )
             if issue_number is not None:
                 environment["EGG_ISSUE_NUMBER"] = str(issue_number)
             if phase:
