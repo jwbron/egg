@@ -155,6 +155,50 @@ def _validate_brc_content(body: str, kind: str) -> str | None:
     return None
 
 
+def _require_route_version(payload: dict[str, Any], key: str) -> tuple[Response, int] | None:
+    """Enforce ``payload[key]`` is an integer >= 1 at the HTTP signals boundary.
+
+    Mirrors ``_require_version_int`` in ``sandbox/egg_agent_tools/handlers/brc.py``
+    so the route surface shares the MCP handler's contract — a client POSTing
+    directly to ``/signals/...`` cannot bypass the version-match guard in
+    ``check_ack_guard`` / ``check_nack_guard`` by omitting the version field
+    (#2674).  Returns an error response tuple on failure, or ``None`` on
+    success.
+
+    Treats absent and explicit ``null`` the same (both → "required"), matching
+    the MCP helper.  On success, coerces ``payload[key]`` to ``int`` in place
+    so downstream ``check_ack_guard`` / ``check_nack_guard`` can compare
+    integers directly (the original raw value may have been a numeric string).
+    """
+    raw = payload.get(key)
+    if raw is None:
+        return make_error_response(
+            f"'{key}' is required (the producer's current proposal version "
+            "you reviewed; read it from the CONSENSUS_PROPOSE message)",
+            400,
+        )
+    try:
+        version = int(raw)
+    except (TypeError, ValueError) as _exc:
+        # `as _exc` is unused but forces the parentheses to stay: PEP 758
+        # (Python 3.14) makes `except T, V:` a legal multi-class form, and
+        # ruff format normalises to that shorter shape — which is
+        # byte-identical to Python 2's `except Exception, var:` instance-
+        # binding form and reads as a different operation at a glance.  The
+        # binding pins the parens so the syntax cannot regress.
+        return make_error_response(
+            f"'{key}' must be an integer; got {raw!r}",
+            400,
+        )
+    if version < 1:
+        return make_error_response(
+            f"'{key}' must be >= 1; got {version} (v0 means no proposal exists yet)",
+            400,
+        )
+    payload[key] = version
+    return None
+
+
 from routes import (  # noqa: E402 — shared helper
     get_repo_path,
     resolve_repo_path_for_pipeline,
@@ -1385,7 +1429,16 @@ def handle_consensus_ack_signal(
     # Forward ack_version from signal data into the payload so the
     # version-match guard can detect stale ACKs.
     if "ack_version" in data and "ack_version" not in payload:
-        payload["ack_version"] = int(data["ack_version"])
+        payload["ack_version"] = data["ack_version"]
+
+    # Require ack_version >= 1 at the route boundary so the HTTP surface
+    # matches the MCP handler's contract (`_require_version_int` in
+    # sandbox/egg_agent_tools/handlers/brc.py). Without this, a client that
+    # omits ack_version bypasses the version-match guard in
+    # check_ack_guard (#2674).
+    version_error = _require_route_version(payload, "ack_version")
+    if version_error is not None:
+        return version_error
 
     # Validate ACK reason content (#1716)
     reason_error = _validate_brc_content(payload.get("reason", ""), "ACK reason")
@@ -1507,7 +1560,16 @@ def handle_consensus_nack_signal(
     # Forward nack_version from signal data into the payload so the
     # version-match guard can detect stale NACKs (#2142).
     if "nack_version" in data and "nack_version" not in payload:
-        payload["nack_version"] = int(data["nack_version"])
+        payload["nack_version"] = data["nack_version"]
+
+    # Require nack_version >= 1 at the route boundary so the HTTP surface
+    # matches the MCP handler's contract (`_require_version_int` in
+    # sandbox/egg_agent_tools/handlers/brc.py). Without this, a client that
+    # omits nack_version bypasses the version-match guard in
+    # check_nack_guard (#2674).
+    version_error = _require_route_version(payload, "nack_version")
+    if version_error is not None:
+        return version_error
 
     # Validate NACK reason content (#1716)
     reason_error = _validate_brc_content(payload.get("reason", ""), "NACK reason")
