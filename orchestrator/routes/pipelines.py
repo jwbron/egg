@@ -17904,31 +17904,71 @@ def _empty_contract_hitl_question(
     )
 
 
-def _plan_draft_missing_failure_metadata(
+def _empty_contract_hitl_reason(
+    err: PlanDraftMissingOnLocalError
+    | PlanDraftMissingOnLocalAndOriginError
+    | PopulateProducedEmptyContractError,
+) -> str:
+    """Return the ``reason`` field for the empty-contract HITL.
+
+    Dispatches the operator-visible HITL ``reason`` from one of the
+    three plan-complete fail-loud exceptions:
+
+    * :class:`PlanDraftMissingOnLocalError` → ``plan_draft_missing_on_local``
+    * :class:`PlanDraftMissingOnLocalAndOriginError` →
+      ``plan_draft_missing_on_local_and_origin``
+    * :class:`PopulateProducedEmptyContractError` —
+      ``populated_but_empty_slices`` when ``err.outcome == POPULATED``
+      (the orthogonal "draft existed, populator ran, but produced
+      0 slices/tasks" case so the HITL doesn't claim a bare
+      "populated" reason — #2627 review), else ``err.outcome.value``.
+
+    Extracted so the plan-complete call site's HITL-reason dispatch
+    is unit-testable without standing up the full ``_run_pipeline``
+    integration setup (#2627 review).
+    """
+    if isinstance(err, PlanDraftMissingOnLocalError):
+        return "plan_draft_missing_on_local"
+    if isinstance(err, PlanDraftMissingOnLocalAndOriginError):
+        return "plan_draft_missing_on_local_and_origin"
+    if err.outcome == PopulateOutcome.POPULATED:
+        return "populated_but_empty_slices"
+    return err.outcome.value
+
+
+def _empty_contract_failure_metadata(
     err: PlanDraftMissingOnLocalError
     | PlanDraftMissingOnLocalAndOriginError
     | PopulateProducedEmptyContractError,
 ) -> tuple[str, str]:
-    """Return ``(teardown_reason, log_event)`` for the plan-draft-missing
-    failure handler in :func:`_run_pipeline`.
+    """Return ``(teardown_reason, log_event)`` for the plan-complete
+    fail-loud handler in :func:`_run_pipeline`.
+
+    Dispatches on the three #2627 fail-loud exception classes:
+
+    * :class:`PlanDraftMissingOnLocalError` — draft missing from the local
+      worktree but present on origin (the #2337 silent-failure).
+    * :class:`PlanDraftMissingOnLocalAndOriginError` — draft missing from
+      both refs (the #2627 silent-failure).
+    * :class:`PopulateProducedEmptyContractError` — draft existed but the
+      populator yielded an empty/broken contract (the orthogonal "draft
+      existed but populate yielded nothing" failure mode #2627 also
+      called out).
 
     Extracted so the dispatch is unit-testable without standing up the
     full ``_run_pipeline`` integration setup — a typo that swapped the
-    two branches would otherwise pass the existing populator-helper
+    branches would otherwise pass the existing populator-helper
     tests.  Re #2627 review.
-
-    Also handles :class:`PopulateProducedEmptyContractError` (#2627
-    follow-up): the orthogonal "draft existed but populate yielded
-    nothing" failure mode routes through the same handler, so the
-    metadata helper learns one more branch instead of the call site
-    growing a parallel dispatch.
 
     ``log_event`` uses the ``"OVERSEER_ALERT <discriminator>"`` event-name
     convention so the plan-complete fail-loud path is visible to the same
     log filters operators use for the slice-gate and start_phase
-    safety-net (#2627 review).  The matching wrapper-side OVERSEER_ALERTs
-    at :func:`_populate_contract_from_plan_safe` use the same event names
-    so the pre-raise log and the FAILED-cleanup log share a discriminator.
+    safety-net (#2627 review).  The matching pre-raise OVERSEER_ALERTs
+    (emitted by :func:`_populate_contract_from_plan_safe` for the two
+    ``PlanDraftMissing*`` cases, and by ``_run_pipeline``'s plan-complete
+    synthesis for :class:`PopulateProducedEmptyContractError`) use the
+    same event names so the pre-raise log and the FAILED-cleanup log
+    share a single discriminator on every branch.
     """
     if isinstance(err, PlanDraftMissingOnLocalError):
         return (
@@ -19506,13 +19546,35 @@ def _run_pipeline(
                 # ``"implement"``; widening it to other start_phase values
                 # is a two-line change (this guard plus the matching
                 # ``initial_phase`` mapping in start_pipeline).
-                _safety_net_populate_result = _populate_contract_from_plan(
-                    worktree_repo_path,
-                    pipeline_id,
-                    pipeline_mode,
-                    pipeline.issue_number,
-                    current_phase=pipeline.current_phase,
-                )
+                # Catch ``ForestValidationError`` here so a malformed
+                # plan landing at the safety-net path lands on the
+                # dedicated empty-contract HITL — the same recovery
+                # surface the natural plan-complete path uses via
+                # :func:`_populate_contract_from_plan_safe`'s
+                # forest-violation translation.  Without this catch the
+                # safety net (which calls the inner directly so the
+                # ``PlanDraftMissing*`` raises don't fire here) would
+                # propagate the exception to the outer pipeline
+                # ``except`` and the operator would see a generic
+                # ``status: failed`` instead of the actionable
+                # repopulate/restart-plan/abort decision (#2627 review).
+                try:
+                    _safety_net_populate_result = _populate_contract_from_plan(
+                        worktree_repo_path,
+                        pipeline_id,
+                        pipeline_mode,
+                        pipeline.issue_number,
+                        current_phase=pipeline.current_phase,
+                    )
+                except ForestValidationError as forest_err:
+                    logger.warning(
+                        "contract_phases_ingest_failed",
+                        pipeline_id=pipeline_id,
+                        reason="forest_violation",
+                        source="safety_net",
+                        errors=forest_err.errors,
+                    )
+                    _safety_net_populate_result = PopulateResult(PopulateOutcome.FOREST_VIOLATION)
                 # #2627 follow-up: fail-fast whenever the safety-net populate
                 # did not produce a contract with tasks.  Without this guard
                 # the implement phase spawns into the same empty-contract
@@ -19526,10 +19588,7 @@ def _run_pipeline(
                 # so the two empty-contract call sites (this safety net
                 # and the natural plan-complete handler below) can't drift
                 # out of agreement.  See that helper's docstring for the
-                # full discriminator rules.  ``FOREST_VIOLATION`` is only
-                # produced by the safe wrapper; the safety net calls the
-                # inner directly so a forest violation propagates as a
-                # raise and is handled by the outer pipeline ``except``.
+                # full discriminator rules.
                 if _populate_result_is_empty_contract(_safety_net_populate_result):
                     if _safety_net_populate_result.outcome == PopulateOutcome.POPULATED:
                         # POPULATED-with-no-slices: emit a distinct reason
@@ -20586,6 +20645,27 @@ def _run_pipeline(
                     # every non-success outcome plus the POPULATED-with-no-
                     # slices case (#2627 review).
                     if _populate_result_is_empty_contract(_plan_complete_populate_result):
+                        # Pre-raise OVERSEER_ALERT mirroring the two
+                        # ``PlanDraftMissing*`` wrapper-side emits at
+                        # :func:`_populate_contract_from_plan_safe` so the
+                        # discriminator the FAILED-cleanup logger uses
+                        # (``OVERSEER_ALERT plan_populate_produced_empty_contract``)
+                        # is also emitted before the raise.  Without this
+                        # the third fail-loud branch had no pre-raise log
+                        # while the two draft-missing branches did,
+                        # asymmetric audit (#2627 review).
+                        logger.error(
+                            "OVERSEER_ALERT plan_populate_produced_empty_contract",
+                            pipeline_id=pipeline_id,
+                            branch=pipeline.branch,
+                            outcome=_plan_complete_populate_result.outcome.value,
+                            slice_count=_plan_complete_populate_result.slice_count,
+                            note=(
+                                "plan populate did not produce a contract with "
+                                "tasks the implement-phase agents can act on; "
+                                "blocking phase advance (#2627)"
+                            ),
+                        )
                         raise PopulateProducedEmptyContractError(
                             _plan_complete_populate_result.outcome,
                             slice_count=_plan_complete_populate_result.slice_count,
@@ -20603,7 +20683,7 @@ def _run_pipeline(
                     # for backup) so both load-bearing failure paths
                     # have a uniform cleanup story.  Re #2337 / #2627
                     # reviews.
-                    teardown_reason, log_message = _plan_draft_missing_failure_metadata(missing_err)
+                    teardown_reason, log_event = _empty_contract_failure_metadata(missing_err)
                     with get_pipeline_state_lock(pipeline_id):
                         pipeline = store.load_pipeline(pipeline_id)
                         phase_execution = pipeline.get_phase_execution(current_phase)
@@ -20619,17 +20699,7 @@ def _run_pipeline(
                     # FAILED status, instead of having to dig through
                     # pipeline.error and the generic consensus-timeout
                     # decision.
-                    if isinstance(missing_err, PlanDraftMissingOnLocalError):
-                        _hitl_reason = "plan_draft_missing_on_local"
-                    elif isinstance(missing_err, PlanDraftMissingOnLocalAndOriginError):
-                        _hitl_reason = "plan_draft_missing_on_local_and_origin"
-                    elif missing_err.outcome == PopulateOutcome.POPULATED:
-                        # POPULATED with slice_count == 0 — name the
-                        # actual divergence so the HITL doesn't claim a
-                        # bare "populated" reason (#2627 review).
-                        _hitl_reason = "populated_but_empty_slices"
-                    else:
-                        _hitl_reason = missing_err.outcome.value
+                    _hitl_reason = _empty_contract_hitl_reason(missing_err)
                     _emit_empty_contract_hitl(
                         pipeline_id,
                         pipeline,
@@ -20640,7 +20710,7 @@ def _run_pipeline(
                         phase=current_phase,
                     )
                     logger.error(
-                        log_message,
+                        log_event,
                         pipeline_id=pipeline_id,
                         error=str(missing_err),
                     )

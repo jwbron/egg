@@ -434,23 +434,31 @@ class TestNaturalSourceLoudFail:
             mock_inner.assert_called_once()
 
 
-class TestPlanDraftMissingFailureMetadata:
+class TestEmptyContractFailureMetadata:
     """#2627 review: the ``_run_pipeline`` failure handler picks a
-    ``(teardown_reason, log_message)`` pair based on which
-    ``PlanDraftMissing*`` subclass was raised.  Extracted into a helper
-    so a typo that swapped the two branches can be caught by a unit
-    test rather than slipping through the populator-helper tests above
-    (which only assert that the right exception type is raised, not
-    that the call site dispatches on it correctly).
+    ``(teardown_reason, log_event)`` pair based on which fail-loud
+    exception (``PlanDraftMissing*`` or
+    :class:`PopulateProducedEmptyContractError`) was raised.  Extracted
+    into a helper so a typo that swapped the branches can be caught by
+    a unit test rather than slipping through the populator-helper tests
+    above (which only assert that the right exception type is raised,
+    not that the call site dispatches on it correctly).
+
+    Helper rename — was ``_plan_draft_missing_failure_metadata`` —
+    because the dispatch now also handles
+    :class:`PopulateProducedEmptyContractError`, which is not a
+    "draft-missing" failure (the draft exists; it just produced
+    nothing).  ``_empty_contract_failure_metadata`` parallels the rest
+    of the #2627 surface (#2627 review).
     """
 
     def test_local_only_error_maps_to_local_strings(self):
         from routes.pipelines import (
             PlanDraftMissingOnLocalError,
-            _plan_draft_missing_failure_metadata,
+            _empty_contract_failure_metadata,
         )
 
-        reason, message = _plan_draft_missing_failure_metadata(
+        reason, message = _empty_contract_failure_metadata(
             PlanDraftMissingOnLocalError("draft x missing")
         )
         assert reason == "plan draft missing on local"
@@ -464,10 +472,10 @@ class TestPlanDraftMissingFailureMetadata:
     def test_local_and_origin_error_maps_to_both_strings(self):
         from routes.pipelines import (
             PlanDraftMissingOnLocalAndOriginError,
-            _plan_draft_missing_failure_metadata,
+            _empty_contract_failure_metadata,
         )
 
-        reason, message = _plan_draft_missing_failure_metadata(
+        reason, message = _empty_contract_failure_metadata(
             PlanDraftMissingOnLocalAndOriginError("draft x missing on both")
         )
         assert reason == "plan draft missing on local and origin"
@@ -479,13 +487,11 @@ class TestPlanDraftMissingFailureMetadata:
         from routes.pipelines import (
             PlanDraftMissingOnLocalAndOriginError,
             PlanDraftMissingOnLocalError,
-            _plan_draft_missing_failure_metadata,
+            _empty_contract_failure_metadata,
         )
 
-        local_meta = _plan_draft_missing_failure_metadata(PlanDraftMissingOnLocalError("local"))
-        both_meta = _plan_draft_missing_failure_metadata(
-            PlanDraftMissingOnLocalAndOriginError("both")
-        )
+        local_meta = _empty_contract_failure_metadata(PlanDraftMissingOnLocalError("local"))
+        both_meta = _empty_contract_failure_metadata(PlanDraftMissingOnLocalAndOriginError("both"))
         assert local_meta != both_meta
         # And the two reason strings differ at the operator-visible
         # phrase (teardown reason is the field the overseer sees).
@@ -500,10 +506,10 @@ class TestPlanDraftMissingFailureMetadata:
         from routes.pipelines import (
             PopulateOutcome,
             PopulateProducedEmptyContractError,
-            _plan_draft_missing_failure_metadata,
+            _empty_contract_failure_metadata,
         )
 
-        reason, message = _plan_draft_missing_failure_metadata(
+        reason, message = _empty_contract_failure_metadata(
             PopulateProducedEmptyContractError(PopulateOutcome.EMPTY_RESULT)
         )
         assert reason == "populate produced empty_result outcome"
@@ -515,7 +521,7 @@ class TestPlanDraftMissingFailureMetadata:
         # parse_failed routes through the same branch — the helper
         # keys on the outcome, not the exception class, so a future
         # PopulateOutcome value doesn't need a new branch.
-        reason2, message2 = _plan_draft_missing_failure_metadata(
+        reason2, message2 = _empty_contract_failure_metadata(
             PopulateProducedEmptyContractError(PopulateOutcome.PARSE_FAILED)
         )
         assert "parse_failed" in reason2
@@ -532,7 +538,7 @@ class TestPlanDraftMissingFailureMetadata:
             PlanDraftMissingOnLocalError,
             PopulateOutcome,
             PopulateProducedEmptyContractError,
-            _plan_draft_missing_failure_metadata,
+            _empty_contract_failure_metadata,
         )
 
         for err in (
@@ -541,7 +547,7 @@ class TestPlanDraftMissingFailureMetadata:
             PopulateProducedEmptyContractError(PopulateOutcome.EMPTY_RESULT),
             PopulateProducedEmptyContractError(PopulateOutcome.PARSE_FAILED),
         ):
-            _, message = _plan_draft_missing_failure_metadata(err)
+            _, message = _empty_contract_failure_metadata(err)
             assert message.startswith("OVERSEER_ALERT "), (
                 f"log_event for {type(err).__name__} missing OVERSEER_ALERT prefix: {message!r}"
             )
@@ -1087,6 +1093,280 @@ class TestEmptyContractHitl:
                 "implement-specific phrasing should not appear — "
                 "plan_complete fires before implement spawns"
             )
+
+
+class TestEmptyContractHitlReason:
+    """#2627 review: the plan-complete call-site's HITL-reason dispatch
+    is extracted into :func:`_empty_contract_hitl_reason` so a typo
+    that narrows the dispatch back (e.g. dropping the
+    ``POPULATED with slice_count==0 → populated_but_empty_slices``
+    branch and letting it fall through to ``err.outcome.value``) is
+    caught by a unit test rather than slipping past the
+    populator-helper tests.
+    """
+
+    def test_local_only_error_maps_to_plan_draft_missing_on_local(self):
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalError,
+            _empty_contract_hitl_reason,
+        )
+
+        reason = _empty_contract_hitl_reason(PlanDraftMissingOnLocalError("draft x"))
+        assert reason == "plan_draft_missing_on_local"
+
+    def test_local_and_origin_error_maps_to_local_and_origin(self):
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalAndOriginError,
+            _empty_contract_hitl_reason,
+        )
+
+        reason = _empty_contract_hitl_reason(
+            PlanDraftMissingOnLocalAndOriginError("draft x missing on both")
+        )
+        assert reason == "plan_draft_missing_on_local_and_origin"
+
+    def test_populated_with_zero_slices_maps_to_populated_but_empty_slices(self):
+        """#2627 review: ``POPULATED`` with ``slice_count == 0`` must NOT
+        fall through to ``err.outcome.value`` (which would yield the bare
+        string ``populated`` — contradicting the HITL when the contract
+        is actually empty)."""
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateProducedEmptyContractError,
+            _empty_contract_hitl_reason,
+        )
+
+        reason = _empty_contract_hitl_reason(
+            PopulateProducedEmptyContractError(PopulateOutcome.POPULATED, slice_count=0)
+        )
+        assert reason == "populated_but_empty_slices"
+        # And it MUST NOT be the bare outcome.value — that's the
+        # contradiction the helper exists to prevent.
+        assert reason != "populated"
+
+    def test_non_populated_outcomes_use_outcome_value(self):
+        """For every non-POPULATED outcome the reason is the outcome's
+        string value — covers EMPTY_RESULT, PARSE_FAILED, etc."""
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateProducedEmptyContractError,
+            _empty_contract_hitl_reason,
+        )
+
+        for outcome in PopulateOutcome:
+            if outcome == PopulateOutcome.POPULATED:
+                continue
+            err = PopulateProducedEmptyContractError(outcome)
+            reason = _empty_contract_hitl_reason(err)
+            assert reason == outcome.value, (
+                f"non-POPULATED outcome {outcome} must dispatch to "
+                f"outcome.value ({outcome.value!r}), got {reason!r}"
+            )
+
+    def test_all_three_exception_classes_produce_distinct_reasons(self):
+        """A swap between branches in the dispatch would collide reasons.
+        Assert every distinguishable case yields a unique reason."""
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalAndOriginError,
+            PlanDraftMissingOnLocalError,
+            PopulateOutcome,
+            PopulateProducedEmptyContractError,
+            _empty_contract_hitl_reason,
+        )
+
+        reasons = {
+            _empty_contract_hitl_reason(PlanDraftMissingOnLocalError("x")),
+            _empty_contract_hitl_reason(PlanDraftMissingOnLocalAndOriginError("x")),
+            _empty_contract_hitl_reason(
+                PopulateProducedEmptyContractError(PopulateOutcome.POPULATED, slice_count=0)
+            ),
+            _empty_contract_hitl_reason(
+                PopulateProducedEmptyContractError(PopulateOutcome.EMPTY_RESULT)
+            ),
+            _empty_contract_hitl_reason(
+                PopulateProducedEmptyContractError(PopulateOutcome.PARSE_FAILED)
+            ),
+        }
+        # Five distinct inputs → five distinct reasons.
+        assert len(reasons) == 5
+
+
+class TestPlanCompleteCallSiteWireUp:
+    """#2627 review: the plan-complete call site ties three helpers
+    together:
+
+        result = _populate_contract_from_plan_safe(...)
+        if _populate_result_is_empty_contract(result):
+            logger.error("OVERSEER_ALERT plan_populate_produced_empty_contract", ...)
+            raise PopulateProducedEmptyContractError(result.outcome, slice_count=result.slice_count)
+        ... except (...) as missing_err:
+            _hitl_reason = _empty_contract_hitl_reason(missing_err)
+            _emit_empty_contract_hitl(..., reason=_hitl_reason, gate="plan_complete", ...)
+            teardown_reason, log_event = _empty_contract_failure_metadata(missing_err)
+            logger.error(log_event, ...)
+
+    The helper-level tests above cover each piece independently.  These
+    tests verify the *connection* — a regression that swaps the helper
+    for the old narrow check, or drops the OVERSEER_ALERT pre-raise log,
+    or wires the wrong helper into the call site, would slip past every
+    other test.  Source-inspection on the ``_run_pipeline`` body is the
+    least-painful way to catch this without rebuilding the full
+    ``_run_pipeline`` integration setup just for the plan-complete
+    branch.
+    """
+
+    @staticmethod
+    def _run_pipeline_source() -> str:
+        import inspect
+
+        from routes.pipelines import _run_pipeline
+
+        return inspect.getsource(_run_pipeline)
+
+    def test_call_site_uses_populate_result_is_empty_contract_helper(self):
+        """The call-site condition must route through the shared helper,
+        not duplicate the outcome-set check inline (which would let it
+        drift away from the safety-net check)."""
+        source = self._run_pipeline_source()
+        # The shared helper is the one named symbol the call site needs.
+        # A regression that inlines the check loses this reference.
+        assert "_populate_result_is_empty_contract(_plan_complete_populate_result)" in source, (
+            "plan-complete call site must invoke _populate_result_is_empty_contract "
+            "to share the empty-contract check with the safety net (#2627 review)"
+        )
+
+    def test_call_site_raises_populate_produced_empty_contract_error(self):
+        """When the helper returns True, the call site must raise so the
+        existing ``except (PlanDraftMissing*, PopulateProducedEmptyContractError)``
+        handler downstream runs the FAILED-cleanup sequence."""
+        source = self._run_pipeline_source()
+        assert "raise PopulateProducedEmptyContractError(" in source, (
+            "plan-complete call site must raise PopulateProducedEmptyContractError "
+            "so the FAILED-cleanup handler catches it (#2627)"
+        )
+
+    def test_call_site_emits_overseer_alert_before_raise(self):
+        """#2627 review: the third fail-loud branch (populate produced
+        empty) must emit an ``OVERSEER_ALERT plan_populate_produced_empty_contract``
+        log BEFORE the raise so its discriminator parallels the two
+        ``PlanDraftMissing*`` wrapper-side pre-raise emits.  Without this
+        the FAILED-cleanup log line was the only mention of the
+        discriminator, asymmetric with the other two branches."""
+        source = self._run_pipeline_source()
+        # The OVERSEER_ALERT string and the raise must both appear in
+        # the plan-complete branch; order-checking is brittle so we
+        # assert co-occurrence and that the alert text comes before the
+        # raise text in the source.
+        alert = '"OVERSEER_ALERT plan_populate_produced_empty_contract"'
+        raise_text = "raise PopulateProducedEmptyContractError("
+        assert alert in source, (
+            "plan-complete call site must emit a pre-raise OVERSEER_ALERT with "
+            "the plan_populate_produced_empty_contract discriminator (#2627 review)"
+        )
+        assert source.index(alert) < source.index(raise_text), (
+            "OVERSEER_ALERT must be logged BEFORE the raise so the discriminator "
+            "is visible in the audit trail even if the FAILED-cleanup logger fails"
+        )
+
+    def test_call_site_dispatches_hitl_reason_through_helper(self):
+        """The call site must call _empty_contract_hitl_reason(missing_err)
+        rather than inline isinstance() dispatch — that's what the helper
+        was extracted for (#2627 review)."""
+        source = self._run_pipeline_source()
+        assert "_empty_contract_hitl_reason(missing_err)" in source, (
+            "plan-complete except-block must dispatch via _empty_contract_hitl_reason "
+            "so the HITL reason is unit-testable independent of _run_pipeline"
+        )
+
+    def test_call_site_dispatches_failure_metadata_through_helper(self):
+        """The call site must call _empty_contract_failure_metadata(missing_err)
+        rather than inline isinstance() dispatch on the (teardown_reason,
+        log_event) pair."""
+        source = self._run_pipeline_source()
+        assert "_empty_contract_failure_metadata(missing_err)" in source, (
+            "plan-complete except-block must dispatch via _empty_contract_failure_metadata "
+            "so the metadata pair is unit-testable independent of _run_pipeline"
+        )
+
+    def test_except_clause_catches_all_three_fail_loud_exceptions(self):
+        """The ``except`` tuple must list all three #2627 fail-loud
+        exception classes.  Dropping any one of them would let the
+        corresponding branch propagate to the outer pipeline ``except``
+        and bypass the dedicated empty-contract HITL."""
+        source = self._run_pipeline_source()
+        # The exact except clause varies in whitespace but the three
+        # class names must all appear in a single nearby block.
+        assert "PlanDraftMissingOnLocalError," in source
+        assert "PlanDraftMissingOnLocalAndOriginError," in source
+        assert "PopulateProducedEmptyContractError," in source
+
+    def test_emit_empty_contract_hitl_called_with_plan_complete_gate(self):
+        """The plan-complete except-block must call _emit_empty_contract_hitl
+        with gate="plan_complete" so the HITL question text identifies
+        which guard fired."""
+        source = self._run_pipeline_source()
+        # Find the plan-complete _emit_empty_contract_hitl call by gate string.
+        assert 'gate="plan_complete"' in source, (
+            'plan-complete except-block must pass gate="plan_complete" to '
+            "_emit_empty_contract_hitl so the HITL names which guard fired (#2627)"
+        )
+
+
+class TestSafetyNetForestViolationLandsOnEmptyContractHitl:
+    """#2627 review: the ``start_phase=implement`` safety net previously
+    called ``_populate_contract_from_plan`` (the inner) directly, so a
+    ``ForestValidationError`` raised by the inner propagated past the
+    empty-contract check and landed on the outer pipeline ``except``
+    handler — bypassing the dedicated empty-contract HITL.  The
+    plan-complete path uses the safe wrapper which translates
+    ``ForestValidationError`` to ``PopulateResult(FOREST_VIOLATION)``
+    and routes through the HITL.  Symmetry: the safety net now wraps
+    the inner call in ``try: ... except ForestValidationError:`` and
+    synthesizes the same ``PopulateResult`` so both paths converge.
+    """
+
+    @staticmethod
+    def _run_pipeline_source() -> str:
+        import inspect
+
+        from routes.pipelines import _run_pipeline
+
+        return inspect.getsource(_run_pipeline)
+
+    def test_safety_net_catches_forest_validation_error(self):
+        """The safety-net inner call must be wrapped in a try/except for
+        ForestValidationError, otherwise the asymmetry the reviewer
+        flagged returns."""
+        source = self._run_pipeline_source()
+        # The safety-net block is identified by the safety-net populate
+        # result variable name.  Look for the ForestValidationError
+        # catch in the same vicinity.
+        # The safety-net call uses _populate_contract_from_plan (not
+        # _safe), so the only ForestValidationError catch in
+        # _run_pipeline that produces a PopulateResult is the safety-net's.
+        assert "except ForestValidationError as forest_err:" in source, (
+            "safety-net inner call must catch ForestValidationError to land on "
+            "the dedicated empty-contract HITL (#2627 review)"
+        )
+        # And it must synthesize a FOREST_VIOLATION PopulateResult so the
+        # downstream _populate_result_is_empty_contract check routes it.
+        assert "PopulateOutcome.FOREST_VIOLATION" in source, (
+            "safety-net forest-violation catch must synthesize "
+            "PopulateResult(FOREST_VIOLATION) so the empty-contract check fires"
+        )
+
+    def test_safety_net_uses_dedicated_logger_warning_source(self):
+        """The forest-violation catch must log with source=\"safety_net\"
+        so the audit trail can distinguish the safety-net path from the
+        wrapper's translation (which uses source=\"safe_wrapper\")."""
+        source = self._run_pipeline_source()
+        # Both occurrences exist; we just verify the safety_net source
+        # token is present.  The wrapper's source="safe_wrapper" is
+        # already verified by other tests in this file.
+        assert 'source="safety_net"' in source, (
+            'safety-net forest-violation catch must log source="safety_net" '
+            "to distinguish from the wrapper-side translation"
+        )
 
 
 if __name__ == "__main__":
