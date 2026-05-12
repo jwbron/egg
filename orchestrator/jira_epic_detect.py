@@ -28,9 +28,10 @@ isn't a hard prerequisite for running the probe.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 # Add shared directory to path for egg_logging.
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -95,9 +96,7 @@ def _extract_issuetype_name(body: dict[str, Any]) -> str:
     issuetype = fields.get("issuetype") or {}
     name = issuetype.get("name")
     if not isinstance(name, str) or not name:
-        raise JiraEpicDetectionError(
-            f"Jira response missing fields.issuetype.name (got {body!r})"
-        )
+        raise JiraEpicDetectionError(f"Jira response missing fields.issuetype.name (got {body!r})")
     return name
 
 
@@ -131,16 +130,34 @@ def detect_jira_issuetype(
     """
     project_key = _project_key_from_jira_key(jira_key)
 
+    # Narrow exception handling per #1557 holistic NACK Pass-4 #11.
+    # We want to surface auth/network/credential failures distinctly
+    # from "the key is not an Epic" — silently swallowing them caused
+    # the operator to see the existing single-ticket path with no signal
+    # that the probe blew up. The gateway client raises
+    # :class:`gateway_client.GatewayError` for HTTP failures and
+    # :class:`ConnectionError` for network problems; we catch those and
+    # re-raise as :class:`JiraEpicDetectionError`, but a programming
+    # error (TypeError, KeyError, etc.) is allowed to propagate.
     try:
         response = gateway_invoker(
             "/api/v1/jira/ticket/get",
             method="POST",
             data={"ticket": jira_key, "fields": ["issuetype"]},
         )
-    except Exception as exc:  # noqa: BLE001 — keep callers' error type opaque
+    except (ConnectionError, TimeoutError, OSError) as exc:
         raise JiraEpicDetectionError(
-            f"Failed to fetch Jira ticket {jira_key}: {exc}"
+            f"Network failure probing Jira ticket {jira_key}: {exc}"
         ) from exc
+    except Exception as exc:  # noqa: BLE001
+        # Anything else with a ``status_code`` attribute is an HTTP
+        # failure surfaced by the gateway client. Re-raise as the
+        # narrower error; bare unknown exceptions propagate.
+        if hasattr(exc, "status_code"):
+            raise JiraEpicDetectionError(
+                f"Gateway returned HTTP {exc.status_code} for {jira_key}: {exc}"
+            ) from exc
+        raise
 
     issuetype_name = _extract_issuetype_name(response)
     is_epic = issuetype_name.strip().lower() == "epic"
@@ -178,14 +195,21 @@ def _run_jql(
     *,
     gateway_invoker: GatewayInvoker,
     fields: list[str] | None = None,
+    tolerate_400: bool = False,
 ) -> list[dict[str, Any]] | None:
-    """Run a single JQL query, tolerating HTTP 400.
+    """Run a single JQL query.
 
-    Returns:
-        ``None`` when the upstream rejected the JQL (typically the
-        ``"Epic Link"`` field doesn't exist on a team-managed project);
-        the caller treats that as an empty result set.  ``[]`` for an
-        empty result.  A populated ``list[dict]`` on success.
+    Args:
+        jql: The JQL string to execute.
+        gateway_invoker: ``GatewayClient._make_request``-shaped callable.
+        fields: Optional projection.
+        tolerate_400: When True, an HTTP 400 from the upstream is logged
+            and the function returns ``None`` instead of raising. Used
+            specifically for the ``"Epic Link"`` query in
+            :func:`search_epic_children` because team-managed projects
+            lack that custom field. The ``parent =`` query must NOT
+            tolerate 400 — that signals a malformed JQL and we surface
+            it (#1557 holistic NACK Pass-4 #12).
     """
     payload: dict[str, Any] = {"jql": jql}
     if fields is not None:
@@ -198,13 +222,8 @@ def _run_jql(
             data=payload,
         )
     except Exception as exc:  # noqa: BLE001
-        # HTTP 400 typically means the field referenced in the JQL doesn't
-        # exist on the target project (Next-gen / team-managed don't
-        # carry the legacy ``Epic Link`` custom field). Log and degrade to
-        # an empty set rather than raising — the caller still has the
-        # ``parent =`` query to fall back on.
         status_code = getattr(exc, "status_code", None)
-        if status_code == 400:
+        if status_code == 400 and tolerate_400:
             logger.warning(
                 "jira_epic_search_field_missing",
                 jql=jql,
@@ -223,6 +242,7 @@ def search_epic_children(
     *,
     gateway_invoker: GatewayInvoker,
     fields: list[str] | None = None,
+    require_hierarchy_mapping: bool = False,
 ) -> list[dict[str, Any]]:
     """Fetch the merged child set for an epic.
 
@@ -234,12 +254,18 @@ def search_epic_children(
     Per architect ad-9 a single-OR disjunctive
     ``parent = "<KEY>" OR "Epic Link" = "<KEY>"`` fails with HTTP 400
     on team-managed projects that lack the ``Epic Link`` field, so the
-    sweep is forced to run two separate queries and tolerate per-query
-    400s.
+    sweep is forced to run two separate queries.  Only the
+    ``"Epic Link"`` query tolerates a per-query 400 — a 400 from
+    ``parent =`` indicates a malformed JQL or revoked permissions and
+    must surface to the operator (#1557 holistic NACK Pass-4 #12).
 
-    Returns:
-        Merged list of issue dicts.  Order is not guaranteed (callers
-        sort by key if they need stable ordering).
+    Args:
+        require_hierarchy_mapping: When True (default False), a missing
+            ``jira-hierarchy.yaml`` entry for the project raises
+            :class:`JiraHierarchyUnmappedError` instead of falling back
+            to "run both queries".  The orchestrator's apply step
+            opts into this so a missing mapping surfaces as a HITL gate
+            (#1557 decision-2 / holistic NACK Pass-4 #13).
     """
     resolved_project = project_key or _project_key_from_jira_key(epic_key)
 
@@ -249,32 +275,52 @@ def search_epic_children(
         if hierarchy_field == "parent":
             skip_epic_link = True
     except JiraHierarchyUnmappedError:
-        # Without a mapping we don't know which field the project uses,
-        # so issue both queries — let per-query 400-tolerance handle the
-        # one that doesn't apply.
+        if require_hierarchy_mapping:
+            # Decision-2: refuse to silently run a guessed query when the
+            # operator hasn't declared the project's hierarchy field.
+            raise
+        # Detection-probe path: without a mapping we don't know which
+        # field the project uses, so issue both queries and tolerate
+        # the per-query 400 on the "Epic Link" side.
         skip_epic_link = False
 
-    queries: list[str] = [f'parent = "{epic_key}"']
-    if not skip_epic_link:
-        queries.append(f'"Epic Link" = "{epic_key}"')
-
     merged: dict[str, dict[str, Any]] = {}
-    for jql in queries:
-        result = _run_jql(jql, gateway_invoker=gateway_invoker, fields=fields)
-        if result is None:
-            # 400-tolerated empty set — keep going.
-            continue
-        for issue in result:
+
+    # Query A: ``parent =``. Must NOT tolerate 400 — a 400 here means
+    # the JQL is malformed or the principal can't read the project,
+    # both of which need operator attention.
+    parent_result = _run_jql(
+        f'parent = "{epic_key}"',
+        gateway_invoker=gateway_invoker,
+        fields=fields,
+        tolerate_400=False,
+    )
+    if parent_result is not None:
+        for issue in parent_result:
             key = issue.get("key")
             if isinstance(key, str) and key not in merged:
                 merged[key] = issue
+
+    # Query B: ``"Epic Link" =``. Tolerates 400 because team-managed
+    # projects lack the custom field.
+    if not skip_epic_link:
+        epic_link_result = _run_jql(
+            f'"Epic Link" = "{epic_key}"',
+            gateway_invoker=gateway_invoker,
+            fields=fields,
+            tolerate_400=True,
+        )
+        if epic_link_result is not None:
+            for issue in epic_link_result:
+                key = issue.get("key")
+                if isinstance(key, str) and key not in merged:
+                    merged[key] = issue
 
     logger.info(
         "jira_epic_search_children",
         epic_key=epic_key,
         project_key=resolved_project,
         merged_count=len(merged),
-        queries_run=queries,
     )
 
     return list(merged.values())
@@ -306,8 +352,7 @@ def resolve_effective_mode(
     """
     if requested_mode not in ("auto", "reassess", "fresh"):
         raise JiraEpicDetectionError(
-            f"requested_mode must be one of auto / reassess / fresh "
-            f"(got {requested_mode!r})"
+            f"requested_mode must be one of auto / reassess / fresh (got {requested_mode!r})"
         )
 
     children = search_epic_children(

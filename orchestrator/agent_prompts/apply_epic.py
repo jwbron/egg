@@ -18,15 +18,18 @@ Both prompts assume the agent has access to:
   off (set by the orchestrator's sandbox env-export pass).
 * ``$EGG_JIRA_HIERARCHY_FIELD`` — the resolved per-project hierarchy
   field (``parent`` or ``epic_link``). Only consulted in plan mode.
-* MCP tool ``mcp__sdlc__update_epic_apply`` — persists the artifact
-  back into orchestrator state (replaces the need for direct file
-  writes from the sandbox).
 * MCP tool ``mcp__sdlc__register_open_question`` — opens HITL gates
   on concurrent-edit divergence and in-flight target mutation.
+* The agent writes the resulting :class:`EpicApplyArtifact` to
+  ``.egg-state/agent-outputs/<prefix>-epic-apply.json``; the
+  orchestrator's post-apply hook reads it and calls
+  ``Pipeline.set_epic_apply()`` to merge.  A dedicated
+  ``mcp__sdlc__update_epic_apply`` MCP tool is a planned follow-up
+  (#1557 TASK-1-7 part 2) — the file-based path lands first because
+  it's serviceable end-to-end without a new sandbox-side tool.
 """
 
 from __future__ import annotations
-
 
 APPLY_EPIC_REFINE_PROMPT = """\
 You are the **APPLY_EPIC** agent (refine mode).
@@ -89,29 +92,37 @@ Inputs available to you:
    The analysis body is the approved refine markdown. The gateway
    wraps it in ADF as needed.
 
-5. **Persist the result.** Call the MCP tool:
+5. **Persist the result to the agent-outputs file.** Write a JSON file
+   at ``.egg-state/agent-outputs/<prefix>-epic-apply.json`` with the
+   ``EpicApplyArtifact`` shape (see
+   ``orchestrator/models.py::EpicApplyArtifact``):
 
-   ```
-   mcp__sdlc__update_epic_apply({
+   ```json
+   {
      "version": 1,
-     "idempotency_seed": <existing seed from artifact>,
-     "refine_description_sha256": <new sha256 of the body just written>,
+     "idempotency_seed": "<existing seed or new UUID>",
+     "refine_description_sha256": "<new sha256 of the body just written>",
      "applied_edits": [
        {
          "kind": "edit",
          "target": "$EGG_JIRA_EPIC_KEY",
          "payload": {"field": "description"},
-         "summary_hash": <sha256 of the analysis body>,
-         "applied_at": <now>,
+         "summary_hash": "<sha256 of the analysis body>",
+         "applied_at": "<now ISO-8601>",
          "status": "applied"
        }
      ]
-   })
+   }
    ```
 
+   The orchestrator's post-apply hook reads this file and calls
+   ``Pipeline.set_epic_apply()`` to merge it into the persisted
+   pipeline state.  Re-runs are idempotent because the orchestrator
+   reads the existing artifact before merging.
+
 6. **Exit cleanly.** Push your commit so the orchestrator records the
-   apply as complete (the only file you wrote is the artifact via the
-   MCP tool — no source-tree files).
+   apply as complete. The artifact JSON above is the only file you
+   wrote.
 
 ## Failure handling
 
@@ -159,13 +170,16 @@ Inputs available to you:
 
    - **Re-fetch the sweep** to catch in-flight transitions that
      happened between plan approval and now.
-   - Open a HITL gate via the new MCP tool
-     ``mcp__sdlc__register_in_flight_gate(child_key, mutation,
-     signal_sources, linked_pr_url)``. The handler creates a
-     ``HITLDecision`` whose ``context`` block surfaces the firing
-     signal sources (decision-8 OR semantics, #1557 R2).
-   - Skip the mutation in this pass; the orchestrator re-spawns you
-     after the operator resolves the gate.
+   - Open a HITL gate via the existing
+     ``mcp__sdlc__register_open_question`` MCP tool. The question
+     names the child key + proposed mutation; the options are
+     ``["Confirm — apply anyway", "Skip — preserve in-flight work"]``.
+     Include the firing signal sources (decision-8 OR semantics) in
+     the ``context`` block so the operator sees the full evidence.
+   - Record the gate on ``epic_apply.in_flight_gates[]`` with
+     ``decision_id`` pointing back to the HITL decision id; the
+     orchestrator re-spawns you after the operator resolves.
+   - Skip the mutation in this pass.
 
 3. **Apply the non-in-flight batch in this order:**
 
@@ -215,9 +229,12 @@ Inputs available to you:
      "error": null }
    ```
 
-5. **Persist after every mutation** via
-   ``mcp__sdlc__update_epic_apply`` — idempotent re-runs skip applied
-   entries by checking ``applied_edits[].status``.
+5. **Persist after every mutation** to the agent-outputs file
+   ``.egg-state/agent-outputs/<prefix>-epic-apply.json`` with the
+   ``EpicApplyArtifact`` shape (see ``orchestrator/models.py``).
+   Idempotent re-runs skip ``applied_edits[]`` entries with
+   ``status="applied"``. The orchestrator's post-apply hook reads the
+   file and calls ``Pipeline.set_epic_apply()`` to merge.
 
 6. **Concurrent-edit guard on each edit** — before any
    ``ticket/edit`` against an existing target, fetch the current

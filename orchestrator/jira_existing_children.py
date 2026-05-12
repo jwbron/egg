@@ -29,11 +29,14 @@ then opens only the pipelines that match.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 # Add shared directory to path for egg_logging.
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -282,9 +285,7 @@ def sweep_existing_children(
             if pr_signal is not None:
                 signals.append(pr_signal)
                 classification = "in_flight"
-            remote_link_signal = _check_remote_link_signal(
-                key, gateway_invoker=gateway_invoker
-            )
+            remote_link_signal = _check_remote_link_signal(key, gateway_invoker=gateway_invoker)
             if remote_link_signal is not None:
                 signals.append(remote_link_signal)
                 classification = "in_flight"
@@ -312,6 +313,9 @@ def sweep_existing_children(
     return results
 
 
+_REVERSE_INDEX_LOCK = threading.Lock()
+
+
 def update_reverse_index(
     repo_path: Path | str,
     pipeline_id: str,
@@ -324,29 +328,47 @@ def update_reverse_index(
     Called by the orchestrator at pipeline-creation time when a child
     pipeline is associated with a Jira ticket.  Idempotent — a
     pipeline_id is added at most once per key.
+
+    Concurrency (reviewer_concurrency v3 blocking finding):
+        The orchestrator fans out one child ISSUE-mode pipeline per
+        Jira child via the plan-gate Continue-to-implement fork (#1557
+        TASK-1-16), and those creations run through FastAPI handlers
+        that can interleave.  This function guards the read-modify-
+        write cycle with a module-level :class:`threading.Lock` and
+        uses ``os.replace`` for crash-atomic file replacement so a
+        SIGKILL mid-write never leaves a truncated index that
+        ``_load_reverse_index`` would silently treat as missing.
+        Cross-process callers (which decision-11's hybrid path
+        explicitly rules out) would need ``fcntl.flock`` on top;
+        not in scope for v1.
     """
     repo = Path(repo_path)
     target = index_path or (repo / DEFAULT_INDEX_PATH)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    if target.exists():
-        try:
-            raw = json.loads(target.read_text())
-        except (OSError, ValueError):
+    with _REVERSE_INDEX_LOCK:
+        if target.exists():
+            try:
+                raw = json.loads(target.read_text())
+            except OSError, ValueError:
+                raw = {}
+        else:
             raw = {}
-    else:
-        raw = {}
-    if not isinstance(raw, dict):
-        raw = {}
+        if not isinstance(raw, dict):
+            raw = {}
 
-    pipelines = raw.get(jira_key)
-    if not isinstance(pipelines, list):
-        pipelines = []
-    if pipeline_id not in pipelines:
-        pipelines.append(pipeline_id)
-    raw[jira_key] = pipelines
+        pipelines = raw.get(jira_key)
+        if not isinstance(pipelines, list):
+            pipelines = []
+        if pipeline_id not in pipelines:
+            pipelines.append(pipeline_id)
+        raw[jira_key] = pipelines
 
-    target.write_text(json.dumps(raw, indent=2, sort_keys=True))
+        # Crash-atomic write: render to a sibling temp file then
+        # ``os.replace`` (POSIX rename) the result into place.
+        tmp_path = target.with_suffix(target.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(raw, indent=2, sort_keys=True))
+        os.replace(tmp_path, target)
 
 
 __all__ = [

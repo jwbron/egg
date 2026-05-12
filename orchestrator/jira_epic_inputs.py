@@ -31,9 +31,10 @@ import hashlib
 import json
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Add shared directory to path for egg_logging.
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -105,8 +106,7 @@ class RefineInputs:
             "epic_remote_links": self.epic_remote_links,
             "existing_children": self.existing_children,
             "confluence_candidates": [
-                {"url": c.url, "source": c.source, "via": c.via}
-                for c in self.confluence_candidates
+                {"url": c.url, "source": c.source, "via": c.via} for c in self.confluence_candidates
             ],
         }
 
@@ -143,9 +143,7 @@ def _flatten_description(value: Any) -> str:
     return str(value)
 
 
-def _fetch_epic_payload(
-    epic_key: str, *, gateway_invoker: GatewayInvoker
-) -> dict[str, Any]:
+def _fetch_epic_payload(epic_key: str, *, gateway_invoker: GatewayInvoker) -> dict[str, Any]:
     response = gateway_invoker(
         "/api/v1/jira/ticket/get",
         method="POST",
@@ -156,9 +154,7 @@ def _fetch_epic_payload(
     return response if isinstance(response, dict) else {}
 
 
-def _fetch_remote_links(
-    jira_key: str, *, gateway_invoker: GatewayInvoker
-) -> list[dict[str, Any]]:
+def _fetch_remote_links(jira_key: str, *, gateway_invoker: GatewayInvoker) -> list[dict[str, Any]]:
     """Return the list of remote links on ``jira_key``.
 
     Empty list when the call fails or returns a 404 envelope — the
@@ -196,9 +192,7 @@ def _extract_confluence_urls_from_remote_links(
         obj = link.get("object") or {}
         url = obj.get("url") if isinstance(obj, dict) else None
         if isinstance(url, str) and CONFLUENCE_URL_RE.match(url):
-            candidates.append(
-                ConfluenceCandidate(url=url, source=source, via=via)
-            )
+            candidates.append(ConfluenceCandidate(url=url, source=source, via=via))
     return candidates
 
 
@@ -217,9 +211,7 @@ def _extract_confluence_urls_from_text(
         if url in seen:
             continue
         seen.add(url)
-        candidates.append(
-            ConfluenceCandidate(url=url, source=source, via=via)
-        )
+        candidates.append(ConfluenceCandidate(url=url, source=source, via=via))
     return candidates
 
 
@@ -250,7 +242,9 @@ def gather_refine_inputs(
     summary = fields.get("summary") if isinstance(fields, dict) else None
     if not isinstance(summary, str):
         summary = ""
-    description = _flatten_description(fields.get("description") if isinstance(fields, dict) else None)
+    description = _flatten_description(
+        fields.get("description") if isinstance(fields, dict) else None
+    )
     description_sha256 = hashlib.sha256(description.encode("utf-8")).hexdigest()
 
     # 2. Epic remote links.
@@ -274,9 +268,7 @@ def gather_refine_inputs(
         )
     )
     confluence_candidates.extend(
-        _extract_confluence_urls_from_text(
-            description, source="epic_description", via=epic_key
-        )
+        _extract_confluence_urls_from_text(description, source="epic_description", via=epic_key)
     )
 
     # 5. Discover linked Jira issues from the epic's remote_links AND
