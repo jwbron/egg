@@ -138,9 +138,19 @@ class TestAdvancePhasePopulatesOnPlanExit:
     ):
         """Populate is followed by a scoped commit so _sync_worktree_with_remote
         in the new thread pushes the change rather than resetting it."""
+        from routes.pipelines import PopulateOutcome, PopulateResult
+
         # Use a shared call tracker to verify ordering across mocks.
+        # Mock must return a PopulateResult — phases.py inspects .outcome
+        # to log non-POPULATED results.  Returning a bare None would
+        # AttributeError out of the populate branch and skip the commit.
         call_order = []
-        mock_populate.side_effect = lambda *a, **kw: call_order.append("populate")
+
+        def _track_populate(*a, **kw):
+            call_order.append("populate")
+            return PopulateResult(PopulateOutcome.POPULATED)
+
+        mock_populate.side_effect = _track_populate
         orig_commit_side_effect = mock_commit.side_effect
 
         def _track_commit(*args, **kwargs):
