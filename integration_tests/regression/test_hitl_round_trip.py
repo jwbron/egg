@@ -652,43 +652,15 @@ class TestHitlMalformedJsonBody:
     @pytest.mark.parametrize(
         "non_object_json",
         [
-            pytest.param(
-                "[1, 2, 3]",
-                marks=pytest.mark.xfail(
-                    reason="#2656: list body raises AttributeError → 500, should be 400",
-                    strict=True,
-                ),
-                id="array",
-            ),
-            pytest.param(
-                '"a string body"',
-                marks=pytest.mark.xfail(
-                    reason="#2656: scalar body raises AttributeError → 500, should be 400",
-                    strict=True,
-                ),
-                id="string",
-            ),
-            pytest.param(
-                "42",
-                marks=pytest.mark.xfail(
-                    reason="#2656: scalar body raises AttributeError → 500, should be 400",
-                    strict=True,
-                ),
-                id="number",
-            ),
-            pytest.param(
-                "true",
-                marks=pytest.mark.xfail(
-                    reason="#2656: scalar body raises AttributeError → 500, should be 400",
-                    strict=True,
-                ),
-                id="bool",
-            ),
+            pytest.param("[1, 2, 3]", id="array"),
+            pytest.param('"a string body"', id="string"),
+            pytest.param("42", id="number"),
+            pytest.param("true", id="bool"),
             # ``null`` deserialises to ``None``, which the handler's
             # ``data = request.get_json() or {}`` coerces to ``{}`` and
-            # the ``Missing question`` 400 branch then catches. That
-            # works today; pin it so a refactor that drops the ``or {}``
-            # coercion (regressing to the AttributeError path) breaks.
+            # the ``Missing question`` 400 branch then catches. Pinning
+            # it guards the coercion path so a refactor that drops the
+            # ``or {}`` doesn't silently regress to AttributeError.
             pytest.param("null", id="null"),
         ],
     )
@@ -700,20 +672,13 @@ class TestHitlMalformedJsonBody:
     ) -> None:
         """A syntactically-valid JSON body that isn't a dict.
 
-        Tracked as #2656: ``queue_decision`` does ``data =
-        request.get_json() or {}`` then ``data.get("question")``. When
-        ``data`` is a list / scalar, ``.get`` raises ``AttributeError``
-        and the handler's generic ``except Exception`` mapper returns
-        500 — leaking ``DecisionQueue`` internals and turning a bad
-        client into a noisy log entry. Expected shape is 400 with the
-        canonical envelope.
-
-        The four primitive shapes (array / string / number / bool) are
-        ``xfail(strict=True)`` so a fix flips them to XPASS and the
-        test author has to drop the mark. ``null`` is the one shape
-        that works correctly today (coerced to ``{}`` and routed to
-        the missing-question 400 branch) — pinning it guards the
-        coercion path.
+        Fix for #2656: ``queue_decision`` previously did ``data =
+        request.get_json() or {}`` then ``data.get("question")`` — when
+        ``data`` was a list / scalar, ``.get`` raised ``AttributeError``
+        and the handler's generic ``except Exception`` mapper returned
+        500. The handler now rejects non-object bodies with 400 before
+        any ``.get`` call. ``null`` is still coerced to ``{}`` via the
+        ``or {}`` and falls into the missing-question 400 branch.
         """
         path = f"/api/v1/pipelines/{regression_pipeline_id}/decisions"
         resp = requests.post(

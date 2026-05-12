@@ -467,6 +467,28 @@ class TestQueueDecisionValidation:
 
         assert response.status_code == 400
 
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    def test_non_object_json_body_returns_400(self, client, tmp_path, raw_body):
+        """Fix for #2656: non-object JSON bodies must 400, not 500.
+
+        Previously ``data = request.get_json() or {}`` left a list /
+        scalar in ``data`` and the subsequent ``data.get("question")``
+        raised ``AttributeError`` → 500. The handler now rejects
+        non-dict bodies before any ``.get`` call.
+        """
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            content_type="application/json",
+            data=raw_body,
+        )
+        assert response.status_code == 400, response.data
+        body = response.get_json()
+        assert body["success"] is False
+
     @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
     def test_create_with_choice_type_and_options(
@@ -569,6 +591,22 @@ class TestResolveDecisionEndpoint:
         assert response.status_code == 400
         data = response.get_json()
         assert data["success"] is False
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    def test_resolve_non_object_json_body_returns_400(self, client, tmp_path, raw_body):
+        """Resolve mirrors the queue_decision #2656 fix: non-dict body → 400."""
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            content_type="application/json",
+            data=raw_body,
+        )
+        assert response.status_code == 400, response.data
+        body = response.get_json()
+        assert body["success"] is False
 
     @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")

@@ -552,6 +552,8 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
         }
     """
     data = request.get_json() or {}
+    if not isinstance(data, dict):
+        return make_error_response("Request body must be a JSON object")
 
     question = data.get("question")
     if not question:
@@ -711,6 +713,8 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         }
     """
     data = request.get_json() or {}
+    if not isinstance(data, dict):
+        return make_error_response("Request body must be a JSON object")
 
     resolution = data.get("resolution")
     if not resolution:
