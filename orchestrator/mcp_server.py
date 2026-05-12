@@ -187,18 +187,26 @@ class MCPServer:
 
             # Build a useful signature so FastMCP can inspect parameters
             import inspect
+            from typing import Optional
 
             params = []
             for prop_name, prop_def in properties.items():
                 default = prop_def.get("default", inspect.Parameter.empty)
-                if prop_name not in required and default is inspect.Parameter.empty:
+                is_optional = prop_name not in required
+                if is_optional and default is inspect.Parameter.empty:
                     default = None
+                annotation = _json_type_to_python(prop_def)
+                if is_optional:
+                    # Pydantic v2 requires Optional[T] (not bare T) for fields
+                    # with a None default — bare T with default=None causes
+                    # "Field required" errors when the argument is omitted.
+                    annotation = Optional[annotation]
                 params.append(
                     inspect.Parameter(
                         prop_name,
                         inspect.Parameter.KEYWORD_ONLY,
                         default=default,
-                        annotation=_json_type_to_python(prop_def),
+                        annotation=annotation,
                     )
                 )
             tool_fn.__signature__ = inspect.Signature(params, return_annotation=str)

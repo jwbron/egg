@@ -116,7 +116,7 @@ jobs:
           printf '%s' "$(openssl rand -hex 32)" > "$HOME/.config/egg/lifecycle-secret"
           printf 'CLAUDE_CODE_OAUTH_TOKEN=dummy\nGATEWAY_BOT_NAME=ci\n' \
             > "$HOME/.config/egg/secrets.env"
-          printf 'local_repos:\n  paths: []\n' \
+          printf 'github_username: ci-test-user\nbot_username: ci-bot\nwritable_repos:\n  - test-owner/test-repo\nrepo_settings:\n  test-owner/test-repo:\n    auth_mode: bot\nlocal_repos:\n  paths: []\n' \
             > "$HOME/.config/egg/repositories.yaml"
           chmod 600 "$HOME/.config/egg"/*
 
