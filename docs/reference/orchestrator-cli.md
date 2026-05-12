@@ -286,7 +286,13 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
 | `complete_phase` | `unresolved_hitl_decisions` | 409 | Phase has pending HITL decisions; `details.unresolved_decision_ids` lists them. Resolve or pass `force=true` |
 | `complete_phase` | `invalid_artifacts` | 400 | `artifacts` must be a JSON object with string values |
 | `complete_phase` | `invalid_force_reason` | 400 | `force_reason` must be a non-empty string |
-| `populate_contract` | `populate_contract_failed` | 500 | Internal error during contract population |
+| `populate_contract` | `draft_missing` | 404 | Plan draft missing from both local worktree and origin; re-run the plan phase or restore the draft file |
+| `populate_contract` | `no_draft_path` | 404 | No draft path configured for this pipeline |
+| `populate_contract` | `parse_failed` | 422 | Plan draft found but could not be parsed (malformed `yaml-tasks` section) |
+| `populate_contract` | `empty_result` | 422 | Plan draft parsed successfully but produced no tasks |
+| `populate_contract` | `contract_load_failed` | 500 | Contract could not be loaded after population |
+| `populate_contract` | `egg_contracts_unavailable` | 500 | `egg_contracts` package unavailable in the sandbox |
+| `populate_contract` | `unexpected_exception` | 500 | Unexpected internal error during contract population |
 | `advance_phase`, `start_phase`, `complete_phase`, `fail_phase` | `version_conflict` | 409 | Concurrent modification detected; retry the request |
 | all | `invalid_pipeline_id` | 400 | Pipeline ID format is invalid |
 | all | `pipeline_not_found` | 404 | No pipeline with that ID exists |
