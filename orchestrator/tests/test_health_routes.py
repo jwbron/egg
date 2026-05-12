@@ -107,27 +107,46 @@ class TestResolveAlertsEndpoint:
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
     @patch("health_monitor.get_health_monitor")
-    def test_non_object_body_returns_400(self, mock_get_monitor, client, raw_body):
-        """Fix for #2673: non-object JSON bodies must 400, not 500.
+    def test_non_object_json_body_returns_400(self, mock_get_monitor, client, raw_body):
+        """Sweep of the #2656 fix into the health routes (PR #2645).
 
-        Mirrors the #2656 fix on the decisions route. Without the guard,
-        ``data.get("agent_id")`` raises ``AttributeError`` for a
-        list/scalar body and Flask's default handler returns 500.
+        ``resolve_pipeline_health_alerts`` previously did
+        ``data = request.get_json() or {}`` then ``data.get(...)``. When
+        the body was syntactically-valid JSON but not an object (list /
+        scalar), ``.get`` raised ``AttributeError`` and the handler's
+        generic exception mapper returned 500. The handler now rejects
+        non-dict bodies with ``400 Request body must be a JSON object``
+        before any ``.get`` call.
+
+        Note: this endpoint's error envelope uses the ``"error"`` key
+        rather than ``"message"`` (pre-existing inconsistency with the
+        decisions / messages / anchors / containers routes), so the
+        assertion targets ``body["error"]`` here.
         """
         mock_get_monitor.return_value = MagicMock()
 
         response = client.post(
             "/api/v1/pipelines/test-pipeline/health/alerts/resolve",
-            data=raw_body,
             content_type="application/json",
+            data=raw_body,
         )
         assert response.status_code == 400, response.data
-        data = response.get_json()
-        assert data["success"] is False
+        body = response.get_json()
+        assert body["success"] is False
+        assert "json object" in body["error"].lower(), body
 
 
 class TestHealthEndpointIsolationFromMessageStore:

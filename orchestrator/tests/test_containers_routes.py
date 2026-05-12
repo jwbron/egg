@@ -1,17 +1,18 @@
-"""Unit tests for container API routes (orchestrator/routes/containers.py).
+"""Tests for container API routes (orchestrator/routes/containers.py).
 
-Covers the body-validation guard on the lifecycle-authed POST routes
-(``/spawn``, ``/containers/<id>/stop``) — the #2673 sweep of the
-``request.get_json() or {}`` + ``.get(...)`` pattern that was leaking
-500s for non-object JSON bodies.
+The container-spawner / monitor / backend integrations are covered by
+``test_container_spawner*.py`` and ``test_container_backend.py``. This
+file covers route-level input validation that runs before the backend
+is touched — specifically the #2656 sweep landed in PR #2645.
 """
 
-import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+# Add orchestrator and shared to path
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
@@ -21,14 +22,9 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 
-_LIFECYCLE_SECRET = "test-secret"
-
-
 @pytest.fixture
-def app(monkeypatch):
+def app():
     """Create a test Flask app with the containers blueprint."""
-    monkeypatch.setenv("EGG_LIFECYCLE_SECRET", _LIFECYCLE_SECRET)
-
     from flask import Flask
     from routes.containers import containers_bp
 
@@ -40,53 +36,83 @@ def app(monkeypatch):
 
 @pytest.fixture
 def client(app):
-    """Create a test client."""
+    """Create a test client. Lifecycle auth is injected by the
+    orchestrator-level ``_inject_lifecycle_auth`` autouse fixture."""
     return app.test_client()
 
 
-@pytest.fixture
-def auth_headers():
-    """Bearer header valid for the lifecycle decorator under test."""
-    return {"Authorization": f"Bearer {_LIFECYCLE_SECRET}"}
-
-
 class TestNonObjectJsonBodyReturns400:
-    """Fix for #2673: non-object JSON bodies must 400, not 500.
+    """Sweep of the #2656 fix into the containers routes (PR #2645).
 
-    Mirrors the #2656 fix on the decisions route. Previously
-    ``data = request.get_json() or {}`` left a list / scalar in
-    ``data`` and ``data.get(...)`` raised ``AttributeError`` →
-    the generic exception handler returned 500.
+    ``spawn_container`` and ``stop_container`` previously did
+    ``data = request.get_json() or {}`` then ``data.get(...)``. When the
+    body was syntactically-valid JSON but not an object (list / scalar),
+    ``.get`` raised ``AttributeError`` and the handler's generic
+    exception mapper returned 500. Both handlers now reject non-dict
+    bodies with ``400 Request body must be a JSON object`` before any
+    ``.get`` call, mirroring the original decisions-route fix.
+
+    Both routes sit behind ``@require_lifecycle_secret``; the
+    autouse ``_inject_lifecycle_auth`` fixture in
+    ``orchestrator/tests/conftest.py`` injects the bearer token. The
+    backend (``_get_backend``) is patched per-test so the body-validation
+    rejection is never racing a real Docker / Kubernetes call.
     """
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
-    def test_spawn_non_object_body_returns_400(self, client, auth_headers, raw_body):
-        response = client.post(
-            "/api/v1/pipelines/test-pipeline/spawn",
-            data=raw_body,
-            content_type="application/json",
-            headers=auth_headers,
-        )
+    def test_spawn_non_object_json_body_returns_400(self, client, raw_body):
+        """POST /pipelines/<id>/spawn with non-object JSON body → 400."""
+        with patch("routes.containers._get_backend") as mock_get_backend:
+            response = client.post(
+                "/api/v1/pipelines/test-pipeline/spawn",
+                content_type="application/json",
+                data=raw_body,
+            )
         assert response.status_code == 400, response.data
-        body = json.loads(response.data)
+        body = response.get_json()
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
+        # Body validation must run before backend dispatch — the
+        # backend should never have been asked for a handle.
+        mock_get_backend.assert_not_called()
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
-    def test_stop_non_object_body_returns_400(self, client, auth_headers, raw_body):
-        response = client.post(
-            "/api/v1/pipelines/test-pipeline/containers/abc123/stop",
-            data=raw_body,
-            content_type="application/json",
-            headers=auth_headers,
-        )
+    def test_stop_non_object_json_body_returns_400(self, client, raw_body):
+        """POST /pipelines/<id>/containers/<cid>/stop with non-object JSON body → 400."""
+        with patch("routes.containers._get_backend") as mock_get_backend:
+            response = client.post(
+                "/api/v1/pipelines/test-pipeline/containers/abc123/stop",
+                content_type="application/json",
+                data=raw_body,
+            )
         assert response.status_code == 400, response.data
-        body = json.loads(response.data)
+        body = response.get_json()
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
+        mock_get_backend.assert_not_called()

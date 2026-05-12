@@ -41,12 +41,23 @@ jobs:
         run: make build
 
       - name: Set up k3s
+        # Flake guard: k3s occasionally becomes unstable during the
+        # calico-node DaemonSet rollout (API server refuses connections
+        # before the 300s timeout expires).  One restart clears the
+        # transient state; the idempotent install-calico.sh is safe to
+        # re-run after k3s recovers.
         run: |
           curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
           echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
-          # Install Calico CNI
-          scripts/install-calico.sh
+          # Install Calico CNI (retry once if k3s becomes unstable mid-rollout)
+          if ! scripts/install-calico.sh; then
+            echo "Calico install failed — restarting k3s and retrying..."
+            sudo systemctl restart k3s
+            echo "Waiting for k3s API to recover..."
+            timeout 60 sh -c 'until kubectl cluster-info 2>/dev/null; do sleep 5; done'
+            scripts/install-calico.sh
+          fi
           # Wait for node to be ready
           kubectl wait --for=condition=Ready node --all --timeout=120s
 
@@ -116,7 +127,7 @@ jobs:
           printf '%s' "$(openssl rand -hex 32)" > "$HOME/.config/egg/lifecycle-secret"
           printf 'CLAUDE_CODE_OAUTH_TOKEN=dummy\nGATEWAY_BOT_NAME=ci\n' \
             > "$HOME/.config/egg/secrets.env"
-          printf 'local_repos:\n  paths: []\n' \
+          printf 'github_username: ci-test-user\nbot_username: ci-bot\nwritable_repos:\n  - test-owner/test-repo\nrepo_settings:\n  test-owner/test-repo:\n    auth_mode: bot\nlocal_repos:\n  paths: []\n' \
             > "$HOME/.config/egg/repositories.yaml"
           chmod 600 "$HOME/.config/egg"/*
 

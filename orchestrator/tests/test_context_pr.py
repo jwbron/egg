@@ -1334,3 +1334,54 @@ class TestOpenContextPRCallSiteWiring:
             "_open_context_pr_for_pipeline in try/except Exception so a "
             "hook failure can never escape into the transition path (D3)"
         )
+
+
+# ----------------------------------------------------------------------
+# Gateway allowlist compatibility (#2684)
+# ----------------------------------------------------------------------
+
+
+class TestContextPRGatewayAllowlistCompatibility:
+    """Regression coverage for #2684 (context-PR sibling).
+
+    Same shape as the slice-BRC hook: the context-PR hook builds a
+    temp worktree and passes ``repo_path=str(wt_path)`` to
+    ``gateway.push_worktree_branch``.  The gateway's
+    ``validate_repo_path`` rejects ``/tmp`` paths, so the push fails
+    silently and the context PR opens without the curated refine/plan
+    artifacts.  The hook must root the temp worktree inside
+    ``WORKTREE_BASE_DIR``.
+    """
+
+    def test_temp_worktree_is_rooted_under_worktree_base_dir(
+        self, tmp_path, pipeline, make_spawner, monkeypatch
+    ):
+        import routes.pipelines as pipelines_mod
+
+        fake_base = tmp_path / "egg-worktrees-root"
+        fake_base.mkdir()
+        monkeypatch.setattr(pipelines_mod, "WORKTREE_BASE_DIR", fake_base)
+
+        _seed_repo(tmp_path, identifier=2548)
+        spawner = make_spawner()
+        load, save, _ = _stub_load_save_contract(contract_pr_factory=lambda: _make_contract())
+        with (
+            patch("egg_contracts.loader.load_contract", load),
+            patch("egg_contracts.loader.save_contract", save),
+        ):
+            _open_context_pr_for_pipeline(pipeline, spawner, tmp_path)
+
+        ctx_pushes = [
+            c
+            for c in spawner.gateway.push_worktree_branch.call_args_list
+            if c.kwargs.get("branch") == "egg/issue-2548/context"
+        ]
+        assert ctx_pushes, (
+            "context-branch push must happen at least once so the regression "
+            "test has a repo_path to inspect"
+        )
+        repo_path = ctx_pushes[0].kwargs["repo_path"]
+        assert repo_path.startswith(str(fake_base) + "/"), (
+            f"context-PR temp worktree must live under WORKTREE_BASE_DIR; "
+            f"got {repo_path!r}, expected prefix {str(fake_base)!r}"
+        )

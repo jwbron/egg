@@ -721,3 +721,68 @@ class TestIdentifierResolution:
         # The seeded files should have been picked up.
         assert str(paths["slice-1-md"]) in copy_srcs
         assert str(paths["slice-1-json"]) in copy_srcs
+
+
+# ----------------------------------------------------------------------
+# Gateway allowlist compatibility (#2684)
+# ----------------------------------------------------------------------
+
+
+class TestGatewayAllowlistCompatibility:
+    """Regression coverage for #2684.
+
+    The hook constructs a temp worktree and passes ``repo_path=str(wt_path)``
+    to ``gateway.push_worktree_branch``.  The gateway's
+    ``validate_repo_path`` only accepts paths under
+    ``ALLOWED_REPO_PATHS`` (``/home/egg/.egg-worktrees/`` et al.); a
+    ``/tmp`` location is rejected and the push fails silently — slice
+    PRs then open without their consensus-history file.  The hook must
+    therefore root its temp worktree inside ``WORKTREE_BASE_DIR``.
+    """
+
+    def test_temp_worktree_is_rooted_under_worktree_base_dir(
+        self, tmp_path, pipeline, make_spawner, monkeypatch
+    ):
+        import routes.pipelines as pipelines_mod
+
+        fake_base = tmp_path / "egg-worktrees-root"
+        fake_base.mkdir()
+        monkeypatch.setattr(pipelines_mod, "WORKTREE_BASE_DIR", fake_base)
+
+        _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
+        spawner = make_spawner()
+        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+            _commit_slice_brc_history_to_integration_branch(
+                pipeline,
+                spawner,
+                tmp_path,
+                slice_id="slice-1",
+                integration_branch="egg/issue-2548/slice-1",
+            )
+
+        spawner.gateway.push_worktree_branch.assert_called_once()
+        repo_path = spawner.gateway.push_worktree_branch.call_args.kwargs["repo_path"]
+        assert repo_path.startswith(str(fake_base) + "/"), (
+            f"slice BRC temp worktree must live under WORKTREE_BASE_DIR; "
+            f"got {repo_path!r}, expected prefix {str(fake_base)!r}"
+        )
+
+    def test_production_worktree_base_dir_lies_within_gateway_allowlist(self):
+        """Pin the contract between orchestrator and gateway.
+
+        ``WORKTREE_BASE_DIR`` is where the slice-BRC temp worktree
+        lives; the gateway's ``ALLOWED_REPO_PATHS`` must contain a
+        prefix that covers it.  This test reads ``WORKTREE_BASE_DIR``
+        from the orchestrator module rather than hardcoding the
+        production path, so a drift on *either* side
+        (orchestrator-side path move OR gateway-side allowlist tweak)
+        trips the regression instead of silently passing against a
+        stale hardcoded prefix.
+        """
+        from routes.pipelines import WORKTREE_BASE_DIR
+
+        from gateway.git_client import validate_repo_path
+
+        candidate = str(WORKTREE_BASE_DIR / "egg-slice-brc-pipeline-x-slice-y-abc" / "wt")
+        ok, error = validate_repo_path(candidate)
+        assert ok, f"WORKTREE_BASE_DIR drifted out of gateway ALLOWED_REPO_PATHS: {error}"

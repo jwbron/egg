@@ -2954,41 +2954,86 @@ class TestWaitTimeoutFloorRegression:
 
 
 class TestNonObjectJsonBodyReturns400:
-    """Fix for #2673: non-object JSON bodies must 400, not 500.
+    """Sweep of the #2656 fix into the messages routes (PR #2645).
 
-    Mirrors the #2656 fix on the decisions route. Previously
-    ``body = request.get_json() or {}`` (heartbeat) or
-    ``body = request.get_json(); if not body`` (messages) left a
-    list/scalar in ``body``, so ``body.get(...)`` raised
-    ``AttributeError`` and the generic handler returned 500.
+    ``send_message`` and ``post_heartbeat`` previously did
+    ``data = request.get_json() or {}`` then ``data.get(...)``. When the
+    body was syntactically-valid JSON but not an object (list / scalar),
+    ``.get`` raised ``AttributeError`` and the handler's generic
+    ``except Exception`` mapper returned 500. Both handlers now reject
+    non-dict bodies with ``400 Request body must be a JSON object``
+    before any ``.get`` call, mirroring the original decisions-route fix.
+
+    Falsy non-dicts (``[]``, ``0``, ``false``, ``""``) get the same
+    explicit message — the previous ``or {}`` coercion path that
+    surfaced as "Missing from_role" / "Missing state" for falsy
+    non-dicts is replaced by the explicit envelope.
     """
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
-    def test_send_message_non_object_body_returns_400(self, client, raw_body):
-        response = client.post(
-            "/api/v1/pipelines/test-pipeline/messages",
-            data=raw_body,
-            content_type="application/json",
-        )
-        assert response.status_code == 400, response.data
-        body = json.loads(response.data)
+    def test_send_message_non_object_json_body_returns_400(self, client, app, raw_body):
+        """POST /messages with non-object JSON body returns 400 with the
+        canonical "Request body must be a JSON object" envelope.
+
+        The state-store mock is patched out because the body-validation
+        check runs before any pipeline lookup — a non-dict body must
+        reject even if the pipeline does not exist.
+        """
+        with app.test_request_context():
+            with patch("routes.messages.get_state_store_for_pipeline"):
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    content_type="application/json",
+                    data=raw_body,
+                )
+        assert resp.status_code == 400, resp.data
+        body = json.loads(resp.data)
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
-    def test_heartbeat_non_object_body_returns_400(self, client, raw_body):
-        response = client.post(
-            "/api/v1/pipelines/test-pipeline/heartbeat",
-            data=raw_body,
-            content_type="application/json",
-        )
-        assert response.status_code == 400, response.data
-        body = json.loads(response.data)
+    def test_heartbeat_non_object_json_body_returns_400(self, client, app, raw_body):
+        """POST /heartbeat with non-object JSON body returns 400 with the
+        canonical "Request body must be a JSON object" envelope.
+
+        Same invariant as ``send_message``: the guard runs before the
+        ``from_role`` / ``state`` checks so a list-shaped body doesn't
+        surface as "Missing from_role".
+        """
+        with app.test_request_context():
+            with patch("routes.messages.get_state_store_for_pipeline"):
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    content_type="application/json",
+                    data=raw_body,
+                )
+        assert resp.status_code == 400, resp.data
+        body = json.loads(resp.data)
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body

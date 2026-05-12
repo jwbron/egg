@@ -1,0 +1,100 @@
+# `integration_tests/regression/`
+
+Cross-module regression guards that pin invariants the SDLC pipeline
+has regressed historically. The directory hosts three orthogonal
+tiers (see `conftest.py` for the fixture catalog):
+
+| Tier | Drives | Needs k3s? | Originating issue |
+|---|---|---|---|
+| **k3s slice-spawn / restart** | Real `KubernetesSpawner` against the locally-deployed egg stack; pod specs read back with `kubectl get pod -o yaml`. | ✅ yes | [#2632](https://github.com/jwbron/egg/issues/2632) |
+| **HITL HTTP round-trip** | The `/api/v1/pipelines/<id>/decisions/...` HTTP surface against the live orchestrator + gateway. Auth-rejection / shape tests run without k3s; happy-path tests skip cleanly when `gateway-secrets/lifecycle-secret` is unreachable from the test runner. | ⚠️ partial — happy-path needs the lifecycle secret from `egg-system` | [#2474](https://github.com/jwbron/egg/issues/2474), [#2634](https://github.com/jwbron/egg/issues/2634) |
+| **BRC consensus** | `PeerConsensusTracker` and timeout-handler entry points in-process — the shape #2474 recommends after ScriptedProvider pod-injection was ruled out. | ❌ no | [#2635](https://github.com/jwbron/egg/issues/2635) |
+
+Per [#2474](https://github.com/jwbron/egg/issues/2474), agents writing
+the k3s-tier tests can't validate them locally — correctness is
+verified by the `Test / aggregate` required check on the PR. The BRC
+and HITL-shape tiers run on a developer laptop without a cluster.
+
+## What's covered today
+
+### k3s slice-spawn / restart tier
+
+| File | Invariant | Status |
+|---|---|---|
+| `test_slice_spawn_env_threading.py::test_each_slice_gets_its_own_branch_env` | Each per-slice spawn lands `EGG_BRANCH=egg/<pid>/slice-<N>` and `EGG_SLICE_ID=slice-<N>` on the pod spec even when an upstream `extra_env` ships a conflicting pipeline-level `EGG_BRANCH`. Sibling slices in the same pipeline get distinct Job names and distinct EGG_BRANCH refs. Pins #2428 + #2410 + #2403. | ✅ green |
+| `test_slice_spawn_env_threading.py::test_baseline_spawn_without_extra_env_override` | Baseline: with no conflicting `extra_env`, the per-slice `branch` parameter still flows through to the pod's `EGG_BRANCH`. Catches a regression that would break the *default* env-derivation independent of the override path. | ✅ green |
+| `test_long_name_round_trip.py` | A Job created with a name > 63 chars (triggering truncation in `create_container`) must be round-trippable through `delete_job` using the same input name. Direct regression guard for [#2644](https://github.com/jwbron/egg/issues/2644). | ✅ green (was `xfail` before this PR shipped the [#2644](https://github.com/jwbron/egg/issues/2644) fix) |
+| `test_slice_restart_branch_invariants.py::test_restart_preserves_egg_branch_and_slice_id` | `restart_agent_job` for a slice-scoped agent preserves `EGG_BRANCH` and `EGG_SLICE_ID` on the new pod. The slice restart in #2632 starting-point #2. | ✅ green (was `xfail` before this PR shipped the [#2644](https://github.com/jwbron/egg/issues/2644) + [#2655](https://github.com/jwbron/egg/issues/2655) fixes) |
+| `test_slice_restart_branch_invariants.py::test_restart_isolates_slice_from_pipeline_level_agent` | Restarting a pipeline-level agent of the same role doesn't disturb the slice-scoped Job's env or restart-budget. | ✅ green (was `xfail` before this PR shipped the [#2644](https://github.com/jwbron/egg/issues/2644) + [#2655](https://github.com/jwbron/egg/issues/2655) fixes) |
+
+### HITL HTTP round-trip tier
+
+| File | Invariant | Status |
+|---|---|---|
+| `test_hitl_round_trip.py::TestHitlRoutesRegistered` | All 6 HITL endpoints resolve on the live blueprint; 404 envelopes reference the pipeline id (so Flask's stock route-missing 404 doesn't silently pass). | ✅ green |
+| `test_hitl_round_trip.py::TestHitlLifecycleAuth` | `/resolve` and `/cancel` reject missing / bogus / non-Bearer headers — #1769 parity. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlUnknownPipelineReturns404` | Agent-facing routes return canonical 404 envelopes referencing the pipeline id. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlQueueDecisionPayloadValidation` | Missing question / invalid `decision_type` / invalid `phase` / no-body → structured 400 (or 415 for no Content-Type), never 500. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlResolveRequiresResolution` | `/resolve` with auth + empty body → 400, pinning body-validation-after-auth ordering. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlPipelineIdValidation` | Malformed / path-traversal pipeline ids → 400 (`InvalidPipelineIdError`); 404 branches must NOT look like pipeline-not-found. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlHttpMethodEnforcement` | DELETE/PUT/PATCH on POST routes, GET on /resolve / /cancel, POST on /status → 405. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlMalformedJsonBody` | Invalid JSON → 400 (with canonical envelope). Non-object JSON (list / scalar, truthy and falsy) → 400 (#2656 fix). `null` body coerces correctly. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlResolvePayloadEdgeCases` | Null / `""` / `"   "` / dict / list / int / `False` resolution — pins which trip the `if not resolution` check vs which fall through (and that dict/list don't 500 the `json.dumps` normalisation). | ✅ green |
+| `test_hitl_round_trip.py::TestHitlCancelOnUnknownDecision` | `/cancel` with auth on missing decision → 404 envelope with pipeline id. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlOversizedPayload` | 5 MB question body doesn't 500 or hang. | ✅ green |
+| `test_hitl_round_trip.py::test_deterministic_pipeline_id_is_syntactically_valid` | Helper emits `pipeline-<8hex>` (validated by importing `state_store.validate_pipeline_id`) so 404 assertions don't silently turn into 400 assertions. | ✅ green |
+
+### BRC consensus tier
+
+In-process tests of `PeerConsensusTracker`, timeout-handler triage, and review-graph topology — 30 invariants across `test_brc_*.py` files originally landed by #2635. These are byte-identical on this PR (the merge from `main` brought them in unchanged); see #2635 for the per-file breakdown.
+
+## Bugs surfaced while writing these tests
+
+### #2644 — `KubernetesClient.delete_job` name-truncation asymmetry
+
+`create_container` truncates Job names > 63 chars and appends an
+8-char SHA digest. `delete_job` / `read_namespaced_job` /
+`get_pod_for_job` do **not** apply the same truncation, so any
+operation against the un-truncated name silently 404s when the Job
+exists under the truncated form. The slice-DAG restart path
+deterministically hits this for any pipeline-id / role
+combination > 63 chars after prefixing (e.g.
+`issue-2261-v9` + `slice-2` + `reviewer_agent_design`).
+
+`test_long_name_round_trip.py` is the focused regression guard.
+
+### #2655 — `restart_agent_job` races the Foreground deletion finalizer
+
+Even after #2644 is fixed, `restart_agent_job`'s `Foreground`
+deletion returns before the Job is removed from the API server —
+the foreground finalizer waits for pods to terminate first. The
+immediate respawn that follows then races the finalizer and 409s
+on `AlreadyExists`. The two slice-restart tests need both #2644
+and #2655 to land before they flip to passing.
+
+## Gap audit — what should be in here but isn't yet
+
+Pulled from [#2632](https://github.com/jwbron/egg/issues/2632) and
+recent slice/BRC postmortems. Tracking issues:
+
+- **[#2664](https://github.com/jwbron/egg/issues/2664)** — umbrella for the remaining #2474 starting points (HITL, salvage, BRC, babysit-PR push, etc.).
+- **[#2666](https://github.com/jwbron/egg/issues/2666)** — slice-scoped pods missing an `egg.slice.id` label (operability gap).
+
+| Invariant | Why it matters | Why not yet |
+|---|---|---|
+| Slice DAG reaches `PR_READY` end-to-end with a mid-flight `restart_agent` | The full "starting point #2" of #2632. Pins that BRC consensus recovers cleanly across a slice-agent restart. | Requires real BRC consensus driving against a Claude provider, which a fresh CI runner cannot drive. See the ScriptedProvider pod-injection caveat in [#2474](https://github.com/jwbron/egg/issues/2474) and follow-up #2585. The branch-ref half is covered above. |
+| Live-pod guard on `start_pipeline` recovery (#2420) | `start_pipeline` refuses without `force=true` when pods are live; pins #2420's regression. | Direct HTTP-level test against orchestrator routes. Reasonable to add in a follow-up; doesn't need agent pods to actually run. |
+| Unpushed-commit salvage on push rejection (#2429) | A gateway push-rejection must produce an `egg/recovered/...` ref before the worktree is torn down. | Needs gateway push-failure injection — the existing `restricted-path` code path may be enough. Follow-up. |
+| HITL round-trip (#2430) | Pipeline pauses on `AWAITING_HUMAN`, resumes on `provide_input`. Pins #2430. | Needs a pipeline that actually reaches HITL — requires either a scripted provider or a pre-seeded contract. Follow-up. |
+| BRC single-cycle consensus message counts | Pins `feedback_brc_single_cycle.md`: producer PROPOSE → reviewer ACK → CONFIRMED in exactly N messages. | Needs ScriptedProvider pod injection. Deferred to #2585. |
+| Phase-aware consensus timeouts honored end-to-end | Pins that `phase_configs.<phase>.consensus_timeout_s` is wired through to the actual timeout fired. | Implementable as a unit test against the orchestrator's timeout source-of-truth; the k3s tier doesn't add much. |
+| Babysit-PR single final push to PR branch | Pins that 2 coder revisions produce exactly 1 push to the PR head ref. | Needs scripted provider for the coder revision loop. Deferred to #2585. |
+| Slice teardown isolation under partial-failure | Deleting one slice's Job mid-flight doesn't disturb sibling slices' worktrees or sessions. | Achievable with the existing spawner harness once #2644 is fixed; adds another regression test to this directory. |
+| `EGG_SLICE_ID` and `egg.slice.id` label parity | Today the slice scope is propagated as an env var on the pod but **not** as a Job/Pod label — operator queries like `kubectl get jobs -l egg.slice.id=slice-2` don't work, and the kubernetes_monitor can't filter by slice without parsing Job names. | Out of scope for #2632 (an operability gap, not a correctness regression) but worth opening separately if cluster-side slice introspection becomes important. |
+
+## Conventions
+
+- **Marker**: every file in here uses `pytestmark = pytest.mark.integration` so `make test-integration` picks them up.
+- **Cleanup**: every test paired with a `cleanup_jobs` autouse fixture that calls `spawner.cleanup_pipeline(...)`. Without it, leftover Jobs in the test namespace persist across runs and force operators to `kubectl delete` by hand.
+- **Role choice**: prefer roles in `_ROLES_WITHOUT_WORKTREE` (e.g. `REVIEWER_CODE`) for env-threading assertions — the spawner code paths in question are role-independent, and a worktree-free role keeps the test green on a fresh CI runner with `local_repos.paths: []`. Document the choice in the test's docstring when it matters.
+- **xfail discipline**: `xfail(strict=True, reason=...)` only — never `skip` to hide a real failure. Strict ensures the test re-arms automatically when the blocking bug lands.
