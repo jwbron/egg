@@ -32,6 +32,7 @@ logger = get_logger("orchestrator.startup_reconciliation")
 # pip package inside method bodies, so this module stays importable even
 # in test environments that don't install it.
 from kubernetes_client import LABEL_PIPELINE_ID as _LABEL_PIPELINE_ID
+from models import LIVE_POD_STATUSES as _LIVE_POD_STATUSES
 
 
 def reconcile_stale_containers(store: object, docker_client: object) -> int:
@@ -207,16 +208,15 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             # ``list_containers`` returns pods regardless of phase, so a
             # ``Failed`` / ``Succeeded`` pod still inside its Job's
             # ``ttlSecondsAfterFinished`` window (default 600s) would otherwise
-            # mask a genuinely orphaned pipeline.  Mirrors
+            # mask a genuinely orphaned pipeline.  Shares the
+            # ``models.LIVE_POD_STATUSES`` constant with
             # ``routes/pipelines._count_live_pods_for_pipeline`` so both
-            # label-scoped checks agree on what "live" means (#2420).
-            _live_statuses = (
-                ContainerStatus.PENDING,
-                ContainerStatus.CREATING,
-                ContainerStatus.RUNNING,
-            )
+            # label-scoped checks can't drift on what "live" means
+            # (#2420, #2650).
             pipeline_live_ids: set[str] = {
-                ci.container_id for ci in pipeline_live_containers if ci.status in _live_statuses
+                ci.container_id
+                for ci in pipeline_live_containers
+                if ci.status in _LIVE_POD_STATUSES
             }
         except Exception as e:
             logger.warning(

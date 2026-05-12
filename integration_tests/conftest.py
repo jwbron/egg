@@ -327,6 +327,41 @@ def orchestrator_url(egg_stack: EggStack) -> str:
     return egg_stack.orchestrator_url
 
 
+@pytest.fixture(scope="session")
+def orchestrator_mcp_url(egg_stack: EggStack) -> str:
+    """Streamable-HTTP URL for the orchestrator's MCP server.
+
+    The orchestrator pod runs the MCP sidecar on container port 9850
+    (see ``orchestrator/api.py::_start_mcp_server``).  The base Service
+    (``k8s/base/orchestrator-service.yaml``) only exposes the API port
+    (9849); the MCP port is reached via the ``hostPort: 9850`` mapping
+    in ``k8s/overlays/local/patches/orchestrator-volumes.yaml`` (the
+    overlay used by ``make deploy`` in CI and locally).  Tests reach
+    it via ``http://localhost:9850/mcp``.
+
+    Override at test time with ``EGG_MCP_URL`` if the cluster maps the
+    port elsewhere.  The fixture skips if the ``/health`` sidecar
+    endpoint is unreachable so a missing hostPort produces a clear skip
+    rather than a confusing connection error mid-test.
+    """
+    import urllib.error
+    import urllib.request
+
+    url = os.environ.get("EGG_MCP_URL", "http://localhost:9850/mcp")
+    health_url = url.rsplit("/mcp", 1)[0] + "/health"
+    try:
+        with urllib.request.urlopen(health_url, timeout=10) as resp:
+            if resp.status != 200:
+                pytest.skip(f"Orchestrator MCP /health at {health_url} returned {resp.status}")
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        pytest.skip(
+            f"Orchestrator MCP server not reachable at {health_url}: {exc}. "
+            "Integration suite expects the local-overlay hostPort mapping "
+            "(k8s/overlays/local/patches/orchestrator-volumes.yaml)."
+        )
+    return url
+
+
 @pytest.fixture
 def gateway_session(egg_stack: EggStack) -> Generator[dict[str, Any]]:
     """Function-scoped fixture: create a gateway session for isolation.

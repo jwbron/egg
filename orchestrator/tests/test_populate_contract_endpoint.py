@@ -13,7 +13,17 @@ from flask import Flask
 from gateway_client import PushResult
 from models import Pipeline, PipelinePhase
 from routes.phases import phases_bp
+from routes.pipelines import PopulateOutcome, PopulateResult
 from state_store import InvalidPipelineIdError, PipelineNotFoundError
+
+
+def _populated(slice_count: int = 1, task_count: int = 1) -> PopulateResult:
+    """Build a successful PopulateResult for use as mock return values."""
+    return PopulateResult(
+        PopulateOutcome.POPULATED,
+        slice_count=slice_count,
+        task_count=task_count,
+    )
 
 
 @pytest.fixture
@@ -105,17 +115,14 @@ class TestPopulateContractEndpoint:
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
         mock_resolve_wt.return_value = Path("/tmp/wt")
+        mock_populate.return_value = _populated()
         mock_commit.return_value = False
         mock_gw_mode.return_value = ("public", None)
         push_result = MagicMock()
         push_result.__bool__.return_value = True
         mock_spawner.return_value.gateway.push_worktree_branch.return_value = push_result
 
-        with patch(
-            "egg_contracts.loader.load_contract",
-            side_effect=Exception("skip"),
-        ):
-            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
         assert resp.status_code == 200
         call_kwargs = mock_populate.call_args[1]
@@ -164,24 +171,20 @@ class TestPopulateContractEndpoint:
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
         mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
+        mock_populate.return_value = _populated(slice_count=1, task_count=2)
         mock_commit.return_value = True
         mock_gw_mode.return_value = ("public", None)
         push_result = MagicMock()
         push_result.__bool__.return_value = True
         mock_spawner.return_value.gateway.push_worktree_branch.return_value = push_result
 
-        # Mock the contract read-back
-        mock_phase_obj = MagicMock()
-        mock_phase_obj.tasks = [MagicMock(), MagicMock()]
-        mock_contract = MagicMock()
-        mock_contract.slices = [mock_phase_obj]
-
-        with patch("egg_contracts.loader.load_contract", return_value=mock_contract):
-            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
         assert resp.status_code == 200
         data = json.loads(resp.data)
         assert data["success"] is True
+        # Counts now come straight from the populate return value (#2627
+        # follow-up): no separate read-back to disagree with the populator.
         assert data["data"]["phase_count"] == 1
         assert data["data"]["task_count"] == 2
         assert data["data"]["pushed_to_origin"] is True
@@ -190,48 +193,6 @@ class TestPopulateContractEndpoint:
         call_kwargs = mock_populate.call_args[1]
         assert str(call_kwargs["pipeline_mode"]) == "issue"
         assert call_kwargs["issue_number"] == 42
-
-    @patch("routes.pipelines._get_spawner")
-    @patch("routes.pipelines._compute_gateway_mode")
-    @patch("routes.pipelines._commit_statefiles_to_worktree")
-    @patch("routes.pipelines._populate_contract_from_plan")
-    @patch("routes.resolve_worktree_path")
-    @patch("routes.phases.get_state_store_for_pipeline")
-    def test_success_count_readback_fails_still_succeeds(
-        self,
-        mock_get_store,
-        mock_resolve_wt,
-        mock_populate,
-        mock_commit,
-        mock_gw_mode,
-        mock_spawner,
-        client,
-    ):
-        """When contract read-back fails, still return success with pushed_to_origin."""
-        pipeline = _make_pipeline()
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/home/egg/repos/egg")
-        mock_get_store.return_value = (mock_store, pipeline)
-        mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
-        mock_commit.return_value = True
-        mock_gw_mode.return_value = ("public", None)
-        push_result = MagicMock()
-        push_result.__bool__.return_value = True
-        mock_spawner.return_value.gateway.push_worktree_branch.return_value = push_result
-
-        with patch(
-            "egg_contracts.loader.load_contract",
-            side_effect=Exception("contract not found"),
-        ):
-            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
-
-        assert resp.status_code == 200
-        data = json.loads(resp.data)
-        assert data["success"] is True
-        # Counts are absent (read-back failed) but the persist-result is
-        # still surfaced so the caller can tell whether agents will see
-        # the populated contract on respawn (#2629).
-        assert data["data"] == {"pushed_to_origin": True}
 
     @patch("routes.pipelines._get_spawner")
     @patch("routes.pipelines._compute_gateway_mode")
@@ -257,6 +218,7 @@ class TestPopulateContractEndpoint:
         mock_get_store.return_value = (mock_store, pipeline)
         worktree_path = Path("/home/egg/.egg-worktrees/issue-42/egg")
         mock_resolve_wt.return_value = worktree_path
+        mock_populate.return_value = _populated()
         mock_commit.return_value = True
         mock_gw_mode.return_value = ("public", None)
         push_result = MagicMock()
@@ -264,11 +226,7 @@ class TestPopulateContractEndpoint:
         gateway = mock_spawner.return_value.gateway
         gateway.push_worktree_branch.return_value = push_result
 
-        with patch(
-            "egg_contracts.loader.load_contract",
-            side_effect=Exception("skip"),
-        ):
-            client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
         mock_commit.assert_called_once()
         commit_kwargs = mock_commit.call_args.kwargs
@@ -307,18 +265,13 @@ class TestPopulateContractEndpoint:
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
         mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
+        mock_populate.return_value = _populated(slice_count=1, task_count=1)
         mock_commit.return_value = True
         mock_gw_mode.return_value = ("public", None)
         gateway = mock_spawner.return_value.gateway
         gateway.push_worktree_branch.side_effect = RuntimeError("network down")
 
-        mock_phase_obj = MagicMock()
-        mock_phase_obj.tasks = [MagicMock()]
-        mock_contract = MagicMock()
-        mock_contract.slices = [mock_phase_obj]
-
-        with patch("egg_contracts.loader.load_contract", return_value=mock_contract):
-            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
         assert resp.status_code == 200
         data = json.loads(resp.data)
@@ -362,6 +315,7 @@ class TestPopulateContractEndpoint:
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
         mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
+        mock_populate.return_value = _populated(slice_count=1, task_count=1)
         mock_commit.return_value = True
         mock_gw_mode.return_value = ("public", None)
         gateway = mock_spawner.return_value.gateway
@@ -371,13 +325,7 @@ class TestPopulateContractEndpoint:
             detail="(fetch first)",
         )
 
-        mock_phase_obj = MagicMock()
-        mock_phase_obj.tasks = [MagicMock()]
-        mock_contract = MagicMock()
-        mock_contract.slices = [mock_phase_obj]
-
-        with patch("egg_contracts.loader.load_contract", return_value=mock_contract):
-            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
         assert resp.status_code == 200
         data = json.loads(resp.data)
@@ -419,6 +367,7 @@ class TestPopulateContractEndpoint:
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
         mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
+        mock_populate.return_value = _populated()
         mock_commit.return_value = False
         mock_gw_mode.return_value = ("public", None)
         push_result = MagicMock()
@@ -426,11 +375,7 @@ class TestPopulateContractEndpoint:
         gateway = mock_spawner.return_value.gateway
         gateway.push_worktree_branch.return_value = push_result
 
-        with patch(
-            "egg_contracts.loader.load_contract",
-            side_effect=Exception("skip"),
-        ):
-            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
         assert resp.status_code == 200
         data = json.loads(resp.data)
@@ -476,6 +421,7 @@ class TestPopulateContractEndpoint:
         mock_store.repo_path = Path("/home/egg/repos/egg")
         mock_get_store.return_value = (mock_store, pipeline)
         mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
+        mock_populate.return_value = _populated()
         # Second-call shape: file already matches HEAD locally → no-op.
         mock_commit.return_value = False
         mock_gw_mode.return_value = ("public", None)
@@ -487,11 +433,7 @@ class TestPopulateContractEndpoint:
             detail="(fetch first)",
         )
 
-        with patch(
-            "egg_contracts.loader.load_contract",
-            side_effect=Exception("skip"),
-        ):
-            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
         assert resp.status_code == 200
         data = json.loads(resp.data)
@@ -529,17 +471,14 @@ class TestPopulateContractEndpoint:
 
         worktree_path = Path("/home/egg/.egg-worktrees/issue-42/egg")
         mock_resolve_wt.return_value = worktree_path
+        mock_populate.return_value = _populated()
         mock_commit.return_value = False
         mock_gw_mode.return_value = ("public", None)
         push_result = MagicMock()
         push_result.__bool__.return_value = True
         mock_spawner.return_value.gateway.push_worktree_branch.return_value = push_result
 
-        with patch(
-            "egg_contracts.loader.load_contract",
-            side_effect=Exception("skip"),
-        ):
-            client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
 
         # Verify resolve_worktree_path was called correctly
         mock_resolve_wt.assert_called_once_with("issue-42", Path("/home/egg/repos/egg"))
@@ -547,3 +486,87 @@ class TestPopulateContractEndpoint:
         mock_populate.assert_called_once()
         call_kwargs = mock_populate.call_args[1]
         assert call_kwargs["repo_path"] == worktree_path
+
+    @patch("routes.pipelines._populate_contract_from_plan")
+    @patch("routes.resolve_worktree_path")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_returns_404_when_draft_missing(
+        self, mock_get_store, mock_resolve_wt, mock_populate, client
+    ):
+        """#2627 follow-up: draft-missing outcome maps to 404."""
+        pipeline = _make_pipeline()
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+        mock_get_store.return_value = (mock_store, pipeline)
+        mock_resolve_wt.return_value = Path("/tmp/wt")
+        mock_populate.return_value = PopulateResult(PopulateOutcome.DRAFT_MISSING)
+
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+
+        assert resp.status_code == 404
+        data = json.loads(resp.data)
+        assert data["success"] is False
+        assert "draft_missing" in data["message"]
+
+    @patch("routes.pipelines._populate_contract_from_plan")
+    @patch("routes.resolve_worktree_path")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_returns_422_on_parse_failed(
+        self, mock_get_store, mock_resolve_wt, mock_populate, client
+    ):
+        """#2627 follow-up: parse-failed outcome maps to 422 (caller's plan,
+        not server's fault)."""
+        pipeline = _make_pipeline()
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+        mock_get_store.return_value = (mock_store, pipeline)
+        mock_resolve_wt.return_value = Path("/tmp/wt")
+        mock_populate.return_value = PopulateResult(PopulateOutcome.PARSE_FAILED)
+
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+
+        assert resp.status_code == 422
+        data = json.loads(resp.data)
+        assert "parse_failed" in data["message"]
+
+    @patch("routes.pipelines._populate_contract_from_plan")
+    @patch("routes.resolve_worktree_path")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_returns_422_on_empty_result(
+        self, mock_get_store, mock_resolve_wt, mock_populate, client
+    ):
+        """#2627 follow-up: empty-contract outcome maps to 422 — the
+        populator ran but yielded nothing, so a 200 would have lied
+        about success."""
+        pipeline = _make_pipeline()
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+        mock_get_store.return_value = (mock_store, pipeline)
+        mock_resolve_wt.return_value = Path("/tmp/wt")
+        mock_populate.return_value = PopulateResult(PopulateOutcome.EMPTY_RESULT)
+
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+
+        assert resp.status_code == 422
+        data = json.loads(resp.data)
+        assert "empty_result" in data["message"]
+
+    @patch("routes.pipelines._populate_contract_from_plan")
+    @patch("routes.resolve_worktree_path")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_returns_500_on_contract_load_failed(
+        self, mock_get_store, mock_resolve_wt, mock_populate, client
+    ):
+        """#2627 follow-up: server-side load failure maps to 500."""
+        pipeline = _make_pipeline()
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+        mock_get_store.return_value = (mock_store, pipeline)
+        mock_resolve_wt.return_value = Path("/tmp/wt")
+        mock_populate.return_value = PopulateResult(PopulateOutcome.CONTRACT_LOAD_FAILED)
+
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+
+        assert resp.status_code == 500
+        data = json.loads(resp.data)
+        assert "contract_load_failed" in data["message"]
