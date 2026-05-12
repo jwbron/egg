@@ -10,10 +10,15 @@ RUN apt-get update && apt-get install -y \
 # it `_run_kustomize` falls through both kustomize and `kubectl
 # kustomize` invocations and the route returns 500
 # `kustomize_unavailable` for every call (#2647). Pinned to a known-
-# good release; bump deliberately.
+# good release; bump deliberately. SHA256 is the published checksum
+# for the linux_amd64 tarball (see checksums.txt alongside the
+# release); bumping KUSTOMIZE_VERSION requires updating
+# KUSTOMIZE_SHA256 in lockstep (#2681).
 ARG KUSTOMIZE_VERSION=5.6.0
+ARG KUSTOMIZE_SHA256=54e4031ddc4e7fc59e408da29e7c646e8e57b8088c51b84b3df0864f47b5148f
 RUN curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
         -o /tmp/kustomize.tar.gz \
+    && echo "${KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize \
     && rm /tmp/kustomize.tar.gz \
     && chmod +x /usr/local/bin/kustomize
