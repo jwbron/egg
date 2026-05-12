@@ -386,6 +386,48 @@ class TestFetchRemoteLinks:
         with _patch_gateway_post({"data": {}}):
             assert fetch_remote_links("ENG-1") == []
 
+    def test_request_body_field_name_is_ticket(self, monkeypatch):
+        """**Field-name contract** (reviewer_code v1 finding #3):
+        ``fetch_remote_links`` MUST POST a body keyed on ``ticket``
+        (the gateway route validates ``data.get("ticket")``). A v1
+        bug shipped with the field named ``key``, which the route
+        rejected as ``invalid ticket shape``. This test pins the
+        orchestrator → gateway contract so any future drift surfaces
+        immediately, even without an integration test against the
+        live gateway.
+
+        Captures the (path, body) pair the helper sends and asserts
+        both the route path and the body field name.
+        """
+        captured: list[tuple[str, dict]] = []
+
+        def _capture(path, body):
+            captured.append((path, body))
+            return {"data": {"remotelinks": []}}
+
+        monkeypatch.setattr(jira_reassess, "_gateway_post", _capture)
+        fetch_remote_links("ENG-1")
+        assert len(captured) == 1
+        path, body = captured[0]
+        assert path == "/api/v1/jira/ticket/remotelinks"
+        # The route validates ``ticket`` exactly — do not weaken this
+        # assertion to ``"key" in body or "ticket" in body`` because
+        # that would re-introduce the v1 bug.
+        assert body == {"key": "ENG-1"} or body == {"ticket": "ENG-1"}, (
+            f"fetch_remote_links must POST with field name 'ticket' "
+            f"(or 'key' if the route accepts both) — got {body!r}"
+        )
+        # Strict-mode assertion: the production contract is 'ticket'
+        # (matches the route's `_JIRA_TICKET_KEY_RE.fullmatch(ticket)`
+        # validation). A regression to 'key' alone fails this branch
+        # because the route returns 400.
+        assert "ticket" in body, (
+            f"fetch_remote_links must POST {{'ticket': <KEY>}} to match "
+            f"the gateway route's body parser; got {body!r}. The v1 "
+            f"bug used 'key' instead of 'ticket' — see reviewer_code "
+            f"v1 finding #3."
+        )
+
 
 # -----------------------------------------------------------------------------
 # run_reassess_sweep — end-to-end orchestration
