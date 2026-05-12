@@ -495,10 +495,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T04:46:05.401484Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T04:51:43.327867Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Parameterize the existing prompts via injected context: pass `mode: epic | ticket | github_issue` and a small conditional block at the top of each prompt. Single source of truth, easy to keep aligned. Recommended.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -549,7 +549,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:51:17.971427Z",
+  "updated_at": "2026-05-12T04:51:43.339644Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 44,
+  "version": 45,
   "jira_ticket": null
 }
