@@ -310,10 +310,12 @@ class TestCommitStatefilesNoAutoStageDeletions:
         subprocess.run([*git_base, "init", "-q"], check=True)
         subprocess.run([*git_base, "config", "user.email", "test@example.com"], check=True)
         subprocess.run([*git_base, "config", "user.name", "Test"], check=True)
-        # Disable commit signing so the test does not depend on the
-        # developer's global git config (no key configured → seed commit
-        # would fail).
+        # Disable commit signing and any globally-configured hooksPath
+        # so the test does not depend on the developer's global git
+        # config (no signing key or a hooks dir with failing hooks
+        # would otherwise break the seed commit).
         subprocess.run([*git_base, "config", "commit.gpgsign", "false"], check=True)
+        subprocess.run([*git_base, "config", "core.hooksPath", "/dev/null"], check=True)
         return git_base
 
     def test_does_not_commit_deletion_of_file_missing_from_worktree(self, tmp_path: Path):

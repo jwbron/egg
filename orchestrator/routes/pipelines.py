@@ -7554,11 +7554,14 @@ def _commit_statefiles_to_worktree(
         )
 
     # Only commit if there are staged changes (idempotent on re-runs).
-    # No pathspec: this check must mirror the unscoped ``git commit``
-    # below so we early-return iff that commit would be a no-op. Scoping
-    # the diff to ``.egg-state/`` while the commit captures everything
-    # staged would let us proceed past the early-out with nothing under
-    # ``.egg-state/`` staged, producing an empty commit failure.
+    # No pathspec: match the diff scope to the commit scope below so the
+    # early-out fires iff the commit would have nothing to write. A
+    # scoped diff (``-- .egg-state/``) paired with the unscoped commit
+    # below would short-circuit when only non-``.egg-state/`` content
+    # is staged, dropping that content on the floor instead of
+    # committing it. Nothing in this code path stages outside
+    # ``.egg-state/`` today, so this is belt-and-suspenders, but the
+    # two scopes must stay symmetric to keep the invariant local.
     result = subprocess.run(
         [*git_base, "diff", "--cached", "--quiet"],
         capture_output=True,
