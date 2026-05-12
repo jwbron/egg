@@ -14,9 +14,11 @@ Originating issue: [#2632](https://github.com/jwbron/egg/issues/2632).
 
 | File | Invariant | Status |
 |---|---|---|
-| `test_slice_spawn_env_threading.py` | Each per-slice spawn lands `EGG_BRANCH=egg/<pid>/slice-<N>` and `EGG_SLICE_ID=slice-<N>` on the pod spec even when an upstream `extra_env` ships a conflicting pipeline-level `EGG_BRANCH`. Sibling slices in the same pipeline get distinct Job names and distinct EGG_BRANCH refs. Pins #2428 + #2410 + #2403. | ✅ green |
-| `test_slice_restart_branch_invariants.py::test_restart_preserves_egg_branch_and_slice_id` | `restart_agent_job` for a slice-scoped agent preserves `EGG_BRANCH` and `EGG_SLICE_ID` on the new pod. The slice restart in #2632 starting-point #2. | ⚠️ `xfail(strict=True)` — blocked on [#2644](https://github.com/jwbron/egg/issues/2644) |
-| `test_slice_restart_branch_invariants.py::test_restart_isolates_slice_from_pipeline_level_agent` | Restarting a pipeline-level agent of the same role doesn't disturb the slice-scoped Job's env or restart-budget. | ⚠️ `xfail(strict=True)` — blocked on [#2644](https://github.com/jwbron/egg/issues/2644) |
+| `test_slice_spawn_env_threading.py::test_each_slice_gets_its_own_branch_env` | Each per-slice spawn lands `EGG_BRANCH=egg/<pid>/slice-<N>` and `EGG_SLICE_ID=slice-<N>` on the pod spec even when an upstream `extra_env` ships a conflicting pipeline-level `EGG_BRANCH`. Sibling slices in the same pipeline get distinct Job names and distinct EGG_BRANCH refs. Pins #2428 + #2410 + #2403. | ✅ green |
+| `test_slice_spawn_env_threading.py::test_baseline_spawn_without_extra_env_override` | Baseline: with no conflicting `extra_env`, the per-slice `branch` parameter still flows through to the pod's `EGG_BRANCH`. Catches a regression that would break the *default* env-derivation independent of the override path. | ✅ green |
+| `test_long_name_round_trip.py` | A Job created with a name > 63 chars (triggering truncation in `create_container`) must be round-trippable through `delete_job` using the same input name. Direct regression guard for #2644. | ⚠️ `xfail(strict=True)` — blocked on [#2644](https://github.com/jwbron/egg/issues/2644) |
+| `test_slice_restart_branch_invariants.py::test_restart_preserves_egg_branch_and_slice_id` | `restart_agent_job` for a slice-scoped agent preserves `EGG_BRANCH` and `EGG_SLICE_ID` on the new pod. The slice restart in #2632 starting-point #2. | ⚠️ `xfail(strict=True)` — blocked on [#2644](https://github.com/jwbron/egg/issues/2644) + [#2655](https://github.com/jwbron/egg/issues/2655) |
+| `test_slice_restart_branch_invariants.py::test_restart_isolates_slice_from_pipeline_level_agent` | Restarting a pipeline-level agent of the same role doesn't disturb the slice-scoped Job's env or restart-budget. | ⚠️ `xfail(strict=True)` — blocked on [#2644](https://github.com/jwbron/egg/issues/2644) + [#2655](https://github.com/jwbron/egg/issues/2655) |
 
 ## Bugs surfaced while writing these tests
 
@@ -31,9 +33,16 @@ deterministically hits this for any pipeline-id / role
 combination > 63 chars after prefixing (e.g.
 `issue-2261-v9` + `slice-2` + `reviewer_agent_design`).
 
-The two restart tests above will flip to passing once #2644 lands;
-they are the regression guard for the fix. See the issue body for
-the suggested fix shape.
+`test_long_name_round_trip.py` is the focused regression guard.
+
+### #2655 — `restart_agent_job` races the Foreground deletion finalizer
+
+Even after #2644 is fixed, `restart_agent_job`'s `Foreground`
+deletion returns before the Job is removed from the API server —
+the foreground finalizer waits for pods to terminate first. The
+immediate respawn that follows then races the finalizer and 409s
+on `AlreadyExists`. The two slice-restart tests need both #2644
+and #2655 to land before they flip to passing.
 
 ## Gap audit — what should be in here but isn't yet
 

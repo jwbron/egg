@@ -157,3 +157,49 @@ class TestSliceSpawnEnvThreading:
         assert len(set(seen_branches.values())) == len(slices), (
             f"Each slice must own a distinct EGG_BRANCH; got {seen_branches}"
         )
+
+    def test_baseline_spawn_without_extra_env_override(
+        self,
+        spawner,
+        slice_pipeline_id,
+        egg_stack,
+        cleanup_jobs,
+    ):
+        """Baseline: when no conflicting ``extra_env`` is shipped, the
+        per-slice ``branch`` parameter still flows through to the pod's
+        ``EGG_BRANCH``. Distinguishes "the protected-key override is
+        working" from "the env-threading code happens to work only
+        when extra_env happens to be empty / non-conflicting" — without
+        this guard, a regression that broke the default ``EGG_BRANCH``
+        derivation (e.g. dropping line ``environment["EGG_BRANCH"] = branch``
+        from ``kubernetes_spawner.py:754``) would be invisible to
+        ``test_each_slice_gets_its_own_branch_env`` because the
+        override path masks the default path.
+        """
+        from egg_contracts.agent_roles import AgentRole
+
+        slice_id = "slice-2"
+        slice_branch = "egg/issue-2632/slice-2"
+        spawned = spawner.spawn_agent_job(
+            pipeline_id=slice_pipeline_id,
+            agent_role=AgentRole.REVIEWER_CODE,
+            issue_number=2632,
+            phase="implement",
+            branch=slice_branch,
+            repos=[],
+            mode="public",
+            slice_id=slice_id,
+            # Critically: no ``extra_env`` — exercise the default
+            # env-derivation path, not the override-rejection path.
+        )
+        pod = kubectl_get_pod_yaml(
+            namespace=egg_stack.isolated_network,
+            label_selector=f"job-name={spawned.container_info.job_name}",
+        )
+        env = env_from_pod(pod)
+        assert env.get("EGG_BRANCH") == slice_branch, (
+            f"Baseline (no extra_env): EGG_BRANCH={env.get('EGG_BRANCH')!r}; "
+            f"expected {slice_branch!r}. The default env-derivation path "
+            f"may have regressed independent of the override path."
+        )
+        assert env.get("EGG_SLICE_ID") == slice_id

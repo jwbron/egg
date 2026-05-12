@@ -44,21 +44,27 @@ from integration_tests.regression.conftest import (
 
 pytestmark = [
     pytest.mark.integration,
-    # Both tests in this file are currently blocked by #2644
-    # (``KubernetesClient.delete_job`` doesn't apply the same 63-char
-    # name truncation as ``create_container``, so the restart's delete
-    # silently 404s and the respawn 409s on AlreadyExists). The bug
-    # was surfaced *by* writing these tests against the deployed
-    # spawner. Strict xfail keeps the tests authoritative: when #2644
-    # lands, they flip green and we drop the xfail to re-arm the
-    # regression guard.
+    # Both tests in this file are blocked by two distinct bugs surfaced
+    # *by* writing them against the deployed spawner:
+    #
+    #   * #2644 — ``KubernetesClient.delete_job`` doesn't apply the
+    #     same 63-char name truncation as ``create_container``, so
+    #     the restart's delete is a silent 404 against the long form
+    #     while the Job actually exists under the truncated form.
+    #   * #2655 — ``restart_agent_job`` races the Foreground deletion
+    #     finalizer: even with #2644 fixed, the delete returns before
+    #     the Job is removed from the API server, and the immediate
+    #     respawn 409s on AlreadyExists.
+    #
+    # Strict xfail keeps the tests authoritative: when both lands,
+    # they flip green and we drop the xfail to re-arm the regression
+    # guard.
     pytest.mark.xfail(
         strict=True,
         reason=(
-            "Blocked on #2644: KubernetesClient.delete_job doesn't "
-            "truncate names > 63 chars symmetric with create_container, "
-            "so restart_agent_job delete is a silent 404 and respawn "
-            "409s. Flip back to non-xfail once #2644 lands."
+            "Blocked on #2644 (delete-name truncation asymmetry) and "
+            "#2655 (Foreground deletion / respawn race). Flip back to "
+            "non-xfail once both land."
         ),
     ),
 ]
