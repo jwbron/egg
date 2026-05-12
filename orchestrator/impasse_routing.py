@@ -26,11 +26,18 @@ module.
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+# See ``_CQ_ID_PATTERN`` in ``sandbox/egg_agent_tools/handlers/sdlc.py``.
+# Both agent-side and orchestrator-side allocators of contract decisions
+# use the ``cq-N`` prefix so they share one counter and never collide
+# with the pipeline-side ``decision-N`` namespace (#2616).
+_CQ_ID_PATTERN = re.compile(r"^cq-([0-9]+)$")
 
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -245,8 +252,13 @@ def _build_hitl_decision(
     Returns ``(field_path, decision)`` ready to feed into
     :func:`apply_mutation`.
     """
-    next_idx = len(contract.decisions or [])
-    decision_id = f"decision-{next_idx + 1}"
+    existing_decisions = contract.decisions or []
+    next_idx = len(existing_decisions)
+    next_cq_n = 1 + max(
+        (int(m.group(1)) for m in (_CQ_ID_PATTERN.match(d.id) for d in existing_decisions) if m),
+        default=0,
+    )
+    decision_id = f"cq-{next_cq_n}"
 
     task_id = task.id if task else (impasse.task_id or "<unresolved>")
     slice_id = slice_obj.id if slice_obj else "<unresolved>"
