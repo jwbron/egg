@@ -712,6 +712,87 @@ class TestRunReassessSweep:
         assert any("remotelink_pr=" in e for e in result.children[0].in_flight_evidence)
 
 
+class TestRunReassessSweepPaginationWarning:
+    """The sweep emits a single JQL search with ``maxResults=200``.
+    When the upstream reports a larger ``total``, the sweep must
+    surface an explicit warning so the planner does not act on a
+    silently truncated child set.
+    """
+
+    def test_total_above_page_emits_truncation_warning(self, monkeypatch):
+        sample = {
+            "issues": [
+                {
+                    "key": f"ENG-{i}",
+                    "fields": {
+                        "summary": f"child {i}",
+                        "status": {"name": "To Do", "statusCategory": {"key": "new"}},
+                    },
+                }
+                for i in range(2, 5)
+            ],
+            "total": 250,
+        }
+        monkeypatch.setattr(jira_reassess, "_gateway_post", lambda p, b: sample)
+        result = run_reassess_sweep(epic_key="ENG-1", check_remotelinks=False)
+        assert any("jql_search_truncated" in w for w in result.warnings)
+        assert any("250 matching children" in w for w in result.warnings)
+
+    def test_total_within_page_no_warning(self, monkeypatch):
+        sample = {
+            "issues": [
+                {
+                    "key": "ENG-2",
+                    "fields": {
+                        "summary": "child",
+                        "status": {"name": "To Do", "statusCategory": {"key": "new"}},
+                    },
+                },
+            ],
+            "total": 1,
+        }
+        monkeypatch.setattr(jira_reassess, "_gateway_post", lambda p, b: sample)
+        result = run_reassess_sweep(epic_key="ENG-1", check_remotelinks=False)
+        assert not any("jql_search_truncated" in w for w in result.warnings)
+
+    def test_missing_total_field_no_warning(self, monkeypatch):
+        """Older Atlassian responses may omit ``total``; we must not
+        falsely warn in that case."""
+        sample = {
+            "issues": [
+                {
+                    "key": "ENG-2",
+                    "fields": {
+                        "summary": "child",
+                        "status": {"name": "To Do", "statusCategory": {"key": "new"}},
+                    },
+                },
+            ],
+        }
+        monkeypatch.setattr(jira_reassess, "_gateway_post", lambda p, b: sample)
+        result = run_reassess_sweep(epic_key="ENG-1", check_remotelinks=False)
+        assert not any("jql_search_truncated" in w for w in result.warnings)
+
+
+class TestReassessFieldsListNoDescription:
+    """The sweep no longer requests ``description`` (review feedback
+    #7 / agent-mode reviewer): per ``task-planner.md``'s
+    ``[mode: epic-reassess]`` block, the planner re-authors per-task
+    descriptions from scratch, so the field is not load-bearing and
+    Atlassian's ADF dict would just be dropped silently anyway."""
+
+    def test_description_not_requested(self, monkeypatch):
+        captured: dict[str, Any] = {}
+
+        def _fake_post(path, body):
+            captured["body"] = body
+            return {"issues": []}
+
+        monkeypatch.setattr(jira_reassess, "_gateway_post", _fake_post)
+        run_reassess_sweep(epic_key="ENG-1", check_remotelinks=False)
+        assert "description" not in captured["body"]["fields"]
+
+
 # -----------------------------------------------------------------------------
 # serialise_sweep_to_disk — file IO contract
 # -----------------------------------------------------------------------------

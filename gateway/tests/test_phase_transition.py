@@ -8,6 +8,7 @@ Tests cover:
 - Audit entry generation
 """
 
+import pytest
 from phase_filter import PipelinePhase
 from phase_transition import (
     VALID_TRANSITIONS,
@@ -111,6 +112,31 @@ class TestValidTransitions:
         # APPLY by name; non-epic flows that take ``next_phases[0]``
         # must still see IMPLEMENT.
         assert VALID_TRANSITIONS[PipelinePhase.PLAN][0] == PipelinePhase.IMPLEMENT
+
+    def test_plan_orderings_match_across_modules(self):
+        """``VALID_TRANSITIONS[PLAN]`` ordering is mirrored in the
+        orchestrator-side ``PHASE_TRANSITIONS`` table.
+
+        Correctness of the epic vs non-epic routing relies on the
+        position of ``IMPLEMENT`` in the list — ``get_next_phase`` (and
+        any HITL path that reads ``VALID_TRANSITIONS`` directly) returns
+        ``next_phases[0]``. If a future refactor reorders one table
+        without the other, non-epic pipelines could silently start
+        scheduling APPLY. This test catches the drift before it ships.
+        """
+        try:
+            from orchestrator.routes.phases import (  # type: ignore[import-not-found]
+                PHASE_TRANSITIONS,
+            )
+        except ImportError:  # pragma: no cover - module path varies in the sandbox
+            try:
+                from routes.phases import (
+                    PHASE_TRANSITIONS,  # type: ignore[import-not-found, no-redef]
+                )
+            except ImportError:
+                pytest.skip("orchestrator routes.phases not importable in this env")
+        assert PHASE_TRANSITIONS[PipelinePhase.PLAN] == VALID_TRANSITIONS[PipelinePhase.PLAN]
+        assert PHASE_TRANSITIONS[PipelinePhase.PLAN][0] == PipelinePhase.IMPLEMENT
 
     def test_apply_to_implement(self):
         """Apply (Jira-epic phase) advances only to implement.

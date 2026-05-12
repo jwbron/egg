@@ -1990,16 +1990,20 @@ def create_pipeline() -> tuple[Response, int]:
                     ticket=jira_ticket_arg,
                     error=str(exc),
                 )
-            # epic_mode='reassess' against a non-epic was rejected
-            # earlier by ``resolve_epic_mode`` returning is_epic=False;
-            # convert that to an HTTP 400 here so the operator gets a
-            # clear failure rather than a silent demotion.
-            if epic_mode_arg == "reassess" and not is_epic_resolved:
+            # Both explicit overrides (``reassess`` and ``fresh``) against
+            # a non-epic ticket are operator errors: the operator
+            # specifically asked for epic-mode treatment but the ticket
+            # doesn't qualify. Surface as HTTP 400 rather than the
+            # silent demotion ``resolve_epic_mode`` returns
+            # (is_epic=False with a warning). ``mode='auto'`` continues
+            # to demote silently to standard ticket mode — that's the
+            # whole point of auto.
+            if epic_mode_arg in {"reassess", "fresh"} and not is_epic_resolved:
                 return make_error_response(
-                    f"epic_mode='reassess' but Jira ticket {jira_ticket_arg!r} is not an Epic",
+                    f"epic_mode={epic_mode_arg!r} but Jira ticket {jira_ticket_arg!r} is not an Epic",
                     status_code=400,
                     details={
-                        "reason": "reassess_not_epic",
+                        "reason": f"{epic_mode_arg}_not_epic",
                         "warnings": epic_warnings,
                     },
                 )
@@ -18604,6 +18608,39 @@ def _drain_wontdo_batch_after_apply(
                 error=str(cb_err),
             )
 
+    # Contract-state idempotency gate. The drain consults this predicate
+    # before posting each transition so a benign re-run (orchestrator
+    # restart, manual re-drain, re-entry of the apply phase) does not
+    # double-POST transitions whose outcomes the gateway's 5-minute
+    # idempotency cache has long since forgotten — and does not flip an
+    # ``'applied'`` Task back to ``'failed'`` when Jira returns 400 for
+    # an already-transitioned ticket.
+    def _entry_already_applied(entry: Any) -> bool:
+        try:
+            try:
+                from egg_contracts.loader import load_contract
+            except ImportError:  # pragma: no cover - defensive
+                return False
+            try:
+                contract = load_contract(pipeline.id, worktree_repo_path)
+            except Exception:  # noqa: BLE001 - defensive
+                return False
+            entry_task_id = getattr(entry, "task_id", None)
+            entry_key = getattr(entry, "jira_key", None)
+            for sl in getattr(contract, "slices", []) or []:
+                for tsk in getattr(sl, "tasks", []) or []:
+                    matches_task = bool(entry_task_id and tsk.id == entry_task_id)
+                    matches_key = bool(
+                        not entry_task_id
+                        and entry_key
+                        and getattr(tsk, "jira_key", None) == entry_key
+                    )
+                    if matches_task or matches_key:
+                        return getattr(tsk, "jira_action_status", None) == "applied"
+            return False
+        except Exception:  # noqa: BLE001 - defensive
+            return False
+
     try:
         # Reviewer_code v1 non-blocking note: mirror the dual-import
         # pattern used elsewhere in this module (e.g. ``from
@@ -18618,6 +18655,7 @@ def _drain_wontdo_batch_after_apply(
         result = run_wontdo_drain(
             handoff_path=handoff_path,
             on_entry_result=_on_entry_result,
+            is_already_applied=_entry_already_applied,
         )
     except Exception as exc:  # noqa: BLE001 — defensive: drain must not crash auto-advance
         logger.warning(

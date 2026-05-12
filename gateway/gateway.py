@@ -5309,16 +5309,23 @@ def _verify_orchestrator_transition_auth() -> tuple[bool, str]:
 
     Two-factor check:
       1. ``Authorization: Bearer <launcher_secret>`` must validate
-         against the gateway's launcher secret (the orchestrator is
-         the only component with the secret mounted).
+         against the gateway's launcher secret. Note: sandbox pods
+         ALSO mount the launcher secret (it backs the standard
+         session-creation flow), so the bearer alone does not
+         distinguish orchestrator from sandbox — the loopback /
+         in-cluster check plus NetworkPolicy on the gateway pod
+         provides that scoping. See ``docs/architecture/
+         orchestrator.md`` § "Trust model" for the full discussion.
       2. The request must originate from a loopback / in-cluster
          source. We accept any caller whose source IP equals the
          orchestrator's gateway-side IP, the loopback addresses
          (``127.0.0.1`` / ``::1``), or anything in the cluster pod
-         subnet. The loopback check protects against scenarios where
-         the launcher secret is leaked but the attacker is outside
-         the cluster (the orchestrator pod's IP is not externally
-         reachable on a healthy cluster).
+         subnet. This is a coarse RFC1918 check — it excludes
+         external traffic but does not by itself distinguish
+         orchestrator pods from sandbox pods. Without NetworkPolicy
+         restricting ``/transition`` ingress to the orchestrator's
+         pod selector, the launcher secret is the only remaining
+         barrier between a compromised sandbox and this route.
 
     Returns ``(ok, reason)``.
     """
@@ -5513,16 +5520,29 @@ def jira_ticket_transition() -> tuple[Response, int] | Response:
 
 
 # Stamp the private-mode marker manually on ``jira_ticket_transition``.
-# This route is orchestrator-only; ``@require_private_mode`` cannot be
-# applied because it expects ``@require_session_auth`` to have
-# populated ``g.session_mode`` first, and this route uses the
-# launcher-secret bearer path (``_verify_orchestrator_transition_auth``)
-# which is a strictly stronger constraint. The route-enumeration
-# regression test in ``gateway/tests/test_jira_routes.py`` reads this
-# marker to assert every Jira route has been audited; we set it here
-# manually so the invariant continues to hold while documenting that
-# this is the deliberate orchestrator-only escape hatch (issue #1557
-# decision-15 + task-2-6).
+# This route is **orchestrator-only** and intentionally available
+# regardless of the per-pipeline ``session_mode`` (public / private)
+# — the orchestrator drives Jira transitions on behalf of an epic
+# pipeline as a side-effect of the operator's HITL approval, not as a
+# sandboxed-agent request, so the agent-facing private-mode gate does
+# not apply. The route's actual access controls are:
+#   1. ``Authorization: Bearer <launcher_secret>`` (launcher-secret only,
+#      stamped in every gateway container — including sandboxes — so it
+#      is a coarse credential, not a sandbox/orchestrator discriminator);
+#   2. RFC1918 / loopback source IP (excludes external traffic);
+#   3. NetworkPolicy on the gateway pod restricting ``/transition``
+#      ingress to the orchestrator's pod selector (operator-owned);
+#   4. ``transition_name`` allowlist (``Won't Do`` / ``Won't Fix``);
+#   5. Project allowlist via ``is_project_allowed``.
+# The route-enumeration regression test in
+# ``gateway/tests/test_jira_routes.py`` reads ``PRIVATE_MODE_MARKER_ATTR``
+# to assert every ``/api/v1/jira/*`` view has been audited for mode
+# enforcement. We stamp it here so the invariant continues to hold
+# while explicitly documenting that this is the deliberate
+# orchestrator-only escape hatch (issue #1557 decision-15 + task-2-6).
+# See ``docs/architecture/orchestrator.md`` § "Trust model" for the
+# full discussion of why the launcher-secret bearer is not itself a
+# strictly-stronger constraint than session auth.
 try:
     from .mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # noqa: E402
 except ImportError:

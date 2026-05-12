@@ -103,14 +103,16 @@ If `EGG_REASSESS_SWEEP_PATH` is unset or the file is empty (e.g. `epic-fresh` mo
 
 For every per-task gateway mutation, the contract is the durable record of "what has happened." Persist the lifecycle status to the contract BEFORE issuing the gateway call so a crash mid-call leaves the contract correctly reflecting "we tried" rather than "we never started."
 
-**Persistence shape — structured prefix in `Task.notes`.** The MCP surface available in slice 1 is `mcp__task__update_notes` (`sandbox/egg_agent_tools/handlers/task.py:215`), which writes only the `Task.notes` string. There is no `mcp__task__set_status` today. Encode the lifecycle status as the first line of `Task.notes`, with the convention:
+**Persistence shape — structured prefix in `Task.notes`.** The MCP surface is `mcp__task__update_notes` (`sandbox/egg_agent_tools/handlers/task.py:215`). There is no `mcp__task__set_status` today. Encode the lifecycle status as the first line of `Task.notes`, with the convention:
 
 ```
 jira_action_status=<value>
 <rest of human-readable notes>
 ```
 
-where `<value>` ∈ `{pending, in_flight, applied, failed}`. Both the applier (writer) and the apply-phase reviewer (`reviewer-contract-apply.md` reader) parse the first line. Subsequent calls to `mcp__task__update_notes` MUST preserve the prefix line — read the current notes, replace the prefix, and write the whole string back. The `Task.jira_action_status` Pydantic field on `Task` (TASK-1-3) is the typed projection of this prefix; the orchestrator-side post-apply hook is responsible for syncing the typed field from the prefix on the next contract reload (or, equivalently, parsing the prefix at read time). When a typed `mcp__task__set_status` MCP lands as a follow-up, both producer and reviewer will switch to it — until then, the prefix is the source of truth.
+where `<value>` ∈ `{pending, in_flight, applied, failed}`. Subsequent calls to `mcp__task__update_notes` MUST preserve the prefix line — read the current notes, replace the prefix, and write the whole string back.
+
+The `Task.jira_action_status` and `Task.jira_key` Pydantic fields on `Task` (TASK-1-3) are typed projections of the prefix lines. `task_update_notes` automatically projects the prefix onto the typed fields after every notes write (`sandbox/egg_agent_tools/handlers/task.py::_project_notes_prefix`), so the apply-phase reviewer can read either the structured prefix or the typed fields and see consistent values. When a typed `mcp__task__set_status` MCP lands as a follow-up, both producer and reviewer will switch to it; until then, write the prefix and the projection writes the typed fields for you.
 
 Similarly, `Task.jira_key` is set on `create` success by re-using the structured prefix:
 
@@ -156,21 +158,21 @@ If `Task.jira_action` is set to a value outside the literal allow-set (`{'create
 
 ## Out of scope: Won't-Do transitions
 
-> ⚠️ **End-state design, partially landed.** The applier handoff JSON described below
-> is **persisted to disk but not yet drained**. The orchestrator-side
-> `_drain_wontdo_batch_after_apply` hook is planned (coder-scope follow-up for
-> TASK-2-7) but not yet wired. Until it lands, your handoff write is a no-op
-> end-to-end — the Won't-Do transitions never actually fire. Continue writing
-> the handoff as documented so the format stays stable, and report the count of
-> emitted entries in your apply-output summary so the operator knows what's
-> queued. Manual workaround: `python3 -c "from orchestrator.wontdo_drain import run_wontdo_drain, Path; run_wontdo_drain(handoff_path=Path('.egg-state/agent-outputs/<pipeline>-wontdo.json'))"`.
+The applier handoff JSON described below is read by the orchestrator's
+`_drain_wontdo_batch_after_apply` hook (`orchestrator/routes/pipelines.py`)
+after the apply-phase BRC consensus confirms. The hook calls
+`run_wontdo_drain` from `orchestrator/wontdo_drain.py` and writes the
+per-Task lifecycle (`jira_action_status='applied'` / `'failed'`) back to
+the contract via the `on_entry_result` callback. Report the count of
+emitted entries in your apply-output summary so the operator can correlate
+the handoff against the drain log.
 
 `jira_action == 'wontdo'` is the reassess-flow signal that an existing child should be transitioned to **Won't Do** because the new plan supersedes it. The agent-facing gateway intentionally **forbids transitions** today (`JIRA_WRITE_VERBS_DENIED` blocks the path), and the trust-boundary decision (#1557 decision-15) keeps it that way: transitions land via a new orchestrator-only `POST /api/v1/jira/ticket/transition` route gated on a loopback + launcher-secret bearer token. **You cannot call that route from in-sandbox.**
 
 What you do instead, for every `jira_action == 'wontdo'` task:
 
-1. Set the structured prefix to `jira_action_status=pending`. **This is the terminal state for wontdo from your perspective.** Apply lifecycle ownership for wontdo is split: the applier emits the handoff entry (your job, below); the **intended** orchestrator-side `_drain_wontdo_batch_after_apply` hook transitions the prefix to `'applied'` after the `/transition` route returns 2xx. **As of slice-2, that call site has not yet landed** — `orchestrator/wontdo_drain.py::run_wontdo_drain` is implemented but has zero callers in `orchestrator/routes/pipelines.py`, so the handoff JSON sits on disk as a no-op until a follow-up commit wires the drain into the apply-phase CONSENSUS_CONFIRMED event. The apply-phase reviewer (`reviewer-contract-apply.md`) explicitly exempts `wontdo` tasks from the terminal-status check — `'pending'` is a valid ACK state for them. Do NOT write `'in_flight'` for wontdo (no in-sandbox call to bracket); do NOT write `'applied'` for wontdo (that's the orchestrator's job after the out-of-band transition lands).
-2. Append an entry to a single Won't-Do handoff JSON file at the path the orchestrator passes you in the handoff context. The canonical path the orchestrator's drain hook reads (when it lands — see the slice-2 status note above) is `.egg-state/agent-outputs/<pipeline-id>-wontdo.json` (per `orchestrator/wontdo_drain.py::run_wontdo_drain`); match that shape unless the orchestrator's handoff JSON overrides it.
+1. Set the structured prefix to `jira_action_status=pending`. **This is the terminal state for wontdo from your perspective.** Apply lifecycle ownership for wontdo is split: the applier emits the handoff entry (your job, below); the orchestrator-side `_drain_wontdo_batch_after_apply` hook transitions the prefix to `'applied'` after the `/transition` route returns 2xx (the hook's `on_entry_result` callback writes the typed `Task.jira_action_status`). The apply-phase reviewer (`reviewer-contract-apply.md`) explicitly exempts `wontdo` tasks from the terminal-status check — `'pending'` is a valid ACK state for them. Do NOT write `'in_flight'` for wontdo (no in-sandbox call to bracket); do NOT write `'applied'` for wontdo (that's the orchestrator's job after the out-of-band transition lands).
+2. Append an entry to a single Won't-Do handoff JSON file at the path the orchestrator passes you in the handoff context. The canonical path the orchestrator's drain hook reads is `.egg-state/agent-outputs/<pipeline-id>-wontdo.json` (per `orchestrator/wontdo_drain.py::run_wontdo_drain`); match that shape unless the orchestrator's handoff JSON overrides it.
 
    The drain parser (`orchestrator/wontdo_drain.py::load_wontdo_handoff`) accepts **either a bare list or an `{"entries": [...]}` wrapper**. Each entry needs `jira_key` (or `key`); `comment`, `task_id`, and `survivor_key` are optional. Use the wrapped shape so the file is self-describing:
 
@@ -192,7 +194,7 @@ What you do instead, for every `jira_action == 'wontdo'` task:
 
 3. Do **not** attempt to call the transition route yourself.
 
-After the apply phase reaches BRC consensus and terminates, the orchestrator's `_drain_wontdo_batch_after_apply` hook (planned for a slice-2 follow-up; the helper `orchestrator/wontdo_drain.py::run_wontdo_drain` is landed but the call site is not yet wired) will read this file and call the orchestrator-only `/transition` route via `Authorization: Bearer <launcher_secret>` over the loopback / cluster-internal path. That hook is designed to run **out of band** from the apply phase's BRC cycle — your file write is the entire signal. Do not block on the transitions landing. Until the call site lands, the handoff JSON persists on disk and the operator can drain it manually if needed.
+After the apply phase reaches BRC consensus and terminates, the orchestrator's `_drain_wontdo_batch_after_apply` hook reads this file and calls the orchestrator-only `/transition` route via `Authorization: Bearer <launcher_secret>` over the loopback / cluster-internal path. That hook runs **out of band** from the apply phase's BRC cycle — your file write is the entire signal. Do not block on the transitions landing.
 
 ## File-write boundaries
 

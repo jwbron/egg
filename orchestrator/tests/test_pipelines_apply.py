@@ -385,6 +385,70 @@ class TestRunWontdoDrain:
             result = run_wontdo_drain(handoff_path=path, on_entry_result=_bad_cb)
         assert result.succeeded == ["ENG-1", "ENG-2"]
 
+    def test_is_already_applied_skips_transition(self, tmp_path: Path):
+        """Idempotency gate (review feedback #5): when the predicate
+        returns True for an entry, the drain skips the gateway call,
+        records the entry under ``DrainResult.skipped``, and does NOT
+        invoke ``on_entry_result`` for that row.
+
+        Without this gate, a benign re-run (orchestrator restart, manual
+        re-drain) would re-POST every entry — Jira returns 400 for
+        already-transitioned tickets and the callback flips ``'applied'``
+        back to ``'failed'``.
+        """
+        path = _write_handoff(
+            tmp_path / "h.json",
+            [
+                {"jira_key": "ENG-1", "task_id": "task-1-1"},
+                {"jira_key": "ENG-2", "task_id": "task-1-2"},
+            ],
+        )
+
+        post_calls: list[str] = []
+
+        def _fake_post(*, jira_key, comment, transition_name="Won't Do"):
+            post_calls.append(jira_key)
+            return True, ""
+
+        cb_calls: list[str] = []
+
+        def _on_entry(entry, ok, reason):
+            cb_calls.append(entry.jira_key)
+
+        # ENG-1 is already-applied; only ENG-2 should reach the gateway.
+        def _is_applied(entry: Any) -> bool:
+            return entry.jira_key == "ENG-1"
+
+        with patch.object(wontdo_drain, "_post_transition", side_effect=_fake_post):
+            result = run_wontdo_drain(
+                handoff_path=path,
+                on_entry_result=_on_entry,
+                is_already_applied=_is_applied,
+            )
+
+        assert post_calls == ["ENG-2"]
+        assert result.succeeded == ["ENG-2"]
+        assert result.skipped == [("ENG-1", "already_applied")]
+        assert cb_calls == ["ENG-2"]
+
+    def test_is_already_applied_predicate_exception_does_not_skip(self, tmp_path: Path):
+        """If the predicate raises, the drain treats it as not-applied
+        and posts the transition. Defensive: a broken predicate is the
+        same outcome shape as no predicate at all."""
+        path = _write_handoff(tmp_path / "h.json", [{"jira_key": "ENG-1"}])
+
+        def _boom(entry: Any) -> bool:
+            raise RuntimeError("predicate broke")
+
+        def _fake_post(*, jira_key, comment, transition_name="Won't Do"):
+            return True, ""
+
+        with patch.object(wontdo_drain, "_post_transition", side_effect=_fake_post):
+            result = run_wontdo_drain(handoff_path=path, is_already_applied=_boom)
+
+        assert result.succeeded == ["ENG-1"]
+        assert result.skipped == []
+
     def test_drain_does_not_appear_in_persist_phase_gate_resolution(self):
         """Acceptance (task-2-7): the Won't-Do drain runs in
         ``_drain_wontdo_batch_after_apply``, NOT inside
@@ -907,7 +971,7 @@ class TestDrainWontdoBatchAfterApplyCallable:
 
         captured: dict[str, Any] = {}
 
-        def _fake_drain(*, handoff_path, on_entry_result=None):
+        def _fake_drain(*, handoff_path, on_entry_result=None, is_already_applied=None):
             captured["handoff_path"] = str(handoff_path)
             return _DR()
 

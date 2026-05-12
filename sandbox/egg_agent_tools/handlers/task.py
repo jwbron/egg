@@ -17,6 +17,45 @@ from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
+# Apply-phase notes-prefix projection. The APPLIER role on Jira-epic
+# pipelines (issue #1557) encodes per-task lifecycle status as a
+# structured prefix line in ``Task.notes`` (no typed ``mcp__task__set_status``
+# MCP exists today). When ``task_update_notes`` writes notes whose first
+# lines match these patterns, we project the values onto the typed
+# ``Task.jira_action_status`` / ``Task.jira_key`` fields in the same
+# transaction so downstream consumers (apply-phase ``reviewer_contract``,
+# the wontdo drain's idempotency gate, plan-parser round-trips) see a
+# single coherent surface instead of two views that can drift.
+_JIRA_ACTION_STATUS_PREFIX_RE = re.compile(
+    r"^jira_action_status=(pending|in_flight|applied|failed)\s*$"
+)
+_JIRA_KEY_PREFIX_RE = re.compile(r"^jira_key=([A-Z][A-Z0-9_]*-[0-9]+)\s*$")
+
+
+def _project_notes_prefix(notes: str) -> tuple[str | None, str | None]:
+    """Extract typed (jira_action_status, jira_key) from a notes prefix.
+
+    The applier emits the prefix as the first 1-2 lines of ``Task.notes``
+    (see ``plugins/refine-plan/skills/refine-plan/agents/applier.md``'s
+    "Lifecycle invariant" section). Either field may be absent; both
+    None means the notes carry no prefix and the typed projection is a
+    no-op.
+    """
+    status: str | None = None
+    key: str | None = None
+    # Inspect at most the first two non-empty lines — the prefix is
+    # always at the top, before any human-readable narrative.
+    for line in notes.splitlines()[:2]:
+        m = _JIRA_ACTION_STATUS_PREFIX_RE.match(line)
+        if m:
+            status = m.group(1)
+            continue
+        m = _JIRA_KEY_PREFIX_RE.match(line)
+        if m:
+            key = m.group(1)
+    return status, key
+
+
 # Bounded retry on gap TOCTOU collisions.  Two concurrent ``mark_gap``
 # calls may both observe ``len(existing_gaps) == N`` and race on the
 # same index; the loser re-reads and retries at ``N+1``.  Three
@@ -246,6 +285,36 @@ def task_update_notes(req: dict[str, Any]) -> dict[str, Any]:
         value=notes,
         reason=f"Updated notes for {task_id}",
     )
+
+    # Apply-phase typed-field projection (issue #1557). When the notes
+    # start with a structured ``jira_action_status=<value>`` /
+    # ``jira_key=<KEY>`` prefix written by the APPLIER, propagate the
+    # values to the typed ``Task.jira_action_status`` / ``Task.jira_key``
+    # fields so the apply-phase reviewer and the wontdo drain's
+    # idempotency gate see a single coherent surface. Best-effort:
+    # failures here surface to the caller via the GatewayError raised
+    # by ``_task_field_mutate``; the notes write has already landed.
+    projected_status, projected_key = _project_notes_prefix(notes)
+    if projected_status is not None:
+        _task_field_mutate(
+            identifier=identifier,
+            repo_path=repo_path,
+            phase_idx=phase_idx,
+            task_idx=task_idx,
+            field="jira_action_status",
+            value=projected_status,
+            reason=f"Projected jira_action_status={projected_status} from notes prefix on {task_id}",
+        )
+    if projected_key is not None:
+        _task_field_mutate(
+            identifier=identifier,
+            repo_path=repo_path,
+            phase_idx=phase_idx,
+            task_idx=task_idx,
+            field="jira_key",
+            value=projected_key,
+            reason=f"Projected jira_key={projected_key} from notes prefix on {task_id}",
+        )
     return {"ok": True, "task": task_id}
 
 

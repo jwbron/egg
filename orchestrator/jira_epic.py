@@ -248,7 +248,7 @@ def resolve_epic_mode(
     # auto
     if not is_epic:
         return False, None, warnings
-    has_children = bool(project and probe_epic_children(ticket, project))
+    has_children = project and probe_epic_children(ticket, project)
     return True, ("reassess" if has_children else "fresh"), warnings
 
 

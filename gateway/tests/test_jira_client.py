@@ -19,6 +19,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -535,9 +536,6 @@ class TestSingletonLifecycle:
 # =============================================================================
 
 
-import json as _wire_json  # noqa: E402 — used only by the write-method tests
-
-
 @pytest.fixture
 def reset_idempotency_cache():
     """Idempotency cache is module-level — wipe it before / after each
@@ -550,7 +548,7 @@ def reset_idempotency_cache():
 
 
 def _decode_request_json(request: httpx.Request) -> dict:
-    return _wire_json.loads(request.content)
+    return json.loads(request.content)
 
 
 # -----------------------------------------------------------------------------
@@ -1496,7 +1494,3 @@ class TestTransitionIssue:
         client = _make_client(handler, fake_creds)
         with pytest.raises(JiraUpstreamError):
             client.transition_issue("ENG-1", transition_name="Won't Do")
-
-
-# Top-of-file import for ``json`` (used by the new test classes).
-import json  # noqa: E402, F401  — placed at bottom to avoid reflowing the original imports

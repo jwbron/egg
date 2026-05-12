@@ -23,17 +23,13 @@ The orchestrator injects `EGG_EPIC_MODE` (one of `ticket`, `github_issue`, `epic
 
 `EGG_EPIC_MODE` is the orthogonal Jira-epic-mode dimension. **Do not confuse it with `EGG_PIPELINE_MODE`** — that env var carries the unrelated top-level `PipelineMode` enum (`'issue'` / `'babysit'` / `'custom'`) and is not the variable that selects the mode block below. The orchestrator export site is `orchestrator/routes/pipelines.py:19373+`; the canonical derivation lives in `orchestrator/prompt_loader.py::derive_pipeline_mode`.
 
-Each `## [mode: X]` fenced block below applies only when `EGG_EPIC_MODE == X`. The **intended** end-state has the orchestrator's prompt-prep helper (`orchestrator/prompt_loader.py::prep_mode_aware_prompt`) strip the non-matching mode blocks server-side before this prompt reaches you, so at runtime you would see only one mode's instructions inline. Author the file with all four blocks present so a human reading the source sees every contract.
+Each `## [mode: X]` fenced block below applies only when `EGG_EPIC_MODE == X`. The orchestrator's prompt-prep helper (`orchestrator/prompt_loader.py::prep_mode_aware_prompt`) strips the non-matching mode blocks server-side before this prompt reaches you, so at runtime you see only the matching block inline. The file is authored with all four blocks present so a human reading the source sees every contract.
 
-**Current implementation status (slice-2 partial).** `prep_mode_aware_prompt` is landed in `orchestrator/prompt_loader.py` (commit `2a06c0b1c`) but has **zero callers** — the orchestrator's `_run_pipeline` only imports `derive_pipeline_mode` to set the `EGG_EPIC_MODE` env var; the strip helper is never invoked. **At runtime you WILL see all four `## [mode: X]` blocks inline.** The follow-up that wires the strip helper into the prompt-build path is coder scope; until it lands, follow the self-selection fallback below. The call site work belongs to a TASK-1-1 / TASK-1-2 follow-up commit in `orchestrator/routes/pipelines.py`'s prompt-build path.
+**Self-selection fallback (defensive).** If for any reason the strip helper did not run and you see multiple `## [mode: X]` headers in this prompt:
 
-**Self-selection fallback (active while the strip helper is unwired).** When you see multiple `## [mode: X]` headers in this prompt:
-
-1. **Read `EGG_EPIC_MODE` from your environment** — it is always set by the orchestrator on spawn (`orchestrator/routes/pipelines.py:19390-19400`). The value is one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`.
+1. **Read `EGG_EPIC_MODE` from your environment** — it is always set by the orchestrator on spawn. The value is one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`.
 2. **Follow only the block whose header matches `EGG_EPIC_MODE`.** Ignore the other three blocks even though they appear in the prompt text. The orthogonal mode dimensions never overlap — every block's instructions are self-contained — so picking the right one based on the env var is safe.
 3. **If `EGG_EPIC_MODE` is unset or empty** (which would only happen with a future bug in the env-injection path), emit `mcp__progress__signal_error(error="EGG_EPIC_MODE not set; cannot self-select mode block", recoverable=False)` and stop. Silently picking a mode would corrupt the analysis shape (an `epic-fresh` decision applied to a `ticket` pipeline writes the wrong artifact).
-
-Once `prep_mode_aware_prompt` is wired in, this fallback will be redundant: you'll see only one block, and the env-var check becomes a no-op. The instructions above stay safe under both regimes — the env-var check passes through cleanly whether or not the strip ran.
 
 ## [mode: ticket]
 

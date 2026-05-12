@@ -49,10 +49,17 @@ _REASSESS_TIMEOUT_SECONDS = 20
 # Same regex used by the planner prompt's example output.
 _GITHUB_PR_URL_RE = re.compile(r"^https?://github\.com/.+/pull/\d+$")
 
+# Intentionally omits ``description``: the planner's ``[mode: epic-reassess]``
+# block re-authors per-task descriptions from scratch rather than diffing
+# against the prior body, so the field would not be load-bearing for any
+# consumer. Atlassian also returns descriptions as ADF dicts on API v3 —
+# fetching them here would either land an unparsed dict in the sweep JSON or
+# require ADF→plain-text expansion that the planner does not need.
+# Agents that genuinely require a child's description can fetch it on demand
+# via ``jira ticket get <KEY>``.
 _REASSESS_FIELDS = (
     "summary",
     "status",
-    "description",
     "parent",
     "issuetype",
 )
@@ -130,6 +137,9 @@ class ReassessChild:
     classification: str = "updatable"  # one of: done | in_flight | updatable
     in_flight: bool = False
     in_flight_evidence: list[str] = field(default_factory=list)
+    # Reserved for backwards-compatible JSON load — the sweep no longer
+    # fetches descriptions (the planner re-authors per-task bodies from
+    # scratch), but older sweep JSON files on disk may carry the field.
     description: str = ""
 
 
@@ -354,6 +364,21 @@ def run_reassess_sweep(
         result.warnings.append("jql_search_returned_no_issues_list")
         return result
 
+    # Surface silent truncation when an epic has more children than the
+    # single-page ``maxResults=200`` ceiling. The Atlassian search API
+    # reports the total in ``total`` (v2) or ``totalIssues`` (v3). When
+    # present and larger than the returned page, emit an explicit warning
+    # so the planner does not act on a partial child set without notice.
+    reported_total = data.get("total")
+    if not isinstance(reported_total, int):
+        reported_total = data.get("totalIssues")
+    if isinstance(reported_total, int) and reported_total > len(issues):
+        result.warnings.append(
+            "jql_search_truncated: "
+            f"{reported_total} matching children but only {len(issues)} returned; "
+            "single-page sweep capped at 200 — pagination is a follow-up"
+        )
+
     for issue in issues:
         if not isinstance(issue, dict):
             continue
@@ -368,10 +393,6 @@ def run_reassess_sweep(
         status_category_key = ""
         if isinstance(status_category_obj, dict):
             status_category_key = status_category_obj.get("key", "") or ""
-        description = fields_obj.get("description")
-        if not isinstance(description, str):
-            description = ""
-
         classification = _classify_status_category(status_category_key)
 
         # In-flight refinement: classify_in_flight may flag a child
@@ -399,7 +420,6 @@ def run_reassess_sweep(
             classification=classification,
             in_flight=in_flight,
             in_flight_evidence=evidence,
-            description=description,
         )
         if classification == "done":
             result.done.append(child)

@@ -117,13 +117,11 @@ def _post_transition(
     except HTTPError as exc:
         try:
             raw = exc.read().decode("utf-8")
-        except Exception:
+        except OSError, UnicodeDecodeError:
             raw = ""
         return False, f"http_error_{exc.code}; body={raw[:200]}"
     except (URLError, OSError) as exc:
         return False, f"transport_error={exc}"
-    except Exception as exc:  # pragma: no cover - defensive
-        return False, f"unexpected_error={exc}"
 
 
 def load_wontdo_handoff(path: Path) -> list[WontDoEntry]:
@@ -185,6 +183,7 @@ def run_wontdo_drain(
     *,
     handoff_path: Path,
     on_entry_result: Any = None,
+    is_already_applied: Any = None,
 ) -> DrainResult:
     """Drain a Won't-Do handoff file via the gateway ``/transition`` route.
 
@@ -200,15 +199,31 @@ def run_wontdo_drain(
         flip per-Task ``jira_action_status`` and record failure
         reasons in ``Task.notes``. When ``None``, results are only
         accumulated into the returned ``DrainResult``.
+    is_already_applied:
+        Optional predicate ``is_already_applied(entry: WontDoEntry) -> bool``
+        consulted before posting each transition. When it returns
+        True, the drain skips the gateway call entirely, records the
+        entry under ``DrainResult.skipped``, and does NOT invoke
+        ``on_entry_result`` for that row. This is the
+        contract-state idempotency gate: the orchestrator supplies a
+        predicate that returns True when the matching contract Task
+        already shows ``jira_action_status='applied'``, so a benign
+        re-run (orchestrator restart, manual re-drain, re-entry of
+        the apply phase) does not double-POST transitions whose
+        outcomes the gateway's 5-minute idempotency cache has long
+        since forgotten — and does not flip an ``'applied'`` Task
+        back to ``'failed'`` when Jira returns 400 for an already-
+        transitioned ticket.
 
     Returns
     -------
     :class:`DrainResult`
-        Aggregated outcome. Idempotent on re-run — succeeding
-        transitions don't double-fire because the gateway's
-        idempotency cache rejects repeats within
-        ``IDEMPOTENCY_TTL_SECONDS``; failing ones can be retried by
-        the operator after addressing the underlying error.
+        Aggregated outcome. Idempotent on re-run — already-applied
+        entries are skipped via ``is_already_applied``; within-window
+        re-runs that bypass the gate are still absorbed by the
+        gateway's 5-minute idempotency cache; failures stay
+        retry-eligible until the operator addresses the underlying
+        error.
     """
     result = DrainResult()
     entries = load_wontdo_handoff(handoff_path)
@@ -216,6 +231,18 @@ def run_wontdo_drain(
         return result
 
     for entry in entries:
+        if is_already_applied is not None:
+            try:
+                if is_already_applied(entry):
+                    result.skipped.append((entry.jira_key, "already_applied"))
+                    continue
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Won't-Do drain: is_already_applied raised for %s — %s; "
+                    "treating as not-applied and posting transition",
+                    entry.jira_key,
+                    exc,
+                )
         ok, reason = _post_transition(
             jira_key=entry.jira_key,
             comment=entry.comment,
