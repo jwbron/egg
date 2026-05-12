@@ -406,10 +406,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "**Epic-children JQL discovery: project-scope requirement.** `gateway/jira_search.py` (the conservative JQL extractor) requires every search to have a top-level `project = X` or `project IN (...)` clause; queries like bare `\"Epic Link\" = ENG-1` are **rejected** at the gateway. The reassess sweep therefore needs to enumerate children with **both** clauses ANDed. Options for handling cross-project child tickets (rare but possible — e.g. an ENG epic with KORE child stories):",
+      "context": "Open contract question decision-12, registered by an agent during the refine phase.",
+      "options": [
+        "Constrain to same-project children only: query `project = <EPIC_PROJECT> AND \"Epic Link\" = <EPIC_KEY>`. Cross-project children are silently invisible to the reassess sweep. Recommended baseline — cross-project epic decomposition is unusual in practice.",
+        "Loosen the JQL extractor to accept `\"Epic Link\" = KEY` and `parent = KEY` as scope-anchoring clauses on par with `project = X`. Requires a #1556 gateway change (which is in scope of #1924/#2192's project-allowlist policy reasoning).",
+        "Query all allowlisted projects in a loop: `project IN (<allowlist>) AND \"Epic Link\" = <EPIC_KEY>`. Covers cross-project epics but blows up the result set in installations with many projects.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.227479Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.192020Z",
+  "updated_at": "2026-05-12T04:46:05.233560Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -423,6 +442,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23,
+  "version": 24,
   "jira_ticket": null
 }
