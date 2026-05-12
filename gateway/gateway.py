@@ -5526,7 +5526,9 @@ def jira_ticket_transition() -> tuple[Response, int] | Response:
 try:
     from .mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # noqa: E402
 except ImportError:
-    from mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # type: ignore[no-redef]  # noqa: E402
+    from mode_gate import (
+        PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR,  # type: ignore[no-redef]  # noqa: E402
+    )
 
 setattr(jira_ticket_transition, _PRIVATE_MODE_MARKER_ATTR, True)
 
