@@ -112,6 +112,13 @@ jira_action_status=<value>
 
 where `<value>` ∈ `{pending, in_flight, applied, failed}`. Subsequent calls to `mcp__task__update_notes` MUST preserve the prefix line — read the current notes, replace the prefix, and write the whole string back.
 
+**Prefix-window rule (load-bearing).** The auto-projector at `sandbox/egg_agent_tools/handlers/task.py::_project_notes_prefix` only inspects the **first two lines** of `notes` — the projection silently no-ops on any prefix line that drifts to position 3 or later. Two consequences:
+
+- The `jira_action_status=<value>` line MUST be line 1. The optional `jira_key=<KEY>` (or `split_source=…` / `consolidate_survivor=…` for informational pointers) MUST be line 2 if present.
+- Do NOT insert blank lines, comments, or any other content between lines 1 and 2 of the prefix. Human-readable narrative starts at line 3 (or line 2 when there is no `jira_key`/pointer line).
+
+If you need to add a third structured field, widen the projector window first (and add a unit test for it) — do not move the existing field positions.
+
 The `Task.jira_action_status` and `Task.jira_key` Pydantic fields on `Task` (TASK-1-3) are typed projections of the prefix lines. `task_update_notes` automatically projects the prefix onto the typed fields after every notes write (`sandbox/egg_agent_tools/handlers/task.py::_project_notes_prefix`), so the apply-phase reviewer can read either the structured prefix or the typed fields and see consistent values. When a typed `mcp__task__set_status` MCP lands as a follow-up, both producer and reviewer will switch to it; until then, write the prefix and the projection writes the typed fields for you.
 
 Similarly, `Task.jira_key` is set on `create` success by re-using the structured prefix:

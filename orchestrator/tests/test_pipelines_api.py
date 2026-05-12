@@ -1289,3 +1289,126 @@ class TestRuntimeStateLeakageOnBranchReuse:
         # Stale set would otherwise silently suppress a fresh pipeline's
         # ``context_pr.failed`` emission.
         assert pipeline_id not in _context_pr_events_emitted
+
+
+class TestEpicModeNonEpicRejection:
+    """Regression tests for issue #1557 review feedback (N5).
+
+    ``epic_mode='reassess'`` and ``epic_mode='fresh'`` against a Jira
+    ticket whose ``issuetype`` is not ``Epic`` are operator errors —
+    the operator specifically asked for epic-mode treatment but the
+    ticket doesn't qualify. Both must surface as HTTP 400 with the
+    ``<mode>_not_epic`` reason rather than the silent demotion that
+    ``resolve_epic_mode`` performs internally. ``epic_mode='auto'``
+    intentionally still demotes silently — that's the point of auto.
+
+    Pinning the behavior with these tests prevents a future refactor
+    of the ``resolve_epic_mode`` call site from quietly flipping
+    either of the two explicit overrides back to warning-only.
+    """
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_reassess_against_non_epic_returns_400(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """``epic_mode='reassess'`` + non-epic ticket → HTTP 400."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_get_store.return_value = MagicMock()
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+        with patch(
+            "jira_epic.resolve_epic_mode",
+            return_value=(False, None, ["ticket KORE-1234 is not an Epic"]),
+        ):
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "pipeline_id": "KORE-1234",
+                    "repo": "Khan/webapp",
+                    "branch": "egg/KORE-1234",
+                    "prompt": "Drive the epic",
+                    "jira_ticket": "KORE-1234",
+                    "epic_mode": "reassess",
+                },
+            )
+        assert response.status_code == 400
+        body = response.get_json()
+        assert body["details"]["reason"] == "reassess_not_epic"
+        assert "is not an Epic" in body["details"]["warnings"][0]
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_fresh_against_non_epic_returns_400(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """``epic_mode='fresh'`` + non-epic ticket → HTTP 400.
+
+        Symmetric with ``reassess``; closes the silent-demotion gap
+        flagged in the prior review (#14).
+        """
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_get_store.return_value = MagicMock()
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+        with patch(
+            "jira_epic.resolve_epic_mode",
+            return_value=(False, None, ["ticket KORE-1234 is not an Epic"]),
+        ):
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "pipeline_id": "KORE-1234",
+                    "repo": "Khan/webapp",
+                    "branch": "egg/KORE-1234",
+                    "prompt": "Drive the epic",
+                    "jira_ticket": "KORE-1234",
+                    "epic_mode": "fresh",
+                },
+            )
+        assert response.status_code == 400
+        body = response.get_json()
+        assert body["details"]["reason"] == "fresh_not_epic"
+        assert "is not an Epic" in body["details"]["warnings"][0]
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_auto_against_non_epic_demotes_silently(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """``epic_mode='auto'`` + non-epic ticket → 200 (silent demote)."""
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "KORE-1234"
+        mock_pipeline.model_dump.return_value = {"id": "KORE-1234"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+        with patch(
+            "jira_epic.resolve_epic_mode",
+            return_value=(False, None, []),
+        ):
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "pipeline_id": "KORE-1234",
+                    "repo": "Khan/webapp",
+                    "branch": "egg/KORE-1234",
+                    "prompt": "Drive the epic",
+                    "jira_ticket": "KORE-1234",
+                    "epic_mode": "auto",
+                },
+            )
+        assert response.status_code == 200
+        # Pipeline created with is_epic=False — auto demoted silently.
+        call_kwargs = mock_store.create_pipeline.call_args[1]
+        assert call_kwargs["is_epic"] is False
+        assert call_kwargs["pipeline_mode"] is None

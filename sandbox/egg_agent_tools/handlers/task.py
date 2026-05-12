@@ -22,10 +22,20 @@ _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 # structured prefix line in ``Task.notes`` (no typed ``mcp__task__set_status``
 # MCP exists today). When ``task_update_notes`` writes notes whose first
 # lines match these patterns, we project the values onto the typed
-# ``Task.jira_action_status`` / ``Task.jira_key`` fields in the same
-# transaction so downstream consumers (apply-phase ``reviewer_contract``,
-# the wontdo drain's idempotency gate, plan-parser round-trips) see a
-# single coherent surface instead of two views that can drift.
+# ``Task.jira_action_status`` / ``Task.jira_key`` fields immediately
+# after the notes write so downstream consumers (apply-phase
+# ``reviewer_contract``, the wontdo drain's idempotency gate,
+# plan-parser round-trips) see a single coherent surface instead of two
+# views that can drift.
+#
+# Atomicity: the projection issues 1-2 additional ``_task_field_mutate``
+# gateway calls after the notes write. These are NOT atomic with the
+# notes write — a crash between calls leaves the typed fields trailing
+# the prefix by one mutation. The notes prefix remains the
+# authoritative source under that race; the next ``task_update_notes``
+# call re-runs the projection, and reviewers / drain that read either
+# surface still converge. (When a typed ``mcp__task__set_status`` MCP
+# lands, both surfaces collapse to one and this race goes away.)
 _JIRA_ACTION_STATUS_PREFIX_RE = re.compile(
     r"^jira_action_status=(pending|in_flight|applied|failed)\s*$"
 )
@@ -291,9 +301,13 @@ def task_update_notes(req: dict[str, Any]) -> dict[str, Any]:
     # ``jira_key=<KEY>`` prefix written by the APPLIER, propagate the
     # values to the typed ``Task.jira_action_status`` / ``Task.jira_key``
     # fields so the apply-phase reviewer and the wontdo drain's
-    # idempotency gate see a single coherent surface. Best-effort:
-    # failures here surface to the caller via the GatewayError raised
-    # by ``_task_field_mutate``; the notes write has already landed.
+    # idempotency gate see a single coherent surface. The projection
+    # runs as 1-2 follow-up ``_task_field_mutate`` calls (NOT atomic
+    # with the notes write — see the module-level comment on
+    # ``_project_notes_prefix`` for the race window): if a follow-up
+    # raises ``GatewayError``, the notes write has already landed and
+    # the prefix remains authoritative; the next ``task_update_notes``
+    # re-runs the projection.
     projected_status, projected_key = _project_notes_prefix(notes)
     if projected_status is not None:
         _task_field_mutate(

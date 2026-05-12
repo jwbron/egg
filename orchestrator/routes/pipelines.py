@@ -18620,10 +18620,25 @@ def _drain_wontdo_batch_after_apply(
             try:
                 from egg_contracts.loader import load_contract
             except ImportError:  # pragma: no cover - defensive
+                logger.warning(
+                    "Won't-Do drain idempotency gate disarmed: egg_contracts.loader not importable",
+                    pipeline_id=pipeline.id,
+                )
                 return False
             try:
                 contract = load_contract(pipeline.id, worktree_repo_path)
-            except Exception:  # noqa: BLE001 - defensive
+            except Exception as load_err:  # noqa: BLE001 - defensive
+                # Contract unreadable / corrupted: idempotency gate is
+                # disarmed for this drain run. The drain re-POSTs every
+                # entry, Jira returns 400 for already-transitioned ones,
+                # and ``_on_entry_result`` flips ``'applied'`` →
+                # ``'failed'`` — surface this loudly so the operator can
+                # repair the contract before the next re-run.
+                logger.warning(
+                    "Won't-Do drain idempotency gate disarmed: load_contract failed",
+                    pipeline_id=pipeline.id,
+                    error=str(load_err),
+                )
                 return False
             entry_task_id = getattr(entry, "task_id", None)
             entry_key = getattr(entry, "jira_key", None)
@@ -18638,7 +18653,12 @@ def _drain_wontdo_batch_after_apply(
                     if matches_task or matches_key:
                         return getattr(tsk, "jira_action_status", None) == "applied"
             return False
-        except Exception:  # noqa: BLE001 - defensive
+        except Exception as predicate_err:  # noqa: BLE001 - defensive
+            logger.warning(
+                "Won't-Do drain idempotency gate raised; treating entry as not-yet-applied",
+                pipeline_id=pipeline.id,
+                error=str(predicate_err),
+            )
             return False
 
     try:
