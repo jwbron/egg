@@ -1953,8 +1953,23 @@ def create_pipeline() -> tuple[Response, int]:
             )
 
         _gw = GatewayClient()
+
+        # Bind ``use_launcher_auth=True`` so the orchestrator-side
+        # gateway client authenticates against the gateway when the
+        # detection probe fires (reviewer_code v3 NACK #4 — same fix
+        # as the PR-link writeback path).  Without this the Jira routes
+        # 401 because the orchestrator has no session token of its own.
+        def _orch_invoker(
+            endpoint: str,
+            method: str = "GET",
+            data: dict[str, Any] | None = None,
+            **kw: Any,
+        ) -> dict[str, Any]:
+            kw.setdefault("use_launcher_auth", True)
+            return _gw._make_request(endpoint, method=method, data=data, **kw)
+
         try:
-            probe = detect_jira_issuetype(ticket_upper, gateway_invoker=_gw._make_request)
+            probe = detect_jira_issuetype(ticket_upper, gateway_invoker=_orch_invoker)
             if probe.is_epic:
                 persist_jira_epic_key = ticket_upper
                 try:
@@ -1962,7 +1977,7 @@ def create_pipeline() -> tuple[Response, int]:
                         jira_epic_mode_raw,
                         epic_key=ticket_upper,
                         project_key=probe.project_key,
-                        gateway_invoker=_gw._make_request,
+                        gateway_invoker=_orch_invoker,
                     )
                     persist_jira_effective_mode = effective_mode
                 except JiraEpicDetectionError as exc:
@@ -8282,11 +8297,16 @@ def _writeback_pr_link_to_jira_child(pipeline, pr_url: str) -> None:
 
     # 1. Idempotency: fetch recent comments and short-circuit if the PR
     #    URL is already mentioned.
+    #    ``use_launcher_auth=True`` (reviewer_code v3 NACK #4) — without it
+    #    the Jira routes 401, since the orchestrator process has no
+    #    session token of its own. The launcher secret is the only auth
+    #    the orchestrator-side client has against the gateway.
     try:
         comments_response = gateway._make_request(
             "/api/v1/jira/ticket/comments",
             method="POST",
             data={"ticket": child_key},
+            use_launcher_auth=True,
         )
         payload = comments_response.get("data") or comments_response or {}
         comments = payload.get("comments") if isinstance(payload, dict) else None
@@ -8328,6 +8348,7 @@ def _writeback_pr_link_to_jira_child(pipeline, pr_url: str) -> None:
             "/api/v1/jira/ticket/comment/add",
             method="POST",
             data={"ticket": child_key, "body": comment_body},
+            use_launcher_auth=True,
         )
         logger.info(
             "jira_pr_link_writeback_complete",
