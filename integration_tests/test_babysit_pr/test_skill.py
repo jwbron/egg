@@ -258,8 +258,11 @@ class TestBabysitPRToolRegistration:
 
         tool = next(t for t in PIPELINE_TOOLS if t["name"] == "babysit_pr")
         required = set(tool["inputSchema"]["required"])
-        assert "pr_number" in required
+        # pr_number is intentionally not in required so the handler can return
+        # a structured {"error": "pr_number must be a positive integer"} envelope
+        # when it is omitted, rather than Pydantic raising "Field required".
         assert "repo" in required
         props = tool["inputSchema"]["properties"]
+        assert "pr_number" in props
         assert props["pr_number"]["type"] == "integer"
         assert props["repo"]["type"] == "string"
