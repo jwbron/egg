@@ -60,6 +60,11 @@ class TestEmitEmptyContractHitl:
         question = call.kwargs["question"]
         assert "15 slices" in question
         assert "slice_gate" in question
+        # #2627 review: the recovery URL must interpolate the actual
+        # pipeline id, not the literal ``{id}`` placeholder, so operators
+        # can copy it verbatim.
+        assert "POST /pipelines/pipeline-1/phase/populate-contract" in question
+        assert "{id}" not in question
 
     def test_question_text_quotes_safety_net_gate(self):
         from routes.pipelines import _emit_empty_contract_hitl
@@ -85,6 +90,9 @@ class TestEmitEmptyContractHitl:
         # the helper falls back to a generic divergence description
         # instead of claiming a fabricated count.
         assert "missing" in question or "unparseable" in question
+        # Recovery URL must interpolate this gate's pipeline id too.
+        assert "POST /pipelines/pipeline-safety/phase/populate-contract" in question
+        assert "{id}" not in question
 
     def test_returns_none_when_persist_helper_fails(self):
         """Best-effort: a persistence failure must not block the

@@ -454,7 +454,12 @@ class TestPlanDraftMissingFailureMetadata:
             PlanDraftMissingOnLocalError("draft x missing")
         )
         assert reason == "plan draft missing on local"
-        assert message == ("Pipeline FAILED: plan draft missing on local but present on origin")
+        # #2627 review: use the OVERSEER_ALERT event-name convention so
+        # operators' log filters surface this path alongside the slice-gate
+        # and start_phase safety-net.  The event name matches the
+        # wrapper-side pre-raise OVERSEER_ALERT so both legs share one
+        # discriminator.
+        assert message == "OVERSEER_ALERT plan_draft_missing_on_local_but_present_on_origin"
 
     def test_local_and_origin_error_maps_to_both_strings(self):
         from routes.pipelines import (
@@ -466,7 +471,7 @@ class TestPlanDraftMissingFailureMetadata:
             PlanDraftMissingOnLocalAndOriginError("draft x missing on both")
         )
         assert reason == "plan draft missing on local and origin"
-        assert message == "Pipeline FAILED: plan draft missing on local and origin"
+        assert message == "OVERSEER_ALERT plan_draft_missing_on_local_and_origin"
 
     def test_local_and_local_and_origin_produce_distinct_metadata(self):
         """A swap between the two branches would make both classes return
@@ -502,8 +507,10 @@ class TestPlanDraftMissingFailureMetadata:
             PopulateProducedEmptyContractError(PopulateOutcome.EMPTY_RESULT)
         )
         assert reason == "populate produced empty_result outcome"
-        assert "empty contract" in message
-        assert "empty_result" in message
+        # OVERSEER_ALERT-prefixed event name; discriminator stays on the
+        # ``reason`` (teardown_reason) string and the structured ``error``
+        # kwarg the call site passes to the logger.
+        assert message == "OVERSEER_ALERT plan_populate_produced_empty_contract"
 
         # parse_failed routes through the same branch — the helper
         # keys on the outcome, not the exception class, so a future
@@ -512,7 +519,52 @@ class TestPlanDraftMissingFailureMetadata:
             PopulateProducedEmptyContractError(PopulateOutcome.PARSE_FAILED)
         )
         assert "parse_failed" in reason2
-        assert "parse_failed" in message2
+        assert message2 == "OVERSEER_ALERT plan_populate_produced_empty_contract"
+
+    def test_all_three_log_messages_use_overseer_alert_prefix(self):
+        """#2627 review: every plan-complete fail-loud branch must use
+        the ``OVERSEER_ALERT`` prefix so log filters surface this path
+        alongside the slice-gate and start_phase safety-net.  Asymmetry
+        between the three legs would hide whichever leg is missing the
+        prefix from the operator's monitoring."""
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalAndOriginError,
+            PlanDraftMissingOnLocalError,
+            PopulateOutcome,
+            PopulateProducedEmptyContractError,
+            _plan_draft_missing_failure_metadata,
+        )
+
+        for err in (
+            PlanDraftMissingOnLocalError("x"),
+            PlanDraftMissingOnLocalAndOriginError("x"),
+            PopulateProducedEmptyContractError(PopulateOutcome.EMPTY_RESULT),
+            PopulateProducedEmptyContractError(PopulateOutcome.PARSE_FAILED),
+        ):
+            _, message = _plan_draft_missing_failure_metadata(err)
+            assert message.startswith("OVERSEER_ALERT "), (
+                f"log_event for {type(err).__name__} missing OVERSEER_ALERT prefix: {message!r}"
+            )
+
+    def test_populate_produced_empty_contract_error_handles_populated_outcome(self):
+        """#2627 review: ``POPULATED`` with ``slice_count == 0`` is a
+        valid failure mode for this exception — the populator returned
+        "changed" (PR metadata populated or current_phase advanced)
+        but produced no slices/tasks.  The exception message must not
+        say "produced populated outcome" (which reads as a contradiction
+        when the contract is actually empty)."""
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateProducedEmptyContractError,
+        )
+
+        err = PopulateProducedEmptyContractError(PopulateOutcome.POPULATED, slice_count=0)
+        assert err.outcome == PopulateOutcome.POPULATED
+        assert err.slice_count == 0
+        # Message must name the actual divergence rather than "populated".
+        message = str(err)
+        assert "0 slices/tasks" in message
+        assert "produced populated outcome" not in message
 
 
 class TestOriginHasPlanDraft:
@@ -837,6 +889,86 @@ class TestSafeWrapperReturnValue:
         assert result.outcome == PopulateOutcome.UNEXPECTED_EXCEPTION
 
 
+class TestPopulateResultIsEmptyContract:
+    """#2627 review: the call-site empty-contract check is extracted into
+    :func:`_populate_result_is_empty_contract` so the two callers (the
+    natural plan-complete handler and the ``start_phase=implement``
+    safety net) share a single source of truth.  The prior PR enumerated
+    four outcomes; this widens to "every non-success outcome plus the
+    POPULATED-with-no-slices case" so the silent-advance gap the
+    reviewer flagged is closed at both call sites.
+    """
+
+    def test_populated_with_slices_is_not_empty(self):
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateResult,
+            _populate_result_is_empty_contract,
+        )
+
+        result = PopulateResult(PopulateOutcome.POPULATED, slice_count=3, task_count=7)
+        assert _populate_result_is_empty_contract(result) is False
+
+    def test_populated_with_zero_slices_is_empty(self):
+        """#2627 review: the populator returns POPULATED whenever *any* of
+        contract.slices / PR metadata / current_phase advanced, so a plan
+        with PR metadata but no slices/tasks lands as POPULATED with
+        slice_count=0.  Prior to this PR the call-site outcome-only check
+        passed it through and the implement phase spawned with no work."""
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateResult,
+            _populate_result_is_empty_contract,
+        )
+
+        result = PopulateResult(PopulateOutcome.POPULATED, slice_count=0, task_count=0)
+        assert _populate_result_is_empty_contract(result) is True
+
+    def test_every_non_populated_outcome_is_empty(self):
+        """#2627 review: prior to widening, only EMPTY_RESULT / PARSE_FAILED
+        / DRAFT_MISSING / NO_DRAFT_PATH were caught.  CONTRACT_LOAD_FAILED,
+        EGG_CONTRACTS_UNAVAILABLE, FOREST_VIOLATION, and UNEXPECTED_EXCEPTION
+        silently passed the check.  Assert all of them now route to the
+        fail-fast branch."""
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateResult,
+            _populate_result_is_empty_contract,
+        )
+
+        for outcome in PopulateOutcome:
+            if outcome == PopulateOutcome.POPULATED:
+                continue
+            result = PopulateResult(outcome, slice_count=0, task_count=0)
+            assert _populate_result_is_empty_contract(result) is True, (
+                f"outcome={outcome.value} must be treated as empty-contract"
+            )
+
+    def test_helper_covers_all_outcome_values(self):
+        """Defensive: future PopulateOutcome values must be handled by
+        explicit consideration — assert every existing value flows through
+        the helper without TypeError or unexpected truthy/falsy result.
+        Catches a regression where the helper's outcome comparison was
+        accidentally narrowed to a subset."""
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateResult,
+            _populate_result_is_empty_contract,
+        )
+
+        for outcome in PopulateOutcome:
+            result = PopulateResult(outcome, slice_count=2, task_count=4)
+            value = _populate_result_is_empty_contract(result)
+            assert isinstance(value, bool)
+            # POPULATED with slices=2 must NOT be flagged empty; every
+            # other outcome with slices=2 still must (the outcome itself
+            # is the failure signal).
+            if outcome == PopulateOutcome.POPULATED:
+                assert value is False
+            else:
+                assert value is True
+
+
 class TestPlanCompleteEmptyContractRaisesAfterPopulate:
     """#2627 follow-up: source="plan_complete" plus populate-yielded-empty
     triggers a :class:`PopulateProducedEmptyContractError` at the
@@ -891,6 +1023,7 @@ class TestEmptyContractHitl:
         # The question text must name the root cause and the gate that
         # detected the divergence so operators don't have to dig.
         question = _empty_contract_hitl_question(
+            pipeline_id="p-question",
             reason="empty_result",
             draft_slice_count=3,
             gate="plan_complete",
@@ -906,12 +1039,54 @@ class TestEmptyContractHitl:
         # slice count to quote; the question should still describe the
         # divergence without crashing or claiming a fake count.
         question = _empty_contract_hitl_question(
+            pipeline_id="p-missing",
             reason="plan_draft_missing",
             draft_slice_count=None,
             gate="plan_complete",
         )
         assert "missing" in question or "unparseable" in question
         assert "plan_draft_missing" in question
+
+    def test_question_text_interpolates_pipeline_id_into_recovery_url(self):
+        """#2627 review: the recovery URL must show the actual pipeline id,
+        not a literal ``{id}`` placeholder, so operators can copy the
+        ``POST /pipelines/<id>/phase/populate-contract`` URL verbatim."""
+        from routes.pipelines import _empty_contract_hitl_question
+
+        question = _empty_contract_hitl_question(
+            pipeline_id="p-interpolation-test",
+            reason="empty_result",
+            draft_slice_count=None,
+            gate="plan_complete",
+        )
+        # Real id present, literal placeholder absent.
+        assert "POST /pipelines/p-interpolation-test/phase/populate-contract" in question
+        assert "{id}" not in question
+        assert "/pipelines/{" not in question
+
+    def test_question_text_uses_pipeline_blocked_phrasing(self):
+        """#2627 review: the opening phrase must be "Pipeline blocked at
+        {gate}" (not "Implement-phase blocked at {gate}").  At
+        ``gate=plan_complete`` the implement phase has not yet been
+        spawned, so the implement-specific phrasing reads oddly against
+        ``pipeline.error`` and the phase-execution status which both
+        still say "plan" at that point."""
+        from routes.pipelines import _empty_contract_hitl_question
+
+        for gate in ("plan_complete", "slice_gate", "start_phase_implement_safety_net"):
+            question = _empty_contract_hitl_question(
+                pipeline_id="p-phrasing",
+                reason="empty_result",
+                draft_slice_count=None,
+                gate=gate,
+            )
+            assert f"Pipeline blocked at {gate}" in question, (
+                f"question for {gate} must use 'Pipeline blocked at' phrasing, got: {question!r}"
+            )
+            assert "Implement-phase blocked at" not in question, (
+                "implement-specific phrasing should not appear — "
+                "plan_complete fires before implement spawns"
+            )
 
 
 if __name__ == "__main__":
