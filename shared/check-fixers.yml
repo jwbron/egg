@@ -48,3 +48,11 @@ workflows:
       max_retries: 2
     "Security Scan":
       max_retries: 2
+    # On PR CI, integration tests run as a nested job of the `Test` workflow
+    # via `uses: ./.github/workflows/test-integration.yml`. The GH jobs API
+    # reports the failure under the composite name `<caller-job>/<inner-job>`,
+    # so the key here must match that exact shape — not just "Integration Tests".
+    "Integration Tests / Integration Tests":
+      model: "opus"
+      timeout: "30"
+      max_retries: 2
