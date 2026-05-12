@@ -16,9 +16,11 @@ egg/
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
 ├── scripts/                # Validation, lint, and operational telemetry scripts
 ├── shared/                 # Shared Python libraries (used by gateway + sandbox)
+├── plugins/                # Claude Code plugins (distributable via egg-tools marketplace)
 ├── skills/                 # Claude Code skills (installed into sandbox at startup)
 ├── tests/                  # Unit tests
 ├── dev                     # Development CLI (setup, lint, test, ci)
+├── .claude-plugin/         # Marketplace registry (egg-tools plugin index)
 ├── CLAUDE.md               # Agent navigation guide (Claude Code entry point)
 └── README.md
 ```
@@ -36,8 +38,10 @@ egg/
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
 | `scripts/` | CI/lint and operational telemetry scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, harness parity validation, scaffold-first BRC compliance telemetry via `scaffold_first_telemetry.py`) | CI / local |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
+| `plugins/` | Claude Code plugins distributed via the egg-tools marketplace (each subdirectory is a plugin with `.claude-plugin/plugin.json` and a `skills/` subtree) | External (installed by users via Claude Code) |
 | `skills/` | Claude Code skills (each subdirectory is a skill with `SKILL.md`) | Sandbox container |
 | `tests/` | Test suite | CI / local |
+| `.claude-plugin/` | Plugin marketplace registry (`marketplace.json`) — indexes plugins under `plugins/` for the `egg-tools` Claude Code plugin collection | External |
 
 ## Gateway Structure
 
