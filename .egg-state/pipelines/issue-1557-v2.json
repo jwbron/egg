@@ -5,7 +5,7 @@
   "branch": "egg/issue-1557-v2/work",
   "base_branch": null,
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -174,7 +174,7 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "awaiting_human",
+      "status": "complete",
       "started_at": "2026-05-12T04:52:20.026437Z",
       "work_started_at": "2026-05-12T04:52:43.962233Z",
       "completed_at": "2026-05-12T05:36:44.143233Z",
@@ -700,7 +700,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T05:39:19.629883Z",
+  "updated_at": "2026-05-12T05:39:51.307752Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -714,6 +714,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T04:52:18.377931Z",
-  "version": 56,
+  "version": 57,
   "jira_ticket": null
 }
