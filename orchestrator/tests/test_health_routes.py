@@ -105,6 +105,30 @@ class TestResolveAlertsEndpoint:
         assert data["resolved"] is True
         mock_monitor.resolve_alerts.assert_called_once_with("coder", "heartbeat_timeout")
 
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    @patch("health_monitor.get_health_monitor")
+    def test_non_object_body_returns_400(self, mock_get_monitor, client, raw_body):
+        """Fix for #2673: non-object JSON bodies must 400, not 500.
+
+        Mirrors the #2656 fix on the decisions route. Without the guard,
+        ``data.get("agent_id")`` raises ``AttributeError`` for a
+        list/scalar body and Flask's default handler returns 500.
+        """
+        mock_get_monitor.return_value = MagicMock()
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/health/alerts/resolve",
+            data=raw_body,
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.data
+        data = response.get_json()
+        assert data["success"] is False
+
 
 class TestHealthEndpointIsolationFromMessageStore:
     """Issue #1897 TASK-4-3 (regression lock): ``GET /api/v1/health`` MUST

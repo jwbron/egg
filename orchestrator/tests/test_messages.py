@@ -2951,3 +2951,44 @@ class TestWaitTimeoutFloorRegression:
             "per routes/messages.py:382-385. If this drops to ~0s, "
             "the silent floor has been removed — update the docstring."
         )
+
+
+class TestNonObjectJsonBodyReturns400:
+    """Fix for #2673: non-object JSON bodies must 400, not 500.
+
+    Mirrors the #2656 fix on the decisions route. Previously
+    ``body = request.get_json() or {}`` (heartbeat) or
+    ``body = request.get_json(); if not body`` (messages) left a
+    list/scalar in ``body``, so ``body.get(...)`` raised
+    ``AttributeError`` and the generic handler returned 500.
+    """
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    def test_send_message_non_object_body_returns_400(self, client, raw_body):
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/messages",
+            data=raw_body,
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.data
+        body = json.loads(response.data)
+        assert body["success"] is False
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    def test_heartbeat_non_object_body_returns_400(self, client, raw_body):
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/heartbeat",
+            data=raw_body,
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.data
+        body = json.loads(response.data)
+        assert body["success"] is False

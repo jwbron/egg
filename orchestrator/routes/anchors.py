@@ -288,7 +288,10 @@ def gc_anchors(pipeline_id: str) -> tuple[Response, int]:
     For completed pipelines: archive to checkpoint then clear from Redis.
     For failed pipelines: set 7-day TTL.
     """
-    body = request.get_json() or {}
+    raw = request.get_json()
+    if raw is not None and not isinstance(raw, dict):
+        return _make_error("Request body must be a JSON object")
+    body = raw if raw is not None else {}
     pipeline_status = body.get("status", "completed")
 
     r = _get_redis()
