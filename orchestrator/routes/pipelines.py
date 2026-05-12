@@ -18443,7 +18443,15 @@ def _drain_wontdo_batch_after_apply(
         )
         return
     try:
-        from wontdo_drain import run_wontdo_drain
+        # Reviewer_code v1 non-blocking note: mirror the dual-import
+        # pattern used elsewhere in this module (e.g. ``from
+        # jira_epic import resolve_epic_mode``) so the helper still
+        # resolves when ``orchestrator/`` is imported as a package
+        # rather than treated as ``sys.path`` root.
+        try:
+            from wontdo_drain import run_wontdo_drain
+        except ImportError:  # pragma: no cover — packaged-import fallback
+            from orchestrator.wontdo_drain import run_wontdo_drain  # type: ignore[no-redef]
 
         result = run_wontdo_drain(handoff_path=handoff_path)
     except Exception as exc:  # noqa: BLE001 — defensive: drain must not crash auto-advance
@@ -19688,6 +19696,67 @@ def _run_pipeline(
                 sandbox_env["EGG_EPIC_MODE"] = (
                     "github_issue" if not jira_ticket_value else "ticket"
                 )
+
+            # Issue #1557 reviewer_code v1 finding #4: run the reassess
+            # sweep before the planner / applier spawn on reassess-mode
+            # epic pipelines so the task-planner prompt's ``[mode: epic-
+            # reassess]`` branch and the applier's in-flight refusal
+            # have the children classification on disk.  The sweep
+            # writes two JSON files under ``.egg-state/agent-outputs/``;
+            # we export both paths into the sandbox env so the prompts
+            # read them by env var rather than re-querying the gateway.
+            # Fail-open: a sweep failure logs a warning but never aborts
+            # the phase — the planner falls back to fresh-mode treatment
+            # of the children (which is safe because every action carries
+            # an explicit ``jira_action`` and the applier's in-flight
+            # refusal hinges on the sweep file's presence).
+            if (
+                _is_epic_flag
+                and _pipeline_mode_attr == "reassess"
+                and current_phase.value in ("plan", "apply")
+                and jira_ticket_value
+            ):
+                try:
+                    from jira_reassess import (
+                        run_reassess_sweep,
+                        serialise_sweep_to_disk,
+                    )
+                except ImportError:  # pragma: no cover - defensive
+                    run_reassess_sweep = None  # type: ignore[assignment]
+                    serialise_sweep_to_disk = None  # type: ignore[assignment]
+                if run_reassess_sweep is not None and serialise_sweep_to_disk is not None:
+                    try:
+                        sweep_result = run_reassess_sweep(
+                            epic_key=jira_ticket_value,
+                            state_store=store,
+                        )
+                        agent_outputs_dir = (
+                            Path(worktree_repo_path)
+                            / ".egg-state"
+                            / "agent-outputs"
+                        )
+                        sweep_path, done_path = serialise_sweep_to_disk(
+                            result=sweep_result,
+                            agent_outputs_dir=agent_outputs_dir,
+                            pipeline_id=pipeline_id,
+                        )
+                        sandbox_env["EGG_REASSESS_SWEEP_PATH"] = str(sweep_path)
+                        sandbox_env["EGG_DONE_CHILDREN_PATH"] = str(done_path)
+                        logger.info(
+                            "Reassess sweep complete",
+                            pipeline_id=pipeline_id,
+                            epic_key=jira_ticket_value,
+                            child_count=len(sweep_result.children),
+                            done_count=len(sweep_result.done),
+                            warnings=sweep_result.warnings,
+                        )
+                    except Exception as sweep_err:  # noqa: BLE001 — fail-open
+                        logger.warning(
+                            "Reassess sweep failed (continuing without sweep handoff)",
+                            pipeline_id=pipeline_id,
+                            epic_key=jira_ticket_value,
+                            error=str(sweep_err),
+                        )
 
             phase_failed = False
             tester_gap_summary: str | None = None
