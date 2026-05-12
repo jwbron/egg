@@ -343,10 +343,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T04:46:05.058407Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T04:49:44.571091Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"New sandbox-side `applier` agent role spawned after HITL approval: agent reads contract task↔key mapping, calls jira CLI wrapper. Reuses existing sandbox + BRC infra (consensus on apply success). Adds a phase but keeps mutations behind the existing auth + audit boundary; downside is BRC for a deterministic mechanical step.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -549,7 +549,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:49:14.400584Z",
+  "updated_at": "2026-05-12T04:49:44.590201Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 36,
+  "version": 37,
   "jira_ticket": null
 }
