@@ -110,9 +110,7 @@ class JiraHierarchyConfig:
         try:
             return self.projects[project_key]
         except KeyError as exc:  # noqa: PERF203
-            raise JiraHierarchyUnmappedError(
-                project_key, _config_path_for_error()
-            ) from exc
+            raise JiraHierarchyUnmappedError(project_key, _config_path_for_error()) from exc
 
 
 def _config_path_for_error() -> Path:
@@ -149,8 +147,7 @@ def _parse_config(raw: dict[str, object], path: Path) -> JiraHierarchyConfig:
     for key, value in projects_raw.items():
         if not isinstance(key, str) or not key:
             raise JiraHierarchyConfigError(
-                f"Hierarchy config at {path}: project key must be a "
-                f"non-empty string (got {key!r})"
+                f"Hierarchy config at {path}: project key must be a non-empty string (got {key!r})"
             )
         if not isinstance(value, str) or value not in VALID_HIERARCHY_FIELDS:
             raise JiraHierarchyConfigError(

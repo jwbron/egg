@@ -1040,9 +1040,7 @@ _EPIC_APPLY_ACTIONS: frozenset[str] = frozenset(
 
 
 # Valid link types per #1557 feedback Q3.
-_EPIC_LINK_TYPES: frozenset[str] = frozenset(
-    {"Blocks", "Is blocked by", "Relates to"}
-)
+_EPIC_LINK_TYPES: frozenset[str] = frozenset({"Blocks", "Is blocked by", "Relates to"})
 
 
 def extract_epic_metadata_from_yaml(
@@ -1391,9 +1389,7 @@ def parse_plan(content: str) -> ParseResult:
 
     # Epic-mode metadata (#1557 TASK-1-11). Empty lists when the plan
     # is not epic-keyed or the planner omitted the blocks.
-    consolidations, splits, epic_apply, epic_warnings = (
-        extract_epic_metadata_from_yaml(yaml_data)
-    )
+    consolidations, splits, epic_apply, epic_warnings = extract_epic_metadata_from_yaml(yaml_data)
     warnings.extend(epic_warnings)
 
     return ParseResult(
