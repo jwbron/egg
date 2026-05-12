@@ -292,10 +292,13 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
 | `populate_contract` | `empty_result` | 422 | Plan draft parsed successfully but produced zero tasks; the `yaml-tasks` appendix may be empty or all tasks were filtered out |
 | `populate_contract` | `contract_load_failed` | 500 | Contract populated but could not be read back to verify counts; retry or check worktree integrity |
 | `populate_contract` | `egg_contracts_unavailable` | 500 | `egg_contracts` package is not installed in the orchestrator environment |
-| `populate_contract` | `unexpected_exception` | 500 | Unhandled exception during contract population; check orchestrator logs for details |
+| `populate_contract` | `unexpected_exception` | 500 | Unhandled exception inside `_populate_contract_from_plan` (the structured populate call); check orchestrator logs for details |
+| `populate_contract` | `populate_contract_failed` | 500 | Endpoint-level fallback for exceptions raised *outside* `_populate_contract_from_plan` (e.g., `resolve_worktree_path` failure, an unexpected error from `get_state_store_for_pipeline`, or a `ForestValidationError.to_response()` that itself raised); distinct from `unexpected_exception`, which comes from inside the populate call |
 | `advance_phase`, `start_phase`, `complete_phase`, `fail_phase` | `version_conflict` | 409 | Concurrent modification detected; retry the request |
 | all | `invalid_pipeline_id` | 400 | Pipeline ID format is invalid |
 | all | `pipeline_not_found` | 404 | No pipeline with that ID exists |
+
+Note: `populate_contract` also emits a 422 response with `{"error": "forest_violation", "errors": [...]}` (#2137 TASK-2-2) when the populated contract violates the task-forest invariants. This response carries an `error` field rather than `reason`, so it is not listed in the table above — callers should handle it as a separate case alongside the `reason`-coded 422 responses (`parse_failed`, `empty_result`).
 
 The REST-only endpoints `fail_phase` and `get_current_phase` also include `reason` in error responses (e.g., `missing_error_message` for `fail_phase`) plus the shared `invalid_pipeline_id` and `pipeline_not_found` codes. `fail_phase` additionally emits `version_conflict`.
 
