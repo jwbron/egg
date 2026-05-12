@@ -482,6 +482,20 @@
       "registered_at": "2026-04-29T05:22:39.400844+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
+    },
+    "ffbdc59058d1b8529b7499142523d6211d758bab": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:09:18.252487+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "task_planner"
+    },
+    "ffc716cabe6db064de8a9da9a04ac7a444625408": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:09:18.241452+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "task_planner"
     }
   },
   "version": 1
