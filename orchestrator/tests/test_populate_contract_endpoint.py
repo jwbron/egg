@@ -448,6 +448,50 @@ class TestPopulateContractEndpoint:
     @patch("routes.pipelines._populate_contract_from_plan")
     @patch("routes.resolve_worktree_path")
     @patch("routes.phases.get_state_store_for_pipeline")
+    def test_branch_unset_skips_persist_and_reports_false(
+        self,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_populate,
+        mock_commit,
+        mock_gw_mode,
+        mock_spawner,
+        client,
+    ):
+        """When ``pipeline.branch`` is unset, the persist block is skipped
+        and ``pushed_to_origin=False`` is returned (#2629).
+
+        The persist block is gated on ``pipeline.branch and worktree_path
+        != store.repo_path``; without a branch there is nothing to push
+        to.  ``False`` is the correct signal here — the caller knows the
+        populated state is only on the orchestrator's local worktree.
+        """
+        pipeline = _make_pipeline()
+        pipeline.branch = None  # No work branch configured yet.
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/home/egg/repos/egg")
+        mock_get_store.return_value = (mock_store, pipeline)
+        mock_resolve_wt.return_value = Path("/home/egg/.egg-worktrees/issue-42/egg")
+        mock_populate.return_value = _populated()
+        mock_gw_mode.return_value = ("public", None)
+        gateway = mock_spawner.return_value.gateway
+
+        resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["success"] is True
+        assert data["data"]["pushed_to_origin"] is False
+        # Neither commit nor push are attempted without a branch.
+        mock_commit.assert_not_called()
+        gateway.push_worktree_branch.assert_not_called()
+
+    @patch("routes.pipelines._get_spawner")
+    @patch("routes.pipelines._compute_gateway_mode")
+    @patch("routes.pipelines._commit_statefiles_to_worktree")
+    @patch("routes.pipelines._populate_contract_from_plan")
+    @patch("routes.resolve_worktree_path")
+    @patch("routes.phases.get_state_store_for_pipeline")
     def test_worktree_path_passed_to_populate(
         self,
         mock_get_store,

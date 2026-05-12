@@ -1021,19 +1021,41 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
 
     Reads the plan document from the pipeline's worktree, extracts task
     structure, and writes tasks and acceptance criteria to the contract.
+    On the ``POPULATED`` outcome the route also commits the contract to
+    the orchestrator's local worktree and pushes the work branch to
+    origin so fresh agent spawns (``restart_phase``, ``restart_agent``,
+    post-cancel restart) pull the populated state on respawn (#2629).
 
     URL params:
         pipeline_id: Pipeline ID
 
-    Response:
+    Response (200 — ``POPULATED``):
         {
             "success": true,
             "message": "Contract populated from plan",
             "data": {
                 "phase_count": 2,
-                "task_count": 6
+                "task_count": 6,
+                "pushed_to_origin": true
             }
         }
+
+    ``pushed_to_origin`` is the operator's signal for whether agents
+    will see the populated state on respawn. ``False`` means the commit
+    or push failed (or the push was not attempted because
+    ``pipeline.branch`` is unset or the worktree resolves to
+    ``store.repo_path``) and the operator must commit and push
+    themselves before respawning.
+
+    Error responses include a machine-readable ``reason`` code (#1939,
+    #2627):
+
+    - 400 ``invalid_pipeline_id``
+    - 404 ``pipeline_not_found`` / ``draft_missing`` / ``no_draft_path``
+    - 422 ``parse_failed`` / ``empty_result`` / forest violations
+      (structured body)
+    - 500 ``contract_load_failed`` / ``egg_contracts_unavailable`` /
+      ``unexpected_exception`` / ``populate_contract_failed``
     """
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
