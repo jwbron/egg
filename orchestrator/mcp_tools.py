@@ -1008,8 +1008,18 @@ PIPELINE_TOOLS = [
             "Note: reason codes are only visible to direct HTTP callers; the "
             "MCP handler layer does not yet surface them.\n"
             "- `invalid_pipeline_id` (400), `pipeline_not_found` (404)\n"
-            "- `populate_contract_failed` (500) — internal error during "
-            "contract population"
+            "- `draft_missing` (404), `no_draft_path` (404) — plan draft "
+            "missing or worktree has no draft path configured\n"
+            "- `parse_failed` (422), `empty_result` (422) — draft parse "
+            "produced an error or zero tasks\n"
+            "- `contract_load_failed` (500), `egg_contracts_unavailable` "
+            "(500), `unexpected_exception` (500) — structured failures "
+            "from inside the populate call\n"
+            "- `populate_contract_failed` (500) — endpoint-level fallback "
+            "for exceptions raised outside the structured populate call\n"
+            'Also emits a 422 with `{error: "forest_violation", errors: '
+            "[...]}` (#2137) when contract population violates task-forest "
+            "invariants; this response uses `error` rather than `reason`."
         ),
         "inputSchema": {
             "type": "object",
