@@ -102,6 +102,18 @@ spec:
             # (`egg-sandbox:latest`), and nothing exists at docker.io/egg.
             - name: EGG_SANDBOX_IMAGE
               value: "egg-sandbox:latest"
+            # #2528: read per-repo role_patterns from the same
+            # repositories.yaml the gateway uses so plan-time validation
+            # and the planner-prompt boundaries match push-time
+            # enforcement. Mounted from the gateway-secrets Secret below;
+            # absence is non-fatal (the lookup degrades to defaults).
+            # The mount path is distinct from the gateway's ``/secrets``
+            # so the local-dev overlay's full ``/secrets`` projection
+            # (which exposes all credentials) does not collide with this
+            # production-default ``items``-projected mount that exposes
+            # only ``repositories.yaml``.
+            - name: EGG_REPO_CONFIG
+              value: "/etc/egg-config/repositories.yaml"
           # Probes target the standalone HTTP listener on the ``probe``
           # port (#2414). #2191 made the probe handlers cache-backed so
           # they did not run ``git`` on the request path, but they still
@@ -157,6 +169,14 @@ spec:
               mountPath: /home/egg/.egg-state
             - name: tmp
               mountPath: /tmp
+            # #2528: read-only mount of repositories.yaml so the
+            # orchestrator can resolve per-repo role_patterns (same
+            # source the gateway sidecar reads from). The Secret's
+            # other keys (PATs, launcher-secret, etc.) are not
+            # projected — only ``repositories.yaml`` is exposed.
+            - name: repo-config
+              mountPath: /etc/egg-config
+              readOnly: true
           resources:
             requests:
               cpu: 250m
@@ -171,3 +191,15 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        # #2528: project the repositories.yaml key out of the shared
+        # gateway-secrets Secret. Optional so the deployment still
+        # rolls out cleanly in test fixtures that don't pre-create the
+        # Secret; the orchestrator's lookup degrades to defaults when
+        # the file is missing.
+        - name: repo-config
+          secret:
+            secretName: gateway-secrets
+            optional: true
+            items:
+              - key: repositories.yaml
+                path: repositories.yaml

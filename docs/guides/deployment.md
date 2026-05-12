@@ -241,6 +241,17 @@ Pre-release versions (with suffixes like `-alpha`, `-beta`, `-rc`) do not update
 
 For details on creating releases, see [RELEASING.md](../../RELEASING.md).
 
+### Limitations of Pre-built Images
+
+Pre-built `egg-sandbox` images on GHCR are built without a host
+`repositories.yaml`, so per-repo `build_commands` (e.g. `make sandbox-deps`
+to populate `.venv`, `npm ci` to populate `node_modules`) are **not**
+applied to the published image. Operators relying on prebuilt deps —
+including the project's own `.venv` for `make test` / `make lint` — should
+build the image locally with `make build` and import it via
+`make k3s-import` rather than pulling from GHCR. Tracking issue: see #2499
+for context on why `make build` is the supported path for `build_commands`.
+
 ### Using Pre-built Images
 
 For stability, pin to a major version in `~/.config/egg/config.yaml`:
