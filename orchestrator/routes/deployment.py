@@ -930,7 +930,7 @@ orchestrator_url="${EGG_ORCHESTRATOR_URL:-http://orchestrator.egg-system.svc.clu
 
 probe() {
   local url="$1"
-  curl --silent --show-error --max-time 3 -o /dev/null -w '%{http_code}' "$url" || echo 000
+  curl --silent --max-time 3 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true
 }
 
 gw=$(probe "$gateway_url/api/v1/health")
