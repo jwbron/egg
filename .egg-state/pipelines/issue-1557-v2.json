@@ -205,10 +205,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T04:46:04.764330Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T04:48:11.106938Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Two slices with dependency: [A+B+C+D fresh-epic path end-to-end] -> [E+F+G reassess path] (2 PRs, reassess builds on fresh)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -549,7 +549,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.454726Z",
+  "updated_at": "2026-05-12T04:48:11.114662Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 29,
+  "version": 30,
   "jira_ticket": null
 }
