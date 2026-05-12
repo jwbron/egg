@@ -460,7 +460,7 @@ lint-yaml-fix: sync-venv-if-uv
 
 build:
 	@echo "==> Preparing sandbox build context from repositories.yaml..."
-	@scripts/prepare-sandbox-build-context.py repo-deps
+	@$(PYTHON) scripts/prepare-sandbox-build-context.py repo-deps
 	@echo "==> Building images with tag $(EGG_IMAGE_TAG)..."
 	@echo "==> Building gateway container..."
 	docker build -t egg-gateway:latest -t egg-gateway:$(EGG_IMAGE_TAG) -f gateway/Dockerfile .
