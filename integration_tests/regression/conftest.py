@@ -116,7 +116,7 @@ def lifecycle_secret() -> str | None:
             timeout=15,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return None
     if result.returncode != 0 or not result.stdout:
         return None
@@ -126,7 +126,7 @@ def lifecycle_secret() -> str | None:
         # a ``\n`` inside ``f"Bearer {secret}"`` is rejected by
         # ``http.client.putheader``.
         return base64.b64decode(result.stdout).decode("utf-8").strip()
-    except (ValueError, UnicodeDecodeError):
+    except ValueError, UnicodeDecodeError:
         return None
 
 
