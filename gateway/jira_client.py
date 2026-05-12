@@ -158,6 +158,12 @@ _TICKET_KEY = rf"{_PROJECT_KEY}-\d+"
 JIRA_API_ALLOWED_PATHS: list[re.Pattern[str]] = [
     re.compile(rf"^issue/{_TICKET_KEY}$"),
     re.compile(rf"^issue/{_TICKET_KEY}/comment$"),
+    # Issue #1557 slice-2 — read-only ``GET /rest/api/3/issue/{key}/
+    # remotelink`` for the in-flight PR detection signal (decision-7
+    # signal b). Stays inside the GET-only ``ALLOWED_METHODS`` plus
+    # the ``JIRA_WRITE_VERBS_DENIED`` segment list, so POST / PUT /
+    # DELETE on this path remain rejected.
+    re.compile(rf"^issue/{_TICKET_KEY}/remotelink$"),
     # ``search/jql`` is intentionally NOT in this allowlist.  ``/api/v1/jira/
     # search`` MUST go through the dedicated route so the JQL project-scope
     # extractor (gateway/jira_search.py) runs before anything touches
@@ -435,6 +441,114 @@ class JiraClient:
             return _not_found_envelope(key)
         _raise_for_status(response, f"issue/{key}/comment")
         return _safe_json(response, f"issue/{key}/comment")
+
+    def get_remotelinks(self, key: str) -> dict[str, Any]:
+        """Fetch the remote-link list for an issue (issue #1557 slice-2).
+
+        Used by the reassess sweep's in-flight classifier (decision-7
+        signal b) — a child epic ticket whose remote-link list
+        includes a ``github.com/.../pull/<N>`` URL is treated as
+        in-flight regardless of its Atlassian status. Same 404
+        semantics as ``get_ticket`` / ``get_comments``.
+
+        Atlassian returns a bare list at the top level for this
+        endpoint; ``_safe_json`` re-wraps it as ``{"data": [...]}``
+        for caller uniformity. We re-key the wrapper to
+        ``{"remotelinks": [...]}`` so the gateway route emits a
+        consistent envelope downstream agents and the reassess sweep
+        consume.
+        """
+        response = self._request("GET", f"issue/{key}/remotelink")
+        if response.status_code == 404:
+            return _not_found_envelope(key)
+        _raise_for_status(response, f"issue/{key}/remotelink")
+        body = _safe_json(response, f"issue/{key}/remotelink")
+        if isinstance(body, dict) and isinstance(body.get("data"), list):
+            return {"remotelinks": body["data"]}
+        if isinstance(body, list):  # pragma: no cover — _safe_json wraps lists
+            return {"remotelinks": body}
+        return body
+
+    def transition_issue(
+        self,
+        key: str,
+        *,
+        transition_id: str | None = None,
+        transition_name: str | None = None,
+        comment_adf: dict[str, Any] | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        """``POST /rest/api/3/issue/{key}/transitions`` — issue #1557 slice-2.
+
+        **Internal-only**: the public agent-facing surface continues to
+        deny transitions via :data:`JIRA_WRITE_VERBS_DENIED`. The
+        gateway's orchestrator-only ``/api/v1/jira/ticket/transition``
+        route (added with loopback + shared-secret check) is the sole
+        caller. The path is composed in-method so even if the regex
+        allowlist is widened the agent-facing routes still can't
+        compose this URL.
+
+        Args:
+            key: Atlassian issue key.
+            transition_id: Numeric transition ID. Either this or
+                ``transition_name`` must be supplied; ID wins.
+            transition_name: Human-readable transition name (e.g.
+                ``"Won't Do"``). The method looks up the matching
+                transition ID by calling Atlassian's
+                ``GET /issue/{key}/transitions`` first.
+            comment_adf: Optional ADF comment body posted as part of
+                the transition payload. Forwarded verbatim to
+                Atlassian.
+
+        Returns
+        -------
+        (status_code, body)
+            Status code and decoded JSON body of the
+            ``transitions`` POST. Atlassian returns 204 on success
+            with an empty body.
+        """
+        if not transition_id and not transition_name:
+            raise ValueError("transition_id or transition_name is required")
+        resolved_id = transition_id
+        if not resolved_id and transition_name:
+            # Look up the transition ID by name.
+            list_resp = self._request("GET", f"issue/{key}/transitions")
+            _raise_for_status(list_resp, f"issue/{key}/transitions")
+            list_body = _safe_json(list_resp, f"issue/{key}/transitions")
+            target_norm = transition_name.strip().lower()
+            transitions = list_body.get("transitions") if isinstance(list_body, dict) else None
+            if not isinstance(transitions, list):
+                raise JiraUpstreamError(
+                    500, list_body, f"issue/{key}/transitions"
+                )
+            for entry in transitions:
+                if not isinstance(entry, dict):
+                    continue
+                name = entry.get("name")
+                if isinstance(name, str) and name.strip().lower() == target_norm:
+                    resolved_id = str(entry.get("id"))
+                    break
+            if not resolved_id:
+                raise JiraUpstreamError(
+                    404,
+                    {"reason": f"transition {transition_name!r} not available on {key}"},
+                    f"issue/{key}/transitions",
+                )
+
+        payload: dict[str, Any] = {
+            "transition": {"id": str(resolved_id)},
+        }
+        if comment_adf is not None:
+            payload["update"] = {"comment": [{"add": {"body": comment_adf}}]}
+
+        response = self._request(
+            "POST", f"issue/{key}/transitions", body=payload
+        )
+        if response.status_code in (200, 204):
+            return response.status_code, {}
+        _raise_for_status(response, f"issue/{key}/transitions")
+        return response.status_code, _safe_json(
+            response, f"issue/{key}/transitions"
+        )
 
     def search(
         self,

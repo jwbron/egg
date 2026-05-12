@@ -597,3 +597,4 @@ make test
 - [Git Isolation](../docs/architecture/git-isolation.md) - Worktree isolation design
 - [Credential Injection](../docs/architecture/credential-injection.md) - Zero-credential sandbox
 - [Network Isolation](../docs/architecture/network-isolation.md) - Network modes
+- [Orchestrator-Only Jira Transitions](../docs/architecture/orchestrator.md#orchestrator-only-jira-transitions-apiv1jiratickettransition--1557-decision-15) — `X-Egg-Orchestrator-Token` shared-secret lifecycle for the `/api/v1/jira/ticket/transition` route (loopback + token gate; deployment-time secret bundle, rotation procedure, sandbox isolation)
