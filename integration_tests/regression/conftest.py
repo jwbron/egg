@@ -76,7 +76,7 @@ def lifecycle_secret() -> str | None:
             timeout=15,
             check=False,
         )
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0 or not result.stdout:
         return None
@@ -86,11 +86,11 @@ def lifecycle_secret() -> str | None:
         # a ``\n`` inside ``f"Bearer {secret}"`` is rejected by
         # ``http.client.putheader``.
         return base64.b64decode(result.stdout).decode("utf-8").strip()
-    except ValueError, UnicodeDecodeError:
+    except (ValueError, UnicodeDecodeError):
         return None
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def lifecycle_bearer() -> str:
     """Return an ``Authorization: Bearer ...`` value or skip the test.
 
@@ -98,6 +98,13 @@ def lifecycle_bearer() -> str:
     ``@require_lifecycle_secret`` endpoints. When the secret is not
     reachable from the test runner (developer laptop without rbac on
     the secret) the test is skipped, not failed.
+
+    Session-scoped: the lifecycle secret is a singleton per cluster, so
+    we read it once per pytest session instead of per parametrized
+    case. ``TestHitlResolvePayloadEdgeCases`` alone fans out to 7
+    cases, each of which would otherwise re-shell-out to ``kubectl``
+    with a 15-second timeout — tens of seconds of pure subprocess
+    overhead per run on a slow cluster.
     """
     secret = lifecycle_secret()
     if not secret:

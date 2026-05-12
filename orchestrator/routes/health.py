@@ -365,7 +365,10 @@ def resolve_pipeline_health_alerts(pipeline_id: str) -> tuple[Response, int]:
     if monitor is None:
         return jsonify({"success": False, "error": "Health monitor not initialized"}), 503
 
-    data = request.get_json() or {}
+    raw = request.get_json()
+    if raw is not None and not isinstance(raw, dict):
+        return jsonify({"success": False, "error": "Request body must be a JSON object"}), 400
+    data = raw if raw is not None else {}
     agent_id = data.get("agent_id")
     alert_type = data.get("alert_type")
 

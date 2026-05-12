@@ -109,6 +109,12 @@ def _validate_pipeline_id(pipeline_id: str) -> None:
         raise InvalidPipelineIdError(f"Invalid pipeline ID format: {pipeline_id}")
 
 
+# Public alias: ``_validate_pipeline_id`` predates the cross-module callers in
+# ``routes/__init__.py``. Underscore-prefixed names should stay internal, so
+# importers (production code, tests) can use ``validate_pipeline_id`` instead.
+validate_pipeline_id = _validate_pipeline_id
+
+
 class StateStore:
     """Git-backed state store for pipeline state.
 
