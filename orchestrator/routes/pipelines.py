@@ -17899,6 +17899,43 @@ _EMPTY_CONTRACT_HITL_OPTIONS = [
 ]
 
 
+# Per-reason divergence prose used by :func:`_empty_contract_hitl_question`
+# when no parsed-slice count is available.  The generic fallback wording
+# ("draft is missing, unparseable, or yielded no tasks") was written when
+# only ``EMPTY_RESULT`` / ``PARSE_FAILED`` / ``DRAFT_MISSING`` / ``NO_DRAFT_PATH``
+# routed through this HITL.  The widened
+# :func:`_populate_result_is_empty_contract` check now also routes
+# ``FOREST_VIOLATION`` / ``CONTRACT_LOAD_FAILED`` /
+# ``EGG_CONTRACTS_UNAVAILABLE`` / ``UNEXPECTED_EXCEPTION`` plus the
+# orthogonal ``populated_but_empty_slices`` case through here, where
+# the operator would otherwise read a contradictory message: the
+# prose says "draft missing/unparseable/yielded no tasks" while
+# ``reason=forest_violation`` says the draft parsed fine but the slice
+# DAG was rejected (#2627 review).  Reasons NOT in this dict
+# (``empty_result``, ``parse_failed``, ``draft_missing``,
+# ``no_draft_path``, ``plan_draft_missing_on_local``,
+# ``plan_draft_missing_on_local_and_origin``) fall through to the
+# generic line, which describes them accurately.
+_DIVERGENCE_LINE_BY_REASON: dict[str, str] = {
+    "forest_violation": (
+        "contract.slices is empty because the plan slice DAG was rejected as not a forest"
+    ),
+    "contract_load_failed": (
+        "contract.slices is empty because the parsed contract on disk failed to deserialize"
+    ),
+    "egg_contracts_unavailable": (
+        "contract.slices is empty because the egg-contracts library could "
+        "not be imported during populate"
+    ),
+    "unexpected_exception": (
+        "contract.slices is empty because the populator raised an unexpected exception"
+    ),
+    "populated_but_empty_slices": (
+        "contract.slices is empty because the populator ran but produced 0 slices/tasks"
+    ),
+}
+
+
 def _empty_contract_hitl_question(
     *,
     pipeline_id: str,
@@ -17929,6 +17966,16 @@ def _empty_contract_hitl_question(
             f"contract.slices is empty but the on-disk plan draft parses "
             f"to {draft_slice_count} slices"
         )
+    elif reason in _DIVERGENCE_LINE_BY_REASON:
+        # Reason-aware wording for outcomes whose root cause isn't
+        # "draft missing/unparseable/empty" — the widened
+        # :func:`_populate_result_is_empty_contract` check now routes
+        # ``FOREST_VIOLATION`` / ``CONTRACT_LOAD_FAILED`` /
+        # ``EGG_CONTRACTS_UNAVAILABLE`` / ``UNEXPECTED_EXCEPTION`` /
+        # ``POPULATED``-with-zero-slices through this same HITL, where
+        # the generic "draft missing, unparseable, or yielded no tasks"
+        # prose would contradict the ``reason=`` field (#2627 review).
+        divergence_line = _DIVERGENCE_LINE_BY_REASON[reason]
     else:
         divergence_line = (
             "contract.slices is empty and the plan draft is missing, "
@@ -17949,6 +17996,31 @@ def _empty_contract_hitl_question(
     )
 
 
+def _populate_outcome_to_hitl_reason(outcome: PopulateOutcome) -> str:
+    """Return the empty-contract HITL ``reason`` for a populate outcome.
+
+    Maps a :class:`PopulateOutcome` to the operator-visible ``reason``
+    string used by the dedicated empty-contract HITL:
+
+    * ``POPULATED`` → ``"populated_but_empty_slices"`` — the populator
+      ran but yielded 0 slices/tasks (the orthogonal "draft existed,
+      populator ran, but produced nothing" case so the HITL doesn't
+      claim a bare ``"populated"`` reason that contradicts the empty
+      contract — #2627 review).
+    * every other outcome → ``outcome.value`` (e.g. ``forest_violation``,
+      ``contract_load_failed``, ``empty_result``).
+
+    Extracted so both empty-contract call sites — the plan-complete
+    handler (via :func:`_empty_contract_hitl_reason`) and the
+    ``start_phase=implement`` safety net — share a single dispatch and
+    can't drift if a new outcome needs special-cased reason handling
+    (#2627 review follow-up).
+    """
+    if outcome == PopulateOutcome.POPULATED:
+        return "populated_but_empty_slices"
+    return outcome.value
+
+
 def _empty_contract_hitl_reason(
     err: PlanDraftMissingOnLocalError
     | PlanDraftMissingOnLocalAndOriginError
@@ -17962,11 +18034,10 @@ def _empty_contract_hitl_reason(
     * :class:`PlanDraftMissingOnLocalError` → ``plan_draft_missing_on_local``
     * :class:`PlanDraftMissingOnLocalAndOriginError` →
       ``plan_draft_missing_on_local_and_origin``
-    * :class:`PopulateProducedEmptyContractError` —
-      ``populated_but_empty_slices`` when ``err.outcome == POPULATED``
-      (the orthogonal "draft existed, populator ran, but produced
-      0 slices/tasks" case so the HITL doesn't claim a bare
-      "populated" reason — #2627 review), else ``err.outcome.value``.
+    * :class:`PopulateProducedEmptyContractError` — delegates to
+      :func:`_populate_outcome_to_hitl_reason` so the outcome → reason
+      mapping is shared with the ``start_phase=implement`` safety net
+      (#2627 review).
 
     Extracted so the plan-complete call site's HITL-reason dispatch
     is unit-testable without standing up the full ``_run_pipeline``
@@ -17976,9 +18047,7 @@ def _empty_contract_hitl_reason(
         return "plan_draft_missing_on_local"
     if isinstance(err, PlanDraftMissingOnLocalAndOriginError):
         return "plan_draft_missing_on_local_and_origin"
-    if err.outcome == PopulateOutcome.POPULATED:
-        return "populated_but_empty_slices"
-    return err.outcome.value
+    return _populate_outcome_to_hitl_reason(err.outcome)
 
 
 def _empty_contract_failure_metadata(
@@ -19635,12 +19704,15 @@ def _run_pipeline(
                 # out of agreement.  See that helper's docstring for the
                 # full discriminator rules.
                 if _populate_result_is_empty_contract(_safety_net_populate_result):
+                    # Reason dispatch shared with the plan-complete handler
+                    # via :func:`_populate_outcome_to_hitl_reason` so the
+                    # POPULATED → "populated_but_empty_slices" translation
+                    # (and any future special-cased outcome) can't drift
+                    # between the two call sites (#2627 review follow-up).
+                    _safety_net_reason = _populate_outcome_to_hitl_reason(
+                        _safety_net_populate_result.outcome
+                    )
                     if _safety_net_populate_result.outcome == PopulateOutcome.POPULATED:
-                        # POPULATED-with-no-slices: emit a distinct reason
-                        # so the HITL and audit trail name the actual
-                        # divergence (the populator ran but produced no
-                        # tasks) rather than the bare "populated" outcome.
-                        _safety_net_reason = "populated_but_empty_slices"
                         _safety_net_error = (
                             "start_phase=implement safety-net populate "
                             "completed but produced 0 slices/tasks — refusing "
@@ -19648,7 +19720,6 @@ def _run_pipeline(
                             "contract (#2627)"
                         )
                     else:
-                        _safety_net_reason = _safety_net_populate_result.outcome.value
                         _safety_net_error = (
                             f"start_phase=implement safety-net populate produced "
                             f"{_safety_net_populate_result.outcome.value} outcome — "

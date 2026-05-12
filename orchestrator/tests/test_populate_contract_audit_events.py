@@ -1213,6 +1213,20 @@ class TestPlanCompleteCallSiteWireUp:
     least-painful way to catch this without rebuilding the full
     ``_run_pipeline`` integration setup just for the plan-complete
     branch.
+
+    Fragility note (#2261 slice-15): when ``_run_pipeline`` is
+    decomposed into per-phase handlers (``_run_plan.py``,
+    ``_run_implement.py``, etc. — see ``orchestrator/CLAUDE.md``), the
+    plan-complete branch body will live in a different function and
+    ``inspect.getsource(_run_pipeline)`` will no longer cover it.  All
+    seven assertions below will then need to be re-pointed at whichever
+    submodule owns the plan-complete branch.  The assertions also use
+    string-membership against the full function body, so a hypothetical
+    new use of these tokens elsewhere in ``_run_pipeline`` could let a
+    regression at the actual call site slip past — tightening the
+    assertions to pin to the ``except`` block (regex anchored on the
+    surrounding context) would close that gap if the call site grows
+    siblings before the decomposition lands.
     """
 
     @staticmethod
@@ -1323,6 +1337,13 @@ class TestSafetyNetForestViolationLandsOnEmptyContractHitl:
     and routes through the HITL.  Symmetry: the safety net now wraps
     the inner call in ``try: ... except ForestValidationError:`` and
     synthesizes the same ``PopulateResult`` so both paths converge.
+
+    Fragility note (#2261 slice-15): same caveat as
+    :class:`TestPlanCompleteCallSiteWireUp` — the safety-net branch will
+    move out of ``_run_pipeline`` when it is decomposed into per-phase
+    handlers; ``inspect.getsource(_run_pipeline)`` will no longer cover
+    the safety-net body and the assertions below will need to be
+    re-pointed at the new owning submodule.
     """
 
     @staticmethod
@@ -1367,6 +1388,191 @@ class TestSafetyNetForestViolationLandsOnEmptyContractHitl:
             'safety-net forest-violation catch must log source="safety_net" '
             "to distinguish from the wrapper-side translation"
         )
+
+    def test_safety_net_dispatches_reason_through_shared_helper(self):
+        """#2627 review follow-up: the safety-net's reason dispatch must
+        route through :func:`_populate_outcome_to_hitl_reason` so the
+        ``POPULATED → populated_but_empty_slices`` translation (and any
+        future special-cased outcome) can't drift from the plan-complete
+        path.  The prior shape inlined the ``if outcome == POPULATED``
+        check, which was the exact drift surface the helper was extracted
+        to remove."""
+        source = self._run_pipeline_source()
+        # The safety-net call site must invoke the shared primitive on
+        # the safety-net populate result.
+        assert "_populate_outcome_to_hitl_reason(" in source, (
+            "safety-net must dispatch reason via _populate_outcome_to_hitl_reason "
+            "so the POPULATED-with-no-slices translation is shared with the "
+            "plan-complete path (#2627 review follow-up)"
+        )
+
+
+class TestPopulateOutcomeToHitlReason:
+    """#2627 review follow-up: the populate-outcome → HITL-reason
+    primitive is shared by :func:`_empty_contract_hitl_reason` (called
+    from the plan-complete handler) and the ``start_phase=implement``
+    safety-net inline dispatch.  Unit-test it so the shared translation
+    stays consistent.
+    """
+
+    def test_populated_maps_to_populated_but_empty_slices(self):
+        from routes.pipelines import (
+            PopulateOutcome,
+            _populate_outcome_to_hitl_reason,
+        )
+
+        # POPULATED with no slices is the orthogonal "populator ran but
+        # produced nothing" case.  The bare "populated" reason would
+        # contradict the empty-contract HITL — the helper exists to
+        # prevent that.
+        assert _populate_outcome_to_hitl_reason(PopulateOutcome.POPULATED) == (
+            "populated_but_empty_slices"
+        )
+
+    def test_non_populated_outcomes_dispatch_to_outcome_value(self):
+        from routes.pipelines import (
+            PopulateOutcome,
+            _populate_outcome_to_hitl_reason,
+        )
+
+        for outcome in PopulateOutcome:
+            if outcome == PopulateOutcome.POPULATED:
+                continue
+            assert _populate_outcome_to_hitl_reason(outcome) == outcome.value, (
+                f"non-POPULATED outcome {outcome} must map to outcome.value ({outcome.value!r})"
+            )
+
+    def test_helper_dispatches_through_outcome_primitive(self):
+        """:func:`_empty_contract_hitl_reason` must delegate the
+        ``PopulateProducedEmptyContractError`` branch to the shared
+        primitive so the two call sites can't disagree about the
+        outcome → reason mapping."""
+        import inspect
+
+        from routes.pipelines import _empty_contract_hitl_reason
+
+        helper_source = inspect.getsource(_empty_contract_hitl_reason)
+        assert "_populate_outcome_to_hitl_reason(" in helper_source, (
+            "_empty_contract_hitl_reason must delegate the outcome branch to "
+            "_populate_outcome_to_hitl_reason so the safety net and plan-complete "
+            "paths share the dispatch (#2627 review follow-up)"
+        )
+
+
+class TestEmptyContractHitlQuestionReasonAwareDivergence:
+    """#2627 review follow-up: when ``draft_slice_count is None`` the
+    HITL question previously hardcoded "the plan draft is missing,
+    unparseable, or yielded no tasks".  The widened
+    :func:`_populate_result_is_empty_contract` check now routes
+    ``FOREST_VIOLATION`` / ``CONTRACT_LOAD_FAILED`` /
+    ``EGG_CONTRACTS_UNAVAILABLE`` / ``UNEXPECTED_EXCEPTION`` plus the
+    orthogonal ``populated_but_empty_slices`` case through this same
+    question, where the generic prose contradicts the ``reason=`` field
+    operators see in ``pipeline.error``.  Reason-aware divergence lines
+    keep the prose and the reason field consistent."""
+
+    def test_forest_violation_uses_dag_specific_wording(self):
+        from routes.pipelines import _empty_contract_hitl_question
+
+        question = _empty_contract_hitl_question(
+            pipeline_id="p-forest",
+            reason="forest_violation",
+            draft_slice_count=None,
+            gate="plan_complete",
+        )
+        # The forest-violation case is "the draft parsed but the DAG was
+        # rejected" — must NOT claim the draft is missing/unparseable.
+        assert "slice DAG" in question, (
+            "forest_violation question must name the slice-DAG rejection "
+            "instead of the generic 'missing/unparseable/yielded no tasks' line"
+        )
+        assert "missing, unparseable, or yielded no tasks" not in question, (
+            "forest_violation must NOT use the generic draft-missing prose — "
+            "that contradicts the reason field operators see"
+        )
+        assert "forest_violation" in question
+
+    def test_contract_load_failed_uses_deserialize_specific_wording(self):
+        from routes.pipelines import _empty_contract_hitl_question
+
+        question = _empty_contract_hitl_question(
+            pipeline_id="p-load",
+            reason="contract_load_failed",
+            draft_slice_count=None,
+            gate="plan_complete",
+        )
+        assert "deserialize" in question, (
+            "contract_load_failed question must name the deserialize failure "
+            "instead of the generic draft-missing prose"
+        )
+        assert "missing, unparseable, or yielded no tasks" not in question
+        assert "contract_load_failed" in question
+
+    def test_populated_but_empty_slices_uses_populator_specific_wording(self):
+        from routes.pipelines import _empty_contract_hitl_question
+
+        question = _empty_contract_hitl_question(
+            pipeline_id="p-populated",
+            reason="populated_but_empty_slices",
+            draft_slice_count=None,
+            gate="plan_complete",
+        )
+        assert "produced 0 slices" in question or "produced 0 slices/tasks" in question, (
+            "populated_but_empty_slices question must name the 0-slices outcome "
+            "instead of the generic draft-missing prose"
+        )
+        assert "missing, unparseable, or yielded no tasks" not in question
+        assert "populated_but_empty_slices" in question
+
+    def test_egg_contracts_unavailable_uses_library_specific_wording(self):
+        from routes.pipelines import _empty_contract_hitl_question
+
+        question = _empty_contract_hitl_question(
+            pipeline_id="p-lib",
+            reason="egg_contracts_unavailable",
+            draft_slice_count=None,
+            gate="plan_complete",
+        )
+        assert "egg-contracts" in question
+        assert "missing, unparseable, or yielded no tasks" not in question
+
+    def test_unexpected_exception_uses_exception_specific_wording(self):
+        from routes.pipelines import _empty_contract_hitl_question
+
+        question = _empty_contract_hitl_question(
+            pipeline_id="p-exc",
+            reason="unexpected_exception",
+            draft_slice_count=None,
+            gate="plan_complete",
+        )
+        assert "unexpected exception" in question
+        assert "missing, unparseable, or yielded no tasks" not in question
+
+    def test_draft_missing_reasons_still_use_generic_prose(self):
+        """Reasons where the generic wording IS accurate (the draft really
+        is missing or yielded no tasks) must keep the original line —
+        we're not regressing the wording that was right to begin with."""
+        from routes.pipelines import _empty_contract_hitl_question
+
+        for accurate_reason in (
+            "empty_result",
+            "parse_failed",
+            "draft_missing",
+            "no_draft_path",
+            "plan_draft_missing_on_local",
+            "plan_draft_missing_on_local_and_origin",
+        ):
+            question = _empty_contract_hitl_question(
+                pipeline_id="p-generic",
+                reason=accurate_reason,
+                draft_slice_count=None,
+                gate="plan_complete",
+            )
+            assert "missing" in question or "unparseable" in question, (
+                f"reason {accurate_reason!r} should fall through to the generic "
+                f"draft-missing line (it accurately describes that root cause)"
+            )
+            assert accurate_reason in question
 
 
 if __name__ == "__main__":
