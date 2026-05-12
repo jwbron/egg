@@ -553,6 +553,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
     },
+    "a02aed544a1627b069179ce3975e821cfb84b0ef": {
+      "branch": "egg/issue-1557-v2/slice-2",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T18:26:40.058136+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code_holistic"
+    },
     "a04ea3569da0ccabd2fe7bd79967202d44cc2515": {
       "branch": "egg/issue-1557-v2/work",
       "pipeline_id": "issue-1557-v2",
@@ -573,6 +580,13 @@
       "registered_at": "2026-05-12T05:41:09.592715+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code"
+    },
+    "a470a8558f17330fa6c96ec48445a9ab3b2bd8b8": {
+      "branch": "egg/issue-1557-v2/slice-2",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T18:26:31.781568+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "a528febfbc19da0e612e365edb44c816263b0855": {
       "branch": "egg/issue-1557-v2/work",
