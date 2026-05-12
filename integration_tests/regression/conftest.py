@@ -420,4 +420,16 @@ __all__ = [
     "env_from_pod",
     "kubectl_get_pod_yaml",
     "spawner",
+    # BRC consensus fixtures (#2635). Listed for the same reason as
+    # ``spawner`` — these are pytest-injected, not directly imported,
+    # but belong in the public surface so ``dir(conftest)`` and ``import
+    # *`` reflect the full set. ``_reset_tracker_registry`` is autouse
+    # and ``filter_events`` is both the bare helper from ``_helpers`` and
+    # the fixture name it's exposed under via ``name="filter_events"``.
+    "_reset_tracker_registry",
+    "advisory_blocker_graph",
+    "event_capture",
+    "filter_events",
+    "single_reviewer_graph",
+    "two_reviewer_graph",
 ]
