@@ -1,50 +1,60 @@
-"""Shared fixtures for ``integration_tests/regression``.
+"""Shared fixtures for ``integration_tests/regression/``.
 
-The regression tier covers two complementary surfaces:
+This directory hosts three orthogonal regression tiers:
 
 * **Message store + event bus routing** (issue #2640) — exercises the
   load-bearing seams between the orchestrator's Flask blueprints, the
   inter-agent message store (in-memory + Redis Streams), and the
-  in-process ``EventBus``.
-* **BRC consensus** (issue #2635) — covers behaviours that have been
-  hand-rolled into postmortems: BRC single-cycle, phase-aware timeouts,
-  NACK round-trip, reviewer disagreement, etc. Tests live here (not
-  under ``orchestrator/tests/``) because they exercise the
-  orchestrator's Python API at the integration boundary — the shape
-  #2474 recommends after the ScriptedProvider pod-injection avenue was
-  ruled out.
+  in-process ``EventBus``. Real ``Flask`` blueprint and real
+  ``EventBus`` so the routing path under test is the same one
+  production runs. Dual-backend parametrization mirrors the AC pattern
+  from ``orchestrator/tests/test_pipelines_status_wait_route.py``:
+  every test that touches the message store runs against both
+  ``MessageStore`` (in-memory) and ``RedisMessageStore`` backed by
+  ``fakeredis.FakeRedis`` so a regression in either backend surfaces.
+* **BRC consensus** (issue #2635): exercises ``PeerConsensusTracker``
+  and the timeout-handler entry points in-process.  These tests do
+  NOT require k3s — they drive the orchestrator's Python API at the
+  integration boundary (the shape #2474 recommends after the
+  ScriptedProvider pod-injection avenue was ruled out).
+* **k3s slice-spawn / restart guards** (issue #2632): drive the real
+  ``KubernetesSpawner`` against the locally-deployed egg stack and
+  read pod specs back with ``kubectl get pod -o yaml``.  These pin
+  invariants we've regressed historically (slice spawn env threading
+  from #2428, slice restart branch ref from the #2410/#2428 follow-ups).
 
-These tests follow the integration-tier pattern established by
-``integration_tests/test_slice_pipeline_e2e.py``:
+All three tiers are marked ``integration`` (via module-level
+``pytestmark`` in each test file) and run under
+``make test-integration``.  The k3s fixtures only fire when a test
+takes the ``spawner`` / ``egg_stack`` fixtures; the message-bus tests
+use ``fakeredis`` and ``unittest.mock.patch`` for the pipeline
+state-store and the inner context-PR hook; the BRC fixtures are
+either autouse (tracker registry) or opt-in.
 
-* ``@pytest.mark.integration`` (applied at module level in each test
-  file) so ``make test-integration`` picks them up.
-* In-process fakes for any boundary that would otherwise require k3s,
-  Docker, or live LLM calls — ``fakeredis`` for the Redis backend,
-  ``unittest.mock.patch`` for the pipeline state-store and the inner
-  context-PR hook. BRC tests drive ``PeerConsensusTracker`` and the
-  timeout-handler entry points in-process against real implementations
-  and never call into the ``egg_stack`` fixture.
-* Real ``Flask`` blueprint and real ``EventBus`` so the routing path
-  under test is the same one production runs.
+The k3s fixtures intentionally pick spawn parameters that do NOT
+require a populated gateway test-repo: roles in
+``_ROLES_WITHOUT_WORKTREE`` and ``repos=[]``.  The env-threading and
+slice-id-threading code paths in ``kubernetes_spawner.py`` are
+role-independent (see lines 754-774 of that file at the time of
+writing), so a worktree-free role exercises the same seam the
+``coder`` regression in #2428 fired through.  This keeps the test
+green on a fresh CI runner where ``$HOME/repos`` is empty.
 
-The dual-backend parametrization for message-store tests mirrors the
-AC pattern from
-``orchestrator/tests/test_pipelines_status_wait_route.py``: every test
-that touches the message store runs against both ``MessageStore``
-(in-memory) and ``RedisMessageStore`` backed by ``fakeredis.FakeRedis``
-so a regression in either backend surfaces.
-
-Plain helper functions (``make_tracker``, ``propose_payload``,
-``filter_events``) live in ``_helpers.py``; pytest's conftest discovery
-only surfaces fixtures cross-module.
+Plain helper functions for BRC tests (``make_tracker``,
+``propose_payload``, ``filter_events``) live in ``_helpers.py``;
+pytest's conftest discovery only surfaces fixtures cross-module, so
+helpers usable in ``import`` statements have to live next door.
 """
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
+import time
 from collections.abc import Callable, Generator
 from pathlib import Path
+from typing import Any
 
 # sys.path setup: include _REGRESSION_DIR so ``_helpers`` is importable,
 # plus orchestrator + shared + project root so test modules can import
@@ -67,6 +77,10 @@ from events import Event, get_event_bus  # noqa: E402
 from peer_consensus import _trackers as _global_trackers  # noqa: E402
 from peer_consensus import _trackers_lock as _global_trackers_lock  # noqa: E402
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Message-bus routing fixtures (#2640)
+# ---------------------------------------------------------------------------
 
 # Lifecycle-secret-gated routes (PATCH /pipelines/<id>, DELETE
 # /pipelines/<id>, signals, etc.) require ``EGG_LIFECYCLE_SECRET`` to be
@@ -98,6 +112,142 @@ def _set_lifecycle_secret_env(monkeypatch):
 def lifecycle_auth_headers() -> dict[str, str]:
     """Valid ``Authorization`` header for lifecycle-control endpoints."""
     return {"Authorization": f"Bearer {_TEST_LIFECYCLE_SECRET}"}
+
+
+# ---------------------------------------------------------------------------
+# k3s slice-spawn helpers (#2632)
+# ---------------------------------------------------------------------------
+
+
+def kubectl_get_pod_yaml(
+    namespace: str,
+    label_selector: str,
+    timeout_s: float = 60.0,
+) -> dict[str, Any]:
+    """Return the first pod matching ``label_selector`` as a parsed dict.
+
+    Polls ``kubectl get pods -l <selector>`` until at least one pod
+    exists or the timeout expires. The pod spec (including the env
+    var list) is populated as soon as the Job's pod template is
+    materialized — we do NOT wait for ``Running`` because a session
+    with a token-only gateway registration will still produce a pod
+    spec whether or not its image entrypoint succeeds.
+
+    Args:
+        namespace: k8s namespace.
+        label_selector: passed verbatim to ``kubectl -l``.
+        timeout_s: pod-appearance deadline.
+
+    Raises:
+        AssertionError: if no pod appears within ``timeout_s``.
+    """
+    deadline = time.monotonic() + timeout_s
+    last_err: str | None = None
+    while time.monotonic() < deadline:
+        proc = subprocess.run(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "get",
+                "pods",
+                "-l",
+                label_selector,
+                "-o",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if proc.returncode != 0:
+            last_err = proc.stderr
+            time.sleep(1)
+            continue
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError as e:
+            last_err = f"{e}: {proc.stdout[:200]}"
+            time.sleep(1)
+            continue
+        items = data.get("items") or []
+        if items:
+            return items[0]
+        time.sleep(1)
+    raise AssertionError(
+        f"No pod matched selector {label_selector!r} in {namespace} "
+        f"within {timeout_s}s (last error: {last_err})"
+    )
+
+
+def env_from_pod(pod: dict[str, Any]) -> dict[str, str]:
+    """Flatten the agent container's literal ``env`` list to a dict.
+
+    Skips ``valueFrom`` entries — they don't have a literal value at
+    the pod-spec level. ``EGG_BRANCH`` / ``EGG_SLICE_ID`` are always
+    set as literals by ``KubernetesSpawner`` so this is sufficient
+    for the invariants this directory pins.
+    """
+    containers = pod.get("spec", {}).get("containers") or []
+    if not containers:
+        raise AssertionError(f"Pod has no containers: {pod.get('metadata', {}).get('name')}")
+    out: dict[str, str] = {}
+    for entry in containers[0].get("env") or []:
+        if "value" in entry:
+            out[entry["name"]] = entry["value"]
+    return out
+
+
+@pytest.fixture
+def spawner(egg_stack: Any) -> Generator[Any]:
+    """Yield a ``KubernetesSpawner`` bound to the test agent namespace.
+
+    Uses the same launcher secret + gateway URL the rest of the
+    integration suite discovers via ``egg_stack``. The spawner's
+    ``KubernetesClient`` loads the local kubeconfig (the test process
+    runs out-of-cluster).
+    """
+    try:
+        from gateway_client import GatewayClient
+        from kubernetes_client import KubernetesClient
+        from kubernetes_spawner import KubernetesSpawner
+    except ImportError as e:
+        pytest.skip(f"Could not import orchestrator modules: {e}")
+
+    # Pin GatewayClient at the discovered gateway URL. ``egg_stack``
+    # already validated the gateway is reachable.
+    gateway_url = egg_stack.gateway_url.rstrip("/")
+    # ``gateway_url`` is ``http://<host>:<port>``; split it for the
+    # client's host/port kwargs.
+    parsed = gateway_url.removeprefix("http://").removeprefix("https://")
+    if ":" in parsed:
+        host, port_s = parsed.rsplit(":", 1)
+        port = int(port_s)
+    else:
+        host = parsed
+        port = egg_stack.gateway_port
+
+    # ``launcher_secret`` is passed explicitly to ``GatewayClient`` —
+    # the env-var fallback inside the client never fires here, so no
+    # ``os.environ`` mutation is needed.
+    gateway = GatewayClient(
+        gateway_host=host,
+        gateway_port=port,
+        launcher_secret=egg_stack.launcher_secret,
+    )
+    k8s = KubernetesClient(namespace=egg_stack.isolated_network)
+    s = KubernetesSpawner(
+        k8s_client=k8s,
+        gateway_client=gateway,
+        namespace=egg_stack.isolated_network,
+    )
+    yield s
+
+
+# ---------------------------------------------------------------------------
+# BRC consensus fixtures (#2635)
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)

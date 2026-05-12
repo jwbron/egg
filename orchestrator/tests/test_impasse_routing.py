@@ -19,7 +19,7 @@ from egg_contracts.loader import (  # noqa: E402
     load_contract,
     save_contract,
 )
-from egg_contracts.models import Slice, Task  # noqa: E402
+from egg_contracts.models import Decision, DecisionType, Slice, Task  # noqa: E402
 from impasse_routing import (  # noqa: E402
     DELEGATION_LIMIT,
     ImpasseAction,
@@ -289,6 +289,74 @@ class TestRouteImpassesEscalate:
         )
         assert decisions[0].action == ImpasseAction.ESCALATE
         assert "task_id" in decisions[0].reason
+
+    def test_escalate_allocates_cq_prefix_when_contract_has_legacy_decisions(self, tmp_path):
+        """Regression for #2616: ``_build_hitl_decision`` allocates a
+        ``cq-N`` id even when the contract is pre-populated with legacy
+        ``decision-N`` entries (mirrors of the pipeline-side
+        phase_gate). The two prefixes share ``Decision.id`` but are
+        counted independently so the contract-side allocator can never
+        collide with the pipeline-side ``decision-N`` namespace.
+        """
+        pid = _seed_contract(tmp_path)
+        contract = load_contract(pid, tmp_path)
+        # Simulate the bridge having mirrored 13 phase_gate writes into
+        # the contract before the orchestrator escalates an impasse.
+        for i in range(1, 14):
+            contract.decisions.append(
+                Decision(id=f"decision-{i}", question=f"q{i}", type=DecisionType.HITL)
+            )
+        save_contract(contract, tmp_path)
+
+        imp = Impasse(
+            category=ImpasseCategory.PLAN_BUG,
+            reason="ambiguous criterion",
+            task_id="task-1-1",
+        )
+        decisions = route_impasses(
+            repo_path=tmp_path,
+            pipeline_id=pid,
+            contract_identifier=pid,
+            impasses=[(ContractAgentRole.CODER, imp)],
+            slice_id="slice-1",
+        )
+        assert decisions[0].hitl_decision_id == "cq-1"
+        contract = load_contract(pid, tmp_path)
+        assert any(d.id == "cq-1" for d in contract.decisions)
+
+    def test_escalate_increments_cq_counter_across_multiple_impasses(self, tmp_path):
+        """Two impasses in one ``route_impasses`` call must produce
+        ``cq-1`` then ``cq-2`` even though ``_build_hitl_decision`` is
+        invoked without a save between calls — the function reads the
+        running mutations via ``contract.decisions`` in-place.
+        """
+        pid = _seed_contract(tmp_path)
+        # Add a second task so each impasse resolves to its own task.
+        contract = load_contract(pid, tmp_path)
+        contract.slices[0].tasks.append(
+            Task(
+                id="task-1-2",
+                description="another task",
+                role="coder",
+                files_affected=["other.py"],
+            )
+        )
+        save_contract(contract, tmp_path)
+
+        imp_a = Impasse(category=ImpasseCategory.PLAN_BUG, reason="a", task_id="task-1-1")
+        imp_b = Impasse(category=ImpasseCategory.PLAN_BUG, reason="b", task_id="task-1-2")
+        decisions = route_impasses(
+            repo_path=tmp_path,
+            pipeline_id=pid,
+            contract_identifier=pid,
+            impasses=[
+                (ContractAgentRole.CODER, imp_a),
+                (ContractAgentRole.CODER, imp_b),
+            ],
+            slice_id="slice-1",
+        )
+        ids = [d.hitl_decision_id for d in decisions]
+        assert ids == ["cq-1", "cq-2"]
 
 
 class TestEmptyInput:

@@ -58,7 +58,7 @@ class TestRegisterOpenQuestion:
             )
 
         assert resp["ok"] is True
-        assert resp["id"] == "decision-1"
+        assert resp["id"] == "cq-1"
         # Options get an "Other" appended automatically.
         labels = [o["label"] for o in resp["decision"]["options"]]
         assert labels == ["A", "B", "Other (explain in reply)"]
@@ -148,9 +148,7 @@ class TestRegisterOpenQuestion:
         """Two concurrent agents may compute the same decision index;
         the loser's write should retry after re-reading the contract."""
         first_contract = _fake_contract(decisions=[])
-        second_contract = _fake_contract(
-            decisions=[{"id": "decision-1", "question": "other agent's"}]
-        )
+        second_contract = _fake_contract(decisions=[{"id": "cq-1", "question": "other agent's"}])
         responses = [
             {"success": True, "data": first_contract},  # attempt 1 read
             {"success": False, "message": "Array index 0 out of range"},
@@ -166,10 +164,42 @@ class TestRegisterOpenQuestion:
         ):
             resp = sdlc.register_open_question({"question": "q?"})
         assert resp["ok"] is True
-        # Retried: now index 1 (second decision).
-        assert resp["id"] == "decision-2"
+        # Retried: cq counter is now 2 (one cq-1 already present),
+        # array index is now 1 (one entry already present).
+        assert resp["id"] == "cq-2"
         mutate_data = gr.call_args_list[3].kwargs["data"]
         assert mutate_data["field_path"] == "decisions.1"
+
+    def test_cq_prefix_skips_legacy_decision_ids_in_namespace(self):
+        """Regression for #2616: when the contract is pre-populated with
+        legacy ``decision-N`` entries (mirrors of the orchestrator's
+        bridged refine decisions and the phase_gate), a fresh
+        registration must allocate ``cq-1`` rather than re-using a
+        ``decision-N`` that already exists on the pipeline side and
+        triggers HTTP 409 on ``provide_input``."""
+        legacy = _fake_contract(
+            current_phase="implement",
+            decisions=[{"id": f"decision-{i}", "question": f"q{i}"} for i in range(1, 14)],
+        )
+        responses = [
+            {"success": True, "data": legacy},
+            {"success": True, "data": {}},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=1557),
+        ):
+            resp = sdlc.register_open_question({"question": "scope dispute?"})
+        # Cq counter ignores ``decision-N`` entries, so the first new
+        # contract question is ``cq-1`` — no collision with the
+        # phase_gate that the orchestrator allocated as ``decision-14``.
+        assert resp["id"] == "cq-1"
+        # Appended at the end of the existing array.
+        mutate_data = gr.call_args_list[1].kwargs["data"]
+        assert mutate_data["field_path"] == "decisions.13"
 
     def test_toctou_non_retryable_error_bails_immediately(self):
         """A non-TOCTOU gateway error must not be retried."""

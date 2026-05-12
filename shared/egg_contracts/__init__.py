@@ -85,6 +85,10 @@ from .audit import (
     create_update_entry,
     format_audit_log,
 )
+from .decisions import (
+    CQ_ID_PATTERN,
+    next_cq_id,
+)
 from .dependency_graph import (
     DependencyGraph,
     DependencyNode,
@@ -247,6 +251,7 @@ __all__ = [
     "CheckDefinition",
     "CheckResult",
     "CheckStatus",
+    "CQ_ID_PATTERN",
     "Contract",
     "ContractNotFoundError",
     "ContractValidationError",
@@ -291,6 +296,7 @@ __all__ = [
     "list_contracts",
     "load_contract",
     "load_contract_from_branch",
+    "next_cq_id",
     "normalize_path",
     "save_contract",
     "validate_mutation",
