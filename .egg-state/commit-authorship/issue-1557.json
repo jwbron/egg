@@ -147,6 +147,20 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
     },
+    "34d76fdaa969770e757c3fc1a143c283c9cf4fdf": {
+      "branch": "egg/issue-1557/work",
+      "pipeline_id": "issue-1557",
+      "registered_at": "2026-05-12T00:22:14.850496+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code_holistic"
+    },
+    "4b429f99961fb3ee88f7ecd77357f5553058669e": {
+      "branch": "egg/issue-1557/work",
+      "pipeline_id": "issue-1557",
+      "registered_at": "2026-05-12T00:22:19.211639+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_contract"
+    },
     "4cd1b004eb4f47c52b77d92496ae780e43d6289c": {
       "branch": "egg/issue-1557/work",
       "pipeline_id": "issue-1557",
@@ -258,6 +272,20 @@
       "registered_at": "2026-05-12T00:21:35.985504+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "76081ba19a1df17c5fbf34f341dd452ae28b9346": {
+      "branch": "egg/issue-1557/work",
+      "pipeline_id": "issue-1557",
+      "registered_at": "2026-05-12T00:22:17.782912+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
+    },
+    "76d5e5109b5e8eaabba66d4ad60a73202235f27a": {
+      "branch": "egg/issue-1557/work",
+      "pipeline_id": "issue-1557",
+      "registered_at": "2026-05-12T00:22:14.940886+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     },
     "7e1b45cacdcd0304f20efb6b8c57c2fe808919a9": {
       "branch": "egg/issue-1557/work",
@@ -482,6 +510,13 @@
       "registered_at": "2026-05-12T00:08:51.096499+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
+    },
+    "e0b3ea5f4d5c1b2ae28acba13498421e08b42768": {
+      "branch": "egg/issue-1557/work",
+      "pipeline_id": "issue-1557",
+      "registered_at": "2026-05-12T00:22:23.373336+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code"
     },
     "ec41bdc09fc21648f590f5c3f1e63b7fa13e5630": {
       "branch": "egg/issue-1557/work",
