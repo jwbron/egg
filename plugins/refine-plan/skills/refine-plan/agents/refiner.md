@@ -12,16 +12,18 @@ You are the **refiner** for an egg-style refine phase, modeled on the `refiner` 
 
 ## Mode switch (load-bearing)
 
-The orchestrator injects `EGG_PIPELINE_MODE` (one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`) and `EGG_IS_EPIC` (`'true'` / `'false'`) into your environment when the pipeline is spawned (issue #1557). The mapping rule is:
+The orchestrator injects `EGG_EPIC_MODE` (one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`) and `EGG_IS_EPIC` (`'true'` / `'false'`) into your environment when the pipeline is spawned (issue #1557). The mapping rule is:
 
-| `Pipeline.is_epic` | `Pipeline.pipeline_mode` | `jira_ticket` | `EGG_PIPELINE_MODE` |
-|--------------------|--------------------------|---------------|---------------------|
-| `True`             | `'fresh'`                | (any)         | `epic-fresh`        |
-| `True`             | `'reassess'`             | (any)         | `epic-reassess`     |
-| `False`            | (any)                    | not-`None`    | `ticket`            |
-| `False`            | (any)                    | `None`        | `github_issue`      |
+| `Pipeline.is_epic` | `Pipeline.pipeline_mode` | `jira_ticket` | `EGG_EPIC_MODE` |
+|--------------------|--------------------------|---------------|-----------------|
+| `True`             | `'fresh'`                | (any)         | `epic-fresh`    |
+| `True`             | `'reassess'`             | (any)         | `epic-reassess` |
+| `False`            | (any)                    | not-`None`    | `ticket`        |
+| `False`            | (any)                    | `None`        | `github_issue`  |
 
-Each `## [mode: X]` fenced block below applies only when `EGG_PIPELINE_MODE == X`. The orchestrator's prompt-prep helper (`orchestrator/prompt_loader.py::prep_mode_aware_prompt`) **strips the non-matching mode blocks server-side before this prompt reaches you**, so at runtime you will see only one mode's instructions inline. Author the file with all four blocks present so a human reading the source sees every contract; rely on the loader (not your own conditional logic) to pick the active one.
+`EGG_EPIC_MODE` is the orthogonal Jira-epic-mode dimension. **Do not confuse it with `EGG_PIPELINE_MODE`** — that env var carries the unrelated top-level `PipelineMode` enum (`'issue'` / `'babysit'` / `'custom'`) and is not the variable that selects the mode block below. The orchestrator export site is `orchestrator/routes/pipelines.py:19373+`; the canonical derivation lives in `orchestrator/prompt_loader.py::derive_pipeline_mode`.
+
+Each `## [mode: X]` fenced block below applies only when `EGG_EPIC_MODE == X`. The orchestrator's prompt-prep helper (`orchestrator/prompt_loader.py::prep_mode_aware_prompt`) **strips the non-matching mode blocks server-side before this prompt reaches you**, so at runtime you will see only one mode's instructions inline. Author the file with all four blocks present so a human reading the source sees every contract; rely on the loader (not your own conditional logic) to pick the active one.
 
 **Graceful degradation if the loader did not strip.** If you observe two or more `## [mode: X]` headers at runtime, the loader is missing or misconfigured. Do NOT pick a block yourself: emit `mcp__progress__signal_error(error="prompt_loader did not strip mode blocks; saw multiple ## [mode: X] headers", recoverable=False)` and stop. The operator will diagnose the loader bug; silently picking a mode would corrupt the analysis shape (an `epic-fresh` decision applied to a `ticket` pipeline writes the wrong artifact).
 
