@@ -400,10 +400,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T04:46:05.183704Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T04:50:18.638508Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Persist mapping on the contract: extend `task` model with optional `jira_key`, `jira_action` ('create' / 'edit' / 'wontdo' / 'split-of' / 'consolidate-into') fields. Single source of truth; visible to inspect tools; survives crashes. Recommended.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -549,7 +549,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:50:16.487831Z",
+  "updated_at": "2026-05-12T04:50:18.646212Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 39,
+  "version": 40,
   "jira_ticket": null
 }
