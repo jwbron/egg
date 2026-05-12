@@ -381,10 +381,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T04:46:05.143857Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T04:50:16.482643Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Reuse the existing `description` field but require ticket-shaped content (sections: Problem, Scope, Acceptance, OOS, Links). Lightest schema change — just prompt + planner enforcement; no migration concerns for non-Jira pipelines. Recommended.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -549,7 +549,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:49:47.013075Z",
+  "updated_at": "2026-05-12T04:50:16.487831Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 38,
+  "version": 39,
   "jira_ticket": null
 }
