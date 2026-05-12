@@ -249,12 +249,15 @@ class TestRunAgentTaskValidation:
         # race on the same pipeline_id when this test creates state.
         # (It does not — the route validates roles before the state-
         # store write, see orchestrator/routes/pipelines.py:1905-1918.)
+        # Must use an allowlisted repo (_TEST_REPO) — the repo allowlist
+        # check for CUSTOM mode rejects unknown repos before reaching role
+        # validation.
         result = _call_tool(
             orchestrator_mcp_url,
             "run_agent_task",
             {
                 "phase": "implement",
-                "repo": "owner/repo",
+                "repo": _TEST_REPO,
                 "description": "reviewer-only roster test",
                 "roles": ["reviewer_code"],
                 "qualifier": f"mcp-contract-{secrets.token_hex(4)}",
@@ -267,12 +270,14 @@ class TestRunAgentTaskValidation:
         # Cross-phase roles (overseer / autofixer / conflict_resolver /
         # inspector) are rejected by the route with reason='cross_phase_role'.
         # Same no-state-write guarantee as reviewer-only roster.
+        # Must use an allowlisted repo — same reasoning as the reviewer-only
+        # roster test above.
         result = _call_tool(
             orchestrator_mcp_url,
             "run_agent_task",
             {
                 "phase": "implement",
-                "repo": "owner/repo",
+                "repo": _TEST_REPO,
                 "description": "cross-phase role test",
                 "roles": ["coder", "overseer"],
                 "qualifier": f"mcp-contract-{secrets.token_hex(4)}",

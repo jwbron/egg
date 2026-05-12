@@ -271,7 +271,7 @@ PIPELINE_TOOLS = [
                     "description": 'Optional pipeline configuration overrides (e.g. {"hitl_gates": false}).',
                 },
             },
-            "required": ["pr_number", "repo"],
+            "required": ["repo"],
         },
     },
     {
@@ -1330,7 +1330,11 @@ class PipelineToolHandler:
             data["source_artifact_prefix"] = args["source_artifact_prefix"]
 
         try:
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+            # The create_pipeline route calls ls_remote_branch via the gateway,
+            # which can take up to 30s when the gateway's git network call
+            # times out (e.g. non-existent repo).  Use 120s so this call
+            # survives the worst-case gateway I/O path.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=120)
         except HTTPError as e:
             # Read the response body once upfront to avoid stream-exhaustion
             # issues if multiple branches need to inspect it.
@@ -1482,7 +1486,9 @@ class PipelineToolHandler:
             data["config"] = config
 
         try:
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+            # Same 120s rationale as _handle_submit_task: the create_pipeline
+            # route's ls_remote_branch gateway call can take up to 30s.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=120)
         except HTTPError as e:
             try:
                 raw_body = e.read()
@@ -1597,7 +1603,8 @@ class PipelineToolHandler:
             data["config"] = config
 
         try:
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+            # Same 120s rationale as _handle_submit_task.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=120)
         except HTTPError as e:
             try:
                 raw_body = e.read()
