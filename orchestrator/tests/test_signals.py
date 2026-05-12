@@ -36,6 +36,12 @@ def app():
 
 
 @pytest.fixture
+def client(app):
+    """Test client for the signals blueprint."""
+    return app.test_client()
+
+
+@pytest.fixture
 def mock_pipeline():
     """Create a mock pipeline."""
     from models import Pipeline
@@ -1715,12 +1721,6 @@ class TestAckVersionForwarding:
         payload_passed = call_args[0][2]
         # Payload's own ack_version should be preserved, not overwritten
         assert payload_passed.get("ack_version") == 3
-
-
-@pytest.fixture
-def client(app):
-    """Test client for the signals blueprint."""
-    return app.test_client()
 
 
 class TestNonObjectJsonBodyReturns400:
