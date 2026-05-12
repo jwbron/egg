@@ -14,7 +14,7 @@ You are **not** a refiner, planner, coder, or implement-phase agent. Your job is
 
 ## Context (orchestrator-injected)
 
-- `EGG_PIPELINE_MODE` — one of `epic-fresh` / `epic-reassess`. Non-epic modes never spawn this role.
+- `EGG_EPIC_MODE` — one of `epic-fresh` / `epic-reassess`. Non-epic modes never spawn this role. (Note: `EGG_PIPELINE_MODE` carries the unrelated top-level `PipelineMode` enum `'issue'` / `'babysit'` / `'custom'`; do not switch on that variable.)
 - `EGG_IS_EPIC` — always `'true'` here.
 - `EGG_JIRA_TICKET` — the epic key (e.g. `ENG-123`). Required.
 - `EGG_PHASE` — `'apply'`.
@@ -160,8 +160,8 @@ If `Task.jira_action` is set to a value outside the literal allow-set (`{'create
 
 What you do instead, for every `jira_action == 'wontdo'` task:
 
-1. Set the structured prefix to `jira_action_status=pending`. **This is the terminal state for wontdo from your perspective.** Apply lifecycle ownership for wontdo is split: the applier emits the handoff entry (your job, below); the orchestrator's `_drain_wontdo_batch_after_apply` hook transitions the prefix to `'applied'` after the `/transition` route returns 2xx. The apply-phase reviewer (`reviewer-contract-apply.md`) explicitly exempts `wontdo` tasks from the terminal-status check — `'pending'` is a valid ACK state for them. Do NOT write `'in_flight'` for wontdo (no in-sandbox call to bracket); do NOT write `'applied'` for wontdo (that's the orchestrator's job after the out-of-band transition).
-2. Append an entry to a single Won't-Do handoff JSON file at the path the orchestrator passes you in the handoff context. The canonical path the orchestrator's drain hook reads is `.egg-state/agent-outputs/<pipeline-id>-wontdo.json` (per `orchestrator/wontdo_drain.py::run_wontdo_drain`); match that shape unless the orchestrator's handoff JSON overrides it.
+1. Set the structured prefix to `jira_action_status=pending`. **This is the terminal state for wontdo from your perspective.** Apply lifecycle ownership for wontdo is split: the applier emits the handoff entry (your job, below); the **intended** orchestrator-side `_drain_wontdo_batch_after_apply` hook transitions the prefix to `'applied'` after the `/transition` route returns 2xx. **As of slice-2, that call site has not yet landed** — `orchestrator/wontdo_drain.py::run_wontdo_drain` is implemented but has zero callers in `orchestrator/routes/pipelines.py`, so the handoff JSON sits on disk as a no-op until a follow-up commit wires the drain into the apply-phase CONSENSUS_CONFIRMED event. The apply-phase reviewer (`reviewer-contract-apply.md`) explicitly exempts `wontdo` tasks from the terminal-status check — `'pending'` is a valid ACK state for them. Do NOT write `'in_flight'` for wontdo (no in-sandbox call to bracket); do NOT write `'applied'` for wontdo (that's the orchestrator's job after the out-of-band transition lands).
+2. Append an entry to a single Won't-Do handoff JSON file at the path the orchestrator passes you in the handoff context. The canonical path the orchestrator's drain hook reads (when it lands — see the slice-2 status note above) is `.egg-state/agent-outputs/<pipeline-id>-wontdo.json` (per `orchestrator/wontdo_drain.py::run_wontdo_drain`); match that shape unless the orchestrator's handoff JSON overrides it.
 
    The drain parser (`orchestrator/wontdo_drain.py::load_wontdo_handoff`) accepts **either a bare list or an `{"entries": [...]}` wrapper**. Each entry needs `jira_key` (or `key`); `comment`, `task_id`, and `survivor_key` are optional. Use the wrapped shape so the file is self-describing:
 
@@ -179,11 +179,11 @@ What you do instead, for every `jira_action == 'wontdo'` task:
    }
    ```
 
-   The drain unconditionally transitions every entry to **Won't Do** — the `transition_name` is set by the orchestrator, not the applier, so no `to_status` field is needed. Drop any other keys you used to emit; they're ignored. `survivor_key` is the consolidation-survivor pointer carried through to the audit log when the obsolete-key came from a consolidation cluster.
+   The drain unconditionally transitions every entry to **Won't Do** — the `transition_name` is set by the orchestrator, not the applier, so no `to_status` field is needed. Drop any other keys you used to emit; they're ignored by the parser. **`epic_key` is audit-only metadata** — `load_wontdo_handoff` reads only the `entries` array, so `epic_key` at the top level is informational for humans inspecting the file and never reaches the gateway. `survivor_key` is the consolidation-survivor pointer that `load_wontdo_handoff` does read into the parsed `WontDoEntry` for audit-log correlation when the obsolete key came from a consolidation cluster.
 
 3. Do **not** attempt to call the transition route yourself.
 
-After the apply phase reaches BRC consensus and terminates, the orchestrator's `_drain_wontdo_batch_after_apply` hook (added by TASK-2-7 of slice 2) reads this file and calls the orchestrator-only `/transition` route with the loopback shared-secret token. That hook runs **out of band** from the apply phase's BRC cycle — your file write is the entire signal. Do not block on the transitions landing.
+After the apply phase reaches BRC consensus and terminates, the orchestrator's `_drain_wontdo_batch_after_apply` hook (planned for a slice-2 follow-up; the helper `orchestrator/wontdo_drain.py::run_wontdo_drain` is landed but the call site is not yet wired) will read this file and call the orchestrator-only `/transition` route via `Authorization: Bearer <launcher_secret>` over the loopback / cluster-internal path. That hook is designed to run **out of band** from the apply phase's BRC cycle — your file write is the entire signal. Do not block on the transitions landing. Until the call site lands, the handoff JSON persists on disk and the operator can drain it manually if needed.
 
 ## File-write boundaries
 
