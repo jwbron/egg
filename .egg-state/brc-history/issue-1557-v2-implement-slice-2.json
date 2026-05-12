@@ -13284,5 +13284,132 @@
     },
     "timestamp": "2026-05-12T19:41:43.014127+00:00",
     "phase": "implement"
+  },
+  {
+    "id": "5f8cc7d1-3d13-4c",
+    "pipeline_id": "issue-1557-v2",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-12T19:41:45.473622+00:00",
+      "slice_id": "slice-2"
+    },
+    "timestamp": "2026-05-12T19:41:45.790562+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "dcfd1cff-bdb9-4e",
+    "pipeline_id": "issue-1557-v2",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-2"
+    },
+    "timestamp": "2026-05-12T19:41:45.839801+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bef6721b-20c4-43",
+    "pipeline_id": "issue-1557-v2",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-12T19:41:46.062585+00:00",
+      "slice_id": "slice-2"
+    },
+    "timestamp": "2026-05-12T19:41:46.104519+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "42f3179a-5e10-46",
+    "pipeline_id": "issue-1557-v2",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-12T19:41:47.194046+00:00",
+      "slice_id": "slice-2"
+    },
+    "timestamp": "2026-05-12T19:41:47.229148+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b435b620-fc37-4f",
+    "pipeline_id": "issue-1557-v2",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,CONSENSUS_PROPOSE,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-12T19:41:54.945792+00:00",
+      "slice_id": "slice-2"
+    },
+    "timestamp": "2026-05-12T19:42:15.944337+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "68ba4920-0c6a-4d",
+    "pipeline_id": "issue-1557-v2",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-12T19:41:55.433444+00:00",
+      "slice_id": "slice-2"
+    },
+    "timestamp": "2026-05-12T19:42:15.949469+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6d08b4fe-c292-40",
+    "pipeline_id": "issue-1557-v2",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-12T19:41:48.476792+00:00",
+      "slice_id": "slice-2"
+    },
+    "timestamp": "2026-05-12T19:42:15.960699+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "277f8cef-8b2c-45",
+    "pipeline_id": "issue-1557-v2",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT,STATUS",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-12T19:37:47.389011+00:00",
+      "slice_id": "slice-2"
+    },
+    "timestamp": "2026-05-12T19:42:16.061808+00:00",
+    "phase": "implement"
   }
 ]
