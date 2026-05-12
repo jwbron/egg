@@ -896,6 +896,33 @@ When configured, the tester runs these commands sequentially instead of auto-dis
 
 If not configured, the tester falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
 
+### Per-Repository Role Patterns
+
+Non-Python repositories often have different file layout conventions (Go uses `*_test.go`, JavaScript uses `__tests__/`, etc.). Without overrides, the default patterns may misroute files to the wrong role. You can configure per-repo role-file conventions in `repositories.yaml`:
+
+```yaml
+repo_settings:
+  your-org/example-go-repo:
+    role_patterns:
+      tests_globs: ["**/*_test.go", "**/testdata/**"]
+      code_globs:  ["**/*.go"]
+      docs_globs:  ["**/*.md", "docs/"]
+```
+
+All three keys (`tests_globs`, `code_globs`, `docs_globs`) are optional. Unset keys fall back to the built-in defaults (Python/Go/JS/TS patterns). Each value must be a list of non-empty glob strings.
+
+**What each key controls:**
+
+| Key | Affects roles | Default includes |
+|-----|--------------|-----------------|
+| `tests_globs` | coder (blocked), tester (allowed) | `tests/`, `**/*_test.py`, `**/*_test.go`, `**/*.test.ts`, etc. |
+| `code_globs` | documenter (blocked), autofixer (allowed) | `**/*.py`, `**/*.go`, `**/*.ts`, etc. |
+| `docs_globs` | coder (blocked), tester (blocked), documenter (allowed) | `docs/`, `**/*.md` |
+
+**Security boundary:** Security-relevant blocklists (`.egg-state/contracts/`, `.github/`) are hard-coded and cannot be relaxed by repo config. Only the language-convention globs are configurable.
+
+The orchestrator pre-resolves the override at spawn time and passes it to sandbox containers via the `EGG_PIPELINE_REPO_PATTERNS_JSON` environment variable. The gateway reads the override directly from `repositories.yaml` at push time. Both paths share the same validation logic — unknown keys and invalid values are dropped with a warning.
+
 ### Built-in Checks
 
 | Check | ID | Purpose | Fixable |
