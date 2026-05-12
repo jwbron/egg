@@ -444,10 +444,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-15",
+      "question": "**\"In-flight\" status set definition** (paired with the Done-status decision). The issue lists `{In Progress, In Review, Code Review, Blocked, ...}` per Jira project workflow. Options:",
+      "context": "Open contract question decision-14, registered by an agent during the refine phase.",
+      "options": [
+        "Use status category: `statusCategory.key == 'indeterminate'` (i.e. anything not New and not Done). Self-configuring; mirrors the Done decision.",
+        "Hard-coded status name list shared across projects (`{'In Progress', 'In Review', 'Code Review', 'Blocked'}`). Predictable but doesn't adapt to project-specific names.",
+        "Per-project config in `context-filters.yaml`: each project declares `in_flight_statuses: [...]` explicitly.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.310760Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.272335Z",
+  "updated_at": "2026-05-12T04:46:05.318845Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -461,6 +480,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null
 }
