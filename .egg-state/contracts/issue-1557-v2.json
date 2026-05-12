@@ -47,10 +47,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Two slices with dependency: [A+B+C+D fresh-epic path end-to-end] -> [E+F+G reassess path] (2 PRs, reassess builds on fresh)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:48:14.698925Z",
       "debounce_until": null
     },
     {
@@ -80,10 +80,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Orchestrator-side at `submit_task` time: orchestrator calls gateway `/api/v1/jira/ticket/get` with `fields=['issuetype','status','description','summary','parent']` before pipeline creation; persists `is_epic` on the Pipeline model; refiner / planner / apply step read it from contract. Cleanest single source of truth but adds Jira RTT to `submit_task`.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:48:14.726463Z",
       "debounce_until": null
     },
     {
@@ -118,10 +118,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-project configuration only: each allowlisted project declares `epic_link_field: 'parent' | 'customfield_10014'` in `config/context-filters.yaml`; apply step reads it. Operator owns correctness; no runtime probing. Recommended baseline.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:48:44.635642Z",
       "debounce_until": null
     },
     {
@@ -156,10 +156,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Batch on the single plan-gate approval: the human approves the whole plan diff once, the orchestrator transitions every flagged-obsolete child in one pass (with per-ticket Won't-Do comment pointing at the survivor / refine analysis). Lowest friction; matches today's HITL ergonomics.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:48:44.655142Z",
       "debounce_until": null
     },
     {
@@ -189,10 +189,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Exclude Done children from the planner prompt entirely. Smaller context, no risk of re-planning, but loses context on what shipped (so net-new work that depends on a Done child has no upstream evidence to cite).\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:48:44.673044Z",
       "debounce_until": null
     },
     {
@@ -232,10 +232,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Planner picks during plan generation; the plan draft surfaces the choice + rationale; the human can override per-cluster in the HITL plan-gate. Most flexible; matches the existing HITL flow.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:49:44.480305Z",
       "debounce_until": null
     },
     {
@@ -270,10 +270,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Both signals as the issue specifies: (a) orchestrator reverse-index AND (b) new gateway route `POST /api/v1/jira/ticket/remotelinks` with read-only allowlist for remote-link reads. More work, but covers human-opened PRs.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:49:44.525858Z",
       "debounce_until": null
     },
     {
@@ -303,10 +303,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"New sandbox-side `applier` agent role spawned after HITL approval: agent reads contract task\u2194key mapping, calls jira CLI wrapper. Reuses existing sandbox + BRC infra (consensus on apply success). Adds a phase but keeps mutations behind the existing auth + audit boundary; downside is BRC for a deterministic mechanical step.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:49:44.670803Z",
       "debounce_until": null
     },
     {
@@ -336,10 +336,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Add a new gateway route `POST /api/v1/jira/ticket/remotelinks` (read-only, allowlisted) AND scan the description URLs. Covers both inline links and the canonical \\\"attach as remote link\\\" Jira UI flow at the cost of a new gateway surface.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:50:16.451830Z",
       "debounce_until": null
     },
     {
@@ -369,10 +369,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Reuse the existing `description` field but require ticket-shaped content (sections: Problem, Scope, Acceptance, OOS, Links). Lightest schema change \u2014 just prompt + planner enforcement; no migration concerns for non-Jira pipelines. Recommended.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:50:16.535788Z",
       "debounce_until": null
     },
     {
@@ -402,10 +402,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Persist mapping on the contract: extend `task` model with optional `jira_key`, `jira_action` ('create' / 'edit' / 'wontdo' / 'split-of' / 'consolidate-into') fields. Single source of truth; visible to inspect tools; survives crashes. Recommended.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:50:48.536403Z",
       "debounce_until": null
     },
     {
@@ -435,10 +435,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Constrain to same-project children only: query `project = <EPIC_PROJECT> AND \\\"Epic Link\\\" = <EPIC_KEY>`. Cross-project children are silently invisible to the reassess sweep. Recommended baseline \u2014 cross-project epic decomposition is unusual in practice.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:51:15.483442Z",
       "debounce_until": null
     },
     {
@@ -468,10 +468,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Use the status category instead of status name: Atlassian tags every status with a `statusCategory.key` of `new` / `indeterminate` / `done`. Treat `statusCategory.key == 'done'` as Done. Self-configuring across projects; recommended.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:51:15.532442Z",
       "debounce_until": null
     },
     {
@@ -501,10 +501,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Use status category: `statusCategory.key == 'indeterminate'` (i.e. anything not New and not Done). Self-configuring; mirrors the Done decision.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:51:15.596128Z",
       "debounce_until": null
     },
     {
@@ -534,10 +534,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Reuse the existing gateway secrets but expose a **new orchestrator-only** gateway route `POST /api/v1/jira/ticket/transition` gated on the caller being the orchestrator (loopback / shared-secret token), with a transition allowlist (`['Won't Do', 'Won't Fix']`). Agents still can't transition; gateway still owns creds. Recommended \u2014 keeps 'creds only in gateway' invariant.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:51:43.298928Z",
       "debounce_until": null
     },
     {
@@ -567,10 +567,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Parameterize the existing prompts via injected context: pass `mode: epic | ticket | github_issue` and a small conditional block at the top of each prompt. Single source of truth, easy to keep aligned. Recommended.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-12T04:51:43.426123Z",
       "debounce_until": null
     }
   ],
@@ -1363,37 +1363,37 @@
       {
         "id": "Q1",
         "question": "The reassess apply step is not pure inserts: it edits existing tickets in place, splits / consolidates, and transitions others to Won't Do. If apply partially succeeds (3 of 7 mutations land before a network error), what is the operator's expected recovery? (a) re-run idempotently from the saved task\u2194key mapping, treating already-mutated tickets as no-ops; (b) emit a clear half-applied-state error and require the operator to manually retry / unwind in Jira; (c) maintain a per-apply 'undo log' that the orchestrator can replay backwards. Each has very different storage + Atlassian-API implications.",
-        "answer": null
+        "answer": "(a) re-run idempotently from the saved task\u2194key mapping, treating already-mutated tickets as no-ops. Idempotency is enforced via the contract-stored task\u2194key mapping (decision-12 opt-1) + gateway's existing 5-min idempotency cache. Half-applied state is recoverable by re-invoking apply; the contract is the durable record of which mutations have already landed."
       },
       {
         "id": "Q2",
         "question": "Pipeline-ID collision for re-runs on the same epic: today `submit_task <EPIC-KEY>` is rejected with HTTP 409 if a pipeline already exists for that key. For a reassess flow that explicitly RE-runs against an existing epic with children, what's the desired behavior? (a) Force a new pipeline-id qualifier (`<EPIC-KEY>-v2`, `-v3`, \u2026); (b) Auto-archive the prior pipeline and create a fresh one with the same id; (c) Resume the existing pipeline from refine; (d) Open-ended.",
-        "answer": null
+        "answer": "(a) Force a new pipeline-id qualifier (e.g. --qualifier=v2). The orchestrator's pipeline state is owned per-id; auto-archiving or in-place resuming would conflate audit trails across runs. Operator picks a qualifier when re-running (we did exactly this for this v2 retry)."
       },
       {
         "id": "Q3",
         "question": "PR \u2194 Jira-ticket linkage: when an implement pipeline for a child ticket (`<CHILD-KEY>`) opens a PR, should the orchestrator also (a) set a Jira remote-link on the child pointing to the PR, (b) post a Jira comment on the child with the PR URL, (c) both, or (d) neither (rely on Atlassian's DVCS connector / GitHub-for-Jira app to backfill the link). Note this is also the question that decides whether the `jira_ticket \u2192 open PR` reverse-lookup (#1557 in-flight detection) needs a Jira-side signal at all or can live entirely in orchestrator state.",
-        "answer": null
+        "answer": "(a) Set a Jira remote-link on the child pointing to the PR. Done by the apply / implement agent via the new gateway route added in decision-10 (POST /api/v1/jira/ticket/remotelinks would need a write companion). This is the canonical Atlassian-side wiring; the reverse-index from decision-8 opt-2 is for egg's in-flight detection."
       },
       {
         "id": "Q4",
         "question": "Multi-Atlassian-site posture: today the gateway holds one Atlassian credential bundle and serves one site. Is this MVP single-site by design (and should the contract refuse a `submit_task` that names a Jira key from a non-configured site), or is multi-site on the near-term roadmap and we should leave a project-\u2194-site indirection in `gateway/jira_policy.py` from day one?",
-        "answer": null
+        "answer": "MVP is single-site by design (matches today's single Atlassian credential bundle in the gateway). The contract should refuse a submit_task that names a Jira key from a non-configured project allowlist. Multi-site is not on the near-term roadmap; if it lands, the project\u2194site indirection in gateway/jira_policy.py is the right seam \u2014 but don't add it speculatively."
       },
       {
         "id": "Q5",
         "question": "How is the operator going to launch a Jira-epic SDLC pipeline in practice? The issue says 'user's normal Claude Code host session talking to the egg MCP server' \u2014 is that literally `submit_task(jira_ticket='ENG-123', description='Reassess this epic')` from the host's Claude session and that's the entire UX? Anything special-cased about the description for reassess mode vs first-pass refine? Anything we should plumb through `submit_task` arguments to disambiguate (e.g. `epic_mode: 'fresh' | 'reassess' | 'auto'`)?",
-        "answer": null
+        "answer": "Literally submit_task(jira_ticket='ENG-123', mode='auto'|'fresh'|'reassess') from the host's Claude session. Default mode='auto' detects reassess if children exist, fresh otherwise. The description field of submit_task can carry operator hints for first-pass refine (e.g. 'Scope this epic narrowly to X'); for reassess, it can declare what's changed since the last pass. No new launch UX."
       },
       {
         "id": "Q6",
         "question": "Acceptance criteria for v1 success: which of these are MUST-haves for shipping #1557 vs nice-to-haves? \u2014 (a) fresh-epic path: submit_task on an empty epic produces refine\u2192plan\u2192HITL\u2192apply that writes the analysis to the epic Description and creates child tickets with the planned descriptions and Blocks links. (b) reassess path: same as (a) but on an epic with pre-existing children, the planner consolidates / splits / leaves-alone correctly and the apply step honors in-flight markers. (c) Confluence-page enrichment of refine inputs. (d) Won't-Do transitions for obsolete children. (e) PR\u2194Jira remote-link wiring.",
-        "answer": null
+        "answer": "MUST-haves for v1: (a) fresh-epic path end-to-end, (b) reassess path with classify+consolidate+split+leave-alone+in-flight handling, (d) Won't-Do transitions for obsolete children. NICE-to-haves (acceptable to defer): (c) Confluence-page enrichment of refine inputs, (e) PR\u2194Jira remote-link wiring (the read path for in-flight detection is MUST per (b); the write path of stamping PR-link back on the child is the nice-to-have)."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-12T04:52:15.310643Z",
     "comment_id": null,
     "debounce_until": null
   },
