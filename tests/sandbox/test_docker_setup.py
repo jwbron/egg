@@ -1154,6 +1154,73 @@ class TestPersistSystemDirs:
         captured = capsys.readouterr()
         assert captured.out.count("Persisting system dir") == 2
 
+    def test_persist_system_dirs_overlap_first_writer_wins(self, tmp_path):
+        """Overlapping persist_system_dirs across repos: first writer wins.
+
+        Reproduces the realistic scenario where two repos install different
+        binaries into the same system dir (e.g. jwbron/egg's ``uv`` and
+        Khan/webapp's ``node`` both landing in ``/usr/local/bin``). The
+        ``_copy_skip_existing`` callback in ``persist_build_dirs`` must not
+        clobber repo-A's file with repo-B's.
+        """
+        from docker_setup import persist_build_dirs
+
+        # Both repos point at the SAME source dir, but the file present at
+        # the first repo's persist time is what should survive — simulate by
+        # writing repo-B's overlapping content into the destination *between*
+        # the two persist calls would require splitting the call. Instead
+        # this test verifies the flag in the simpler, equivalent case:
+        # repo-A's content is already at the destination when repo-B runs.
+        bin_dir = tmp_path / "fake_root" / "usr" / "local" / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "shared").write_text("repo-A version")
+        (bin_dir / "uv").write_text("repo-A only")
+
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app-a").mkdir(parents=True)
+        (repo_deps / "org--app-b").mkdir(parents=True)
+        prebuilt = tmp_path / "prebuilt"
+
+        # First persist call writes repo-A's content.
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app-a",
+                    "commands": ["x"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": [str(bin_dir)],
+                },
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=prebuilt,
+        )
+
+        # Now mutate the source so repo-B "would" install a different version
+        # of the shared file, then run repo-B's persist over the existing
+        # destination. _copy_skip_existing must skip the existing 'shared'.
+        (bin_dir / "shared").write_text("repo-B version (should be skipped)")
+        (bin_dir / "node").write_text("repo-B only")
+
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app-b",
+                    "commands": ["y"],
+                    "persist_dirs": [],
+                    "persist_system_dirs": [str(bin_dir)],
+                },
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=prebuilt,
+        )
+
+        dest = prebuilt / "__egg_system_dirs__" / str(bin_dir).lstrip("/")
+        # Shared file: first writer wins (repo-A's content survived).
+        assert (dest / "shared").read_text() == "repo-A version"
+        # Both repo-only files coexist (idempotent merge).
+        assert (dest / "uv").read_text() == "repo-A only"
+        assert (dest / "node").read_text() == "repo-B only"
+
     def test_manifest_preserves_persist_system_dirs(self, tmp_path):
         """persist_system_dirs is preserved through manifest loading."""
         import json

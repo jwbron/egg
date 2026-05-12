@@ -5828,17 +5828,24 @@ def _build_role_context(
     return "\n".join(lines)
 
 
-def _build_role_restrictions_section() -> str:
+def _build_role_restrictions_section(repo: str | None = None) -> str:
     """Build a prompt section describing file access restrictions per execution role.
 
     This section is injected into the task_planner prompt so that it can
     assign each task to the correct execution role (coder, tester, documenter)
     based on which files the task will modify.
 
+    Args:
+        repo: Optional ``owner/repo`` for per-repo pattern overrides
+            (#2528). When set, the rendered patterns reflect
+            ``role_patterns:`` from ``repositories.yaml`` for the repo
+            so the planner sees the same boundaries the gateway will
+            enforce. When ``None``, falls back to global defaults.
+
     Returns:
         Formatted markdown string describing role file boundaries.
     """
-    from egg_contracts.agent_roles import get_file_patterns
+    from egg_restrictions.patterns import get_agent_patterns_for_repo
 
     lines: list[str] = [
         "## Execution Role File Restrictions",
@@ -5849,15 +5856,16 @@ def _build_role_restrictions_section() -> str:
         "",
     ]
 
+    patterns_by_role = get_agent_patterns_for_repo(repo)
     for role_name in ("coder", "tester", "documenter"):
-        patterns = get_file_patterns(role_name)
-        if patterns is None:
+        pattern = patterns_by_role.get(role_name)
+        if pattern is None:
             continue
         lines.append(f"### {role_name}")
-        if patterns.get("allowed"):
-            lines.append(f"- **Allowed**: {', '.join(f'`{p}`' for p in patterns['allowed'])}")
-        if patterns.get("blocked"):
-            lines.append(f"- **Blocked**: {', '.join(f'`{p}`' for p in patterns['blocked'])}")
+        if pattern.allowed_patterns:
+            lines.append(f"- **Allowed**: {', '.join(f'`{p}`' for p in pattern.allowed_patterns)}")
+        if pattern.blocked_patterns:
+            lines.append(f"- **Blocked**: {', '.join(f'`{p}`' for p in pattern.blocked_patterns)}")
         lines.append("")
 
     lines.append(
@@ -7558,9 +7566,17 @@ def _commit_statefiles_to_worktree(
             timeout=30,
         )
 
-    # Only commit if there are staged changes (idempotent on re-runs)
+    # Only commit if there are staged changes (idempotent on re-runs).
+    # No pathspec: match the diff scope to the commit scope below so the
+    # early-out fires iff the commit would have nothing to write. A
+    # scoped diff (``-- .egg-state/``) paired with the unscoped commit
+    # below would short-circuit when only non-``.egg-state/`` content
+    # is staged, dropping that content on the floor instead of
+    # committing it. Nothing in this code path stages outside
+    # ``.egg-state/`` today, so this is belt-and-suspenders, but the
+    # two scopes must stay symmetric to keep the invariant local.
     result = subprocess.run(
-        [*git_base, "diff", "--cached", "--quiet", "--", ".egg-state/"],
+        [*git_base, "diff", "--cached", "--quiet"],
         capture_output=True,
         text=True,
         check=False,
@@ -7579,8 +7595,18 @@ def _commit_statefiles_to_worktree(
         pipeline_identifier=str(pipeline_identifier),
         commit_message=message,
     )
+    # No pathspec: ``git commit -- .egg-state/`` would auto-stage
+    # working-tree changes within that pathspec, including deletions of
+    # files that are present in HEAD but missing from the local
+    # checkout. Agents push drafts to ``origin/<branch>`` from their own
+    # worktrees, so the orchestrator's local checkout can have HEAD at a
+    # commit that contains a draft while the file itself was never
+    # materialised on disk locally. Letting ``commit -- pathspec``
+    # auto-stage that "deletion" wipes the agent's drafts from the work
+    # branch (#2625). Commit only what ``git add`` above explicitly
+    # staged.
     subprocess.run(
-        [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
+        [*git_base, "commit", "--no-verify", "-m", message],
         capture_output=True,
         text=True,
         check=True,
@@ -12809,27 +12835,31 @@ def _build_producer_orientation(
     )
 
 
-def _build_file_boundary_section(role_value: str) -> str:
+def _build_file_boundary_section(role_value: str, repo: str | None = None) -> str:
     """Build a file boundary section for an agent prompt.
 
-    Reads the role's ``FileAccessPattern`` from ``egg_contracts.agent_roles``
-    and formats it as a prompt section so the agent knows which files it can
-    and cannot push *before* it starts writing files (#1431).
+    Sources the role's allowed/blocked patterns from
+    ``egg_restrictions.patterns.build_agent_patterns`` so the prompt
+    matches what the gateway will actually enforce on push — including
+    per-repo ``role_patterns:`` overrides from ``repositories.yaml``
+    (#2528). The legacy ``egg_contracts.agent_roles`` patterns were
+    Python-only and didn't honour the per-repo knobs, which created a
+    contradictory message for non-Python repos: the gateway would
+    enforce Go conventions while the prompt told the agent the boundary
+    was Python.
 
     Returns an empty string when no patterns are defined for the role.
     """
     try:
-        from egg_contracts.agent_roles import get_role_definition
-
-        role_def = get_role_definition(role_value)
-    except ValueError, KeyError, ImportError:
+        from egg_restrictions.patterns import get_agent_pattern_for_repo
+    except ImportError:
         return ""
 
-    if not role_def or not role_def.file_access:
+    pattern = get_agent_pattern_for_repo(role_value, repo=repo)
+    if pattern is None:
         return ""
 
-    fa = role_def.file_access
-    if not fa.allowed_write and not fa.blocked_write:
+    if not pattern.allowed_patterns and not pattern.blocked_patterns:
         return ""
 
     lines = [
@@ -12839,10 +12869,10 @@ def _build_file_boundary_section(role_value: str) -> str:
         "includes files outside your boundaries. Only create and modify files "
         "you are allowed to push.\n",
     ]
-    if fa.allowed_write:
-        lines.append("**Allowed:** " + ", ".join(f"`{p}`" for p in fa.allowed_write))
-    if fa.blocked_write:
-        lines.append("**Blocked:** " + ", ".join(f"`{p}`" for p in fa.blocked_write))
+    if pattern.allowed_patterns:
+        lines.append("**Allowed:** " + ", ".join(f"`{p}`" for p in pattern.allowed_patterns))
+    if pattern.blocked_patterns:
+        lines.append("**Blocked:** " + ", ".join(f"`{p}`" for p in pattern.blocked_patterns))
 
     # `.github/` staging-dir convention (issue #2508). Surfaced for the
     # coder role specifically because it's the producer that's expected
@@ -12945,7 +12975,9 @@ def _build_agent_prompt(
             repo_path=repo_path,
         )
         # Surface file boundaries so agent knows what it can push (#1431).
-        boundary_section = _build_file_boundary_section(role_value)
+        # Pass repo so the rendered patterns match per-repo overrides
+        # (#2528) the gateway will enforce on push.
+        boundary_section = _build_file_boundary_section(role_value, repo=repo)
         if boundary_section:
             base_prompt += "\n" + boundary_section
         # Producer escape hatch (#2529) — coder is one of the impassing
@@ -13618,8 +13650,11 @@ def _build_agent_prompt(
                 "",
             ]
         )
-        # Append role file restriction info so the planner assigns tasks correctly
-        lines.append(_build_role_restrictions_section())
+        # Append role file restriction info so the planner assigns tasks correctly.
+        # Pass the pipeline's repo so per-repo role_patterns from
+        # repositories.yaml are rendered (#2528) — keeps planner-prompt
+        # boundaries in sync with the gateway's push-time enforcement.
+        lines.append(_build_role_restrictions_section(repo=repo or None))
     elif role_value == "risk_analyst":
         lines.extend(
             [
@@ -13741,7 +13776,9 @@ def _build_agent_prompt(
 
     # File boundaries (#1431) — surface allowed/blocked patterns so
     # the agent avoids creating files the gateway will reject on push.
-    boundary_section = _build_file_boundary_section(role_value)
+    # Pass repo so the rendered patterns match per-repo overrides
+    # (#2528) the gateway will enforce on push.
+    boundary_section = _build_file_boundary_section(role_value, repo=repo)
     if boundary_section:
         lines.append(boundary_section)
 

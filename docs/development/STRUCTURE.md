@@ -37,7 +37,7 @@ egg/
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `plugins/` | Claude Code plugins distributed via the egg-tools marketplace (each subdirectory is a plugin with `.claude-plugin/plugin.json` and a `skills/` subtree) | External (installed by users via Claude Code) |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
-| `scripts/` | CI/lint and operational telemetry scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, harness parity validation, scaffold-first BRC compliance telemetry via `scaffold_first_telemetry.py`) | CI / local |
+| `scripts/` | CI/lint and operational telemetry scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, harness parity validation, scaffold-first BRC compliance telemetry via `scaffold_first_telemetry.py`); `prepare-sandbox-build-context.py` populates `repo-deps/` from `repositories.yaml` for `make build` | CI / local |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
 | `skills/` | Claude Code skills (each subdirectory is a skill with `SKILL.md`) | Sandbox container |
 | `tests/` | Test suite | CI / local |
