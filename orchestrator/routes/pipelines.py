@@ -8300,8 +8300,8 @@ def _should_skip_pr_phase_auto_pr(
 
       * Babysit-pr mode — the PR already exists; the caller passes
         ``is_babysit_mode=True`` and we short-circuit unconditionally.
-        (The head-move guard still runs upstream and may force the
-        skip independently.)
+        (The head-move guard still runs at the call site after this
+        helper returns and may force the skip independently.)
       * Slice-DAG mode (``len(contract.slices) > 1``) — every slice
         already opened its own PR via ``create_slice_pr``, stacked on
         top of the context PR (#2548). Opening another
@@ -19806,7 +19806,7 @@ def _run_pipeline(
                         "Skipping PR creation",
                         pipeline_id=pipeline_id,
                         pr_number=getattr(pipeline, "pr_number", None),
-                        skip_reason=_skip_reason or "babysit_pr_already_exists",
+                        skip_reason=_skip_reason,
                     )
                 elif _finalize_pr_phase_failed(
                     pipeline,
