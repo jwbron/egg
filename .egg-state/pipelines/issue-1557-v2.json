@@ -270,10 +270,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "**Done-children signal: how to feed Done tickets to the plan prompt** (your open-question #3). In the reassess path the planner needs context on what's already complete so it doesn't re-propose equivalent work. Options:",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Exclude Done children from the planner prompt entirely. Smaller context, no risk of re-planning, but loses context on what shipped (so net-new work that depends on a Done child has no upstream evidence to cite).",
+        "Include Done children with a `# do-not-replan` marker block: summary + status + key, but their description is NOT in the prompt. Compromise that preserves provenance without burning context on completed scope.",
+        "Include Done children with full description + a `# do-not-replan` marker. Maximum context for planner, but biggest prompt and risks the planner reproducing scope-shaped scope-already-shipped work.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:04.932698Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:04.897184Z",
+  "updated_at": "2026-05-12T04:46:04.943226Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -287,6 +306,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null
 }
