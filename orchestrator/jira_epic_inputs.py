@@ -111,6 +111,39 @@ class RefineInputs:
         }
 
 
+def compute_description_sha256(raw_description: Any) -> str:
+    """Canonical sha256 of a Jira description body (#1557 reviewer_code #7).
+
+    Atlassian returns descriptions as either ADF (a JSON dict) or
+    plain strings (rare, only for tickets that haven't been edited via
+    the rich editor).  Hashing the *flattened text* loses formatting
+    fidelity — bold / list-nesting / link-URLs-in-mark-attrs edits
+    pass undetected through the architect ad-5 concurrent-edit guard.
+    This helper canonicalises by ``json.dumps(adf, sort_keys=True,
+    separators=(",", ":"))`` for ADF and falls back to UTF-8 bytes
+    for plain strings.
+
+    Both the refine-input gatherer and the apply step should call this
+    helper so the producer and consumer agree on the same canonical
+    algorithm.
+    """
+    if raw_description is None:
+        return hashlib.sha256(b"").hexdigest()
+    if isinstance(raw_description, str):
+        return hashlib.sha256(raw_description.encode("utf-8")).hexdigest()
+    if isinstance(raw_description, dict):
+        canonical = json.dumps(
+            raw_description,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    # Unknown shape — fall back to the string representation. Better a
+    # stable-but-coarse hash than no guard at all.
+    return hashlib.sha256(str(raw_description).encode("utf-8")).hexdigest()
+
+
 def _flatten_description(value: Any) -> str:
     """Render Atlassian's ADF (Atlassian Document Format) into plain text.
 
@@ -242,10 +275,15 @@ def gather_refine_inputs(
     summary = fields.get("summary") if isinstance(fields, dict) else None
     if not isinstance(summary, str):
         summary = ""
-    description = _flatten_description(
-        fields.get("description") if isinstance(fields, dict) else None
-    )
-    description_sha256 = hashlib.sha256(description.encode("utf-8")).hexdigest()
+    raw_description = fields.get("description") if isinstance(fields, dict) else None
+    description = _flatten_description(raw_description)
+    # #1557 reviewer_code v3 #7: hash the canonical ADF payload (sorted
+    # JSON keys, no whitespace) rather than the lossy flattened text so
+    # formatting edits (bold, list nesting, link URLs in mark attrs)
+    # don't silently pass the concurrent-edit guard.  Falls back to
+    # hashing the flat string when the description was already a plain
+    # string upstream (rare — Atlassian returns ADF by default).
+    description_sha256 = compute_description_sha256(raw_description)
 
     # 2. Epic remote links.
     epic_remote_links = _fetch_remote_links(epic_key, gateway_invoker=gateway_invoker)
