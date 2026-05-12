@@ -331,6 +331,184 @@ class TestAutoSalvageRealGit:
 
 
 # ---------------------------------------------------------------------------
+# Edge cases — corrupt worktrees, fan-out, no-anchor fallback, concurrent salvage
+# ---------------------------------------------------------------------------
+
+
+class TestSalvageEdgeCases:
+    """Edge cases that the per-module unit tests cover in isolation but
+    that haven't been exercised through the integration chain on real
+    on-disk state.
+    """
+
+    def test_corrupt_worktree_surfaces_failure_without_blocking_others(
+        self, tmp_path, fake_gateway
+    ):
+        """One worktree missing ``.git`` => per-row error; other worktrees
+        still get their recovery refs.
+
+        The unit test ``TestSalvageWorktree.test_corrupt_worktree_returns_not_ok``
+        covers the single-worktree case. This test asserts the
+        ``auto_salvage_pipeline`` loop keeps going past the failure so
+        a single broken btrfs mount can't starve every salvageable
+        sibling on the same pipeline (#1723 / #2429 cleanup-policy).
+        """
+        # One healthy worktree with an unpushed commit.
+        _, healthy_head = _build_worktree(
+            tmp_path,
+            "issue-2429",
+            agent_role="coder",
+            slice_id=None,
+            assigned_branch="egg/issue-2429/work",
+        )
+        # One broken worktree: directory exists, but no .git inside.
+        broken_dir = tmp_path / "issue-2429-tester" / "repo"
+        broken_dir.mkdir(parents=True)
+
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            results = auto_salvage_pipeline(fake_gateway, "issue-2429")
+
+        # Default ``validate_git=True`` filters broken worktrees out
+        # entirely, so the salvage loop sees only the healthy one.
+        # That's still the desired invariant: a wedged on-disk
+        # directory cannot block the loop, and the row count makes
+        # it visible to the operator that the broken dir was skipped
+        # (compared with the enumeration count via /local-commits).
+        assert len(results) == 1
+        assert results[0].worktree_id == "issue-2429-coder"
+        assert results[0].ok is True
+        assert results[0].head_sha == healthy_head
+        # Exactly one push — the broken worktree never tried.
+        fake_gateway.push_worktree_branch.assert_called_once()
+
+    def test_many_slices_each_get_distinct_recovery_ref(self, tmp_path, fake_gateway):
+        """Slice-DAG fan-out: 5 slice coders => 5 distinct refs, one push each.
+
+        Mirrors the #2429 trigger scenario where N slice coders all
+        committed locally and the operator runs salvage once. The
+        recovery refs must each carry their own scope + HEAD short
+        SHA so a later operator-side replay can pick them apart per
+        slice.
+        """
+        heads: dict[str, str] = {}
+        for i in range(1, 6):
+            slice_id = f"slice-{i}"
+            _, head = _build_worktree(
+                tmp_path,
+                "issue-2429",
+                agent_role="coder",
+                slice_id=slice_id,
+                assigned_branch=f"egg/issue-2429/{slice_id}",
+            )
+            heads[slice_id] = head
+
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            results = auto_salvage_pipeline(fake_gateway, "issue-2429")
+
+        assert len(results) == 5
+        assert all(r.ok and r.recovery_ref for r in results)
+        # All recovery refs are distinct.
+        recovery_refs = {r.recovery_ref for r in results}
+        assert len(recovery_refs) == 5
+        # And each carries its slice's short SHA.
+        for r in results:
+            slice_id = r.slice_id
+            expected = (
+                f"{RECOVERY_BRANCH_PREFIX}/issue-2429/{slice_id}-coder/{heads[slice_id][:12]}"
+            )
+            assert r.recovery_ref == expected
+        # The gateway saw 5 pushes, one per slice.
+        assert fake_gateway.push_worktree_branch.call_count == 5
+
+    def test_no_anchor_falls_back_to_full_history(self, tmp_path, fake_gateway):
+        """Worktree with no remote-tracking ref still salvages.
+
+        Anchor discovery has three layers:
+
+        1. ``branch.<local>.merge`` + ``origin/<assigned>`` — happy path.
+        2. ``origin/<base_branch>`` — when the assigned tracking ref is
+           absent (e.g. agent never managed a fetch).
+        3. No anchor — fall back to the full HEAD history (capped at
+           200 commits in ``list_unpushed_commits``).
+
+        The third path was added defensively. Confirming it through
+        the integration chain catches a regression where the salvage
+        loop short-circuits to ``n_commits=0`` when no anchor exists.
+        """
+        # Build a worktree but skip ``_set_assigned_branch`` and
+        # ``_create_origin_tracking``. The agent committed locally but
+        # has no remote-tracking ref at all.
+        worktree_id = "issue-2429-coder"
+        local_branch = f"egg/{worktree_id}/work"
+        repo = tmp_path / worktree_id / "repo"
+        _make_repo(repo, local_branch)
+        head = _commit(repo, "unpushed.txt", "work\n", "salvage me, no anchor")
+
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            results = auto_salvage_pipeline(fake_gateway, "issue-2429")
+
+        assert len(results) == 1
+        result = results[0]
+        assert result.ok is True
+        # Without an anchor, the helper falls back to full history —
+        # the seed commit AND the new one are reported.
+        assert result.n_commits >= 1
+        assert result.head_sha == head
+        assert result.recovery_ref == (f"{RECOVERY_BRANCH_PREFIX}/issue-2429/coder/{head[:12]}")
+
+    def test_concurrent_salvage_calls_converge_to_same_ref(self, tmp_path):
+        """Two parallel ``auto_salvage_pipeline`` calls converge on the
+        same recovery ref (immutable per HEAD SHA).
+
+        Concurrency model: a phase restart + a periodic cleanup pass
+        could both call into the salvage hook for the same pipeline at
+        nearly the same time. Because the recovery ref name is derived
+        from HEAD, both calls compose the *same* ref, both push (or one
+        pushes and the other fast-forwards to identical SHA), and the
+        net effect is two ``SalvageResult`` rows pointing at the same
+        ``recovery_ref``. No force flag, no race on the ref content.
+        """
+        import threading as _threading
+
+        _build_worktree(
+            tmp_path,
+            "issue-2429",
+            agent_role="coder",
+            slice_id=None,
+            assigned_branch="egg/issue-2429/work",
+        )
+
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        results_a: list = []
+        results_b: list = []
+        errors: list[BaseException] = []
+
+        def _run(out: list) -> None:
+            try:
+                with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+                    out.extend(auto_salvage_pipeline(gateway, "issue-2429"))
+            except BaseException as e:  # noqa: BLE001 — surface to assertion
+                errors.append(e)
+
+        t1 = _threading.Thread(target=_run, args=(results_a,))
+        t2 = _threading.Thread(target=_run, args=(results_b,))
+        t1.start()
+        t2.start()
+        t1.join(timeout=30)
+        t2.join(timeout=30)
+
+        assert not errors, errors
+        assert len(results_a) == 1 and len(results_b) == 1
+        # Same ref on both threads — the SHA-keyed name converges.
+        assert results_a[0].recovery_ref == results_b[0].recovery_ref
+        # No force pushes from either thread.
+        for call in gateway.push_worktree_branch.call_args_list:
+            assert call.kwargs["force"] is False
+
+
+# ---------------------------------------------------------------------------
 # ``/salvage`` route end-to-end
 # ---------------------------------------------------------------------------
 
