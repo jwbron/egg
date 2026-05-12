@@ -469,8 +469,17 @@ class TestQueueDecisionValidation:
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
     def test_non_object_json_body_returns_400(self, client, tmp_path, raw_body):
         """Fix for #2656: non-object JSON bodies must 400, not 500.
@@ -479,6 +488,12 @@ class TestQueueDecisionValidation:
         scalar in ``data`` and the subsequent ``data.get("question")``
         raised ``AttributeError`` → 500. The handler now rejects
         non-dict bodies before any ``.get`` call.
+
+        Falsy non-dicts (``[]``, ``0``, ``false``, ``""``) were
+        previously coerced to ``{}`` by the ``or {}`` guard and
+        surfaced as "Missing question"; pinning the explicit
+        ``Request body must be a JSON object`` message keeps the
+        diagnostic consistent across truthy and falsy non-dicts.
         """
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions",
@@ -488,6 +503,7 @@ class TestQueueDecisionValidation:
         assert response.status_code == 400, response.data
         body = response.get_json()
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
 
     @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")
@@ -594,11 +610,25 @@ class TestResolveDecisionEndpoint:
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
     def test_resolve_non_object_json_body_returns_400(self, client, tmp_path, raw_body):
-        """Resolve mirrors the queue_decision #2656 fix: non-dict body → 400."""
+        """Resolve mirrors the queue_decision #2656 fix: non-dict body → 400.
+
+        Falsy non-dicts get the same explicit ``Request body must be a
+        JSON object`` 400 as truthy ones — no fall-through to the
+        downstream ``Missing resolution`` branch via ``or {}`` coercion.
+        """
         response = client.post(
             "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
             content_type="application/json",
@@ -607,6 +637,7 @@ class TestResolveDecisionEndpoint:
         assert response.status_code == 400, response.data
         body = response.get_json()
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
 
     @patch("routes.decisions.get_state_store_for_pipeline")
     @patch("routes.decisions.get_decision_queue")

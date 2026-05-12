@@ -97,8 +97,23 @@ _HITL_ROUTES: list[tuple[str, str, dict | None, bool]] = [
 ]
 
 
-def _format_path(template: str, pipeline_id: str, decision_id: str) -> str:
-    return template.format(pipeline_id=pipeline_id, decision_id=decision_id)
+def _format_path(template: str, pipeline_id: str, decision_id: str | None = None) -> str:
+    """Substitute the placeholders the template actually references.
+
+    ``str.format`` silently ignores extra kwargs, but the asymmetry —
+    passing ``decision_id`` to a template that never references it —
+    reads as a bug to anyone scanning the parametrized table. Filter
+    the kwargs to the placeholders present in the template so the
+    call site only carries what the template needs.
+    """
+    kwargs: dict[str, str] = {"pipeline_id": pipeline_id}
+    if "{decision_id}" in template:
+        if decision_id is None:
+            raise ValueError(
+                f"Template {template!r} references {{decision_id}} but none was provided"
+            )
+        kwargs["decision_id"] = decision_id
+    return template.format(**kwargs)
 
 
 def _call(
@@ -203,11 +218,27 @@ class TestHitlRoutesRegistered:
             # not found (the route DID run), which still proves the
             # route exists. A blueprint regression would surface as
             # a different shape — see the envelope assertion below.
-            _assert_error_envelope(resp, f"{method} {path}")
+            envelope = _assert_error_envelope(resp, f"{method} {path}")
             assert resp.status_code in (200, 400, 404), (
                 f"{method} {path}: unexpected status {resp.status_code} for "
                 f"unknown pipeline + minimal body: {resp.text[:500]}"
             )
+            # Strengthen the 404 branch — Flask's stock 404 for an
+            # unregistered route also surfaces via the orchestrator's
+            # ``handle_unhandled_exception`` with the canonical envelope,
+            # so a dropped route would still pass the envelope check
+            # above. The handler's pipeline-not-found 404 embeds the
+            # pipeline id; Flask's routing 404 does not. Assert the id
+            # is present so a regression that drops one of these routes
+            # from the blueprint surfaces as a routing 404 missing the
+            # id rather than a handler 404 carrying it.
+            if resp.status_code == 404:
+                assert regression_pipeline_id in (envelope.get("message") or ""), (
+                    f"{method} {path}: 404 envelope must reference the pipeline id "
+                    f"({regression_pipeline_id!r}) — otherwise this is a Flask "
+                    f"routing 404 (route missing from blueprint), not a handler "
+                    f"404. Got: {envelope!r}"
+                )
 
 
 class TestHitlLifecycleAuth:
@@ -524,6 +555,20 @@ class TestHitlPipelineIdValidation:
                 f"GET {path}: expected 400 or 404 for path-traversal-shaped "
                 f"id; got {resp.status_code}: {resp.text[:500]}"
             )
+            # If the URL parser rejected it (404), the message must NOT
+            # look like a pipeline-not-found ("pipeline … not found").
+            # Otherwise a regression where the regex check is removed
+            # and Flask routes the literal ``..`` segment to the
+            # state-store would silently pass this test.
+            if resp.status_code == 404:
+                env = _assert_error_envelope(resp, f"GET {path}")
+                msg = (env.get("message") or "").lower()
+                assert "not found" not in msg or "pipeline" not in msg, (
+                    f"GET {path}: 404 envelope looks like a pipeline-not-found "
+                    f"reply for a path-traversal id — the regex check was "
+                    f"bypassed and Flask routed the literal segment to the "
+                    f"state-store handler. Got: {env!r}"
+                )
         else:
             assert resp.status_code == 400, (
                 f"GET {path}: expected 400 for invalid pipeline_id; "
@@ -648,19 +693,36 @@ class TestHitlMalformedJsonBody:
             f"POST {path} body={raw_body!r}: expected 400, got "
             f"{resp.status_code}: {resp.text[:500]}"
         )
+        # Pin the canonical envelope here too — a regression where the
+        # JSON-decode error escapes the app-level error mapper (e.g.
+        # ``handle_unhandled_exception`` skipped for ``BadRequest``)
+        # would surface as a missing ``success: false`` envelope.
+        _assert_error_envelope(resp, f"POST {path} body={raw_body!r}")
 
     @pytest.mark.parametrize(
         "non_object_json",
         [
+            # Truthy non-dicts: were 500s pre-#2656 because ``data.get``
+            # raised AttributeError on the list/scalar.
             pytest.param("[1, 2, 3]", id="array"),
             pytest.param('"a string body"', id="string"),
             pytest.param("42", id="number"),
             pytest.param("true", id="bool"),
-            # ``null`` deserialises to ``None``, which the handler's
-            # ``data = request.get_json() or {}`` coerces to ``{}`` and
-            # the ``Missing question`` 400 branch then catches. Pinning
-            # it guards the coercion path so a refactor that drops the
-            # ``or {}`` doesn't silently regress to AttributeError.
+            # Falsy non-dicts: pre-#2656 were coerced to ``{}`` by the
+            # ``or {}`` guard and surfaced as "Missing question" — same
+            # status (400) but a misleading diagnostic. The handler now
+            # rejects these with the explicit "Request body must be a
+            # JSON object" 400 too.
+            pytest.param("[]", id="empty-array"),
+            pytest.param("0", id="zero"),
+            pytest.param("false", id="bool-false"),
+            pytest.param('""', id="empty-string"),
+            # ``null`` deserialises to ``None``, which the handler
+            # still treats as "no body" — coerces to ``{}`` and the
+            # ``Missing question`` 400 branch catches it. Pinning it
+            # guards that coercion path so a refactor that drops the
+            # ``raw is None`` short-circuit doesn't regress to
+            # AttributeError on ``None.get(...)``.
             pytest.param("null", id="null"),
         ],
     )
@@ -674,11 +736,14 @@ class TestHitlMalformedJsonBody:
 
         Fix for #2656: ``queue_decision`` previously did ``data =
         request.get_json() or {}`` then ``data.get("question")`` — when
-        ``data`` was a list / scalar, ``.get`` raised ``AttributeError``
-        and the handler's generic ``except Exception`` mapper returned
-        500. The handler now rejects non-object bodies with 400 before
-        any ``.get`` call. ``null`` is still coerced to ``{}`` via the
-        ``or {}`` and falls into the missing-question 400 branch.
+        ``data`` was a truthy list / scalar, ``.get`` raised
+        ``AttributeError`` and the handler's generic ``except
+        Exception`` mapper returned 500. Falsy non-dicts (``[]``,
+        ``0``, ``false``, ``""``) were coerced to ``{}`` and surfaced
+        as "Missing question" — a 400 but with a misleading message.
+        The handler now rejects all non-object bodies (truthy and
+        falsy) with an explicit "Request body must be a JSON object"
+        400 before any ``.get`` call.
         """
         path = f"/api/v1/pipelines/{regression_pipeline_id}/decisions"
         resp = requests.post(
@@ -832,7 +897,7 @@ class TestHitlOversizedPayload:
     Werkzeug enforces ``MAX_CONTENT_LENGTH`` if set; without it the
     handler still has to cope. The unauthenticated ``POST /decisions``
     is the most exposed surface (anything in-cluster can queue) so a
-    DoS-shaped body — 50 MB of JSON — must surface as a structured 4xx,
+    DoS-shaped body — 5 MB of JSON — must surface as a structured 4xx,
     never a 500 or a hang past our test timeout.
     """
 
@@ -868,14 +933,23 @@ class TestHitlOversizedPayload:
 
 
 def test_deterministic_pipeline_id_is_syntactically_valid() -> None:
-    """The helper's output must match ``PIPELINE_ID_PATTERN``.
+    """The helper's output must pass ``state_store.validate_pipeline_id``.
 
     A regression here would silently turn every 404 assertion in this
     module into a 400 assertion — the entire HITL-route coverage above
     would still pass with no real signal. The recovered #2474 attempt
     used ``regression-<12hex>`` which trips this exact failure mode and
     is part of why that branch was abandoned.
+
+    Calls the real validator from ``state_store`` rather than
+    re-implementing the regex inline — a hand-typed copy would drift
+    silently the next time ``PIPELINE_ID_PATTERN`` (or
+    ``deterministic_pipeline_id`` itself) gains a new shape, which is
+    the exact failure mode this test exists to prevent, just one
+    level up.
     """
+    from state_store import InvalidPipelineIdError, validate_pipeline_id
+
     # Sample a handful of nodeids to make sure we don't accidentally
     # emit a shape that only works for one input.
     samples = [
@@ -883,21 +957,13 @@ def test_deterministic_pipeline_id_is_syntactically_valid() -> None:
         "integration_tests/regression/test_hitl_round_trip.py::test_b",
         "tests/x[param-1]",
     ]
-    import re as _re
-
-    pattern = _re.compile(
-        r"^("
-        r"issue-[0-9]+(-[a-z0-9]+)*"
-        r"|[A-Z][A-Z0-9]+-[0-9]+(-[a-z0-9]+)*"
-        r"|local-[0-9a-f]{8}"
-        r"|pipeline-[0-9a-f]{8}"
-        r"|pr-[0-9]+"
-        r")$"
-    )
     for nodeid in samples:
         pid = deterministic_pipeline_id(nodeid)
-        assert pattern.match(pid), (
-            f"deterministic_pipeline_id({nodeid!r}) = {pid!r} does not match "
-            "state_store.PIPELINE_ID_PATTERN — 404 assertions would silently "
-            "turn into 400 assertions in regression tests."
-        )
+        try:
+            validate_pipeline_id(pid)
+        except InvalidPipelineIdError as exc:
+            pytest.fail(
+                f"deterministic_pipeline_id({nodeid!r}) = {pid!r} does not pass "
+                f"state_store.validate_pipeline_id — 404 assertions would silently "
+                f"turn into 400 assertions in regression tests. {exc}"
+            )
