@@ -156,7 +156,7 @@ separate surface (phase mounts, not role restrictions) and is kept in sync with
 
 **Purpose**: Write code, create commits, push to the worktree branch.
 
-**File access**:
+**File access** (defaults — overridable per-repo via `role_patterns:` in `repositories.yaml`, see [Per-Repository Role Patterns](../guides/sdlc-pipeline.md#per-repository-role-patterns)):
 - Allowed writes: **any file in the repository EXCEPT** paths owned by the
   `tester`, the `documenter`, or the pipeline (`.egg-state/`). The coder's
   scope is the complement of the other two producer roles in this phase,
@@ -204,7 +204,7 @@ Do **not** call `wait-loop` on the coder's `CONSENSUS_PROPOSE` before drafting t
 
 Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive regression coverage** — tests for the happy path and realistic alternative paths through every changed area; and **(2) adversarial probing** — actively trying to break the coder's implementation by targeting suspected weaknesses (boundary conditions, off-by-one, empty/null/oversized inputs, error paths, concurrency issues, and contract violations). When a test fails because of a coder-side bug, the tester commits the failing test and issues a NACK on the coder's proposal that explicitly names the failing test in its rationale — the committed test is evidence; the NACK is the bug report. The tester also runs linters and type checkers and reports all gaps via `gaps_found`.
 
-**File access**:
+**File access** (defaults — overridable per-repo via `role_patterns:` in `repositories.yaml`):
 - Owned scope (allowed writes): **test files and test infrastructure only.**
   Specifically: `tests/`, `test/`, `**/tests/`, `**/test/` directories;
   all test file patterns — `**/*_test.py`, `**/test_*.py`,
@@ -236,7 +236,7 @@ Once coder commits land, the tester's mandate is two-fold: **(1) comprehensive r
 
 **Purpose**: Update documentation and READMEs.
 
-**File access**:
+**File access** (defaults — overridable per-repo via `role_patterns:` in `repositories.yaml`):
 - Owned scope (allowed writes): **documentation and markdown only.**
   Specifically: the `docs/` tree, every `**/*.md` file (including
   `**/README.md`), and `.egg-state/agent-outputs/`.
@@ -582,6 +582,8 @@ As of [#2039](https://github.com/jwbron/egg/issues/2039), the gateway **rejects*
 The gateway's `get_attributed_changed_files_in_push()` walks the unpushed range via `rev-list` + `diff-tree` per commit, then does a single bulk `lookup_bulk` against the commit-authorship registry to tag each file with its authoring role (or `None` if unregistered — treated as own-authored per the fail-closed invariant).
 
 For the exact allowed and blocked patterns per role, see `shared/egg_restrictions/patterns.py` (canonical source). The gateway imports from this shared package for push-time validation.
+
+**Per-repo overrides (#2528):** The test/code/docs glob lists described above are the *defaults*. Repositories with non-Python file conventions (Go, JS/TS, etc.) can override them via a `role_patterns:` block in `repositories.yaml`. Only the language-convention globs (`tests_globs`, `code_globs`, `docs_globs`) are configurable; security-relevant blocklists (`.egg-state/contracts/`, `.github/`) are hard-coded and cannot be relaxed. See [Per-Repository Role Patterns](../guides/sdlc-pipeline.md#per-repository-role-patterns) for the configuration schema.
 
 ## Per-Agent Git Identity
 
