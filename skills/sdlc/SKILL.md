@@ -330,7 +330,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
    Keep the escaped quotes around `<last_cursor>` — the cursor is shaped `msg:<id>|evt:<seq>` and the literal `|` is shell-significant; without quoting the shell would treat it as a pipe.
 
-   **Cache the Monitor's task_id as `monitor_task_id` in conversation context.** You'll need it to call `TaskStop` before re-arming a new Monitor after HITL (see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) below) — `wait-status` does not exit on `decision.created`, so without an explicit stop the prior CLI keeps polling in parallel and double-emits the next event.
+   **Cache the Monitor's task_id as `monitor_task_id` in conversation context** (returned in the Monitor tool's invocation response). You'll need it to call `TaskStop` before re-arming a new Monitor after HITL (see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) below) — `wait-status` does not exit on `decision.created`, so without an explicit stop the prior CLI keeps polling in parallel and double-emits the next event.
 
    The launcher wraps `sandbox/bin/egg-orch pipeline wait-status`, setting `PYTHONPATH` and `EGG_ORCHESTRATOR_URL` so no host-side configuration is required beyond `make deps`. It loops the orchestrator's `/status/wait` route server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, surfaced to the LLM as one notification per line. The CLI is silent on `no_change`, so the LLM only wakes when something happened. Exit codes (Monitor reports them as the watch's exit code):
 
@@ -410,7 +410,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
 **Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Monitor invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side, and Monitor surfaces each emitted line as its own notification. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When Monitor's `timeout_ms` (or the Bash 10-min cap, if you're on the fallback path) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context. The overseer is the primary deadlock detector and emits `OVERSEER_ALERT` on stalls, which is in the trigger allowlist. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full event allowlist, exit-code contract, and concurrency model.
 
-#### HITL-driven re-arms: stop the prior Monitor first
+### HITL-driven re-arms: stop the prior Monitor first
 
 The exit-code re-arms above (`timeout`, exit code `2`, auto-stopped) are safe to re-invoke without ceremony — the prior CLI has already terminated. **HITL-driven re-arms are different.** When `wait-status` emits `decision.created`, the CLI does not exit — it just yields the JSON line and keeps polling for the next allowed trigger (`decision.resolved` is deliberately off the allowlist, so submitting `provide_input` doesn't wake or terminate it either). If you re-invoke Monitor after HITL without first stopping the prior one, two `wait-status` processes will poll the same `task_id` concurrently, each advancing its own in-process cursor — and both will emit the next allowed event, producing duplicate notifications to the LLM.
 
@@ -870,7 +870,7 @@ The full status snapshot from `get_status` enriches phase_gate decisions with `d
      {"action": "request_changes", "feedback": "<user's text>", "context": "<resolved questions from 7a, or omit>"}
      ```
 
-After resolving this decision, move to the next pending decision (if any) before resuming monitoring. **On `approve`**, resume monitoring — do not announce the next phase has started yet. If the phase had deferred choice/feedback decisions, the pipeline stays in `awaiting_human` and Wave 2 surfaces them (see [Two-wave surfacing](#two-wave-surfacing)); tell the user: "Approved. The phase's deferred decisions will surface next." If no deferred decisions exist, the pipeline transitions to the next phase normally — you will see the phase change on the next emitted `wait-status` JSON-line. **Before invoking the next Monitor, call `TaskStop(task_id=monitor_task_id)` on the cached id from Phase 3 step 2** — see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first).
+After resolving this decision, move to the next pending decision (if any) before resuming monitoring. **On `approve`**, resume monitoring — do not announce the next phase has started yet. If the phase had deferred choice/feedback decisions, the pipeline stays in `awaiting_human` and Wave 2 surfaces them (see [Two-wave surfacing](#two-wave-surfacing)); tell the user: "Approved. The phase's deferred decisions will surface next." If no deferred decisions exist, the pipeline transitions to the next phase normally — you will see the phase change on the next emitted `wait-status` JSON-line. **Once all pending decisions are resolved and you are about to invoke the next Monitor, call `TaskStop(task_id=monitor_task_id)` on the cached id from Phase 3 step 2** — see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first). Do this once, before the re-arm — not after each intermediate approve in a multi-decision batch.
 
 ### For `choice` type decisions:
 
@@ -1365,7 +1365,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
    Keep the escaped quotes around `<last_cursor>` — the cursor is shaped `msg:<id>|evt:<seq>` and the literal `|` is shell-significant; without quoting the shell would treat it as a pipe.
 
-   **Cache the Monitor's task_id as `monitor_task_id` in conversation context** — needed for `TaskStop` before re-arming after handling a decision (see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) in Phase 3; the same rule applies to the unexpected-decisions path below).
+   **Cache the Monitor's task_id as `monitor_task_id` in conversation context** (returned in the Monitor tool's invocation response) — needed for `TaskStop` before re-arming after handling a decision (see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) in Phase 3; the same rule applies to the unexpected-decisions path below).
 
    The launcher wraps `sandbox/bin/egg-orch pipeline wait-status` and loops `/status/wait` server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, silent on `no_change`, surfaced as one notification per line. Exit codes:
 
