@@ -198,7 +198,16 @@ def fetch_remote_links(child_key: str) -> list[dict[str, Any]]:
     try:
         response = _gateway_post(
             "/api/v1/jira/ticket/remotelinks",
-            {"key": child_key},
+            # Issue #1557 reviewer_code v1 finding #2: the gateway route
+            # at ``gateway/gateway.py:5217-5234::jira_ticket_remotelinks``
+            # reads ``data.get("ticket")`` and rejects anything that
+            # isn't a ``_JIRA_TICKET_KEY_RE.fullmatch(ticket)`` match
+            # with HTTP 400 "Invalid ticket key".  Pre-fix, this helper
+            # POSTed ``{"key": child_key}`` which always 400'd and
+            # fell into the broad-except fail-open below, silently
+            # disabling the in-flight reassess signal-b PR-detection.
+            # Match the route's expected field name verbatim.
+            {"ticket": child_key},
         )
     except (HTTPError, URLError, OSError, json.JSONDecodeError) as exc:
         logger.warning(
