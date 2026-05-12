@@ -271,7 +271,7 @@ PIPELINE_TOOLS = [
                     "description": 'Optional pipeline configuration overrides (e.g. {"hitl_gates": false}).',
                 },
             },
-            "required": ["repo"],
+            "required": ["pr_number", "repo"],
         },
     },
     {
