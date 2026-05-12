@@ -484,6 +484,39 @@ class TestStatusWaitContextPRSemantics:
         assert envelope["changed"] is False
         assert envelope["no_change"] is True
 
+    def test_status_wait_wakes_on_pipeline_cancelled_event(
+        self,
+        client,
+        resolve_pipeline_to,
+        message_backend,
+        isolated_event_bus,
+        fake_pipeline,
+    ):
+        """``pipeline.cancelled`` is in ``_STATUS_WAIT_EVENT_TYPES`` and the
+        terminal-synth map (#2663). The PATCH cancel path now emits it via
+        ``_emit_pipeline_event``; verify the wake-up path end-to-end by
+        publishing through the same helper the route uses, then asserting
+        a blocking ``/status/wait`` returns ``trigger='event'`` with the
+        right event_type.
+
+        Prior to the #2663 fix, the string ``"pipeline.cancelled"`` was
+        missing from ``_EVENT_TYPE_MAP``, so the helper no-op'd and an
+        in-flight long-poll sat idle to its full timeout — callers only
+        observed cancellation on their next poll via the late-subscriber
+        synth path."""
+
+        def _fire() -> None:
+            time.sleep(0.2)
+            pipelines_mod._emit_pipeline_event(fake_pipeline, "pipeline.cancelled")
+
+        threading.Thread(target=_fire, daemon=True).start()
+        resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
+        envelope = json.loads(resp.data)["data"]
+        assert resp.status_code == 200
+        assert envelope["changed"] is True
+        assert envelope["trigger"] == "event"
+        assert envelope["event_type"] == "pipeline.cancelled"
+
 
 # ---------------------------------------------------------------------------
 # 3. Event ordering under concurrent producers (issue starting point 3)

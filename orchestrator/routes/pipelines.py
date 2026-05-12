@@ -1133,6 +1133,7 @@ if _emit_event is not None:
         "phase.revision_requested": EventType.PHASE_STARTED,  # re-entering phase
         "pipeline.completed": EventType.PIPELINE_COMPLETED,
         "pipeline.failed": EventType.PIPELINE_FAILED,
+        "pipeline.cancelled": EventType.PIPELINE_CANCELLED,
         "decision.created": EventType.DECISION_CREATED,
         "context_pr.skipped": EventType.CONTEXT_PR_SKIPPED,
         "context_pr.failed": EventType.CONTEXT_PR_FAILED,
@@ -2199,6 +2200,15 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
     try:
         store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
         pipeline = store.update_pipeline(pipeline_id, data)
+
+        # Emit the terminal event before kicking off cleanup so /status/wait
+        # long-pollers wake immediately on cancellation rather than waiting
+        # for the late-subscriber synth path on their next poll (#2663). The
+        # run loop emits pipeline.completed / pipeline.failed from its own
+        # terminal transitions; the PATCH path is the only place the
+        # CANCELLED transition originates, so we emit it here.
+        if pipeline.status == PipelineStatus.CANCELLED:
+            _emit_pipeline_event(pipeline, "pipeline.cancelled")
 
         # If pipeline is being cancelled or failed, clean up containers
         # and cancel any pending decisions so wait_for_decision() unblocks.
