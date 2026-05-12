@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""Parse a refine-plan plan.md and emit a contract JSON in egg's canonical shape.
+
+Usage:
+    emit-contract <plan.md> <contract.json> <pipeline_id> [--current-phase <phase>]
+
+Exits:
+    0  — wrote the contract; prints "wrote <path>: N tasks across M slices"
+    1  — parse failure (the validator should have caught this; re-run it)
+    2  — usage error or PyYAML missing
+
+Output matches the schema enforced by
+``shared/egg_contracts/models.py::Contract`` (schemaVersion 1.1) so the
+resulting file loads cleanly through egg's ``Contract.model_validate``.
+Key transformations vs the planner's YAML appendix:
+
+- Top-level keys use egg's names: ``pipeline_id`` (not ``identifier``);
+  ``slices`` always (legacy ``phases:`` alias is normalised away).
+- Slice IDs become ``slice-<N>`` strings (the YAML appendix uses bare
+  integers per the template).
+- Task IDs are **lowercased** to ``task-<P>-<N>`` — egg's Task model
+  requires the lowercase pattern even though the plan template's
+  display form is uppercase ``TASK-P-N``. Mirrors
+  ``shared/egg_contracts/plan_parser.py::ParsedTask.to_contract_task``.
+- Task field ``acceptance`` (yaml) → ``acceptance_criteria`` (contract).
+- Task field ``files`` (yaml) → ``files_affected`` (contract).
+- Status defaults to ``"pending"`` (lowercase TaskStatus enum value),
+  not ``"PENDING"``.
+- Slice dependencies are normalised from the planner's freeform
+  references (``"phase-2"``, ``"slice 2"``, bare ``"2"``) to
+  canonical ``"slice-<N>"`` form, matching
+  ``ParsedPhase.to_contract_slice``.
+
+This is a portable analogue — it does not import egg's models, so it
+runs wherever the plugin is installed. Verify against the real model
+in egg's checkout via:
+
+    python3 -c "import json; from egg_contracts.models import Contract;\
+        Contract.model_validate(json.load(open('contract.json')))"
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+
+try:
+    import yaml
+except ImportError:
+    print("error: PyYAML not installed (try: python3 -m pip install pyyaml)", file=sys.stderr)
+    sys.exit(2)
+
+FENCE_RE = re.compile(
+    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```",
+    re.DOTALL,
+)
+TASK_ID_RE = re.compile(r"^TASK-(\d+)-(\d+)$", re.IGNORECASE)
+VALID_PHASES = {"refine", "plan", "implement", "pr"}
+
+
+def _normalise_dep(raw: str) -> str | None:
+    """Normalise a dependency reference to ``slice-<N>``.
+
+    Mirrors the logic in ``ParsedPhase.to_contract_slice`` so the
+    planner can emit any of: ``slice-2``, ``phase-2``, ``slice 2``,
+    or bare ``2`` (for short strings only). Returns ``None`` if no
+    valid number can be extracted. Case-insensitive on the
+    ``slice``/``phase`` token.
+    """
+    s = str(raw).strip()
+    sl = s.lower()
+    if sl.startswith("slice-"):
+        return "slice-" + s[len("slice-") :]
+    if sl.startswith("phase-"):
+        return "slice-" + s[len("phase-") :]
+    m = re.search(r"(?:slice|phase)\s*(\d+)", s, re.IGNORECASE)
+    if not m and len(s) <= 10:
+        m = re.search(r"(\d+)", s)
+    if m:
+        return f"slice-{m.group(1)}"
+    return None
+
+
+def _slice_number_from_id(raw_id: object, fallback: int) -> int:
+    """Extract the integer slice number from a planner-emitted slice id.
+
+    Accepts ``"slice-3"``, ``"Slice-3"``, ``"phase-3"``, ``3`` (int), or
+    bare ``"3"``. Falls back to ``fallback`` when nothing parses — the
+    validator's ``slice_id_pattern`` check should have rejected the
+    unparseable case before we got here.
+    """
+    if raw_id is None:
+        return fallback
+    if isinstance(raw_id, int):
+        return raw_id
+    s = str(raw_id).strip().lower()
+    for prefix in ("slice-", "phase-"):
+        if s.startswith(prefix):
+            s = s[len(prefix) :]
+            break
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _emit_task(t: dict, slice_number: int) -> dict | None:
+    """Build the Task dict matching shared/egg_contracts/models.py::Task."""
+    raw_id = str(t.get("id", ""))
+    m = TASK_ID_RE.match(raw_id)
+    if not m:
+        return None  # silently skipped — validator should have caught upstream
+    phase_num, task_num = m.group(1), m.group(2)
+
+    files = t.get("files", [])
+    if isinstance(files, str):
+        files = [files]
+    elif not isinstance(files, list):
+        files = []
+
+    task: dict = {
+        "id": f"task-{phase_num}-{task_num}",
+        "description": t.get("description", "") or "",
+        "status": "pending",
+        "acceptance_criteria": t.get("acceptance", "") or "",
+        "files_affected": [str(f) for f in files],
+        "role": t.get("role"),
+        "review_cycles": 0,
+        "max_cycles": 3,
+        "escalated": False,
+        "delegation_attempts": 0,
+        "gaps": [],
+        "notes": "",
+        "commit": None,
+        "checkpoint_id": None,
+    }
+    return task
+
+
+def _emit_slice(sl: dict, slice_number: int) -> dict:
+    """Build the Slice dict matching shared/egg_contracts/models.py::Slice."""
+    raw_deps = sl.get("dependencies", [])
+    if isinstance(raw_deps, str):
+        raw_deps = [d.strip() for d in raw_deps.split(",") if d.strip()]
+    deps: list[str] = []
+    for d in raw_deps:
+        norm = _normalise_dep(d)
+        if norm is not None:
+            deps.append(norm)
+
+    raw_chain = sl.get("serialized_chain_order", [])
+    if isinstance(raw_chain, str):
+        raw_chain = [c.strip() for c in raw_chain.split(",") if c.strip()]
+    chain: list[str] = []
+    for c in raw_chain:
+        norm = _normalise_dep(c)
+        if norm is not None:
+            chain.append(norm)
+
+    tasks: list[dict] = []
+    for t in sl.get("tasks") or []:
+        emitted = _emit_task(t, slice_number)
+        if emitted is not None:
+            tasks.append(emitted)
+
+    name = sl.get("name") or f"Slice {slice_number}"
+
+    return {
+        "id": f"slice-{slice_number}",
+        "name": str(name),
+        "status": "pending",
+        "review_cycles": 0,
+        "max_cycles": 3,
+        "escalated": False,
+        "escalation_reason": None,
+        "tasks": tasks,
+        "dependencies": deps,
+        "serialized_chain_order": chain,
+        "parent_branch_at_creation": None,
+        "commit": None,
+    }
+
+
+def _emit_pr(pr: dict | None) -> dict | None:
+    """Build the PRMetadata dict. ``None`` if planner omitted it."""
+    if not pr:
+        return None
+    out: dict = {
+        "title": pr.get("title", "") or "",
+        "description": pr.get("description", "") or "",
+        "test_plan": pr.get("test_plan", "") or "",
+        "manual_steps": pr.get("manual_steps", "") or "",
+        "deferred_actions": [],
+    }
+    # Optional #2548 context-PR framing — pass through if present.
+    for k in ("context_title", "context_description", "context_branch", "context_pr_number"):
+        if k in pr and pr[k] is not None:
+            out[k] = pr[k]
+    return out
+
+
+def main(argv: list[str]) -> int:
+    usage = (
+        f"usage: {argv[0]} <plan.md> <contract.json> <pipeline_id> "
+        "[--current-phase <phase>]"
+    )
+    if len(argv) not in (4, 6):
+        print(usage, file=sys.stderr)
+        return 2
+
+    plan_path, out_path, pipeline_id = argv[1], argv[2], argv[3]
+    current_phase = "plan"
+    if len(argv) == 6:
+        if argv[4] != "--current-phase":
+            print(f"unexpected flag: {argv[4]!r}\n{usage}", file=sys.stderr)
+            return 2
+        current_phase = argv[5]
+        if current_phase not in VALID_PHASES:
+            print(
+                f"invalid --current-phase {current_phase!r}; "
+                f"must be one of {sorted(VALID_PHASES)}",
+                file=sys.stderr,
+            )
+            return 2
+
+    try:
+        with open(plan_path) as f:
+            plan = f.read()
+    except OSError as e:
+        print(f"error: could not read {plan_path}: {e}", file=sys.stderr)
+        return 1
+
+    m = FENCE_RE.search(plan)
+    if not m:
+        print(f"error: no '# yaml-tasks' fenced block in {plan_path}", file=sys.stderr)
+        return 1
+
+    try:
+        data = yaml.safe_load(m.group(1))
+    except yaml.YAMLError as e:
+        print(f"error: YAML parse error: {e}", file=sys.stderr)
+        return 1
+
+    if not isinstance(data, dict) or ("slices" not in data and "phases" not in data):
+        print(
+            "error: top-level structure invalid; run validate-yaml-tasks first",
+            file=sys.stderr,
+        )
+        return 1
+
+    raw_slices = data.get("slices") or data.get("phases") or []
+    slices: list[dict] = []
+    for sl in raw_slices:
+        slice_number = _slice_number_from_id(sl.get("id"), fallback=len(slices) + 1)
+        slices.append(_emit_slice(sl, slice_number))
+
+    contract = {
+        "schemaVersion": "1.1",
+        "pipeline_id": pipeline_id,
+        "current_phase": current_phase,
+        "issue": None,
+        "acceptance_criteria": [],
+        "slices": slices,
+        "decisions": [],
+        "workflow_owner": None,
+        "audit_log": [],
+        "refine_review_cycles": 0,
+        "refine_review_feedback": "",
+        "plan_review_cycles": 0,
+        "plan_review_feedback": "",
+        "pr": _emit_pr(data.get("pr")),
+        "feedback": None,
+        "phase_configs": None,
+        "agent_executions": [],
+    }
+
+    try:
+        with open(out_path, "w") as f:
+            json.dump(contract, f, indent=2)
+            f.write("\n")
+    except OSError as e:
+        print(f"error: could not write {out_path}: {e}", file=sys.stderr)
+        return 1
+
+    task_count = sum(len(sl["tasks"]) for sl in slices)
+    print(f"wrote {out_path}: {task_count} tasks across {len(slices)} slices")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
