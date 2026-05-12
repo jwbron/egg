@@ -316,10 +316,10 @@
         {
           "container_id": "0d22b191-99ff-4e0b-b75a-aeed1c90ab83",
           "container_name": "egg-sandbox-egg-agent-issue-1557-coder",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-11T23:35:47.778374Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-12T02:37:00.414169Z",
+          "exit_code": -1,
           "agent_role": "coder",
           "session_token": null,
           "pod_name": null,
@@ -601,6 +601,13 @@
           "last_lines": [],
           "terminated_at": "2026-05-12T01:36:31.531623Z",
           "container_id": "19ced56c-8f92-4ba0-a8c8-ec58cc9ac884"
+        },
+        {
+          "role": "coder",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-12T02:37:00.449375Z",
+          "container_id": "0d22b191-99ff-4e0b-b75a-aeed1c90ab83"
         }
       ]
     }
@@ -920,7 +927,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-12T02:36:41.328077Z",
+  "updated_at": "2026-05-12T02:37:00.449443Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -934,6 +941,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-11T23:35:14.282496Z",
-  "version": 60,
+  "version": 61,
   "jira_ticket": null
 }
