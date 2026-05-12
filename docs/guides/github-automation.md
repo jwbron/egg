@@ -408,7 +408,7 @@ next attempt.
 
 ### Retry and Escalation
 
-Each check has a configurable `max_retries` (default: 3). State is tracked
+Each check has a configurable `max_retries` (default: 10). State is tracked
 in a PR comment with a JSON payload. When a check exceeds its max retries,
 an escalation comment is posted requesting human intervention.
 
@@ -435,7 +435,7 @@ Per-job settings in `check-fixers.yml`:
 |---------|---------|---------|
 | `model` | `sonnet` | LLM model for this check |
 | `timeout` | `15` | Minutes before timeout |
-| `max_retries` | `3` | Max fix attempts before escalation |
+| `max_retries` | `10` | Max fix attempts before escalation |
 | `non_llm_fix` | (none) | Shell commands for mechanical fixing |
 
 Repos can override by placing `.egg/check-fixers.yml` in their repository.
