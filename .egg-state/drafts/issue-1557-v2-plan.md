@@ -170,7 +170,8 @@ creators).
 | In-flight detection helper (status + PR signals) | `(NEW — task TASK-2-4)` | orchestrator |
 | Gateway route `POST /api/v1/jira/ticket/transition` (orchestrator-only, allowlisted) | `(NEW — task TASK-2-6)` | gateway |
 | Loopback + shared-secret token check for `/transition` | `(NEW — task TASK-2-6)` | gateway |
-| Applier extension: in-flight refusal + Won't-Do batch + consolidate / split | `(NEW — task TASK-2-7)` | in-sandbox-agent + orchestrator |
+| Applier extension: in-flight refusal + Won't-Do batch + consolidate / split (orchestrator-side scheduling) | `(NEW — task TASK-2-7)` | orchestrator |
+| Applier prompt extension: per-`jira_action` mutation routing + in-flight refusal documentation | `(NEW — task TASK-2-8)` | in-sandbox-agent |
 
 ### Trust-boundary scope notes
 
@@ -879,33 +880,22 @@ slices:
       - id: TASK-2-7
         description: |-
           **Applier extension for reassess mutations + Won't-Do
-          batch (part G + part D extension).** Update the applier
-          prompt
-          (`plugins/refine-plan/skills/refine-plan/agents/
-          applier.md`) and the orchestrator post-plan-gate hook
+          batch (part G + part D extension — orchestrator side).**
+          Update the orchestrator post-plan-gate hook
           (`orchestrator/routes/pipelines.py:_persist_phase_gate_
           resolution`) so that on plan-apply for an epic-reassess
-          pipeline:
-          - `Task.jira_action == 'edit'` calls `jira ticket edit`
-            on `Task.jira_key`.
-          - `Task.jira_action == 'create'` calls `jira ticket
-            create` (parent set to epic per TASK-1-6).
-          - `Task.jira_action == 'consolidate-into'` records the
-            survivor pointer and skips (the survivor task has
-            `'edit'` action; the obsolete tasks all have
-            `'wontdo'` action).
-          - `Task.jira_action == 'split-of'` records the parent
-            split-source pointer (informational only; the parent
-            task has `'edit'` action narrowing scope and the new
-            tasks have `'create'` action).
-          - `Task.jira_action == 'wontdo'` is NOT executed by the
-            applier — instead the applier emits a structured
-            handoff JSON to `.egg-state/agent-outputs/` listing
-            every Won't-Do key + the comment text, and the
-            orchestrator post-apply hook iterates the list and
-            calls the new `/transition` route (TASK-2-6) for each
-            entry. Decision-4 batches all Won't-Do transitions on
-            the single plan-gate approval.
+          pipeline the applier runs the per-task mutation routing
+          described in the applier prompt (TASK-2-8) and the
+          orchestrator drains the Won't-Do batch handoff file
+          afterwards. Specifically:
+          - For each task whose `Task.jira_action == 'wontdo'`,
+            the applier emits a structured handoff JSON to
+            `.egg-state/agent-outputs/` listing every Won't-Do
+            key + the comment text. The orchestrator post-apply
+            hook iterates the list and calls the new
+            `/transition` route (TASK-2-6) for each entry.
+            Decision-4 batches all Won't-Do transitions on the
+            single plan-gate approval.
           - Any task whose `jira_key` belongs to an `in_flight`
             child (per the sweep handoff at
             `EGG_REASSESS_SWEEP_PATH`) is **refused** unless the
@@ -916,13 +906,12 @@ slices:
             `recoverable=True` and skip; the operator can re-run
             after adding the marker.
         acceptance: |-
-          - Applier routes each `jira_action` value to the right
-            CLI subcommand or no-op as documented.
-          - Won't-Do handoff file produced; orchestrator drains
-            the list via `/transition` after applier consensus.
-          - In-flight refusal documented in
-            `applier.md` + enforced in orchestrator code; refused
-            tasks surface in the apply phase's checkpoint.
+          - Won't-Do handoff file (produced by the applier) is
+            drained by the orchestrator via `/transition` after
+            applier consensus.
+          - In-flight refusal enforced in orchestrator code;
+            refused tasks surface in the apply phase's
+            checkpoint.
           - Re-run with `in-flight-confirmed` added to a task's
             notes succeeds for that task only.
           - Unit tests in `orchestrator/tests/test_pipelines_apply.py`
@@ -931,8 +920,47 @@ slices:
         role: coder
         files:
           - orchestrator/routes/pipelines.py
-          - plugins/refine-plan/skills/refine-plan/agents/applier.md
       - id: TASK-2-8
+        description: |-
+          **Applier prompt extension (part D extension — sandbox
+          side).** Update the applier prompt at
+          `plugins/refine-plan/skills/refine-plan/agents/
+          applier.md` (created in TASK-1-5) to document the
+          reassess-mode mutation routing the applier performs
+          when the plan-apply phase runs on an epic-reassess
+          pipeline:
+          - `Task.jira_action == 'edit'` → `jira ticket edit`
+            on `Task.jira_key`.
+          - `Task.jira_action == 'create'` → `jira ticket create`
+            (parent set to epic per TASK-1-6).
+          - `Task.jira_action == 'consolidate-into'` → record the
+            survivor pointer and skip (the survivor task has
+            `'edit'` action; the obsolete tasks all have
+            `'wontdo'` action).
+          - `Task.jira_action == 'split-of'` → record the parent
+            split-source pointer (informational only; the parent
+            task has `'edit'` action narrowing scope and the new
+            tasks have `'create'` action).
+          - `Task.jira_action == 'wontdo'` → NOT executed by the
+            applier — instead emit a structured handoff JSON to
+            `.egg-state/agent-outputs/` listing every Won't-Do
+            key + the comment text. The orchestrator (TASK-2-7)
+            iterates the list and calls the orchestrator-only
+            `/transition` route.
+          - In-flight refusal: any task whose `jira_key` belongs
+            to an `in_flight` child (per
+            `EGG_REASSESS_SWEEP_PATH`) is refused unless
+            `Task.notes` contains the literal string
+            `in-flight-confirmed`.
+        acceptance: |-
+          - `applier.md` reassess-mode section documents every
+            `jira_action` route + the in-flight refusal rule.
+          - The Won't-Do handoff JSON shape is described
+            explicitly so the orchestrator knows what to drain.
+        role: documenter
+        files:
+          - plugins/refine-plan/skills/refine-plan/agents/applier.md
+      - id: TASK-2-9
         description: |-
           **Slice-2 unit + integration test coverage.** Tests for
           TASK-2-1 (sweep classification), TASK-2-2 (reverse-index
