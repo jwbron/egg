@@ -5,9 +5,11 @@ salvage), these tests cover invariants that span multiple modules and
 have historical regression risk:
 
 * **Live-pod filter parity** between ``routes/pipelines._LIVE_POD_STATUSES``
-  and ``startup_reconciliation``'s inline filter. The two literals were
-  copy-pasted at #2420 time — a future drift would silently reintroduce
-  the #2411 false-positive (live pipelines marked FAILED at startup).
+  and ``startup_reconciliation``'s filter. After #2650 the two literals
+  were hoisted to a single ``models.LIVE_POD_STATUSES`` constant, so the
+  parity test now checks identity. Behavioral assertions remain to catch
+  a future regression where either call-site stops importing through the
+  shared constant.
 
 * **Crash-between-submit-and-spawn recovery** (#2009): pipelines that
   reached RUNNING but whose current phase never spawned should be
@@ -111,13 +113,28 @@ class TestLivePodFilterParity:
     """``startup_reconciliation`` and ``_count_live_pods_for_pipeline``
     must agree on which container statuses count as "live."
 
-    The literal duplication at ``startup_reconciliation.py`` lines
-    213-217 (``_live_statuses = (PENDING, CREATING, RUNNING)``) mirrors
-    ``routes.pipelines._LIVE_POD_STATUSES``. A drift between them would
-    re-open the #2411 incident — startup reconciliation could mark a
-    live pipeline FAILED while ``start_pipeline``'s guard treats the
-    same pod as live.
+    After #2650 both modules import ``models.LIVE_POD_STATUSES`` so the
+    constant is shared by identity. The behavioral tests below stay in
+    place to catch a future regression where either call-site stops
+    using the shared constant — if e.g. someone re-inlines a literal
+    that omits ``CREATING``, the per-status parametrize would catch it
+    even though the import-identity check would still pass.
     """
+
+    def test_constant_is_shared_by_identity(self):
+        """Both call-sites must reference the *same* tuple object.
+
+        The previous duplication relied on a comment to keep the two
+        literals in sync — a drift caused #2411. Asserting ``is`` (not
+        ``==``) catches a regression where someone copy-pastes the
+        constant back into one site.
+        """
+        from models import LIVE_POD_STATUSES
+        from routes.pipelines import _LIVE_POD_STATUSES as route_filter
+        from startup_reconciliation import _LIVE_POD_STATUSES as startup_filter
+
+        assert route_filter is LIVE_POD_STATUSES
+        assert startup_filter is LIVE_POD_STATUSES
 
     @pytest.mark.parametrize(
         "status",
