@@ -149,7 +149,7 @@ def _read_pipeline_pr_url(repo_path: Path, pipeline_id: str) -> str | None:
         return None
     try:
         data = json.loads(pipeline_file.read_text())
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     phases = data.get("phases") or {}
     pr_phase = phases.get("pr") or {}

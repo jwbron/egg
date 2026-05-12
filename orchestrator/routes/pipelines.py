@@ -20236,6 +20236,42 @@ def _run_pipeline(
                 phase_execution.status = PipelineStatus.COMPLETE
                 phase_execution.completed_at = datetime.now(UTC)
 
+                # #1557 N1 — apply_epic post-phase hook. When the
+                # pipeline is keyed off a Jira epic AND the just-
+                # completed phase is refine or plan, look for the
+                # ``.egg-state/agent-outputs/<prefix>-epic-apply.json``
+                # the apply_epic agent wrote and merge it into the
+                # pipeline's ``phases["plan"].artifacts["epic_apply"]``
+                # via :meth:`Pipeline.set_epic_apply`. Best-effort —
+                # any failure is logged and swallowed so a missing
+                # artifact doesn't block phase completion.
+                if getattr(pipeline, "jira_epic_key", None) and current_phase.value in (
+                    "refine",
+                    "plan",
+                ):
+                    try:
+                        from epic_apply_merge import (
+                            merge_epic_apply_from_agent_outputs,
+                        )
+                    except ImportError:  # pragma: no cover
+                        from orchestrator.epic_apply_merge import (  # type: ignore[no-redef]
+                            merge_epic_apply_from_agent_outputs,
+                        )
+                    try:
+                        merge_epic_apply_from_agent_outputs(
+                            pipeline,
+                            repo_path=worktree_repo_path,
+                            issue_number=pipeline.issue_number,
+                            pipeline_id=pipeline_id,
+                        )
+                    except Exception as merge_err:  # noqa: BLE001
+                        logger.warning(
+                            "epic_apply_post_phase_merge_failed",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                            error=str(merge_err),
+                        )
+
                 store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 
             # Report phase completion to collaborator
