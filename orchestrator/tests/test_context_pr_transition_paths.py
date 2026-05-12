@@ -475,9 +475,12 @@ def fresh_message_store(monkeypatch):
     """Pin an in-memory ``MessageStore`` singleton for the test so the
     wrapper's emission lands in a fresh store the test can read back
     without depending on a Redis backend (#2611).
-    """
-    monkeypatch.setenv("EGG_MESSAGE_STORE_BACKEND", "memory")
 
+    The explicit-instance ``monkeypatch.setattr`` bypasses
+    ``_create_message_store`` (the only consumer of the
+    ``EGG_MESSAGE_STORE_BACKEND`` env var), so we do not also set the
+    env var — it would be redundant.
+    """
     import message_store as _ms
 
     monkeypatch.setattr(_ms, "_message_store", _ms.MessageStore())
@@ -619,6 +622,61 @@ class TestObservabilitySinks:
             f"expected _emit_pipeline_event to fire with 'context_pr.failed'; got {emitted!r}"
         )
 
+    def test_event_bus_dispatch_reaches_real_eventbus(
+        self, tmp_path, issue_pipeline, spawner, fresh_message_store, monkeypatch
+    ):
+        """Subscribe a handler to the real ``EventBus`` singleton and
+        verify a ``CONTEXT_PR_FAILED`` event lands with the right
+        ``EventType``/pipeline-id (#2611 review item 4).
+
+        ``test_event_bus_receives_context_pr_event`` above patches
+        ``_emit_pipeline_event`` itself, so it only proves the wrapper
+        *calls* the function — not that the call reaches
+        ``EventBus.publish`` with the right typed event.  Pair that
+        with ``test_event_type_string_maps_to_typed_eventtype`` (which
+        checks the dict mapping in isolation) and the wiring is
+        covered piece-by-piece but not as a chain.  This test closes
+        the gap by exercising the wrapper → ``_emit_pipeline_event``
+        → ``emit_event`` → ``EventBus.publish`` → subscriber path
+        end-to-end.
+
+        The default singleton uses ``async_delivery=True``, which would
+        force the test to poll the bus history; swap in a sync
+        ``EventBus`` for the duration of the test instead so the
+        subscriber fires synchronously inside ``publish()``.
+        """
+        import events as _events_mod
+
+        sync_bus = _events_mod.EventBus(async_delivery=False)
+        monkeypatch.setattr(_events_mod, "_event_bus", sync_bus)
+
+        received: list[_events_mod.Event] = []
+        sync_bus.subscribe(_events_mod.EventType.CONTEXT_PR_FAILED, received.append)
+
+        contract = self._make_contract_without_pr(raised=True)
+
+        def _fake_load(identifier, repo_root):
+            return contract
+
+        with (
+            patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch("egg_contracts.loader.load_contract", _fake_load),
+        ):
+            inner.side_effect = RuntimeError("gateway down")
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="advance_phase_rest",
+            )
+
+        assert len(received) == 1, (
+            f"expected exactly one CONTEXT_PR_FAILED event on the bus; "
+            f"got {[(e.event_type, e.pipeline_id) for e in received]!r}"
+        )
+        assert received[0].event_type == _events_mod.EventType.CONTEXT_PR_FAILED
+        assert received[0].pipeline_id == "issue-2593"
+
     def test_event_type_string_maps_to_typed_eventtype(self):
         """The event-bus mapping must know ``context_pr.skipped`` and
         ``context_pr.failed`` — otherwise ``_emit_pipeline_event``
@@ -705,7 +763,17 @@ class TestObservabilitySinks:
         """The wrapper's swallow-all contract (#2548 decision-3) extends
         to the message-store sink: if ``add_message`` blows up, the
         wrapper must still return cleanly.  Otherwise an observability
-        outage would strand the plan→implement transition."""
+        outage would strand the plan→implement transition.
+
+        Also pins that sink 1 (``report_pipeline_status``) and sink 3
+        (``_emit_pipeline_event``) still fire when sink 2 raises —
+        the three sinks are independently isolated by their own
+        ``try/except`` blocks, and a future refactor that collapses
+        them into a single try/except would silently regress this
+        property.  Without these assertions the wrapper could
+        accidentally short-circuit out of sink 3 on any sink-2
+        failure without breaking the no-raise contract above.
+        """
         contract = self._make_contract_without_pr(raised=True)
 
         def _fake_load(identifier, repo_root):
@@ -713,8 +781,19 @@ class TestObservabilitySinks:
 
         import message_store as _ms
 
+        emitted: list[tuple] = []
+        reports: list[tuple] = []
+
+        def _fake_emit(pipeline, event_type_str):
+            emitted.append((pipeline.id, event_type_str))
+
+        def _fake_report(pipeline, event_type=None, message=None):
+            reports.append((event_type, message))
+
         with (
             patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch.object(_pipelines_mod, "_emit_pipeline_event", _fake_emit),
+            patch.object(_pipelines_mod, "report_pipeline_status", _fake_report),
             patch.object(_ms.MessageStore, "add_message", side_effect=RuntimeError("store down")),
             patch("egg_contracts.loader.load_contract", _fake_load),
         ):
@@ -726,6 +805,17 @@ class TestObservabilitySinks:
                 tmp_path,
                 source="advance_phase_rest",
             )
+
+        # Sink 1 must still fire even though sink 2 raised.
+        assert any(r[0] == "context_pr.failed" for r in reports), (
+            f"sink isolation regression: report_pipeline_status was not called "
+            f"with context_pr.failed after add_message raised; got reports={reports!r}"
+        )
+        # Sink 3 must still fire even though sink 2 raised.
+        assert ("issue-2593", "context_pr.failed") in emitted, (
+            f"sink isolation regression: _emit_pipeline_event was not called "
+            f"with context_pr.failed after add_message raised; got emitted={emitted!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

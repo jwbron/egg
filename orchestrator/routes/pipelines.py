@@ -10652,6 +10652,19 @@ def _maybe_open_base_pr_for_plan_to_implement(
             # All three sinks below share the dedupe set so a second
             # wrapper invocation does not append a duplicate
             # ``recent_messages`` entry or wake ``wait-status`` twice.
+            #
+            # Ordering trade-off: ``already.add(event_type)`` runs
+            # before any sink is invoked so two threads racing on the
+            # same transition cannot both pass the membership check.
+            # The side effect is that a transient sink failure — e.g.
+            # ``add_message`` raising on a Redis hiccup — permanently
+            # consumes the event for this pipeline; no later wrapper
+            # invocation will retry the failed sink.  This matches the
+            # docstring's best-effort contract (an observability
+            # outage must not strand the plan→implement transition),
+            # so do not "fix" it by moving ``already.add`` past the
+            # sinks — that would re-introduce double-emission under
+            # concurrent transition paths.
             with _context_pr_events_emitted_lock:
                 already = _context_pr_events_emitted.setdefault(pipeline_id, set())
                 if event_type in already:
@@ -10690,6 +10703,20 @@ def _maybe_open_base_pr_for_plan_to_implement(
                         get_message_store,
                     )
                 _msg_type = "CONTEXT_PR_FAILED" if raised is not None else "CONTEXT_PR_SKIPPED"
+                # Pin ``phase`` to the literal transition name rather
+                # than ``pipeline.current_phase.value`` so all four
+                # transition paths produce the same ``phase`` value on
+                # the message-store entry (#2611 review item 1).
+                # Two of the paths (autoadvance, HITL resume) fire
+                # before the phase mutates and would report ``"plan"``;
+                # the other two (``advance_phase`` REST and the
+                # implement-entry backstop) fire after and would
+                # report ``"implement"``.  An operator filtering
+                # ``recent_messages`` by ``phase`` would otherwise see
+                # the same logical event split across two buckets
+                # depending on which path fired the hook.  The
+                # ``source`` field still disambiguates the origin.
+                _phase = "plan→implement"
                 get_message_store().add_message(
                     Message(
                         pipeline_id=pipeline_id,
@@ -10698,7 +10725,7 @@ def _maybe_open_base_pr_for_plan_to_implement(
                         message_type=_msg_type,
                         subject=f"{event_type} (source={source})",
                         body=_status_message,
-                        phase=pipeline.current_phase.value,
+                        phase=_phase,
                         metadata={
                             "source": source,
                             "reason": _reason,
