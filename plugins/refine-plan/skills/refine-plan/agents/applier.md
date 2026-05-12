@@ -26,9 +26,11 @@ The orchestrator also writes a one-line handoff JSON identifying which artifact 
 {
   "approved_phase": "refine" | "plan",
   "contract_path": "/abs/path/to/.egg-state/contracts/<pipeline-id>.json",
-  "draft_path": "/abs/path/to/.egg-state/{drafts,brc-history}/<pipeline-id>-{refine,plan}.md"
+  "draft_path": "/abs/path/to/.egg-state/brc-history/<pipeline-id>-{refine,plan}.md"
 }
 ```
+
+The `draft_path` always points at the **`.egg-state/brc-history/`** archive — i.e. the post-consensus, immutable record of the artifact that the operator approved. Do not read from `.egg-state/drafts/`; that path holds the live work-in-progress copy and may still be mutating after the HITL gate.
 
 Read the handoff first to decide which sink to drive.
 
@@ -36,7 +38,7 @@ Read the handoff first to decide which sink to drive.
 
 ### Refine-apply (`approved_phase == 'refine'`)
 
-Push the refine analysis into the **epic Description** body. The refiner's `[mode: epic-fresh]` block produced an analysis whose top section is shaped as a self-contained epic statement (Problem Statement / Scope / Out of Scope / Linked Resources). Push the entire approved analysis file into the epic via the sandbox CLI:
+Push the refine analysis into the **epic Description** body. The refiner's `[mode: epic-fresh]` block produced an analysis whose top section is shaped as a self-contained epic statement (Problem Statement / Scope / Out of Scope / Linked Resources). Push the entire approved analysis file into the epic via the sandbox CLI (verbs are documented at `sandbox/scripts/jira:95-112`):
 
 ```bash
 jira ticket edit "$EGG_JIRA_TICKET" --description-file "<analysis-path>"
@@ -44,37 +46,68 @@ jira ticket edit "$EGG_JIRA_TICKET" --description-file "<analysis-path>"
 
 The CLI wraps `gateway/jira_client.py::edit_jira_issue`, which in turn enforces project allowlist + per-route policy. Idempotency: a re-run of refine-apply on the same approved-analysis hash is a no-op via `gateway/jira_idempotency.py:66`'s 5-minute idempotency cache (long-window idempotency lives on the contract — see "Lifecycle invariant" below).
 
-There is no per-task lifecycle for refine-apply because the contract has no per-task `jira_action` for the analysis itself. Record success / failure on `contract.refine_review_feedback` via `mcp__task__update_notes` (or, if it lands, a future `mcp__refine__set_apply_status` MCP) so a re-run can short-circuit.
+There is no per-task lifecycle for refine-apply because the contract has no per-task `jira_action` for the analysis itself. Refine-apply is a single side-effect; on re-entry, the gateway's 5-minute idempotency cache absorbs the duplicate `editJiraIssue`, so a second apply within that window is harmless. There is no contract-side success marker for refine-apply in slice 1 — that affordance is deferred to a follow-up MCP (e.g. `mcp__refine__set_apply_status`) so we don't smuggle multi-field writes through `mcp__task__update_notes`, which only writes `Task.notes`.
+
+**Markdown rendering note (non-blocking):** `--description-file` POSTs the file body verbatim to the Jira REST API v3 description field. Jira Cloud expects ADF (Atlassian Document Format) or wiki markup; raw Markdown headers (`## Problem Statement`) render as plain text in the Jira UI, not as styled headers. The gateway (`gateway/gateway.py:5689`) accepts the field as `string-or-ADF` with `allow_adf=True` but does no Markdown→ADF conversion. The operator reading the epic in Jira will see literal `## Problem Statement` until a follow-up either (a) wraps the CLI call in a Markdown→ADF step, or (b) the refiner's `[mode: epic-fresh]` skeleton switches to Jira wiki markup (`h2.` instead of `##`). Surface this in your apply-output summary so the operator is forewarned.
 
 ### Plan-apply (`approved_phase == 'plan'`)
 
 Walk every `Task` in the contract's `slices[*].tasks[*]`. For each task whose `jira_action` is set, dispatch as below. Tasks with `jira_action == None` are non-epic plan nodes (e.g. test-only or doc-only tasks that don't map to a Jira ticket); skip them.
 
-| `jira_action`        | Sandbox CLI                                                                  | `jira_key` | After success                                    |
-|----------------------|------------------------------------------------------------------------------|------------|--------------------------------------------------|
-| `create`             | `jira ticket create --epic "$EGG_JIRA_TICKET" --description-file <task.md>` | must be `None` | parse new key from CLI stdout, write back to `Task.jira_key` |
-| `edit`               | `jira ticket edit <jira_key> --description-file <task.md>`                  | required   | (no key change)                                  |
-| `split-of`           | `jira ticket create --epic "$EGG_JIRA_TICKET" --description-file <task.md>` and `jira ticket link create <existing> blocks <new>` (recording the parent-of-split in the link's body) | `jira_key` is the ORIGINAL key being split | write the new key to `Task.jira_key` after recording the split-of relationship in `Task.notes` |
-| `consolidate-into`   | `jira ticket edit <jira_key> --description-file <task.md>` (the survivor)    | required (the survivor key picked by the planner / operator) | (no key change)                                  |
-| `wontdo`             | **NOT YOUR JOB** — see "Out of scope" below.                                 | (irrelevant) | emit a Won't-Do entry in the handoff JSON for the orchestrator drain |
+The CLI verbs are at `sandbox/scripts/jira:95-112`. **Use the documented surface — no shortcuts.** `jira ticket create` requires `--project KEY --type Task --summary "..."`; `--epic-link KEY` (NOT `--epic`) attaches the new child to the epic via the per-project hierarchy field. Inter-ticket links use the top-level `jira link create` subgroup with `--type Blocks --inward FOO-1 --outward FOO-2` (there is no `jira ticket link` subgroup; using one exits non-zero before the gateway is reached).
 
-For each task you dispatch, also call `jira ticket link create "$EGG_JIRA_TICKET" blocks <child-key>` (or `relates` per the per-project hierarchy config) so the new child is parented to the epic.
+**Deriving `--summary`:** the per-task description authored by the task-planner has a `# <title>` H1 as the first non-frontmatter line — parse that title and pass it as `--summary`. If absent, fall back to the contract `Task.id` (e.g. `TASK-1-3`); never invoke the CLI without a summary value.
+
+| `jira_action`        | Sandbox CLI invocation                                                                                                                                       | Pre-call `jira_key` | After success                                                                                                                                  |
+|----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| `create`             | `jira ticket create --project <PROJECT> --type Task --summary "<title>" --description-file <task.md> --epic-link "$EGG_JIRA_TICKET" --idempotency-key <k>`   | must be `None`      | parse new key from CLI stdout (last `created: <KEY>` line), write back to `Task.jira_key` via `mcp__task__add_commit`-style mutation flow      |
+| `edit`               | `jira ticket edit <jira_key> --description-file <task.md>` (and optionally `--summary "<title>"` if the title changed)                                       | required            | (no key change)                                                                                                                                |
+| `split-of`           | (1) `jira ticket create --project <P> --type Task --summary "<title>" --description-file <task.md> --epic-link "$EGG_JIRA_TICKET" --idempotency-key <k>` to mint the new sibling, then (2) `jira link create --type Blocks --inward <ORIGINAL_KEY> --outward <NEW_KEY>` recording the split-of relationship | `jira_key` = the ORIGINAL key being split | write the NEW key to `Task.jira_key`; record the split-of in the structured-prefix block of `Task.notes` (see lifecycle below)                |
+| `consolidate-into`   | `jira ticket edit <jira_key> --description-file <task.md>` (the survivor)                                                                                    | required (survivor) | (no key change)                                                                                                                                |
+| `wontdo`             | **NOT YOUR JOB** — see "Out of scope" below.                                                                                                                | (irrelevant)        | emit a Won't-Do entry in the handoff JSON for the orchestrator drain                                                                           |
+
+`<PROJECT>` is the prefix of `EGG_JIRA_TICKET` before the first `-` (e.g. `ENG` for `ENG-123`); the gateway's project allowlist enforces that you don't reach outside it. `<k>` is a short stable string derived from `pipeline_id + task_id` so a re-run hits the gateway's 5-min idempotency cache cleanly.
+
+After every successful `create` / `split-of`, also call `jira link create --type Blocks --inward "$EGG_JIRA_TICKET" --outward <CHILD-KEY>` if `epic-link` doesn't natively cover the link semantic for the project (per the `gateway/jira_policy.py:163` `epic_link_field()` setting). For projects whose hierarchy field is `parent` / `customfield_10014`, `--epic-link` already wires the parent relationship and the additional `link create` is redundant; for projects that need an explicit Blocks link surface for downstream tooling, it's required. The plan/refine input documents the per-project shape; in doubt, prefer adding the link (it's idempotent at the gateway).
 
 ## Lifecycle invariant (risk_analyst R7) — write status BEFORE the call
 
-For every per-task gateway mutation:
+For every per-task gateway mutation, the contract is the durable record of "what has happened." Persist the lifecycle status to the contract BEFORE issuing the gateway call so a crash mid-call leaves the contract correctly reflecting "we tried" rather than "we never started."
 
-1. **Write `'in_flight'` to the contract first.** Set `Task.jira_action_status = 'in_flight'` via `mcp__task__update_notes` (or a future `mcp__task__set_status` MCP, if it lands during slice 1). Persist before issuing the gateway call.
+**Persistence shape — structured prefix in `Task.notes`.** The MCP surface available in slice 1 is `mcp__task__update_notes` (`sandbox/egg_agent_tools/handlers/task.py:215`), which writes only the `Task.notes` string. There is no `mcp__task__set_status` today. Encode the lifecycle status as the first line of `Task.notes`, with the convention:
+
+```
+jira_action_status=<value>
+<rest of human-readable notes>
+```
+
+where `<value>` ∈ `{pending, in_flight, applied, failed}`. Both the applier (writer) and the apply-phase reviewer (`reviewer-contract-apply.md` reader) parse the first line. Subsequent calls to `mcp__task__update_notes` MUST preserve the prefix line — read the current notes, replace the prefix, and write the whole string back. The `Task.jira_action_status` Pydantic field on `Task` (TASK-1-3) is the typed projection of this prefix; the orchestrator-side post-apply hook is responsible for syncing the typed field from the prefix on the next contract reload (or, equivalently, parsing the prefix at read time). When a typed `mcp__task__set_status` MCP lands as a follow-up, both producer and reviewer will switch to it — until then, the prefix is the source of truth.
+
+Similarly, `Task.jira_key` is set on `create` / `split-of` success by re-using the structured prefix:
+
+```
+jira_action_status=applied
+jira_key=ENG-456
+<rest of notes>
+```
+
+The reviewer reads both prefix lines.
+
+**Three-step write-before-call sequence:**
+
+1. **Write `'in_flight'` to the contract first.** Read `Task.notes`, replace (or insert) the `jira_action_status=in_flight` prefix, and persist via `mcp__task__update_notes`. Block on the call returning success — the durability of the status precedes the side-effect.
 2. **Issue the gateway call** (the `jira` CLI subcommand above).
-3. **Write the terminal state.** On success, set `Task.jira_action_status = 'applied'`. On failure, set `'failed'` and append the error reason to `Task.notes` (so the apply-phase reviewer can verify failure traceability). Then continue to the next task — do not abort the whole apply on a single-task failure; that is the reviewer's call.
+3. **Write the terminal state.** On success, set the prefix to `jira_action_status=applied` (and `jira_key=<NEW>` for `create` / `split-of`). On failure, set it to `jira_action_status=failed` and append the error reason as a new line beneath the prefix block. Continue to the next task — do not abort the whole apply on a single-task failure; that is the reviewer's call.
 
 This invariant turns partial-apply into a recoverable state. On every re-entry of the applier:
 
-- Tasks with `jira_action_status == 'applied'` → **skip**. Already done.
-- Tasks with `jira_action_status in {'pending', None, 'failed'}` → **re-attempt**. The contract is the durable source of truth; the gateway's 5-minute idempotency cache (`gateway/jira_idempotency.py:66`) covers the short-window double-submit case. The contract status covers everything beyond 5 minutes (e.g. orchestrator restart between half-applied state and re-spawn).
+- Tasks with `jira_action_status == 'applied'` (per the prefix) → **skip**. Already done.
+- Tasks with `jira_action_status in {'pending', None, 'failed'}` → **re-attempt**. The contract is the durable source of truth; the gateway's 5-minute idempotency cache (`gateway/jira_idempotency.py:66`) covers the short-window double-submit case. The contract prefix covers everything beyond 5 minutes (e.g. orchestrator restart between half-applied state and re-spawn).
 - Tasks with `jira_action_status == 'in_flight'` → **re-attempt**, but log a structured warning that the previous run crashed mid-call. The 5-minute idempotency cache will absorb the second submission if it lands within the window; outside the window, you may double-write — accept that and let the reviewer surface it. (A cleaner future shape is a per-task in-flight TTL; out of scope for slice 1.)
 
-Never set `jira_action_status` to `'in_flight'` and then issue the gateway call without `await`-ing / blocking on the persistence write completing — the durability of the status precedes the side-effect, not the other way around.
+**Wontdo lifecycle exemption.** Tasks with `jira_action == 'wontdo'` deliberately stay at `jira_action_status='pending'` from the applier's perspective — see "Out of scope: Won't-Do transitions" below for why and how the reviewer treats them. The terminal-status check in `reviewer-contract-apply.md` exempts wontdo tasks; the orchestrator's drain hook is responsible for transitioning the prefix to `'applied'` after the `/transition` route succeeds.
+
+**Consecutive-failure circuit breaker (recommended, non-blocking).** If three consecutive per-task gateway calls return HTTP 5xx (a likely Jira-side outage), abort the remaining tasks: leave them at `jira_action_status='pending'` rather than burning through them all marking each `'failed'`. The reviewer will then NACK on non-terminal status and the operator will decide whether to re-run the apply phase. This avoids manual unwinding of N spurious failures during a transient outage.
 
 ## Reject unknown actions
 
@@ -86,7 +119,7 @@ If `Task.jira_action` is set to a value outside the literal allow-set (`{'create
 
 What you do instead, for every `jira_action == 'wontdo'` task:
 
-1. Write `Task.jira_action_status = 'pending'` (apply lifecycle is owned by the orchestrator side here, not by you).
+1. Set the structured prefix to `jira_action_status=pending`. **This is the terminal state for wontdo from your perspective.** Apply lifecycle ownership for wontdo is split: the applier emits the handoff entry (your job, below); the orchestrator's `_drain_wontdo_batch_after_apply` hook transitions the prefix to `'applied'` after the `/transition` route returns 2xx. The apply-phase reviewer (`reviewer-contract-apply.md`) explicitly exempts `wontdo` tasks from the terminal-status check — `'pending'` is a valid ACK state for them. Do NOT write `'in_flight'` for wontdo (no in-sandbox call to bracket); do NOT write `'applied'` for wontdo (that's the orchestrator's job after the out-of-band transition).
 2. Append an entry to a single Won't-Do handoff JSON file at the path the orchestrator passes you in the handoff context (typically `.egg-state/agent-outputs/<pipeline-id>-applier-wontdo.json`):
 
    ```json
