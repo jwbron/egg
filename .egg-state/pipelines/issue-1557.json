@@ -5,7 +5,7 @@
   "branch": "egg/issue-1557/work",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -174,10 +174,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-05-12T03:07:56.461567Z",
       "work_started_at": "2026-05-12T03:08:22.830739Z",
-      "completed_at": null,
+      "completed_at": "2026-05-12T03:12:12.855088Z",
       "containers": [
         {
           "container_id": "374c7d6e-4fbb-4e01-8fc8-ed1d9e97d5c4",
@@ -391,12 +391,12 @@
         {
           "cycle": 0,
           "started_at": "2026-05-12T03:08:22.830739Z",
-          "completed_at": null,
+          "completed_at": "2026-05-12T03:12:12.855078Z",
           "commit_sha": "c42c1022ff2ca1860dba4461f218cc2ae46e8e9e"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Spawn failed for task_planner — task_planner: Per-agent worktree creation failed for issue-1557-task_planner after 3 attempt(s): Failed to create any worktrees",
       "hitl_feedback": null,
       "phase_start_sha": "c42c1022ff2ca1860dba4461f218cc2ae46e8e9e",
       "agent_exits": [
@@ -1076,7 +1076,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-12T03:12:12.824529Z",
+  "updated_at": "2026-05-12T03:12:12.855247Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1084,12 +1084,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Spawn failed for task_planner — task_planner: Per-agent worktree creation failed for issue-1557-task_planner after 3 attempt(s): Failed to create any worktrees",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T03:07:49.601754Z",
-  "version": 77,
+  "version": 78,
   "jira_ticket": null
 }
