@@ -191,8 +191,10 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
         }
     """
     data = request.get_json()
-    if not data:
+    if data is None:
         return make_error_response("Missing request body")
+    if not isinstance(data, dict):
+        return make_error_response("Request body must be a JSON object")
 
     signal_type = data.get("signal_type")
     if not signal_type:
@@ -2383,7 +2385,11 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
         }
     """
     data = request.get_json()
-    if not data or "signals" not in data:
+    if data is None:
+        return make_error_response("Missing request body")
+    if not isinstance(data, dict):
+        return make_error_response("Request body must be a JSON object")
+    if "signals" not in data:
         return make_error_response("Missing signals array")
 
     signals = data["signals"]

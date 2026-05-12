@@ -1715,3 +1715,49 @@ class TestAckVersionForwarding:
         payload_passed = call_args[0][2]
         # Payload's own ack_version should be preserved, not overwritten
         assert payload_passed.get("ack_version") == 3
+
+
+@pytest.fixture
+def client(app):
+    """Test client for the signals blueprint."""
+    return app.test_client()
+
+
+class TestNonObjectJsonBodyReturns400:
+    """Fix for #2673: non-object JSON bodies must 400, not 500.
+
+    Mirrors the #2656 fix on the decisions route. Previously
+    ``data = request.get_json()`` left a list / scalar in ``data``
+    and ``data.get(...)`` raised ``AttributeError`` → the generic
+    exception handler returned 500.
+    """
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    def test_handle_signal_non_object_body_returns_400(self, client, raw_body):
+        response = client.post(
+            "/api/v1/pipelines/issue-42/signal",
+            data=raw_body,
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.data
+        body = json.loads(response.data)
+        assert body["success"] is False
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    def test_batch_signal_non_object_body_returns_400(self, client, raw_body):
+        response = client.post(
+            "/api/v1/pipelines/issue-42/signal/batch",
+            data=raw_body,
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.data
+        body = json.loads(response.data)
+        assert body["success"] is False

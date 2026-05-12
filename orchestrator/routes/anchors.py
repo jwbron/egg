@@ -104,8 +104,10 @@ def create_or_update_anchor(agent_id: str) -> tuple[Response, int]:
         return _make_error(agent_id_error)
 
     body = request.get_json()
-    if not body:
+    if body is None:
         return _make_error("Missing request body")
+    if not isinstance(body, dict):
+        return _make_error("Request body must be a JSON object")
 
     # Validate agent_id consistency between URL and body
     body_agent_id = body.get("agent_id")

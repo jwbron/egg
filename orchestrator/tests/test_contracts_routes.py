@@ -248,6 +248,49 @@ class TestValidateMutation:
         assert response.status_code == 400
 
 
+class TestNonObjectJsonBodyReturns400:
+    """Fix for #2673: non-object JSON bodies must 400, not 500.
+
+    Mirrors the #2656 fix on the decisions route. Without the guard,
+    ``body.get("field_path")`` raises ``AttributeError`` for a
+    list/scalar body and the generic handler returns 500.
+    """
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    def test_mutate_non_object_body_returns_400(self, client, fake_worktree, raw_body):
+        pipeline_id, worktree = fake_worktree
+        _seed_contract(worktree, pipeline_id)
+        response = client.post(
+            f"/api/v1/contracts/{pipeline_id}/mutate",
+            data=raw_body,
+            content_type="application/json",
+            headers={"X-Egg-Role": "implementer"},
+        )
+        assert response.status_code == 400, response.data
+        body = json.loads(response.data)
+        assert body["success"] is False
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true"],
+        ids=["array", "string", "number", "bool"],
+    )
+    def test_validate_non_object_body_returns_400(self, client, raw_body):
+        response = client.post(
+            "/api/v1/contract-mutations/validate",
+            data=raw_body,
+            content_type="application/json",
+            headers={"X-Egg-Role": "implementer"},
+        )
+        assert response.status_code == 400, response.data
+        body = json.loads(response.data)
+        assert body["success"] is False
+
+
 class TestBranchReadFallback:
     """Covers the #1977 branch-read fallback path for finished pipelines.
 

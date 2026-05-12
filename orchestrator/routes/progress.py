@@ -67,8 +67,10 @@ def emit_progress(pipeline_id: str) -> tuple[Response, int]:
         }
     """
     body = request.get_json()
-    if not body:
+    if body is None:
         return _make_error("Missing request body")
+    if not isinstance(body, dict):
+        return _make_error("Request body must be a JSON object")
 
     agent_role = body.get("agent_role")
     if not agent_role:
