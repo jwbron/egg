@@ -1074,7 +1074,11 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                 # Skip the push when the commit was a no-op — the helper
                 # is idempotent and the contents on origin already
                 # match.  An unconditional push would still fast-forward
-                # to a no-op but would burn a gateway round-trip.
+                # to a no-op but would burn a gateway round-trip.  Mark
+                # the success case explicitly so a second
+                # ``populate_contract`` call on an already-populated
+                # pipeline does not return ``pushed_to_origin=False``
+                # and mislead the operator into a manual push attempt.
                 if committed:
                     gateway_mode, _ = _compute_gateway_mode(pipeline)
                     push_result = _get_spawner().gateway.push_worktree_branch(
@@ -1091,6 +1095,8 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                             pipeline_id=pipeline_id,
                             detail=push_result.describe(),
                         )
+                else:
+                    pushed_to_origin = True
             except Exception as persist_err:  # noqa: BLE001
                 logger.warning(
                     "populate_contract: persist to origin failed (continuing)",
