@@ -31,9 +31,10 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 # Add shared directory to path for egg_logging.
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -146,7 +147,7 @@ def _read_pipeline_pr_url(repo_path: Path, pipeline_id: str) -> str | None:
         return None
     try:
         data = json.loads(pipeline_file.read_text())
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     phases = data.get("phases") or {}
     pr_phase = phases.get("pr") or {}
@@ -282,9 +283,7 @@ def sweep_existing_children(
             if pr_signal is not None:
                 signals.append(pr_signal)
                 classification = "in_flight"
-            remote_link_signal = _check_remote_link_signal(
-                key, gateway_invoker=gateway_invoker
-            )
+            remote_link_signal = _check_remote_link_signal(key, gateway_invoker=gateway_invoker)
             if remote_link_signal is not None:
                 signals.append(remote_link_signal)
                 classification = "in_flight"
@@ -332,7 +331,7 @@ def update_reverse_index(
     if target.exists():
         try:
             raw = json.loads(target.read_text())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             raw = {}
     else:
         raw = {}

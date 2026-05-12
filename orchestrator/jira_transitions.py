@@ -190,9 +190,7 @@ class JiraTransitionsClient:
 
         # 2. Look up the Won't-Do transition id (project-cached).
         project_key = child_key.split("-", 1)[0]
-        transition_id = self._resolve_wont_do_transition_id(
-            creds, child_key, project_key
-        )
+        transition_id = self._resolve_wont_do_transition_id(creds, child_key, project_key)
         if transition_id is None:
             logger.warning(
                 "orch_jira_transition_attempt",
@@ -268,13 +266,8 @@ class JiraTransitionsClient:
             "Content-Type": "application/json",
         }
 
-    def _get_current_status(
-        self, creds: JiraCredentials, child_key: str
-    ) -> str:
-        url = (
-            f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}"
-            "?fields=status"
-        )
+    def _get_current_status(self, creds: JiraCredentials, child_key: str) -> str:
+        url = f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}?fields=status"
         client = self._client()
         # Brief retry on 429 to honour Atlassian rate-limits politely.
         for attempt in (0, 1):
@@ -291,9 +284,7 @@ class JiraTransitionsClient:
                 status_code=response.status_code,
             )
         body = response.json()
-        return (
-            (body.get("fields") or {}).get("status", {}).get("name") or "Unknown"
-        )
+        return (body.get("fields") or {}).get("status", {}).get("name") or "Unknown"
 
     def _resolve_wont_do_transition_id(
         self, creds: JiraCredentials, child_key: str, project_key: str
@@ -323,13 +314,8 @@ class JiraTransitionsClient:
                 return transition_id
         return None
 
-    def _fetch_transitions(
-        self, creds: JiraCredentials, child_key: str
-    ) -> dict[str, str]:
-        url = (
-            f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}"
-            "/transitions"
-        )
+    def _fetch_transitions(self, creds: JiraCredentials, child_key: str) -> dict[str, str]:
+        url = f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}/transitions"
         client = self._client()
         for attempt in (0, 1):
             response = client.get(url, headers=self._headers(creds))
@@ -356,10 +342,7 @@ class JiraTransitionsClient:
     def _post_transition(
         self, creds: JiraCredentials, child_key: str, body: dict[str, Any]
     ) -> None:
-        url = (
-            f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}"
-            "/transitions"
-        )
+        url = f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}/transitions"
         client = self._client()
         response = client.post(url, headers=self._headers(creds), json=body)
         # 204 = success (per Atlassian docs).  200 sometimes returned on

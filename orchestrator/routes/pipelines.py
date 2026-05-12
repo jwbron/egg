@@ -11291,15 +11291,13 @@ def _build_phase_prompt(
                     "Mode: **reassess** — the epic already has children. "
                     "Read the existing-children context (and any "
                     "Confluence pages linked from the epic) from "
-                    "`.egg-state/agent-outputs/{}-refine-input.json` "
+                    f"`.egg-state/agent-outputs/{issue_number if issue_number is not None else pipeline_id}-refine-input.json` "
                     "before writing the analysis, and assess: (a) what "
                     "work is already done; (b) what scope has changed; "
                     "(c) what is no longer relevant. Surface those three "
                     "observations explicitly in the analysis so the "
                     "plan-phase agent has a starting position for the "
-                    "diff between current state and desired state.\n".format(
-                        issue_number if issue_number is not None else pipeline_id
-                    )
+                    "diff between current state and desired state.\n"
                 )
             else:
                 lines.append(
@@ -11519,7 +11517,7 @@ def _build_phase_prompt(
                 lines.append(
                     "**Reassess mode** — the epic has existing children. "
                     "Read the existing-children sweep "
-                    "(`.egg-state/agent-outputs/{}-existing-children.json`) "
+                    f"(`.egg-state/agent-outputs/{issue_number if issue_number is not None else pipeline_id}-existing-children.json`) "
                     "and produce a classified diff for each child: "
                     "`updated` / `consolidated` / `split` / `net-new` / "
                     "`wont_do`. Done children are EXCLUDED entirely "
@@ -11530,9 +11528,7 @@ def _build_phase_prompt(
                     "if you propose ANY mutation against an in-flight "
                     "target, the apply step opens a per-ticket HITL "
                     "gate (decision-8 OR semantics, the firing signal "
-                    "source is surfaced to the operator).\n".format(
-                        issue_number if issue_number is not None else pipeline_id
-                    )
+                    "source is surfaced to the operator).\n"
                 )
                 lines.append(
                     "**Won't-Do plan-draft rendering (mandatory)** — "
