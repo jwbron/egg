@@ -27,7 +27,7 @@ from __future__ import annotations
 import base64
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -99,11 +99,17 @@ class JiraCredentials:
     ``base_url`` must be the bare origin (e.g. ``https://foo.atlassian.net``)
     with no trailing slash and no ``/rest/api/...`` suffix.  The client adds
     the REST path at request time.
+
+    The ``api_token`` field is marked ``repr=False`` so the default
+    dataclass ``__repr__`` does NOT print it (#1557 reviewer_security
+    v3 #17).  ``logger.info("creds=%s", creds)``, exception tracebacks,
+    and ``dataclasses.asdict()`` therefore never leak the token.  Use
+    :meth:`basic_auth_header` when the encoded value is needed.
     """
 
     base_url: str
     username: str
-    api_token: str
+    api_token: str = field(repr=False)
 
     def basic_auth_header(self) -> str:
         """Return the value of an ``Authorization: Basic ...`` header.
