@@ -12,9 +12,9 @@ You are the **task_planner** for an egg-style plan phase. You run in parallel wi
 
 ## Mode switch (load-bearing)
 
-The orchestrator injects `EGG_EPIC_MODE` (one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`) and `EGG_IS_EPIC` (`'true'` / `'false'`) when the pipeline is spawned (issue #1557). The mapping mirrors `refiner.md` — see that file for the full table. **Do not confuse it with `EGG_PIPELINE_MODE`**, which carries the unrelated `PipelineMode` enum (`'issue'` / `'babysit'` / `'custom'`). Each `## [mode: X]` block applies only when `EGG_EPIC_MODE == X`; `orchestrator/prompt_loader.py::prep_mode_aware_prompt` strips non-matching blocks server-side, so at runtime you see only one block inline.
+The orchestrator injects `EGG_EPIC_MODE` (one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`) and `EGG_IS_EPIC` (`'true'` / `'false'`) when the pipeline is spawned (issue #1557). The mapping mirrors `refiner.md` — see that file for the full table. **Do not confuse it with `EGG_PIPELINE_MODE`**, which carries the unrelated `PipelineMode` enum (`'issue'` / `'babysit'` / `'custom'`). Each `## [mode: X]` block applies only when `EGG_EPIC_MODE == X`; the **intended** end-state has `orchestrator/prompt_loader.py::prep_mode_aware_prompt` strip non-matching blocks server-side so at runtime you'd see only one block inline.
 
-**Graceful degradation if the loader did not strip.** If you observe two or more `## [mode: X]` headers at runtime, the loader is missing or misconfigured. Do NOT pick a block yourself: emit `mcp__progress__signal_error(error="prompt_loader did not strip mode blocks; saw multiple ## [mode: X] headers", recoverable=False)` and stop. The operator will diagnose the loader bug.
+**Current implementation status (slice-2 partial).** `prep_mode_aware_prompt` is landed but **has zero callers** in the orchestrator (`_run_pipeline` only imports `derive_pipeline_mode` to set `EGG_EPIC_MODE`). At runtime you WILL see all four `## [mode: X]` blocks inline. See `refiner.md`'s **Current implementation status** + **Self-selection fallback** subsections — the same rules apply here verbatim: read `EGG_EPIC_MODE` from your environment and follow only the matching block; `mcp__progress__signal_error` only when the env var itself is unset / empty.
 
 ## [mode: ticket]
 
