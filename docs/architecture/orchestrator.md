@@ -120,6 +120,137 @@ The orchestrator supports two pipeline modes:
 
 The `babysit` mode registers with the same orchestrator infrastructure (state store, health monitoring, HITL decision queue) as issue mode. Under the hood it is an implement-phase pipeline with `has_contract=false`, which filters `reviewer_contract` out of the role roster and carries no contract/plan artifacts. The cycle runs once per invocation — there is no polling loop; CI failures, if any, are observed and addressed by the producers as part of BRC orientation.
 
+## Orchestrator-Only Jira Transitions (`/api/v1/jira/ticket/transition`) — #1557 decision-15
+
+The Jira-epic SDLC pipelines introduced by [issue #1557](https://github.com/jwbron/egg/issues/1557) need to transition pre-existing child tickets to **Won't Do** when the reassess flow supersedes them (consolidations, obsoletes, replanned scopes). The agent-facing Jira gateway intentionally **forbids transitions** today (`gateway/jira_client.py:133` `JIRA_WRITE_VERBS_DENIED`), and the trust-boundary decision keeps it that way: there is no Jira state-machine surface available to in-sandbox agents.
+
+Instead, transitions land via a **separate orchestrator-only gateway route**, `POST /api/v1/jira/ticket/transition`, gated on **loopback / cluster-internal source + launcher-secret bearer token**. The applier in the sandbox writes Won't-Do candidates to a handoff JSON (see `plugins/refine-plan/skills/refine-plan/agents/applier.md`'s "Out of scope: Won't-Do transitions" section). The intended end-state has an orchestrator-side `_drain_wontdo_batch_after_apply` hook reading the handoff after apply-phase BRC consensus and calling `/transition` once per entry via `orchestrator/wontdo_drain.py::run_wontdo_drain`, out of band from the HITL HTTP response so Jira API latency does not block operator approvals.
+
+**Current implementation status (slice-2 partial).** The route and the drain helper are landed (`gateway/gateway.py::jira_ticket_transition` + `orchestrator/wontdo_drain.py::{load_wontdo_handoff,run_wontdo_drain}` from commit `d5c9a94fa`), but the call site that wires `run_wontdo_drain` into the apply-phase CONSENSUS_CONFIRMED event has **not yet landed** — no orchestrator code currently reads the applier's `*-wontdo.json` file. The follow-up work belongs to **coder scope** (adding `_drain_wontdo_batch_after_apply` to `orchestrator/routes/pipelines.py`'s apply-phase exit path) and is tracked under the slice-2 / TASK-2-7 follow-up. Until that commit lands, applier-produced Won't-Do handoffs sit on disk as a no-op. Operators who need a Won't-Do batch drained today can invoke `python3 -c "from orchestrator.wontdo_drain import run_wontdo_drain; …"` against the handoff path manually, or wait for the call site to land. This section is otherwise correct in describing the end-state design and the gateway-side enforcement that IS live.
+
+### Trust model
+
+The route's auth combines **two gateway-side gates** with a **deployment-side gate** the cluster operator owns:
+
+1. **Loopback / cluster-internal source (gateway).** The request's source IP must be loopback, link-local, or RFC1918. The gateway rejects external callers with HTTP 403 even when the bearer token is correct. **This is a coarse gate**: `_is_in_cluster_source` (`gateway/gateway.py`) accepts `is_loopback | is_private | is_link_local`, so on a standard k8s overlay every pod in `10.0.0.0/8` / `172.16.0.0/12` / `192.168.0.0/16` passes — including sandbox pods. The gate's actual security value is **excluding traffic from outside the cluster** (e.g. an attacker who steals the launcher secret but cannot reach the gateway's pod-internal listener); it does **not** by itself distinguish orchestrator pods from sandbox pods.
+2. **Launcher-secret bearer token (gateway).** The request must carry `Authorization: Bearer <launcher_secret>`, where `<launcher_secret>` is the same secret used by every gateway session-creation flow. Constant-time compare via `secrets.compare_digest` against the value loaded by `get_launcher_secret()`. Missing or invalid bearer → HTTP 401 (`missing_bearer_auth` / `bad_bearer_auth`); secret not configured on the gateway → HTTP 401 with reason `launcher_secret_not_configured`. Implementation: `gateway/gateway.py::_verify_orchestrator_transition_auth`.
+3. **NetworkPolicy / equivalent subnet scoping (operator-owned).** Because gate 1 only excludes external traffic, the cluster operator is responsible for restricting which **in-cluster** subnets can reach the gateway's `/transition` listener. The expected deployment uses a NetworkPolicy on the gateway pod accepting `/transition` ingress only from the orchestrator's pod selector — closing the gap where a sandbox with the launcher secret could otherwise reach the route. **Without NetworkPolicy, the launcher secret is the only barrier between a compromised sandbox and the `/transition` route** (and the agent-facing path's `JIRA_WRITE_VERBS_DENIED` blocks the underlying Jira transition verb even in that scenario — see "Sandbox isolation" below). Operators deploying without NetworkPolicy should treat the launcher secret with sandbox-grade rotation discipline.
+
+In addition to the two gates, the route allowlists `transition_name` to `{"Won't Do", "Won't Fix"}` only — the orchestrator cannot use this route to drive arbitrary workflow transitions (e.g. `Done`, `In Progress`). Other transition names return HTTP 400. The audit log records caller IP, transition name, ticket key, and outcome on every invocation (`jira_ticket_transition` event for successes, `jira_ticket_transition_unauthorized` / `_rejected` / `_denied` / `_upstream_error` for the rejection paths).
+
+The agent-facing Jira surface (`validate_jira_api_path` + `JIRA_WRITE_VERBS_DENIED`) is **unchanged** — sandbox agents continue to be denied transitions. The `/transition` route is reachable only from inside the cluster network with the launcher secret. See `gateway/jira_client.py:491+` for the four pre-existing internal-only Jira helpers that bypass `validate_jira_api_path`; `/transition` follows the same pattern.
+
+The route is decorated manually with the `PRIVATE_MODE_MARKER_ATTR` so the `test_every_jira_route_has_private_mode_marker` regression test stays green; the standard `@require_private_mode` decorator can't be applied because it expects a session-auth context that this orchestrator-only path deliberately does not establish. See `gateway/gateway.py:5497-5510` for the manual stamp and the rationale comment.
+
+### Launcher-secret reuse — why no separate orchestrator token
+
+The original plan (TASK-2-6 / TASK-2-10 acceptance text) called for a new `X-Egg-Orchestrator-Token` header authenticated against a dedicated `EGG_ORCHESTRATOR_TOKEN` env var. The landed implementation reuses the **existing launcher secret** via the standard `Authorization: Bearer …` header instead. The deliberate trade-off:
+
+- **Loopback gate excludes external traffic only.** The gateway-side IP check rejects external callers with HTTP 403 before bearer comparison, but `_is_in_cluster_source` accepts the full RFC1918 superset and does not distinguish orchestrator pods from sandbox pods. The actual orchestrator-vs-sandbox scoping comes from the operator-owned NetworkPolicy on the gateway pod; the loopback gate is necessary-but-not-sufficient.
+- **One rotation pipeline, not two.** Operators already rotate the launcher secret on a quarterly cadence (or on incident). Adding a second secret with its own bundle key, mount path, and rotation runbook doubled the operational surface for a defense-in-depth gain that NetworkPolicy already supplies more cleanly.
+- **Sandbox is denied by NetworkPolicy + the agent path's transition-verb deny, not by withholding the secret.** Sandbox pods already see the launcher secret on the standard agent-facing path. With NetworkPolicy in place, a sandbox copying the secret and calling `/transition` is blocked at the network layer. Without NetworkPolicy, the agent-facing routes still enforce `JIRA_WRITE_VERBS_DENIED` on the underlying Jira surface — but the `/transition` route itself becomes the single point of trust, so operators in that configuration should rotate the launcher secret aggressively.
+
+If the cluster's NetworkPolicy is unavailable or weakens (e.g. flat L2 between sandbox and orchestrator subnets, shared NAT egress that obscures source IPs, or a managed environment that doesn't honor NetworkPolicy primitives), the trade-off should be revisited and a dedicated `EGG_ORCHESTRATOR_TOKEN` reintroduced. The route is structured so the second gate can be added without touching the loopback check or the allowlist — a follow-up issue would extend `_verify_orchestrator_transition_auth` to also require an `X-Egg-Orchestrator-Token` header.
+
+### Launcher-secret lifecycle (refresher)
+
+The launcher secret is the gateway's existing session-creation bearer. Its lifecycle is managed by the standard deployment flow:
+
+#### Generation
+
+The launcher secret is a high-entropy random string (≥ 32 bytes, base64url-encoded). It is generated **once per cluster deployment** and stored in the cluster secret bundle alongside the other gateway credentials.
+
+```bash
+# Generate a fresh secret (run on the cluster admin host, not in a pod):
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Pipe the output into the cluster secret manager — for self-hosted k8s, this is typically a `Secret` named `egg-launcher-credentials` in the `egg-system` namespace; for a managed secret store (HashiCorp Vault, AWS Secrets Manager, etc.) follow that operator's bundle convention. The secret is **never** written to the source tree, `CLAUDE.md`, or `.egg-state/`.
+
+#### Mounting
+
+The launcher secret is projected into both pods the same way:
+
+- **Gateway pod**: file at `/secrets/launcher-secret` (canonical, read by `get_launcher_secret()` at startup), with `EGG_LAUNCHER_SECRET` env-var fallback. The gateway pins the value for the lifetime of the process; constant-time comparisons in `_verify_orchestrator_transition_auth` use the pinned value.
+- **Orchestrator pod**: same — `orchestrator/wontdo_drain.py::_resolve_launcher_secret` reads `/secrets/launcher-secret` first and falls back to `EGG_LAUNCHER_SECRET`. The orchestrator attaches it as `Authorization: Bearer <launcher_secret>` on every outbound call from `_drain_wontdo_batch_after_apply` (and any future orchestrator-only routes added under the same trust model).
+
+The k8s manifests for both pods reference the same `Secret` resource so a single rotation replaces the value cluster-wide.
+
+#### Sandbox isolation
+
+Sandbox / agent pods **do** receive the launcher secret — they need it to authenticate session-creation against the agent-facing routes. With the launcher secret in hand, what stops a compromised sandbox from calling `/transition` directly:
+
+1. **NetworkPolicy on the gateway pod (operator-owned, primary defense).** The expected production deployment restricts `/transition` ingress to the orchestrator's pod selector via a Kubernetes NetworkPolicy (or equivalent CNI ACL). This is what actually denies sandbox subnets — the gateway-side `_is_in_cluster_source` only excludes external traffic; on a flat overlay every pod's source IP falls inside `is_loopback | is_private | is_link_local`, including sandboxes. **If NetworkPolicy is not enforced, a sandbox with the launcher secret CAN reach the route** (gate 2 below is the only remaining barrier).
+
+   **Reference NetworkPolicy shape** (operator-deployable starting point — adapt labels to your cluster's selector scheme):
+
+   ```yaml
+   apiVersion: networking.k8s.io/v1
+   kind: NetworkPolicy
+   metadata:
+     name: gateway-transition-orchestrator-only
+     namespace: egg-system
+   spec:
+     podSelector:
+       matchLabels:
+         app: gateway
+     policyTypes:
+       - Ingress
+     ingress:
+       # Allow all pods in egg-system to reach the gateway on the
+       # agent-facing port (9848) — unchanged from baseline.
+       - from:
+           - namespaceSelector:
+               matchLabels:
+                 kubernetes.io/metadata.name: egg-system
+           ports:
+             - port: 9848
+       # /transition is on the same port as other gateway routes, so
+       # NetworkPolicy cannot scope by URL path. The operator can:
+       #   (a) move /transition to a separate listener on a different
+       #       port and apply a tighter from: rule to that port, OR
+       #   (b) keep /transition on the shared listener and rely on the
+       #       launcher-secret bearer + loopback gates above. The egg
+       #       reference deployment uses (b) — see "Launcher-secret
+       #       reuse" for the rationale.
+   ```
+
+   Path-level scoping (option a) is the cleanest fit for the trust model documented above but requires a small gateway-side refactor to split listeners; option b matches the landed code. Operators who can't enforce NetworkPolicy at all (managed environments without it) should treat the launcher secret with sandbox-grade rotation discipline — see the rotation section below.
+
+2. **The agent-facing path explicitly denies the `transition` verb.** Even with `/transition` reachable, the agent-facing Jira routes block the underlying transition verb via `JIRA_WRITE_VERBS_DENIED` — but note that the `/transition` route is the orchestrator-only escape hatch and does **not** go through `JIRA_WRITE_VERBS_DENIED`. The agent-path deny protects only the agent-facing `/jira/ticket/*` surface, not the orchestrator-only path. So in the no-NetworkPolicy configuration, the launcher secret + the loopback gate together are the effective trust boundary on the orchestrator-only route.
+
+#### Rotation
+
+To rotate the launcher secret:
+
+1. Generate a new value using the procedure above.
+2. Update the secret bundle (atomic write — both pods pick up the new value on next restart, not mid-flight).
+3. Roll the gateway deployment first (`kubectl rollout restart deployment/gateway -n egg-system`). Until the orchestrator is rolled, in-flight orchestrator → gateway calls to `/transition` will see HTTP 401 because the orchestrator is still sending the old token. **This is the expected fail-closed behaviour** — `run_wontdo_drain` records the per-entry failure (`http_error_401`) and the drain hook flips the task to `jira_action_status='failed'` with the reason captured in `Task.notes`. Pending Won't-Dos are re-attempted on the next apply phase or via an operator-initiated re-drain.
+4. Roll the orchestrator deployment (`kubectl rollout restart deployment/orchestrator -n egg-system`). The new secret comes online and pending Won't-Dos resolve on the next apply re-run.
+5. Verify by triggering a synthetic Won't-Do (e.g. a test epic with a single obsolete child) and watching the gateway audit log for the `jira_ticket_transition` entry.
+
+Rotation does **not** require draining the cluster or pausing pipelines. The 401-on-mismatch behaviour is by design — it is preferable to fail-closed and leave a recoverable signal on the contract than to fail-open by accepting an outdated secret. The window between the gateway and orchestrator restarts should be measured in seconds for typical k8s rolling restarts; longer windows degrade gracefully into deferred Won't-Dos.
+
+Because the same secret authenticates every other gateway-facing call, rotation also rolls every active sandbox session — schedule rotations during a maintenance window when feasible. On a credential incident (suspected leak), rotate immediately and audit the gateway log for `/transition` invocations that pre-date the rotation timestamp.
+
+#### Why agent-facing routes still deny transitions
+
+Even though the same launcher secret authenticates both surfaces, transitions remain denied for the agent-facing Jira routes. The reasoning:
+
+- **Blast radius.** The agent-facing path is reachable from every sandbox in the cluster with the launcher secret. Allowing transitions on the agent path widens the attack surface to "any sandbox", whereas the orchestrator-only `/transition` route is constrained by NetworkPolicy to the orchestrator's pod selector in the expected deployment shape (see "Sandbox isolation" — without NetworkPolicy the constraint degrades to "any in-cluster pod with the secret").
+- **Allowlist scope.** The agent path's policy module (`gateway/jira_client.py::JIRA_WRITE_VERBS_DENIED`) explicitly denies the `transition` verb because Jira's transition surface is a state-machine API — allowing arbitrary transition names from sandbox would mean re-implementing Jira's workflow guards on the gateway side. The orchestrator-only path narrows transitions to a `{Won't Do, Won't Fix}` allowlist, policy that can be inspected and audited without modelling Jira's full state machine.
+- **Audit symmetry.** Every `/transition` call carries the ticket key and transition name in the audit-log payload (`jira_ticket_transition` event), and the orchestrator-side caller pins the pipeline context. The agent-facing path has no such correlation surface (sandbox calls are pipeline-scoped only via worktree path, which doesn't reach the gateway audit layer).
+
+See `plugins/refine-plan/skills/refine-plan/agents/applier.md`'s "Out of scope: Won't-Do transitions" for the sandbox-side counterpart: the applier emits a handoff JSON and never attempts to call `/transition` directly.
+
+### Cross-references
+
+- Gateway-side route definition + audit log shape: `gateway/gateway.py` (search for `transition`); see also `gateway/README.md` for the deployment-time secret bundle layout.
+- Sandbox-side Won't-Do handoff producer: `plugins/refine-plan/skills/refine-plan/agents/applier.md` (sections "Out of scope: Won't-Do transitions" and "In-flight refusal").
+- Orchestrator-side drain helper (landed): `orchestrator/wontdo_drain.py::{load_wontdo_handoff, run_wontdo_drain}` (commit `d5c9a94fa`).
+- Orchestrator-side drain hook (planned, not yet wired): `orchestrator/routes/pipelines.py::_drain_wontdo_batch_after_apply` — TASK-2-7 follow-up to wire `run_wontdo_drain` into the apply-phase CONSENSUS_CONFIRMED event.
+- Issue-level decision record: [#1557 decision-15](https://github.com/jwbron/egg/issues/1557) (trust-boundary for Jira transitions).
+
 ## Network Mode
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:
@@ -617,6 +748,7 @@ if is_orchestrator_mode():
 | `EGG_BRANCH` | Target branch for the agent's worktree | `egg/{pipeline_id}/work` |
 | `EGG_PRIVATE_MODE` | Private network mode (set by host wrapper, detected by `egg-sdlc`) | None |
 | `HOST_HOME` | Host machine's home directory (e.g., `/home/user`); used to translate host worktree paths to orchestrator-accessible paths | None |
+| `EGG_LAUNCHER_SECRET` | Bearer secret the orchestrator presents to the gateway. Reused by the orchestrator-only `/api/v1/jira/ticket/transition` route (#1557 decision-15). Canonical mount is the file `/secrets/launcher-secret`; this env var is the fallback when the file is unavailable. Read by `orchestrator/wontdo_drain.py::_resolve_launcher_secret`. See [Orchestrator-Only Jira Transitions](#orchestrator-only-jira-transitions-apiv1jiratickettransition--1557-decision-15) for the trust model. | None |
 | `EGG_ORCH_MAX_PARALLEL_SLICES` | Slice-DAG: per-pipeline slice spawn concurrency cap (#2137) | `2` |
 | `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` | Slice-DAG: orchestrator-process-wide cap on slices in flight across **all** running pipelines (#2241). Each slice spawns ~8 containers; the default of 4 reflects the observed host saturation ceiling. Slices that exceed the cap stay READY and re-yield next poll tick. Per-process — HA replicas each maintain their own counter. | `4` |
 | `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | Slice-DAG: per-slice BRC re-proposal ceiling before HITL escalation (#2137) | `3` |
