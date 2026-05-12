@@ -911,17 +911,21 @@ repo_settings:
 
 All three keys (`tests_globs`, `code_globs`, `docs_globs`) are optional. Unset keys fall back to the built-in defaults (Python/Go/JS/TS patterns). Each value must be a list of non-empty glob strings.
 
+**Set keys replace defaults — they do not extend them.** If you set `tests_globs`, the configured list completely replaces the built-in defaults; the defaults are not merged in. So a polyglot Python+Go repo that sets `tests_globs: ["**/*_test.go"]` will silently lose `**/*_test.py`, `**/test_*.py`, `**/conftest.py`, and every JS/TS test pattern — those tests would then misroute to the coder. List every convention your repo uses (e.g. `["**/*_test.py", "**/test_*.py", "**/conftest.py", "**/*_test.go"]` for a Python+Go repo).
+
 **What each key controls:**
 
 | Key | Affects roles | Default includes |
 |-----|--------------|-----------------|
 | `tests_globs` | coder (blocked), tester (allowed) | `tests/`, `**/*_test.py`, `**/*_test.go`, `**/*.test.ts`, etc. |
 | `code_globs` | documenter (blocked), autofixer (allowed) | `**/*.py`, `**/*.go`, `**/*.ts`, etc. |
-| `docs_globs` | coder (blocked), tester (blocked), documenter (allowed) | `docs/`, `**/*.md` |
+| `docs_globs` | coder (blocked), tester (blocked), documenter (allowed), autofixer (blocked) | `docs/`, `**/*.md` |
+
+The conflict-resolver role's allow list is the union of all three glob lists, so any of these keys also widens what the conflict-resolver can write.
 
 **Security boundary:** Security-relevant blocklists (`.egg-state/contracts/`, `.github/`) are hard-coded and cannot be relaxed by repo config. Only the language-convention globs are configurable.
 
-The orchestrator pre-resolves the override at spawn time and passes it to sandbox containers via the `EGG_PIPELINE_REPO_PATTERNS_JSON` environment variable. The gateway reads the override directly from `repositories.yaml` at push time. Both paths share the same validation logic — unknown keys and invalid values are dropped with a warning.
+The orchestrator pre-resolves the override at spawn time and passes it to sandbox containers via the `EGG_PIPELINE_REPO_PATTERNS_JSON` environment variable. The gateway reads the override directly from `repositories.yaml` at push time. Validation behavior differs slightly between paths: `config/repo_config.py::get_repo_role_patterns` (the orchestrator/gateway path that reads `repositories.yaml`) emits a WARNING log on invalid root type, unknown keys, non-list values, and non-string list entries; `shared/egg_restrictions/patterns.py::load_repo_pattern_override` (the env-var path used inside the sandbox) only logs on invalid JSON and silently filters the rest. In practice the operator still sees diagnostic warnings at orchestrator spawn time because the orchestrator runs `get_repo_role_patterns` before serializing into the env var.
 
 ### Built-in Checks
 
