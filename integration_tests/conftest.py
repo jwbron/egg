@@ -82,6 +82,12 @@ class EggStack(GatewayClientMixin):
     gateway_port: int
     proxy_port: int
     launcher_secret: str
+    # Lifecycle bearer for the orchestrator's /api/v1/deployment/* and
+    # other ``@require_lifecycle_secret`` routes. Sourced from the same
+    # gateway-secrets Secret the orchestrator pod mounts; empty when the
+    # cluster has no lifecycle-secret key, so deployment-route tests can
+    # skip rather than fail closed.
+    lifecycle_secret: str
     # Under k3s this carries the ``k8s-<namespace>`` sentinel — legacy
     # docker-only fixtures key off the prefix to skip cleanly.  Some tests
     # (e.g. test_stack_lifecycle, test_worktree_integration) still consume
@@ -271,6 +277,31 @@ def _k8s_egg_stack() -> Generator[EggStack]:
     else:
         launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", secrets.token_urlsafe(32))
 
+    # Pull the lifecycle bearer from the same Secret so tests targeting
+    # ``@require_lifecycle_secret`` routes (e.g. /api/v1/deployment/*)
+    # can authenticate. Optional: if the cluster doesn't expose this
+    # key the bearer is left empty and callers should skip cleanly.
+    lifecycle_result = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            "egg-system",
+            "get",
+            "secret",
+            "gateway-secrets",
+            "-o",
+            "jsonpath={.data.lifecycle-secret}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if lifecycle_result.returncode == 0 and lifecycle_result.stdout:
+        lifecycle_secret = base64.b64decode(lifecycle_result.stdout).decode().strip()
+    else:
+        lifecycle_secret = ""
+
     config_dir = tempfile.mkdtemp(prefix="egg-test-config-")
     _write_test_config(config_dir, launcher_secret)
 
@@ -285,6 +316,7 @@ def _k8s_egg_stack() -> Generator[EggStack]:
         gateway_port=int(gateway_port_str),
         proxy_port=PROXY_PORT,
         launcher_secret=launcher_secret,
+        lifecycle_secret=lifecycle_secret,
         compose_project=f"k8s-{test_namespace}",
         config_dir=config_dir,
         isolated_network=test_namespace,
@@ -325,6 +357,24 @@ def egg_stack() -> Generator[EggStack]:
 def orchestrator_url(egg_stack: EggStack) -> str:
     """Orchestrator base URL discovered from the egg-system namespace."""
     return egg_stack.orchestrator_url
+
+
+@pytest.fixture(scope="session")
+def lifecycle_secret(egg_stack: EggStack) -> str:
+    """Lifecycle bearer for orchestrator `@require_lifecycle_secret` routes.
+
+    Skips the test when the cluster's ``gateway-secrets`` Secret has no
+    ``lifecycle-secret`` key — auth-required routes can't be exercised
+    without it, and the auth-reject suite in
+    ``test_k8s_deployment_tools.py`` already covers the missing-secret
+    failure mode.
+    """
+    if not egg_stack.lifecycle_secret:
+        pytest.skip(
+            "no lifecycle-secret key in gateway-secrets — auth-required "
+            "deployment-route tests need it"
+        )
+    return egg_stack.lifecycle_secret
 
 
 @pytest.fixture
