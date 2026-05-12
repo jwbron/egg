@@ -572,6 +572,39 @@
       "resolved_by": "human",
       "resolved_at": "2026-05-12T04:51:43.426123Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-17",
+      "question": "**Reverse-index storage shape for `jira_ticket -> [pipelines]` (TASK-2-2 / risk_analyst HR3).**\n\nThe reassess sweep's in-flight detection (TASK-2-4) needs to look up\nall pipelines that ever ran against a given Jira ticket key, so it\ncan read each pipeline's `pr_url` and check whether the PR is still\nopen. Today the orchestrator has no such index; `Pipeline.jira_ticket`\nis advisory and not indexed.\n\nThree implementations worth picking between:\n\n- **A \u2014 In-memory only, rebuilt on startup.** State-store keeps an\n  in-process `dict[str, list[str]]` keyed by `jira_ticket` -> list of\n  pipeline IDs. Rebuilt by iterating all pipelines on orchestrator\n  boot. Lowest implementation cost; lookup is O(1); index is NOT\n  shared across orchestrator pods (mostly fine \u2014 a single orchestrator\n  pod owns the run today).\n\n- **B \u2014 Sidecar JSON file at `.egg-state/jira-index.json`.** Persistent\n  durability across restarts without rebuild cost. Same on-disk store\n  pattern as the existing contracts. Drift risk if the file gets out\n  of sync with pipeline state.\n\n- **C \u2014 SQLite under `.egg-state/jira-index.sqlite`.** Real query\n  semantics (e.g. filter by pipeline status) and crash-safety. Highest\n  cost; new dependency on sqlite3 in the orchestrator.</question>\n<parameter name=\"phase\">plan",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "A \u2014 in-memory only, rebuilt on startup (lowest cost; recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "B \u2014 sidecar JSON file at .egg-state/jira-index.json (durable; minor drift risk)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "C \u2014 SQLite at .egg-state/jira-index.sqlite (queryable; new dep)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -1348,6 +1381,49 @@
         "debounce_until": null
       },
       "reason": "Created feedback request with 6 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-12T05:24:23.259529Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.16",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-17",
+        "question": "**Reverse-index storage shape for `jira_ticket -> [pipelines]` (TASK-2-2 / risk_analyst HR3).**\n\nThe reassess sweep's in-flight detection (TASK-2-4) needs to look up\nall pipelines that ever ran against a given Jira ticket key, so it\ncan read each pipeline's `pr_url` and check whether the PR is still\nopen. Today the orchestrator has no such index; `Pipeline.jira_ticket`\nis advisory and not indexed.\n\nThree implementations worth picking between:\n\n- **A \u2014 In-memory only, rebuilt on startup.** State-store keeps an\n  in-process `dict[str, list[str]]` keyed by `jira_ticket` -> list of\n  pipeline IDs. Rebuilt by iterating all pipelines on orchestrator\n  boot. Lowest implementation cost; lookup is O(1); index is NOT\n  shared across orchestrator pods (mostly fine \u2014 a single orchestrator\n  pod owns the run today).\n\n- **B \u2014 Sidecar JSON file at `.egg-state/jira-index.json`.** Persistent\n  durability across restarts without rebuild cost. Same on-disk store\n  pattern as the existing contracts. Drift risk if the file gets out\n  of sync with pipeline state.\n\n- **C \u2014 SQLite under `.egg-state/jira-index.sqlite`.** Real query\n  semantics (e.g. filter by pipeline status) and crash-safety. Highest\n  cost; new dependency on sqlite3 in the orchestrator.</question>\n<parameter name=\"phase\">plan",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "A \u2014 in-memory only, rebuilt on startup (lowest cost; recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "B \u2014 sidecar JSON file at .egg-state/jira-index.json (durable; minor drift risk)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "C \u2014 SQLite at .egg-state/jira-index.sqlite (queryable; new dep)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: **Reverse-index storage shape for `jira_ticket -> ...",
       "checkpoint_id": null
     }
   ],
