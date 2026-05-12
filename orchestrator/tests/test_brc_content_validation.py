@@ -735,6 +735,7 @@ class TestAckContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {"reason": "ok"},
                 },
                 Path("/tmp/repo"),
