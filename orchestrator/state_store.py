@@ -989,6 +989,10 @@ class StateStore:
         pr_head_sha: str | None = None,
         active_roles: list[str] | None = None,
         custom_phase: str | None = None,
+        jira_ticket: str | None = None,
+        jira_epic_key: str | None = None,
+        jira_effective_mode: str | None = None,
+        jira_parent_epic_key: str | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -1073,6 +1077,16 @@ class StateStore:
                 pipeline_kwargs["pr_head_sha"] = pr_head_sha
             if active_roles is not None:
                 pipeline_kwargs["active_roles"] = active_roles
+            # #1557 Jira-epic fields: forward when set so the epic-keyed
+            # pipeline can branch on them downstream.
+            if jira_ticket is not None:
+                pipeline_kwargs["jira_ticket"] = jira_ticket
+            if jira_epic_key is not None:
+                pipeline_kwargs["jira_epic_key"] = jira_epic_key
+            if jira_effective_mode is not None:
+                pipeline_kwargs["jira_effective_mode"] = jira_effective_mode
+            if jira_parent_epic_key is not None:
+                pipeline_kwargs["jira_parent_epic_key"] = jira_parent_epic_key
             pipeline = Pipeline(**pipeline_kwargs)
 
             if config:

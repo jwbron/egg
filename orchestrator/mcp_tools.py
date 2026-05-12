@@ -1337,6 +1337,12 @@ class PipelineToolHandler:
             data["pipeline_id"] = base_id
             data["branch"] = args.get("branch") or f"egg/{base_id}"
             data["prompt"] = args["description"]
+            # #1557: forward the ticket key explicitly so the orchestrator
+            # can probe its issuetype (Epic vs Task) and persist it on
+            # ``Pipeline.jira_ticket`` / ``Pipeline.jira_epic_key`` per
+            # the detection result. Without this the route would have to
+            # parse it back out of ``pipeline_id``.
+            data["jira_ticket"] = ticket
         else:
             data["prompt"] = args["description"]
         if args.get("repo"):
