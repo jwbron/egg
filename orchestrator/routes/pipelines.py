@@ -1470,16 +1470,14 @@ def create_pipeline() -> tuple[Response, int]:
             r"[A-Z][A-Z0-9_]*-\d+", jira_ticket_arg
         ):
             return make_error_response(
-                f"Invalid jira_ticket: {jira_ticket_arg!r} (expected "
-                "<PROJECT>-<number>)",
+                f"Invalid jira_ticket: {jira_ticket_arg!r} (expected <PROJECT>-<number>)",
                 status_code=400,
                 details={"reason": "invalid_jira_ticket"},
             )
     if epic_mode_arg is not None:
         if epic_mode_arg not in ("auto", "fresh", "reassess"):
             return make_error_response(
-                f"Invalid epic_mode: {epic_mode_arg!r} (must be "
-                "'auto' / 'fresh' / 'reassess')",
+                f"Invalid epic_mode: {epic_mode_arg!r} (must be 'auto' / 'fresh' / 'reassess')",
                 status_code=400,
                 details={"reason": "invalid_epic_mode"},
             )
@@ -1981,11 +1979,9 @@ def create_pipeline() -> tuple[Response, int]:
                 resolve_epic_mode = None  # type: ignore[assignment]
         if resolve_epic_mode is not None:
             try:
-                is_epic_resolved, pipeline_mode_resolved, epic_warnings = (
-                    resolve_epic_mode(
-                        ticket=jira_ticket_arg,
-                        epic_mode_arg=epic_mode_arg,
-                    )
+                is_epic_resolved, pipeline_mode_resolved, epic_warnings = resolve_epic_mode(
+                    ticket=jira_ticket_arg,
+                    epic_mode_arg=epic_mode_arg,
                 )
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning(
@@ -2000,8 +1996,7 @@ def create_pipeline() -> tuple[Response, int]:
             # clear failure rather than a silent demotion.
             if epic_mode_arg == "reassess" and not is_epic_resolved:
                 return make_error_response(
-                    f"epic_mode='reassess' but Jira ticket "
-                    f"{jira_ticket_arg!r} is not an Epic",
+                    f"epic_mode='reassess' but Jira ticket {jira_ticket_arg!r} is not an Epic",
                     status_code=400,
                     details={
                         "reason": "reassess_not_epic",
@@ -8400,6 +8395,16 @@ def _finalize_pr_phase_failed(
             phase_execution.artifacts = {"pr_url": pr_url}
             if parsed_pr_number is not None:
                 reloaded.pr_number = parsed_pr_number
+            # Issue #1557 reviewer_contract / reviewer_code_holistic v1
+            # finding #2: persist ``Pipeline.pr_url`` alongside
+            # ``pr_number`` so the reassess sweep's signal-a in-flight
+            # reverse-index (``pipelines_for_ticket_pr_url`` in
+            # ``orchestrator/jira_reassess.py``) can see open PRs from
+            # prior egg runs. Without this, decision-7 signal a never
+            # fires and the in-flight detection collapses to a single
+            # signal (remote-link scan only).
+            if isinstance(pr_url, str) and pr_url:
+                reloaded.pr_url = pr_url
             if head_sha is not None:
                 reloaded.pr_head_sha = head_sha
             store.save_pipeline(reloaded)
@@ -18428,12 +18433,29 @@ def _drain_wontdo_batch_after_apply(
     "no Won't-Dos to drain" and returns silently; a per-transition
     failure surfaces as a logger warning but does not block the
     pipeline from advancing to ``IMPLEMENT``.
+
+    Naming note (reviewer_code v1 non-blocking): the handoff file
+    this function READS is the applier's *output*
+    (``<pipeline.id>-wontdo.json``), distinct from the applier's
+    *input* handoff (``<pipeline.id>-apply-handoff.json``) written
+    by :func:`_write_apply_phase_handoff` just before APPLY spawns.
+
+    Per-Task lifecycle (reviewer_contract v1 finding #3 / task-2-7):
+    the drain registers an ``on_entry_result`` callback with
+    ``run_wontdo_drain``. After each transition attempt, the callback
+    loads the contract via ``egg_contracts.loader.load_contract``,
+    locates the corresponding Task (by ``task_id`` when the applier
+    included one in the handoff entry, otherwise by ``jira_key``
+    match), and writes ``Task.jira_action_status = 'applied'`` /
+    ``'failed'`` plus the failure reason into ``Task.notes``. The
+    write is best-effort: contract-load / save failures surface as a
+    logger warning so a brittle contract state never breaks the
+    drain — the operator can re-run later with the same handoff JSON
+    (the gateway's idempotency cache absorbs the duplicate transition
+    calls within the 5-minute window).
     """
     handoff_path = (
-        Path(worktree_repo_path)
-        / ".egg-state"
-        / "agent-outputs"
-        / f"{pipeline.id}-wontdo.json"
+        Path(worktree_repo_path) / ".egg-state" / "agent-outputs" / f"{pipeline.id}-wontdo.json"
     )
     if not handoff_path.exists():
         logger.debug(
@@ -18442,10 +18464,98 @@ def _drain_wontdo_batch_after_apply(
             handoff_path=str(handoff_path),
         )
         return
-    try:
-        from wontdo_drain import run_wontdo_drain
 
-        result = run_wontdo_drain(handoff_path=handoff_path)
+    # Per-entry contract writeback callback (reviewer_contract v1 #3).
+    # Each invocation looks up the task by ``task_id`` (when the
+    # applier set it on the handoff entry) or by ``jira_key`` match
+    # otherwise, flips ``jira_action_status`` to ``'applied'`` /
+    # ``'failed'`` and records the failure reason in ``Task.notes``.
+    def _on_entry_result(entry: Any, ok: bool, reason: str) -> None:
+        try:
+            try:
+                from egg_contracts.loader import load_contract, save_contract
+            except ImportError:  # pragma: no cover - defensive
+                logger.warning(
+                    "Won't-Do drain: egg_contracts loader unavailable; "
+                    "skipping per-Task lifecycle writeback",
+                    pipeline_id=pipeline.id,
+                )
+                return
+            try:
+                contract = load_contract(pipeline.id, worktree_repo_path)
+            except Exception as load_err:  # noqa: BLE001
+                logger.warning(
+                    "Won't-Do drain: contract load failed; skipping per-Task lifecycle writeback",
+                    pipeline_id=pipeline.id,
+                    error=str(load_err),
+                )
+                return
+            target_task = None
+            entry_task_id = getattr(entry, "task_id", None)
+            entry_key = getattr(entry, "jira_key", None)
+            for sl in getattr(contract, "slices", []) or []:
+                for tsk in getattr(sl, "tasks", []) or []:
+                    if entry_task_id and tsk.id == entry_task_id:
+                        target_task = tsk
+                        break
+                    if (
+                        not entry_task_id
+                        and entry_key
+                        and getattr(tsk, "jira_key", None) == entry_key
+                    ):
+                        target_task = tsk
+                        break
+                if target_task is not None:
+                    break
+            if target_task is None:
+                # No matching task — applier-written handoff may have
+                # entries for keys outside the contract's task list
+                # (e.g. consolidate-into "obsolete-only" rows). Log
+                # at DEBUG since this is expected for split / consolidate
+                # patterns.
+                logger.debug(
+                    "Won't-Do drain: no contract task matches handoff entry; "
+                    "skipping lifecycle writeback for this row",
+                    pipeline_id=pipeline.id,
+                    entry_task_id=entry_task_id,
+                    entry_key=entry_key,
+                )
+                return
+            target_task.jira_action_status = "applied" if ok else "failed"
+            if not ok:
+                existing_notes = target_task.notes or ""
+                failure_note = f"wontdo drain failed: {reason}"
+                target_task.notes = existing_notes + ("\n" if existing_notes else "") + failure_note
+            try:
+                save_contract(contract, worktree_repo_path)
+            except Exception as save_err:  # noqa: BLE001
+                logger.warning(
+                    "Won't-Do drain: contract save failed after lifecycle writeback",
+                    pipeline_id=pipeline.id,
+                    error=str(save_err),
+                )
+        except Exception as cb_err:  # noqa: BLE001 - defensive
+            logger.warning(
+                "Won't-Do drain: per-Task callback raised (continuing)",
+                pipeline_id=pipeline.id,
+                error=str(cb_err),
+            )
+
+    try:
+        # Reviewer_code v1 non-blocking note: mirror the dual-import
+        # pattern used elsewhere in this module (e.g. ``from
+        # jira_epic import resolve_epic_mode``) so the helper still
+        # resolves when ``orchestrator/`` is imported as a package
+        # rather than treated as ``sys.path`` root.
+        try:
+            from wontdo_drain import run_wontdo_drain
+        except ImportError:  # pragma: no cover — packaged-import fallback
+            from orchestrator.wontdo_drain import run_wontdo_drain  # type: ignore[no-redef]
+
+        result = run_wontdo_drain(
+            handoff_path=handoff_path,
+            on_entry_result=_on_entry_result,
+        )
     except Exception as exc:  # noqa: BLE001 — defensive: drain must not crash auto-advance
         logger.warning(
             "Won't-Do drain failed after APPLY phase (continuing)",
@@ -18492,12 +18602,7 @@ def _write_apply_phase_handoff(
             error=str(exc),
         )
         return
-    contract_path = (
-        Path(worktree_repo_path)
-        / ".egg-state"
-        / "contracts"
-        / f"{pipeline.id}.json"
-    )
+    contract_path = Path(worktree_repo_path) / ".egg-state" / "contracts" / f"{pipeline.id}.json"
     draft_path = (
         Path(worktree_repo_path)
         / ".egg-state"
@@ -19685,9 +19790,127 @@ def _run_pipeline(
                     jira_ticket=jira_ticket_value or None,
                 )
             else:
-                sandbox_env["EGG_EPIC_MODE"] = (
-                    "github_issue" if not jira_ticket_value else "ticket"
+                sandbox_env["EGG_EPIC_MODE"] = "github_issue" if not jira_ticket_value else "ticket"
+
+            # Issue #1557 reviewer_code v1 finding #4: run the reassess
+            # sweep before the planner / applier spawn on reassess-mode
+            # epic pipelines so the task-planner prompt's ``[mode: epic-
+            # reassess]`` branch and the applier's in-flight refusal
+            # have the children classification on disk.  The sweep
+            # writes two JSON files under ``.egg-state/agent-outputs/``;
+            # we export both paths into the sandbox env so the prompts
+            # read them by env var rather than re-querying the gateway.
+            # Fail-open: a sweep failure logs a warning but never aborts
+            # the phase — the planner falls back to fresh-mode treatment
+            # of the children (which is safe because every action carries
+            # an explicit ``jira_action`` and the applier's in-flight
+            # refusal hinges on the sweep file's presence).
+            if (
+                _is_epic_flag
+                and _pipeline_mode_attr == "reassess"
+                and current_phase.value in ("plan", "apply")
+                and jira_ticket_value
+            ):
+                try:
+                    from jira_reassess import (
+                        run_reassess_sweep,
+                        serialise_sweep_to_disk,
+                    )
+                except ImportError:  # pragma: no cover - defensive
+                    run_reassess_sweep = None  # type: ignore[assignment]
+                    serialise_sweep_to_disk = None  # type: ignore[assignment]
+                if run_reassess_sweep is not None and serialise_sweep_to_disk is not None:
+                    try:
+                        sweep_result = run_reassess_sweep(
+                            epic_key=jira_ticket_value,
+                            state_store=store,
+                        )
+                        agent_outputs_dir = (
+                            Path(worktree_repo_path) / ".egg-state" / "agent-outputs"
+                        )
+                        sweep_path, done_path = serialise_sweep_to_disk(
+                            result=sweep_result,
+                            agent_outputs_dir=agent_outputs_dir,
+                            pipeline_id=pipeline_id,
+                        )
+                        sandbox_env["EGG_REASSESS_SWEEP_PATH"] = str(sweep_path)
+                        sandbox_env["EGG_DONE_CHILDREN_PATH"] = str(done_path)
+                        logger.info(
+                            "Reassess sweep complete",
+                            pipeline_id=pipeline_id,
+                            epic_key=jira_ticket_value,
+                            child_count=len(sweep_result.children),
+                            done_count=len(sweep_result.done),
+                            warnings=sweep_result.warnings,
+                        )
+                    except Exception as sweep_err:  # noqa: BLE001 — fail-open
+                        logger.warning(
+                            "Reassess sweep failed (continuing without sweep handoff)",
+                            pipeline_id=pipeline_id,
+                            epic_key=jira_ticket_value,
+                            error=str(sweep_err),
+                        )
+
+            # Issue #1557 reviewer_code v1 finding #3 + reviewer_code_holistic
+            # v1 finding #3: strip non-matching ``## [mode: X]`` blocks from
+            # the refiner / task-planner / applier prompt files in the
+            # worktree before the sandbox spawns, so the skill system reads
+            # a single-mode prompt instead of four interleaved mode blocks
+            # (risk_analyst R10 mitigation b — server-side strip).
+            #
+            # The strip runs on a per-phase worktree, never on the source
+            # tree (``worktree_repo_path`` is the per-pipeline checkout),
+            # so the modification is scoped to this pipeline's execution
+            # and disappears with the worktree teardown.  Fail-open: a
+            # strip error logs a warning and the prompts keep their
+            # original four-mode shape (the documenter's self-selection
+            # fallback handles the multi-block case).
+            try:
+                from prompt_loader import prep_mode_aware_prompt
+            except ImportError:  # pragma: no cover - defensive
+                try:
+                    from orchestrator.prompt_loader import (  # type: ignore[no-redef]
+                        prep_mode_aware_prompt,
+                    )
+                except ImportError:
+                    prep_mode_aware_prompt = None  # type: ignore[assignment]
+            _epic_mode_value = sandbox_env.get("EGG_EPIC_MODE")
+            if prep_mode_aware_prompt is not None and _epic_mode_value:
+                _agents_dir = (
+                    Path(worktree_repo_path)
+                    / "plugins"
+                    / "refine-plan"
+                    / "skills"
+                    / "refine-plan"
+                    / "agents"
                 )
+                for _prompt_name in ("refiner.md", "task-planner.md", "applier.md"):
+                    _prompt_path = _agents_dir / _prompt_name
+                    try:
+                        if not _prompt_path.is_file():
+                            continue
+                        _original_text = _prompt_path.read_text(encoding="utf-8")
+                        _stripped_text = prep_mode_aware_prompt(_original_text, _epic_mode_value)
+                        # Skip the write when the helper returned the input
+                        # unchanged (unknown mode / no mode markup) so the
+                        # worktree's git status isn't churned for prompts
+                        # that don't need stripping.
+                        if _stripped_text != _original_text:
+                            _prompt_path.write_text(_stripped_text, encoding="utf-8")
+                            logger.info(
+                                "Stripped non-matching mode blocks from agent prompt",
+                                pipeline_id=pipeline_id,
+                                prompt=_prompt_name,
+                                mode=_epic_mode_value,
+                            )
+                    except Exception as _strip_err:  # noqa: BLE001 — fail-open
+                        logger.warning(
+                            "Mode-block strip failed (continuing with unstripped prompt)",
+                            pipeline_id=pipeline_id,
+                            prompt=_prompt_name,
+                            mode=_epic_mode_value,
+                            error=str(_strip_err),
+                        )
 
             phase_failed = False
             tester_gap_summary: str | None = None
@@ -21691,9 +21914,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         and current_phase == PipelinePhase.PLAN
                         and next_phase == PipelinePhase.APPLY
                     ):
-                        _hitl_apply_worktree = _resolve_pipeline_worktree_path(
-                            pipeline, repo_path
-                        )
+                        _hitl_apply_worktree = _resolve_pipeline_worktree_path(pipeline, repo_path)
                         _write_apply_phase_handoff(
                             pipeline,
                             _hitl_apply_worktree,
@@ -21704,9 +21925,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # APPLY (BRC consensus confirmed via HITL recovery
                     # path), drain the Won't-Do handoff before advancing.
                     if current_phase == PipelinePhase.APPLY:
-                        _hitl_drain_worktree = _resolve_pipeline_worktree_path(
-                            pipeline, repo_path
-                        )
+                        _hitl_drain_worktree = _resolve_pipeline_worktree_path(pipeline, repo_path)
                         _drain_wontdo_batch_after_apply(pipeline, _hitl_drain_worktree)
 
                     # Update health monitor phase threshold before agents spawn

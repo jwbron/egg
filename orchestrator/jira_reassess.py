@@ -86,7 +86,7 @@ def _gateway_base_url() -> str:
     if explicit:
         return explicit
     host = os.environ.get("GATEWAY_HOST", "gateway.egg-system.svc.cluster.local")
-    port = os.environ.get("GATEWAY_PORT", "9848")
+    port = os.environ.get("GATEWAY_PORT", "9848")  # noqa: EGG002
     return f"http://{host}:{port}"
 
 
@@ -198,7 +198,16 @@ def fetch_remote_links(child_key: str) -> list[dict[str, Any]]:
     try:
         response = _gateway_post(
             "/api/v1/jira/ticket/remotelinks",
-            {"key": child_key},
+            # Issue #1557 reviewer_code v1 finding #2: the gateway route
+            # at ``gateway/gateway.py:5217-5234::jira_ticket_remotelinks``
+            # reads ``data.get("ticket")`` and rejects anything that
+            # isn't a ``_JIRA_TICKET_KEY_RE.fullmatch(ticket)`` match
+            # with HTTP 400 "Invalid ticket key".  Pre-fix, this helper
+            # POSTed ``{"key": child_key}`` which always 400'd and
+            # fell into the broad-except fail-open below, silently
+            # disabling the in-flight reassess signal-b PR-detection.
+            # Match the route's expected field name verbatim.
+            {"ticket": child_key},
         )
     except (HTTPError, URLError, OSError, json.JSONDecodeError) as exc:
         logger.warning(
@@ -267,15 +276,11 @@ def classify_in_flight(
         in_flight = True
 
     if pr_urls_from_index:
-        evidence.extend(
-            [f"egg_pipeline_pr={url}" for url in pr_urls_from_index]
-        )
+        evidence.extend([f"egg_pipeline_pr={url}" for url in pr_urls_from_index])
         in_flight = True
 
     if pr_urls_from_remotelinks:
-        evidence.extend(
-            [f"remotelink_pr={url}" for url in pr_urls_from_remotelinks]
-        )
+        evidence.extend([f"remotelink_pr={url}" for url in pr_urls_from_remotelinks])
         in_flight = True
 
     return in_flight, evidence
@@ -315,9 +320,7 @@ def run_reassess_sweep(
     """
     if not epic_key:
         return ReassessSweepResult(epic_key="", project="")
-    project_segment = project or (
-        epic_key.split("-", 1)[0] if "-" in epic_key else ""
-    )
+    project_segment = project or (epic_key.split("-", 1)[0] if "-" in epic_key else "")
     result = ReassessSweepResult(epic_key=epic_key, project=project_segment)
 
     if not project_segment:
@@ -358,9 +361,7 @@ def run_reassess_sweep(
         fields_obj = issue.get("fields") or {}
         summary = fields_obj.get("summary") or ""
         status_obj = fields_obj.get("status") or {}
-        status_name = (
-            status_obj.get("name", "") if isinstance(status_obj, dict) else ""
-        )
+        status_name = status_obj.get("name", "") if isinstance(status_obj, dict) else ""
         status_category_obj = (
             status_obj.get("statusCategory") if isinstance(status_obj, dict) else None
         )
@@ -436,8 +437,7 @@ def serialise_sweep_to_disk(
         "epic_key": result.epic_key,
         "project": result.project,
         "done_children": [
-            {"key": c.key, "summary": c.summary, "status_name": c.status_name}
-            for c in result.done
+            {"key": c.key, "summary": c.summary, "status_name": c.status_name} for c in result.done
         ],
     }
     done_path.write_text(json.dumps(done_payload, indent=2), encoding="utf-8")

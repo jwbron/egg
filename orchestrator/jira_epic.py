@@ -82,7 +82,7 @@ def _gateway_base_url() -> str:
     if explicit:
         return explicit
     host = os.environ.get("GATEWAY_HOST", "gateway.egg-system.svc.cluster.local")
-    port = os.environ.get("GATEWAY_PORT", "9848")
+    port = os.environ.get("GATEWAY_PORT", "9848")  # noqa: EGG002
     return f"http://{host}:{port}"
 
 
@@ -138,8 +138,7 @@ def is_epic_for_ticket(ticket: str) -> tuple[bool, dict[str, Any]]:
         )
     except (HTTPError, URLError, OSError, json.JSONDecodeError) as exc:
         logger.warning(
-            "Epic detection: failed to fetch Jira ticket %s — %s; "
-            "treating as non-epic",
+            "Epic detection: failed to fetch Jira ticket %s — %s; treating as non-epic",
             ticket,
             exc,
         )
