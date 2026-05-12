@@ -700,6 +700,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
     },
+    "d5c9a94fa9097fb89fc471836e5c9bbf90dbc6b6": {
+      "branch": "egg/issue-1557-v2/slice-2",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T18:07:03.722457+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "d7c030e433b2e82697fdf5e2e5f37d084323d288": {
       "branch": "egg/issue-1557-v2",
       "pipeline_id": "issue-1557-v2",
