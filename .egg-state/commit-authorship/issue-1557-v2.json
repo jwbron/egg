@@ -203,6 +203,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
     },
+    "6ada718565b7c435fbbb6b63e2ea042ec8bdb448": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:04:58.853481+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
+    },
     "6dbfb2346438ba9c1bbd6315fb9a17d74b0854d7": {
       "branch": "egg/issue-1557-v2/work",
       "pipeline_id": "issue-1557-v2",
