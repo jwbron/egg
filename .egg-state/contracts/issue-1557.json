@@ -21,8 +21,8 @@
         {
           "id": "task-1-1",
           "description": "Add the `mode` parameter to the `submit_task` MCP tool\nschema at `orchestrator/mcp_tools.py:67` and validate it in\nthe handler at `orchestrator/mcp_tools.py:1272`. Accepts\n`{auto, reassess, fresh}`; default `auto`. Thread the value\nthrough the handler so the new pipeline-creation request\ncarries `mode` in its payload (the `/api/v1/pipelines`\nPOST body \u2014 extend the `data` dict at\n`orchestrator/mcp_tools.py:1277` accordingly). Reject any\nother value with HTTP 400 (mirror the existing `qualifier`\nregex check at 1281). No-op for ISSUE-mode pipelines that\ndo NOT pass `jira_ticket` / `jira_epic`.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7e1b45cac",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Schema entry `mode` exists under `submit_task.inputSchema.properties`\n  with `enum: [auto, reassess, fresh]` and `default: auto`.\n- `_handle_submit_task` rejects unknown `mode` values with\n  a structured error response (parity with the existing\n  qualifier rejection at `mcp_tools.py:1281`).\n- When `mode` is omitted, the handler defaults to `auto`\n  without raising.\n- Unit test in `orchestrator/tests/test_mcp_tools_submit_task.py`\n  covers the three accepted values, the default, and a\n  rejected unknown value.",
@@ -39,8 +39,8 @@
         {
           "id": "task-1-2",
           "description": "Add a `jira_epic_key` field to `Pipeline`\n(`orchestrator/models.py:816`) with the same\n`<PROJECT>-<number>` regex validator as `jira_ticket`\n(currently at `models.py:991`). Implement an epic-detection\nhelper `detect_jira_issuetype(key: str) -> str` (lives in a\nnew `orchestrator/jira_epic_detect.py`) that calls the\ngateway's `GET /api/v1/jira/ticket/{key}` and returns the\n`fields.issuetype.name` value. In `_handle_submit_task`\n(`mcp_tools.py:1287`), after validating the Jira ticket\nformat, dispatch the detection helper: when the issuetype\nis `Epic`, store the key on `Pipeline.jira_epic_key` and\nleave `jira_ticket` unset (so existing single-ticket\nconsumers branch correctly); otherwise the existing\nticket-keyed flow runs unchanged.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "0c28a26e6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `Pipeline.jira_epic_key` field exists with validator\n  mirroring `_validate_jira_ticket` at\n  `orchestrator/models.py:991`.\n- `detect_jira_issuetype` returns `\"Epic\"` for an Epic\n  payload and the original issuetype name otherwise (test\n  with mocked gateway).\n- `_handle_submit_task` correctly routes Epic vs Task\n  payloads (unit test covers both).\n- The existing single-ticket flow (decision-12 `auto` on a\n  non-epic) is byte-identical to today's behaviour.",
@@ -59,8 +59,8 @@
         {
           "id": "task-1-3",
           "description": "Implement reassess auto-detection. When `mode == \"auto\"`\nand the issuetype is `Epic`, query the gateway's\n`POST /api/v1/jira/search` (`gateway/gateway.py:5015`) with\n**two separate JQL queries** and merge the results\n(architect ad-9, risk_analyst R4): query A\n`parent = \"<KEY>\"`; query B `\"Epic Link\" = \"<KEY>\"` \u2014\nunless `resolve_hierarchy_field(project_key) == \"parent\"`\n(TASK-1-4), in which case query B is skipped as a\ntautology. Each query is dispatched independently; an\nHTTP 400 from Atlassian on either query (typically\n*\"Field 'Epic Link' does not exist or you do not have\npermission to view it\"* on team-managed/Next-gen projects)\nis **tolerated**: log a structured `jira_epic_search_field_missing`\nwarning and treat that query's result set as empty. The\nmerged child set (union of both queries by `key`) drives\nthe auto-detection decision. Non-empty merged results \u2192\nset the pipeline's effective mode to `reassess`; empty \u2192\n`fresh`. When `mode == \"reassess\"` and the merged set is\nempty, log a warning and gracefully degrade to `fresh`\n(decision-12). When `mode == \"fresh\"` and children exist,\nlog a warning and proceed with fresh (the operator asked\nfor it explicitly). Persist the resolved effective mode on\n`Pipeline` via a new\n`Pipeline.jira_effective_mode: Literal[\"fresh\", \"reassess\"] | None`\nfield so downstream phases read it without re-detecting.\nThe two-query helper is exported as\n`search_epic_children(epic_key, project_key) -> list[dict]`\nfrom `orchestrator/jira_epic_detect.py` so TASK-1-12 reuses\nit.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "0c28a26e6",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The implementation issues TWO independent JQL queries\n  (or one when the project's hierarchy field is `parent`)\n  and merges results by `key`. Single-query disjunctive\n  `parent = ... OR \"Epic Link\" = ...` is **not** used \u2014\n  it fails on team-managed projects where `\"Epic Link\"`\n  doesn't exist (architect ad-9).\n- HTTP 400 on either query alone does NOT fail the sweep:\n  it is logged and the query's result set is treated as\n  empty.\n- `auto` resolves to `reassess` when the merged child set\n  is non-empty, `fresh` when it's empty.\n- `reassess` on a childless epic emits a structured warning\n  and degrades to `fresh`.\n- `fresh` on an epic with children emits a structured\n  warning and proceeds.\n- `Pipeline.jira_effective_mode` is populated and persisted.\n- Submit-task with `jira_ticket` set completes within ~2 s\n  on a healthy gateway (synchronous detection probe is on\n  the critical path); the orchestrator emits a STATUS\n  message when total submit_task latency exceeds 5 s so\n  operators can tune (architect oq-6 / risk_analyst R15).\n- Unit tests in `orchestrator/tests/test_jira_reassess_detection.py`\n  cover: both-queries-succeed, `parent`-only-succeeds,\n  `Epic Link`-only-succeeds, BOTH-400, mode-degradation\n  paths, and the latency-warning emission.",
@@ -79,8 +79,8 @@
         {
           "id": "task-1-4",
           "description": "Add `~/.config/egg/jira-hierarchy.yaml` loader at a new\n`orchestrator/jira_hierarchy_config.py`. Schema:\n`{ projects: { <PROJECT_KEY>: parent | epic_link } }`.\nLoader caches via mtime (mirror\n`gateway/jira_credentials.py:92` pattern). Expose\n`resolve_hierarchy_field(project_key: str) -> Literal[\"parent\", \"epic_link\"]`\nwhich raises `JiraHierarchyUnmappedError` when the project\nisn't in the YAML. The plan apply step (TASK-1-13) calls\nthis once per child create. Add a sample file under\n`docs/reference/` documenting the YAML shape (the\ndocumenter task TASK-1-19 owns the docs entry, but the\ncoder task ships an inline docstring on the loader with the\nschema).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7e1b45cac",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `JiraHierarchyConfig` Pydantic model validates the YAML\n  shape and rejects values outside `{parent, epic_link}`.\n- `resolve_hierarchy_field` returns the mapped value for a\n  known project, raises `JiraHierarchyUnmappedError` for\n  an unknown project.\n- mtime cache works: edits to the YAML are picked up on\n  the next call without a process restart.\n- Unit tests in `orchestrator/tests/test_jira_hierarchy_config.py`\n  cover happy path, unmapped project, malformed YAML,\n  and reload-on-mtime-change.",
@@ -97,8 +97,8 @@
         {
           "id": "task-1-5",
           "description": "New orchestrator-side Jira transitions client at\n`orchestrator/jira_transitions.py` plus a **shared\ncredential loader module** at\n`shared/egg_jira_credentials.py` (risk_analyst R1\nsingle-source-of-truth, reviewer non-blocking #3 option\na). Refactor `gateway/jira_credentials.py` so its\n`_load_credentials` body and the\n`JiraCredentials`/`JiraCredentialsUnavailable` dataclasses\nlive in `shared/egg_jira_credentials.py`; the existing\ngateway-side module re-exports them so existing imports\n(`from gateway.jira_credentials import get_jira_credentials`)\ncontinue to resolve. `orchestrator/jira_transitions.py`\nthen imports the loader from the shared module \u2014 no\norchestrator \u2192 gateway one-way coupling.\n\nTransitions go orchestrator-direct because the gateway\npermanently blocks `transitions` (per\n`gateway/jira_client.py:32-40` ALLOWED_METHODS and the\npath-denylist note at `jira_client.py:39-41`). Surface:\n`JiraTransitionsClient.transition_to_wont_do(key: str,\ncomment: str) -> TransitionResult` \u2014 calls\n`POST /rest/api/3/issue/{key}/transitions` with the\n`Won't Do` transition ID resolved via\n`GET /rest/api/3/issue/{key}/transitions` (Jira project\nworkflows vary, so the transition ID is looked up per\nproject and cached).\n\n**Idempotency on re-run**: before dispatching the\ntransition, fetch `GET /rest/api/3/issue/{key}` and\ncompare `fields.status.name` against the target. If the\nchild is already in `Won't Do` (or any status whose\ncategory matches \"Done\"), short-circuit and return\n`TransitionResult(status=\"already_in_state\")` \u2014 re-runs\nmust not 400 on \"transition is invalid\".\n\n**Feature flag (risk_analyst R1 default-off)**: gate the\nclient behind `EGG_ENABLE_ORCH_JIRA_TRANSITIONS=true` env\nvar (default `false`). When disabled, the client raises\n`OrchJiraTransitionsDisabled` and the caller logs +\nsurfaces a HITL asking the operator to enable. This\npreserves the strict zero-credential default for installs\nthat haven't opted into the orchestrator-direct cred\nsurface.\n\nEmits one structured log line per attempted transition\nwith fields\n`{epic_key, child_key, from_status, to_status, principal=ATLASSIAN_USERNAME}`\n(per feedback Q1's audit requirement). Surfaces 4xx/5xx\nas `JiraTransitionFailed` so callers can record partial\nstate in `epic_apply.wont_do_batch[].error`.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "cf0a61dbe",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `shared/egg_jira_credentials.py` exists and exports\n  `JiraCredentials`, `JiraCredentialsUnavailable`,\n  `get_jira_credentials`,\n  `get_jira_credentials_manager`,\n  `parse_env_file` (re-exported through the existing\n  `gateway/jira_credentials.py` for backward compat).\n- `JiraTransitionsClient` reuses the shared loader \u2014 no\n  duplicate cred parsing, no `from gateway...` import.\n- `transition_to_wont_do` looks up the project's\n  `Won't Do` transition ID dynamically and caches it.\n- `transition_to_wont_do` returns\n  `status=\"already_in_state\"` when the child's current\n  status is already `Won't Do`; idempotent re-runs do\n  NOT issue the transition or 400 on it.\n- The client is gated by\n  `EGG_ENABLE_ORCH_JIRA_TRANSITIONS=true` (default\n  disabled); when disabled, raises\n  `OrchJiraTransitionsDisabled`.\n- Audit log line is emitted in the exact shape feedback Q1\n  specifies for every attempted (or skipped-as-no-op)\n  transition.\n- Unit tests in\n  `orchestrator/tests/test_jira_transitions_client.py`\n  cover happy path, already-in-state short-circuit, 403,\n  404, transition-not-found (`JiraTransitionFailed`),\n  cred-missing (`JiraCredentialsUnavailable`), and\n  feature-flag-disabled\n  (`OrchJiraTransitionsDisabled`).",
@@ -117,8 +117,8 @@
         {
           "id": "task-1-6",
           "description": "Add `GET /api/v1/jira/ticket/{key}/remotelinks` to\n`gateway/gateway.py` (alongside the existing\n`jira_ticket_get` at `gateway.py:4932`). Implementation\ncalls `JiraClient.get_remote_links(key)` (NEW in\n`gateway/jira_client.py`) which dispatches\n`GET /rest/api/3/issue/{key}/remotelink`. Reuses the\nexisting project allowlist gating, 429 retry-on-GET\nsemantics (`jira_client.py:43-49`), and 404 envelope\ntranslation (`jira_client.py:51-56`). Output: a list of\n`{globalId, application, relationship, object: {url, title}}`\nentries. Used by the existing-children sweep (TASK-1-12)\nfor open-PR detection fallback.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "cf0a61dbe",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Route registered at `gateway/gateway.py` (new\n  `@app.route(\"/api/v1/jira/ticket/<key>/remotelinks\",\n  methods=[\"GET\"])`).\n- `JiraClient.get_remote_links` exists and matches the\n  docstring shape declared in `jira_client.py:10-19`\n  (read verb section).\n- Project allowlist + auth checks mirror\n  `jira_ticket_get`.\n- 404 translates to `{\"status\": \"not_found\", \"key\": key,\n  \"upstream_status\": 404}` per the module's envelope policy.\n- 429 retries once with `Retry-After` (`jira_client.py:43-49`).\n- Unit tests in `gateway/tests/test_jira_routes.py` and\n  `gateway/tests/test_jira_client.py` cover the new route\n  + client method.",
@@ -136,8 +136,8 @@
         {
           "id": "task-1-7",
           "description": "Add `EpicApplyArtifact` Pydantic model to\n`orchestrator/models.py` (sibling of `HITLDecision` at\n`models.py:277` and `PhaseExecution` at `models.py:363`).\nSchema:\n`{ version: int = 1,\n   idempotency_seed: str,\n   refine_description_sha256: str | None,\n   plan_node_to_jira_key: dict[str, str],\n   applied_edits: list[{kind: literal[\"create\"|\"edit\"|\"link\"|\"comment\"],\n                        target: str, payload: dict,\n                        summary_hash: str,\n                        applied_at: datetime | None,\n                        status: literal[\"pending\"|\"applied\"|\"failed\"|\"skipped\"],\n                        error: str | None}],\n   wont_do_batch: list[{child_key: str,\n                        wont_do_reason: str,\n                        status: literal[\"pending\"|\"applied\"|\"failed\"|\"already_in_state\"],\n                        error: str | None}],\n   in_flight_gates: list[{child_key: str,\n                          proposed_mutation: str,\n                          signal_source: list[literal[\"jira_status\"|\"orchestrator_pr_url\"|\"remote_link\"]],\n                          signal_detail: dict[str, str],\n                          linked_pr_url: str | None,\n                          decision_id: str | None}] }`.\n`version` is the schema version (forward-compat per\nrisk_analyst R10); `idempotency_seed` is a per-pipeline\nUUID stamped at refine-apply time and passed as\nAtlassian's `X-Atlassian-Idempotency-Key` on every\n`createJiraIssue` so retries don't duplicate;\n`refine_description_sha256` records the epic Description\nthe refine agent observed (architect ad-5 concurrent-edit\nguard); `summary_hash` per edit lets re-runs detect \"same\nedit, different ts\" cleanly; `wont_do_reason` per Won't-Do\nentry seeds the plan-draft per-row reason that operators\nscrutinise at decision-3 batch approval (risk_analyst R6).\n`signal_source` becomes a **list** (decision-8 OR\nsemantics \u2014 multiple signals can fire at once).\n\nSerialised to JSON and stored in\n`Pipeline.phases[\"plan\"].artifacts[\"epic_apply\"]` \u2014 mirrors\nthe existing `phases[\"pr\"].artifacts[\"pr_url\"]` precedent\nat `orchestrator/mcp_tools.py:1727`. Provide getter +\nsetter helpers on `Pipeline` (e.g. `get_epic_apply()` /\n`set_epic_apply()`) so call sites don't manipulate the\nraw dict.\n\nAdd a new MCP tool **`mcp__sdlc__update_epic_apply(payload)`**\nto `orchestrator/mcp_tools.py` so the sandbox-side\n`apply_epic` agent can persist artifact updates without\ndirect file access. Handler validates the payload against\n`EpicApplyArtifact`, calls `Pipeline.set_epic_apply()`\ninside the orchestrator process, and returns the\nupdated version + a structured 4xx on validation\nfailures.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "7e1b45cac",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `EpicApplyArtifact` exists with the schema above\n  (including `version`, `idempotency_seed`,\n  `refine_description_sha256`, per-edit `summary_hash`\n  and `applied_at`, per-Won't-Do `wont_do_reason`,\n  `signal_source` as a **list**) and passes Pydantic\n  round-trip.\n- `Pipeline.get_epic_apply()` returns `None` when the\n  artifact isn't set, the parsed model otherwise.\n- `Pipeline.set_epic_apply()` writes JSON-encoded payload\n  to `phases[\"plan\"].artifacts[\"epic_apply\"]`.\n- The new `mcp__sdlc__update_epic_apply` MCP tool is\n  registered, accepts a payload conforming to\n  `EpicApplyArtifact`, rejects malformed payloads with a\n  structured 400, and atomically rewrites\n  `phases[\"plan\"].artifacts[\"epic_apply\"]`.\n- Unit tests in `orchestrator/tests/test_epic_apply_artifact.py`\n  cover empty round-trip, the four `applied_edits` kinds,\n  the three `signal_source` enum values, version\n  forward-compat, idempotency_seed round-trip, MCP-tool\n  happy path, MCP-tool malformed-payload rejection.",
@@ -154,8 +154,8 @@
         {
           "id": "task-1-8",
           "description": "Tweak the refine prompt branch at\n`orchestrator/routes/pipelines.py:11125`. When the\npipeline has `jira_epic_key` set, replace the standard\nanalysis template with an epic-shaped one:\n- The output is framed as a self-contained epic problem\n  statement + scope (NOT a ticket-scoped refinement).\n- The Sink line at the top of the output says \"Destination:\n  Jira epic `<KEY>` Description (wholesale rewrite per\n  decision-9)\".\n- When `jira_effective_mode == \"reassess\"`, additionally\n  instruct the agent to assess \"what's done, what's\n  changed, and what's no longer relevant\" given the\n  existing-children context fed in by the refine input\n  gatherer (TASK-1-9 provides the input).\nThe existing non-epic refine template is byte-identical\nwhen `jira_epic_key` is unset.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "dd49408e2",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- When `pipeline.jira_epic_key` is set, the rendered prompt\n  contains the \"Destination: Jira epic `<KEY>`\n  Description\" line.\n- When `jira_effective_mode == \"reassess\"`, the prompt\n  includes the reassess-specific assessment instructions.\n- When `jira_epic_key` is unset, the rendered prompt is\n  byte-identical to the current refine template (regression\n  assertion in `test_pipeline_prompts.py`).\n- Unit tests in `orchestrator/tests/test_pipeline_prompts.py`\n  cover fresh-epic, reassess-epic, and non-epic branches.",
@@ -172,8 +172,8 @@
         {
           "id": "task-1-9",
           "description": "Add the refine input gatherer at\n`orchestrator/jira_epic_inputs.py`. When the refine phase\nstarts for an epic-keyed pipeline, the gatherer assembles:\n(a) the epic's own summary + description + remote links\n(`getJiraIssue` at `gateway.py:4932` plus the new\n`remotelinks` route from TASK-1-6); (b) every child\nticket's key/summary/status/description (JQL via\n`gateway.py:5015`); (c) Confluence pages discovered per\ndecision-7 \u2014 remote-link URLs on the epic, URL-scrape on\nthe epic's description body, plus remote-links on linked\nJira issues (recursive **one** level only \u2014 a strict\ndepth cap to prevent runaway recursion). The gathered\ncontext is dropped into the sandbox under\n`.egg-state/agent-outputs/<id>-refine-input.json` so the\nrefine prompt can `Read` it. Additionally, the gatherer\ncomputes `sha256` of the epic's current Description and\nwrites it into the (initially-empty)\n`epic_apply.refine_description_sha256` artifact field\n(TASK-1-7) via the new `mcp__sdlc__update_epic_apply`\nMCP tool. The refine-apply step (TASK-1-10) re-fetches\nand compares to detect concurrent-edit divergence.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "5dcfaa044",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `gather_refine_inputs(pipeline)` returns a structured\n  dict with the three input sections.\n- Confluence link discovery is exactly one level deep\n  (test with two-level chain \u2192 second-level not pulled).\n- URL-scrape extracts only Confluence URLs (filter regex\n  against `confluence.atlassian.net` / `<tenant>.atlassian.net/wiki`).\n- Output file is written under\n  `.egg-state/agent-outputs/<id>-refine-input.json` and is\n  JSON-decodable.\n- Unit tests in\n  `orchestrator/tests/test_jira_epic_inputs.py` cover all\n  three input sections, recursion depth cap, URL-scrape\n  filter, and the Done-children handling (Done children\n  still appear in refine input so the agent has full\n  context; the exclusion is plan-prompt only per decision-4).",
@@ -210,8 +210,8 @@
         {
           "id": "task-1-11",
           "description": "Tweak the plan prompt branch at\n`orchestrator/routes/pipelines.py:11301` AND extend the\nplan parser at `shared/egg_contracts/plan_parser.py` so\nthe new YAML blocks ship through to the contract. When\n`pipeline.jira_epic_key` is set, the rendered prompt\ninstructs:\n- Each plan node MUST emit a Jira-ticket-shaped\n  description with the fixed structure\n  `Problem statement / Scope / Acceptance criteria /\n  Out of scope / Cross-links` (feedback Q2).\n- Cross-task dependencies use one of\n  `{Blocks, Is blocked by, Relates to}` per edge with\n  the rationale surfaced in the plan draft (feedback Q3).\n- When `jira_effective_mode == \"reassess\"`: include the\n  existing-children sweep output (TASK-1-12) and\n  instruct the agent to produce a classified diff\n  (`updated / closed / untouched / net-new /\n  consolidated / split / in-flight`). Done children are\n  **excluded** entirely (decision-4). In-flight children\n  carry a `do-not-modify-without-confirmation` marker;\n  net-new children that depend on an in-flight child\n  remain fine.\n- For consolidations (N\u21921), the agent records the\n  chosen survivor key + rationale (decision-5) in a\n  new `consolidations:` YAML block alongside `slices:`.\n- For splits (1\u2192N), the agent records the original key\n  + the new node IDs in a new `splits:` YAML block.\n- The plan draft's `# yaml-tasks` appendix gains an\n  `epic_apply:` section listing each plan-node \u2192\n  `{action: create|edit|consolidate|split|wont_do,\n    target_jira_key: <KEY or null>,\n    wont_do_reason: <str or null>,\n    link_type: <str or null>}` so the apply step\n  has a structured input.\n- **Won't-Do plan-draft rendering** (risk_analyst R6):\n  every node whose action is `wont_do` MUST have a\n  populated `wont_do_reason` (the agent's evidence for\n  why the child is obsolete), and the prose section of\n  the plan draft renders a top-level\n  `## Tickets to be transitioned to Won't Do` heading\n  with a per-row `\u26a0 This transition is permanent and not\n  auto-reversed by egg` warning, so the operator\n  scrutinises the obsolete list at decision-3's atomic\n  batch approval.\n\nThe existing non-epic plan template is byte-identical\nwhen `jira_epic_key` is unset.\n\n**Plan-parser extension** (commitment to reviewer\nnon-blocking #8): extend\n`shared/egg_contracts/plan_parser.py:parse_plan` to\nrecognise the new top-level YAML keys\n(`consolidations`, `splits`, `epic_apply`) and surface\nthem on `ParseResult` (new fields\n`consolidations: list[dict]`, `splits: list[dict]`,\n`epic_apply: list[dict]`). Pass them through to the\ncontract via a parallel `to_epic_metadata()` helper that\nthe orchestrator's post-plan populator (around\n`orchestrator/routes/pipelines.py:17692`) calls to stash\nthe new metadata onto the contract's slice metadata.\nUnknown keys still surface as `warnings`, but the three\nnew keys are first-class.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "053c25afb",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The rendered plan prompt for an epic includes the\n  fixed-structure ticket-body instructions and the\n  link-type allowlist.\n- For reassess, the prompt embeds the classified diff\n  instructions, the in-flight marker, and the\n  Won't-Do permanence warning.\n- For non-epic pipelines, the rendered prompt is\n  byte-identical to today's plan template.\n- `shared/egg_contracts/plan_parser.py` parses\n  `consolidations:`, `splits:`, and `epic_apply:`\n  top-level blocks; `ParseResult.consolidations` /\n  `.splits` / `.epic_apply` are populated; unknown\n  other keys still flow to `warnings`.\n- `to_epic_metadata()` (NEW on `ParseResult`) returns a\n  structured `EpicPlanMetadata` consumed by\n  `_populate_contract_from_plan` adjacent to the\n  existing `to_contract_slices()` call at\n  `orchestrator/routes/pipelines.py:17692`.\n- Won't-Do nodes without a populated `wont_do_reason`\n  cause the parser to emit a structured warning AND\n  the populator to reject ingestion (forcing the agent\n  to re-emit with reasons) \u2014 defence-in-depth so\n  operators never see a silent \"obsolete: <key>\" with\n  no rationale.\n- Unit tests in\n  `orchestrator/tests/test_pipeline_prompts.py` cover\n  the fresh-epic, reassess-epic, and non-epic prompt\n  branches; tests in\n  `shared/egg_contracts/tests/test_plan_parser.py`\n  cover the three new blocks plus the Won't-Do-reason\n  requirement.",
@@ -229,8 +229,8 @@
         {
           "id": "task-1-12",
           "description": "New existing-children sweep at\n`orchestrator/jira_existing_children.py`. Inputs: epic\nkey. Output: a list of `ExistingChild` records with\nfields `{key, summary, status, description,\nclassification: literal[\"done\"|\"to_do\"|\"in_flight\"],\nin_flight_signals: list[{source: literal[\"jira_status\"|\n                                      \"orchestrator_pr_url\"|\n                                      \"remote_link\"],\n                          detail: str}]}`.\n\nDetection:\n1. Fetch children via the **`search_epic_children`** helper\n   exported by `orchestrator/jira_epic_detect.py`\n   (TASK-1-3) \u2014 two independent JQL queries\n   (`parent = \"<KEY>\"` and `\"Epic Link\" = \"<KEY>\"`),\n   merged by `key`, with per-query HTTP 400 tolerance.\n   NOT a single-OR disjunctive (architect ad-9).\n2. For each child, classify by `fields.status.name`:\n   `Done` \u2192 `done`; one of `{In Progress, In Review,\n   Code Review, Blocked}` \u2192 `in_flight` (signal:\n   `jira_status`); else \u2192 `to_do`.\n3. For non-`done` children, cross-check against the\n   orchestrator's pipeline state. To avoid the O(N) scan\n   of every `.egg-state/pipelines/<KEY>.json` file flagged\n   by risk_analyst R3, the helper reads a single\n   reverse-index file (NEW \u2014\n   `.egg-state/jira-child-pipeline-index.json` maintained\n   by the orchestrator at pipeline-creation time) mapping\n   `<JIRA-KEY> -> [pipeline_id, ...]`. For each\n   pipeline_id, load its JSON and check\n   `phases[\"pr\"].artifacts[\"pr_url\"]` \u2014 if set, flag\n   `in_flight` (signal: `orchestrator_pr_url`,\n   detail = the PR URL).\n4. For non-`done` children, also fetch their\n   `remotelinks` via the new gateway route (TASK-1-6).\n   If any remote link's `object.url` matches\n   `^https?://github\\.com/.*/pull/\\d+`, flag\n   `in_flight` (signal: `remote_link`, detail =\n   matched URL).\nOR semantics (decision-8): any positive signal flips\nthe classification to `in_flight` and all firing signal\nsources are recorded.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "dd49408e2",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `sweep_existing_children(epic_key)` returns the\n  structured list above and uses the `search_epic_children`\n  two-query helper from TASK-1-3 \u2014 does NOT issue a\n  single-OR JQL.\n- All three signal sources are recorded when more than\n  one fires.\n- Done children correctly classify as `done` (no PR\n  cross-check needed).\n- With 100 historical pipelines on disk, the sweep for a\n  30-child epic completes in \u22642 s wall-clock\n  (integration-test bounded \u2014 risk_analyst R3\n  performance budget).\n- Unit tests in\n  `orchestrator/tests/test_existing_children_sweep.py`\n  cover: status-only `in_flight`, PR-artifact-only\n  `in_flight`, remote-link-only `in_flight`, multi-signal\n  `in_flight`, plain `to_do`, plain `done`.",
@@ -285,8 +285,8 @@
         {
           "id": "task-1-15",
           "description": "PR-link writeback (feedback Q4). When an implement-phase\npipeline for a Jira child ticket reaches its PR phase\nand writes `phases[\"pr\"].artifacts[\"pr_url\"]` (the\nexisting pattern at `orchestrator/mcp_tools.py:1727`),\nadditionally call the gateway's\n`addCommentToJiraIssue` (`gateway.py:6002`) on the\nchild ticket with a templated comment containing the\nPR URL. Implementation lives next to the existing\n`pr_url` write at `mcp_tools.py:1727`. Parent-epic\nprovenance: when TASK-1-16 fans out child slices, it\npopulates a new\n`Pipeline.jira_parent_epic_key: str | None` field\n(added in this task) on each child pipeline so the PR\nphase can branch on its presence without an extra Jira\nround-trip (reviewer non-blocking #10). Idempotency:\nbefore writing, check whether the most recent N\ncomments on the ticket already contain the PR URL\n(re-runs must not duplicate the comment). When the\ngateway exposes a remote-link **write** in the future,\nthis task's TODO comment in the code calls out the\nsymmetric remote-link path; today the gateway only\nships remote-link reads (TASK-1-6).",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "5dcfaa044",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- `Pipeline.jira_parent_epic_key` field exists on\n  `orchestrator/models.py` with the same\n  `<PROJECT>-<number>` validator pattern as\n  `jira_ticket`.\n- The PR phase writes `pr_url` AND posts a single Jira\n  comment on the child ticket with the PR URL **when\n  `jira_parent_epic_key` is set on the pipeline**.\n- Re-running the PR phase does NOT duplicate the comment.\n- Single-ticket-only pipelines (no\n  `jira_parent_epic_key`) keep today's behaviour \u2014 no\n  comment writeback, no extra Jira round-trip.\n- No extra `getJiraIssue` call is needed to determine\n  parent-epic provenance (saves the call + avoids the\n  stale-read race noted in reviewer #10).\n- Unit tests in\n  `orchestrator/tests/test_pr_link_writeback.py`\n  cover: writeback fires for an epic-child PR; does NOT\n  fire for a plain single-ticket pipeline; is\n  idempotent on re-run.",
@@ -864,6 +864,34 @@
       "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Reuse the existing ~/.config/egg/secrets.env (gateway pattern). The orchestrator's transition helper reads Atlassian creds via the same resolver pattern as gateway/jira_credentials.py \u2014 checks ATLASSIAN_BASE_URL/USERNAME/API_TOKEN first, falls back to JIRA_* per-key. No new cred surface, no new file. Operator setup: add ATLASSIAN_API_TOKEN (or JIRA_API_TOKEN) to secrets.env if not already present. Rotation is the same as the gateway's. Audit/logging: orchestrator emits a structured log line per transition (epic_key, child_key, from_status, to_status, principal=ATLASSIAN_USERNAME).\", \"Q2\": \"Mandate fixed structure with sections in this order: Problem statement / Scope / Acceptance criteria / Out of scope / Cross-links. Matches the issue's 'fully-formed Jira ticket body' goal and makes downstream `submit_task <CHILD-KEY>` predictable.\", \"Q3\": \"Agent picks per-edge from a default allowlist of `Blocks`, `Is blocked by`, `Relates to`. Plan draft shows the chosen link type and rationale per edge so operator can override before approval.\", \"Q4\": \"Yes \u2014 remote-link via the gateway from the implement / apply agent. Adds an issue/{key}/remotelink entry pointing at the PR URL when the PR is opened. Natural completion of per-child-ticket-PRs; uses existing gateway primitives.\", \"Q5\": \"Add a single `--mode={auto,reassess,fresh}` parameter to submit_task. Default `auto` preserves today's behavior; explicit overrides bypass detection without confirmation. (This is the same answer as decision-13.)\"}}",
       "resolved_by": "human",
       "resolved_at": "2026-05-11T22:59:04.128463Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "#1557 reviewer_contract is BLOCKING on the deferral of TASK-1-13 (plan-apply orchestration), TASK-1-14 (Won't-Do batch transitions invocation site), TASK-1-16 (plan-gate Stop-after-plan / Continue-to-implement HITL fork + per-child pipeline fan-out), and TASK-1-17 (mcp__sdlc__register_in_flight_gate MCP tool). The producer has shipped the foundation primitives (12 of 17 tasks) plus the apply_epic agent prompts, post-phase artifact-merge hook, sandbox env exports, role-roster gating, narrowed exception handling, ADF wrap, audit-log discipline, mutual-exclusivity validator, JQL injection guard, canonical description hash, JQL pagination, and a `JiraTransitionsClient` with feature-flagged opt-in posture and explicit close()/context-manager surface. The remaining four tasks land four new orchestration code paths inside `orchestrator/routes/pipelines.py` (16k+ lines, mid-decomposition slice-15 of #2261) \u2014 specifically: (1) a post-plan-HITL dispatch site that reads `epic_apply:` / `consolidations:` / `splits:` from the plan draft and spawns the apply_epic agent; (2) iteration over `epic_apply.wont_do_batch[]` driving `JiraTransitionsClient.transition_to_wont_do` (with HITL gate when the feature flag is off); (3) plan-gate decision shape with options `[Stop-after-plan, Continue-to-implement]`, the Stop branch transitioning to `PipelinePhase.PLAN_STOPPED` (added in v4) and updating overseer-monitor short-circuits, the Continue branch fanning out one ISSUE-mode child pipeline per Jira child with `jira_parent_epic_key` populated; (4) the `mcp__sdlc__register_in_flight_gate` MCP-tool registration + handler.\n\nProducer-recommended: defer to a follow-up PR. Reviewer-recommended: ship in this PR. Operator chooses:",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Accept deferral \u2014 ship #1557 v5 as-is (foundation + middle layers + 12 of 17 tasks); open a follow-up issue tracking TASK-1-13 / TASK-1-14 / TASK-1-16 / TASK-1-17 orchestration",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Require landing in this PR \u2014 coder continues with TASK-1-13/14/16/17 orchestration before consensus",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
       "debounce_until": null
     }
   ],
@@ -1479,6 +1507,308 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: **Reassess-trigger override on `submit_task`** (pr...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:22.899730Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "7e1b45cac",
+      "reason": "Linked commit 7e1b45c to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:22.910719Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:22.926712Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.commit",
+      "old_value": null,
+      "new_value": "7e1b45cac",
+      "reason": "Linked commit 7e1b45c to task-1-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:22.945885Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:22.966053Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.6.commit",
+      "old_value": null,
+      "new_value": "7e1b45cac",
+      "reason": "Linked commit 7e1b45c to task-1-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:22.981543Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.6.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-7 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.005927Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "0c28a26e6",
+      "reason": "Linked commit 0c28a26 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.024820Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.066895Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "0c28a26e6",
+      "reason": "Linked commit 0c28a26 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.104983Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.143294Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.commit",
+      "old_value": null,
+      "new_value": "cf0a61dbe",
+      "reason": "Linked commit cf0a61d to task-1-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.185531Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.228859Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.commit",
+      "old_value": null,
+      "new_value": "cf0a61dbe",
+      "reason": "Linked commit cf0a61d to task-1-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.243798Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.266756Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.11.commit",
+      "old_value": null,
+      "new_value": "dd49408e2",
+      "reason": "Linked commit dd49408 to task-1-12",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.304283Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.11.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-12 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.351619Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.7.commit",
+      "old_value": null,
+      "new_value": "dd49408e2",
+      "reason": "Linked commit dd49408 to task-1-8",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.390038Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.7.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-8 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.426678Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.10.commit",
+      "old_value": null,
+      "new_value": "053c25afb",
+      "reason": "Linked commit 053c25a to task-1-11",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.443746Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.10.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-11 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.487122Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.8.commit",
+      "old_value": null,
+      "new_value": "5dcfaa044",
+      "reason": "Linked commit 5dcfaa0 to task-1-9",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.523232Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.8.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-9 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.559253Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.14.commit",
+      "old_value": null,
+      "new_value": "5dcfaa044",
+      "reason": "Linked commit 5dcfaa0 to task-1-15",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-11T23:59:23.596726Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.14.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-15 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-12T00:34:19.884333Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "#1557 reviewer_contract is BLOCKING on the deferral of TASK-1-13 (plan-apply orchestration), TASK-1-14 (Won't-Do batch transitions invocation site), TASK-1-16 (plan-gate Stop-after-plan / Continue-to-implement HITL fork + per-child pipeline fan-out), and TASK-1-17 (mcp__sdlc__register_in_flight_gate MCP tool). The producer has shipped the foundation primitives (12 of 17 tasks) plus the apply_epic agent prompts, post-phase artifact-merge hook, sandbox env exports, role-roster gating, narrowed exception handling, ADF wrap, audit-log discipline, mutual-exclusivity validator, JQL injection guard, canonical description hash, JQL pagination, and a `JiraTransitionsClient` with feature-flagged opt-in posture and explicit close()/context-manager surface. The remaining four tasks land four new orchestration code paths inside `orchestrator/routes/pipelines.py` (16k+ lines, mid-decomposition slice-15 of #2261) \u2014 specifically: (1) a post-plan-HITL dispatch site that reads `epic_apply:` / `consolidations:` / `splits:` from the plan draft and spawns the apply_epic agent; (2) iteration over `epic_apply.wont_do_batch[]` driving `JiraTransitionsClient.transition_to_wont_do` (with HITL gate when the feature flag is off); (3) plan-gate decision shape with options `[Stop-after-plan, Continue-to-implement]`, the Stop branch transitioning to `PipelinePhase.PLAN_STOPPED` (added in v4) and updating overseer-monitor short-circuits, the Continue branch fanning out one ISSUE-mode child pipeline per Jira child with `jira_parent_epic_key` populated; (4) the `mcp__sdlc__register_in_flight_gate` MCP-tool registration + handler.\n\nProducer-recommended: defer to a follow-up PR. Reviewer-recommended: ship in this PR. Operator chooses:",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Accept deferral \u2014 ship #1557 v5 as-is (foundation + middle layers + 12 of 17 tasks); open a follow-up issue tracking TASK-1-13 / TASK-1-14 / TASK-1-16 / TASK-1-17 orchestration",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Require landing in this PR \u2014 coder continues with TASK-1-13/14/16/17 orchestration before consensus",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: #1557 reviewer_contract is BLOCKING on the deferra...",
       "checkpoint_id": null
     }
   ],
