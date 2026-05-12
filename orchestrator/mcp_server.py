@@ -187,7 +187,6 @@ class MCPServer:
 
             # Build a useful signature so FastMCP can inspect parameters
             import inspect
-            from typing import Optional
 
             params = []
             for prop_name, prop_def in properties.items():
@@ -200,7 +199,7 @@ class MCPServer:
                     # Pydantic v2 requires Optional[T] (not bare T) for fields
                     # with a None default — bare T with default=None causes
                     # "Field required" errors when the argument is omitted.
-                    annotation = Optional[annotation]
+                    annotation = annotation | None
                 params.append(
                     inspect.Parameter(
                         prop_name,
