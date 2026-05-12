@@ -1919,6 +1919,75 @@ def create_pipeline() -> tuple[Response, int]:
             # None and fall back to the executor's default path.
             active_roles_to_persist = None
 
+    # #1557 — Jira-epic detection probe. When the caller passed a
+    # ``jira_ticket`` (set by ``submit_task`` for Jira-keyed pipelines),
+    # probe Atlassian for the issuetype. An Epic moves the key onto
+    # ``Pipeline.jira_epic_key`` and runs the auto/reassess/fresh
+    # detection so downstream phases can branch on ``jira_effective_mode``;
+    # a non-Epic stays on the legacy ``jira_ticket`` field.  The probe is
+    # gated on the presence of ``jira_ticket`` so non-Jira pipelines pay
+    # zero cost.
+    jira_ticket_raw = data.get("jira_ticket")
+    jira_epic_mode_raw = data.get("jira_epic_mode") or "auto"
+    persist_jira_ticket: str | None = None
+    persist_jira_epic_key: str | None = None
+    persist_jira_effective_mode: str | None = None
+    persist_jira_parent_epic_key = data.get("jira_parent_epic_key")
+    if jira_ticket_raw and isinstance(jira_ticket_raw, str):
+        ticket_upper = jira_ticket_raw.strip().upper()
+        try:
+            from gateway_client import GatewayClient
+        except ImportError:  # pragma: no cover
+            from orchestrator.gateway_client import GatewayClient  # type: ignore
+        try:
+            from jira_epic_detect import (
+                JiraEpicDetectionError,
+                detect_jira_issuetype,
+                resolve_effective_mode,
+            )
+        except ImportError:  # pragma: no cover
+            from orchestrator.jira_epic_detect import (  # type: ignore[no-redef]
+                JiraEpicDetectionError,
+                detect_jira_issuetype,
+                resolve_effective_mode,
+            )
+
+        _gw = GatewayClient()
+        try:
+            probe = detect_jira_issuetype(ticket_upper, gateway_invoker=_gw._make_request)
+            if probe.is_epic:
+                persist_jira_epic_key = ticket_upper
+                try:
+                    effective_mode, _children = resolve_effective_mode(
+                        jira_epic_mode_raw,
+                        epic_key=ticket_upper,
+                        project_key=probe.project_key,
+                        gateway_invoker=_gw._make_request,
+                    )
+                    persist_jira_effective_mode = effective_mode
+                except JiraEpicDetectionError as exc:
+                    logger.warning(
+                        "jira_epic_reassess_probe_failed",
+                        epic_key=ticket_upper,
+                        error=str(exc),
+                    )
+                    # Fall back to a fresh-mode persistence so the
+                    # downstream phases still know it's an epic.
+                    persist_jira_effective_mode = "fresh"
+            else:
+                # Non-Epic — keep the legacy single-ticket flow.
+                persist_jira_ticket = ticket_upper
+        except JiraEpicDetectionError as exc:
+            logger.warning(
+                "jira_epic_detect_probe_failed",
+                jira_ticket=ticket_upper,
+                error=str(exc),
+            )
+            # Degrade gracefully: persist the ticket so the sandbox env
+            # exports continue to work, and let the operator see the
+            # warning in logs.
+            persist_jira_ticket = ticket_upper
+
     try:
         store = get_state_store(repo_path)
         pipeline = store.create_pipeline(
@@ -1940,6 +2009,10 @@ def create_pipeline() -> tuple[Response, int]:
             pr_head_sha=pr_head_sha,
             active_roles=active_roles_to_persist,
             custom_phase=custom_phase if mode == PipelineMode.CUSTOM else None,
+            jira_ticket=persist_jira_ticket,
+            jira_epic_key=persist_jira_epic_key,
+            jira_effective_mode=persist_jira_effective_mode,
+            jira_parent_epic_key=persist_jira_parent_epic_key,
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -15743,11 +15816,17 @@ def _run_concurrent_phase(
                 # agent.
                 continue
     else:
+        # #1557 — when the pipeline is keyed off a Jira epic, opt the
+        # ``apply_epic`` role into the refine and plan phase rosters so
+        # the apply step has a designated agent slot (decision-11
+        # hybrid path).
+        is_epic_pipeline = getattr(pipeline, "jira_epic_key", None) is not None
         for r in _get_roles_for_phase(
             phase_str,
             include_reviewers=True,
             repo=pipeline.repo,
             has_contract=getattr(pipeline, "has_contract", True),
+            is_epic_pipeline=is_epic_pipeline,
         ):
             try:
                 roles.append(AgentRole(r.value))
@@ -19267,6 +19346,42 @@ def _run_pipeline(
                 sandbox_env["EGG_JIRA_PROJECT"] = jira_ticket_value.split("-", 1)[0]
             else:
                 sandbox_env["EGG_JIRA_PROJECT"] = ""
+
+            # #1557 — Jira-epic env exports for the apply_epic agent.
+            # Mirrors the EGG_JIRA_TICKET pattern: always set (empty when
+            # not in epic mode) so the agent's prompt substitutions can
+            # rely on variable presence.
+            jira_epic_key_value = getattr(pipeline, "jira_epic_key", None) or ""
+            sandbox_env["EGG_JIRA_EPIC_KEY"] = jira_epic_key_value
+            jira_effective_mode_value = getattr(pipeline, "jira_effective_mode", None) or ""
+            sandbox_env["EGG_JIRA_EFFECTIVE_MODE"] = jira_effective_mode_value
+            jira_parent_epic_key_value = getattr(pipeline, "jira_parent_epic_key", None) or ""
+            sandbox_env["EGG_JIRA_PARENT_EPIC_KEY"] = jira_parent_epic_key_value
+            # Resolved hierarchy field is looked up per project; we don't
+            # invoke the loader here because a missing mapping should
+            # surface at apply-time as a HITL gate rather than at spawn
+            # time. The agent calls ``resolve_hierarchy_field`` via the
+            # gateway's existing MCP / file-restriction surface.
+            hierarchy_field_value = ""
+            if jira_epic_key_value and "-" in jira_epic_key_value:
+                try:
+                    from jira_hierarchy_config import (
+                        JiraHierarchyUnmappedError,
+                        resolve_hierarchy_field,
+                    )
+                except ImportError:  # pragma: no cover
+                    from orchestrator.jira_hierarchy_config import (  # type: ignore[no-redef]
+                        JiraHierarchyUnmappedError,
+                        resolve_hierarchy_field,
+                    )
+                try:
+                    hierarchy_field_value = resolve_hierarchy_field(
+                        jira_epic_key_value.split("-", 1)[0]
+                    )
+                except JiraHierarchyUnmappedError:
+                    # Leave empty; apply step will surface a HITL gate.
+                    hierarchy_field_value = ""
+            sandbox_env["EGG_JIRA_HIERARCHY_FIELD"] = hierarchy_field_value
 
             phase_failed = False
             tester_gap_summary: str | None = None
