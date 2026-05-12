@@ -156,7 +156,16 @@ If `Task.jira_action` is set to a value outside the literal allow-set (`{'create
 
 ## Out of scope: Won't-Do transitions
 
-`jira_action == 'wontdo'` is the reassess-flow signal that an existing child should be transitioned to **Won't Do** because the new plan supersedes it. The agent-facing gateway intentionally **forbids transitions** today (`JIRA_WRITE_VERBS_DENIED` blocks the path), and the trust-boundary decision (#1557 decision-15) keeps it that way: transitions land via a new orchestrator-only `POST /api/v1/jira/ticket/transition` route gated on a loopback + shared-secret token. **You cannot call that route from in-sandbox.**
+> ⚠️ **End-state design, partially landed.** The applier handoff JSON described below
+> is **persisted to disk but not yet drained**. The orchestrator-side
+> `_drain_wontdo_batch_after_apply` hook is planned (coder-scope follow-up for
+> TASK-2-7) but not yet wired. Until it lands, your handoff write is a no-op
+> end-to-end — the Won't-Do transitions never actually fire. Continue writing
+> the handoff as documented so the format stays stable, and report the count of
+> emitted entries in your apply-output summary so the operator knows what's
+> queued. Manual workaround: `python3 -c "from orchestrator.wontdo_drain import run_wontdo_drain, Path; run_wontdo_drain(handoff_path=Path('.egg-state/agent-outputs/<pipeline>-wontdo.json'))"`.
+
+`jira_action == 'wontdo'` is the reassess-flow signal that an existing child should be transitioned to **Won't Do** because the new plan supersedes it. The agent-facing gateway intentionally **forbids transitions** today (`JIRA_WRITE_VERBS_DENIED` blocks the path), and the trust-boundary decision (#1557 decision-15) keeps it that way: transitions land via a new orchestrator-only `POST /api/v1/jira/ticket/transition` route gated on a loopback + launcher-secret bearer token. **You cannot call that route from in-sandbox.**
 
 What you do instead, for every `jira_action == 'wontdo'` task:
 
