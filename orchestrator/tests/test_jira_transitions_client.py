@@ -250,6 +250,176 @@ class TestHappyPath:
         assert result.transition_id is None
         assert posted == []  # no write issued
 
+    def test_short_circuits_on_done_status_with_wont_do_resolution(
+        self, enabled_env: None, fake_creds: JiraCredentials
+    ) -> None:
+        """v5 reviewer_code v3 #7 mitigation — the **common Atlassian
+        workflow shape** has status ``Done`` (or ``Closed``) and
+        resolution ``Won't Do``. The check at jira_transitions.py:245-247
+        is ``current_category == "done" and resolution_lower in
+        WONT_DO_NAMES``. A regression that drops the resolution-branch
+        check would let the name-branch alone gate the short-circuit
+        and fail to recognise this workflow as already-in-state — the
+        client would re-POST the transition. This test exercises the
+        resolution-branch directly, mocking the status as ``Done`` (not
+        ``Won't Do``) so the name-branch never fires.
+        """
+        posted = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                posted.append(request)
+                return httpx.Response(204)
+            # Atlassian-shape status payload: name="Done",
+            # statusCategory.key="done", resolution.name="Won't Do".
+            return _json_response(
+                {
+                    "fields": {
+                        "status": {
+                            "name": "Done",
+                            "statusCategory": {"key": "done"},
+                        },
+                        "resolution": {"name": "Won't Do"},
+                    }
+                }
+            )
+
+        client = _make_client(handler, fake_creds)
+        result = client.transition_to_wont_do(
+            "PROJ-9",
+            comment="resolved earlier",
+            epic_key="PROJ-EPIC",
+        )
+
+        assert result.status == "already_in_state"
+        assert result.from_status == "Done"
+        assert result.to_status == "Done"
+        assert result.transition_id is None
+        # Regression guard: no POST issued — short-circuit fired via the
+        # resolution-branch.
+        assert posted == []
+
+    def test_does_not_short_circuit_on_done_with_other_resolution(
+        self, enabled_env: None, fake_creds: JiraCredentials
+    ) -> None:
+        """Defence in depth around the v5 #7 fix: a Done ticket with
+        resolution ``Fixed`` (or anything else) must NOT short-circuit
+        — the orchestrator's job here is to drive *to* Won't-Do.
+        """
+        posted = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                posted.append(request)
+                return httpx.Response(204)
+            path = request.url.path
+            if path.endswith("/transitions"):
+                return _json_response({"transitions": [{"id": "31", "name": "Won't Do"}]})
+            return _json_response(
+                {
+                    "fields": {
+                        "status": {
+                            "name": "Done",
+                            "statusCategory": {"key": "done"},
+                        },
+                        "resolution": {"name": "Fixed"},
+                    }
+                }
+            )
+
+        client = _make_client(handler, fake_creds)
+        result = client.transition_to_wont_do("PROJ-9", comment="redo")
+        # POST WAS issued (no short-circuit).
+        assert len(posted) == 1
+        # And the result reflects an applied (or apply-attempted) outcome.
+        assert result.status == "applied"
+
+    def test_post_body_wraps_comment_in_adf_document(
+        self, enabled_env: None, fake_creds: JiraCredentials
+    ) -> None:
+        """v5 reviewer_code v3 #8 mitigation — Atlassian REST API v3
+        rejects raw strings for issue-comment bodies. The
+        ``_wrap_text_as_adf`` helper must produce a canonical ADF doc:
+
+            {"type": "doc", "version": 1, "content": [
+                {"type": "paragraph", "content": [
+                    {"type": "text", "text": <comment>}
+                ]},
+            ]}
+
+        Regression guard: a refactor that drops the wrapper and
+        passes ``comment_text`` directly would slip past the earlier
+        ``"comment" in body["update"]`` assertion in
+        ``test_returns_applied_result_on_204``. This test pins the
+        exact ADF shape.
+        """
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            path = request.url.path
+            if request.method == "GET" and path.endswith("/transitions"):
+                return _json_response({"transitions": [{"id": "31", "name": "Won't Do"}]})
+            if request.method == "GET":
+                return _json_response({"fields": {"status": {"name": "To Do"}}})
+            if request.method == "POST":
+                return httpx.Response(204)
+            raise AssertionError(f"unexpected: {request.method} {path}")
+
+        client = _make_client(handler, fake_creds)
+        comment_text = "Closing per Won't-Do batch — superseded by ENG-10."
+        client.transition_to_wont_do("PROJ-42", comment=comment_text)
+
+        post = next(r for r in captured if r.method == "POST")
+        body = json.loads(post.content)
+        # Pin the exact ADF document shape.
+        assert body["update"]["comment"] == [
+            {
+                "add": {
+                    "body": {
+                        "type": "doc",
+                        "version": 1,
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": [
+                                    {"type": "text", "text": comment_text},
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+        ]
+
+    def test_empty_comment_omits_update_block(
+        self, enabled_env: None, fake_creds: JiraCredentials
+    ) -> None:
+        """Defence around v5 #8: an empty / whitespace-only comment
+        must NOT produce a ``body["update"]`` block at all (no ADF
+        document holding the empty string). The orchestrator either
+        sends a real comment or nothing.
+        """
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            path = request.url.path
+            if request.method == "GET" and path.endswith("/transitions"):
+                return _json_response({"transitions": [{"id": "31", "name": "Won't Do"}]})
+            if request.method == "GET":
+                return _json_response({"fields": {"status": {"name": "To Do"}}})
+            if request.method == "POST":
+                return httpx.Response(204)
+            raise AssertionError(f"unexpected: {request.method} {path}")
+
+        client = _make_client(handler, fake_creds)
+        client.transition_to_wont_do("PROJ-42", comment="   ")  # whitespace only
+        post = next(r for r in captured if r.method == "POST")
+        body = json.loads(post.content)
+        assert "update" not in body
+        assert body == {"transition": {"id": "31"}}
+
     def test_transition_not_found_when_workflow_lacks_wont_do(
         self, enabled_env: None, fake_creds: JiraCredentials
     ) -> None:

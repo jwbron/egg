@@ -152,6 +152,141 @@ class TestRunJql:
         with pytest.raises(GatewayError):
             _run_jql('parent = "ENG-1"', gateway_invoker=invoker)
 
+    def test_paginates_via_next_page_token(self):
+        """v5 reviewer_code v3 #6 mitigation — _run_jql must follow the
+        ``nextPageToken`` cursor until ``isLast=true`` (or the token is
+        empty). Without this, epics with more than one page of children
+        silently lose coverage. Regression guard: a refactor that
+        breaks the loop and returns after page 1 would fail here.
+
+        Responses come back from the gateway as ``make_success`` envelopes —
+        i.e. ``{"success": true, "message": ..., "data": <upstream-body>}``
+        — so the pagination markers live under ``data``.
+        """
+        pages = [
+            {
+                "data": {
+                    "issues": [{"key": "ENG-1"}, {"key": "ENG-2"}],
+                    "nextPageToken": "tok-page-2",
+                    "isLast": False,
+                },
+            },
+            {
+                "data": {
+                    "issues": [{"key": "ENG-3"}, {"key": "ENG-4"}],
+                    "nextPageToken": "tok-page-3",
+                    "isLast": False,
+                },
+            },
+            {
+                "data": {
+                    "issues": [{"key": "ENG-5"}],
+                    "isLast": True,
+                },
+            },
+        ]
+        invoker = MagicMock(side_effect=pages)
+        result = _run_jql('parent = "ENG-EPIC"', gateway_invoker=invoker)
+
+        assert result == [
+            {"key": "ENG-1"},
+            {"key": "ENG-2"},
+            {"key": "ENG-3"},
+            {"key": "ENG-4"},
+            {"key": "ENG-5"},
+        ]
+        # Three gateway calls — one per page.
+        assert invoker.call_count == 3
+        # Cursor threading: page 1 has no token, page 2 carries the
+        # page-1 cursor, page 3 carries the page-2 cursor.
+        call_0 = invoker.call_args_list[0]
+        call_1 = invoker.call_args_list[1]
+        call_2 = invoker.call_args_list[2]
+        assert "nextPageToken" not in call_0.kwargs["data"]
+        assert call_1.kwargs["data"]["nextPageToken"] == "tok-page-2"
+        assert call_2.kwargs["data"]["nextPageToken"] == "tok-page-3"
+
+    def test_paginates_via_envelope_wrapped_response(self):
+        """The gateway sometimes wraps responses in ``{"data": {...}}``.
+        Pagination must still unwrap and follow the cursor.
+        """
+        pages = [
+            {
+                "data": {
+                    "issues": [{"key": "ENG-1"}],
+                    "nextPageToken": "next",
+                    "isLast": False,
+                },
+            },
+            {
+                "data": {
+                    "issues": [{"key": "ENG-2"}],
+                    "isLast": True,
+                },
+            },
+        ]
+        invoker = MagicMock(side_effect=pages)
+        result = _run_jql('parent = "ENG-EPIC"', gateway_invoker=invoker)
+        assert result == [{"key": "ENG-1"}, {"key": "ENG-2"}]
+        assert invoker.call_count == 2
+
+    def test_pagination_stops_when_next_page_token_missing(self):
+        """No ``nextPageToken`` field at all → treat as last page even
+        without an explicit ``isLast=true`` marker.
+        """
+        invoker = MagicMock(
+            return_value={
+                "issues": [{"key": "ENG-1"}],
+                # Note: no nextPageToken, no isLast.
+            }
+        )
+        result = _run_jql('parent = "ENG-EPIC"', gateway_invoker=invoker)
+        assert result == [{"key": "ENG-1"}]
+        assert invoker.call_count == 1
+
+    def test_pagination_stops_when_next_page_token_not_a_string(self):
+        """Defensive: a non-string ``nextPageToken`` (None, int, dict)
+        is treated as no-token and the loop terminates rather than
+        crashing on a bogus value.
+        """
+        invoker = MagicMock(
+            return_value={
+                "issues": [{"key": "ENG-1"}],
+                "nextPageToken": 42,  # non-string
+                "isLast": False,
+            }
+        )
+        result = _run_jql('parent = "ENG-EPIC"', gateway_invoker=invoker)
+        assert result == [{"key": "ENG-1"}]
+        assert invoker.call_count == 1
+
+    def test_pagination_hard_cap_terminates_loop(self):
+        """v5 mitigation: HARD_PAGE_CAP=200 prevents an infinite loop
+        when the upstream incorrectly returns ``nextPageToken`` forever.
+        The loop must terminate even when the server never sets
+        ``isLast=true``.
+        """
+
+        def always_return_next_token(*_args, **_kwargs):
+            return {
+                "data": {
+                    "issues": [{"key": "ENG-X"}],
+                    "nextPageToken": "never-stops",
+                    "isLast": False,
+                },
+            }
+
+        invoker = MagicMock(side_effect=always_return_next_token)
+        result = _run_jql('parent = "ENG-EPIC"', gateway_invoker=invoker)
+        # The loop terminated despite the upstream lying about pagination.
+        assert isinstance(result, list)
+        # The implementation caps at 200 iterations (each yielding one
+        # issue in this test). Exact count depends on the cap arithmetic
+        # but it MUST be bounded and finite.
+        assert 1 < invoker.call_count <= 201
+        # Result is correspondingly bounded.
+        assert len(result) == invoker.call_count
+
 
 # ---------------------------------------------------------------------------
 # search_epic_children — two-query merge / 400 tolerance
