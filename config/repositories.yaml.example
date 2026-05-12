@@ -99,6 +99,16 @@ readable_repos:
 #       stage into the final Docker image. Use this for system-level tool
 #       installations that build_commands place outside the repo directory.
 #       (e.g., /usr/local/go, /usr/local/node)
+#   - role_patterns: Per-repo overrides for the test/code/docs glob lists
+#     that gate coder/tester/documenter file access (#2528). Useful for
+#     non-Python repos with different file conventions (Go uses *_test.go,
+#     JavaScript uses __tests__/, etc.). All three keys are optional and
+#     each value must be a list of non-empty glob strings. SET KEYS REPLACE
+#     DEFAULTS — they do not extend them. List every convention your repo
+#     uses (e.g. a Python+Go repo must include both **/*_test.py and
+#     **/*_test.go in tests_globs). Security-relevant blocklists
+#     (.egg-state/contracts/, .github/) are hard-coded and cannot be
+#     relaxed. See docs/guides/sdlc-pipeline.md#per-repository-role-patterns.
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:
@@ -169,6 +179,17 @@ repo_settings:
   #       - PATH=/usr/local/go/bin:$PATH go mod download
   #     persist_system_dirs:
   #       - /usr/local/go
+  #   role_patterns:
+  #     tests_globs: ["**/*_test.go", "**/testdata/**"]
+  #     code_globs:  ["**/*.go"]
+  #     docs_globs:  ["**/*.md", "docs/"]
+  #
+  # # JS/TS service example
+  # YOUR_USERNAME/js-service:
+  #   role_patterns:
+  #     tests_globs: ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts"]
+  #     code_globs:  ["**/*.ts", "**/*.tsx", "**/*.js"]
+  #     docs_globs:  ["**/*.md", "docs/"]
 
 # User mode configuration (optional)
 # When auth_mode is set to "user" for a repo, operations will be

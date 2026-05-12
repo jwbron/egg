@@ -5,6 +5,7 @@ belonging to that pipeline are staged and committed — preventing
 concurrent pipelines from leaking state into each other's PRs.
 """
 
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -290,3 +291,151 @@ class TestCommitStatefilesPipelineIdUnion:
         add_paths = add_call[add_call.index("--") + 1 :]
         # File should appear exactly once
         assert add_paths.count(str(Path(".egg-state/contracts/pipe-abc.json"))) == 1
+
+
+class TestCommitStatefilesNoAutoStageDeletions:
+    """Regression for #2625: commit must not auto-stage working-tree deletions.
+
+    Agents push their drafts to ``origin/<branch>`` from their own
+    worktrees, so the orchestrator's local checkout can sit at a HEAD
+    that contains a draft file even when the file was never materialised
+    on disk locally. Prior to the fix, ``git commit -- .egg-state/``
+    auto-staged the apparent "deletion" of those files, wiping
+    agent-authored drafts off the work branch.
+    """
+
+    def _init_repo(self, tmp_path: Path):
+        """Create a real git repo seeded with an initial commit."""
+        git_base = ["git", "-C", str(tmp_path)]
+        subprocess.run([*git_base, "init", "-q"], check=True)
+        subprocess.run([*git_base, "config", "user.email", "test@example.com"], check=True)
+        subprocess.run([*git_base, "config", "user.name", "Test"], check=True)
+        # Disable commit signing and any globally-configured hooksPath
+        # so the test does not depend on the developer's global git
+        # config (no signing key or a hooks dir with failing hooks
+        # would otherwise break the seed commit).
+        subprocess.run([*git_base, "config", "commit.gpgsign", "false"], check=True)
+        subprocess.run([*git_base, "config", "core.hooksPath", "/dev/null"], check=True)
+        return git_base
+
+    def test_does_not_commit_deletion_of_file_missing_from_worktree(self, tmp_path: Path):
+        """File in HEAD but missing from worktree is NOT committed as deleted (#2625)."""
+        git_base = self._init_repo(tmp_path)
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        contracts = tmp_path / ".egg-state" / "contracts"
+        drafts.mkdir(parents=True)
+        contracts.mkdir(parents=True)
+
+        # Seed HEAD with both a draft and a contract.
+        (drafts / "issue-99-v2-analysis.md").write_text("agent analysis", encoding="utf-8")
+        (contracts / "issue-99-v2.json").write_text("{}", encoding="utf-8")
+        subprocess.run([*git_base, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git_base, "commit", "-q", "-m", "seed"], check=True, capture_output=True)
+
+        head_before = subprocess.run(
+            [*git_base, "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        # Simulate the live bug: orchestrator has the agent's commit in
+        # HEAD (draft tracked) but the local worktree is missing the
+        # draft file. The orchestrator-side mutation modifies the
+        # contract on disk.
+        (drafts / "issue-99-v2-analysis.md").unlink()
+        (contracts / "issue-99-v2.json").write_text(
+            '{"orchestrator": "wrote this"}', encoding="utf-8"
+        )
+
+        committed = _commit_statefiles_to_worktree(
+            tmp_path,
+            "Persist agent statefile writes before refine sync",
+            pipeline_identifier="issue-99-v2",
+            pipeline_id="issue-99-v2",
+        )
+        assert committed is True
+
+        head_after = subprocess.run(
+            [*git_base, "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert head_after != head_before, "Expected a new commit on top of HEAD"
+
+        # The draft file MUST still be in the new commit's tree — the
+        # bug was that the commit silently dropped it.
+        ls = subprocess.run(
+            [
+                *git_base,
+                "ls-tree",
+                "HEAD",
+                "--",
+                ".egg-state/drafts/issue-99-v2-analysis.md",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert ls.stdout.strip(), (
+            "Draft file present in HEAD but missing from worktree was "
+            "silently committed as deleted (#2625 regression)"
+        )
+
+        # Sanity: the orchestrator's contract mutation IS in the commit.
+        show = subprocess.run(
+            [*git_base, "show", "--name-only", "--format=", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        committed_files = set(show.stdout.strip().splitlines())
+        assert ".egg-state/contracts/issue-99-v2.json" in committed_files
+
+    def test_unrelated_unstaged_egg_state_deletion_is_not_committed(self, tmp_path: Path):
+        """An unstaged deletion of a different pipeline's file is not picked up."""
+        git_base = self._init_repo(tmp_path)
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        contracts = tmp_path / ".egg-state" / "contracts"
+        drafts.mkdir(parents=True)
+        contracts.mkdir(parents=True)
+
+        # Two pipelines coexist in HEAD.
+        (drafts / "issue-99-v2-analysis.md").write_text("ours", encoding="utf-8")
+        (drafts / "issue-77-analysis.md").write_text("theirs", encoding="utf-8")
+        (contracts / "issue-99-v2.json").write_text("{}", encoding="utf-8")
+        subprocess.run([*git_base, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git_base, "commit", "-q", "-m", "seed"], check=True, capture_output=True)
+
+        # The OTHER pipeline's draft is missing from the worktree (e.g.
+        # orchestrator restarted mid-flight and only one pipeline's
+        # files were rehydrated). The scoped commit for issue-99-v2
+        # must not collateral-damage issue-77's draft.
+        (drafts / "issue-77-analysis.md").unlink()
+        (contracts / "issue-99-v2.json").write_text('{"updated": true}', encoding="utf-8")
+
+        _commit_statefiles_to_worktree(
+            tmp_path,
+            "scoped commit",
+            pipeline_identifier="issue-99-v2",
+            pipeline_id="issue-99-v2",
+        )
+
+        ls = subprocess.run(
+            [
+                *git_base,
+                "ls-tree",
+                "HEAD",
+                "--",
+                ".egg-state/drafts/issue-77-analysis.md",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert ls.stdout.strip(), (
+            "Unrelated pipeline's draft was deleted by a scoped commit for a different pipeline"
+        )
