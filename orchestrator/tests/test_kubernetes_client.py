@@ -1240,6 +1240,90 @@ class TestCleanupOrphanedContainers:
 # ---------------------------------------------------------------------------
 
 
+class TestNormalizeK8sJobName:
+    """Direct tests for ``_normalize_k8s_job_name`` (#2644).
+
+    The helper is the lynchpin of the long-name fix — every Job API
+    call goes through it. The ``delete_job`` / ``wait_for_job_gone``
+    tests assert that callers invoke this helper, but they're tautological
+    with respect to the helper's actual math. These tests pin the math:
+    prefix idempotence, truncation cap, and the SHA-1 digest tail.
+    """
+
+    def test_short_name_prefixed_only(self, k8s_client: KubernetesClient):
+        """Short input: prefix added, no truncation."""
+        assert k8s_client._normalize_k8s_job_name("my-job") == "egg-sandbox-my-job"
+
+    def test_already_prefixed_is_idempotent(self, k8s_client: KubernetesClient):
+        """An already-prefixed short name is a no-op."""
+        assert k8s_client._normalize_k8s_job_name("egg-sandbox-my-job") == "egg-sandbox-my-job"
+
+    def test_long_name_truncated_with_digest(self, k8s_client: KubernetesClient):
+        """Long input gets truncated to 54 readable chars + ``-`` + 8-char SHA-1.
+
+        Pin both the cap (≤ 63 chars) and the digest tail so a future
+        refactor that drifts the truncation math (e.g. tweaks ``[:54]``
+        to ``[:53]``) is caught here — not only at integration time.
+        """
+        import hashlib
+
+        # 70-char prefixed name forces truncation.
+        long_input = "egg-sandbox-" + ("x" * 58)
+        assert len(long_input) == 70
+
+        normalized = k8s_client._normalize_k8s_job_name(long_input)
+        # Cap: 54 readable + 1 hyphen + 8 digest = 63 chars.
+        assert len(normalized) == 63
+        expected_digest = hashlib.sha1(long_input.encode(), usedforsecurity=False).hexdigest()[:8]
+        assert normalized.endswith(f"-{expected_digest}")
+        # The readable head is the first 54 chars of the prefixed input.
+        assert normalized.startswith(long_input[:54])
+
+    def test_idempotent_on_truncated_output(self, k8s_client: KubernetesClient):
+        """Applying the helper twice is a no-op (already-prefixed AND ≤63).
+
+        ``delete_job`` callers may pass either the un-truncated or the
+        truncated name; the helper has to behave correctly for both.
+        """
+        long_input = "egg-sandbox-" + ("y" * 58)
+        once = k8s_client._normalize_k8s_job_name(long_input)
+        twice = k8s_client._normalize_k8s_job_name(once)
+        assert once == twice
+
+    def test_long_name_without_prefix_gets_prefix_then_truncates(
+        self, k8s_client: KubernetesClient
+    ):
+        """A long input without the ``egg-sandbox-`` prefix gains the prefix first.
+
+        Pins the canonical call-site shape: ``_build_k8s_job_names``
+        composes an un-prefixed-but-long input that this helper must
+        prefix + truncate in one pass.
+        """
+        long_input = "a" * 70  # 70 chars, no prefix
+        normalized = k8s_client._normalize_k8s_job_name(long_input)
+        assert normalized.startswith(k8s_client.JOB_PREFIX)
+        assert len(normalized) == 63
+
+    def test_long_name_trailing_hyphen_stripped_before_digest(self, k8s_client: KubernetesClient):
+        """The readable head must not end with a hyphen.
+
+        ``readable = name[:54].rstrip("-")`` guards against producing
+        ``...--<digest>`` (which would still be valid k8s but reads
+        worse and inflates the collision probability for inputs that
+        differ only past the truncation boundary).
+        """
+        # An input crafted so that name[:54] would otherwise end with "-".
+        # ``egg-sandbox-`` is 12 chars; pad with 41 non-hyphen chars then "-".
+        crafted = "egg-sandbox-" + ("a" * 41) + "-" + ("b" * 30)
+        # name[:54] == "egg-sandbox-" + "a"*41 + "-"  -> ends with "-"
+        normalized = k8s_client._normalize_k8s_job_name(crafted)
+        # The digest is the last 8 chars; the readable head is everything
+        # before the final "-<digest>". That readable head must NOT end
+        # with a hyphen.
+        readable_head, _digest = normalized.rsplit("-", 1)
+        assert not readable_head.endswith("-")
+
+
 class TestCreateJob:
     """Tests for create_job (raw spec)."""
 
@@ -1317,6 +1401,130 @@ class TestDeleteJob:
 
         with pytest.raises(JobOperationError, match="Failed to delete job"):
             k8s_client.delete_job("my-job", "test-ns")
+
+    def test_delete_job_normalizes_long_name(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+    ):
+        """Long names should be truncated to match create_container's storage form (#2644)."""
+        # 70-char prefixed name — must trigger truncation.
+        long_name = "egg-sandbox-" + "x" * 58
+        assert len(long_name) > 63
+
+        k8s_client.delete_job(long_name, "test-ns")
+
+        call_args = mock_batch_api.delete_namespaced_job.call_args
+        passed_name = call_args.kwargs["name"]
+        assert len(passed_name) <= 63
+        # Should be the same form create_container would have used.
+        assert passed_name == k8s_client._normalize_k8s_job_name(long_name)
+
+    def test_delete_job_round_trip_with_create(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+    ):
+        """create_container + delete_job with the same long input name target the same Job (#2644)."""
+        mock_job = MagicMock()
+        mock_job.metadata.uid = "uid-roundtrip"
+        mock_batch_api.create_namespaced_job.return_value = mock_job
+
+        long_input = "long-name-2644-" + "a" * 50  # 65 chars without prefix
+        info = k8s_client.create_container(name=long_input)
+        created_name = mock_batch_api.create_namespaced_job.call_args.kwargs["body"].metadata.name
+        assert info.job_name == created_name
+        # Delete via the same un-truncated input (what the spawner does).
+        k8s_client.delete_job(f"egg-sandbox-{long_input}", "test-ns")
+        deleted_name = mock_batch_api.delete_namespaced_job.call_args.kwargs["name"]
+        assert deleted_name == created_name
+
+
+class TestWaitForJobGone:
+    """Tests for wait_for_job_gone (#2655)."""
+
+    @staticmethod
+    def _api_exception(status: int, message: str = "") -> Exception:
+        """Build an ``ApiException`` with the requested HTTP status."""
+        from kubernetes.client.exceptions import ApiException
+
+        return ApiException(status=status, reason=message or f"status-{status}")
+
+    def test_returns_true_when_job_already_gone(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+    ):
+        mock_batch_api.read_namespaced_job.side_effect = self._api_exception(404, "not found")
+        assert k8s_client.wait_for_job_gone("my-job", "test-ns", timeout_s=1.0) is True
+
+    def test_returns_true_after_job_disappears(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Job exists on first poll, gone on second — returns True.
+
+        Patches ``time.sleep`` in the module under test so the 0.5s
+        poll interval doesn't slow the suite down.
+        """
+        import kubernetes_client as _kc_module
+
+        monkeypatch.setattr(_kc_module.time, "sleep", lambda _s: None)
+
+        mock_batch_api.read_namespaced_job.side_effect = [
+            MagicMock(),  # first poll: Job still present
+            self._api_exception(404, "not found"),  # second poll: gone
+        ]
+        assert k8s_client.wait_for_job_gone("my-job", "test-ns", timeout_s=5.0) is True
+
+    def test_returns_false_on_timeout(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Job never disappears — returns False after timeout.
+
+        Patch ``time.sleep`` so the poll loop iterates instantly. The
+        deadline is the only thing gating return.
+        """
+        import kubernetes_client as _kc_module
+
+        monkeypatch.setattr(_kc_module.time, "sleep", lambda _s: None)
+        mock_batch_api.read_namespaced_job.return_value = MagicMock()
+        assert k8s_client.wait_for_job_gone("my-job", "test-ns", timeout_s=0.01) is False
+
+    def test_normalizes_long_name(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+    ):
+        """Polling uses the same normalized name the delete sees (#2644 round-trip)."""
+        mock_batch_api.read_namespaced_job.side_effect = self._api_exception(404)
+        long_name = "egg-sandbox-" + "x" * 58
+        k8s_client.wait_for_job_gone(long_name, "test-ns", timeout_s=1.0)
+        passed_name = mock_batch_api.read_namespaced_job.call_args.kwargs["name"]
+        assert passed_name == k8s_client._normalize_k8s_job_name(long_name)
+
+    def test_non_404_api_exception_keeps_polling_and_times_out(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """A 500 / RBAC denial is NOT treated as success; the loop times out.
+
+        Substring match on ``str(exc)`` previously could have produced a
+        false positive on any error string containing "not found". This
+        test pins that only ``ApiException.status == 404`` returns True.
+        """
+        import kubernetes_client as _kc_module
+
+        monkeypatch.setattr(_kc_module.time, "sleep", lambda _s: None)
+        mock_batch_api.read_namespaced_job.side_effect = self._api_exception(500, "server error")
+        assert k8s_client.wait_for_job_gone("my-job", "test-ns", timeout_s=0.01) is False
 
 
 class TestListJobs:
@@ -1427,7 +1635,7 @@ class TestGetPodForJob:
         k8s_client: KubernetesClient,
         mock_core_api: MagicMock,
     ):
-        """Should use job-name=<name> label selector."""
+        """Should use job-name=<name> label selector with the normalized form (#2644)."""
         mock_result = MagicMock()
         mock_result.items = [_make_mock_pod()]
         mock_core_api.list_namespaced_pod.return_value = mock_result
@@ -1435,7 +1643,10 @@ class TestGetPodForJob:
         k8s_client.get_pod_for_job("my-job", "test-ns")
 
         call_args = mock_core_api.list_namespaced_pod.call_args
-        assert call_args.kwargs["label_selector"] == "job-name=my-job"
+        # Normalized name (prefix added) goes into the selector so we
+        # match the ``job-name`` label the Job controller stamps with
+        # the on-server name, not the caller's un-prefixed input.
+        assert call_args.kwargs["label_selector"] == "job-name=egg-sandbox-my-job"
 
     def test_api_error_wraps(
         self,

@@ -7513,6 +7513,34 @@ def _refresh_pipeline_branch_against_current_base(
     return True
 
 
+def _read_tree_head(git_base: list[str]) -> None:
+    """Refresh the index from HEAD without touching the working tree.
+
+    Defends ``_commit_statefiles_to_worktree`` against a cross-worktree
+    branch-ref advance.  When an agent runs the gateway-allowed recovery
+    primitive ``git update-ref refs/heads/<pipeline-branch> <sha>`` from
+    a sibling worktree (see ``sandbox/agent-config/rules/branch-recovery.md``
+    and the detached-HEAD hint in ``gateway/gateway.py``), the shared local
+    branch ref advances out from under this worktree.  ``update-ref`` does
+    not honour per-worktree locks, so this worktree's HEAD symref
+    silently jumps to the agent's commit while the index and working tree
+    stay at the prior state.  Without this refresh, the stale index
+    reports every agent-pushed file as a *staged deletion* against HEAD,
+    and the subsequent ``git commit`` lands them as a real delete commit
+    (the symptom in #2626).  ``read-tree HEAD`` repoints the index to
+    the new HEAD without touching the working tree; the immediately
+    following ``git add --force`` then stages only the orchestrator's
+    on-disk writes.
+    """
+    subprocess.run(
+        [*git_base, "read-tree", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+
+
 def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
@@ -7538,6 +7566,13 @@ def _commit_statefiles_to_worktree(
 
     Falls back to staging the entire ``.egg-state/`` directory when both
     *pipeline_identifier* and *pipeline_id* are ``None`` (backwards-compat).
+
+    Any pre-existing staged changes in the worktree's index are discarded
+    on entry — the helper runs ``git read-tree HEAD`` before staging (see
+    :func:`_read_tree_head` for the cross-worktree-ref-advance defence
+    from #2626).  Only files matching the pipeline scope and present on
+    disk are committed; callers must not pre-stage state they expect this
+    helper to preserve.
 
     The commit is idempotent (skips when nothing is staged).
     Raises ``subprocess.CalledProcessError`` on git failure.
@@ -7612,6 +7647,7 @@ def _commit_statefiles_to_worktree(
             return False  # No state files for this pipeline yet
 
         rel_paths = [str(Path(f).relative_to(worktree_path)) for f in matched]
+        _read_tree_head(git_base)
         subprocess.run(
             [*git_base, "add", "--force", "--"] + rel_paths,
             capture_output=True,
@@ -7620,6 +7656,7 @@ def _commit_statefiles_to_worktree(
             timeout=30,
         )
     else:
+        _read_tree_head(git_base)
         subprocess.run(
             [*git_base, "add", "--force", ".egg-state/"],
             capture_output=True,
@@ -7657,16 +7694,24 @@ def _commit_statefiles_to_worktree(
         pipeline_identifier=str(pipeline_identifier),
         commit_message=message,
     )
-    # No pathspec: ``git commit -- .egg-state/`` would auto-stage
-    # working-tree changes within that pathspec, including deletions of
-    # files that are present in HEAD but missing from the local
-    # checkout. Agents push drafts to ``origin/<branch>`` from their own
-    # worktrees, so the orchestrator's local checkout can have HEAD at a
-    # commit that contains a draft while the file itself was never
-    # materialised on disk locally. Letting ``commit -- pathspec``
-    # auto-stage that "deletion" wipes the agent's drafts from the work
-    # branch (#2625). Commit only what ``git add`` above explicitly
-    # staged.
+    # Commit WITHOUT a trailing ``-- .egg-state/`` pathspec.  ``git commit``
+    # with a pathspec defaults to ``--only`` semantics, which auto-stages
+    # working-tree changes (including unstaged *deletions*) for the
+    # matching paths — i.e. ``git commit -- .egg-state/`` silently picks
+    # up files that disappeared from disk even though the explicit
+    # ``git add`` above only staged the on-disk hits from the glob.  This
+    # surfaces as two distinct failure shapes that share the same
+    # mechanism (HEAD references a draft that is not on disk locally):
+    # #2625, where agents push drafts to ``origin/<branch>`` from their
+    # own worktrees so the orchestrator's local checkout sits at a HEAD
+    # containing files it never materialised; and #2626, where the
+    # agent-side ``git update-ref`` recovery (plumbing, no per-worktree
+    # branch lock) advances the shared pipeline-branch ref under the
+    # orchestrator's worktree, leaving every agent-pushed file looking
+    # like a staged deletion. In both cases the pathspec form turned a
+    # benign working-tree gap into a delete-commit against agent-pushed
+    # work. Without the pathspec, only the explicit ``git add`` staging
+    # above is committed.
     subprocess.run(
         [*git_base, "commit", "--no-verify", "-m", message],
         capture_output=True,
