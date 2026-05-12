@@ -1836,10 +1836,10 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-05-12T19:42:51.421258Z",
       "work_started_at": "2026-05-12T19:42:52.206917Z",
-      "completed_at": null,
+      "completed_at": "2026-05-12T19:43:56.895076Z",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
@@ -2301,7 +2301,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T19:43:56.794563Z",
+  "updated_at": "2026-05-12T19:43:56.895199Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -2315,6 +2315,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T19:42:25.059043Z",
-  "version": 115,
+  "version": 116,
   "jira_ticket": null
 }
