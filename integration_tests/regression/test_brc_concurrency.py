@@ -263,9 +263,9 @@ class TestWithdrawCooldownAndLockout:
         r1 = tracker.handle_withdraw("coder", reason="bug found")
         assert r1["status"] == "withdrawn"
 
-        # Cycle 2: propose → withdraw → counter=2, allowed (still < max=2 at peek time).
-        # Note: the peek is ``current + 1 >= max`` so with max=2 the second
-        # withdraw is the one that gets locked out.
+        # Cycle 2: propose → withdraw → peek=2, 2 >= max=2, locked out.
+        # The guard's peek is ``current + 1 >= max`` so with max=2 the
+        # second withdraw is the one that gets locked out.
         tracker.handle_propose("coder", propose_payload(commit_sha="def"))
         r2 = tracker.handle_withdraw("coder", reason="another bug")
         assert r2["status"] == "locked_out"

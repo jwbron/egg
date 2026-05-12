@@ -81,6 +81,13 @@ def event_capture() -> Generator[Callable[[], list[Event]]]:
     and returns a callable that yields only events appended since,
     isolating the test from events emitted by unrelated tests in the
     same session.
+
+    Note: ``get_history()`` is bounded by ``EventBus._max_history``
+    (default 100 — see ``orchestrator/events.py:154``).  All tests in
+    this folder stay well under that bound between fixture entry and
+    snapshot, but a future test that emits >100 events would lose its
+    earliest ones to history eviction; widen ``max_history`` on the
+    bus or capture more granularly if you anticipate larger volumes.
     """
     bus = get_event_bus()
     seq_before = bus.current_sequence()
