@@ -1068,6 +1068,64 @@ class TestOpenContextPRAdversarial:
         missing = expected - rel
         assert not missing, f"gather dropped expected artifacts: {missing}"
 
+    def test_gather_includes_canonical_contract_for_issue_mode(self, tmp_path):
+        """#2685: the context PR must carry ``.egg-state/contracts/issue-<N>.json``
+        for issue-mode pipelines so reviewers approving the context PR see
+        the structured slice DAG alongside the prose drafts that produced it.
+
+        Integer identifiers route through ``_canonical_key`` →
+        ``issue-<N>.json``, which the static ``{identifier}`` glob can't
+        express; this pins the dynamic loader-resolved path.
+        """
+        _seed_repo(tmp_path, identifier=2685)
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True, exist_ok=True)
+        canonical = contracts_dir / "issue-2685.json"
+        canonical.write_text("{}\n")
+
+        found = _gather_context_pr_files(tmp_path, 2685)
+        names = {p.name for p in found}
+        assert "issue-2685.json" in names, (
+            f"canonical contract path must be gathered for issue-mode "
+            f"pipelines; got {sorted(names)}"
+        )
+
+    def test_gather_includes_legacy_contract_when_canonical_absent(self, tmp_path):
+        """Pre-key-unification pipelines stored contracts at
+        ``.egg-state/contracts/<N>.json`` (bare integer stem). The
+        loader still falls back to that shape when canonical is absent
+        — the gather step must follow the same fallback so in-flight
+        pre-unification pipelines pick up their contract on the
+        context PR (#2685)."""
+        _seed_repo(tmp_path, identifier=2685)
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True, exist_ok=True)
+        legacy = contracts_dir / "2685.json"
+        legacy.write_text("{}\n")
+
+        found = _gather_context_pr_files(tmp_path, 2685)
+        names = {p.name for p in found}
+        assert "2685.json" in names, (
+            f"legacy contract path must still be gathered when canonical "
+            f"is absent; got {sorted(names)}"
+        )
+
+    def test_gather_includes_contract_for_qualified_pipeline_id(self, tmp_path):
+        """CUSTOM / qualified pipelines (e.g. ``issue-2685-v2``) key the
+        contract under the pipeline_id string. The dynamic loader path
+        must resolve those too (#2685)."""
+        _seed_repo(tmp_path, identifier="issue-2685-v2")
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True, exist_ok=True)
+        canonical = contracts_dir / "issue-2685-v2.json"
+        canonical.write_text("{}\n")
+
+        found = _gather_context_pr_files(tmp_path, "issue-2685-v2")
+        names = {p.name for p in found}
+        assert "issue-2685-v2.json" in names, (
+            f"contract path must be gathered for qualified pipelines; got {sorted(names)}"
+        )
+
     def test_gather_does_not_pick_up_other_pipelines_files(self, tmp_path):
         """Pipeline isolation: a stray draft for ``other-pipeline`` in
         the same ``.egg-state/`` tree must not leak into the context PR
@@ -1189,10 +1247,15 @@ class TestOpenContextPRAdversarial:
         that is NOT derived from ``get_roles_for_phase``).  Agent-
         transcript globs live on the dynamic side (#2548 v2: derived
         from refine + plan rosters at runtime so a future role
-        addition is auto-picked up).  Future refactors that drop one
-        of the static entries — or sneak in an unauthorized one,
-        e.g. ``.egg-state/contracts/*.json`` which would leak the
-        contract itself onto the context PR — are caught here."""
+        addition is auto-picked up). The contract path is also resolved
+        dynamically — via ``egg_contracts.loader.get_contract_path`` —
+        because the loader keys integer issue identifiers under
+        ``issue-<N>.json`` (canonical) plus ``<N>.json`` (legacy
+        fallback), which the static ``{identifier}`` formatter cannot
+        express. Future refactors that drop one of the static entries
+        — or sneak in an unauthorized one (e.g. broad agent-output
+        wildcards that would pick up raw prompts / debug dumps) — are
+        caught here."""
         expected_static = {
             ".egg-state/drafts/{identifier}-analysis.md",
             ".egg-state/drafts/{identifier}-plan.md",
@@ -1203,13 +1266,18 @@ class TestOpenContextPRAdversarial:
         }
         assert set(_STATIC_CONTEXT_PR_FILE_GLOBS) == expected_static, (
             "The static-glob set must match the documented Q3 answer "
-            "(analysis + plan + refine/plan BRC); agent transcripts are "
-            "added dynamically from the role roster."
+            "(analysis + plan + refine/plan BRC); agent transcripts and "
+            "the contract file are added dynamically (role roster + "
+            "loader path resolution, respectively)."
         )
-        # Defensive: contract files MUST NOT appear in this set.
+        # Defensive: contract files MUST NOT appear in the *static* set
+        # — the loader-driven resolution path in
+        # ``_gather_context_pr_files`` is the single source of truth for
+        # the contract filename (#2685).
         for tmpl in _STATIC_CONTEXT_PR_FILE_GLOBS:
             assert "/contracts/" not in tmpl, (
-                "context PR must not include .egg-state/contracts/*.json"
+                "static glob must not template contract paths; "
+                "_gather_context_pr_files resolves them via the loader"
             )
             assert "/agent-outputs/" not in tmpl, (
                 "agent-outputs must be added dynamically via "

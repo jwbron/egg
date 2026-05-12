@@ -735,6 +735,109 @@ class TestAutoCreatePr:
         assert call_kwargs["draft"] is True
 
 
+class TestShouldSkipPrPhaseAutoPr:
+    """#2685: ``_should_skip_pr_phase_auto_pr`` decides whether the PR
+    phase opens the legacy ``<pipeline_branch> → main`` auto-PR.
+
+    Skip cases:
+
+    * Babysit-pr mode: the PR already exists; never open a second one.
+    * Slice-DAG mode (``len(contract.slices) > 1``): per-slice PRs already
+      stack on the context PR, so the legacy auto-PR would be a
+      redundant program-level surface.
+
+    Non-skip cases (legacy auto-PR runs):
+
+    * Single-slice contract — the implement phase used the monolithic
+      path, so the PR phase still needs to open the single PR.
+    * Zero-slice contract — pre-slice-DAG pipelines without any contract
+      slices recorded.
+    * Contract load failures — fail-safe to "run auto-PR" so a transient
+      contract-read hiccup doesn't drop the PR silently. Matches the
+      implement-phase slice-loop gate shape.
+    """
+
+    def _import_skip_helper(self):
+        from routes.pipelines import _should_skip_pr_phase_auto_pr
+
+        return _should_skip_pr_phase_auto_pr
+
+    def _make_contract(self, *, slice_count: int):
+        contract = MagicMock()
+        contract.slices = [MagicMock() for _ in range(slice_count)]
+        return contract
+
+    def test_skips_in_babysit_mode_without_loading_contract(self, tmp_path):
+        """Babysit short-circuits before any contract load. Pin that the
+        loader is not consulted at all."""
+        helper = self._import_skip_helper()
+        with patch("egg_contracts.loader.load_contract") as mock_load:
+            skip, reason = helper(tmp_path, "issue-2685", is_babysit_mode=True)
+        assert skip is True
+        assert reason == "babysit_pr_already_exists"
+        mock_load.assert_not_called()
+
+    def test_skips_when_contract_has_multiple_slices(self, tmp_path):
+        """Slice-DAG mode (>1 slice) → skip the legacy auto-PR."""
+        helper = self._import_skip_helper()
+        with patch(
+            "egg_contracts.loader.load_contract",
+            return_value=self._make_contract(slice_count=3),
+        ):
+            skip, reason = helper(tmp_path, "issue-2685", is_babysit_mode=False)
+        assert skip is True
+        assert reason is not None
+        assert "slice_dag_mode" in reason
+        assert "slice_count=3" in reason
+
+    def test_does_not_skip_with_single_slice(self, tmp_path):
+        """Single-slice contracts use the monolithic implement path and
+        still need the legacy auto-PR. Boundary at ``slice_count > 1``."""
+        helper = self._import_skip_helper()
+        with patch(
+            "egg_contracts.loader.load_contract",
+            return_value=self._make_contract(slice_count=1),
+        ):
+            skip, reason = helper(tmp_path, "issue-2685", is_babysit_mode=False)
+        assert skip is False
+        assert reason is None
+
+    def test_does_not_skip_with_zero_slices(self, tmp_path):
+        """Pre-slice-DAG contracts (no slices) keep the legacy auto-PR."""
+        helper = self._import_skip_helper()
+        with patch(
+            "egg_contracts.loader.load_contract",
+            return_value=self._make_contract(slice_count=0),
+        ):
+            skip, reason = helper(tmp_path, "issue-2685", is_babysit_mode=False)
+        assert skip is False
+        assert reason is None
+
+    def test_fail_safe_when_contract_load_raises(self, tmp_path):
+        """A contract-load failure must NOT drop the PR. Matches the
+        implement-phase slice-loop gate's fail-safe shape."""
+        helper = self._import_skip_helper()
+        with patch(
+            "egg_contracts.loader.load_contract",
+            side_effect=RuntimeError("transient disk read error"),
+        ):
+            skip, reason = helper(tmp_path, "issue-2685", is_babysit_mode=False)
+        assert skip is False
+        assert reason is None
+
+    def test_babysit_short_circuit_wins_over_slice_dag(self, tmp_path):
+        """Defensive: even if a babysit-mode pipeline somehow had a
+        multi-slice contract on disk, the babysit short-circuit wins so
+        the loader is never consulted and the reason string reflects
+        babysit, not slice-DAG."""
+        helper = self._import_skip_helper()
+        with patch("egg_contracts.loader.load_contract") as mock_load:
+            skip, reason = helper(tmp_path, "issue-2685", is_babysit_mode=True)
+        assert skip is True
+        assert reason == "babysit_pr_already_exists"
+        mock_load.assert_not_called()
+
+
 class TestComputeGatewayMode:
     """Tests for _compute_gateway_mode helper."""
 

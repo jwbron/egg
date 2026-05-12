@@ -8276,6 +8276,75 @@ def _format_rescue_hint(pipeline) -> str:
     )
 
 
+def _should_skip_pr_phase_auto_pr(
+    worktree_repo_path: Path,
+    pipeline_id: str,
+    *,
+    is_babysit_mode: bool,
+) -> tuple[bool, str | None]:
+    """Decide whether the PR phase should open a ``<pipeline_branch> → main`` PR.
+
+    Returns ``(skip, reason)`` where ``reason`` is a structured string
+    suitable for logging when ``skip`` is True.
+
+    The PR phase auto-PR is the legacy "open one big PR for everything
+    on the pipeline branch" path. It is the right thing for:
+
+      * Pre-slice-DAG (monolithic) pipelines whose only PR is the one
+        the PR phase opens.
+      * Single-slice contracts that still flow through the monolithic
+        implement path (``_use_slice_loop = _slice_count > 1`` at the
+        implement-phase gate).
+
+    It is **not** the right thing for:
+
+      * Babysit-pr mode — the PR already exists; the caller passes
+        ``is_babysit_mode=True`` and we short-circuit unconditionally.
+        (The head-move guard still runs upstream and may force the
+        skip independently.)
+      * Slice-DAG mode (``len(contract.slices) > 1``) — every slice
+        already opened its own PR via ``create_slice_pr``, stacked on
+        top of the context PR (#2548). Opening another
+        ``egg/<id>/work → main`` PR creates a redundant program-level
+        surface and confuses reviewers (#2685).
+
+    Errors loading the contract fail safe to *not* skipping — the legacy
+    auto-PR path runs and the pipeline still produces a PR rather than
+    silently dropping it. This is the same fail-safe shape as the
+    implement-phase slice-loop gate (``except`` at the call site;
+    callers fall back to the monolithic path).
+    """
+    if is_babysit_mode:
+        return True, "babysit_pr_already_exists"
+
+    try:
+        from egg_contracts.loader import (
+            load_contract as _load_contract_for_pr_gate,
+        )
+    except Exception as imp_err:  # noqa: BLE001
+        logger.debug(
+            "PR-phase skip gate: contract loader import failed (#2685)",
+            pipeline_id=pipeline_id,
+            error=str(imp_err),
+        )
+        return False, None
+
+    try:
+        contract = _load_contract_for_pr_gate(pipeline_id, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        logger.debug(
+            "PR-phase skip gate: contract load failed; running legacy auto-PR (#2685)",
+            pipeline_id=pipeline_id,
+            error=str(load_err),
+        )
+        return False, None
+
+    slice_count = len(getattr(contract, "slices", []) or [])
+    if slice_count > 1:
+        return True, f"slice_dag_mode_slice_count={slice_count}"
+    return False, None
+
+
 def _finalize_pr_phase_failed(
     pipeline,
     worktree_repo_path: Path,
@@ -9588,6 +9657,14 @@ _STATIC_CONTEXT_PR_FILE_GLOBS: tuple[str, ...] = (
     ".egg-state/brc-history/{identifier}-plan.json",
     ".egg-state/brc-history/{identifier}-plan.md",
 )
+# Contract JSON path is resolved dynamically via ``get_contract_path`` in
+# ``_gather_context_pr_files`` because the contract loader uses a
+# different filename convention than the draft / BRC artifacts: integer
+# issue identifiers are canonicalised to ``issue-<N>.json`` (with the
+# legacy ``<N>.json`` shape as a fallback), whereas drafts and BRC
+# history use the bare ``{identifier}`` prefix. Adding it here as a
+# static ``{identifier}.json`` glob would miss the canonical file
+# (#2685).
 
 # Per-agent-output suffix patterns appended to ``<identifier>-<role>-``
 # for each role in the refine + plan rosters.  ``-output.{json,md}`` is
@@ -9900,6 +9977,47 @@ def _gather_context_pr_files(
             if p.is_file() and p not in seen:
                 seen.add(p)
                 found.append(p)
+
+    # Resolve the contract JSON path through the loader so we pick up
+    # the canonical ``issue-<N>.json`` shape for issue-mode pipelines
+    # (and ``{identifier}.json`` for CUSTOM / JIRA pipelines whose
+    # identifier is already canonical). Including the contract on the
+    # context PR diff lets reviewers approve the structured slice DAG
+    # alongside the prose drafts that produced it (#2685).
+    try:
+        from egg_contracts.loader import (
+            _legacy_contract_path as _ctx_legacy_contract_path,  # type: ignore[attr-defined]
+        )
+        from egg_contracts.loader import (
+            get_contract_path as _ctx_get_contract_path,
+        )
+    except Exception as imp_err:  # noqa: BLE001
+        logger.debug(
+            "Context PR hook: contract loader import failed; skipping contract file (#2685)",
+            error=str(imp_err),
+        )
+    else:
+        contract_candidates: list[Path] = []
+        try:
+            contract_candidates.append(_ctx_get_contract_path(identifier, work_worktree))
+        except Exception as path_err:  # noqa: BLE001
+            logger.debug(
+                "Context PR hook: get_contract_path raised (#2685)",
+                error=str(path_err),
+            )
+        try:
+            legacy = _ctx_legacy_contract_path(identifier, work_worktree)
+            if legacy is not None:
+                contract_candidates.append(legacy)
+        except Exception:  # noqa: BLE001
+            pass
+        for cp in contract_candidates:
+            if cp.is_symlink():
+                continue
+            if cp.is_file() and cp not in seen:
+                seen.add(cp)
+                found.append(cp)
+
     return sorted(found)
 
 
@@ -19446,12 +19564,30 @@ def _run_pipeline(
             # --- Auto PR creation: skip agent spawn for PR phase ---
             if current_phase.value == "pr":
                 is_babysit_mode = getattr(pipeline, "mode", None) == PipelineMode.BABYSIT
+                # Decide up front whether to skip the legacy auto-PR so
+                # the entry log accurately reflects which path the PR
+                # phase will take (babysit / slice-DAG / monolithic
+                # auto-PR). The same helper is consulted again below to
+                # gate the actual ``_finalize_pr_phase_failed`` call.
+                # ``_should_skip_pr_phase_auto_pr`` fails safe to "run
+                # auto-PR" on any contract-load error, matching the
+                # implement-phase slice-loop gate.
+                _skip_decision, _skip_reason = _should_skip_pr_phase_auto_pr(
+                    worktree_repo_path,
+                    pipeline_id,
+                    is_babysit_mode=is_babysit_mode,
+                )
+                if is_babysit_mode:
+                    _entry_msg = "Finalising babysit-pr cycle (skipping PR creation)"
+                elif _skip_decision:
+                    _entry_msg = "Skipping PR-phase auto-PR (slice-DAG mode: per-slice PRs exist)"
+                else:
+                    _entry_msg = "Auto-creating PR (skipping agent spawn)"
                 logger.info(
-                    "Auto-creating PR (skipping agent spawn)"
-                    if not is_babysit_mode
-                    else "Finalising babysit-pr cycle (skipping PR creation)",
+                    _entry_msg,
                     pipeline_id=pipeline_id,
                     mode=getattr(getattr(pipeline, "mode", None), "value", None),
+                    skip_reason=_skip_reason,
                 )
 
                 # Record phase timing so metrics are accurate even without agent spawn
@@ -19507,6 +19643,17 @@ def _run_pipeline(
                         # push below updates the PR head with the cycle's
                         # consensus output.
                         skip_pr_creation = True
+                elif _skip_decision:
+                    # Slice-DAG mode: per-slice PRs already exist stacked
+                    # on the context PR, so the legacy
+                    # ``<pipeline_branch> → main`` auto-PR would just
+                    # duplicate the program-level surface. Skip PR
+                    # creation but let the housekeeping below (statefile
+                    # commit, BRC history rewrite, gateway push) still
+                    # run — the pipeline branch is the integration point
+                    # for stacked slices and should still receive the
+                    # orchestrator's final housekeeping commits (#2685).
+                    skip_pr_creation = True
 
                 # Ensure contract and statefiles exist before PR creation
                 # (safety net for short-flow pipelines where initial push
@@ -19650,12 +19797,16 @@ def _run_pipeline(
                 # the PR opens against whatever is on origin/<branch>
                 # (the agents' work), dropping orchestrator housekeeping
                 # commits rather than failing the whole pipeline (#1731).
-                # Babysit-pr mode already has a PR — skip PR creation.
+                # Skip PR creation when:
+                #   * babysit-pr mode — the PR already exists.
+                #   * slice-DAG mode — per-slice PRs already exist
+                #     stacked on the context PR (#2685).
                 if skip_pr_creation:
                     logger.info(
-                        "Skipping PR creation (babysit-pr already has a PR)",
+                        "Skipping PR creation",
                         pipeline_id=pipeline_id,
                         pr_number=getattr(pipeline, "pr_number", None),
+                        skip_reason=_skip_reason or "babysit_pr_already_exists",
                     )
                 elif _finalize_pr_phase_failed(
                     pipeline,
