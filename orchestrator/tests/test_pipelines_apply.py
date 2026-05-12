@@ -25,22 +25,84 @@ Covers the apply-phase post-consensus Won't-Do drain (TASK-2-7):
   drain's idempotent re-run guarantee instead: a Won't-Do drain over
   an empty handoff is a no-op.
 - ``WontDoEntry`` dataclass shape: optional fields default to None.
+
+Plus the three new orchestrator helpers introduced by coder v1/v2
+(issue #1557 reviewer_code v1 finding #2):
+
+- ``_next_phases_for_epic`` — reroutes auto-advance through APPLY
+  for epic pipelines (PLAN → APPLY → IMPLEMENT). Non-epic pipelines
+  see the default phase list unchanged.
+- ``_write_apply_phase_handoff`` — writes the applier handoff JSON
+  (``approved_phase`` / ``contract_path`` / ``draft_path``) at
+  ``.egg-state/agent-outputs/<pipeline>-apply-handoff.json`` before
+  APPLY spawns.
+- ``_drain_wontdo_batch_after_apply`` — loads the Won't-Do handoff
+  JSON and POSTs each transition via ``run_wontdo_drain``. Fail-open
+  on missing handoff file (returns silently).
+
+The orchestrator helpers exercise the integration boundary; tests
+verify the structural contract (source-text invariants — always
+runnable) and the functional contract (direct-call tests — skip
+when ``routes.pipelines`` can't be imported in isolation, which is
+the current slice-2 state pending the events.py update for
+``EventType.CONTEXT_PR_SKIPPED`` / ``CONTEXT_PR_FAILED``).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 import wontdo_drain
 from wontdo_drain import (
     DrainResult,
     WontDoEntry,
     load_wontdo_handoff,
     run_wontdo_drain,
+)
+
+# Helper: try to import the three orchestrator helpers. If the
+# import fails (currently the case on slice-2 because
+# ``orchestrator/routes/pipelines.py`` references
+# ``EventType.CONTEXT_PR_SKIPPED`` which doesn't exist on slice-2's
+# ``orchestrator/events.py`` — the enum values exist on origin/main
+# but slice-2 hasn't been rebased), the functional tests skip with
+# a clear reason.
+_PIPELINES_IMPORT_ERROR: str | None = None
+_next_phases_for_epic = None
+_write_apply_phase_handoff = None
+_drain_wontdo_batch_after_apply = None
+try:
+    from routes.pipelines import (  # type: ignore[no-redef]
+        _drain_wontdo_batch_after_apply,
+        _next_phases_for_epic,
+        _write_apply_phase_handoff,
+    )
+except ImportError as exc:
+    _PIPELINES_IMPORT_ERROR = f"ImportError: {exc}"
+except AttributeError as exc:
+    _PIPELINES_IMPORT_ERROR = f"AttributeError: {exc}"
+
+_REQUIRES_PIPELINES = pytest.mark.skipif(
+    _PIPELINES_IMPORT_ERROR is not None,
+    reason=(
+        "Cannot import orchestrator/routes/pipelines.py in isolation on "
+        "slice-2 (CONTEXT_PR_SKIPPED missing from events.py; coder "
+        "scope). Source-text invariants below still run. "
+        f"Original error: {_PIPELINES_IMPORT_ERROR}"
+    ),
+)
+
+# Source-text reads for structural invariants. These always run —
+# they read the .py file directly rather than importing the module.
+_PIPELINES_SRC_PATH = Path(__file__).parent.parent / "routes" / "pipelines.py"
+_PIPELINES_SRC: str = (
+    _PIPELINES_SRC_PATH.read_text(encoding="utf-8") if _PIPELINES_SRC_PATH.exists() else ""
 )
 
 # -----------------------------------------------------------------------------
@@ -323,29 +385,101 @@ class TestRunWontdoDrain:
             result = run_wontdo_drain(handoff_path=path, on_entry_result=_bad_cb)
         assert result.succeeded == ["ENG-1", "ENG-2"]
 
-    def test_drain_does_not_block_hitl_response_path(self, tmp_path: Path):
-        """Acceptance: the Won't-Do drain runs in
+    def test_drain_does_not_appear_in_persist_phase_gate_resolution(self):
+        """Acceptance (task-2-7): the Won't-Do drain runs in
         ``_drain_wontdo_batch_after_apply``, NOT inside
-        ``_persist_phase_gate_resolution`` — verified by a unit test
-        that asserts the HITL POST returns within the existing latency
-        SLA (mocked ``/transition`` with a 5-second sleep does NOT
-        delay the HITL response).
+        ``_persist_phase_gate_resolution``. A regression that wired
+        ``run_wontdo_drain`` (or ``_drain_wontdo_batch_after_apply``)
+        into the HITL persistence path would extend the operator's
+        approve POST latency by the time of every transition call.
 
-        Architecture: the drain is a free-standing function that is
-        invoked off the HITL hook (slice-2 task-2-7 places the call
-        inside the apply-phase CONSENSUS_CONFIRMED handler). We assert
-        the structural property by simulating the HITL path and the
-        drain path in isolation:
+        Verified by **source-text inspection** on the production file:
+        reads ``orchestrator/routes/pipelines.py`` directly as text,
+        extracts the ``_persist_phase_gate_resolution`` body via regex,
+        and asserts neither ``run_wontdo_drain`` nor
+        ``_drain_wontdo_batch_after_apply`` is mentioned anywhere in
+        the function body. This is the same pattern the orchestrator
+        suite uses for other "function X must not appear inside
+        function Y" structural invariants (see
+        ``test_advance_phase_thread.py``).
 
-        - ``_persist_phase_gate_resolution`` would call back into
-          orchestrator helpers — but NOT ``run_wontdo_drain``.
-        - ``run_wontdo_drain`` *itself* may take seconds, but the HITL
-          POST cannot be blocked by it because it isn't on the HITL
-          call stack.
+        Source-text inspection (rather than ``inspect.getsource(...)``)
+        means this test runs even when ``routes.pipelines`` cannot be
+        imported in isolation — important on slice-2 today because
+        ``events.py`` is missing ``CONTEXT_PR_SKIPPED`` (coder scope).
+        A regression that adds the drain call into
+        ``_persist_phase_gate_resolution`` fails this test immediately,
+        with no chance of being masked by a stub.
 
-        We verify this by composing a fake HITL hook that does no
-        drain and a slow drain, and asserting the HITL hook completes
-        in <100ms regardless of how slow the drain is.
+        Complementary positive check: assert that ``run_wontdo_drain``
+        IS referenced inside ``_drain_wontdo_batch_after_apply`` (the
+        dedicated post-apply hook), so the structural invariant is
+        bidirectional.
+        """
+        # Extract the bodies of both functions from the source file.
+        persist_match = re.search(
+            r"def _persist_phase_gate_resolution\(.*?\n(?:.*\n)*?(?=^def |\Z)",
+            _PIPELINES_SRC,
+            re.MULTILINE,
+        )
+        assert persist_match, (
+            "Could not locate ``_persist_phase_gate_resolution`` in "
+            "orchestrator/routes/pipelines.py — update this regex if "
+            "the function was renamed or moved."
+        )
+        persist_body = persist_match.group(0)
+
+        drain_match = re.search(
+            r"def _drain_wontdo_batch_after_apply\(.*?\n(?:.*\n)*?(?=^def |\Z)",
+            _PIPELINES_SRC,
+            re.MULTILINE,
+        )
+        assert drain_match, (
+            "Could not locate ``_drain_wontdo_batch_after_apply`` in "
+            "orchestrator/routes/pipelines.py — update this regex if "
+            "the function was renamed or moved."
+        )
+        drain_body = drain_match.group(0)
+
+        # NEGATIVE: drain symbols MUST NOT appear in the HITL hook.
+        # A regression adding either symbol into _persist_phase_gate_
+        # resolution would inline drain latency into the HITL POST.
+        assert "run_wontdo_drain" not in persist_body, (
+            "HITL latency invariant violated: ``run_wontdo_drain`` "
+            "appears inside ``_persist_phase_gate_resolution`` — the "
+            "Won't-Do drain must run out of band from the HITL "
+            "approve POST (task-2-7 acceptance)."
+        )
+        assert "_drain_wontdo_batch_after_apply" not in persist_body, (
+            "HITL latency invariant violated: "
+            "``_drain_wontdo_batch_after_apply`` appears inside "
+            "``_persist_phase_gate_resolution`` — the post-apply "
+            "drain hook must run out of band from the HITL approve "
+            "POST (task-2-7 acceptance)."
+        )
+
+        # POSITIVE: the drain hook IS where ``run_wontdo_drain`` is
+        # called from. If a refactor moves the drain wiring to a
+        # different orchestrator helper, surface that explicitly.
+        assert "run_wontdo_drain" in drain_body, (
+            "Bidirectional check: ``run_wontdo_drain`` no longer "
+            "appears inside ``_drain_wontdo_batch_after_apply`` — "
+            "the drain wiring may have moved. Update this assertion "
+            "if the wiring is now in a different orchestrator helper."
+        )
+
+    def test_drain_accumulates_per_entry_latency(self, tmp_path: Path):
+        """Independent of the HITL invariant: a slow upstream means a
+        slow drain.
+
+        This is the test that verifies the *internal* latency model of
+        the drain itself: the drain calls ``_post_transition`` for
+        each entry sequentially, so total latency equals the sum of
+        per-entry latencies. Confirms a slow upstream (mocked here as
+        100ms per entry) is correctly observed at the drain return.
+        The test pair (this one + the inspect-source HITL invariant
+        above) verifies the full task-2-7 acceptance: the drain CAN
+        be slow but is NOT on the HITL critical path.
         """
         path = _write_handoff(
             tmp_path / "h.json",
@@ -353,41 +487,16 @@ class TestRunWontdoDrain:
         )
 
         def _slow_post(*, jira_key, comment, transition_name="Won't Do"):
-            # Simulate a 5-second upstream — represents the worst-case
-            # latency we explicitly do NOT want to block the HITL POST
-            # on. In a unit test we shorten to 100ms to keep CI fast
-            # while still being long enough to show the HITL hook is
-            # bounded much tighter.
             time.sleep(0.1)
             return True, ""
 
-        # Fake HITL hook: in production this would be
-        # ``_persist_phase_gate_resolution``. The acceptance is that
-        # this returns synchronously without calling the drain.
-        hitl_call_count = {"count": 0}
-
-        def _fake_hitl_hook() -> float:
-            hitl_call_count["count"] += 1
-            return 0.0
-
         t0 = time.monotonic()
-        _fake_hitl_hook()
-        hitl_elapsed = time.monotonic() - t0
-        assert hitl_elapsed < 0.1, (
-            f"HITL hook must return synchronously (<100ms); took {hitl_elapsed * 1000:.0f}ms"
-        )
-
-        # Independently, the drain may take seconds — verify by
-        # running it directly.
-        t1 = time.monotonic()
         with patch.object(wontdo_drain, "_post_transition", side_effect=_slow_post):
             drain_result = run_wontdo_drain(handoff_path=path)
-        drain_elapsed = time.monotonic() - t1
-        # Drain accumulated the upstream sleeps (~200ms for 2 entries).
+        drain_elapsed = time.monotonic() - t0
         assert drain_elapsed >= 0.2, (
             f"Drain should accumulate per-entry latency; only took {drain_elapsed * 1000:.0f}ms"
         )
-        # All entries succeeded.
         assert drain_result.succeeded == ["ENG-1", "ENG-2"]
 
 
@@ -534,3 +643,281 @@ class TestCallbackContract:
         # Failure reason is a non-empty string suitable for Task.notes.
         assert observed[0]["ok"] is False
         assert "http_error_404" in observed[0]["reason"]
+
+
+# =============================================================================
+# Issue #1557 slice-2 reviewer_code v1 finding #2 — orchestrator helpers
+# =============================================================================
+#
+# Three new orchestrator helpers introduced by coder v1/v2 carry the
+# entire slice-2 scheduler integration. Tests below verify both the
+# structural invariants (source-text reads — always runnable) and the
+# functional contract (direct-call tests — skip when routes.pipelines
+# can't be imported in isolation on slice-2 today).
+
+
+class TestNextPhasesForEpicSource:
+    """Source-text invariants on ``_next_phases_for_epic``.
+
+    These tests run regardless of slice-2's events.py state — they
+    read ``orchestrator/routes/pipelines.py`` as text and assert
+    branching properties via ``inspect.getsource``.
+    """
+
+    def test_function_defined(self):
+        assert "def _next_phases_for_epic(" in _PIPELINES_SRC, (
+            "_next_phases_for_epic must be defined in routes/pipelines.py"
+        )
+
+    def test_handles_non_epic_passthrough(self):
+        """Source must short-circuit on ``pipeline.is_epic == False`` and
+        return ``default_next_phases`` unchanged. Verified by asserting
+        the function body contains both the is_epic check and the
+        passthrough return."""
+        match = re.search(
+            r"def _next_phases_for_epic\(.*?\n(?:.*\n)*?(?=^def |\Z)",
+            _PIPELINES_SRC,
+            re.MULTILINE,
+        )
+        assert match, "Could not isolate _next_phases_for_epic body"
+        body = match.group(0)
+        # is_epic gate (defensive getattr matches the production shape).
+        assert "is_epic" in body, "is_epic gate missing"
+        # Non-epic passthrough returns default_next_phases unchanged.
+        assert "return default_next_phases" in body, (
+            "Non-epic passthrough must return default_next_phases unchanged "
+            "to preserve pre-#1557 scheduling bit-for-bit"
+        )
+
+    def test_handles_plan_to_apply_route(self):
+        match = re.search(
+            r"def _next_phases_for_epic\(.*?\n(?:.*\n)*?(?=^def |\Z)",
+            _PIPELINES_SRC,
+            re.MULTILINE,
+        )
+        assert match
+        body = match.group(0)
+        # PLAN → [APPLY] for epic pipelines.
+        assert "PipelinePhase.PLAN" in body
+        assert "PipelinePhase.APPLY" in body
+        # APPLY → [IMPLEMENT] for epic pipelines.
+        assert "PipelinePhase.IMPLEMENT" in body
+
+
+class TestNextPhasesForEpicCallable:
+    """Functional tests against the imported helper. Skip-gated on
+    slice-2 events.py state."""
+
+    @_REQUIRES_PIPELINES
+    def test_non_epic_returns_default_unchanged(self):
+        """Acceptance: ``non_epic == False`` → default returned bit-for-bit."""
+        pipeline = MagicMock()
+        pipeline.is_epic = False
+        default = [object()]  # opaque sentinel — proves identity not just equality
+        result = _next_phases_for_epic(pipeline, MagicMock(), default)
+        assert result is default
+
+    @_REQUIRES_PIPELINES
+    def test_epic_plan_routes_to_apply(self):
+        """Acceptance: epic + PLAN → ``[APPLY]``."""
+        from models import PipelinePhase
+
+        pipeline = MagicMock()
+        pipeline.is_epic = True
+        result = _next_phases_for_epic(pipeline, PipelinePhase.PLAN, [PipelinePhase.IMPLEMENT])
+        assert result == [PipelinePhase.APPLY]
+
+    @_REQUIRES_PIPELINES
+    def test_epic_apply_routes_to_implement(self):
+        """Acceptance: epic + APPLY → ``[IMPLEMENT]``."""
+        from models import PipelinePhase
+
+        pipeline = MagicMock()
+        pipeline.is_epic = True
+        result = _next_phases_for_epic(pipeline, PipelinePhase.APPLY, [PipelinePhase.PR])
+        assert result == [PipelinePhase.IMPLEMENT]
+
+    @_REQUIRES_PIPELINES
+    def test_epic_implement_returns_default(self):
+        """Acceptance: epic + IMPLEMENT (or any other current_phase the
+        function doesn't special-case) → default unchanged."""
+        from models import PipelinePhase
+
+        pipeline = MagicMock()
+        pipeline.is_epic = True
+        default = [PipelinePhase.PR]
+        result = _next_phases_for_epic(pipeline, PipelinePhase.IMPLEMENT, default)
+        assert result == default
+
+
+class TestWriteApplyPhaseHandoffSource:
+    """Source-text invariants on ``_write_apply_phase_handoff``."""
+
+    def test_function_defined(self):
+        assert "def _write_apply_phase_handoff(" in _PIPELINES_SRC
+
+    def test_writes_to_agent_outputs(self):
+        """The handoff JSON lands at
+        ``.egg-state/agent-outputs/<pipeline-id>-apply-handoff.json``."""
+        match = re.search(
+            r"def _write_apply_phase_handoff\(.*?\n(?:.*\n)*?(?=^def |\Z)",
+            _PIPELINES_SRC,
+            re.MULTILINE,
+        )
+        assert match
+        body = match.group(0)
+        assert '".egg-state"' in body
+        assert '"agent-outputs"' in body
+        assert "-apply-handoff.json" in body
+
+    def test_payload_includes_required_fields(self):
+        """Payload includes ``approved_phase``, ``contract_path``,
+        ``draft_path``."""
+        match = re.search(
+            r"def _write_apply_phase_handoff\(.*?\n(?:.*\n)*?(?=^def |\Z)",
+            _PIPELINES_SRC,
+            re.MULTILINE,
+        )
+        assert match
+        body = match.group(0)
+        assert '"approved_phase"' in body
+        assert '"contract_path"' in body
+        assert '"draft_path"' in body
+
+
+class TestWriteApplyPhaseHandoffCallable:
+    """Functional tests for ``_write_apply_phase_handoff``."""
+
+    @_REQUIRES_PIPELINES
+    def test_writes_well_formed_json(self, tmp_path: Path):
+        """Calls the helper against a tmp worktree and asserts the JSON
+        payload shape + filename."""
+        pipeline = MagicMock()
+        pipeline.id = "issue-1557-v2"
+        _write_apply_phase_handoff(pipeline, tmp_path, "refine")
+        handoff = tmp_path / ".egg-state" / "agent-outputs" / "issue-1557-v2-apply-handoff.json"
+        assert handoff.exists(), f"Expected handoff at {handoff}"
+        payload = json.loads(handoff.read_text())
+        assert payload["approved_phase"] == "refine"
+        assert "contract_path" in payload
+        assert "draft_path" in payload
+        # Paths are absolute (or at least worktree-rooted) — verified by
+        # asserting both contain the tmp_path prefix.
+        assert str(tmp_path) in payload["contract_path"]
+        assert str(tmp_path) in payload["draft_path"]
+        # Contract path points at the per-pipeline contract file.
+        assert payload["contract_path"].endswith(f".egg-state/contracts/{pipeline.id}.json")
+        # Draft path follows the per-phase pattern.
+        assert payload["draft_path"].endswith(f".egg-state/brc-history/{pipeline.id}-refine.md")
+
+    @_REQUIRES_PIPELINES
+    def test_creates_agent_outputs_dir_if_missing(self, tmp_path: Path):
+        """The helper creates the agent-outputs dir if it doesn't exist."""
+        pipeline = MagicMock()
+        pipeline.id = "issue-X"
+        # tmp_path is empty — no .egg-state/ exists.
+        _write_apply_phase_handoff(pipeline, tmp_path, "plan")
+        assert (tmp_path / ".egg-state" / "agent-outputs").is_dir()
+
+    @_REQUIRES_PIPELINES
+    def test_approved_phase_propagated_verbatim(self, tmp_path: Path):
+        """Adversarial: an unusual approved_phase string is preserved as-is
+        (the helper does not normalise / sanitise)."""
+        pipeline = MagicMock()
+        pipeline.id = "issue-X"
+        _write_apply_phase_handoff(pipeline, tmp_path, "REFINE")
+        handoff = tmp_path / ".egg-state" / "agent-outputs" / "issue-X-apply-handoff.json"
+        payload = json.loads(handoff.read_text())
+        assert payload["approved_phase"] == "REFINE"
+
+
+class TestDrainWontdoBatchAfterApplySource:
+    """Source-text invariants on ``_drain_wontdo_batch_after_apply``."""
+
+    def test_function_defined(self):
+        assert "def _drain_wontdo_batch_after_apply(" in _PIPELINES_SRC
+
+    def test_loads_wontdo_handoff_path(self):
+        match = re.search(
+            r"def _drain_wontdo_batch_after_apply\(.*?\n(?:.*\n)*?(?=^def |\Z)",
+            _PIPELINES_SRC,
+            re.MULTILINE,
+        )
+        assert match
+        body = match.group(0)
+        # Handoff filename ends in ``-wontdo.json``.
+        assert "-wontdo.json" in body, "Helper should load the applier's Won't-Do handoff JSON"
+        # Imports / calls run_wontdo_drain.
+        assert "run_wontdo_drain" in body, (
+            "Helper must invoke run_wontdo_drain on the handoff entries"
+        )
+
+    def test_fail_open_on_missing_handoff(self):
+        """Acceptance (task-2-7): a missing handoff file is "no Won't-Dos
+        to drain" — return silently. Verified by asserting the helper
+        checks ``handoff_path.exists()`` before invoking the drain."""
+        match = re.search(
+            r"def _drain_wontdo_batch_after_apply\(.*?\n(?:.*\n)*?(?=^def |\Z)",
+            _PIPELINES_SRC,
+            re.MULTILINE,
+        )
+        assert match
+        body = match.group(0)
+        assert "handoff_path.exists()" in body or ".exists()" in body, (
+            "Helper must fail-open on missing handoff file"
+        )
+
+
+class TestDrainWontdoBatchAfterApplyCallable:
+    """Functional tests for ``_drain_wontdo_batch_after_apply``."""
+
+    @_REQUIRES_PIPELINES
+    def test_missing_handoff_returns_silently(self, tmp_path: Path):
+        """Acceptance: missing handoff → no gateway calls, no exceptions."""
+        pipeline = MagicMock()
+        pipeline.id = "no-handoff"
+
+        # If the helper accidentally calls into the drain even with a
+        # missing handoff, this patch surfaces the failure.
+        import routes.pipelines as routes_pipelines
+
+        with patch.object(
+            routes_pipelines,
+            "run_wontdo_drain",
+            create=True,
+            side_effect=AssertionError("drain should not be called on missing handoff"),
+        ):
+            # Should not raise.
+            _drain_wontdo_batch_after_apply(pipeline, tmp_path)
+
+    @_REQUIRES_PIPELINES
+    def test_invokes_drain_with_handoff_path(self, tmp_path: Path):
+        """When the handoff file exists, the helper invokes
+        ``run_wontdo_drain`` with the correct path."""
+        pipeline = MagicMock()
+        pipeline.id = "with-handoff"
+        # Pre-create the handoff so the helper proceeds.
+        handoff_dir = tmp_path / ".egg-state" / "agent-outputs"
+        handoff_dir.mkdir(parents=True)
+        handoff = handoff_dir / "with-handoff-wontdo.json"
+        handoff.write_text(json.dumps([]))
+
+        # Patch ``run_wontdo_drain`` to observe the call.
+        from wontdo_drain import DrainResult as _DR
+
+        captured: dict[str, Any] = {}
+
+        def _fake_drain(*, handoff_path, on_entry_result=None):
+            captured["handoff_path"] = str(handoff_path)
+            return _DR()
+
+        import routes.pipelines as routes_pipelines
+
+        with patch.object(
+            routes_pipelines, "run_wontdo_drain", create=True, side_effect=_fake_drain
+        ):
+            _drain_wontdo_batch_after_apply(pipeline, tmp_path)
+
+        assert captured.get("handoff_path", "").endswith("with-handoff-wontdo.json"), (
+            f"Expected drain to be invoked with the handoff path; captured: {captured}"
+        )
