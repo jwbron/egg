@@ -20,9 +20,9 @@ If the orchestrator parameterises `reviewer-contract.md` via the `## [mode: appl
 
 ## Inputs
 
-- **Contract** at `.egg-state/contracts/<pipeline-id>.json` — read all `slices[*].tasks[*]` for the in-scope phase (refine-apply or plan-apply, per the handoff JSON).
+- **Contract** at `.egg-state/contracts/<pipeline-id>.json` — read all `slices[*].tasks[*]` for the in-scope phase (refine-apply or plan-apply, per the handoff JSON). Read each Task's `notes` field; the lifecycle status is the first line (`jira_action_status=<value>`) per the structured-prefix convention; the new key (after `create` / `split-of`) is the second prefix line (`jira_key=<KEY>`). The typed `Task.jira_action_status` and `Task.jira_key` Pydantic fields project these prefixes; either accessor is valid.
 - **Applier output** at `.egg-state/agent-outputs/<pipeline-id>-applier-output.json` — count of mutations dispatched; tasks the applier marked `'failed'` and the recorded reasons.
-- **Won't-Do handoff** (slice 2 only) at `.egg-state/agent-outputs/<pipeline-id>-applier-wontdo.json` — the orchestrator's drain hook reads this AFTER your ACK; you only verify it is well-formed JSON, not that transitions landed.
+- **Won't-Do handoff** (slice 2 only) at `.egg-state/agent-outputs/<pipeline-id>-applier-wontdo.json` — verify the file exists and is well-formed JSON with a `transitions: [...]` array; assert that every `jira_action == 'wontdo'` task in the contract has a corresponding entry. You do NOT verify that the transitions landed in Jira — the orchestrator's `_drain_wontdo_batch_after_apply` hook runs the `/transition` calls AFTER your ACK terminates this BRC cycle. NACKing on absent transitions would deadlock the drain from ever happening.
 
 ## The four convergence checks (load-bearing)
 
@@ -32,19 +32,23 @@ Walk every Task in scope and verify, in order:
 
 For every Task with `jira_action == 'create'`:
 
-- `jira_key` MUST be non-null and match the Jira-key regex `^[A-Z][A-Z0-9_]*-[0-9]+$`.
+- `jira_key` MUST be non-null and match the Jira-key regex `^[A-Z][A-Z0-9_]*-[0-9]+$`. Use the same regex literal that `Task` enforces in the Pydantic schema (`shared/egg_contracts/models.py`'s `Task.jira_key` field validator, added by TASK-1-3) so the reviewer cannot drift from the producer's contract — import it if exposed, otherwise inline the same literal.
 - `jira_action_status` MUST be `'applied'` (terminal-success state).
 
 If either fails, NACK with `reason="TASK-X-Y: jira_action='create' but jira_key is <value> or jira_action_status is <value>; expected matching key + 'applied'"`. The applier is required to write the new key back to the contract after every successful `createJiraIssue` (see `applier.md` "Plan-apply" section); a missing key here means the apply failed silently.
 
-### 2. Every Task has reached terminal `jira_action_status`
+### 2. Every Task has reached its lifecycle-terminal state
 
-For every Task with `jira_action != None`:
+The applier persists the lifecycle status as the first line of `Task.notes` (`jira_action_status=<value>` per the structured-prefix convention in `applier.md`'s "Lifecycle invariant" section). The typed `Task.jira_action_status` Pydantic field projects this prefix at read time. Walk every Task with `jira_action != None` and verify:
 
-- `jira_action_status` MUST be in `{'applied', 'failed'}`.
-- Specifically, **NO** task may be left at `'pending'`, `'in_flight'`, or `None`.
+- For `jira_action in {'create', 'edit', 'split-of', 'consolidate-into'}`:
+  - `jira_action_status` MUST be in `{'applied', 'failed'}`. NACK if it is `'pending'`, `'in_flight'`, or `None`.
+- For `jira_action == 'wontdo'` (slice 2 only — slice 1 ships no wontdo):
+  - `jira_action_status` MUST be `'pending'`. The applier deliberately leaves wontdo at `'pending'` because the orchestrator-only `/transition` route (the actual wontdo side-effect) is reached out-of-band by the `_drain_wontdo_batch_after_apply` hook AFTER the apply-phase BRC consensus terminates — i.e. AFTER your ACK. From the applier's vantage, `'pending'` IS terminal for wontdo.
+  - There MUST be a corresponding entry in the `.egg-state/agent-outputs/<pipeline-id>-applier-wontdo.json` handoff JSON whose `task_id` matches the Task and whose `jira_key` matches `Task.jira_key`. NACK if either the file is missing or no entry exists for the wontdo task.
+  - You do NOT verify that the transition landed in Jira — the orchestrator drain owns that, and it runs after your ACK. If you NACKed before the drain ran, you would deadlock the `/transition` call from ever happening.
 
-If any task is non-terminal, NACK with `reason="TASK-X-Y: jira_action_status='<value>' is non-terminal; expected 'applied' or 'failed'"`. The applier may have crashed mid-run; the orchestrator should re-spawn it (idempotent re-entry per the lifecycle invariant).
+If any non-wontdo task is non-terminal, NACK with `reason="TASK-X-Y: jira_action_status='<value>' is non-terminal; expected 'applied' or 'failed'"` — the applier likely crashed mid-run and the orchestrator should re-spawn it (idempotent re-entry per the lifecycle invariant). If a wontdo task lacks its handoff entry, NACK with `reason="TASK-X-Y: jira_action='wontdo' but no entry in <handoff-path>; applier must emit the wontdo handoff JSON"`.
 
 ### 3. Every `'failed'` task records a reason in `Task.notes`
 
