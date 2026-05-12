@@ -5,7 +5,7 @@
   "branch": "egg/issue-1557-v2/work",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -308,24 +308,17 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "failed",
-      "started_at": "2026-05-12T17:25:34.781064Z",
-      "work_started_at": "2026-05-12T17:25:35.555890Z",
-      "completed_at": "2026-05-12T17:25:35.603325Z",
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-05-12T17:25:35.555890Z",
-          "completed_at": "2026-05-12T17:25:35.603316Z",
-          "commit_sha": "4d5e0734c46031673fae154ab7bcad564cc9e0f6"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
-      "error": "plan draft parses to 2 slices but contract.slices is empty — populator silently failed earlier (#2337); refusing to demote to monolithic implement",
+      "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "4d5e0734c46031673fae154ab7bcad564cc9e0f6",
       "agent_exits": [
@@ -799,7 +792,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T17:27:01.552707Z",
+  "updated_at": "2026-05-12T17:30:11.829914Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -807,12 +800,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": "plan draft parses to 2 slices but contract.slices is empty — populator silently failed earlier (#2337); refusing to demote to monolithic implement",
+  "error": null,
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-05-12T17:25:03.864040Z",
-  "version": 78,
+  "run_epoch": "2026-05-12T17:30:11.826948Z",
+  "version": 79,
   "jira_ticket": null
 }
