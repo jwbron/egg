@@ -330,10 +330,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "**Apply step location: orchestrator-side hook vs new agent role.** On HITL approval, who calls `editJiraIssue` / `createJiraIssue` / `createIssueLink`? Today's HITL gate (`pipelines.py` ~ line 20070) only flips a decision flag and advances the phase — no mutation hooks fire. Options:",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "Orchestrator-side post-approval hook: orchestrator detects `phase_gate` resolution=approve for refine/plan, reads draft, calls gateway endpoints directly. Apply is a state-changing operation outside the BRC consensus model so it sits well above the agent layer. Idempotency is enforced via the existing gateway 5-min idempotency cache (`gateway/jira_idempotency.py`) plus a contract-stored task↔key mapping. Recommended baseline.",
+        "New sandbox-side `applier` agent role spawned after HITL approval: agent reads contract task↔key mapping, calls jira CLI wrapper. Reuses existing sandbox + BRC infra (consensus on apply success). Adds a phase but keeps mutations behind the existing auth + audit boundary; downside is BRC for a deterministic mechanical step.",
+        "Hybrid: orchestrator drives the apply but spawns a one-shot \"verify-after-apply\" agent that pulls each touched ticket back and confirms description matches. Highest assurance, double the API quota burn.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.058407Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.026728Z",
+  "updated_at": "2026-05-12T04:46:05.066205Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -347,6 +366,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null
 }
