@@ -161,20 +161,25 @@ If `Task.jira_action` is set to a value outside the literal allow-set (`{'create
 What you do instead, for every `jira_action == 'wontdo'` task:
 
 1. Set the structured prefix to `jira_action_status=pending`. **This is the terminal state for wontdo from your perspective.** Apply lifecycle ownership for wontdo is split: the applier emits the handoff entry (your job, below); the orchestrator's `_drain_wontdo_batch_after_apply` hook transitions the prefix to `'applied'` after the `/transition` route returns 2xx. The apply-phase reviewer (`reviewer-contract-apply.md`) explicitly exempts `wontdo` tasks from the terminal-status check — `'pending'` is a valid ACK state for them. Do NOT write `'in_flight'` for wontdo (no in-sandbox call to bracket); do NOT write `'applied'` for wontdo (that's the orchestrator's job after the out-of-band transition).
-2. Append an entry to a single Won't-Do handoff JSON file at the path the orchestrator passes you in the handoff context (typically `.egg-state/agent-outputs/<pipeline-id>-applier-wontdo.json`):
+2. Append an entry to a single Won't-Do handoff JSON file at the path the orchestrator passes you in the handoff context. The canonical path the orchestrator's drain hook reads is `.egg-state/agent-outputs/<pipeline-id>-wontdo.json` (per `orchestrator/wontdo_drain.py::run_wontdo_drain`); match that shape unless the orchestrator's handoff JSON overrides it.
+
+   The drain parser (`orchestrator/wontdo_drain.py::load_wontdo_handoff`) accepts **either a bare list or an `{"entries": [...]}` wrapper**. Each entry needs `jira_key` (or `key`); `comment`, `task_id`, and `survivor_key` are optional. Use the wrapped shape so the file is self-describing:
 
    ```json
    {
-     "transitions": [
+     "epic_key": "<EPIC-KEY>",
+     "entries": [
        {
          "task_id": "TASK-2-7",
          "jira_key": "ENG-456",
-         "to_status": "Won't Do",
-         "comment": "Superseded by ENG-789 (this epic's reassess apply, see contract <pipeline-id>)."
+         "comment": "Superseded by ENG-789 (this epic's reassess apply, see contract <pipeline-id>).",
+         "survivor_key": "ENG-789"
        }
      ]
    }
    ```
+
+   The drain unconditionally transitions every entry to **Won't Do** — the `transition_name` is set by the orchestrator, not the applier, so no `to_status` field is needed. Drop any other keys you used to emit; they're ignored. `survivor_key` is the consolidation-survivor pointer carried through to the audit log when the obsolete-key came from a consolidation cluster.
 
 3. Do **not** attempt to call the transition route yourself.
 
