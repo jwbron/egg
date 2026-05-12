@@ -1317,8 +1317,7 @@ class PipelineToolHandler:
             if not isinstance(mode_raw, str) or mode_raw not in ("auto", "reassess", "fresh"):
                 return {
                     "error": (
-                        f"Invalid mode '{mode_raw}': must be one of "
-                        "'auto', 'reassess', 'fresh'"
+                        f"Invalid mode '{mode_raw}': must be one of 'auto', 'reassess', 'fresh'"
                     )
                 }
             mode_value = mode_raw

@@ -1189,9 +1189,7 @@ class Pipeline(BaseModel):
         if trimmed == "":
             return None
         if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", trimmed):
-            raise ValueError(
-                "jira_epic_key must match '<PROJECT>-<number>' (e.g. 'ENG-1234')"
-            )
+            raise ValueError("jira_epic_key must match '<PROJECT>-<number>' (e.g. 'ENG-1234')")
         return trimmed
 
     jira_effective_mode: Literal["fresh", "reassess"] | None = Field(
@@ -1247,7 +1245,7 @@ class Pipeline(BaseModel):
             return None
         try:
             data = json.loads(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         try:
             return EpicApplyArtifact.model_validate(data)
