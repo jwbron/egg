@@ -7553,9 +7553,17 @@ def _commit_statefiles_to_worktree(
             timeout=30,
         )
 
-    # Only commit if there are staged changes (idempotent on re-runs)
+    # Only commit if there are staged changes (idempotent on re-runs).
+    # No pathspec: match the diff scope to the commit scope below so the
+    # early-out fires iff the commit would have nothing to write. A
+    # scoped diff (``-- .egg-state/``) paired with the unscoped commit
+    # below would short-circuit when only non-``.egg-state/`` content
+    # is staged, dropping that content on the floor instead of
+    # committing it. Nothing in this code path stages outside
+    # ``.egg-state/`` today, so this is belt-and-suspenders, but the
+    # two scopes must stay symmetric to keep the invariant local.
     result = subprocess.run(
-        [*git_base, "diff", "--cached", "--quiet", "--", ".egg-state/"],
+        [*git_base, "diff", "--cached", "--quiet"],
         capture_output=True,
         text=True,
         check=False,
@@ -7574,8 +7582,18 @@ def _commit_statefiles_to_worktree(
         pipeline_identifier=str(pipeline_identifier),
         commit_message=message,
     )
+    # No pathspec: ``git commit -- .egg-state/`` would auto-stage
+    # working-tree changes within that pathspec, including deletions of
+    # files that are present in HEAD but missing from the local
+    # checkout. Agents push drafts to ``origin/<branch>`` from their own
+    # worktrees, so the orchestrator's local checkout can have HEAD at a
+    # commit that contains a draft while the file itself was never
+    # materialised on disk locally. Letting ``commit -- pathspec``
+    # auto-stage that "deletion" wipes the agent's drafts from the work
+    # branch (#2625). Commit only what ``git add`` above explicitly
+    # staged.
     subprocess.run(
-        [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
+        [*git_base, "commit", "--no-verify", "-m", message],
         capture_output=True,
         text=True,
         check=True,
