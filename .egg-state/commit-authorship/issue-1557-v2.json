@@ -56,6 +56,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
     },
+    "1d571fffc1acda3dde0ca429d3f39a6934d41271": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:46.144809+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
+    },
     "2aadf92f1cda40bb1c70cafe853283f27e2a84c8": {
       "branch": "egg/issue-1557-v2/work",
       "pipeline_id": "issue-1557-v2",
@@ -111,6 +118,13 @@
       "registered_at": "2026-04-29T05:48:33.500445+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code"
+    },
+    "4ed99f3ba79e4ca75d4f66bb388a52e6e4c80a19": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:46.150740+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
     },
     "54944570a2263ef682cd425fda8b0a03bd1887ea": {
       "branch": "egg/issue-1557-v2",
@@ -189,12 +203,26 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "refiner"
     },
+    "819be00cce2122769f7699f60ddd7335cbb1bdfb": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:46.156184+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
+    },
     "88813d4cc25674732d50d0051c6d3481eec69633": {
       "branch": "egg/issue-1557-v2",
       "pipeline_id": "issue-1557-v2",
       "registered_at": "2026-04-29T07:07:18.419591+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "8a6d96bb226f8d11892f2af1ecbb02674ece6fc2": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:46.160411+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
     },
     "94db8c7d77f46892d65b8e4b065e969252732ffb": {
       "branch": "egg/issue-1557-v2",
@@ -293,6 +321,13 @@
       "registered_at": "2026-04-29T04:37:16.410363+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "refiner"
+    },
+    "d28314c5f8cd556839bf63ea82001271d449e9a0": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:46.159171+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "architect"
     },
     "d7c030e433b2e82697fdf5e2e5f37d084323d288": {
       "branch": "egg/issue-1557-v2",
