@@ -405,6 +405,13 @@
           "last_lines": [],
           "terminated_at": "2026-05-12T17:36:00.686042Z",
           "container_id": "538ba2d0-452b-43e8-9477-25df8cfd4296"
+        },
+        {
+          "role": "reviewer_code",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-12T17:36:00.755111Z",
+          "container_id": "18811244-db81-4c30-82f9-f0573b045ef9"
         }
       ]
     }
@@ -820,7 +827,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T17:36:00.686111Z",
+  "updated_at": "2026-05-12T17:36:00.755177Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -834,6 +841,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T17:35:35.609760Z",
-  "version": 87,
+  "version": 88,
   "jira_ticket": null
 }
