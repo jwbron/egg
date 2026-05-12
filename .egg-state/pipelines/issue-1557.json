@@ -355,10 +355,10 @@
         {
           "container_id": "524ed072-c6b8-4ca3-b1f7-a2409987da58",
           "container_name": "egg-sandbox-egg-agent-issue-1557-reviewer-contract",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-11T23:35:47.778435Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-12T02:43:18.045507Z",
+          "exit_code": -1,
           "agent_role": "reviewer_contract",
           "session_token": null,
           "pod_name": null,
@@ -476,15 +476,15 @@
         },
         {
           "role": "reviewer_contract",
-          "status": "running",
+          "status": "failed",
           "container_id": "524ed072-c6b8-4ca3-b1f7-a2409987da58",
           "container_info": null,
           "slice_id": null,
           "started_at": "2026-05-11T23:35:47.778442Z",
-          "completed_at": null,
+          "completed_at": "2026-05-12T02:43:18.101607Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -608,6 +608,13 @@
           "last_lines": [],
           "terminated_at": "2026-05-12T02:37:00.449375Z",
           "container_id": "0d22b191-99ff-4e0b-b75a-aeed1c90ab83"
+        },
+        {
+          "role": "reviewer_contract",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-12T02:43:18.101625Z",
+          "container_id": "524ed072-c6b8-4ca3-b1f7-a2409987da58"
         }
       ]
     }
@@ -927,7 +934,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-12T02:37:00.449443Z",
+  "updated_at": "2026-05-12T02:43:18.101693Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -941,6 +948,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-11T23:35:14.282496Z",
-  "version": 61,
+  "version": 62,
   "jira_ticket": null
 }
