@@ -1350,6 +1350,7 @@ def get_roles_for_phase(
     include_overseer: bool = False,
     repo: str | None = None,
     has_contract: bool = True,
+    is_epic_pipeline: bool = False,
 ) -> list[AgentRole]:
     """Return the agent roles for a given pipeline phase.
 
@@ -1365,6 +1366,10 @@ def get_roles_for_phase(
             (default True). When False, reviewers whose upstream artifacts
             are absent are filtered out — currently ``reviewer_contract``.
             Babysit-pr pipelines set this to False (#1748).
+        is_epic_pipeline: Whether the pipeline is keyed off a Jira epic
+            (#1557). When True, ``apply_epic`` joins the refine and plan
+            phases so the agent runs alongside the producers and the
+            BRC consensus tracker registers it from the start.
 
     Returns:
         List of AgentRole values for that phase.
@@ -1376,6 +1381,11 @@ def get_roles_for_phase(
     if roles is None:
         raise ValueError(f"No agent roles defined for phase: {phase}")
     result = list(roles)
+    # #1557 — gated APPLY_EPIC injection. Only joins the producer roster
+    # when the pipeline is epic-keyed; non-epic pipelines never spawn the
+    # role (matches decision-11's hybrid path).
+    if is_epic_pipeline and phase in ("refine", "plan"):
+        result.append(AgentRole.APPLY_EPIC)
     if include_reviewers:
         reviewers = _PHASE_REVIEWERS.get(phase, [])
         if repo is not None and repo != EGG_REPO:

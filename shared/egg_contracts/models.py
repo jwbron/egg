@@ -66,6 +66,14 @@ class PipelinePhase(StrEnum):
     PLAN = "plan"
     IMPLEMENT = "implement"
     PR = "pr"
+    # #1557 TASK-1-16 — terminal-without-PR phase for Jira-epic
+    # pipelines that chose Stop-after-plan at the plan-gate HITL.
+    # ``state=COMPLETE`` + ``current_phase=plan_stopped`` signals the
+    # pipeline finished by materialising Jira children only; observers
+    # that today require a PR phase (e.g. overseer-monitor's
+    # "no pr_url in phase artifacts" alert) short-circuit on
+    # ``plan_stopped``.
+    PLAN_STOPPED = "plan_stopped"
 
 
 class DecisionType(StrEnum):
