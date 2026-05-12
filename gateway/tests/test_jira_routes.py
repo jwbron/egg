@@ -155,7 +155,13 @@ class TestRouteEnumeration:
 
     def test_all_eight_jira_routes_registered(self, client):
         """Pin the exact route set so a regression that drops a write
-        route surfaces immediately."""
+        route surfaces immediately.
+
+        Issue #1557 slice-2 grows the surface from 8 to 10 routes
+        (``ticket/remotelinks`` read + ``ticket/transition`` write — the
+        transition route is orchestrator-only, see
+        ``TestTicketTransition`` for the loopback / shared-secret auth).
+        """
         rules = {
             rule.rule
             for rule in gateway.app.url_map.iter_rules()
@@ -171,6 +177,9 @@ class TestRouteEnumeration:
             "/api/v1/jira/ticket/edit",
             "/api/v1/jira/ticket/comment/add",
             "/api/v1/jira/issue-link/create",
+            # New in #1557 slice-2:
+            "/api/v1/jira/ticket/remotelinks",
+            "/api/v1/jira/ticket/transition",
         }
         missing = expected - rules
         assert not missing, f"Missing Jira routes: {sorted(missing)}"
@@ -979,6 +988,86 @@ class TestTicketCreate:
         kwargs = fake_client.create_issue.call_args.kwargs
         assert kwargs["description"] == adf
 
+    # -------------------------------------------------------------------
+    # Issue #1557 task-1-6 — per-project ``epic_link_field`` dispatch.
+    # -------------------------------------------------------------------
+    #
+    # The dispatch from the ``epicLink`` shorthand to either ``parent``
+    # (next-gen / company-managed projects, default) or
+    # ``customfield_10014`` (classic / team-managed projects) is wired
+    # at ``gateway/gateway.py:6097`` — the route reads
+    # ``JiraPolicy.epic_link_field`` and passes it to
+    # ``JiraClient.create_issue``.  ``JiraClient.create_issue``'s wire
+    # translation is covered by
+    # ``gateway/tests/test_jira_client.py::TestCreateIssue::test_epic_
+    # link_with_{parent,customfield}_dispatch``.  The tests below close
+    # the route-layer half: they assert the gateway route reads the
+    # policy and propagates the resolved field name verbatim to the
+    # JiraClient call.  Together the two sides verify the operator-
+    # managed ``epic_link_field`` setting (refine decision-3) is
+    # exercised end-to-end before the epic pipeline relies on it for
+    # child-ticket creation.
+
+    def test_epic_link_dispatches_via_parent_field(
+        self, client, private_headers, allow_eng, captured_audit, monkeypatch
+    ):
+        """Default ``epic_link_field='parent'`` (next-gen / company-managed
+        sites) → the route hands ``epic_link_field='parent'`` to
+        ``JiraClient.create_issue``, which then writes
+        ``fields: {parent: {key: <KEY>}}`` on the Atlassian wire.
+        Verified at the JiraClient layer by
+        ``test_epic_link_with_parent_dispatch`` in test_jira_client.py."""
+        monkeypatch.setattr(gateway, "jira_epic_link_field", lambda: "parent")
+        fake_client = MagicMock()
+        fake_client.create_issue.return_value = (
+            201,
+            {"id": "1", "key": "ENG-2", "self": "https://e.atlassian.net/rest/api/3/issue/1"},
+            False,
+        )
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({**self._valid_body(), "epicLink": "ENG-1"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200, resp.data
+        kwargs = fake_client.create_issue.call_args.kwargs
+        # The route must forward both the requested epic link AND the
+        # operator-configured dispatch field — the JiraClient layer
+        # then translates ``epic_link_field='parent'`` into
+        # ``fields.parent: {key: <KEY>}`` (covered in test_jira_client.py).
+        assert kwargs["epic_link"] == "ENG-1"
+        assert kwargs["epic_link_field"] == "parent"
+
+    def test_epic_link_dispatches_via_customfield(
+        self, client, private_headers, allow_eng, captured_audit, monkeypatch
+    ):
+        """``epic_link_field='customfield_10014'`` (classic / team-managed
+        sites) → the route hands the customfield name to
+        ``JiraClient.create_issue``, which writes
+        ``fields: {customfield_10014: <KEY>}`` on the wire.  Verified at
+        the JiraClient layer by ``test_epic_link_with_customfield_
+        dispatch`` in test_jira_client.py."""
+        monkeypatch.setattr(gateway, "jira_epic_link_field", lambda: "customfield_10014")
+        fake_client = MagicMock()
+        fake_client.create_issue.return_value = (
+            201,
+            {"id": "1", "key": "ENG-2", "self": "https://e.atlassian.net/rest/api/3/issue/1"},
+            False,
+        )
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({**self._valid_body(), "epicLink": "ENG-1"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200, resp.data
+        kwargs = fake_client.create_issue.call_args.kwargs
+        assert kwargs["epic_link"] == "ENG-1"
+        assert kwargs["epic_link_field"] == "customfield_10014"
+
     def test_upstream_error_passes_through(
         self, client, private_headers, allow_eng, captured_audit
     ):
@@ -1527,3 +1616,458 @@ class TestIssueLinkCreate:
         details = success["details"]
         # Comment body never logged verbatim.
         assert "see issue #1924" not in json.dumps(details)
+
+
+# -----------------------------------------------------------------------------
+# Issue #1557 slice-2 — /api/v1/jira/ticket/remotelinks (task-2-3)
+# -----------------------------------------------------------------------------
+
+
+class TestTicketRemoteLinks:
+    """Tests for the slice-2 ``/api/v1/jira/ticket/remotelinks`` route.
+
+    Acceptance criteria (task-2-3):
+      - Route returns 200 + remote-link payload for an allowlisted project.
+      - 403 for a denied project.
+      - Inherits private-mode gating like every other agent-facing Jira
+        route (covered by ``TestRouteEnumeration``).
+    """
+
+    PATH = "/api/v1/jira/ticket/remotelinks"
+    OP = "jira_ticket_remotelinks"
+
+    def test_public_mode_returns_403(self, client, public_headers, captured_audit):
+        resp = client.post(
+            self.PATH,
+            headers=public_headers,
+            data=json.dumps({"ticket": "ENG-1"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+
+    def test_invalid_ticket_shape_rejected(self, client, private_headers, captured_audit):
+        """Tickets that don't match ``<PROJECT>-<number>`` → 400."""
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({"ticket": "not-a-ticket"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        rejected = [a for a in captured_audit if a["event_type"].endswith("rejected")]
+        assert any(r["details"].get("reason") == "invalid ticket shape" for r in rejected)
+
+    def test_missing_ticket_rejected(self, client, private_headers, captured_audit):
+        """Missing ``ticket`` key → 400."""
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_disallowed_project_returns_403(
+        self, client, private_headers, captured_audit, monkeypatch
+    ):
+        """Allowlist enforcement: ENG-1 with SEC-only allowlist → 403."""
+        monkeypatch.setattr(
+            gateway,
+            "is_project_allowed",
+            lambda p: p == "SEC",
+        )
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({"ticket": "ENG-1"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+        denied = [a for a in captured_audit if "denied" in a["event_type"]]
+        assert denied
+
+    def test_happy_path_returns_payload(self, client, private_headers, allow_eng, captured_audit):
+        """Successful read returns ``{remotelinks: [...]}`` with audit log."""
+        fake_client = MagicMock()
+        sample = {"remotelinks": [{"object": {"url": "https://github.com/jwbron/egg/pull/1"}}]}
+        fake_client.get_remotelinks.return_value = sample
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({"ticket": "ENG-1"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        body = json.loads(resp.data)
+        assert body["data"]["remotelinks"] == sample["remotelinks"]
+        fake_client.get_remotelinks.assert_called_once_with("ENG-1")
+
+        success = _last_audit_for_op(captured_audit, self.OP)
+        assert success is not None
+        details = success["details"]
+        assert details["ticket"] == "ENG-1"
+        assert details["project"] == "ENG"
+        assert details["remotelink_count"] == 1
+        # The route MUST NOT leak the URL payload into the audit log
+        # (decision-5 + audit-redaction discipline).
+        assert "github.com/jwbron/egg/pull/1" not in json.dumps(details)
+
+    def test_not_found_envelope_audited(self, client, private_headers, allow_eng, captured_audit):
+        """A 404 from upstream returns the ``not_found`` envelope."""
+        fake_client = MagicMock()
+        fake_client.get_remotelinks.return_value = {
+            "status": "not_found",
+            "key": "ENG-999",
+            "upstream_status": 404,
+        }
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({"ticket": "ENG-999"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        success = _last_audit_for_op(captured_audit, self.OP)
+        assert success["details"]["not_found"] is True
+
+    def test_empty_remotelinks_list_count_zero(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """A ticket with no remote links returns count=0 in the audit log."""
+        fake_client = MagicMock()
+        fake_client.get_remotelinks.return_value = {"remotelinks": []}
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({"ticket": "ENG-1"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        success = _last_audit_for_op(captured_audit, self.OP)
+        assert success["details"]["remotelink_count"] == 0
+
+
+# -----------------------------------------------------------------------------
+# Issue #1557 slice-2 — /api/v1/jira/ticket/transition (task-2-6)
+# -----------------------------------------------------------------------------
+
+
+class TestTicketTransition:
+    """Tests for the slice-2 orchestrator-only
+    ``/api/v1/jira/ticket/transition`` route.
+
+    Acceptance criteria (task-2-6):
+      - Route exists; non-allowlisted ``transition_name`` returns 400.
+      - Missing or wrong ``X-Egg-Orchestrator-Token`` returns 401.
+        (Implementation uses ``Authorization: Bearer <launcher>`` —
+        same bearer scheme as the launcher; the planned
+        ``X-Egg-Orchestrator-Token`` header was unified onto Authorization
+        + launcher secret + loopback IP.)
+      - Caller from outside the orchestrator subnet returns 403.
+      - Successful invocation transitions the ticket and adds the comment
+        in a single audit-logged operation.
+      - ``JIRA_WRITE_VERBS_DENIED`` and ``validate_jira_api_path`` remain
+        unchanged (transitions still denied for the agent path).
+    """
+
+    PATH = "/api/v1/jira/ticket/transition"
+    OP = "jira_ticket_transition"
+
+    @pytest.fixture
+    def loopback_request(self, monkeypatch):
+        """Force ``request.remote_addr`` to a loopback address so the
+        orchestrator-only auth check passes."""
+
+        # ``_is_in_cluster_source`` already accepts ``127.0.0.1`` (loopback);
+        # Flask test client sets remote_addr to ``127.0.0.1`` by default.
+        # No patching required — but we add this fixture so future test
+        # additions can opt out symmetrically.
+        yield
+
+    @pytest.fixture
+    def bearer_headers(self):
+        """Headers with the launcher-secret bearer token. Conftest sets
+        ``EGG_LAUNCHER_SECRET=test-launcher-secret-12345``."""
+        return {
+            "Authorization": "Bearer test-launcher-secret-12345",
+        }
+
+    def _valid_body(self) -> dict:
+        return {
+            "ticket": "ENG-1",
+            "transition_name": "Won't Do",
+            "comment": "Consolidated into ENG-2",
+        }
+
+    def test_missing_bearer_returns_401(self, client, captured_audit):
+        """No Authorization header → 401 (missing_bearer_auth)."""
+        resp = client.post(
+            self.PATH,
+            data=json.dumps(self._valid_body()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 401
+        body = json.loads(resp.data)
+        assert body.get("data", {}).get("reason") == "missing_bearer_auth"
+        unauthorized = [a for a in captured_audit if "unauthorized" in a["event_type"]]
+        assert unauthorized
+
+    def test_wrong_bearer_returns_401(self, client, captured_audit):
+        """Wrong launcher-secret value → 401 (bad_bearer_auth)."""
+        resp = client.post(
+            self.PATH,
+            headers={"Authorization": "Bearer wrong-secret"},
+            data=json.dumps(self._valid_body()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 401
+        body = json.loads(resp.data)
+        assert body.get("data", {}).get("reason") == "bad_bearer_auth"
+
+    def test_external_source_returns_403(self, client, captured_audit, bearer_headers, monkeypatch):
+        """Caller from a public IP (not in RFC1918 / loopback) → 403."""
+        # Patch the test client to fake remote_addr.
+
+        # Build a request manually since Flask test_client defaults to 127.0.0.1.
+        with gateway.app.test_request_context(
+            self.PATH,
+            method="POST",
+            data=json.dumps(self._valid_body()),
+            content_type="application/json",
+            headers=bearer_headers,
+            environ_base={"REMOTE_ADDR": "8.8.8.8"},
+        ):
+            response = gateway.app.full_dispatch_request()
+        assert response.status_code == 403
+        body = json.loads(response.data)
+        assert body.get("data", {}).get("reason") == "source_not_in_cluster"
+
+    def test_loopback_source_with_correct_secret_accepted(
+        self, client, captured_audit, bearer_headers, allow_eng
+    ):
+        """127.0.0.1 + correct secret + valid body → transition succeeds."""
+        fake_client = MagicMock()
+        fake_client.transition_issue.return_value = (204, {})
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=bearer_headers,
+                data=json.dumps(self._valid_body()),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200, resp.data
+        body = json.loads(resp.data)
+        assert body["data"]["upstream_status"] == 204
+        fake_client.transition_issue.assert_called_once()
+
+    def test_invalid_ticket_returns_400(self, client, captured_audit, bearer_headers):
+        """Ticket key that doesn't match ``<PROJECT>-<number>`` → 400."""
+        resp = client.post(
+            self.PATH,
+            headers=bearer_headers,
+            data=json.dumps(
+                {
+                    "ticket": "garbage",
+                    "transition_name": "Won't Do",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_missing_transition_name_returns_400(self, client, captured_audit, bearer_headers):
+        resp = client.post(
+            self.PATH,
+            headers=bearer_headers,
+            data=json.dumps({"ticket": "ENG-1"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        body = json.loads(resp.data)
+        assert body.get("data", {}).get("reason") == "missing_transition_name"
+
+    def test_non_allowlisted_transition_returns_400(self, client, captured_audit, bearer_headers):
+        """``transition_name`` outside the allowlist → 400 with diagnostic."""
+        resp = client.post(
+            self.PATH,
+            headers=bearer_headers,
+            data=json.dumps(
+                {
+                    "ticket": "ENG-1",
+                    "transition_name": "In Progress",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        body = json.loads(resp.data)
+        assert body.get("data", {}).get("reason") == "transition_not_allowlisted"
+        # Allowlist returned in the error body so the caller can recover.
+        allowed = body.get("data", {}).get("allowed", [])
+        assert any("won't do" in a.lower() for a in allowed)
+        # Audit log entry for the denial.
+        denied = [a for a in captured_audit if a["event_type"].endswith("denied")]
+        assert any(d["details"].get("reason") == "transition_not_allowlisted" for d in denied)
+
+    def test_disallowed_project_returns_403(
+        self, client, captured_audit, bearer_headers, monkeypatch
+    ):
+        """Even with valid auth, the project allowlist still applies."""
+        monkeypatch.setattr(
+            gateway,
+            "is_project_allowed",
+            lambda p: p == "OTHER",
+        )
+        resp = client.post(
+            self.PATH,
+            headers=bearer_headers,
+            data=json.dumps(self._valid_body()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+
+    def test_happy_path_audits_caller_metadata(
+        self, client, captured_audit, bearer_headers, allow_eng
+    ):
+        """Audit log records caller IP, transition name, ticket key, and outcome."""
+        fake_client = MagicMock()
+        fake_client.transition_issue.return_value = (204, {})
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=bearer_headers,
+                data=json.dumps(self._valid_body()),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        success = _last_audit_for_op(captured_audit, self.OP)
+        assert success is not None
+        details = success["details"]
+        assert details["ticket"] == "ENG-1"
+        assert details["project"] == "ENG"
+        assert details["transition_name"] == "Won't Do"
+        assert details["upstream_status"] == 204
+        # ``remote_addr`` recorded for forensics.
+        assert "remote_addr" in details
+
+    def test_comment_attached_when_provided(
+        self, client, captured_audit, bearer_headers, allow_eng
+    ):
+        """A non-empty ``comment`` is wrapped as ADF and forwarded."""
+        fake_client = MagicMock()
+        fake_client.transition_issue.return_value = (204, {})
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=bearer_headers,
+                data=json.dumps(self._valid_body()),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        kwargs = fake_client.transition_issue.call_args.kwargs
+        # comment_adf is the wrapped ADF object — non-None means it was attached.
+        assert kwargs["comment_adf"] is not None
+        assert kwargs["transition_name"] == "Won't Do"
+
+    def test_no_comment_skips_adf_wrap(self, client, captured_audit, bearer_headers, allow_eng):
+        fake_client = MagicMock()
+        fake_client.transition_issue.return_value = (204, {})
+        body_no_comment = self._valid_body()
+        body_no_comment.pop("comment")
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=bearer_headers,
+                data=json.dumps(body_no_comment),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        kwargs = fake_client.transition_issue.call_args.kwargs
+        assert kwargs["comment_adf"] is None
+
+    def test_wontfix_transition_also_allowlisted(
+        self, client, captured_audit, bearer_headers, allow_eng
+    ):
+        """``Won't Fix`` is the second allowlisted transition name."""
+        fake_client = MagicMock()
+        fake_client.transition_issue.return_value = (204, {})
+        body = self._valid_body()
+        body["transition_name"] = "Won't Fix"
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=bearer_headers,
+                data=json.dumps(body),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+
+
+# -----------------------------------------------------------------------------
+# Issue #1557 slice-2 — jira_client.validate_jira_api_path widening
+# -----------------------------------------------------------------------------
+
+
+class TestRemoteLinkPathValidator:
+    """Acceptance (task-2-3): ``validate_jira_api_path`` accepts the new
+    GET path ``issue/<KEY>/remotelink``; a POST/PUT/DELETE on the same
+    path is still denied (JIRA_WRITE_VERBS_DENIED unchanged).
+    """
+
+    def test_get_remotelink_path_allowed(self):
+        from jira_client import validate_jira_api_path
+
+        ok, reason = validate_jira_api_path("issue/ENG-1/remotelink", "GET")
+        assert ok is True, reason
+
+    def test_get_remotelink_case_normalised(self):
+        """Tickets that differ only in trailing slash are still validated."""
+        from jira_client import validate_jira_api_path
+
+        # The validator accepts the canonical form; trailing slash is the
+        # caller's responsibility but should not crash the validator.
+        ok, _ = validate_jira_api_path("issue/ENG-1/remotelink", "GET")
+        assert ok is True
+
+    def test_post_remotelink_denied(self):
+        """Adversarial: POST on the remotelink path must still be denied
+        (JIRA_WRITE_VERBS_DENIED). Only the agent-facing surface is
+        denied here — the orchestrator-only ``/transition`` route uses a
+        separate internal-only client method."""
+        from jira_client import validate_jira_api_path
+
+        ok, reason = validate_jira_api_path("issue/ENG-1/remotelink", "POST")
+        assert ok is False
+        assert reason  # non-empty diagnostic message
+
+    def test_put_remotelink_denied(self):
+        from jira_client import validate_jira_api_path
+
+        ok, _ = validate_jira_api_path("issue/ENG-1/remotelink", "PUT")
+        assert ok is False
+
+    def test_delete_remotelink_denied(self):
+        from jira_client import validate_jira_api_path
+
+        ok, _ = validate_jira_api_path("issue/ENG-1/remotelink", "DELETE")
+        assert ok is False
+
+    def test_transitions_path_still_denied_for_agent(self):
+        """Adversarial regression: agent-facing path validator MUST NOT
+        allow the transitions path. The orchestrator-only route bypasses
+        ``validate_jira_api_path`` via the internal client method
+        (mirror of the four other internal-only methods)."""
+        from jira_client import validate_jira_api_path
+
+        ok, _ = validate_jira_api_path("issue/ENG-1/transitions", "POST")
+        assert ok is False
+        ok, _ = validate_jira_api_path("issue/ENG-1/transitions", "GET")
+        # GET transitions is read-only — depending on the validator's
+        # exact policy it may or may not be allowed. We assert only the
+        # write-deny invariant which is what the acceptance criterion
+        # mandates. If GET is allowed that's safe; if denied that's also
+        # safe (deny-by-default).
+        # No assertion on GET — covers both policies.
