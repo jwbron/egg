@@ -25,8 +25,11 @@ so a regression in either backend surfaces.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 # sys.path setup: orchestrator + shared. Mirrors the existing
 # integration_tests/test_slice_pipeline_e2e.py setup so the regression
@@ -38,3 +41,30 @@ _SHARED = _PROJECT_ROOT / "shared"
 for _p in (_ORCH, _SHARED, _PROJECT_ROOT):
     if _p.exists() and str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
+
+
+# Lifecycle-secret-gated routes (PATCH /pipelines/<id>, DELETE
+# /pipelines/<id>, signals, etc.) require ``EGG_LIFECYCLE_SECRET`` to be
+# set + ``Authorization: Bearer <secret>`` on the request. The
+# orchestrator's own test suite sets this session-wide via
+# ``orchestrator/tests/conftest.py``; mirror the pattern here so the
+# regression tier can drive PATCH-side routes the same way.
+_TEST_LIFECYCLE_SECRET = "test-lifecycle-secret-regression"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _set_lifecycle_secret_env():
+    """Set ``EGG_LIFECYCLE_SECRET`` for the regression test session."""
+    prev = os.environ.get("EGG_LIFECYCLE_SECRET")
+    os.environ["EGG_LIFECYCLE_SECRET"] = _TEST_LIFECYCLE_SECRET
+    yield
+    if prev is None:
+        os.environ.pop("EGG_LIFECYCLE_SECRET", None)
+    else:
+        os.environ["EGG_LIFECYCLE_SECRET"] = prev
+
+
+@pytest.fixture
+def lifecycle_auth_headers() -> dict[str, str]:
+    """Valid ``Authorization`` header for lifecycle-control endpoints."""
+    return {"Authorization": f"Bearer {_TEST_LIFECYCLE_SECRET}"}

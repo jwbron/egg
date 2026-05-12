@@ -58,6 +58,7 @@ external side effects are stubbed at the gateway-client / state-store
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import time
@@ -247,6 +248,60 @@ def _make_contract_without_pr(*, raised: bool):
 
 
 # ---------------------------------------------------------------------------
+# Deterministic synchronization helpers — replace ``time.sleep(0.2)``
+# "wait for the consumer to enter its blocking branch" idioms with
+# ``threading.Event`` signals fired from inside the wait primitive
+# itself, so a heavily loaded CI runner cannot lose the race.
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _route_subscription_signal(bus):
+    """Yields a ``threading.Event`` that fires the moment the
+    ``/status/wait`` route subscribes to the EventBus.
+
+    The route registers a wildcard subscriber via ``bus.subscribe(None,
+    handler)`` immediately before entering its blocking ``wake_q.get``.
+    We wrap ``bus.subscribe`` so any wildcard registration sets the
+    event — a deterministic replacement for ``time.sleep(0.2)`` that
+    won't race on a slow CI runner.
+    """
+    route_ready = threading.Event()
+    original = bus.subscribe
+
+    def _instrumented(event_types, handler):
+        result = original(event_types, handler)
+        if event_types is None:
+            route_ready.set()
+        return result
+
+    with patch.object(bus, "subscribe", side_effect=_instrumented):
+        yield route_ready
+
+
+@contextlib.contextmanager
+def _blocking_get_signal(backend):
+    """Yields a ``threading.Event`` that fires the moment a blocking
+    ``get_messages(wait=N)`` call begins on this backend.
+
+    Wraps ``backend.get_messages`` so the producer side of the test
+    knows the consumer is parked in the wait branch before injecting —
+    deterministic replacement for ``time.sleep(0.2)`` synchronization
+    in the blocking-get tier.
+    """
+    consumer_entered = threading.Event()
+    original = backend.get_messages
+
+    def _instrumented(*args, **kwargs):
+        if kwargs.get("wait"):
+            consumer_entered.set()
+        return original(*args, **kwargs)
+
+    with patch.object(backend, "get_messages", side_effect=_instrumented):
+        yield consumer_entered
+
+
+# ---------------------------------------------------------------------------
 # 1. context_pr.{skipped,failed} routing — message store + event bus
 # ---------------------------------------------------------------------------
 
@@ -379,18 +434,19 @@ class TestStatusWaitContextPRSemantics:
     ):
         """A ``context_pr.failed`` event published mid-wait unblocks the
         long-poll with ``trigger='event'``."""
+        with _route_subscription_signal(isolated_event_bus) as route_ready:
 
-        def _fire() -> None:
-            time.sleep(0.2)
-            isolated_event_bus.publish(
-                Event(
-                    event_type=EventType.CONTEXT_PR_FAILED,
-                    pipeline_id=_PIPELINE_ID,
+            def _fire() -> None:
+                assert route_ready.wait(timeout=3), "route never subscribed"
+                isolated_event_bus.publish(
+                    Event(
+                        event_type=EventType.CONTEXT_PR_FAILED,
+                        pipeline_id=_PIPELINE_ID,
+                    )
                 )
-            )
 
-        threading.Thread(target=_fire, daemon=True).start()
-        resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
         envelope = json.loads(resp.data)["data"]
         assert resp.status_code == 200
         assert envelope["changed"] is True
@@ -406,23 +462,31 @@ class TestStatusWaitContextPRSemantics:
     ):
         """A ``CONTEXT_PR_FAILED`` message in the store unblocks the
         long-poll with ``trigger='message'`` — the second of the two
-        sinks PR #2621 wired."""
+        sinks PR #2621 wired.
 
-        def _fire() -> None:
-            time.sleep(0.2)
-            message_backend.add_message(
-                Message(
-                    pipeline_id=_PIPELINE_ID,
-                    from_role="orchestrator",
-                    to_role="all",
-                    message_type="CONTEXT_PR_FAILED",
-                    subject="context_pr.failed (source=test)",
-                    body="hook raised",
+        Uses ``_blocking_get_signal`` rather than ``_route_subscription_signal``
+        because the route's message daemon snaps to the store tip via
+        ``get_messages(from_tip=True)`` AFTER ``event_bus.subscribe``
+        returns — injecting on the subscribe signal can land before the
+        daemon captures the tip, leaving the message on the wrong side
+        of the cursor and the wait blocking until timeout."""
+        with _blocking_get_signal(message_backend) as daemon_entered:
+
+            def _fire() -> None:
+                assert daemon_entered.wait(timeout=3), "daemon never entered blocking wait"
+                message_backend.add_message(
+                    Message(
+                        pipeline_id=_PIPELINE_ID,
+                        from_role="orchestrator",
+                        to_role="all",
+                        message_type="CONTEXT_PR_FAILED",
+                        subject="context_pr.failed (source=test)",
+                        body="hook raised",
+                    )
                 )
-            )
 
-        threading.Thread(target=_fire, daemon=True).start()
-        resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
         envelope = json.loads(resp.data)["data"]
         assert resp.status_code == 200
         assert envelope["changed"] is True
@@ -438,21 +502,22 @@ class TestStatusWaitContextPRSemantics:
         """``PROGRESS`` is intentionally not in ``_STATUS_WAIT_MESSAGE_TYPES``
         — a PROGRESS heartbeat must not wake ``/status/wait`` and waste
         operator long-poll cycles."""
+        with _blocking_get_signal(message_backend) as daemon_entered:
 
-        def _fire() -> None:
-            time.sleep(0.2)
-            message_backend.add_message(
-                Message(
-                    pipeline_id=_PIPELINE_ID,
-                    from_role="coder",
-                    to_role="all",
-                    message_type=MessageType.PROGRESS,
-                    subject="working",
+            def _fire() -> None:
+                assert daemon_entered.wait(timeout=3), "daemon never entered blocking wait"
+                message_backend.add_message(
+                    Message(
+                        pipeline_id=_PIPELINE_ID,
+                        from_role="coder",
+                        to_role="all",
+                        message_type=MessageType.PROGRESS,
+                        subject="working",
+                    )
                 )
-            )
 
-        threading.Thread(target=_fire, daemon=True).start()
-        resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=1")
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=1")
         envelope = json.loads(resp.data)["data"]
         # Timeout path: no wake.
         assert envelope["changed"] is False
@@ -468,18 +533,19 @@ class TestStatusWaitContextPRSemantics:
         """``decision.resolved`` is the post-``provide_input`` event and
         is intentionally excluded from ``_STATUS_WAIT_EVENT_TYPES`` so
         the operator doesn't self-wake on their own action."""
+        with _route_subscription_signal(isolated_event_bus) as route_ready:
 
-        def _fire() -> None:
-            time.sleep(0.2)
-            isolated_event_bus.publish(
-                Event(
-                    event_type=EventType.DECISION_RESOLVED,
-                    pipeline_id=_PIPELINE_ID,
+            def _fire() -> None:
+                assert route_ready.wait(timeout=3), "route never subscribed"
+                isolated_event_bus.publish(
+                    Event(
+                        event_type=EventType.DECISION_RESOLVED,
+                        pipeline_id=_PIPELINE_ID,
+                    )
                 )
-            )
 
-        threading.Thread(target=_fire, daemon=True).start()
-        resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=1")
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=1")
         envelope = json.loads(resp.data)["data"]
         assert envelope["changed"] is False
         assert envelope["no_change"] is True
@@ -504,18 +570,186 @@ class TestStatusWaitContextPRSemantics:
         in-flight long-poll sat idle to its full timeout — callers only
         observed cancellation on their next poll via the late-subscriber
         synth path."""
+        with _route_subscription_signal(isolated_event_bus) as route_ready:
 
-        def _fire() -> None:
-            time.sleep(0.2)
-            pipelines_mod._emit_pipeline_event(fake_pipeline, "pipeline.cancelled")
+            def _fire() -> None:
+                assert route_ready.wait(timeout=3), "route never subscribed"
+                pipelines_mod._emit_pipeline_event(fake_pipeline, "pipeline.cancelled")
 
-        threading.Thread(target=_fire, daemon=True).start()
-        resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(f"/api/v1/pipelines/{_PIPELINE_ID}/status/wait?wait=3")
         envelope = json.loads(resp.data)["data"]
         assert resp.status_code == 200
         assert envelope["changed"] is True
         assert envelope["trigger"] == "event"
         assert envelope["event_type"] == "pipeline.cancelled"
+
+
+# ---------------------------------------------------------------------------
+# 2b. PATCH cancel path wiring (#2663 — verifies the route itself emits,
+#     not just the map entry). The wake-up test above publishes via the
+#     helper directly; these tests drive ``client.patch(...)`` through
+#     the route handler so a regression in the PATCH-side ``emit`` call
+#     is caught.
+# ---------------------------------------------------------------------------
+
+
+class TestPatchCancelEmits:
+    """The PATCH ``status=cancelled`` path must call
+    ``_emit_pipeline_event`` so ``/status/wait`` long-pollers wake
+    immediately. The map entry plus the route-side emit are the two
+    halves of the #2663 fix; ``TestStatusWaitContextPRSemantics``
+    covers the map entry via direct helper publish, this class covers
+    the route emit via real ``client.patch`` invocations.
+
+    Each test builds its own patch stack via ``ExitStack`` rather than
+    sharing a helper, because the pre-/post-update pipeline state is
+    test-local (one test starts pre-update RUNNING, the other starts
+    pre-update already CANCELLED to exercise the idempotent path)."""
+
+    def test_patch_cancel_emits_pipeline_cancelled_event(
+        self,
+        client,
+        isolated_event_bus,
+        message_backend,
+        lifecycle_auth_headers,
+    ):
+        """A real ``PATCH /pipelines/<id>`` with status=cancelled triggers
+        ``_emit_pipeline_event`` — verifying the wiring at the route
+        layer, one indirection deeper than the helper-publish test."""
+        pre_update = Pipeline(
+            id=_PIPELINE_ID,
+            issue_number=2640,
+            repo="owner/repo",
+            branch=f"egg/{_PIPELINE_ID}/work",
+            base_branch="main",
+            mode=PipelineMode.ISSUE,
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.PLAN,
+            config=PipelineConfig(),
+        )
+        post_update = Pipeline(
+            id=_PIPELINE_ID,
+            issue_number=2640,
+            repo="owner/repo",
+            branch=f"egg/{_PIPELINE_ID}/work",
+            base_branch="main",
+            mode=PipelineMode.ISSUE,
+            status=PipelineStatus.CANCELLED,
+            current_phase=PipelinePhase.PLAN,
+            config=PipelineConfig(),
+        )
+
+        store = MagicMock()
+        store.update_pipeline.return_value = post_update
+        store.load_pipeline.return_value = post_update
+
+        spawner = MagicMock()
+        spawner.cleanup_pipeline.return_value = 0
+        dq = MagicMock()
+        dq.get_pending_decisions.return_value = []
+
+        received: list[Event] = []
+        isolated_event_bus.subscribe(EventType.PIPELINE_CANCELLED, received.append)
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(
+                patch.object(pipelines_mod, "_resolve_pipeline", return_value=(store, pre_update))
+            )
+            stack.enter_context(
+                patch.object(pipelines_mod, "get_repo_path", return_value="/tmp/test")
+            )
+            stack.enter_context(
+                patch.object(pipelines_mod, "_compute_gateway_mode", return_value=("public", None))
+            )
+            stack.enter_context(patch.object(pipelines_mod, "_get_spawner", return_value=spawner))
+            stack.enter_context(patch.object(pipelines_mod, "get_decision_queue", return_value=dq))
+            stack.enter_context(patch.object(pipelines_mod, "_clear_pipeline_runtime_state"))
+
+            resp = client.patch(
+                f"/api/v1/pipelines/{_PIPELINE_ID}",
+                data=json.dumps({"status": "cancelled"}),
+                content_type="application/json",
+                headers=lifecycle_auth_headers,
+            )
+
+        assert resp.status_code == 200, resp.data
+        assert len(received) == 1, (
+            f"expected exactly one PIPELINE_CANCELLED event from the PATCH route; "
+            f"got {len(received)}"
+        )
+        assert received[0].event_type == EventType.PIPELINE_CANCELLED
+        assert received[0].pipeline_id == _PIPELINE_ID
+
+    def test_patch_cancel_idempotent_does_not_re_emit(
+        self,
+        client,
+        isolated_event_bus,
+        message_backend,
+        lifecycle_auth_headers,
+    ):
+        """Idempotent PATCH retries against an already-cancelled pipeline
+        must NOT re-emit ``pipeline.cancelled``. The route gates on the
+        status *transition* (pre-update != CANCELLED && post-update ==
+        CANCELLED), not on status equality, so a re-PATCH (e.g. from a
+        flaky caller retrying) does not wake long-pollers a second
+        time."""
+        already_cancelled = Pipeline(
+            id=_PIPELINE_ID,
+            issue_number=2640,
+            repo="owner/repo",
+            branch=f"egg/{_PIPELINE_ID}/work",
+            base_branch="main",
+            mode=PipelineMode.ISSUE,
+            status=PipelineStatus.CANCELLED,
+            current_phase=PipelinePhase.PLAN,
+            config=PipelineConfig(),
+        )
+
+        store = MagicMock()
+        store.update_pipeline.return_value = already_cancelled
+        store.load_pipeline.return_value = already_cancelled
+
+        spawner = MagicMock()
+        spawner.cleanup_pipeline.return_value = 0
+        dq = MagicMock()
+        dq.get_pending_decisions.return_value = []
+
+        received: list[Event] = []
+        isolated_event_bus.subscribe(EventType.PIPELINE_CANCELLED, received.append)
+
+        with contextlib.ExitStack() as stack:
+            # pre_update is ALSO already-cancelled — the transition gate
+            # must suppress the emit.
+            stack.enter_context(
+                patch.object(
+                    pipelines_mod,
+                    "_resolve_pipeline",
+                    return_value=(store, already_cancelled),
+                )
+            )
+            stack.enter_context(
+                patch.object(pipelines_mod, "get_repo_path", return_value="/tmp/test")
+            )
+            stack.enter_context(
+                patch.object(pipelines_mod, "_compute_gateway_mode", return_value=("public", None))
+            )
+            stack.enter_context(patch.object(pipelines_mod, "_get_spawner", return_value=spawner))
+            stack.enter_context(patch.object(pipelines_mod, "get_decision_queue", return_value=dq))
+            stack.enter_context(patch.object(pipelines_mod, "_clear_pipeline_runtime_state"))
+
+            resp = client.patch(
+                f"/api/v1/pipelines/{_PIPELINE_ID}",
+                data=json.dumps({"status": "cancelled"}),
+                content_type="application/json",
+                headers=lifecycle_auth_headers,
+            )
+
+        assert resp.status_code == 200, resp.data
+        assert received == [], (
+            f"PATCH against already-cancelled pipeline re-emitted "
+            f"PIPELINE_CANCELLED: got {len(received)} event(s)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -993,7 +1227,15 @@ class TestDedupeAcrossWrapperInvocations:
         (HITL recovery + implement-entry backstop in particular can
         overlap on the orchestrator's worker pool). Pin the lock by
         firing 16 threads at the wrapper and asserting exactly one
-        message + one event survive."""
+        message + one event survive.
+
+        ``patch.object`` is not thread-safe — its ``__enter__`` /
+        ``__exit__`` snapshot the attribute on entry and restore on exit
+        with no synchronization, so 16 concurrent enters can interleave
+        unpatch order and leak a mock past the test boundary. Patch ONCE
+        at the outer scope and use ``threading.Barrier`` to release all
+        threads simultaneously, so contention happens inside the
+        wrapper rather than around the patch machinery."""
         contract = _make_contract_without_pr(raised=True)
         received_events: list[Event] = []
         events_lock = threading.Lock()
@@ -1004,33 +1246,36 @@ class TestDedupeAcrossWrapperInvocations:
 
         isolated_event_bus.subscribe(EventType.CONTEXT_PR_FAILED, _collect)
 
-        start_gate = threading.Event()
+        n = 16
+        # Barrier release: every thread parks at the barrier and is
+        # released when the Nth thread arrives, so contention on
+        # ``_context_pr_events_emitted_lock`` is maximal. Replaces the
+        # less-deterministic ``Event.wait`` start gate (which can wake
+        # threads sequentially) and removes the per-thread patch.object
+        # nesting that ``patch.object`` does not synchronize.
+        barrier = threading.Barrier(n)
 
         def _race(source: str) -> None:
-            with (
-                patch.object(pipelines_mod, "_open_context_pr_for_pipeline") as inner,
-                patch("egg_contracts.loader.load_contract", lambda _i, _r: contract),
-            ):
-                inner.side_effect = RuntimeError("gateway down")
-                start_gate.wait(timeout=5)
-                _maybe_open_base_pr_for_plan_to_implement(
-                    fake_pipeline,
-                    MagicMock(),
-                    tmp_path,
-                    source=source,
-                )
+            barrier.wait(timeout=5)
+            _maybe_open_base_pr_for_plan_to_implement(
+                fake_pipeline,
+                MagicMock(),
+                tmp_path,
+                source=source,
+            )
 
-        n = 16
-        threads = [
-            threading.Thread(target=_race, args=(f"thread-{i}",), daemon=True) for i in range(n)
-        ]
-        for t in threads:
-            t.start()
-        # All threads parked at start_gate.wait — release them
-        # simultaneously so they actually contend on the dedupe lock.
-        start_gate.set()
-        for t in threads:
-            t.join(timeout=10)
+        with (
+            patch.object(pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch("egg_contracts.loader.load_contract", lambda _i, _r: contract),
+        ):
+            inner.side_effect = RuntimeError("gateway down")
+            threads = [
+                threading.Thread(target=_race, args=(f"thread-{i}",), daemon=True) for i in range(n)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
 
         failed_msgs = [
             m
@@ -1058,9 +1303,10 @@ class TestBlockingGetMessages:
 
     def test_blocked_get_wakes_on_add_message(self, message_backend):
         """A consumer blocked in ``get_messages(wait=N)`` must wake the
-        moment a matching message lands. Tolerance: ~1s of wallclock
-        slack on top of the inject delay so a slow CI runner doesn't
-        flake."""
+        moment a matching message lands. Synchronization is via
+        ``_blocking_get_signal`` — the producer only injects once the
+        consumer has actually entered the blocking branch, so this
+        cannot flake on a slow CI runner."""
         result: dict[str, list[Message]] = {"msgs": []}
 
         def _consumer():
@@ -1070,20 +1316,20 @@ class TestBlockingGetMessages:
                 from_tip=True,
             )
 
-        t = threading.Thread(target=_consumer, daemon=True)
-        t.start()
-        # Let the consumer enter the blocking branch.
-        time.sleep(0.2)
-        message_backend.add_message(
-            Message(
-                pipeline_id=_PIPELINE_ID,
-                from_role="producer",
-                to_role="all",
-                message_type=MessageType.PROGRESS,
-                subject="injected",
+        with _blocking_get_signal(message_backend) as consumer_entered:
+            t = threading.Thread(target=_consumer, daemon=True)
+            t.start()
+            assert consumer_entered.wait(timeout=3), "consumer never entered blocking wait"
+            message_backend.add_message(
+                Message(
+                    pipeline_id=_PIPELINE_ID,
+                    from_role="producer",
+                    to_role="all",
+                    message_type=MessageType.PROGRESS,
+                    subject="injected",
+                )
             )
-        )
-        t.join(timeout=3)
+            t.join(timeout=3)
         assert not t.is_alive(), "consumer did not return after add_message"
         assert len(result["msgs"]) == 1
         assert result["msgs"][0].subject == "injected"
@@ -1102,9 +1348,12 @@ class TestBlockingGetMessages:
         result: dict[str, list[Message]] = {"msgs": ["sentinel"]}
 
         def _consumer():
+            # Drop wait from 2s → 1s on the timeout (Redis) path so the
+            # contract assertion still holds but the test doesn't burn
+            # the full 2s budget on every Redis run.
             result["msgs"] = message_backend.get_messages(
                 _PIPELINE_ID,
-                wait=2,
+                wait=1,
                 from_tip=True,
             )
 
@@ -1122,11 +1371,12 @@ class TestBlockingGetMessages:
         )
         _ = primed  # keep the value alive for backends that intern IDs
 
-        t = threading.Thread(target=_consumer, daemon=True)
-        t.start()
-        time.sleep(0.2)
-        message_backend.clear(_PIPELINE_ID)
-        t.join(timeout=4)
+        with _blocking_get_signal(message_backend) as consumer_entered:
+            t = threading.Thread(target=_consumer, daemon=True)
+            t.start()
+            assert consumer_entered.wait(timeout=3), "consumer never entered blocking wait"
+            message_backend.clear(_PIPELINE_ID)
+            t.join(timeout=4)
         assert not t.is_alive(), "consumer did not return after clear()"
         # Either backend: an empty-list return is the correct wake-up.
         assert result["msgs"] == []
