@@ -30,6 +30,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Logging](architecture/logging.md) | Structured JSON logging with OpenTelemetry alignment |
 | [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md) | The foundational work-review-feedback cycle that drives quality |
 | [Why egg Works](architecture/collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety and collaboration |
+| [Integration-Test Trust Boundary](architecture/integration-test-trust-boundary.md) | Test execution contexts (in-sandbox-agent / trusted-CI-runner / human-operator) and fixture tiers; authoritative reference for plan-phase Trust-Boundary Audit (#2594) |
 
 ### Development
 
@@ -129,7 +130,7 @@ Each major component has detailed documentation:
 | **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |
 | **Docker build / dependency caching** | [Sandbox README](../sandbox/README.md#build-time-dependency-installation) | [Config README](../config/README.md#per-repo-build-commands-dependency-caching) |
 | **GitHub Action setup** | [GitHub Action README](../action/README.md) | [Architecture Overview](architecture/README.md) |
-| **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |
+| **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md), [Integration-Test Trust Boundary](architecture/integration-test-trust-boundary.md) |
 | **Setting up GitHub automation** | [GitHub Automation](guides/github-automation.md) | [Agent-Mode Design](guides/agent-mode-design.md), [GitHub Action](../action/README.md) |
 | **Modifying review criteria** | [Reviewer Sync Guide](../shared/prompts/REVIEWER-SYNC.md) | [GitHub Automation](guides/github-automation.md), [Code Review Criteria](../shared/prompts/code-review-criteria.md) |
 | **Using workflows in external repos** | [Reusable Workflows](guides/reusable-workflows.md) | [GitHub Automation](guides/github-automation.md), [GitHub Action](../action/README.md) |

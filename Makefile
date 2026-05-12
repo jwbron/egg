@@ -390,8 +390,12 @@ security: sync-venv-if-uv
 # ============================================================================
 
 test-integration: export PYTHONPATH := shared
-test-integration: venv  ## Run integration tests on k3s (cross-module regressions)
-	$(PYTEST) integration_tests -v -m integration --timeout=300
+test-integration: venv  ## Run integration + security tests on k3s
+	# Selects `integration or security` (not just `integration`) so a
+	# single `make test-integration` covers the entire k3s tier — what
+	# CI runs as `Test / integration`. `make test-security` remains
+	# available for security-only runs.
+	$(PYTEST) integration_tests -v -m "integration or security" --timeout=300
 
 test-security: export PYTHONPATH := shared
 test-security: venv  ## Run security/pentesting tests
@@ -454,9 +458,9 @@ lint-yaml-fix: sync-venv-if-uv
 # Build
 # ============================================================================
 
-build:
-	@echo "==> Preparing sandbox build context (repo-deps marker)..."
-	@mkdir -p repo-deps && touch repo-deps/.empty
+build: sync-venv-if-uv
+	@echo "==> Preparing sandbox build context from repositories.yaml..."
+	@$(PYTHON) scripts/prepare-sandbox-build-context.py repo-deps
 	@echo "==> Building images with tag $(EGG_IMAGE_TAG)..."
 	@echo "==> Building gateway container..."
 	docker build -t egg-gateway:latest -t egg-gateway:$(EGG_IMAGE_TAG) -f gateway/Dockerfile .

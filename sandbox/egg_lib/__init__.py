@@ -90,34 +90,13 @@ try:
 
     # Docker module exports
     from .docker import (
-        BUILD_HASH_LABEL as BUILD_HASH_LABEL,
-    )
-    from .docker import (
-        build_image as build_image,
-    )
-    from .docker import (
-        check_claude_update as check_claude_update,
-    )
-    from .docker import (
         check_docker as check_docker,
     )
     from .docker import (
         check_docker_permissions as check_docker_permissions,
     )
     from .docker import (
-        compute_build_hash as compute_build_hash,
-    )
-    from .docker import (
-        create_dockerfile as create_dockerfile,
-    )
-    from .docker import (
         ensure_egg_network as ensure_egg_network,
-    )
-    from .docker import (
-        get_installed_claude_version as get_installed_claude_version,
-    )
-    from .docker import (
-        get_latest_claude_version as get_latest_claude_version,
     )
     from .docker import (
         image_exists as image_exists,
@@ -126,10 +105,7 @@ try:
         is_dangerous_dir as is_dangerous_dir,
     )
     from .docker import (
-        set_force_rebuild as set_force_rebuild,
-    )
-    from .docker import (
-        should_rebuild_image as should_rebuild_image,
+        populate_build_context as populate_build_context,
     )
     from .docker import (
         teardown_networks as teardown_networks,
@@ -192,9 +168,6 @@ try:
     )
     from .setup_flow import (
         check_host_setup as check_host_setup,
-    )
-    from .setup_flow import (
-        setup as setup,
     )
 
     # Timing module exports

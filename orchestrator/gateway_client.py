@@ -2173,10 +2173,6 @@ class GatewayClient:
                         base_sha=base_sha,
                     )
                     return True
-                # Typed subclass so the hook caller can distinguish
-                # "diverged because a prior tick already pushed our own
-                # artifacts" (recoverable via gh pr list) from other
-                # GatewayError causes that are unrecoverable.
                 raise ContextBranchDiverged(
                     (
                         f"Context branch '{context_branch}' already exists at "
@@ -3088,15 +3084,17 @@ class GatewayError(Exception):
 
 
 class ContextBranchDiverged(GatewayError):
-    """Raised by :meth:`GatewayClient.create_context_branch` when the
-    context branch already exists on origin at a SHA that does not
-    match the base.
+    """Raised by :meth:`GatewayClient.create_context_branch` when
+    ``egg/<pipeline_id>/context`` already exists on origin at a SHA
+    that does not match the resolved base.
 
-    Subclasses :class:`GatewayError` so existing callers that broadly
-    catch ``GatewayError`` continue to work; new callers that want to
-    recover from a prior tick's post-push, pre-contract-persist
-    partial failure can catch this subclass specifically and salvage
-    the open PR via ``_recover_existing_context_pr``.
+    Subclasses :class:`GatewayError` so callers that broadly catch
+    ``GatewayError`` continue to fail-soft. Callers that want to treat
+    this case as "our own prior tick already pushed the artifact
+    commit" (after authoritatively checking GitHub state for an open
+    PR on the head branch) can catch this subclass specifically and
+    fall through to the artifact-push + create_pr flow — the push is
+    idempotent (fast-forward / no-op) over the prior tick's commit.
     """
 
     def __init__(

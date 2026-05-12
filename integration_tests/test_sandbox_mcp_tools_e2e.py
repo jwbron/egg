@@ -34,7 +34,10 @@ def _skip_if_no_sdk() -> None:
     try:
         import claude_agent_sdk  # noqa: F401
     except ImportError:
-        pytest.skip("claude_agent_sdk not installed in this environment")
+        pytest.skip(
+            "claude_agent_sdk not installed in this environment — "
+            "tracked: https://github.com/jwbron/egg/issues/2604"
+        )
 
 
 def _assert_mcp_servers_registered() -> None:

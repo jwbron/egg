@@ -9,8 +9,11 @@ break them:
 1. Branch absent on origin → push from ``base_sha`` and return ``True``.
 2. Branch already exists at exactly ``base_sha`` → return ``True`` without
    re-pushing (idempotent).
-3. Branch exists at a different SHA → raise ``GatewayError`` (refuse to
-   overwrite divergent state).
+3. Branch exists at a different SHA → raise
+   :class:`ContextBranchDiverged` (a typed ``GatewayError`` subclass that
+   carries the diverged-branch metadata so callers can distinguish
+   divergence from other gateway failures — refuse to overwrite divergent
+   state).
 4. ``base_branch`` is honored (not hardcoded to ``main``).
 5. Synthetic session is registered with the context branch shape and is
    cleaned up on every exit (success, raised, missing-base).
@@ -20,7 +23,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from gateway_client import GatewayClient, GatewayError, SessionInfo
+from gateway_client import ContextBranchDiverged, GatewayClient, GatewayError, SessionInfo
 
 
 @pytest.fixture
@@ -169,18 +172,11 @@ class TestCreateContextBranchFailures:
     def test_raises_when_existing_branch_diverges(self, gateway_client):
         """Critical semantic difference from create_slice_integration_branch:
         if the context branch exists at a different SHA than ``base_sha``,
-        raise. The context branch is orchestrator-owned; any divergence is
-        a bug, not work-in-progress to preserve.
-
-        The raised exception is the typed :class:`ContextBranchDiverged`
-        subclass of ``GatewayError`` so the context-PR hook can catch it
-        specifically and route through ``_recover_existing_context_pr``
-        — the post-push, pre-contract-persist failure mode (PR #2575
-        review issue 1).  Existing callers that catch ``GatewayError``
-        continue to work via the subclass relationship.
-        """
-        from gateway_client import ContextBranchDiverged
-
+        raise.  The typed :class:`ContextBranchDiverged` subclass lets the
+        context-PR hook in pipelines.py distinguish divergence (recoverable
+        via the top-of-hook GH-state check) from other gateway failures
+        (#2582).  Existing callers that broadly catch ``GatewayError``
+        still match via the subclass relationship."""
         base_sha = "deadbeef" * 5
         existing_sha = "feedface" * 5  # diverged
 
@@ -206,18 +202,18 @@ class TestCreateContextBranchFailures:
                     "/repo",
                     base_branch="main",
                 )
-            err = excinfo.value
-            assert "different SHA" in str(err) or "already exists" in str(err), (
-                "raised message must explain the divergence"
-            )
-            # Subclass-of-GatewayError preserves the broad-catch
-            # contract for callers that don't care about the subtype.
-            assert isinstance(err, GatewayError)
-            # Recovery-side metadata for the hook caller.
-            assert err.context_branch == "egg/issue-2548/context"
-            assert err.existing_sha == existing_sha
-            assert err.base_sha == base_sha
-            assert err.base_branch == "main"
+            assert "different SHA" in str(excinfo.value) or "already exists" in str(
+                excinfo.value
+            ), "raised message must explain the divergence"
+            # Subclass relationship: broad ``except GatewayError`` callers
+            # keep working unchanged.
+            assert isinstance(excinfo.value, GatewayError)
+            # Recovery metadata is what the hook reads to decide whether
+            # to fall through to artifact push + create_pr.
+            assert excinfo.value.context_branch == "egg/issue-2548/context"
+            assert excinfo.value.existing_sha == existing_sha
+            assert excinfo.value.base_branch == "main"
+            assert excinfo.value.base_sha == base_sha
             req_spy.assert_not_called()
 
         # Synthetic session must still be cleaned up on the error path.

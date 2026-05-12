@@ -455,6 +455,45 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     error=str(exit_err),
                 )
 
+            # #2593 — open the doc-only base/context PR on the
+            # advance_phase REST/MCP path too.  Before this, the hook
+            # was wired into only the inline ``_run_pipeline``
+            # auto-advance path, so operators who cleared the plan
+            # gate via this endpoint silently left the slice stack
+            # rooted on ``/work`` with no PR to ``main``.  The helper
+            # is idempotent on its inner ``contract.pr.context_pr_number``
+            # short-circuit so multiple call sites are safe.  Only
+            # fire on plan→implement; other ``previous_phase`` values
+            # never need a context PR.
+            if target_phase == PipelinePhase.IMPLEMENT:
+                try:
+                    from routes import resolve_worktree_path
+                    from routes.pipelines import (
+                        _compute_gateway_mode,
+                        _get_spawner,
+                        _maybe_open_base_pr_for_plan_to_implement,
+                    )
+
+                    _gw_mode, _ = _compute_gateway_mode(pipeline)
+                    _worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
+                    _maybe_open_base_pr_for_plan_to_implement(
+                        pipeline,
+                        _get_spawner(),
+                        _worktree_path,
+                        gateway_mode=_gw_mode,
+                        source="advance_phase_rest",
+                    )
+                except Exception as ctx_outer_err:  # noqa: BLE001
+                    # Defence in depth: the helper already swallows
+                    # everything internally, but a failure resolving
+                    # the worktree path or importing helpers must not
+                    # strand the advance.
+                    logger.warning(
+                        "Context PR hook outer wrapper raised on advance_phase (continuing) (#2593)",
+                        pipeline_id=pipeline_id,
+                        error=str(ctx_outer_err),
+                    )
+
         # Launch a new _run_pipeline thread to process the target phase.
         # Without this, the pipeline stays in RUNNING state with no thread
         # driving agent spawning or consensus detection.  See #1672.

@@ -132,13 +132,32 @@ class TestSessionSecurity:
         for token in tokens:
             assert len(token) >= 32, f"Token too short ({len(token)} chars) -- insufficient entropy"
 
-    def test_session_bound_to_ip(self, egg_stack):
-        """Session tokens are bound to the container IP.
+    def test_session_not_rejected_on_source_ip_mismatch(self, egg_stack):
+        """Under k3s the gateway no longer rejects on source-IP mismatch.
 
-        A token created for one IP should not work from a different IP.
+        Pre-k3s, sessions were bound to the requesting container's IP
+        and any request from a different IP was rejected with 401.
+        That check was removed when the runtime moved to k8s
+        (`gateway/auth.py`): pod IPs are ephemeral and rotate on
+        restart, so binding sessions to them produced false-positive
+        auth failures on every benign pod recycle.  The session
+        token itself is now the sole credential — `source_ip` is
+        kept on the request for audit logging only.
+
+        This test guards that documented relaxation with two checks:
+
+        1. The response is not 401 — re-introducing the IP-binding
+           regression would surface here as a 401 from the auth layer.
+        2. Even if a future change does start returning 401 for an
+           unrelated auth reason, the response body must not contain
+           any of the substrings that would indicate IP-based
+           rejection logic specifically (the original pre-k3s error
+           paths surfaced phrases like "source ip", "ip mismatch",
+           "ip address"). This catches the case where a regression
+           re-introduces IP-binding but the test author also widens
+           the auth-error envelope, which would have masked check 1.
         """
         container_id = f"test-ip-bind-{time.time_ns()}"
-        # Create session bound to specific IP
         result = egg_stack.create_session(
             container_id=container_id,
             container_ip="172.40.0.50",
@@ -146,9 +165,6 @@ class TestSessionSecurity:
         token = result.get("data", result).get("session_token")
         assert token
 
-        # The gateway validates source IP against session IP.
-        # Since we're calling from localhost (not 172.40.0.50),
-        # this should fail with IP mismatch.
         resp = egg_stack.api_request(
             "POST",
             "/api/v1/git/execute",
@@ -158,11 +174,33 @@ class TestSessionSecurity:
                 "operation": "status",
             },
         )
-        assert resp.status_code == 401, (
-            f"Session token used from wrong IP should be rejected, got {resp.status_code}"
+        assert resp.status_code != 401, (
+            f"Source-IP mismatch should NOT reject under the post-k3s "
+            f"auth model (see gateway/auth.py:120), but got 401: "
+            f"{resp.text[:300]}"
+        )
+        # Belt-and-suspenders: even on an unexpected non-401 status,
+        # the response must not carry an IP-binding rejection signal.
+        body_lower = resp.text.lower()
+        ip_rejection_signals = (
+            "source ip",
+            "source_ip",
+            "ip mismatch",
+            "ip_mismatch",
+            "ip address mismatch",
+            "ip address rejected",
+            "ip binding",
+            "container ip",
+            "container_ip",
+        )
+        offenders = [s for s in ip_rejection_signals if s in body_lower]
+        assert not offenders, (
+            f"Response body contains IP-binding rejection signal(s) "
+            f"{offenders!r} — gateway/auth.py:120 documents that source "
+            f"IP is audit-only post-k3s. status={resp.status_code}, "
+            f"body={resp.text[:300]}"
         )
 
-        # Cleanup
         egg_stack.delete_session(token)
 
 

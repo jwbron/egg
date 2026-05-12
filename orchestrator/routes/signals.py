@@ -1025,7 +1025,13 @@ def _validate_planner_role_alignment(
         if not parsed.success:
             return
         slices = parsed.to_contract_slices()
-        errors = validate_task_role_alignment(slices)
+        # #2528: pass the pipeline's repo so per-repo role_patterns from
+        # repositories.yaml are honoured. Plan-time validation must
+        # mirror push-time enforcement, which now also reads the per-repo
+        # overrides (gateway/agent_restrictions.py).
+        errors = validate_task_role_alignment(
+            slices, repo=getattr(pipeline_state, "repo", None) or None
+        )
     except Exception as exc:
         logger.warning(
             "plan role-alignment validation: validator raised (non-blocking)",

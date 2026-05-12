@@ -50,7 +50,6 @@ ALLOWLIST_PATHS = [
     "docker-compose.yaml",
     # Integration test infrastructure (conftest, network tests)
     "integration_tests/conftest.py",
-    "integration_tests/local_pipeline/",
     "integration_tests/test_network_",
     # CI/CD workflows (YAML cannot import Python)
     ".github/workflows/",

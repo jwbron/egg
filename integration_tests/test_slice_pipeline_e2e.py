@@ -203,12 +203,15 @@ class TestReconcilerOnProducerShape:
         assert orphan.deleted_base == "egg/issue-2137/slice-1"
         # slice-1 is the root, and its branch is gone (the merge
         # cascade is the primary trigger here). The walk-up falls
-        # back to the pipeline branch ``egg/issue-2137`` — the
-        # last-resort safe target. This is the bug the reviewer
-        # caught: the old code would have left
-        # ``intended_new_base == "egg/issue-2137/slice-1"`` (the
-        # dead branch we just escaped from).
-        assert orphan.intended_new_base == "egg/issue-2137"
+        # back to the pipeline branch ``egg/issue-2137/work`` — the
+        # umbrella pipeline tip — as the last-resort safe target.
+        # (Pre-#2548 this was just ``egg/issue-2137``; that change
+        # moved the umbrella tip under ``egg/issue-2137/`` as a
+        # sibling of the slice integration branches.) The original
+        # bug this test guards against: the old code would have
+        # left ``intended_new_base == "egg/issue-2137/slice-1"``
+        # (the dead branch we just escaped from).
+        assert orphan.intended_new_base == "egg/issue-2137/work"
 
     def test_reconcile_once_drives_full_heal_callable_with_orphan(self) -> None:
         """``reconcile_once`` passes the full :class:`OrphanedChildPR`

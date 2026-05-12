@@ -1,0 +1,21 @@
+{
+  "name": "refine-plan",
+  "description": "BRC-inspired local approximation of egg's refine + plan phases. Runs an evidence-backed iterated parallel review using subagent fan-out and a per-cycle verdict journal. Not a real BRC bus — see SKILL.md for the honest framing. Portable, no orchestrator, no experimental flags.",
+  "version": "0.1.0",
+  "author": {
+    "name": "egg maintainers",
+    "url": "https://github.com/jwbron/egg/issues"
+  },
+  "homepage": "https://github.com/jwbron/egg/tree/main/plugins/refine-plan",
+  "repository": "https://github.com/jwbron/egg",
+  "license": "MIT",
+  "keywords": [
+    "egg",
+    "sdlc",
+    "refine",
+    "plan",
+    "brc-inspired",
+    "multi-agent-review",
+    "claude-code"
+  ]
+}

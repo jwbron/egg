@@ -564,6 +564,35 @@ The BRC protocol retains two recovery mechanisms as **defense-in-depth**, even t
 
 **Design rationale**: These mechanisms were added before the formal guard table to fix specific deadlock scenarios ([#1405](https://github.com/jwbron/egg/issues/1405), [#1576](https://github.com/jwbron/egg/issues/1576)). With the guard table in place, `guard_version_match_at_ack` and `guard_producer_proposed` should prevent the conditions that trigger these mechanisms. They are retained as a safety net — if they fire in production, it indicates the guards missed an edge case.
 
+### Auto-ACK for Empty Pure Producers (#2581)
+
+When the slice plan assigns no tasks to a pure-producer role (e.g. CODER or DOCUMENTER in a tester-only or documenter-only slice), the orchestrator **pre-seeds** the BRC matrix before spawning the agent team:
+
+1. The orchestrator records an empty proposal at version 1 for the role.
+2. It records a synthetic ACK at version 1 from every critical reviewer of that role.
+3. It injects a **"Pre-seeded empty-producer shortcut"** block into the role's BRC preamble (see below).
+
+**Without the seed**, a spawned producer with no work proposes an empty artifact list → pure reviewers NACK "nothing to review" → the producer cannot satisfy `is_fully_acked()` → deadlock until `max_revision_rounds` is exhausted.
+
+**Scope**: applies only to pure producers (roles that are not also reviewers). Dual-role roles like TESTER, which review CODER as well as produce their own work, always run so they can discharge their reviewer responsibilities. A dual-role reviewer's seeded ACK is advisory: if the reviewer's own work later reveals a need for code the producer should have written, it NACKs the seeded version — invalidating it and forcing a normal re-propose flow.
+
+**Not applied** when the pipeline has no contract (CUSTOM-mode, BABYSIT, prompt-mode) or when the contract cannot be loaded — those pipelines preserve pre-#2581 unconditional-roster behavior.
+
+#### Agent lifecycle for pre-seeded producers
+
+The BRC preamble replaces the normal steps 2–5 with a short flow:
+
+1. **ORIENT** — run `egg-contract show` and confirm the role has no tasks in the current slice.
+2. **Try `egg-orch consensus confirmed`** (or `mcp__brc__confirm`):
+   - **Success** → proceed to STAY ALIVE.
+   - **`pending_acks` / `global_zero_proposal`** (other producers haven't proposed yet) → block on `egg-orch message wait-loop --for STATUS --for CONSENSUS_RE_REVIEW --for CONSENSUS_ACK --for CONSENSUS_NACK --for OVERSEER_ALERT`. Retry `confirmed` on STATUS with `ready_to_confirm: true`, on `CONSENSUS_ACK`/`NACK` for your role, or on `CONSENSUS_RE_REVIEW` for your role.
+   - **`pending_acks` / `producer_not_fully_acked`** — a dual-role reviewer NACKed the seeded ACK because it found work your role should have done. This is a planning gap: call `mcp__sdlc__register_open_question` and surface the decision to the operator. Do **not** start producing without operator direction.
+3. **STAY ALIVE** — follow normal stay-alive and re-review handling.
+
+**Critical constraint**: the agent must **not** run `egg-orch consensus propose` at any point. A real propose bumps the version to 2, invalidating the seeded version-1 ACKs and reopening the deadlock.
+
+**Source**: `ApprovalMatrix.seed_auto_ack_for_empty_pure_producers`, `ReviewGraph.empty_pure_producers`, `_derive_producer_roles_with_tasks` in `orchestrator/routes/pipelines.py`.
+
 ### Delphi Redaction
 
 The Delphi filter prevents reviewer anchoring by redacting `CONSENSUS_PROPOSE` messages until the reviewer has submitted their own independent evaluation. When a reviewer polls for messages before ACK/NACK:

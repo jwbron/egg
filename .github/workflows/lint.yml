@@ -156,6 +156,11 @@ jobs:
             echo "  docker: ${{ needs.docker.result }}"
             echo "  actions: ${{ needs.actions.result }}"
             echo "  custom-checks: ${{ needs.custom-checks.result }}"
+            # Without this `exit 1`, the failure branch falls through
+            # with a zero exit code and this aggregate would report
+            # success even when a lint tier was red — defeating any
+            # branch-protection rule that requires `Lint / aggregate`.
+            exit 1
           else
             echo "passed=true" >> "$GITHUB_OUTPUT"
             echo "All lint checks passed"

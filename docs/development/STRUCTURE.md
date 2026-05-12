@@ -13,12 +13,14 @@ egg/
 ├── integration_tests/      # Integration tests (require k3s)
 ├── k8s/                    # Kubernetes manifests (Kustomize base + overlays)
 ├── orchestrator/           # SDLC pipeline orchestrator (local execution)
+├── plugins/                # Claude Code plugins (distributable via egg-tools marketplace)
 ├── sandbox/                # Sandbox container (untrusted, runs the LLM agent)
 ├── scripts/                # Validation, lint, and operational telemetry scripts
 ├── shared/                 # Shared Python libraries (used by gateway + sandbox)
 ├── skills/                 # Claude Code skills (installed into sandbox at startup)
 ├── tests/                  # Unit tests
 ├── dev                     # Development CLI (setup, lint, test, ci)
+├── .claude-plugin/         # Marketplace registry (egg-tools plugin index)
 ├── CLAUDE.md               # Agent navigation guide (Claude Code entry point)
 └── README.md
 ```
@@ -33,11 +35,13 @@ egg/
 | `integration_tests/` | Integration tests requiring k3s cluster and real pods | CI / local |
 | `k8s/` | Kubernetes manifests: Kustomize base + overlays (local/k3s). Namespaces, Deployments, Services, NetworkPolicies, agent Job template, RBAC | k3s cluster |
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
+| `plugins/` | Claude Code plugins distributed via the egg-tools marketplace (each subdirectory is a plugin with `.claude-plugin/plugin.json` and a `skills/` subtree) | External (installed by users via Claude Code) |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
 | `scripts/` | CI/lint and operational telemetry scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement, harness parity validation, scaffold-first BRC compliance telemetry via `scaffold_first_telemetry.py`) | CI / local |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
 | `skills/` | Claude Code skills (each subdirectory is a skill with `SKILL.md`) | Sandbox container |
 | `tests/` | Test suite | CI / local |
+| `.claude-plugin/` | Plugin marketplace registry (`marketplace.json`) — indexes plugins under `plugins/` for the `egg-tools` Claude Code plugin collection | External |
 
 ## Gateway Structure
 
@@ -394,18 +398,7 @@ integration_tests/
 │   ├── test_pipeline.py           # End-to-end implement-phase BRC cycle against a fixture PR
 │   ├── test_gateway.py            # Staging-branch push validation via the gateway
 │   └── test_escalation.py         # Early-exit paths (fork, merged, empty diff) and final-push head-move escalation
-├── local_pipeline/                # Orchestrator pipeline integration tests
-│   ├── conftest.py                # Pipeline test fixtures
-│   ├── helpers.py                 # Shared API helper functions for tests
-│   ├── test_api_validation.py     # API input validation tests
-│   ├── test_concurrent_pipelines.py  # Concurrent pipeline execution tests
-│   ├── test_error_recovery.py     # Error recovery scenario tests
-│   ├── test_hitl_edge_cases.py    # HITL decision edge case tests
-│   ├── test_k8s_deployment_tools.py  # End-to-end tests for MCP deployment diagnostic tools (k8s runtime)
-│   ├── test_local_pipeline.py     # Orchestrator pipeline tests
-│   ├── test_signals.py            # Signal handling tests
-│   ├── test_unified_pipeline_behavior.py  # Unified pipeline behavior tests
-│   └── test_worktree_integration.py  # Worktree lifecycle and pipeline isolation tests
+├── test_k8s_deployment_tools.py   # Auth-rejection regression suite for the #1759 deployment MCP routes
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures
     ├── test_happy_path.py         # Full pipeline success flow

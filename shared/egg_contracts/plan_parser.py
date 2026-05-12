@@ -262,11 +262,13 @@ def parse_yaml_code_fence(content: str) -> tuple[dict[str, Any] | None, str, lis
     The code fence must be formatted as:
     ```yaml
     # yaml-tasks
-    phases:
+    slices:
       - id: 1
-        name: Phase Name
+        name: Slice Name
         ...
     ```
+
+    The legacy ``phases:`` key is also accepted for backward compatibility.
 
     Args:
         content: The document content
@@ -414,10 +416,10 @@ def parse_phases_from_yaml(
     """
     Parse phases and tasks from structured YAML (yaml-tasks code fence format).
 
-    Expected format:
+    Expected format (post-#2137):
     ```yaml
     # yaml-tasks
-    phases:
+    slices:
       - id: 1
         name: Setup
         goal: Initialize the project
@@ -428,6 +430,9 @@ def parse_phases_from_yaml(
             files:
               - schema.json
     ```
+
+    The legacy ``phases:`` key is accepted as an alias for ``slices:``;
+    when both are present, ``slices:`` wins.
 
     Args:
         yaml_data: Parsed YAML data from code fence
@@ -446,8 +451,10 @@ def parse_phases_from_yaml(
     slices_list = yaml_data.get("slices", [])
     legacy_phases_list = yaml_data.get("phases", [])
 
-    # Reject multi-PR format: pr_plan key indicates the LLM proposed
-    # multiple PRs, which violates the one-issue-one-PR constraint.
+    # Reject ad-hoc multi-PR `pr_plan` format. Slice packaging is owned by
+    # the `slices:` DAG (one slice = one stacked PR, post-#2137); `pr_plan`
+    # is not a supported decomposition format regardless of whether the
+    # plan ships as one or many PRs.
     if "pr_plan" in yaml_data:
         if not slices_list and not legacy_phases_list:
             # pr_plan without slices/phases means the LLM put the task
@@ -456,18 +463,21 @@ def parse_phases_from_yaml(
                 ParseWarning(
                     line_number=None,
                     message="'pr_plan' key found without 'slices' or 'phases' — "
-                    "the plan uses the unsupported multi-PR format. Each issue must "
-                    "produce exactly one PR using the 'slices' (canonical) or "
-                    "'phases' (legacy) key.",
-                    context="The 'pr_plan' multi-PR format is not supported",
+                    "'pr_plan' is not a supported decomposition format. Use the "
+                    "'slices' (canonical, post-#2137) or 'phases' (legacy) key "
+                    "to express the slice DAG; the implement-phase pipeline "
+                    "ships each slice as its own stacked PR.",
+                    context="The 'pr_plan' format is not supported; use 'slices'",
                 )
             ]
         warnings.append(
             ParseWarning(
                 line_number=None,
-                message="'pr_plan' key is not supported — use 'pr' (singular) instead. "
-                "Each issue must produce exactly one PR.",
-                context="The 'pr_plan' multi-PR format will be ignored",
+                message="'pr_plan' key is not supported — use the 'slices' key "
+                "to express the slice DAG, and the singular 'pr' key for the "
+                "per-PR metadata block (title, description, test_plan, "
+                "manual_steps).",
+                context="The 'pr_plan' format will be ignored; use 'slices' + 'pr'",
             )
         )
 
@@ -829,9 +839,11 @@ def extract_pr_metadata_from_yaml(
       manual_steps: |
         Pre-merge: any steps before merging
         Post-merge: any steps after merging
-    phases:
+    slices:
       ...
     ```
+
+    The legacy ``phases:`` key is accepted as an alias for ``slices:``.
 
     Args:
         yaml_data: Parsed YAML data from code fence or frontmatter
@@ -1383,7 +1395,7 @@ def _detect_cycles(slices: list[Slice], known_ids: set[str]) -> list[list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def _is_file_blocked_for_role(role: str, file_path: str) -> bool:
+def _is_file_blocked_for_role(role: str, file_path: str, repo: str | None = None) -> bool:
     """Return True if ``file_path`` is blocked for ``role`` per the role's
     ``AGENT_PATTERNS`` blocklist (with block-exempt carve-outs).
 
@@ -1391,6 +1403,11 @@ def _is_file_blocked_for_role(role: str, file_path: str) -> bool:
     so plan-time validation matches push-time enforcement 1:1. The
     gateway's check intentionally consults only blocked + block-exempt
     patterns (not allowed_patterns), and so does this function.
+
+    Per-repo overrides (#2528): when ``repo`` is supplied, the pattern
+    used reflects ``role_patterns:`` in ``repositories.yaml`` for that
+    repo, so plan-time validation predicts push-time enforcement for
+    non-Python repos too.
     """
     # AGENT_PATTERNS is imported lazily here to avoid a circular import:
     # egg_restrictions.patterns imports egg_contracts.agent_roles, which
@@ -1398,10 +1415,10 @@ def _is_file_blocked_for_role(role: str, file_path: str) -> bool:
     # module-scope import would deadlock that cycle and break the gateway
     # production boot path. egg_restrictions.matchers.match_pattern is
     # deliberately split out of patterns.py for safe module-scope use
-    # (see matchers.py docstring); only AGENT_PATTERNS needs to be lazy.
-    from egg_restrictions.patterns import AGENT_PATTERNS
+    # (see matchers.py docstring); only the registry lookup needs to be lazy.
+    from egg_restrictions.patterns import get_agent_pattern_for_repo
 
-    pattern = AGENT_PATTERNS.get(role)
+    pattern = get_agent_pattern_for_repo(role, repo=repo)
     if pattern is None:
         return False
 
@@ -1418,24 +1435,25 @@ def _is_file_blocked_for_role(role: str, file_path: str) -> bool:
     return True
 
 
-def _eligible_producer_roles(files: list[str]) -> list[str]:
+def _eligible_producer_roles(files: list[str], repo: str | None = None) -> list[str]:
     """Return the producer roles (coder/tester/documenter) for which
     every file in ``files`` passes the gateway's blocked-pattern check.
 
     The result preserves the canonical coder→tester→documenter ordering
-    so suggestions are deterministic across runs.
+    so suggestions are deterministic across runs. Honours per-repo
+    pattern overrides (#2528).
     """
     from .agent_roles import AgentRole
 
     ordered_roles = (AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER)
     eligible: list[str] = []
     for role in ordered_roles:
-        if all(not _is_file_blocked_for_role(role, f) for f in files):
+        if all(not _is_file_blocked_for_role(role, f, repo=repo) for f in files):
             eligible.append(role.value)
     return eligible
 
 
-def _check_role_files(task: Task, slice_id: str) -> str | None:
+def _check_role_files(task: Task, slice_id: str, repo: str | None = None) -> str | None:
     """Return a structured error string for a misaligned task, or
     ``None`` if the task's ``role`` can push every file in
     ``files_affected``.
@@ -1456,10 +1474,10 @@ def _check_role_files(task: Task, slice_id: str) -> str | None:
     files = list(task.files_affected or [])
     if not role or not files:
         return None
-    blocked = [f for f in files if _is_file_blocked_for_role(role, f)]
+    blocked = [f for f in files if _is_file_blocked_for_role(role, f, repo=repo)]
     if not blocked:
         return None
-    eligible = _eligible_producer_roles(files)
+    eligible = _eligible_producer_roles(files, repo=repo)
     if len(eligible) == 1:
         hint = f"Reassign to role '{eligible[0]}' — it can push every file in this task."
     elif len(eligible) > 1:
@@ -1482,7 +1500,7 @@ def _check_role_files(task: Task, slice_id: str) -> str | None:
     )
 
 
-def validate_task_role_alignment(slices: list[Slice]) -> list[str]:
+def validate_task_role_alignment(slices: list[Slice], repo: str | None = None) -> list[str]:
     """Walk the slice/task tree and reject tasks whose ``role`` cannot
     push their ``files_affected``.
 
@@ -1501,6 +1519,12 @@ def validate_task_role_alignment(slices: list[Slice]) -> list[str]:
 
     Args:
         slices: The slice list extracted from the contract / plan.
+        repo: Optional ``owner/repo`` for per-repo pattern overrides
+            (#2528). When set, the validator uses the repo's
+            ``role_patterns:`` block from ``repositories.yaml`` so
+            plan-time validation predicts push-time enforcement on
+            non-Python repos. When ``None``, falls back to the global
+            default patterns.
 
     Returns:
         A list of structured-error strings — one entry per offending
@@ -1511,7 +1535,7 @@ def validate_task_role_alignment(slices: list[Slice]) -> list[str]:
     errors: list[str] = []
     for slice_ in slices:
         for task in slice_.tasks:
-            err = _check_role_files(task, slice_.id)
+            err = _check_role_files(task, slice_.id, repo=repo)
             if err is not None:
                 errors.append(err)
     return errors

@@ -12,6 +12,11 @@ jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
+    # The 30-min budget set on the caller (.github/workflows/test.yml)
+    # is repeated here as defense in depth so the budget is enforced
+    # whether this workflow is invoked via `uses:` or via
+    # `workflow_dispatch`.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -27,9 +32,13 @@ jobs:
         run: uv sync --extra dev
 
       - name: Build containers
-        run: |
-          docker build -t egg-gateway -f gateway/Dockerfile .
-          docker build -t egg-sandbox -f sandbox/Dockerfile .
+        # Use `make build` so CI matches local dev: same `repo-deps/`
+        # marker prep, same image set (gateway/orchestrator/sandbox),
+        # same tags. Drift between inline `docker build` here and
+        # `make build` locally is how the `repo-deps/` regression
+        # went latent until slice-2 of #2474 promoted this workflow
+        # into PR-CI.
+        run: make build
 
       - name: Set up k3s
         run: |
@@ -42,23 +51,153 @@ jobs:
           kubectl wait --for=condition=Ready node --all --timeout=120s
 
       - name: Import images into k3s
+        # Flake guard (HITL Q1 of #2474): retry the image-import step
+        # up to 3 attempts with a short backoff. Transient k3s
+        # containerd import failures (rare but observed in #2556's
+        # early runs) should not flake the entire integration tier.
+        # `set -o pipefail` makes a `docker save` failure on the
+        # left side of the pipe propagate into the `if`'s test
+        # result (rather than being swallowed by an exit-0
+        # `k3s ctr images import` on the right side reading an
+        # empty stream); the surrounding `if … then exit 0 … fi`
+        # then keeps `set -e` suspended for the pipeline so a
+        # failure falls through to the next retry instead of
+        # aborting the script.
         run: |
-          docker save egg-gateway:latest | sudo k3s ctr images import -
-          docker save egg-sandbox:latest | sudo k3s ctr images import -
+          set -eo pipefail
+          # `make deploy` rewrites manifest image tags from :latest to
+          # :$(EGG_IMAGE_TAG) (the git short SHA). k3s uses
+          # imagePullPolicy: IfNotPresent, so we must import both the
+          # :latest and the tagged variant or the pods will stay in
+          # ErrImagePull and the `kubectl wait` will time out.
+          EGG_IMAGE_TAG=$(git describe --always --dirty 2>/dev/null || echo latest)
+          attempt=0
+          max_attempts=3
+          until [ "$attempt" -ge "$max_attempts" ]; do
+            attempt=$((attempt + 1))
+            echo "::group::Image import attempt ${attempt}/${max_attempts}"
+            if docker save egg-gateway:latest | sudo k3s ctr images import - \
+              && docker save egg-orchestrator:latest | sudo k3s ctr images import - \
+              && docker save egg-sandbox:latest | sudo k3s ctr images import - \
+              && docker save egg-gateway:"$EGG_IMAGE_TAG" | sudo k3s ctr images import - \
+              && docker save egg-orchestrator:"$EGG_IMAGE_TAG" | sudo k3s ctr images import - \
+              && docker save egg-sandbox:"$EGG_IMAGE_TAG" | sudo k3s ctr images import -; then
+              echo "::endgroup::"
+              echo "Image import succeeded on attempt ${attempt}"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "Image import failed on attempt ${attempt}"
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Sleeping 5s before retry..."
+              sleep 5
+            fi
+          done
+          echo "Image import failed after ${max_attempts} attempts" >&2
+          exit 1
+
+      - name: Seed local config for `make deploy`
+        # `make deploy` reads `~/.config/egg/` to build the `gateway-secrets`
+        # k8s Secret (`make k3s-secrets`) and envsubsts host-mount paths
+        # (`$EGG_HOST_HOME/repos`, `$EGG_HOST_HOME/.egg-worktrees`) from
+        # the local overlay. On a fresh CI runner none of these exist;
+        # seed test values + empty mount points so the same `make deploy`
+        # invocation works in CI as locally. Secrets are random per-run
+        # (ephemeral runner) — no real credentials are ever placed here.
+        run: |
+          mkdir -p "$HOME/.config/egg" "$HOME/repos" "$HOME/.egg-worktrees"
+          # `printf '%s'` (not `>`) so the secret files don't get a
+          # trailing newline. `kubectl create secret --from-file` keeps
+          # every byte of the file in the Secret value; a trailing
+          # `\n` then ends up inside the `Authorization: Bearer …`
+          # header at test time, which `http.client.putheader` rejects
+          # as "Invalid header value".
+          printf '%s' "$(openssl rand -hex 32)" > "$HOME/.config/egg/launcher-secret"
+          printf '%s' "$(openssl rand -hex 32)" > "$HOME/.config/egg/lifecycle-secret"
+          printf 'CLAUDE_CODE_OAUTH_TOKEN=dummy\nGATEWAY_BOT_NAME=ci\n' \
+            > "$HOME/.config/egg/secrets.env"
+          printf 'local_repos:\n  paths: []\n' \
+            > "$HOME/.config/egg/repositories.yaml"
+          chmod 600 "$HOME/.config/egg"/*
+
+      - name: Install envsubst
+        # `make deploy` requires the `envsubst` binary (gettext); not
+        # preinstalled on github-hosted ubuntu-latest runners.
+        run: sudo apt-get install -y --no-install-recommends gettext-base
 
       - name: Deploy egg to k3s
+        # `make deploy` handles secret creation, image-tag rewrite, host-
+        # path envsubst, and waits on both `gateway` and `orchestrator`
+        # deployments. Matches the local-dev invocation exactly.
+        #
+        # `make k3s-secrets` (a prerequisite of `make deploy`) creates the
+        # Secret in the `egg-system` namespace, but the namespace itself
+        # is only created later by `kubectl apply -k k8s/...`. Pre-create
+        # it here so the secret-create step succeeds.
         run: |
-          kubectl apply -k k8s/overlays/local/
-          kubectl -n egg-system wait --for=condition=Available deployment/egg-gateway --timeout=120s
+          kubectl create namespace egg-system --dry-run=client -o yaml | kubectl apply -f -
+          make deploy
 
       - name: Run integration and security tests
         env:
           EGG_RUNTIME: kubernetes
           KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+        # `make test-integration` selects `-m "integration or security"`
+        # (see Makefile); CI and local invocation now run the same
+        # command. Drift between the two is what let the `repo-deps/`
+        # build regression sit latent until slice-2 of #2474 wired
+        # this workflow into PR-CI.
+        run: make test-integration
+
+      - name: Collect k3s debug artifacts on failure
+        # Flake guard (HITL Q1 of #2474): on any prior-step failure,
+        # capture cluster-wide events and per-pod logs so the
+        # debugger doesn't have to reproduce locally to triage a CI
+        # flake. Uploaded as a single `k3s-debug` workflow artifact.
+        # NB: `kubectl logs` requires an explicit pod name or a
+        # non-empty label selector - there is no "all pods in
+        # namespace" primitive, so we enumerate pods per namespace
+        # via `kubectl get pods -o name` and tail each individually.
+        if: failure()
         run: |
-          PYTHONPATH=shared .venv/bin/pytest integration_tests -v \
-            -m "integration or security" \
-            --timeout=300
+          set +e
+          echo "Collecting cluster events..."
+          kubectl get events --all-namespaces -o yaml > k3s-debug-events.yaml 2>&1 || true
+          echo "Collecting pod logs..."
+          {
+            for ns in egg-system egg-test-agents; do
+              echo "===== Namespace: ${ns} ====="
+              for pod in $(kubectl get pods -n "${ns}" -o name 2>/dev/null); do
+                echo "----- ${ns}/${pod} (current) -----"
+                kubectl logs -n "${ns}" "${pod}" --all-containers=true --tail=-1 --prefix=true 2>&1 || true
+                # CrashLoopBackOff is the exact failure mode this artifact
+                # is meant to triage, and `kubectl logs` without
+                # `--previous` returns ONLY the current container
+                # instance's logs — so the crashing instance's stderr
+                # (the part the debugger actually needs) is invisible.
+                # Add a second pass for the previous instance; `|| true`
+                # keeps the call safe for pods with no previous instance.
+                echo "----- ${ns}/${pod} (previous) -----"
+                kubectl logs -n "${ns}" "${pod}" --all-containers=true --previous --tail=-1 --prefix=true 2>&1 || true
+              done
+              echo
+              echo "===== Pods in ${ns} ====="
+              kubectl get pods -n "${ns}" -o wide 2>&1 || true
+              echo
+            done
+          } > k3s-debug-pods.log 2>&1 || true
+          ls -la k3s-debug-events.yaml k3s-debug-pods.log || true
+
+      - name: Upload k3s debug artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k3s-debug
+          path: |
+            k3s-debug-events.yaml
+            k3s-debug-pods.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Cleanup
         if: always()
@@ -82,6 +221,13 @@ jobs:
             echo "passed=false" >> "$GITHUB_OUTPUT"
             echo "Integration tests failed"
             echo "  integration: ${{ needs.integration.result }}"
+            # Without `exit 1`, the failure branch falls through with a
+            # zero exit code and this aggregate job reports success even
+            # when the integration tier was red. For the reusable-workflow
+            # `uses:` path the caller's job-failure propagation usually
+            # also fails the parent's `integration` job, but the
+            # standalone `workflow_dispatch` path has no such backstop.
+            exit 1
           else
             echo "passed=true" >> "$GITHUB_OUTPUT"
             echo "All integration tests passed"

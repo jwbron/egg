@@ -186,6 +186,16 @@ class PeerConsensusTracker:
             if self.graph.is_reviewer(role):
                 self._reviewer_phases[role] = ConsensusPhase.WORKING
 
+    def seed_auto_ack_for_empty_pure_producers(self, producers_with_tasks: set[str]) -> list[str]:
+        """Pre-seed the matrix for pure producers absent from the slice's task list.
+
+        Thin lock-holding wrapper around
+        ``ApprovalMatrix.seed_auto_ack_for_empty_pure_producers`` (#2581).
+        See that method's docstring for the dual-role / pure-reviewer rules.
+        """
+        with self._lock:
+            return self.matrix.seed_auto_ack_for_empty_pure_producers(producers_with_tasks)
+
     def release_nudge(self, role: str, version: int) -> None:
         """Roll back a nudge memo entry recorded by ``_collect_newly_ready_producers``.
 

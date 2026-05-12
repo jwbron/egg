@@ -1,18 +1,17 @@
-"""Docker image management for egg.
+"""Docker image and network management for egg.
 
-This module handles Docker image building, hash caching,
-Dockerfile creation, and related utilities.
+Image builds are driven by ``make build`` (which calls
+``scripts/prepare-sandbox-build-context.py`` to populate ``./repo-deps/``
+from ``repositories.yaml`` before ``docker build``). This module owns the
+shared host-side helpers: build-context population, network setup,
+docker availability checks, and image presence checks.
 """
 
-import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
-import time
-import uuid
-from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -22,19 +21,7 @@ from .config import (
     Config,
 )
 from .context import AUTO, get_context
-from .output import error, get_quiet_mode, info, success, warn
-
-# Label used to store build content hash on Docker image
-BUILD_HASH_LABEL = "org.egg.build-hash"
-
-# Global force rebuild flag (set by --rebuild)
-_force_rebuild = False
-
-
-def set_force_rebuild(force: bool) -> None:
-    """Set the global force rebuild flag."""
-    global _force_rebuild
-    _force_rebuild = force
+from .output import error, info, success, warn
 
 
 def check_docker_permissions() -> bool:
@@ -114,87 +101,6 @@ def check_docker() -> bool:
     return check_docker_permissions()
 
 
-def _copy_directory_atomic(src: Path, dest: Path, name: str, quiet: bool = False) -> bool:
-    """Copy a directory atomically with retry logic for race conditions.
-
-    When multiple egg --exec instances run simultaneously, they may all try to
-    update the same build context directories. This function uses atomic operations
-    to handle race conditions:
-    1. Copy to a temporary directory
-    2. Remove existing destination (with retry on ENOTEMPTY/ENOENT)
-    3. Rename temp to destination (atomic on same filesystem)
-
-    Args:
-        src: Source directory to copy
-        dest: Destination path
-        name: Human-readable name for logging
-        quiet: If True, suppress info messages
-
-    Returns:
-        True if successful, False otherwise
-    """
-    max_retries = 3
-    retry_delay = 0.1  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            # Create a unique temp directory in the same parent (for atomic rename)
-            temp_dir = dest.parent / f".tmp-{uuid.uuid4().hex[:8]}"
-
-            # Copy source to temp location
-            shutil.copytree(src, temp_dir)
-
-            # Try to remove existing destination
-            if dest.exists():
-                try:
-                    shutil.rmtree(dest)
-                except FileNotFoundError:
-                    # Another process already removed it - that's fine
-                    pass
-                except OSError:
-                    # Directory not empty (ENOTEMPTY) - another process is writing
-                    # Clean up temp and retry
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay * (attempt + 1))
-                        continue
-                    raise
-
-            # Atomic rename from temp to destination
-            try:
-                temp_dir.rename(dest)
-            except OSError:
-                # Destination appeared between rmtree and rename - another process won
-                # Clean up our temp and use their copy
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                if dest.exists():
-                    # Other process succeeded, we're done
-                    if not quiet:
-                        info(f"{name} directory ready (from another process)")
-                    return True
-                # Neither exists - retry
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (attempt + 1))
-                    continue
-                raise
-
-            if not quiet:
-                info(f"{name} copied to build context")
-            return True
-
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
-                continue
-            warn(f"Failed to copy {name} directory after {max_retries} attempts: {e}")
-            # Clean up temp if it exists
-            if "temp_dir" in locals() and temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            return False
-
-    return False
-
-
 def is_dangerous_dir(path: Path) -> bool:
     """Check if a directory is dangerous to mount (contains credentials)"""
     for dangerous in Config.DANGEROUS_DIRS:
@@ -267,28 +173,48 @@ def _get_local_repo_path(config: dict[str, Any], repo_name: str) -> Path | None:
     return None
 
 
-def _copy_repo_watch_files(quiet: bool = False) -> None:
-    """Copy watch files from local repos into the build context.
+def populate_build_context(target_dir: Path, quiet: bool = False) -> None:
+    """Populate ``target_dir`` with watch files + manifest for the sandbox build.
 
-    For each repo with build_commands configured, copies the watch_files
-    from the local repo directory into the build context at
-    repo-deps/<repo-dir-name>/.
+    For each repo with ``build_commands`` configured in ``repositories.yaml``:
+    copies the declared ``watch_files`` from the local repo directory into
+    ``<target_dir>/<owner--repo>/`` and writes a ``manifest.json`` describing
+    the build commands and persist directories. ``docker-setup.py`` reads
+    that manifest during the sandbox image build (Stage 1 of
+    ``sandbox/Dockerfile``) to run per-repo build steps and persist their
+    output (e.g. ``.venv``, ``node_modules``) into the image.
 
-    This enables Docker layer caching: the COPY layer only invalidates
-    when watch files change, triggering a rebuild of the dependency layer.
+    Docker layer caching keys on the contents of ``target_dir``: the
+    ``COPY repo-deps/`` layer only invalidates when watch files change,
+    so unchanged dependency layers are reused across builds.
+
+    When no repos declare ``build_commands`` and no ``extra_packages`` are
+    configured, an ``.empty`` marker is written so the Dockerfile ``COPY``
+    step still has a valid source.
     """
     config = _load_repos_config()
     repo_settings = config.get("repo_settings", {})
     if not isinstance(repo_settings, dict):
-        return
+        repo_settings = {}
 
-    repo_deps_dir = Config.CONFIG_DIR / "repo-deps"
+    repo_deps_dir = target_dir
 
-    # Clean up old repo-deps to avoid stale files
+    # Footgun guard: this function rmtrees its target. The Makefile passes
+    # ``./repo-deps``, but the script is a public entry point and a stray
+    # argument like ``/home/user/important-data`` would otherwise be wiped.
+    # Refuse anything whose final segment isn't ``repo-deps``.
+    if repo_deps_dir.name != "repo-deps":
+        raise ValueError(
+            f"populate_build_context refuses to operate on {repo_deps_dir!s}: "
+            f"target directory must be named 'repo-deps' (got {repo_deps_dir.name!r})"
+        )
+
+    # Clean up old contents to avoid stale files
     if repo_deps_dir.exists():
         shutil.rmtree(repo_deps_dir, ignore_errors=True)
 
     has_any = False
+    repos_with_local_path: set[str] = set()
 
     for repo_name, settings in repo_settings.items():
         if not isinstance(settings, dict):
@@ -299,6 +225,20 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         watch_files = build_cmds.get("watch_files", [])
         commands = build_cmds.get("commands", [])
         if not isinstance(watch_files, list) or not isinstance(commands, list):
+            # Malformed yaml: tell the operator. Without this warn, a
+            # repo with a typo in build_commands.watch_files / .commands
+            # is silently dropped from both the watch-file copy step and
+            # (via repos_with_local_path) the manifest, producing an
+            # image with no per-repo build steps and no log line.
+            #
+            # Intentionally NOT gated on ``quiet``: this is operator
+            # misconfiguration, not a recoverable per-file condition like
+            # "watch file not found" or "local path not found". The other
+            # warns in this function are quiet-gated because tests run with
+            # quiet=True to suppress expected per-file noise; a malformed
+            # build_commands block is a config bug we want surfaced
+            # regardless.
+            warn(f"build_commands: skipping {repo_name} — watch_files and commands must be lists")
             continue
         if not commands:
             continue
@@ -309,6 +249,8 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
             if not quiet:
                 warn(f"build_commands: local path not found for {repo_name}, skipping watch files")
             continue
+
+        repos_with_local_path.add(repo_name)
 
         # Copy watch files
         repo_dir_name = repo_name.replace("/", "--")
@@ -374,6 +316,13 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         commands = build_cmds.get("commands", [])
         if not isinstance(commands, list) or not commands:
             continue
+        # Skip repos whose local path wasn't found above. The host already
+        # warned; emitting a manifest entry here would surface as a
+        # downstream RuntimeError from docker-setup.py:run_build_commands
+        # (watch files dir missing) which is just noise for the same root
+        # cause. Keep the host warning as the single source of truth.
+        if repo_name not in repos_with_local_path:
+            continue
         watch_files = build_cmds.get("watch_files", [])
         if not isinstance(watch_files, list):
             watch_files = []
@@ -433,686 +382,6 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         # Always create repo-deps with an empty marker so Dockerfile COPY doesn't fail
         repo_deps_dir.mkdir(parents=True, exist_ok=True)
         (repo_deps_dir / ".empty").touch()
-
-
-def create_dockerfile() -> None:
-    """Create the Dockerfile for the container"""
-    quiet = get_quiet_mode()
-
-    # Ensure cache directory exists
-    Config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Resolve symlinks to find the actual project directory
-    script_dir = Path(__file__).resolve().parent.parent
-
-    # Copy docker-setup.py to sandbox subdirectory of build context
-    # (Dockerfile references sandbox/docker-setup.py)
-    sandbox_dest = Config.CONFIG_DIR / "sandbox"
-    sandbox_dest.mkdir(parents=True, exist_ok=True)
-    setup_script = script_dir / "docker-setup.py"
-    setup_dest = sandbox_dest / "docker-setup.py"
-
-    if setup_script.exists():
-        shutil.copy(setup_script, setup_dest)
-        setup_dest.chmod(0o755)
-    else:
-        warn("docker-setup.py not found, skipping dev tools installation")
-
-    # Copy claude-commands directory to sandbox subdirectory of build context
-    # (Dockerfile references sandbox/claude-commands/)
-    # Use atomic copy with retry to handle race conditions when multiple
-    # egg --exec instances run simultaneously
-    commands_src = script_dir / "claude-commands"
-    commands_dest = sandbox_dest / "claude-commands"
-    if commands_src.exists():
-        _copy_directory_atomic(commands_src, commands_dest, "Claude commands", quiet)
-    else:
-        warn("claude-commands directory not found")
-
-    # Copy skills directory from repo root to build context
-    # (Dockerfile references skills/)
-    skills_src = script_dir.parent / "skills"
-    skills_dest = Config.CONFIG_DIR / "skills"
-    if skills_src.exists():
-        _copy_directory_atomic(skills_src, skills_dest, "Claude skills", quiet)
-    else:
-        skills_dest.mkdir(parents=True, exist_ok=True)
-        warn("skills directory not found")
-
-    # Copy claude-rules directory to sandbox subdirectory of build context
-    # (Dockerfile references sandbox/claude-rules/)
-    # Use atomic copy with retry to handle race conditions
-    rules_src = script_dir / "claude-rules"
-    rules_dest = sandbox_dest / "claude-rules"
-    if rules_src.exists():
-        _copy_directory_atomic(rules_src, rules_dest, "Claude rules", quiet)
-    else:
-        warn("claude-rules directory not found, skipping agent rules")
-
-    # Copy egg-runtime directories to build context
-    # These provide container-resident executables and tools
-    # The bin/ directory contains symlinks to executables (added to PATH in container)
-    runtime_dirs = ["bin", "egg_lib", "llm", "tools", "scripts"]
-    for dir_name in runtime_dirs:
-        src = script_dir / dir_name
-        dest = sandbox_dest / dir_name
-        if src.exists():
-            _copy_directory_atomic(src, dest, f"Runtime {dir_name}", quiet)
-        else:
-            warn(f"{dir_name} directory not found, skipping")
-
-    # Copy shared directory from repo root to build context (sibling of sandbox)
-    # Contains shared modules (egg_logging, egg_config, etc.)
-    repo_root = script_dir.parent  # sandbox's parent is egg
-    shared_src = repo_root / "shared"
-    shared_dest = Config.CONFIG_DIR / "shared"
-    if shared_src.exists():
-        _copy_directory_atomic(shared_src, shared_dest, "Shared modules", quiet)
-    else:
-        warn("shared directory not found, container processors may fail imports")
-
-    # Copy pyproject.toml files for pip-installable packages
-    # These make claude (from sandbox) and shared modules pip-installable
-    pyproject_files = [
-        (script_dir / "pyproject.toml", sandbox_dest / "pyproject.toml"),
-        (shared_src / "pyproject.toml", shared_dest / "pyproject.toml"),
-    ]
-    for src, dest in pyproject_files:
-        if src.exists():
-            shutil.copy(src, dest)
-        else:
-            warn(f"pyproject.toml not found at {src}")
-
-    # Note: Claude credentials are mounted at runtime (not copied at build time)
-    # This ensures the container always uses the host's CURRENT credentials
-    # Avoids issues with stale/revoked OAuth tokens from previous builds
-    if not quiet:
-        info("Claude credentials will be mounted from host at runtime (see setup output above)")
-
-    # Copy overseer_monitor.py from script directory
-    # Referenced at /opt/egg-runtime/sandbox/overseer_monitor.py by the overseer agent
-    overseer_src = script_dir / "overseer_monitor.py"
-    overseer_dest = sandbox_dest / "overseer_monitor.py"
-    if overseer_src.exists():
-        shutil.copy(overseer_src, overseer_dest)
-        overseer_dest.chmod(0o755)
-    else:
-        warn("overseer_monitor.py not found, overseer will fall back to inline monitoring")
-
-    # Copy entrypoint.py from script directory
-    entrypoint_src = script_dir / "entrypoint.py"
-    entrypoint_dest = sandbox_dest / "entrypoint.py"
-    if entrypoint_src.exists():
-        shutil.copy(entrypoint_src, entrypoint_dest)
-        entrypoint_dest.chmod(0o755)
-    else:
-        error(f"entrypoint.py not found at {entrypoint_src}")
-        error("Cannot build without entrypoint script")
-
-    # Copy watch files for build_commands (per-repo dependency caching)
-    _copy_repo_watch_files(quiet)
-
-    # Copy Dockerfile from script directory
-    dockerfile_src = script_dir / "Dockerfile"
-    if dockerfile_src.exists():
-        shutil.copy(dockerfile_src, Config.DOCKERFILE)
-        if not quiet:
-            success("Build context prepared")
-    else:
-        error(f"Dockerfile not found at {dockerfile_src}")
-        error("Cannot build without Dockerfile")
-
-
-def get_installed_claude_version() -> str | None:
-    """Get the Claude Code version installed in the current image.
-
-    Returns:
-        Version string (e.g., "2.1.7") or None if not available
-    """
-    if not image_exists():
-        return None
-
-    try:
-        result = subprocess.run(  # noqa: EGG100 - extract version from sandbox image
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--entrypoint",
-                "cat",
-                Config.IMAGE_NAME,
-                "/opt/claude/VERSION",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            # Version output is like "claude 2.1.7" - extract just the number
-            version_line = result.stdout.strip()
-            parts = version_line.split()
-            return parts[-1] if parts else None
-        return None
-    except Exception:
-        return None
-
-
-@cache
-def get_latest_claude_version() -> str | None:
-    """Get the latest Claude Code version from npm registry.
-
-    Returns:
-        Version string (e.g., "2.1.17") or None if check fails
-    """
-    import json
-    import urllib.request
-
-    try:
-        url = "https://registry.npmjs.org/@anthropic-ai/claude-code/latest"
-        with urllib.request.urlopen(url, timeout=10) as response:
-            data = json.loads(response.read().decode())
-            version: str | None = data.get("version")
-            return version
-    except Exception:
-        return None
-
-
-@cache
-def check_claude_update() -> str | None:
-    """Check if a Claude Code update is available.
-
-    Returns:
-        The new version string if update available, None otherwise
-    """
-    quiet = get_quiet_mode()
-    installed = get_installed_claude_version()
-    latest = get_latest_claude_version()
-
-    if not latest:
-        # Can't check, don't force update
-        return None
-
-    if not installed:
-        # No version installed, use latest
-        return latest
-
-    # Compare versions
-    if installed != latest:
-        if not quiet:
-            info(f"Claude Code update available: {installed} → {latest}")
-        return latest
-
-    return None
-
-
-def get_installed_agent_sdk_version() -> str | None:
-    """Get the claude-agent-sdk version installed in the current image.
-
-    Returns:
-        Version string (e.g., "0.1.5") or None if not available
-    """
-    if not image_exists():
-        return None
-
-    try:
-        result = subprocess.run(  # noqa: EGG100 - version check reads agent-sdk version from sandbox image
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--entrypoint",
-                "cat",
-                Config.IMAGE_NAME,
-                "/opt/claude-agent-sdk-version.txt",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-        return None
-    except Exception:
-        return None
-
-
-def _has_installable_files(files: list[dict[str, Any]]) -> bool:
-    """Check if a PyPI release has files installable on Linux.
-
-    Returns True if there is at least one non-yanked file that is either
-    a source distribution (.tar.gz/.zip) or a Linux-compatible wheel
-    (manylinux/musllinux/linux or platform-agnostic ``any``).
-    """
-    for f in files:
-        if f.get("yanked", False):
-            continue
-        name = f.get("filename", "")
-        # Source distributions are always installable
-        if name.endswith((".tar.gz", ".zip")):
-            return True
-        # Wheels: check platform tag
-        if name.endswith(".whl"):
-            # Platform tag is the last component before .whl
-            platform_tag = name.rsplit("-", 1)[-1]  # e.g. "manylinux_2_17_x86_64.whl"
-            # Platform-agnostic wheels (e.g. py3-none-any.whl)
-            if platform_tag == "any.whl":
-                return True
-            # Linux wheels
-            if "linux" in platform_tag:
-                return True
-    return False
-
-
-@cache
-def get_latest_agent_sdk_version() -> str | None:
-    """Get the latest claude-agent-sdk version from PyPI.
-
-    Validates the version actually has installable files for Linux,
-    falling back to the newest version that does.
-
-    Returns:
-        Version string (e.g., "0.1.5") or None if check fails
-    """
-    import json
-    import urllib.request
-
-    try:
-        url = "https://pypi.org/pypi/claude-agent-sdk/json"
-        with urllib.request.urlopen(url, timeout=10) as response:
-            data = json.loads(response.read().decode())
-            version: str | None = data.get("info", {}).get("version")
-            if not version:
-                return None
-            # Verify the version has installable files for our platform.
-            # PyPI info.version can advertise a version that only has
-            # platform-specific wheels (e.g., macOS-only), which breaks
-            # pip install on Linux. We require either a sdist (.tar.gz)
-            # or a Linux-compatible wheel.
-            releases = data.get("releases", {})
-            if version in releases and _has_installable_files(releases[version]):
-                return version
-            # Version not installable — walk backwards through releases
-            # to find the newest version that is.
-            from packaging.version import InvalidVersion, Version
-
-            candidates: list[tuple[Version, list[dict[str, Any]]]] = []
-            for ver_str, files in releases.items():
-                if ver_str == version:
-                    continue
-                try:
-                    v = Version(ver_str)
-                    if not v.is_prerelease:
-                        candidates.append((v, files))
-                except InvalidVersion:
-                    continue
-            for ver, files in sorted(candidates, reverse=True):
-                if _has_installable_files(files):
-                    return str(ver)
-            return None
-    except Exception:
-        return None
-
-
-@cache
-def check_agent_sdk_update() -> str | None:
-    """Check if a claude-agent-sdk update is available.
-
-    Returns:
-        The new version string if update available, None otherwise
-    """
-    quiet = get_quiet_mode()
-    installed = get_installed_agent_sdk_version()
-    latest = get_latest_agent_sdk_version()
-
-    if not latest:
-        # Can't check, don't force update
-        return None
-
-    if not installed:
-        # No version installed, use latest
-        return latest
-
-    # Compare versions
-    if installed != latest:
-        if not quiet:
-            info(f"claude-agent-sdk update available: {installed} → {latest}")
-        return latest
-
-    return None
-
-
-def hash_file(path: Path, hasher: Any) -> None:
-    """Add a single file's content to the hasher."""
-    try:
-        with open(path, "rb") as f:
-            while chunk := f.read(8192):
-                hasher.update(chunk)
-    except OSError:
-        pass
-
-
-def hash_directory(path: Path, hasher: Any) -> None:
-    """Recursively hash all files in a directory."""
-    if not path.exists():
-        return
-    for item in sorted(path.rglob("*")):
-        if item.is_file() and not item.name.startswith(".") and "__pycache__" not in item.parts:
-            # Include relative path in hash to detect renames/moves
-            hasher.update(str(item.relative_to(path)).encode())
-            hash_file(item, hasher)
-
-
-def _hash_build_command_watch_files(hasher: Any) -> None:
-    """Hash watch file contents from build_commands config.
-
-    Reads the repositories.yaml config and hashes the contents of all
-    watch_files from their local repo paths. This ensures that the build
-    hash changes when dependency files (e.g., package-lock.json) change,
-    triggering an automatic image rebuild.
-    """
-    config = _load_repos_config()
-    repo_settings = config.get("repo_settings", {})
-    if not isinstance(repo_settings, dict):
-        return
-
-    for repo_name in sorted(repo_settings.keys()):
-        settings = repo_settings[repo_name]
-        if not isinstance(settings, dict):
-            continue
-        build_cmds = settings.get("build_commands")
-        if not isinstance(build_cmds, dict):
-            continue
-        watch_files = build_cmds.get("watch_files", [])
-        commands = build_cmds.get("commands", [])
-        if not isinstance(watch_files, list) or not isinstance(commands, list):
-            continue
-        if not commands:
-            continue
-
-        local_path = _get_local_repo_path(config, repo_name)
-        if local_path is None:
-            continue
-
-        # Include the repo name and commands in the hash so changes to
-        # the build_commands config itself also trigger rebuilds
-        hasher.update(f"build_commands:{repo_name}".encode())
-        for cmd in commands:
-            hasher.update(f"cmd:{cmd}".encode())
-
-        # Hash watch file contents
-        for watch_file in sorted(str(f) for f in watch_files):
-            src_file = local_path / watch_file
-
-            # Defense-in-depth: validate path stays within repo boundary
-            try:
-                src_file.resolve().relative_to(local_path.resolve())
-            except ValueError:
-                warn(f"build_commands: watch file escapes repo boundary: {repo_name}/{watch_file}")
-                continue
-
-            if src_file.exists() and src_file.is_file():
-                hasher.update(f"watch:{repo_name}/{watch_file}".encode())
-                hash_file(src_file, hasher)
-
-
-def compute_build_hash() -> str:
-    """Compute a SHA256 hash of all files that affect the Docker image build.
-
-    This includes:
-    - Dockerfile
-    - entrypoint.py
-    - docker-setup.py
-    - claude-commands/
-    - skills/ (from repo root)
-    - claude-rules/
-    - .claude/hooks/
-    - bin/, egg_lib/, llm/, tools/, scripts/
-    - shared/ (from repo root)
-    - pyproject.toml files
-    - Host-services files that get copied to container
-
-    Also includes the current user's UID/GID since these affect the build.
-
-    Returns:
-        Hex-encoded SHA256 hash string
-    """
-    script_dir = Path(__file__).resolve().parent.parent
-    repo_root = script_dir.parent
-    hasher = hashlib.sha256()
-
-    # Include UID/GID in hash (affects build args)
-    hasher.update(f"uid={os.getuid()},gid={os.getgid()}".encode())
-
-    # Single files in sandbox/
-    single_files = [
-        script_dir / "Dockerfile",
-        script_dir / "entrypoint.py",
-        script_dir / "docker-setup.py",
-        script_dir / "overseer_monitor.py",
-        script_dir / "pyproject.toml",
-    ]
-    for path in single_files:
-        if path.exists():
-            hasher.update(path.name.encode())
-            hash_file(path, hasher)
-
-    # Directories in sandbox/
-    container_dirs = [
-        "claude-commands",
-        "claude-rules",
-        "bin",
-        "egg_lib",
-        "llm",
-        "tools",
-        "scripts",
-    ]
-    for dir_name in container_dirs:
-        dir_path = script_dir / dir_name
-        if dir_path.exists():
-            hasher.update(dir_name.encode())
-            hash_directory(dir_path, hasher)
-
-    # .claude/hooks directory
-    hooks_path = script_dir / ".claude" / "hooks"
-    if hooks_path.exists():
-        hasher.update(b".claude/hooks")
-        hash_directory(hooks_path, hasher)
-
-    # skills/ directory from repo root
-    skills_path = repo_root / "skills"
-    if skills_path.exists():
-        hasher.update(b"skills")
-        hash_directory(skills_path, hasher)
-
-    # shared/ directory from repo root
-    shared_path = repo_root / "shared"
-    if shared_path.exists():
-        hasher.update(b"shared")
-        hash_directory(shared_path, hasher)
-        # Include shared pyproject.toml
-        shared_pyproject = shared_path / "pyproject.toml"
-        if shared_pyproject.exists():
-            hash_file(shared_pyproject, hasher)
-
-    # Include watch file contents from build_commands config
-    # This ensures the image rebuilds when dependency files change
-    _hash_build_command_watch_files(hasher)
-
-    return hasher.hexdigest()
-
-
-def get_image_build_hash() -> str | None:
-    """Get the build hash stored in the Docker image label.
-
-    Returns:
-        Hash string if image exists and has the label, None otherwise
-    """
-    if not image_exists():
-        return None
-
-    try:
-        result = subprocess.run(
-            [
-                "docker",
-                "image",
-                "inspect",
-                "--format",
-                f'{{{{index .Config.Labels "{BUILD_HASH_LABEL}"}}}}',
-                Config.IMAGE_NAME,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode == 0:
-            hash_value = result.stdout.strip()
-            # Docker returns empty string or "<no value>" if label doesn't exist
-            if hash_value and hash_value != "<no value>":
-                return hash_value
-        return None
-    except Exception:
-        return None
-
-
-def should_rebuild_image() -> tuple[bool, str]:
-    """Check if the Docker image needs to be rebuilt.
-
-    Returns:
-        Tuple of (should_rebuild, reason)
-    """
-    # Force rebuild if --rebuild flag is set
-    if _force_rebuild:
-        return True, "forced rebuild (--rebuild flag)"
-
-    if not image_exists():
-        return True, "image does not exist"
-
-    current_hash = compute_build_hash()
-    stored_hash = get_image_build_hash()
-
-    if stored_hash is None:
-        return True, "no build hash stored (legacy image)"
-
-    if current_hash != stored_hash:
-        return True, "build files changed"
-
-    # Check for Claude Code updates (even if files haven't changed)
-    claude_version = check_claude_update()
-    if claude_version:
-        return True, f"Claude Code update available ({claude_version})"
-
-    # Check for claude-agent-sdk updates
-    agent_sdk_version = check_agent_sdk_update()
-    if agent_sdk_version:
-        return True, f"claude-agent-sdk update available ({agent_sdk_version})"
-
-    return False, "build hash matches (skipping rebuild)"
-
-
-def build_image() -> bool:
-    """Build the Docker image, skipping if nothing has changed.
-
-    Uses content hashing to detect when build files change. If the image
-    exists and its stored hash matches the current files, the build is
-    skipped entirely (~25 seconds saved).
-
-    When ``ctx.skip_build`` is True (GHA), the image is pre-built and
-    pulled from a registry, so this function short-circuits immediately.
-    """
-    ctx = get_context()
-    quiet = get_quiet_mode()
-
-    # In GHA, images are pre-pulled from GHCR — no build needed
-    if ctx.skip_build:
-        return True
-
-    # Check if rebuild is needed
-    needs_rebuild, reason = should_rebuild_image()
-
-    if not needs_rebuild:
-        if not quiet:
-            info(f"Docker image up-to-date: {reason}")
-        return True
-
-    # Show rebuild reason - use warn() so it's visible in quiet mode for --rebuild
-    if _force_rebuild:
-        warn(f"Building Docker image: {reason}")
-    elif not quiet:
-        info(f"Building Docker image: {reason}")
-
-    # Sync files to build context
-    create_dockerfile()
-
-    # Check for version updates (cached — no duplicate network calls when
-    # should_rebuild_image() already checked these)
-    claude_version = check_claude_update()
-    agent_sdk_version = check_agent_sdk_update()
-
-    # Compute the build hash to store as a label
-    build_hash = compute_build_hash()
-
-    try:
-        cmd = [
-            "docker",
-            "build",
-            "--build-arg",
-            f"USER_NAME={os.environ['USER']}",
-            "--build-arg",
-            f"USER_UID={os.getuid()}",
-            "--build-arg",
-            f"USER_GID={os.getgid()}",
-            "--label",
-            f"{BUILD_HASH_LABEL}={build_hash}",
-            "-t",
-            Config.IMAGE_NAME,
-            "-f",
-            str(Config.DOCKERFILE),
-            str(Config.CONFIG_DIR),
-        ]
-
-        # Pass agent SDK version to bust cache when PyPI has a new version.
-        # When check_agent_sdk_update() already returned a version (update detected),
-        # we use it directly. Otherwise, fall back to get_latest_agent_sdk_version()
-        # so Docker always gets a specific version for cache-busting.
-        sdk_version = agent_sdk_version or get_latest_agent_sdk_version()
-        if sdk_version:
-            if not quiet:
-                info(f"Agent SDK version for build: {sdk_version}")
-            cmd.insert(2, "--build-arg")
-            cmd.insert(3, f"CLAUDE_AGENT_SDK_VERSION={sdk_version}")
-
-        # Pass Claude version to bust cache when npm has a new version.
-        # Same fallback pattern as SDK: always pass a specific version so
-        # Docker's layer cache is busted whenever the npm version changes.
-        cc_version = claude_version or get_latest_claude_version()
-        if cc_version:
-            cmd.insert(2, "--build-arg")
-            cmd.insert(3, f"CLAUDE_CODE_VERSION={cc_version}")
-
-        # Force no-cache when --rebuild flag is set
-        if _force_rebuild:
-            cmd.insert(2, "--no-cache")
-
-        # In quiet mode, suppress Docker build output
-        if quiet:
-            cmd.insert(2, "--quiet")
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            if result.returncode != 0:
-                # Show error output if build failed
-                error("Docker build failed")
-                if result.stderr:
-                    print(result.stderr, file=sys.stderr)
-                return False
-        else:
-            # Docker automatically uses cache for unchanged layers
-            subprocess.run(cmd, check=True)
-        return True
-    except subprocess.CalledProcessError:
-        error("Docker build failed")
-        return False
 
 
 def image_exists() -> bool:
