@@ -5195,6 +5195,305 @@ def jira_ticket_comments() -> tuple[Response, int] | Response:
     return make_success("Jira ticket comments fetched", body)
 
 
+@app.route("/api/v1/jira/ticket/remotelinks", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_ticket_remotelinks() -> tuple[Response, int] | Response:
+    """Fetch the remote-link list for a Jira issue (issue #1557 slice-2).
+
+    Request body::
+
+        {"ticket": "FOO-123"}
+
+    Read-only — wraps the Atlassian ``GET /rest/api/3/issue/{key}/
+    remotelink`` endpoint. Used by the orchestrator's reassess
+    sweep's in-flight classifier (decision-7 signal b) and the
+    sandbox ``jira ticket remotelinks <KEY>`` CLI subcommand to
+    catch human-opened PRs that the orchestrator's reverse-index
+    doesn't track. Inherits the same project-allowlist boundary as
+    every other Jira route — ``JIRA_WRITE_VERBS_DENIED`` and
+    ``validate_jira_api_path`` keep the path GET-only.
+    """
+    data = request.get_json(silent=True) or {}
+    ticket = data.get("ticket")
+
+    if not isinstance(ticket, str) or not _JIRA_TICKET_KEY_RE.fullmatch(ticket):
+        audit_log(
+            "jira_ticket_remotelinks_rejected",
+            "jira_ticket_remotelinks",
+            success=False,
+            details={
+                "reason": "invalid ticket shape",
+                "ticket": ticket,
+                **_session_jira_context(),
+            },
+        )
+        return make_error(
+            "Invalid ticket key (expected e.g. 'FOO-123')",
+            status_code=400,
+            details={"ticket": ticket},
+        )
+
+    project = extract_project_key(ticket)
+    if not is_project_allowed(project):
+        return _project_not_allowlisted_response(
+            event="jira_ticket_remotelinks_denied",
+            ticket=ticket,
+            project=project,
+            reason="project not allowlisted",
+        )
+
+    try:
+        body = get_jira_client().get_remotelinks(ticket)
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        audit_log(
+            "jira_ticket_remotelinks_upstream_error",
+            "jira_ticket_remotelinks",
+            success=False,
+            details={
+                "ticket": ticket,
+                "project": project,
+                "upstream_status": exc.status_code,
+                **_session_jira_context(),
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    audit_log(
+        "jira_ticket_remotelinks",
+        "jira_ticket_remotelinks",
+        success=True,
+        details={
+            "ticket": ticket,
+            "project": project,
+            "not_found": body.get("status") == "not_found",
+            "remotelink_count": len(body.get("remotelinks") or [])
+            if isinstance(body.get("remotelinks"), list)
+            else 0,
+            **_session_jira_context(),
+        },
+    )
+    return make_success("Jira remote links fetched", body)
+
+
+# Allowlist of transition names the orchestrator-only ``/transition``
+# route accepts (issue #1557 decision-15). Anything else is rejected
+# with HTTP 400 — keeps the agent-facing surface (which denies
+# transitions wholesale via ``JIRA_WRITE_VERBS_DENIED``) and the
+# orchestrator-only escape hatch in agreement: only ``Won't Do`` /
+# ``Won't Fix`` transitions are wired up today.
+_TRANSITION_ALLOWLIST: frozenset[str] = frozenset(
+    {name.lower() for name in ("Won't Do", "Won't Fix", "Wontfix")}
+)
+
+
+def _verify_orchestrator_transition_auth() -> tuple[bool, str]:
+    """Verify the caller of ``/api/v1/jira/ticket/transition`` is the
+    orchestrator (issue #1557 task-2-6).
+
+    Two-factor check:
+      1. ``Authorization: Bearer <launcher_secret>`` must validate
+         against the gateway's launcher secret (the orchestrator is
+         the only component with the secret mounted).
+      2. The request must originate from a loopback / in-cluster
+         source. We accept any caller whose source IP equals the
+         orchestrator's gateway-side IP, the loopback addresses
+         (``127.0.0.1`` / ``::1``), or anything in the cluster pod
+         subnet. The loopback check protects against scenarios where
+         the launcher secret is leaked but the attacker is outside
+         the cluster (the orchestrator pod's IP is not externally
+         reachable on a healthy cluster).
+
+    Returns ``(ok, reason)``.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False, "missing_bearer_auth"
+    presented = auth_header[len("Bearer ") :]
+    try:
+        launcher_secret = get_launcher_secret()
+    except LauncherSecretNotConfiguredError:
+        return False, "launcher_secret_not_configured"
+    if not launcher_secret or not secrets.compare_digest(presented, launcher_secret):
+        return False, "bad_bearer_auth"
+
+    # Loopback / in-cluster source check. ``request.remote_addr`` is
+    # the immediate peer; for in-cluster traffic this is the
+    # orchestrator pod IP. We accept anything from RFC1918 / IPv6
+    # link-local / loopback so the orchestrator can reach us via any
+    # ingress-side path (k3s NodePort, direct service IP, …). Public
+    # IPs are rejected.
+    remote_addr = request.remote_addr or ""
+    if not _is_in_cluster_source(remote_addr):
+        return False, "source_not_in_cluster"
+
+    return True, ""
+
+
+def _is_in_cluster_source(remote_addr: str) -> bool:
+    """Return True if ``remote_addr`` is a loopback / RFC1918 address."""
+    if not remote_addr:
+        return False
+    try:
+        import ipaddress
+
+        ip = ipaddress.ip_address(remote_addr)
+    except ValueError:
+        return False
+    if ip.is_loopback:
+        return True
+    if ip.is_private:
+        return True
+    if ip.is_link_local:
+        return True
+    return False
+
+
+@app.route("/api/v1/jira/ticket/transition", methods=["POST"])
+def jira_ticket_transition() -> tuple[Response, int] | Response:
+    """Transition a Jira issue (issue #1557 slice-2 task-2-6).
+
+    **Orchestrator-only**. The agent-facing Jira surface continues to
+    deny transitions via ``JIRA_WRITE_VERBS_DENIED`` — this route
+    bypasses the agent path entirely. Auth is a two-factor check:
+    a launcher-secret bearer token AND a loopback / in-cluster
+    source IP. Transition names are restricted to the allowlist
+    (``Won't Do`` / ``Won't Fix``) — anything else returns 400.
+
+    Request body::
+
+        {"ticket": "FOO-123",
+         "transition_name": "Won't Do",
+         "comment": "Consolidated into FOO-200"}
+
+    Returns ``200 OK`` on success with the upstream status code in
+    the response body. Audit log entry covers caller IP, transition
+    name, ticket key, and outcome.
+    """
+    ok, reason = _verify_orchestrator_transition_auth()
+    if not ok:
+        audit_log(
+            "jira_ticket_transition_unauthorized",
+            "jira_ticket_transition",
+            success=False,
+            details={
+                "reason": reason,
+                "remote_addr": request.remote_addr,
+            },
+        )
+        return make_error(
+            "Unauthorized — orchestrator-only route",
+            status_code=401 if reason != "source_not_in_cluster" else 403,
+            details={"reason": reason},
+        )
+
+    data = request.get_json(silent=True) or {}
+    ticket = data.get("ticket")
+    transition_name = data.get("transition_name")
+    comment_text = data.get("comment")
+
+    if not isinstance(ticket, str) or not _JIRA_TICKET_KEY_RE.fullmatch(ticket):
+        audit_log(
+            "jira_ticket_transition_rejected",
+            "jira_ticket_transition",
+            success=False,
+            details={
+                "reason": "invalid ticket shape",
+                "ticket": ticket,
+            },
+        )
+        return make_error(
+            "Invalid ticket key (expected e.g. 'FOO-123')",
+            status_code=400,
+            details={"ticket": ticket},
+        )
+
+    if not isinstance(transition_name, str) or not transition_name.strip():
+        return make_error(
+            "transition_name is required",
+            status_code=400,
+            details={"reason": "missing_transition_name"},
+        )
+    if transition_name.strip().lower() not in _TRANSITION_ALLOWLIST:
+        audit_log(
+            "jira_ticket_transition_denied",
+            "jira_ticket_transition",
+            success=False,
+            details={
+                "reason": "transition_not_allowlisted",
+                "transition_name": transition_name,
+                "ticket": ticket,
+            },
+        )
+        return make_error(
+            f"transition_name {transition_name!r} is not on the allowlist",
+            status_code=400,
+            details={
+                "reason": "transition_not_allowlisted",
+                "allowed": sorted(_TRANSITION_ALLOWLIST),
+            },
+        )
+
+    project = extract_project_key(ticket)
+    if not is_project_allowed(project):
+        return _project_not_allowlisted_response(
+            event="jira_ticket_transition_denied",
+            ticket=ticket,
+            project=project,
+            reason="project not allowlisted",
+        )
+
+    comment_adf: dict[str, Any] | None = None
+    if isinstance(comment_text, str) and comment_text.strip():
+        try:
+            from .jira_adf import wrap_text_as_adf
+        except ImportError:
+            from jira_adf import wrap_text_as_adf  # type: ignore[no-redef]
+        comment_adf = wrap_text_as_adf(comment_text.strip())
+
+    try:
+        status_code, body = get_jira_client().transition_issue(
+            ticket,
+            transition_name=transition_name.strip(),
+            comment_adf=comment_adf,
+        )
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        audit_log(
+            "jira_ticket_transition_upstream_error",
+            "jira_ticket_transition",
+            success=False,
+            details={
+                "ticket": ticket,
+                "project": project,
+                "transition_name": transition_name,
+                "upstream_status": exc.status_code,
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    audit_log(
+        "jira_ticket_transition",
+        "jira_ticket_transition",
+        success=True,
+        details={
+            "ticket": ticket,
+            "project": project,
+            "transition_name": transition_name,
+            "upstream_status": status_code,
+            "comment_attached": bool(comment_adf),
+            "remote_addr": request.remote_addr,
+        },
+    )
+    return make_success(
+        "Jira ticket transitioned",
+        {"upstream_status": status_code, "body": body},
+    )
+
+
 @app.route("/api/v1/jira/execute", methods=["POST"])
 @require_session_auth
 @require_private_mode

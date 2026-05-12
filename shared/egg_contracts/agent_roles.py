@@ -451,7 +451,7 @@ APPLIER_ROLE = AgentRoleDefinition(
     ),
     category=AgentCategory.EXECUTION,
     responsibilities=[
-        "Read EGG_PIPELINE_MODE + the just-approved phase + contract path",
+        "Read EGG_EPIC_MODE + the just-approved phase + contract path",
         "For refine-apply: write the analysis to the epic Description",
         "For plan-apply: walk Task.jira_action and dispatch per-action",
         "Write jira_action_status='in_flight' before each call; flip to "
