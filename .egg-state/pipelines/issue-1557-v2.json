@@ -482,10 +482,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-17",
+      "question": "**Refine/plan prompt structure: shared vs split prompts for epic mode.** Today `plugins/refine-plan/skills/refine-plan/agents/refiner.md` and `task-planner.md` are issue-shape-agnostic. Epic mode needs: (refine) \"frame as self-contained epic problem statement + scope, not ticket-shaped\"; (plan) \"every plan node is a Jira-ticket-shaped description, surface mapping diff\". Options:",
+      "context": "Open contract question decision-16, registered by an agent during the refine phase.",
+      "options": [
+        "Parameterize the existing prompts via injected context: pass `mode: epic | ticket | github_issue` and a small conditional block at the top of each prompt. Single source of truth, easy to keep aligned. Recommended.",
+        "Two distinct prompt files per role (e.g. `refiner.md` + `refiner-epic.md`, `task-planner.md` + `task-planner-epic.md`). Clearer per-mode reading, but doubles the surface to keep in sync and complicates the loader.",
+        "Single prompt with the epic-specific guidance always present but conditionally relevant. Simplest but bloats the prompt for non-epic invocations.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.401484Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.365092Z",
+  "updated_at": "2026-05-12T04:46:05.409804Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -499,6 +518,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 27,
+  "version": 28,
   "jira_ticket": null
 }
