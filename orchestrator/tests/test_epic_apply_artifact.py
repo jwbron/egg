@@ -228,6 +228,176 @@ class TestEpicApplyArtifactRoundTrip:
 
 
 # -----------------------------------------------------------------------------
+# Pipeline.get_epic_apply — malformed artifact logs structured warning (#5)
+# -----------------------------------------------------------------------------
+
+
+class TestGetEpicApplyMalformedWarning:
+    """v5 reviewer_code v3 #5 mitigation — ``get_epic_apply`` MUST log a
+    structured ``epic_apply_artifact_invalid`` warning and return None
+    when the persisted artifact is malformed, rather than silently
+    swallowing as None. A silent swallow would let the apply step
+    re-run from scratch on a malformed (rather than absent) artifact
+    and re-issue every ``createJiraIssue`` against an already-partially-
+    applied epic.
+    """
+
+    def _pipeline_with_raw_artifact(self, raw: str) -> Pipeline:
+        from models import PhaseExecution, PipelinePhase
+
+        pipeline = Pipeline(id="issue-1557")
+        # Stash the malformed string straight into the artifacts dict
+        # (bypassing set_epic_apply which would validate).
+        plan = PhaseExecution(phase=PipelinePhase.PLAN)
+        plan.artifacts["epic_apply"] = raw
+        pipeline.phases[PipelinePhase.PLAN.value] = plan
+        return pipeline
+
+    def test_malformed_json_logs_warning_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The orchestrator uses egg_logging (a structlog wrapper) which
+        # bypasses stdlib caplog; patch the module-level logger and
+        # inspect the recorded calls directly.
+        import models
+
+        recorded: list[tuple[str, dict[str, object]]] = []
+
+        def fake_warning(event: str, **kwargs: object) -> None:
+            recorded.append((event, kwargs))
+
+        monkeypatch.setattr(models._models_logger, "warning", fake_warning)
+
+        pipeline = self._pipeline_with_raw_artifact("not valid json {{{")
+        result = pipeline.get_epic_apply()
+        assert result is None
+        # Exactly one structured warning was emitted with the right
+        # event name and reason.
+        assert recorded, "expected an epic_apply_artifact_invalid warning"
+        events = [e for e, _ in recorded]
+        assert "epic_apply_artifact_invalid" in events
+        kwargs = next(kw for e, kw in recorded if e == "epic_apply_artifact_invalid")
+        assert kwargs["reason"] == "json_decode_failed"
+        assert kwargs["pipeline_id"] == "issue-1557"
+        assert "error" in kwargs
+
+    def test_json_but_schema_invalid_logs_warning_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Decodes as JSON but fails Pydantic validation: bad kind value.
+        import models
+
+        recorded: list[tuple[str, dict[str, object]]] = []
+
+        def fake_warning(event: str, **kwargs: object) -> None:
+            recorded.append((event, kwargs))
+
+        monkeypatch.setattr(models._models_logger, "warning", fake_warning)
+
+        bad_artifact = json.dumps(
+            {
+                "version": 1,
+                "idempotency_seed": "seed-x",
+                "applied_edits": [
+                    {
+                        "kind": "this_is_not_a_valid_kind",
+                        "target": "node-1",
+                        "payload": {},
+                        "summary_hash": "deadbeef",
+                        "status": "pending",
+                    }
+                ],
+            }
+        )
+        pipeline = self._pipeline_with_raw_artifact(bad_artifact)
+        result = pipeline.get_epic_apply()
+        assert result is None
+        events = [e for e, _ in recorded]
+        assert "epic_apply_artifact_invalid" in events
+        kwargs = next(kw for e, kw in recorded if e == "epic_apply_artifact_invalid")
+        assert kwargs["reason"] == "pydantic_validation_failed"
+
+    def test_absent_artifact_does_not_log_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The "no artifact present" path is NOT an error — it's the
+        first-run / pre-apply state and must not emit a warning.
+        """
+        import models
+
+        recorded: list[tuple[str, dict[str, object]]] = []
+
+        def fake_warning(event: str, **kwargs: object) -> None:
+            recorded.append((event, kwargs))
+
+        monkeypatch.setattr(models._models_logger, "warning", fake_warning)
+
+        pipeline = Pipeline(id="issue-1557")
+        assert pipeline.get_epic_apply() is None
+        events = [e for e, _ in recorded]
+        assert "epic_apply_artifact_invalid" not in events
+
+
+# -----------------------------------------------------------------------------
+# Pipeline jira_ticket / jira_epic_key mutual exclusivity validator (#11)
+# -----------------------------------------------------------------------------
+
+
+class TestJiraTicketAndEpicKeyMutualExclusivity:
+    """v5 reviewer_code v3 #11 mitigation — the ``@model_validator(mode='after')``
+    at ``orchestrator/models.py:1243-1263`` raises a ValueError when
+    BOTH ``jira_ticket`` and ``jira_epic_key`` are set, because the
+    issuetype-detection probe persists exactly one of the two based on
+    the Atlassian issuetype. A pipeline carrying both is structurally
+    ambiguous — downstream branches that gate on either field would
+    each fire incorrectly.
+    """
+
+    def test_both_set_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc:
+            Pipeline(
+                id="issue-1557",
+                jira_ticket="ENG-1",
+                jira_epic_key="ENG-2",
+            )
+        msg = str(exc.value)
+        # The error message must name the constraint so the operator
+        # understands what went wrong.
+        assert "mutually exclusive" in msg
+        # And surface both offending values so the operator can
+        # diagnose which side was wrong.
+        assert "ENG-1" in msg
+        assert "ENG-2" in msg
+
+    def test_only_jira_ticket_allowed(self) -> None:
+        # The legacy single-ticket flow must keep working.
+        Pipeline(id="issue-x", jira_ticket="ENG-1")
+
+    def test_only_jira_epic_key_allowed(self) -> None:
+        Pipeline(id="issue-x", jira_epic_key="ENG-1")
+
+    def test_neither_set_allowed(self) -> None:
+        # ISSUE-mode pipelines without a Jira key are still valid.
+        Pipeline(id="issue-x")
+
+    def test_both_set_with_jira_parent_epic_key_still_rejected(self) -> None:
+        """Defence in depth: a pipeline with ``jira_parent_epic_key``
+        (a child pipeline's provenance pointer) must STILL refuse to
+        set both ``jira_ticket`` AND ``jira_epic_key`` — the parent
+        pointer doesn't sidestep the mutual-exclusivity rule.
+        """
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            Pipeline(
+                id="issue-x",
+                jira_ticket="ENG-1",
+                jira_epic_key="ENG-2",
+                jira_parent_epic_key="ENG-3",
+            )
+
+
+# -----------------------------------------------------------------------------
 # Pipeline.jira_epic_key
 # -----------------------------------------------------------------------------
 

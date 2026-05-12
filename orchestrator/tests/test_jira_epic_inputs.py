@@ -34,6 +34,7 @@ from jira_epic_inputs import (
     _extract_confluence_urls_from_text,
     _fetch_remote_links,
     _flatten_description,
+    compute_description_sha256,
     gather_refine_inputs,
     write_inputs_to_agent_outputs,
 )
@@ -470,6 +471,166 @@ class TestConfluenceUrlRegex:
     def test_matches_self_hosted_http_variant(self):
         # The source allows http (Server / Data Center variants).
         assert CONFLUENCE_URL_RE.match("http://acme.atlassian.net/wiki/display/ENG/Page")
+
+
+# ---------------------------------------------------------------------------
+# compute_description_sha256 — canonical ADF hashing (v5 reviewer_code #7)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeDescriptionSha256:
+    """v5 reviewer_code v3 #7 mitigation — Atlassian descriptions come as
+    ADF dicts or plain strings; hashing the flattened text loses
+    formatting fidelity (bold / list-nesting / link-mark-URL edits all
+    pass undetected through the architect ad-5 concurrent-edit guard).
+    The canonical algorithm is:
+
+        - ADF dict   → json.dumps(adf, sort_keys=True,
+                                  separators=(",", ":"),
+                                  ensure_ascii=False)
+        - plain str  → str.encode("utf-8")
+        - None       → empty-string sha256
+        - other      → str(value).encode("utf-8") fallback
+
+    These tests are NON-circular: every expected hash is computed
+    independently of the production helper so a regression that
+    changes the algorithm (e.g. sorts keys differently, omits
+    ensure_ascii, or hashes the flattened text instead of the ADF)
+    surfaces immediately.
+    """
+
+    def test_key_order_invariant_for_adf_dict(self):
+        """Two ADF dicts differing ONLY in key order MUST hash to the
+        same value (``sort_keys=True``).  Regression guard: a refactor
+        that drops sort_keys produces different hashes for these
+        semantically-equal inputs.
+        """
+        adf_a = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "hello"}],
+                },
+            ],
+        }
+        adf_b = {
+            # Same payload, keys in different insertion order.
+            "content": [
+                {
+                    "content": [{"text": "hello", "type": "text"}],
+                    "type": "paragraph",
+                },
+            ],
+            "version": 1,
+            "type": "doc",
+        }
+        assert compute_description_sha256(adf_a) == compute_description_sha256(adf_b)
+
+    def test_adf_hash_differs_from_flattened_text(self):
+        """The whole point of the v5 #7 fix: hashing the ADF dict gives
+        a DIFFERENT value than hashing the flattened text. A refactor
+        that reverts to hashing the flattened text would pass the
+        round-trip tests in TestGatherRefineInputs but would silently
+        lose formatting-only edit detection. Pin the distinction.
+        """
+        adf = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "hello"}],
+                },
+            ],
+        }
+        adf_hash = compute_description_sha256(adf)
+        flattened_text = "hello"
+        flattened_hash = hashlib.sha256(flattened_text.encode("utf-8")).hexdigest()
+        assert adf_hash != flattened_hash
+
+    def test_plain_string_uses_utf8_bytes(self):
+        """``compute_description_sha256("hello")`` must equal
+        ``hashlib.sha256(b"hello").hexdigest()``. Pinned independently
+        of the production helper.
+        """
+        expected = hashlib.sha256(b"hello").hexdigest()
+        assert compute_description_sha256("hello") == expected
+
+    def test_unicode_string_uses_utf8_encoding(self):
+        """Non-ASCII strings must be UTF-8 encoded, not surrogate-escape
+        or punycode. Pinned because Atlassian descriptions can contain
+        any Unicode.
+        """
+        text = "résumé — 中文 — 🚀"
+        expected = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        assert compute_description_sha256(text) == expected
+
+    def test_none_returns_empty_string_hash(self):
+        """A missing description (None) must hash to the canonical
+        empty-string sha256 so the apply step can compare against a
+        fresh epic's hash without crashing.
+        """
+        expected = hashlib.sha256(b"").hexdigest()
+        assert compute_description_sha256(None) == expected
+        # Independently verified: the empty-string sha256 has a
+        # well-known fixed digest.
+        assert (
+            compute_description_sha256(None)
+            == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        )
+
+    def test_unknown_shape_falls_back_to_str_repr(self):
+        """An unknown shape (list, int, custom object) must still
+        return a 64-char hex digest, not raise. The implementation
+        falls back to ``str(value).encode("utf-8")``.
+        """
+        # List input.
+        h_list = compute_description_sha256([1, 2, 3])
+        assert len(h_list) == 64 and all(c in "0123456789abcdef" for c in h_list)
+        assert h_list == hashlib.sha256(b"[1, 2, 3]").hexdigest()
+        # Int input.
+        h_int = compute_description_sha256(42)
+        assert h_int == hashlib.sha256(b"42").hexdigest()
+
+    def test_adf_with_non_ascii_does_not_double_encode(self):
+        """``ensure_ascii=False`` in json.dumps means UTF-8 characters
+        appear in the canonical form verbatim (not as ``\\uXXXX`` escape
+        sequences). Regression guard: dropping ensure_ascii=False
+        produces a DIFFERENT hash for the same logical content.
+        """
+        adf = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "café"}]},
+            ],
+        }
+        # Independently compute the expected hash with ensure_ascii=False.
+        canonical = json.dumps(adf, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        assert compute_description_sha256(adf) == expected
+        # And confirm it would NOT match the ensure_ascii=True variant.
+        ascii_canonical = json.dumps(adf, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        wrong = hashlib.sha256(ascii_canonical.encode("utf-8")).hexdigest()
+        assert compute_description_sha256(adf) != wrong
+
+    def test_adf_separator_compactness_pinned(self):
+        """``separators=(",", ":")`` means no whitespace in the canonical
+        ADF JSON form. A refactor that drops the separators argument
+        would re-introduce the default `(", ", ": ")` and produce a
+        different hash for the same content.
+        """
+        adf = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "x"}]},
+            ],
+        }
+        # Default-separator canonical form (the regression shape).
+        default_canonical = json.dumps(adf, sort_keys=True, ensure_ascii=False)
+        default_hash = hashlib.sha256(default_canonical.encode("utf-8")).hexdigest()
+        assert compute_description_sha256(adf) != default_hash
 
 
 # ---------------------------------------------------------------------------
