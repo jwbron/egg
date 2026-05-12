@@ -517,9 +517,7 @@ class JiraClient:
             target_norm = transition_name.strip().lower()
             transitions = list_body.get("transitions") if isinstance(list_body, dict) else None
             if not isinstance(transitions, list):
-                raise JiraUpstreamError(
-                    500, list_body, f"issue/{key}/transitions"
-                )
+                raise JiraUpstreamError(500, list_body, f"issue/{key}/transitions")
             for entry in transitions:
                 if not isinstance(entry, dict):
                     continue
@@ -540,15 +538,11 @@ class JiraClient:
         if comment_adf is not None:
             payload["update"] = {"comment": [{"add": {"body": comment_adf}}]}
 
-        response = self._request(
-            "POST", f"issue/{key}/transitions", body=payload
-        )
+        response = self._request("POST", f"issue/{key}/transitions", body=payload)
         if response.status_code in (200, 204):
             return response.status_code, {}
         _raise_for_status(response, f"issue/{key}/transitions")
-        return response.status_code, _safe_json(
-            response, f"issue/{key}/transitions"
-        )
+        return response.status_code, _safe_json(response, f"issue/{key}/transitions")
 
     def search(
         self,

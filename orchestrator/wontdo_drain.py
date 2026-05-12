@@ -75,7 +75,7 @@ def _gateway_base_url() -> str:
     if explicit:
         return explicit
     host = os.environ.get("GATEWAY_HOST", "gateway.egg-system.svc.cluster.local")
-    port = os.environ.get("GATEWAY_PORT", "9848")
+    port = os.environ.get("GATEWAY_PORT", "9848")  # noqa: EGG002
     return f"http://{host}:{port}"
 
 
@@ -174,9 +174,7 @@ def load_wontdo_handoff(path: Path) -> list[WontDoEntry]:
                 comment=str(entry.get("comment") or "").strip(),
                 task_id=str(entry.get("task_id")) if entry.get("task_id") else None,
                 survivor_key=(
-                    str(entry.get("survivor_key"))
-                    if entry.get("survivor_key")
-                    else None
+                    str(entry.get("survivor_key")) if entry.get("survivor_key") else None
                 ),
             )
         )
