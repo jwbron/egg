@@ -6,7 +6,7 @@
   "base_branch": null,
   "prompt": null,
   "status": "running",
-  "current_phase": "refine",
+  "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
     "parallel_agents": true,
@@ -549,7 +549,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:52:15.332388Z",
+  "updated_at": "2026-05-12T04:52:18.378148Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -562,7 +562,7 @@
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": null,
-  "version": 47,
+  "run_epoch": "2026-05-12T04:52:18.377931Z",
+  "version": 48,
   "jira_ticket": null
 }
