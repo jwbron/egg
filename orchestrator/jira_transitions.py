@@ -250,13 +250,23 @@ class JiraTransitionsClient:
         We resolve the httpx import lazily so this module can be imported
         in environments where httpx isn't installed (the gateway already
         depends on httpx in production).
+
+        Concurrency (reviewer_concurrency v3 non-blocking finding):
+            Double-checked locking under ``self._lock`` so two threads
+            calling :meth:`transition_to_wont_do` concurrently can't
+            each instantiate their own ``httpx.Client`` and orphan one
+            (the orphaned client's connection pool would persist until
+            GC reclaims it).
         """
-        if self._http_client is not None:
-            return self._http_client
+        client = self._http_client
+        if client is not None:
+            return client
         import httpx  # noqa: PLC0415
 
-        self._http_client = httpx.Client(timeout=self._timeout)
-        return self._http_client
+        with self._lock:
+            if self._http_client is None:
+                self._http_client = httpx.Client(timeout=self._timeout)
+            return self._http_client
 
     @staticmethod
     def _headers(creds: JiraCredentials) -> dict[str, str]:

@@ -36,7 +36,7 @@ try:
 except ImportError:  # pragma: no cover — exercised when egg_logging missing
     import logging
 
-    def get_logger(name: str, **kwargs: Any):  # type: ignore[misc]
+    def get_logger(name: str, **kwargs: Any) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
 
