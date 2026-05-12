@@ -42,7 +42,6 @@ only surfaces fixtures cross-module.
 
 from __future__ import annotations
 
-import os
 import sys
 from collections.abc import Callable, Generator
 from pathlib import Path
@@ -73,21 +72,26 @@ from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph  # noqa: E40
 # /pipelines/<id>, signals, etc.) require ``EGG_LIFECYCLE_SECRET`` to be
 # set + ``Authorization: Bearer <secret>`` on the request. The
 # orchestrator's own test suite sets this session-wide via
-# ``orchestrator/tests/conftest.py``; mirror the pattern here so the
-# regression tier can drive PATCH-side routes the same way.
+# ``orchestrator/tests/conftest.py`` with a different secret value
+# (``test-lifecycle-secret-egg1769``). A session-scoped autouse fixture
+# here would race that one in a mixed-tree pytest session: whichever
+# fired second would overwrite the env, and the FlaskClient.open
+# monkey-patch in the other tree would then inject a header that no
+# longer matches the env-read secret on the server side. Function-scoped
+# (via ``monkeypatch``) keeps the override strictly local to each
+# regression test and restores cleanly, so the orchestrator's
+# session-scoped value (if also in the session) is what other trees see.
 _TEST_LIFECYCLE_SECRET = "test-lifecycle-secret-regression"
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _set_lifecycle_secret_env():
-    """Set ``EGG_LIFECYCLE_SECRET`` for the regression test session."""
-    prev = os.environ.get("EGG_LIFECYCLE_SECRET")
-    os.environ["EGG_LIFECYCLE_SECRET"] = _TEST_LIFECYCLE_SECRET
-    yield
-    if prev is None:
-        os.environ.pop("EGG_LIFECYCLE_SECRET", None)
-    else:
-        os.environ["EGG_LIFECYCLE_SECRET"] = prev
+@pytest.fixture(autouse=True)
+def _set_lifecycle_secret_env(monkeypatch):
+    """Set ``EGG_LIFECYCLE_SECRET`` per regression test (function-scoped).
+
+    See the module-level comment for why this is function-scoped rather
+    than session-scoped.
+    """
+    monkeypatch.setenv("EGG_LIFECYCLE_SECRET", _TEST_LIFECYCLE_SECRET)
 
 
 @pytest.fixture
