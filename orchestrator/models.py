@@ -108,6 +108,19 @@ class ContainerStatus(StrEnum):
     REMOVED = "removed"
 
 
+# Single source of truth for "which container statuses count as live"
+# (#2420). Both ``routes/pipelines._count_live_pods_for_pipeline`` and
+# ``startup_reconciliation.reconcile_stale_containers`` import this so
+# the two label-scoped pod checks can't drift — drift would reintroduce
+# the #2411 false-positive class (live pipelines marked FAILED at startup
+# while the start_pipeline guard still treats their pods as live).
+LIVE_POD_STATUSES: tuple[ContainerStatus, ...] = (
+    ContainerStatus.PENDING,
+    ContainerStatus.CREATING,
+    ContainerStatus.RUNNING,
+)
+
+
 class DecisionStatus(StrEnum):
     """Status of a HITL decision."""
 

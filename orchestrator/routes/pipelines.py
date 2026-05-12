@@ -99,6 +99,7 @@ try:
     )
     from ..kubernetes_spawner import KubernetesSpawnError, get_kubernetes_spawner
     from ..models import (
+        LIVE_POD_STATUSES,
         AgentExecutionStatus,
         AgentExitInfo,
         AgentRole,
@@ -152,6 +153,7 @@ except ImportError:
         get_kubernetes_spawner,
     )
     from models import (  # type: ignore
+        LIVE_POD_STATUSES,
         AgentExecutionStatus,
         AgentExitInfo,
         AgentRole,
@@ -977,21 +979,11 @@ def _get_spawner():
 
 # Container statuses that count as "live" for the purposes of the
 # orphan guard — a pod whose status maps to one of these is still
-# bound to the pipeline and would be orphaned by clearing
-# ``containers`` / ``agents`` / ``artifacts``.  Pods in terminal
-# phases (``Failed``/``Succeeded`` → ``ContainerStatus.FAILED`` /
-# ``EXITED``) have already exited and the reset orphans no work.
-# This matters because k8s Jobs default to ``ttlSecondsAfterFinished=600``
-# so a Failed pod object survives in the cluster for up to 10 minutes
-# after the pod itself has terminated — which is exactly the window
-# where ``start_pipeline`` is most commonly called for recovery.
-# ``startup_reconciliation.py`` applies the same filter so the two
-# label-scoped pod checks agree on what "live" means.
-_LIVE_POD_STATUSES: tuple[ContainerStatus, ...] = (
-    ContainerStatus.PENDING,
-    ContainerStatus.CREATING,
-    ContainerStatus.RUNNING,
-)
+# Live-pod status filter (#2420). Hoisted to ``models.LIVE_POD_STATUSES``
+# in #2650 so ``startup_reconciliation`` and this module can't drift;
+# this alias preserves the historical underscore-prefixed name used by
+# existing tests and prose references.
+_LIVE_POD_STATUSES = LIVE_POD_STATUSES
 
 
 def _count_live_pods_for_pipeline(pipeline_id: str, *, quiet: bool = False) -> int | None:

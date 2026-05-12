@@ -611,3 +611,215 @@ class TestSalvageBeforeWorktreeTeardown:
         # simulate the next step.
         gateway.delete_worktrees(container_id="issue-2429-coder", force=True)
         assert delete_calls == [{"container_id": "issue-2429-coder", "force": True}]
+
+
+# ---------------------------------------------------------------------------
+# Full cleanup_pipeline body — real salvage helpers + real worktrees (#2659)
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupPipelineEndToEnd:
+    """Drives ``KubernetesSpawner.cleanup_pipeline`` end-to-end with the
+    real ``auto_salvage_pipeline`` hook against real on-disk worktrees.
+
+    The unit tier (``orchestrator/tests/test_kubernetes_spawner_salvage.py``)
+    stubs ``agent_salvage.auto_salvage_pipeline`` wholesale, so a regression
+    in the wiring between the FS-scan loop, the salvage hook, and the
+    per-worktree ``delete_worktrees`` calls would slip past both tiers.
+    ``TestSalvageBeforeWorktreeTeardown`` above asserts the ordering
+    invariant via a simulated cleanup body; this class invokes the actual
+    ``cleanup_pipeline`` body so the FS-scan rules, the
+    ``worktree_ids_to_clean`` set construction, and the salvage-then-delete
+    iteration all stay covered.
+    """
+
+    def _make_spawner(self, gateway: MagicMock) -> object:
+        """Instantiate ``KubernetesSpawner`` with mock k8s + injected gateway.
+
+        Mirrors the unit-tier fixture in
+        ``orchestrator/tests/test_kubernetes_spawner_salvage.py`` — the
+        spawner constructor accepts the gateway as a kwarg so the
+        ``get_gateway_client`` default never runs.
+        """
+        from kubernetes_client import PodNotFoundError
+        from kubernetes_spawner import KubernetesSpawner
+        from models import ContainerInfo, ContainerStatus
+
+        k8s = MagicMock()
+        k8s.delete_job.side_effect = PodNotFoundError("No existing job")
+        k8s.list_containers.return_value = []
+        k8s.remove_container.return_value = None
+        k8s.create_container.return_value = ContainerInfo(
+            container_id="uid-x",
+            container_name="egg-x",
+            job_name="egg-x",
+            status=ContainerStatus.PENDING,
+        )
+        return KubernetesSpawner(k8s_client=k8s, gateway_client=gateway)
+
+    def test_cleanup_pipeline_pushes_recovery_ref_before_delete(self, tmp_path):
+        """Single coder worktree: recovery push lands before delete_worktrees.
+
+        Drives the full ``cleanup_pipeline`` body — FS scan picks the
+        ``{pipeline}-coder`` directory off ``WORKTREE_BASE_DIR`` ``tmp_path``,
+        the real ``auto_salvage_pipeline`` enumerates the same set, the
+        gateway sees a push for the ``egg/recovered/<pipeline>/coder/...``
+        ref *before* the ``delete_worktrees`` call for the same worktree id.
+        """
+        _, head_sha = _build_worktree(
+            tmp_path,
+            "issue-2659",
+            agent_role="coder",
+            slice_id=None,
+            assigned_branch="egg/issue-2659/work",
+        )
+
+        call_log: list[tuple[str, str]] = []
+        gateway = MagicMock()
+
+        def record_push(**kwargs):
+            call_log.append(("push", kwargs.get("branch", "")))
+            return PushResult(ok=True)
+
+        def record_delete(**kwargs):
+            call_log.append(("delete", kwargs.get("container_id", "")))
+            return MagicMock(success=True, worktrees={}, errors=[])
+
+        gateway.push_worktree_branch.side_effect = record_push
+        gateway.delete_worktrees.side_effect = record_delete
+
+        spawner = self._make_spawner(gateway)
+
+        with (
+            patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+        ):
+            spawner.cleanup_pipeline(
+                "issue-2659",
+                salvage_mode="private",
+                salvage_base_branch="main",
+            )
+
+        # Salvage push for the coder ref must precede the
+        # delete_worktrees call for the same worktree id.
+        stages = [stage for stage, _ in call_log]
+        assert "push" in stages
+        assert "delete" in stages
+        first_push = stages.index("push")
+        # The delete for the salvaged worktree id specifically.
+        coder_delete_idx = next(
+            (
+                i
+                for i, (stage, target) in enumerate(call_log)
+                if stage == "delete" and target == "issue-2659-coder"
+            ),
+            None,
+        )
+        assert coder_delete_idx is not None
+        assert first_push < coder_delete_idx
+
+        # The recovery ref name carries the actual HEAD SHA (proves the
+        # push happened against the live worktree, pre-teardown).
+        push_targets = [target for stage, target in call_log if stage == "push"]
+        expected_ref = f"{RECOVERY_BRANCH_PREFIX}/issue-2659/coder/{head_sha[:12]}"
+        assert expected_ref in push_targets
+
+    def test_cleanup_pipeline_threads_salvage_mode_and_base_branch(self, tmp_path):
+        """``salvage_mode="private"`` reaches ``push_worktree_branch``.
+
+        The unit tier proves the helper kwargs are forwarded; this drives
+        the real chain so ``cleanup_pipeline`` → ``auto_salvage_pipeline``
+        → ``salvage_worktree`` → ``gateway.push_worktree_branch`` lands
+        on the gateway with ``mode="private"``. Regression target: a
+        future refactor that drops the mode kwarg silently degrades a
+        private-repo pipeline back to a public-mode push (the #2429
+        review-feedback class).
+        """
+        _build_worktree(
+            tmp_path,
+            "issue-2659",
+            agent_role="coder",
+            slice_id=None,
+            assigned_branch="egg/issue-2659/work",
+        )
+
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+        gateway.delete_worktrees.return_value = MagicMock(success=True, worktrees={}, errors=[])
+
+        spawner = self._make_spawner(gateway)
+
+        with (
+            patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+        ):
+            spawner.cleanup_pipeline(
+                "issue-2659",
+                salvage_mode="private",
+                salvage_base_branch="main",
+            )
+
+        gateway.push_worktree_branch.assert_called_once()
+        push_kwargs = gateway.push_worktree_branch.call_args.kwargs
+        assert push_kwargs["mode"] == "private"
+
+    def test_cleanup_pipeline_pushes_one_ref_per_worktree(self, tmp_path):
+        """Pipeline-level + per-role + slice-scoped worktrees: one ref each.
+
+        Three distinct worktree shapes get scanned off the FS, salvaged
+        in one pass, then each deleted. The deletes must cover the same
+        set the salvage walked — otherwise the FS-scan loop has drifted
+        from ``enumerate_agent_worktrees``.
+        """
+        _, pipeline_head = _build_worktree(
+            tmp_path,
+            "issue-2659",
+            agent_role=None,
+            slice_id=None,
+            assigned_branch="egg/issue-2659/work",
+        )
+        _, coder_head = _build_worktree(
+            tmp_path,
+            "issue-2659",
+            agent_role="coder",
+            slice_id=None,
+            assigned_branch="egg/issue-2659/work",
+        )
+        _, slice_coder_head = _build_worktree(
+            tmp_path,
+            "issue-2659",
+            agent_role="coder",
+            slice_id="slice-3",
+            assigned_branch="egg/issue-2659/slice-3",
+        )
+
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+        gateway.delete_worktrees.return_value = MagicMock(success=True, worktrees={}, errors=[])
+
+        spawner = self._make_spawner(gateway)
+
+        with (
+            patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+        ):
+            spawner.cleanup_pipeline("issue-2659")
+
+        pushed_refs = {
+            call.kwargs["branch"] for call in gateway.push_worktree_branch.call_args_list
+        }
+        assert pushed_refs == {
+            f"{RECOVERY_BRANCH_PREFIX}/issue-2659/pipeline/{pipeline_head[:12]}",
+            f"{RECOVERY_BRANCH_PREFIX}/issue-2659/coder/{coder_head[:12]}",
+            f"{RECOVERY_BRANCH_PREFIX}/issue-2659/slice-3-coder/{slice_coder_head[:12]}",
+        }
+
+        deleted_ids = {
+            call.kwargs["container_id"] for call in gateway.delete_worktrees.call_args_list
+        }
+        # The same three worktree ids the salvage hook walked.
+        assert {
+            "issue-2659",
+            "issue-2659-coder",
+            "issue-2659-slice-3-coder",
+        }.issubset(deleted_ids)
