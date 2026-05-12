@@ -5,6 +5,7 @@ belonging to that pipeline are staged and committed — preventing
 concurrent pipelines from leaking state into each other's PRs.
 """
 
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -305,18 +306,18 @@ class TestCommitStatefilesNoAutoStageDeletions:
 
     def _init_repo(self, tmp_path: Path):
         """Create a real git repo seeded with an initial commit."""
-        import subprocess
-
         git_base = ["git", "-C", str(tmp_path)]
         subprocess.run([*git_base, "init", "-q"], check=True)
         subprocess.run([*git_base, "config", "user.email", "test@example.com"], check=True)
         subprocess.run([*git_base, "config", "user.name", "Test"], check=True)
+        # Disable commit signing so the test does not depend on the
+        # developer's global git config (no key configured → seed commit
+        # would fail).
+        subprocess.run([*git_base, "config", "commit.gpgsign", "false"], check=True)
         return git_base
 
     def test_does_not_commit_deletion_of_file_missing_from_worktree(self, tmp_path: Path):
         """File in HEAD but missing from worktree is NOT committed as deleted (#2625)."""
-        import subprocess
-
         git_base = self._init_repo(tmp_path)
 
         drafts = tmp_path / ".egg-state" / "drafts"
@@ -393,8 +394,6 @@ class TestCommitStatefilesNoAutoStageDeletions:
 
     def test_unrelated_unstaged_egg_state_deletion_is_not_committed(self, tmp_path: Path):
         """An unstaged deletion of a different pipeline's file is not picked up."""
-        import subprocess
-
         git_base = self._init_repo(tmp_path)
 
         drafts = tmp_path / ".egg-state" / "drafts"
