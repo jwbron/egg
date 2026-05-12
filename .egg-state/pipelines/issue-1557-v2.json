@@ -463,10 +463,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-16",
+      "question": "**Orchestrator-side Jira credentials for Won't-Do transitions.** Today only the gateway has Atlassian creds (sandbox has none, orchestrator has none). If the orchestrator needs to apply Won't-Do transitions (decision on reassess approval) without going through the agent-facing gateway (which forbids transitions), it needs a credential path. Options:",
+      "context": "Open contract question decision-15, registered by an agent during the refine phase.",
+      "options": [
+        "Reuse the existing gateway secrets but expose a **new orchestrator-only** gateway route `POST /api/v1/jira/ticket/transition` gated on the caller being the orchestrator (loopback / shared-secret token), with a transition allowlist (`['Won't Do', 'Won't Fix']`). Agents still can't transition; gateway still owns creds. Recommended — keeps 'creds only in gateway' invariant.",
+        "Add direct Atlassian credentials to the orchestrator process: orchestrator calls Atlassian REST API directly with its own creds, bypassing the gateway entirely for transitions. Violates the 'creds only in gateway' invariant but minimizes new gateway surface.",
+        "Out of scope (folds into decision-4 option D): orchestrator never transitions; emits markdown Won't-Do recommendations only; human applies them in Jira manually. Cuts this whole credential question.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.357125Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.318845Z",
+  "updated_at": "2026-05-12T04:46:05.365092Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -480,6 +499,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 26,
+  "version": 27,
   "jira_ticket": null
 }
