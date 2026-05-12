@@ -368,16 +368,16 @@ class TestNaturalSourceLoudFail:
         mock_inner.assert_not_called()
 
     def test_plan_complete_raises_when_draft_missing_on_local_and_origin(self, tmp_path):
-        """#2627: local AND origin missing → PlanDraftMissingError (no silent advance)."""
+        """#2627: local AND origin missing → PlanDraftMissingOnLocalAndOriginError (no silent advance)."""
         from routes.pipelines import (
-            PlanDraftMissingError,
+            PlanDraftMissingOnLocalAndOriginError,
             _populate_contract_from_plan_safe,
         )
 
         with (
             patch("routes.pipelines._origin_has_plan_draft", return_value=False) as mock_origin,
             patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
-            pytest.raises(PlanDraftMissingError),
+            pytest.raises(PlanDraftMissingOnLocalAndOriginError),
         ):
             _populate_contract_from_plan_safe(
                 tmp_path,
@@ -432,6 +432,59 @@ class TestNaturalSourceLoudFail:
             )
             mock_origin.assert_not_called()
             mock_inner.assert_called_once()
+
+
+class TestPlanDraftMissingFailureMetadata:
+    """#2627 review: the ``_run_pipeline`` failure handler picks a
+    ``(teardown_reason, log_message)`` pair based on which
+    ``PlanDraftMissing*`` subclass was raised.  Extracted into a helper
+    so a typo that swapped the two branches can be caught by a unit
+    test rather than slipping through the populator-helper tests above
+    (which only assert that the right exception type is raised, not
+    that the call site dispatches on it correctly).
+    """
+
+    def test_local_only_error_maps_to_local_strings(self):
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalError,
+            _plan_draft_missing_failure_metadata,
+        )
+
+        reason, message = _plan_draft_missing_failure_metadata(
+            PlanDraftMissingOnLocalError("draft x missing")
+        )
+        assert reason == "plan draft missing on local"
+        assert message == ("Pipeline FAILED: plan draft missing on local but present on origin")
+
+    def test_local_and_origin_error_maps_to_both_strings(self):
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalAndOriginError,
+            _plan_draft_missing_failure_metadata,
+        )
+
+        reason, message = _plan_draft_missing_failure_metadata(
+            PlanDraftMissingOnLocalAndOriginError("draft x missing on both")
+        )
+        assert reason == "plan draft missing on local and origin"
+        assert message == "Pipeline FAILED: plan draft missing on local and origin"
+
+    def test_local_and_local_and_origin_produce_distinct_metadata(self):
+        """A swap between the two branches would make both classes return
+        the same metadata — assert the helper distinguishes them."""
+        from routes.pipelines import (
+            PlanDraftMissingOnLocalAndOriginError,
+            PlanDraftMissingOnLocalError,
+            _plan_draft_missing_failure_metadata,
+        )
+
+        local_meta = _plan_draft_missing_failure_metadata(PlanDraftMissingOnLocalError("local"))
+        both_meta = _plan_draft_missing_failure_metadata(
+            PlanDraftMissingOnLocalAndOriginError("both")
+        )
+        assert local_meta != both_meta
+        # And the two reason strings differ at the operator-visible
+        # phrase (teardown reason is the field the overseer sees).
+        assert local_meta[0] != both_meta[0]
 
 
 class TestOriginHasPlanDraft:

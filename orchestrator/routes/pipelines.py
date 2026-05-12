@@ -17583,7 +17583,7 @@ class PlanDraftMissingOnLocalError(RuntimeError):
     """
 
 
-class PlanDraftMissingError(RuntimeError):
+class PlanDraftMissingOnLocalAndOriginError(RuntimeError):
     """Raised by the natural plan-completion populator path when the plan
     draft is missing from BOTH the local worktree and origin.
 
@@ -17600,16 +17600,45 @@ class PlanDraftMissingError(RuntimeError):
     """
 
 
+def _plan_draft_missing_failure_metadata(
+    err: PlanDraftMissingOnLocalError | PlanDraftMissingOnLocalAndOriginError,
+) -> tuple[str, str]:
+    """Return ``(teardown_reason, log_message)`` for the plan-draft-missing
+    failure handler in :func:`_run_pipeline`.
+
+    Extracted so the dispatch is unit-testable without standing up the
+    full ``_run_pipeline`` integration setup — a typo that swapped the
+    two branches would otherwise pass the existing populator-helper
+    tests.  Re #2627 review.
+    """
+    if isinstance(err, PlanDraftMissingOnLocalError):
+        return (
+            "plan draft missing on local",
+            "Pipeline FAILED: plan draft missing on local but present on origin",
+        )
+    return (
+        "plan draft missing on local and origin",
+        "Pipeline FAILED: plan draft missing on local and origin",
+    )
+
+
 def _origin_has_plan_draft(repo_path: Path, branch: str, draft_rel: str) -> bool:
     """Return True if ``origin/{branch}:{draft_rel}`` resolves locally.
 
     Uses ``git cat-file -e`` against the local refs to origin (the
     immediately preceding ``_sync_worktree_with_remote`` call has already
     fetched), so this is a cheap on-disk check, not a network round-trip.
-    A False return means either origin really doesn't have the draft, or
-    the cat-file query itself failed — caller should treat both as
-    "couldn't confirm origin has it" and fall through to the warn-and-
-    continue path.
+
+    A False return collapses two cases: origin really doesn't have the
+    draft, or the ``cat-file`` probe itself failed (transient git error,
+    timeout, etc.).  The natural plan-completion call site treats False
+    as "definitively missing on origin" and, when local is also missing,
+    raises :class:`PlanDraftMissingOnLocalAndOriginError` so the pipeline
+    is marked FAILED rather than advancing to implement with an empty
+    contract (#2627).  This is a deliberate fail-loud choice: a transient
+    probe failure combined with a missing local draft will fail the
+    pipeline rather than silently advance.  Operators can re-run the
+    pipeline; silently shipping an empty contract has no recovery path.
     """
     try:
         result = subprocess.run(
@@ -17670,7 +17699,7 @@ def _populate_contract_from_plan_safe(
     * :class:`PlanDraftMissingOnLocalError` when the draft is missing
       from local but present on origin — the silent-failure mode
       behind #2337.
-    * :class:`PlanDraftMissingError` when the draft is missing from
+    * :class:`PlanDraftMissingOnLocalAndOriginError` when the draft is missing from
       BOTH local and origin — the silent-failure mode behind #2627
       (orchestrator-side delete with no consolidated re-write).
 
@@ -17708,13 +17737,13 @@ def _populate_contract_from_plan_safe(
                     branch=branch,
                     draft_rel=draft_rel,
                     note=(
-                        "plan draft is missing from both the local worktree "
-                        "and origin/{branch}; advancing would produce an "
-                        "empty contract and strand implement-phase agents "
-                        "with nothing to do (#2627)"
+                        f"plan draft is missing from both the local worktree "
+                        f"and origin/{branch}; advancing would produce an "
+                        f"empty contract and strand implement-phase agents "
+                        f"with nothing to do (#2627)"
                     ),
                 )
-                raise PlanDraftMissingError(
+                raise PlanDraftMissingOnLocalAndOriginError(
                     f"plan draft {draft_rel} missing on local and "
                     f"origin/{branch} — refusing to advance plan phase"
                 )
@@ -20070,7 +20099,7 @@ def _run_pipeline(
             # ``source="plan_complete"`` makes the wrapper raise:
             #   * PlanDraftMissingOnLocalError — draft missing on local
             #     but present on origin (#2337 silent demotion).
-            #   * PlanDraftMissingError — draft missing on BOTH local
+            #   * PlanDraftMissingOnLocalAndOriginError — draft missing on BOTH local
             #     and origin (#2627 silent advance to empty contract).
             # We catch either below and mark the pipeline FAILED so the
             # operator can intervene rather than implement silently
@@ -20086,7 +20115,10 @@ def _run_pipeline(
                         source="plan_complete",
                         branch=pipeline.branch,
                     )
-                except (PlanDraftMissingOnLocalError, PlanDraftMissingError) as missing_err:
+                except (
+                    PlanDraftMissingOnLocalError,
+                    PlanDraftMissingOnLocalAndOriginError,
+                ) as missing_err:
                     # Mirror the slice-gate failure handler at the
                     # implement-phase entry: mark FAILED in state,
                     # then run the same cleanup sequence as the
@@ -20095,14 +20127,7 @@ def _run_pipeline(
                     # for backup) so both load-bearing failure paths
                     # have a uniform cleanup story.  Re #2337 / #2627
                     # reviews.
-                    if isinstance(missing_err, PlanDraftMissingOnLocalError):
-                        teardown_reason = "plan draft missing on local"
-                        log_message = (
-                            "Pipeline FAILED: plan draft missing on local but present on origin"
-                        )
-                    else:
-                        teardown_reason = "plan draft missing on local and origin"
-                        log_message = "Pipeline FAILED: plan draft missing on local and origin"
+                    teardown_reason, log_message = _plan_draft_missing_failure_metadata(missing_err)
                     with get_pipeline_state_lock(pipeline_id):
                         pipeline = store.load_pipeline(pipeline_id)
                         phase_execution = pipeline.get_phase_execution(current_phase)
