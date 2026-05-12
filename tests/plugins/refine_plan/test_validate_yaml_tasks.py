@@ -280,6 +280,122 @@ def test_yaml_parse_error(tmp_path: Path):
         """,
     )
     code, errors, _ = mod.validate(str(plan))
-    # Either YAML parse fails or the description is silently dropped to a
-    # mapping; both surface as a validation failure rather than passing.
     assert code == 1
+    assert any("YAML parse error" in e for e in errors), errors
+
+
+def test_dep_normalises_known_targets(tmp_path: Path):
+    """Mixed-case / phase-prefixed deps that resolve to defined slices pass."""
+    mod = _load_module()
+    plan = _write(
+        tmp_path,
+        """
+        ```yaml
+        # yaml-tasks
+        slices:
+          - id: 1
+            name: a
+            tasks:
+              - id: TASK-1-1
+                description: x
+                acceptance: y
+          - id: 2
+            name: b
+            dependencies: ["Slice-1", "phase-1", 1]
+            serialized_chain_order: [slice-1]
+            tasks:
+              - id: TASK-2-1
+                description: x
+                acceptance: y
+        pr:
+          title: t
+          test_plan: tp
+        ```
+        """,
+    )
+    code, errors, _ = mod.validate(str(plan))
+    assert code == 0, errors
+
+
+def test_dep_rejects_unknown_slice(tmp_path: Path):
+    """A dependency pointing at a non-existent slice must fail validation."""
+    mod = _load_module()
+    plan = _write(
+        tmp_path,
+        """
+        ```yaml
+        # yaml-tasks
+        slices:
+          - id: 1
+            name: a
+            tasks:
+              - id: TASK-1-1
+                description: x
+                acceptance: y
+          - id: 2
+            name: b
+            dependencies: [slice-99]
+            tasks:
+              - id: TASK-2-1
+                description: x
+                acceptance: y
+        ```
+        """,
+    )
+    code, errors, _ = mod.validate(str(plan))
+    assert code == 1
+    assert any("unknown slice 'slice-99'" in e for e in errors), errors
+
+
+def test_dep_rejects_unparseable_entry(tmp_path: Path):
+    """A non-slice-shaped dependency string must fail validation."""
+    mod = _load_module()
+    plan = _write(
+        tmp_path,
+        """
+        ```yaml
+        # yaml-tasks
+        slices:
+          - id: 1
+            name: a
+            tasks:
+              - id: TASK-1-1
+                description: x
+                acceptance: y
+          - id: 2
+            name: b
+            dependencies: [garbage]
+            tasks:
+              - id: TASK-2-1
+                description: x
+                acceptance: y
+        ```
+        """,
+    )
+    code, errors, _ = mod.validate(str(plan))
+    assert code == 1
+    assert any("'garbage' is not a valid slice reference" in e for e in errors), errors
+
+
+def test_serialized_chain_order_unknown_slice(tmp_path: Path):
+    """``serialized_chain_order`` entries are also validated against defined slices."""
+    mod = _load_module()
+    plan = _write(
+        tmp_path,
+        """
+        ```yaml
+        # yaml-tasks
+        slices:
+          - id: 1
+            name: a
+            serialized_chain_order: [slice-42]
+            tasks:
+              - id: TASK-1-1
+                description: x
+                acceptance: y
+        ```
+        """,
+    )
+    code, errors, _ = mod.validate(str(plan))
+    assert code == 1
+    assert any("serialized_chain_order" in e and "slice-42" in e for e in errors), errors

@@ -67,7 +67,7 @@ For each subagent invocation, the orchestrator (you, executing this skill) **rea
 
 ### Resolving `<skill-root>`
 
-Claude Code does not expose the SKILL.md install path to the running session. Resolve `<skill-root>` once at start by trying these locations in order and using the first one whose `SKILL.md` exists. Cache the absolute path in a shell variable for the rest of the run:
+Claude Code does not expose the SKILL.md install path to the running session, and the Bash tool runs each invocation in a fresh shell — shell variables do **not** persist across `Bash` calls. Resolve `<skill-root>` once at start by running the discovery snippet below; capture the printed path as a literal string in the model's context and substitute it into the argv of every subsequent `Bash`, `Read`, or other tool call that needs it.
 
 ```bash
 SKILL_ROOT=""
@@ -87,16 +87,17 @@ if [ -z "$SKILL_ROOT" ]; then
   SKILL_ROOT="${SKILL_ROOT%/SKILL.md}"
 fi
 test -n "$SKILL_ROOT" || { echo "could not resolve skill-root" >&2; exit 1; }
+echo "$SKILL_ROOT"
 ```
 
-The candidate list covers (a) the plugin install paths Claude Code uses (with and without the `cache/` and `plugins/` segments, since the marketplace-id segment is installer-internal), (b) a local-checkout install (running the skill directly out of an `egg/` clone), and (c) the legacy symlink install under the user's `~/.claude/skills/`. Subsequent shellouts use `"$SKILL_ROOT"`:
+The candidate list covers (a) the plugin install paths Claude Code uses (with and without the `cache/` and `plugins/` segments, since the marketplace-id segment is installer-internal), (b) a local-checkout install (running the skill directly out of an `egg/` clone), and (c) the legacy symlink install under the user's `~/.claude/skills/`. Each subsequent shellout must inline the resolved value rather than relying on `$SKILL_ROOT` to still be set — e.g. if discovery printed `/home/me/.claude/plugins/egg-tools/refine-plan/skills/refine-plan`, the next `Bash` calls become:
 
 ```bash
-python3 "$SKILL_ROOT/bin/validate-yaml-tasks" <plan_path>
-python3 "$SKILL_ROOT/bin/emit-contract" <plan_path> <contract_path> <pipeline_id>
+python3 /home/me/.claude/plugins/egg-tools/refine-plan/skills/refine-plan/bin/validate-yaml-tasks <plan_path>
+python3 /home/me/.claude/plugins/egg-tools/refine-plan/skills/refine-plan/bin/emit-contract <plan_path> <contract_path> <pipeline_id>
 ```
 
-Read calls for role files (`Read` tool) likewise take `"$SKILL_ROOT/agents/<role>.md"` as the absolute path.
+Read calls for role files (`Read` tool) likewise take the inlined absolute `<resolved-skill-root>/agents/<role>.md` as the file path. If a phase needs several shellouts that legitimately can share a shell, collapse discovery + use into a single `Bash` invocation so `$SKILL_ROOT` stays in scope for that one call.
 
 ---
 
@@ -434,7 +435,7 @@ This skill does **not** create PRs, push branches, or update GitHub issues. Loca
 
 **Don't pass producer self-attestation to reviewers.** Producers' `agent-outputs/*.json` contains self-summary. Reviewers should read the *artifact* (`drafts/*.md`) and the handoff content they need for their rubric (e.g., reviewer_plan reads risk_analyst's output). They should not read the producer-being-reviewed's own self-rating. This is Delphi redaction *by convention*: the orchestrator names exactly which paths each reviewer is told to read in its task-context block, and the role files instruct reviewers to limit themselves to those. Reviewers are general-purpose subagents with the `Read` tool, so a reviewer that ignores its instructions could in principle read the producer's self-attestation (or the verdict-journal files) on its own — the redaction is enforced by prompt discipline, not by capability sandboxing. If you spot a reviewer citing producer self-attestation, NACK and re-prompt.
 
-**Force-accept is recorded.** Cycle-4 force-accept goes into the HITL decision JSON and BRC history `resolution: hitl-force-accept`. Don't silently advance.
+**Force-accept is recorded.** Cycle-limit force-accept (on cycle-3 NACK, or any operator-extended cycle past 3) goes into the HITL decision JSON and BRC history `resolution: hitl-force-accept`. Don't silently advance.
 
 **State directory is namespaced.** `.refine-plan-state/` mirrors `.egg-state/` subdirectories on purpose; it is **not** ingested by the orchestrator. `/sdlc` re-runs refine+plan from scratch.
 
