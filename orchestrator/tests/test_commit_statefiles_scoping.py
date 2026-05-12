@@ -141,8 +141,15 @@ class TestCommitStatefilesScoping:
         with patch("subprocess.run", side_effect=_make_run_side_effect()) as mock_run:
             _commit_statefiles_to_worktree(tmp_path, "unscoped commit", pipeline_identifier=None)
 
-        # The git add call should use the broad ".egg-state/" path with --force
-        add_call = mock_run.call_args_list[0]
+        # The git add call should use the broad ".egg-state/" path with --force.
+        # Locate by subcommand rather than position — the helper now also
+        # runs ``git read-tree HEAD`` ahead of the add to defend against
+        # cross-worktree branch-ref advance (#2626).
+        add_call = next(
+            (c for c in mock_run.call_args_list if "add" in c[0][0]),
+            None,
+        )
+        assert add_call is not None, "Expected a git add call"
         cmd = add_call[0][0]
         assert ".egg-state/" in cmd
         assert "--force" in cmd, "git add must use --force to stage gitignored .egg-state/ files"
