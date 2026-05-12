@@ -258,6 +258,7 @@ make lint              # Run all linters
 make test              # Run tests reachable from your diff (changeset-aware narrow default)
 make test-all          # Run the full unit-test suite (what CI runs)
 make test-integration  # Run integration + security tests (k3s required)
+make test-security     # Run security/pentesting tests only
 make lint-fix          # Auto-fix lint issues
 make security          # Run security scans
 make build             # Build Docker images
