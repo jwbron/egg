@@ -94,10 +94,13 @@ subjects:
     namespace: egg-system
 ---
 # Cluster-scope reads for cluster topology probes used by
-# `get_deployment_context` and `validate_network_isolation`:
-# `_detect_k3s` lists nodes cluster-wide, `_detect_cni` / `_detect_k3s`
-# list kube-system DaemonSets. Without this binding the heuristics
-# always returned null/false, masking real k3s + CNI state (#2646).
+# `get_deployment_context` and `validate_network_isolation`. Only
+# `nodes` legitimately needs cluster scope (cluster-scoped resource);
+# `_detect_cni` / `_detect_k3s` list DaemonSets only in `kube-system`,
+# so that grant lives in a namespaced Role + RoleBinding below to keep
+# the cluster-wide read minimal (least-privilege per review feedback).
+# Without these bindings the heuristics always returned null/false,
+# masking real k3s + CNI state (#2646).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -108,9 +111,6 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get", "list"]
-  - apiGroups: ["apps"]
-    resources: ["daemonsets"]
     verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -124,6 +124,39 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: egg-cluster-topology-reader
+subjects:
+  - kind: ServiceAccount
+    name: egg-orchestrator
+    namespace: egg-system
+---
+# `_detect_cni` / `_detect_k3s` only call
+# `list_namespaced_daemon_set("kube-system")`; the DaemonSet read is
+# namespace-scoped, not cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: egg-kube-system-topology-reader
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/part-of: egg
+rules:
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: egg-kube-system-topology-reader
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/part-of: egg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: egg-kube-system-topology-reader
 subjects:
   - kind: ServiceAccount
     name: egg-orchestrator

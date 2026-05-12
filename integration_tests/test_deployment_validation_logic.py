@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import time
+from pathlib import Path
 
 import pytest
 import requests
@@ -183,16 +184,32 @@ class TestValidateDeploymentManifestsLogic:
           the workflow's seed step): 404 ``overlay not found``.
 
         Both are deliberate; 500 anywhere is a regression in either
-        the Dockerfile change or the route's error path.
+        the Dockerfile change or the route's error path. We pin to
+        exactly one expected outcome per environment by probing the
+        same host bind-mount path the orchestrator pod sees — a
+        regression that flipped 200↔404 in either environment would
+        otherwise still pass here.
         """
+        # The orchestrator pod's overlay search resolves relative paths
+        # under ``/home/egg/repos/egg`` (via the host bind-mount of
+        # ``$HOME/repos`` → ``/home/egg/repos``). The test runner can
+        # see the same overlay path through its own ``$HOME/repos`` —
+        # populated in local-dev, empty in CI per the workflow's seed
+        # step. Using ``Path.home()`` keeps this portable across
+        # ``/home/egg`` (sandbox) and ``/home/runner`` (CI).
+        overlay_on_host = Path.home() / "repos/egg/k8s/overlays/local"
+        expected = 200 if overlay_on_host.exists() else 404
+
         resp = _post(
             orchestrator_url,
             "/api/v1/deployment/validate-manifests",
             secret=lifecycle_secret,
             body={},
         )
-        assert resp.status_code in (200, 404), (
-            f"expected 200 or 404, got {resp.status_code}: {resp.text[:500]}"
+        assert resp.status_code == expected, (
+            f"expected {expected} based on overlay presence at "
+            f"{overlay_on_host} (exists={overlay_on_host.exists()}); "
+            f"got {resp.status_code}: {resp.text[:500]}"
         )
         body = resp.json()
         if resp.status_code == 200:
@@ -532,8 +549,12 @@ class TestValidationRouteSelfConsistency:
         broad ``request.get_data()`` dump) would leak it to anyone who
         already had it — surfacing the regression for the next person
         who runs these tests is the cheap guard.
+
+        Check the full 64-hex-char secret, not just a prefix: a bug
+        that echoed the suffix or middle of the bearer (e.g. via a
+        log line that printed ``...{secret[-16:]}``) would slip past
+        a prefix-only check.
         """
-        secret_snippet = lifecycle_secret[:16]
         # Drive a few error paths and inspect their bodies.
         responses = [
             _post(
@@ -556,41 +577,94 @@ class TestValidationRouteSelfConsistency:
             ),
         ]
         for resp in responses:
-            assert secret_snippet not in resp.text, (
-                f"response body contained a prefix of the bearer secret — "
+            # Full-secret check: 64 hex chars is more than enough
+            # entropy that a false positive is impossible. Catches
+            # echoes of any contiguous substring of the secret (prefix,
+            # suffix, or middle).
+            assert lifecycle_secret not in resp.text, (
+                f"response body contained the bearer secret in full — "
                 f"{resp.request.url}: {resp.text[:500]}"
             )
+            # Also guard against substring leaks (e.g. a bug that
+            # printed the last 16 hex chars). Use a couple of
+            # non-overlapping windows.
+            for start in (0, 16, 32, 48):
+                window = lifecycle_secret[start : start + 16]
+                assert window not in resp.text, (
+                    f"response body contained a 16-char window of the "
+                    f"bearer secret starting at offset {start} — "
+                    f"{resp.request.url}: {resp.text[:500]}"
+                )
 
     def test_validation_routes_reject_invalid_json(
         self,
         orchestrator_url: str,
         lifecycle_secret: str,
     ) -> None:
-        """Both routes tolerate / reject malformed JSON without crashing.
+        """Malformed JSON yields the same response shape as an empty body.
 
         ``request.get_json(silent=True) or {}`` is the pattern in the
-        route handlers; an upstream regression that flipped to a
-        non-silent ``get_json()`` would 500 with a Flask traceback.
-        Catch that here.
+        route handlers; on malformed input the handlers see ``{}`` and
+        run the default-body path. The original docstring framed this
+        as a "500 with Flask traceback" regression guard, but a switch
+        to non-silent ``get_json()`` actually surfaces as a Flask-default
+        400 BadRequest page (no traceback) — so a bare ``"traceback"
+        not in text`` assertion would silently pass through the
+        regression.
+
+        The real invariant the silent-mode path guarantees is that the
+        malformed-JSON response is identical to the empty-body response
+        (same status, same parsed body). Asserting that pins the
+        contract: any switch to non-silent ``get_json()`` would diverge
+        the two (400 BadRequest vs. the route's own default-path
+        response) and fail the assertion.
         """
         for path in (
             "/api/v1/deployment/validate-manifests",
             "/api/v1/deployment/validate-network-isolation",
         ):
-            resp = requests.post(
+            empty = requests.post(
+                f"{orchestrator_url}{path}",
+                json={},
+                headers={
+                    **_auth_headers(lifecycle_secret),
+                    "Content-Type": "application/json",
+                },
+                timeout=90,
+            )
+            malformed = requests.post(
                 f"{orchestrator_url}{path}",
                 data="this is not json",
                 headers={
                     **_auth_headers(lifecycle_secret),
                     "Content-Type": "application/json",
                 },
-                timeout=30,
+                timeout=90,
             )
-            # The handlers use ``request.get_json(silent=True) or {}`` so a
-            # malformed body becomes the same shape as an empty one — no
-            # 500 with a Flask traceback should ever reach the caller.
-            assert "traceback" not in resp.text.lower(), (
-                f"{path}: malformed JSON produced a Flask traceback: {resp.text[:500]}"
+            # Belt-and-braces: a 500 with a Flask traceback would also
+            # be a regression. Keep the cheap negative guard.
+            assert "traceback" not in malformed.text.lower(), (
+                f"{path}: malformed JSON produced a Flask traceback: {malformed.text[:500]}"
+            )
+            # The core invariant: same status, same parsed body shape.
+            assert malformed.status_code == empty.status_code, (
+                f"{path}: malformed-JSON status {malformed.status_code} "
+                f"diverged from empty-body status {empty.status_code} — "
+                f"upstream may have flipped from get_json(silent=True) to "
+                f"non-silent. Body: {malformed.text[:500]}"
+            )
+            try:
+                empty_body = empty.json()
+                malformed_body = malformed.json()
+            except ValueError:
+                pytest.fail(
+                    f"{path}: response was not JSON — "
+                    f"empty={empty.text[:200]!r} malformed={malformed.text[:200]!r}"
+                )
+            assert malformed_body.get("success") is empty_body.get("success"), (
+                f"{path}: success-flag diverged between malformed "
+                f"({malformed_body.get('success')!r}) and empty "
+                f"({empty_body.get('success')!r}) bodies"
             )
 
 
@@ -616,11 +690,18 @@ class TestProbeJobCleanup:
     ) -> None:
         import subprocess
 
+        # Scope the selector to this test's pipeline_id so a concurrent
+        # probe from another test in the same session (e.g.
+        # TestValidationRouteConcurrency::test_concurrent_validate_*)
+        # can't be misattributed as this test's leak. The label is set
+        # in ``_build_probe_job_manifest`` (orchestrator/routes/
+        # deployment.py).
+        pipeline_id = "cleanup-2641"
         _post(
             orchestrator_url,
             "/api/v1/deployment/validate-network-isolation",
             secret=lifecycle_secret,
-            body={"pipeline_id": "cleanup-2641", "role": "coder"},
+            body={"pipeline_id": pipeline_id, "role": "coder"},
             timeout=90,
         )
 
@@ -638,7 +719,7 @@ class TestProbeJobCleanup:
                     "get",
                     "jobs",
                     "-l",
-                    "egg.probe=true",
+                    f"egg.probe=true,egg.pipeline.id={pipeline_id}",
                     "-o",
                     "jsonpath={.items[*].metadata.name}",
                 ],

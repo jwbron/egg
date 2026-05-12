@@ -1484,6 +1484,47 @@ class TestProbeCommandTemplate:
         assert "EGG_LIFECYCLE_SECRET" not in PROBE_COMMAND_TEMPLATE
         assert "EGG_SESSION_TOKEN" not in PROBE_COMMAND_TEMPLATE
 
+    def test_template_contains_no_backticks(self):
+        """Backticks in the unquoted ``<<PY`` heredoc body would be
+        evaluated by ``/bin/sh`` as command substitution before
+        ``python3`` ever sees the source — at best emitting
+        ``sh: ...: not found`` to the pod log, at worst substituting
+        non-empty command output into the Python literal itself.
+        Guard against the regression here so a future edit (e.g.
+        adding ``\\`hostname\\``` somewhere) can't sneak in silently.
+        """
+        from routes.deployment import PROBE_COMMAND_TEMPLATE
+
+        assert "`" not in PROBE_COMMAND_TEMPLATE, (
+            "PROBE_COMMAND_TEMPLATE contains a backtick — under /bin/sh "
+            "this is command substitution, not a markdown formatting hint"
+        )
+
+    def test_template_is_shell_syntax_valid(self):
+        """``/bin/sh -n`` parses the template without error.
+
+        Catches stray quoting / heredoc-delimiter mistakes that would
+        otherwise only surface when a probe Job runs in-cluster.
+        """
+        import shutil
+        import subprocess
+
+        from routes.deployment import PROBE_COMMAND_TEMPLATE
+
+        sh = shutil.which("sh") or "/bin/sh"
+        result = subprocess.run(
+            [sh, "-n"],
+            input=PROBE_COMMAND_TEMPLATE,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == 0, (
+            f"sh -n rejected PROBE_COMMAND_TEMPLATE: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # module sanity

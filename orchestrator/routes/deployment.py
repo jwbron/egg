@@ -944,12 +944,16 @@ print(json.dumps({
     "gateway_reachable": "$gw".startswith("2") or "$gw".startswith("3"),
     "internet_blocked": "$internet" == "000",
     "agent_pods_unreachable": "$peer" == "000",
-    # `allow-agent-to-orchestrator` (k8s/base/network-policies.yaml)
+    # allow-agent-to-orchestrator (k8s/base/network-policies.yaml)
     # deliberately permits agent->orchestrator:9849 so agents can
     # heartbeat. So on a correctly-configured cluster this is True;
     # False is the regression signal (heartbeat path is broken). The
-    # field was previously named `orchestrator_direct_blocked` with
+    # field was previously named orchestrator_direct_blocked with
     # inverted polarity, which read backwards from intent (#2652).
+    # NOTE: this heredoc is unquoted (<<PY, not <<'PY') so the shell
+    # performs command substitution on backticks. Do not introduce
+    # backticks anywhere in the body — they will execute under sh
+    # before python3 ever sees the source.
     "orchestrator_api_reachable": "$orch".startswith("2") or "$orch".startswith("3"),
     "raw": {
         "gateway_status": "$gw",
