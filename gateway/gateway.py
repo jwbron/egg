@@ -5494,6 +5494,22 @@ def jira_ticket_transition() -> tuple[Response, int] | Response:
     )
 
 
+# Stamp the private-mode marker manually on ``jira_ticket_transition``.
+# This route is orchestrator-only; ``@require_private_mode`` cannot be
+# applied because it expects ``@require_session_auth`` to have
+# populated ``g.session_mode`` first, and this route uses the
+# launcher-secret bearer path (``_verify_orchestrator_transition_auth``)
+# which is a strictly stronger constraint. The route-enumeration
+# regression test in ``gateway/tests/test_jira_routes.py`` reads this
+# marker to assert every Jira route has been audited; we set it here
+# manually so the invariant continues to hold while documenting that
+# this is the deliberate orchestrator-only escape hatch (issue #1557
+# decision-15 + task-2-6).
+from .mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # noqa: E402
+
+setattr(jira_ticket_transition, _PRIVATE_MODE_MARKER_ATTR, True)
+
+
 @app.route("/api/v1/jira/execute", methods=["POST"])
 @require_session_auth
 @require_private_mode
