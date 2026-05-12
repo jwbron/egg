@@ -416,8 +416,6 @@ The exit-code re-arms above (`timeout`, exit code `2`, auto-stopped) are safe to
 
 **Rule:** before re-arming Monitor after handling HITL, call `TaskStop(task_id=monitor_task_id)` on the cached id from step 2, then start the new Monitor and overwrite `monitor_task_id` with the new id.
 
-Path A keeps the dashboard concise via deltas — skip lines that didn't change from the previous emit. Path B always renders full state, including the optional NACK and silent-agent rows.
-
 ### Failed Status Grace Period
 
 During phase cycle transitions (e.g., plan phase review cycles), the orchestrator may briefly report `status: failed` while spawning new containers. Treating this as terminal prematurely ends monitoring.
@@ -1410,8 +1408,6 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
    - On `event_type: "decision.created"` → re-fetch the full snapshot via `get_status(task_id)` (the JSON-line does not carry `pending_decisions`) and handle the decision inline (see below).
    - On `status: "complete"` or `event_type: "pipeline.completed"` → exit, move to Phase S6.
    - On `status: "failed"` or `event_type: "pipeline.failed"` → apply the **failed status grace period** (see below) before exiting.
-
-Path A keeps the dashboard concise via deltas — skip lines that didn't change from the previous emit. Path B always renders full state, including the optional NACK and silent-agent rows.
 
 **Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Monitor invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side, and Monitor surfaces each emitted line as its own notification. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When Monitor's `timeout_ms` (or the 10-min Bash cap, if you're on the fallback path) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context. HITL-driven re-arms are different — the prior CLI is still alive — so call `TaskStop(task_id=monitor_task_id)` first; see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) in Phase 3. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the event allowlist, exit-code contract, and concurrency model.
 
