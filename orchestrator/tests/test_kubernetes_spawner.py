@@ -1106,6 +1106,34 @@ class TestRestartAgentJob:
         assert gw_call.args[0] == unprefixed
         assert "_" not in gw_call.args[0]
 
+    def test_restart_forwards_wait_for_gateway_false(self, spawner):
+        """restart_agent_job forwards wait_for_gateway=False to spawn_agent_job.
+
+        Mirrors ``test_spawn_without_gateway_wait`` so a future refactor that
+        drops the forwarded kwarg fails at unit-test time. The integration
+        suite covers it end-to-end, but the seam itself is worth pinning.
+        """
+        with patch.object(spawner, "spawn_agent_job") as mock_spawn:
+            spawner.restart_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                wait_for_gateway=False,
+            )
+        mock_spawn.assert_called_once()
+        assert mock_spawn.call_args.kwargs["wait_for_gateway"] is False
+
+    def test_restart_forwards_wait_for_gateway_default_true(self, spawner):
+        """restart_agent_job defaults wait_for_gateway=True and forwards it."""
+        with patch.object(spawner, "spawn_agent_job") as mock_spawn:
+            spawner.restart_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+            )
+        mock_spawn.assert_called_once()
+        assert mock_spawn.call_args.kwargs["wait_for_gateway"] is True
+
 
 # ---------------------------------------------------------------------------
 # TestRestartCounts

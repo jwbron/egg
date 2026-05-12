@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from egg_contracts.decisions import next_cq_id
+
 from egg_agent_tools.handlers._gateway import (
     container_id_field,
     gateway_request,
@@ -64,7 +66,7 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         pipeline_id / issue: optional contract identifier.
 
     Response:
-        { ok: True, decision: {...}, id: "decision-N" }
+        { ok: True, decision: {...}, id: "cq-N" }
     """
     question = req.get("question")
     if not question or not isinstance(question, str):
@@ -100,8 +102,15 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         next_idx = len(decisions)
         decision_phase = phase or contract.get("current_phase")
 
+        # Agent-registered contract questions allocate ``cq-N`` from a
+        # counter that ignores ``decision-N`` entries (written by the
+        # orchestrator's pipeline-side bridge). See
+        # ``shared/egg_contracts/decisions.py`` for the namespace split
+        # rationale (#2616).
+        new_id = next_cq_id(decisions)
+
         new_decision = {
-            "id": f"decision-{next_idx + 1}",
+            "id": new_id,
             "question": question,
             "type": "hitl",
             "phase": decision_phase,

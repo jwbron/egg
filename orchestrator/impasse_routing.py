@@ -37,6 +37,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from egg_contracts.agent_roles import AgentRole as ContractAgentRole
+from egg_contracts.decisions import next_cq_id
 from egg_contracts.impasse import Impasse, ImpasseCategory
 from egg_contracts.loader import load_contract, save_contract
 from egg_contracts.models import (
@@ -245,8 +246,13 @@ def _build_hitl_decision(
     Returns ``(field_path, decision)`` ready to feed into
     :func:`apply_mutation`.
     """
-    next_idx = len(contract.decisions or [])
-    decision_id = f"decision-{next_idx + 1}"
+    existing_decisions = contract.decisions or []
+    next_idx = len(existing_decisions)
+    # Orchestrator-side HITL escalations write to the same ``cq-N``
+    # namespace as agent-registered ``register_open_question`` calls so
+    # neither path collides with the pipeline-side ``decision-N``
+    # allocator. See ``shared/egg_contracts/decisions.py`` (#2616).
+    decision_id = next_cq_id(existing_decisions)
 
     task_id = task.id if task else (impasse.task_id or "<unresolved>")
     slice_id = slice_obj.id if slice_obj else "<unresolved>"
