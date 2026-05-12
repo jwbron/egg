@@ -35,6 +35,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_refine"
     },
+    "1364d3c1d69303c2ad5911fd0bf08dba183b8c19": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:49.741700+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "risk_analyst"
+    },
     "160d94eef839513aeb567557c49b30524b1472f9": {
       "branch": "egg/issue-1557-v2",
       "pipeline_id": "issue-1557-v2",
@@ -62,6 +69,13 @@
       "registered_at": "2026-05-12T05:02:46.144809+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
+    },
+    "1e23e6139bc040380ef87da0af8061af1543bd47": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:49.751789+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "risk_analyst"
     },
     "2aadf92f1cda40bb1c70cafe853283f27e2a84c8": {
       "branch": "egg/issue-1557-v2/work",
@@ -245,6 +259,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code"
     },
+    "a158c7e0aed940c5f4c73fbdb3477fc9fa06068e": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:49.759678+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "risk_analyst"
+    },
     "ad37fac9314c13172568ecd422a035772378c19c": {
       "branch": "egg/issue-1557-v2",
       "pipeline_id": "issue-1557-v2",
@@ -342,6 +363,13 @@
       "registered_at": "2026-04-29T07:15:09.702263+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_concurrency"
+    },
+    "da134424e5dc68701f99632bce0a4f9155d18354": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:02:49.756033+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "risk_analyst"
     },
     "e05f26a747bcd8b0688c94794922cd10c43d8a4f": {
       "branch": "egg/issue-1557-v2",
