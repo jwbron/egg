@@ -137,6 +137,7 @@ result = await loop.run("Fix the authentication bug")
 | `AGENT_ANCHOR_ID` | No | Agent anchor ID for compaction persistence |
 | `EGG_ORCHESTRATOR_URL` | No | Orchestrator URL for message bus polling |
 | `GATEWAY_URL` | No | Gateway URL for API proxy routing |
+| `EGG_PIPELINE_REPO_PATTERNS_JSON` | No | JSON object of per-repo role-pattern overrides, shape `{<owner/repo>: {tests_globs?: [...], code_globs?: [...], docs_globs?: [...]}}` (pre-resolved by orchestrator from `repositories.yaml`; sandbox containers have no access to `repositories.yaml` directly) |
 
 ## Context Management / Compaction
 

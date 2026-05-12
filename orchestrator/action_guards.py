@@ -201,10 +201,14 @@ def check_ack_guard(
         )
 
     # Version-match guard: ACK version must match the producer's current
-    # proposal version to prevent stale ACKs.
+    # proposal version to prevent stale ACKs. The previous form skipped
+    # the check when ``current_version == 0`` (no proposal yet), which
+    # let a predictive ``ack_version=N`` claim land in the matrix at
+    # version N — and ``_invalidate_pre_proposal_acks`` only clears
+    # version-0 entries, so the rescue could be bypassed (#2654).
     if matrix is not None and ack_version is not None:
         current_version = matrix.get_proposal_version(producer_role)
-        if current_version > 0 and ack_version != current_version:
+        if ack_version != current_version:
             return GuardResult(
                 allowed=False,
                 reason=(
