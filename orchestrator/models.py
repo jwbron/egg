@@ -123,7 +123,7 @@ class ContainerStatus(StrEnum):
 # "any pod with this label" check would treat a recently-finished pod as
 # live and mask a wedged pipeline whose work has actually stopped. The
 # guard's contract is "is there anything still doing work?" — terminal
-# pods objects within the TTL window do not count.
+# pod objects within the TTL window do not count.
 LIVE_POD_STATUSES: tuple[ContainerStatus, ...] = (
     ContainerStatus.PENDING,
     ContainerStatus.CREATING,
