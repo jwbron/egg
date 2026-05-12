@@ -310,10 +310,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "**In-flight detection: PR signal mechanism** (from #2289-folded-in scope). The issue says detection should be (a) orchestrator pipeline-state for any child whose `submit_task <CHILD-KEY>` produced an open PR (most reliable), (b) ticket remote-link parsing for `github.com/.../pull/` URLs as fallback. Note: **today the orchestrator has no `jira_ticket → pipeline → PR` reverse index** — Pipeline.jira_ticket is advisory metadata only, not indexed; and `gateway/jira_client.py` does **not** expose `/rest/api/3/issue/{key}/remotelink` (it's not in the allowed-path regex). Both signals are net-new infrastructure. Options:",
+      "context": "Open contract question decision-7, registered by an agent during the refine phase.",
+      "options": [
+        "Orchestrator reverse-index only (no remote-link fallback): build a `jira_ticket → [pipelines]` index in the state store, persist PR URL on Pipeline.pr_url when the implement-phase PR is created, query it during reassess. Single source of truth, no new gateway routes, but misses any PR that wasn't created by an egg pipeline (humans opening manual PRs).",
+        "Both signals as the issue specifies: (a) orchestrator reverse-index AND (b) new gateway route `POST /api/v1/jira/ticket/remotelinks` with read-only allowlist for remote-link reads. More work, but covers human-opened PRs.",
+        "Remote-links route only (skip the reverse-index): rely on Atlassian remote-links being set when PRs are opened. Requires the integration to set remote-links proactively (or Atlassian's Smart Commits / DVCS connector to do it for us) — today nothing in egg sets Jira remote-links on PR open, so this option implicitly adds that work too.",
+        "Jira status only (no PR signal at all): treat any child in {`In Progress`, `In Review`, `Code Review`, `Blocked`, …} as in-flight; ignore PR state. Simplest, but misses PRs against children still in `Open` status and treats human-paused work as in-flight.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.018667Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:04.984409Z",
+  "updated_at": "2026-05-12T04:46:05.026728Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -327,6 +347,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18,
+  "version": 19,
   "jira_ticket": null
 }
