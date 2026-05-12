@@ -2241,16 +2241,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T17:36:01.048405Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T18:15:56.956541Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Retry phase\"}",
       "phase": "implement",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T18:11:54.342115Z",
+  "updated_at": "2026-05-12T18:15:56.964602Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -2264,6 +2264,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T17:35:35.609760Z",
-  "version": 101,
+  "version": 102,
   "jira_ticket": null
 }
