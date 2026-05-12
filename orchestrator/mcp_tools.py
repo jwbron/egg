@@ -105,6 +105,21 @@ PIPELINE_TOOLS = [
                     "type": "string",
                     "description": "JIRA ticket ID (e.g. KORE-1234). Used as the pipeline ID and branch name.",
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "reassess", "fresh"],
+                    "default": "auto",
+                    "description": (
+                        "Epic-detection mode (issue #1557). Only meaningful when "
+                        "``jira_ticket`` is also supplied AND the ticket is an Epic. "
+                        "``auto`` (default) auto-detects reassess vs fresh from the "
+                        "epic's current children: non-empty children -> reassess, "
+                        "empty -> fresh. ``reassess`` forces the reassess flow "
+                        "(degrades to fresh when the epic has no children). "
+                        "``fresh`` forces the fresh flow even when children exist. "
+                        "No-op for non-epic / non-Jira pipelines."
+                    ),
+                },
                 "qualifier": {
                     "type": "string",
                     "description": "Optional qualifier suffix for the pipeline/branch (e.g. 'backend'). Enables multiple pipelines per ticket/issue.",
@@ -1291,6 +1306,23 @@ class PipelineToolHandler:
                     "error": f"Invalid JIRA ticket format '{ticket_raw}': expected e.g. KORE-1234"
                 }
 
+        # Validate epic-detection mode (issue #1557, TASK-1-1). Default to
+        # ``auto`` so existing single-ticket/single-issue callers are
+        # byte-identical to today's behaviour. The enum mirrors the JSON
+        # schema entry above.
+        mode_raw = args.get("mode")
+        if mode_raw is None:
+            mode_value = "auto"
+        else:
+            if not isinstance(mode_raw, str) or mode_raw not in ("auto", "reassess", "fresh"):
+                return {
+                    "error": (
+                        f"Invalid mode '{mode_raw}': must be one of "
+                        "'auto', 'reassess', 'fresh'"
+                    )
+                }
+            mode_value = mode_raw
+
         if args.get("issue_number"):
             base_id = f"issue-{args['issue_number']}"
             if qualifier:
@@ -1328,6 +1360,13 @@ class PipelineToolHandler:
             data["source_branch"] = args["source_branch"]
         if args.get("source_artifact_prefix"):
             data["source_artifact_prefix"] = args["source_artifact_prefix"]
+
+        # Thread the epic-detection mode (issue #1557). Always include it
+        # in the POST body so the orchestrator can persist it on the
+        # pipeline; the default ``auto`` preserves today's behaviour for
+        # non-Jira / non-Epic pipelines.
+        if args.get("jira_ticket"):
+            data["jira_epic_mode"] = mode_value
 
         try:
             result = self._make_request("/api/v1/pipelines", method="POST", data=data)

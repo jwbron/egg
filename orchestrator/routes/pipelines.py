@@ -2851,6 +2851,8 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     network_mode=gateway_mode,
                     mode=pipeline.mode,
                     pr_number=getattr(pipeline, "pr_number", None),
+                    jira_epic_key=getattr(pipeline, "jira_epic_key", None),
+                    jira_effective_mode=getattr(pipeline, "jira_effective_mode", None),
                 )
                 if prompt_text:
                     from consensus_wrapper import build_consensus_wrapped_command
@@ -8174,6 +8176,119 @@ def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
     }
 
 
+def _writeback_pr_link_to_jira_child(pipeline, pr_url: str) -> None:
+    """Post a comment on a Jira child ticket linking back to a fresh PR URL.
+
+    #1557 TASK-1-15: when an implement-phase child pipeline (fanned out
+    by the plan-gate Continue-to-implement fork at TASK-1-16) opens its
+    PR, write back a comment on its Jira ticket so operators can navigate
+    epic → child → PR in Jira without leaving the tool.
+
+    Trigger condition:
+        Only fires when ``pipeline.jira_parent_epic_key`` is set on the
+        child pipeline. Single-ticket / non-epic pipelines keep today's
+        behaviour (no extra Jira round-trip).
+
+    Idempotency:
+        Walks the most recent comments on the child ticket and skips
+        when the PR URL already appears in the comment body — re-runs
+        of the PR phase (e.g. after a transient failure) MUST NOT
+        duplicate the comment.
+
+    Failure mode:
+        Logged + swallowed by the caller — Jira outages must not block
+        PR-phase completion.
+
+    NOTE: Remote-link writeback is symmetric and would land on the
+    same call site, but the gateway only ships remote-link READS in
+    this PR (TASK-1-6); the write companion is a planned follow-up.
+    """
+    epic_key = getattr(pipeline, "jira_parent_epic_key", None)
+    if not epic_key:
+        return
+    child_key = getattr(pipeline, "jira_ticket", None)
+    if not child_key:
+        return
+    if not pr_url:
+        return
+
+    # Build a small, deterministic comment body so the idempotency check
+    # is a substring match.
+    comment_body = (
+        f"Auto-link from egg SDLC pipeline: implementation PR opened at "
+        f"{pr_url} (parent epic: {epic_key})."
+    )
+
+    try:
+        from gateway_client import GatewayClient
+    except ImportError:  # pragma: no cover
+        from orchestrator.gateway_client import GatewayClient  # type: ignore
+
+    gateway = GatewayClient()
+
+    # 1. Idempotency: fetch recent comments and short-circuit if the PR
+    #    URL is already mentioned.
+    try:
+        comments_response = gateway._make_request(
+            "/api/v1/jira/ticket/comments",
+            method="POST",
+            data={"ticket": child_key},
+        )
+        payload = comments_response.get("data") or comments_response or {}
+        comments = payload.get("comments") if isinstance(payload, dict) else None
+        if isinstance(comments, list):
+            for comment in comments[-20:]:  # most recent 20 only — keeps the scan bounded
+                body = comment.get("body") if isinstance(comment, dict) else None
+                # Body can be ADF or rendered HTML; either way a substring
+                # check is safe — we control the comment text exactly.
+                if isinstance(body, str) and pr_url in body:
+                    logger.info(
+                        "jira_pr_link_writeback_skipped_duplicate",
+                        child_key=child_key,
+                        pr_url=pr_url,
+                    )
+                    return
+                if isinstance(body, dict):
+                    serialised = json.dumps(body)
+                    if pr_url in serialised:
+                        logger.info(
+                            "jira_pr_link_writeback_skipped_duplicate",
+                            child_key=child_key,
+                            pr_url=pr_url,
+                        )
+                        return
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "jira_pr_link_writeback_idempotency_check_failed",
+            child_key=child_key,
+            error=str(exc),
+        )
+        # Fail-open: proceed with the writeback even when the check
+        # fails — duplicating a single PR-link comment is preferable to
+        # silently dropping the writeback on a transient Atlassian
+        # outage.
+
+    # 2. Post the comment.
+    try:
+        gateway._make_request(
+            "/api/v1/jira/ticket/comment/add",
+            method="POST",
+            data={"ticket": child_key, "body": comment_body},
+        )
+        logger.info(
+            "jira_pr_link_writeback_complete",
+            child_key=child_key,
+            epic_key=epic_key,
+            pr_url=pr_url,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "jira_pr_link_writeback_post_failed",
+            child_key=child_key,
+            error=str(exc),
+        )
+
+
 def _handle_pr_creation_failure(
     pipeline_id: str,
     current_phase: str,
@@ -8299,6 +8414,23 @@ def _finalize_pr_phase_failed(
             if head_sha is not None:
                 reloaded.pr_head_sha = head_sha
             store.save_pipeline(reloaded)
+
+        # #1557 TASK-1-15 — PR-link writeback. When this implement-phase
+        # pipeline is a fanned-out child of a Jira epic (TASK-1-16 sets
+        # ``jira_parent_epic_key`` at fan-out time), post a comment on
+        # the child Jira ticket linking back to the PR URL.  Best-effort:
+        # any failure is logged and swallowed so a Jira outage can't
+        # block PR-phase completion.  Idempotent on re-runs (the helper
+        # walks the most recent N comments and skips when the PR URL is
+        # already present).
+        try:
+            _writeback_pr_link_to_jira_child(reloaded, pr_url)
+        except Exception as wb_err:  # noqa: BLE001
+            logger.warning(
+                "jira_pr_link_writeback_failed",
+                pipeline_id=pipeline_id,
+                error=str(wb_err),
+            )
         return False
 
     failure_reason = (
@@ -11047,11 +11179,24 @@ def _build_phase_prompt(
     review_feedback: str | None = None,
     review_cycle: int = 0,
     repo_path: str | None = None,
+    *,
+    jira_epic_key: str | None = None,
+    jira_effective_mode: str | None = None,
 ) -> str:
     """Build a phase-specific prompt for the sandbox Claude invocation.
 
     Follows a structured prompt format:
     Context → Task → Restrictions → Completion.
+
+    Epic-mode arguments (#1557 TASK-1-8 / TASK-1-11):
+        jira_epic_key: When set, the refine / plan templates inject the
+            Jira-epic-shaped output instructions (destination line,
+            reassess-mode classification hints, fixed ticket-body
+            structure, link-type allowlist, Won't-Do permanence warning).
+            Byte-identical to today's prompt when ``None``.
+        jira_effective_mode: Either ``"fresh"`` or ``"reassess"``.
+            Drives the reassess-specific branches inside the refine and
+            plan templates.
     """
     # --- Context header ---
     lines = [f"You are in the **{phase}** phase of the SDLC pipeline.\n"]
@@ -11123,6 +11268,45 @@ def _build_phase_prompt(
     plan_path = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
 
     if phase == "refine":
+        # Epic-mode preamble (#1557 TASK-1-8). When the pipeline is keyed
+        # off a Jira *epic*, the refine output is destined for the epic's
+        # Description via a wholesale rewrite (decision-9), so we frame
+        # the work as an epic-scoped problem statement rather than a
+        # ticket-scoped refinement.  For reassess mode we additionally
+        # tell the agent to assess what's done / changed / no-longer-
+        # relevant given the existing-children context supplied by the
+        # refine input gatherer (TASK-1-9).
+        if jira_epic_key:
+            lines.append("## Epic-mode (Jira)\n")
+            lines.append(
+                f"Destination: Jira epic `{jira_epic_key}` Description "
+                "(wholesale rewrite per #1557 decision-9). Frame the output "
+                "as a self-contained epic problem statement and scope — "
+                "NOT a ticket-scoped refinement. The plan phase will turn "
+                "this into individual child tickets; do not try to "
+                "decompose the work into tickets yourself.\n"
+            )
+            if jira_effective_mode == "reassess":
+                lines.append(
+                    "Mode: **reassess** — the epic already has children. "
+                    "Read the existing-children context (and any "
+                    "Confluence pages linked from the epic) from "
+                    "`.egg-state/agent-outputs/{}-refine-input.json` "
+                    "before writing the analysis, and assess: (a) what "
+                    "work is already done; (b) what scope has changed; "
+                    "(c) what is no longer relevant. Surface those three "
+                    "observations explicitly in the analysis so the "
+                    "plan-phase agent has a starting position for the "
+                    "diff between current state and desired state.\n".format(
+                        issue_number if issue_number is not None else pipeline_id
+                    )
+                )
+            else:
+                lines.append(
+                    "Mode: **fresh** — the epic has no children yet. The "
+                    "plan phase will create them. Frame the analysis as a "
+                    "clean slate.\n"
+                )
         lines.extend(
             [
                 "Analyze this issue and produce a structured analysis document. Your goal is to:\n",
@@ -11299,6 +11483,91 @@ def _build_phase_prompt(
         )
 
     elif phase == "plan":
+        # Epic-mode preamble (#1557 TASK-1-11). When the pipeline is keyed
+        # off a Jira *epic*, the plan output is materialised as Jira child
+        # tickets under the epic, so we layer the per-node ticket-body
+        # structure, link-type allowlist, and reassess-classification
+        # instructions on top of the standard slice-DAG output.
+        if jira_epic_key:
+            lines.append("## Epic-mode plan output (Jira)\n")
+            lines.append(
+                f"Destination: Jira children of epic `{jira_epic_key}`. The "
+                "apply step turns each plan node into a Jira ticket via "
+                "``createJiraIssue`` (net-new) or ``editJiraIssue`` "
+                "(updates), linked under the epic by the hierarchy field "
+                "the operator configured for the project (`parent` or "
+                "`epic_link`).\n"
+            )
+            lines.append(
+                "**Per-node ticket-body structure (mandatory)** — every "
+                "plan node MUST include the fixed structure: `Problem "
+                "statement / Scope / Acceptance criteria / Out of scope "
+                "/ Cross-links` (feedback Q2). The acceptance criteria "
+                "live in both the contract task's `acceptance:` YAML "
+                "field AND the Jira ticket body — operators may close "
+                "the ticket manually before egg auto-closes it.\n"
+            )
+            lines.append(
+                "**Cross-task dependency link type (mandatory)** — for "
+                "every cross-node edge, pick exactly one of `Blocks` / "
+                "`Is blocked by` / `Relates to` (feedback Q3) and "
+                "surface the rationale in the plan-draft prose. The "
+                "apply step issues `createIssueLink` per edge using the "
+                "chosen type.\n"
+            )
+            if jira_effective_mode == "reassess":
+                lines.append(
+                    "**Reassess mode** — the epic has existing children. "
+                    "Read the existing-children sweep "
+                    "(`.egg-state/agent-outputs/{}-existing-children.json`) "
+                    "and produce a classified diff for each child: "
+                    "`updated` / `consolidated` / `split` / `net-new` / "
+                    "`wont_do`. Done children are EXCLUDED entirely "
+                    "from the plan output per decision-4. In-flight "
+                    "children (any of jira_status / orchestrator_pr_url "
+                    "/ remote_link signals firing) carry a "
+                    "**do-not-modify-without-confirmation** marker — "
+                    "if you propose ANY mutation against an in-flight "
+                    "target, the apply step opens a per-ticket HITL "
+                    "gate (decision-8 OR semantics, the firing signal "
+                    "source is surfaced to the operator).\n".format(
+                        issue_number if issue_number is not None else pipeline_id
+                    )
+                )
+                lines.append(
+                    "**Won't-Do plan-draft rendering (mandatory)** — "
+                    "every node whose action is `wont_do` MUST have a "
+                    "populated `wont_do_reason` evidencing why the "
+                    "child is obsolete. Render a top-level `## Tickets "
+                    "to be transitioned to Won't Do` section in the "
+                    "prose with a per-row `⚠ This transition is "
+                    "permanent and not auto-reversed by egg` warning "
+                    "so operators scrutinise the obsolete list at "
+                    "the decision-3 atomic batch approval (#1557 R6).\n"
+                )
+                lines.append(
+                    "**Consolidation survivor (mandatory)** — when N "
+                    "existing children consolidate into 1, record the "
+                    "chosen survivor key + rationale per consolidation "
+                    "(decision-5). The operator can override the "
+                    "survivor before approval.\n"
+                )
+            lines.append(
+                "**Plan-draft `# yaml-tasks` extras** — emit three "
+                "additional top-level YAML blocks alongside `slices:`:\n"
+                "  - `consolidations:` — `[{children: [...], survivor: "
+                "<KEY>, rationale: ...}]`\n"
+                "  - `splits:` — `[{original: <KEY>, new_node_ids: "
+                "[...], rationale: ...}]`\n"
+                "  - `epic_apply:` — per plan-node `{action: create | "
+                "edit | consolidate | split | wont_do, "
+                "target_jira_key: <KEY or null>, "
+                "wont_do_reason: <str or null>, "
+                "link_type: <Blocks | Is blocked by | Relates to | null>}`\n"
+                "These blocks are parsed by the plan-parser extensions "
+                "in `shared/egg_contracts/plan_parser.py` and surfaced "
+                "on the contract for the apply step to consume.\n"
+            )
         lines.extend(
             [
                 "Create a detailed implementation plan, decomposing the work into "
@@ -12764,6 +13033,8 @@ def _build_agent_prompt(
     mode: PipelineMode | None = None,
     pr_number: int | None = None,
     is_pre_seeded_empty_producer: bool = False,
+    jira_epic_key: str | None = None,
+    jira_effective_mode: str | None = None,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
@@ -12817,6 +13088,8 @@ def _build_agent_prompt(
             review_feedback=review_feedback,
             review_cycle=review_cycle,
             repo_path=repo_path,
+            jira_epic_key=jira_epic_key,
+            jira_effective_mode=jira_effective_mode,
         )
         # Surface file boundaries so agent knows what it can push (#1431).
         boundary_section = _build_file_boundary_section(role_value)
@@ -15819,6 +16092,8 @@ def _run_concurrent_phase(
             mode=pipeline.mode,
             pr_number=getattr(pipeline, "pr_number", None),
             is_pre_seeded_empty_producer=role.value in _pre_seeded_empty_producer_roles,
+            jira_epic_key=getattr(pipeline, "jira_epic_key", None),
+            jira_effective_mode=getattr(pipeline, "jira_effective_mode", None),
         )
         agent_prompts[role] = prompt
 
