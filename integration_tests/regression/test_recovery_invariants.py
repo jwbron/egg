@@ -1,0 +1,378 @@
+"""Gap-audit integration tests for additional recovery/teardown invariants.
+
+Beyond the starting points from #2633 (#2420 live-pod guard, #2429
+salvage), these tests cover invariants that span multiple modules and
+have historical regression risk:
+
+* **Live-pod filter parity** between ``routes/pipelines._LIVE_POD_STATUSES``
+  and ``startup_reconciliation``'s inline filter. The two literals were
+  copy-pasted at #2420 time — a future drift would silently reintroduce
+  the #2411 false-positive (live pipelines marked FAILED at startup).
+
+* **Crash-between-submit-and-spawn recovery** (#2009): pipelines that
+  reached RUNNING but whose current phase never spawned should be
+  marked FAILED at startup so operators see something actionable
+  instead of an indefinitely frozen pipeline.
+
+* **Recovery ref immutability per HEAD SHA**: the salvage ref name
+  embeds the short SHA so a re-salvage of the same HEAD is a no-op
+  fast-forward, and a re-salvage after new commits gets a *new* ref
+  instead of force-overwriting the prior one. The cleanup sweep is
+  built on this guarantee.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+from agent_salvage import RECOVERY_BRANCH_PREFIX, auto_salvage_pipeline
+from gateway_client import PushResult
+from models import (
+    AgentExecution,
+    AgentExecutionStatus,
+    AgentRole,
+    ContainerInfo,
+    ContainerStatus,
+    Pipeline,
+    PipelinePhase,
+    PipelineStatus,
+)
+from startup_reconciliation import reconcile_stale_containers
+
+pytestmark = pytest.mark.integration
+
+
+# ---------------------------------------------------------------------------
+# Live-pod filter parity (routes/pipelines ↔ startup_reconciliation)
+# ---------------------------------------------------------------------------
+
+
+def _running_pipeline_with_persisted_container(
+    pipeline_id: str = "issue-2420",
+    container_id: str = "agent-pod-1",
+) -> Pipeline:
+    """A pipeline whose persisted state records one RUNNING container."""
+    pipeline = Pipeline(
+        id=pipeline_id,
+        issue_number=2420,
+        repo="owner/repo",
+        branch=f"egg/{pipeline_id}",
+        mode="issue",
+        status=PipelineStatus.RUNNING,
+        current_phase=PipelinePhase.IMPLEMENT,
+    )
+    phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+    phase.status = PipelineStatus.RUNNING
+    phase.started_at = datetime.now(UTC)
+    phase.containers.append(
+        ContainerInfo(
+            container_id=container_id,
+            container_name="egg-coder",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+    )
+    phase.agents.append(
+        AgentExecution(
+            role=AgentRole.CODER,
+            status=AgentExecutionStatus.RUNNING,
+            container_id=container_id,
+            started_at=datetime.now(UTC),
+        )
+    )
+    return pipeline
+
+
+def _docker_client_returning(*pod_statuses: ContainerStatus) -> MagicMock:
+    """A mock docker client whose label-scoped query returns one pod per
+    status. The unscoped query (``all=False``) returns no live cluster-
+    wide containers — irrelevant once the label query takes precedence
+    in the #2411 path.
+    """
+    client = MagicMock()
+
+    def _list(all=True, labels=None):
+        if labels and "egg.pipeline.id" in labels:
+            return [
+                MagicMock(container_id=f"pod-{i}", status=status)
+                for i, status in enumerate(pod_statuses)
+            ]
+        return []
+
+    client.list_containers.side_effect = _list
+    return client
+
+
+class TestLivePodFilterParity:
+    """``startup_reconciliation`` and ``_count_live_pods_for_pipeline``
+    must agree on which container statuses count as "live."
+
+    The literal duplication at ``startup_reconciliation.py`` lines
+    213-217 (``_live_statuses = (PENDING, CREATING, RUNNING)``) mirrors
+    ``routes.pipelines._LIVE_POD_STATUSES``. A drift between them would
+    re-open the #2411 incident — startup reconciliation could mark a
+    live pipeline FAILED while ``start_pipeline``'s guard treats the
+    same pod as live.
+    """
+
+    @pytest.mark.parametrize(
+        "status",
+        [ContainerStatus.PENDING, ContainerStatus.CREATING, ContainerStatus.RUNNING],
+    )
+    def test_live_pod_keeps_pipeline_running(self, status):
+        """Any pod in a live status leaves the pipeline RUNNING."""
+        pipeline = _running_pipeline_with_persisted_container()
+        store = MagicMock()
+        store.list_pipelines.return_value = [pipeline.id]
+        store.load_pipeline.return_value = pipeline
+        docker = _docker_client_returning(status)
+
+        recovered = reconcile_stale_containers(store, docker)
+
+        assert recovered == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+        store.save_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "status",
+        [ContainerStatus.FAILED, ContainerStatus.EXITED, ContainerStatus.REMOVED],
+    )
+    def test_terminal_pod_does_not_mask_orphaned_pipeline(self, status):
+        """A terminal-only pod listing falls through to the
+        per-container-id check, which marks the pipeline FAILED
+        because the persisted container id isn't in the live cluster
+        set. Mirrors what ``_count_live_pods_for_pipeline`` would
+        report as ``live=0`` so the start_pipeline guard would allow
+        a reset.
+        """
+        pipeline = _running_pipeline_with_persisted_container()
+        store = MagicMock()
+        store.list_pipelines.return_value = [pipeline.id]
+        store.load_pipeline.return_value = pipeline
+        # Label query returns one Failed pod; unscoped returns nothing.
+        docker = _docker_client_returning(status)
+
+        recovered = reconcile_stale_containers(store, docker)
+
+        assert recovered == 1
+        assert pipeline.status == PipelineStatus.FAILED
+        # The pipeline-level error message points at restart via the
+        # /start route, matching the contract ``start_pipeline``
+        # exposes (the same route #2420 added the guard to).
+        assert "POST /pipelines/{id}/start" in (pipeline.error or "")
+
+    def test_mixed_statuses_count_only_live(self):
+        """One RUNNING + one FAILED pod => pipeline left RUNNING.
+
+        The live filter is OR-of-statuses, not AND. A single live pod
+        suffices to defer to the running orchestrator. Regression we
+        guard against: a status set narrowed to require ALL pods to
+        be live before deferring.
+        """
+        pipeline = _running_pipeline_with_persisted_container()
+        store = MagicMock()
+        store.list_pipelines.return_value = [pipeline.id]
+        store.load_pipeline.return_value = pipeline
+        docker = _docker_client_returning(
+            ContainerStatus.RUNNING,
+            ContainerStatus.FAILED,
+        )
+
+        recovered = reconcile_stale_containers(store, docker)
+        assert recovered == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+
+
+# ---------------------------------------------------------------------------
+# Crash-between-submit-and-spawn recovery (#2009)
+# ---------------------------------------------------------------------------
+
+
+class TestCrashBetweenSubmitAndSpawnRecovery:
+    """A pipeline that reached RUNNING but whose current phase never
+    spawned (no ``started_at``, no agents, no containers) must be marked
+    FAILED at startup. Otherwise it sits indefinitely RUNNING with
+    nothing to drive it forward and operators have no programmatic path
+    to recover it.
+    """
+
+    def test_pending_phase_with_no_state_marked_failed(self):
+        pipeline = Pipeline(
+            id="issue-2009",
+            issue_number=2009,
+            repo="owner/repo",
+            branch="egg/issue-2009",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        # PENDING + no started_at + no containers + no agents — the
+        # crash-between-submit-and-spawn signature.
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        assert phase.status == PipelineStatus.PENDING
+        assert phase.started_at is None
+        assert phase.containers == []
+        assert phase.agents == []
+
+        store = MagicMock()
+        store.list_pipelines.return_value = [pipeline.id]
+        store.load_pipeline.return_value = pipeline
+        docker = MagicMock()
+        docker.list_containers.return_value = []
+
+        recovered = reconcile_stale_containers(store, docker)
+        assert recovered == 1
+        assert pipeline.status == PipelineStatus.FAILED
+        # Distinguish from the container-loop's FAILED message so
+        # operators reading logs can tell which path fired.
+        assert "never spawned" in (pipeline.error or "")
+
+    def test_pending_phase_with_agents_left_to_container_loop(self):
+        """If agents were created, some spawn work started — the
+        un-spawned-phase guard must NOT preemptively mark FAILED.
+
+        Catches a regression where the guard's predicate is loosened
+        and accidentally captures partially-spawned phases.
+        """
+        pipeline = Pipeline(
+            id="issue-2009b",
+            issue_number=2009,
+            repo="owner/repo",
+            branch="egg/issue-2009b",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        # Agents exist but no started_at and no containers — the
+        # spawn loop started but didn't finish.
+        phase.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.PENDING,
+                started_at=None,
+            )
+        )
+
+        store = MagicMock()
+        store.list_pipelines.return_value = [pipeline.id]
+        store.load_pipeline.return_value = pipeline
+        docker = MagicMock()
+        docker.list_containers.return_value = []
+
+        recovered = reconcile_stale_containers(store, docker)
+        # The un-spawned guard did NOT fire (agents present). Whether
+        # the downstream container loop fires depends on the
+        # persisted container set; with none, the pipeline stays
+        # RUNNING.
+        assert recovered == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+
+
+# ---------------------------------------------------------------------------
+# Recovery-ref immutability (idempotent salvage)
+# ---------------------------------------------------------------------------
+
+
+def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "user.email=recovery@test.example",
+            "-c",
+            "user.name=Recovery Tester",
+            "-C",
+            str(cwd),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _seed_worktree(
+    base: Path,
+    pipeline_id: str,
+    role: str,
+    assigned: str,
+) -> tuple[Path, str]:
+    """Build a worktree with one local commit ahead of the anchor."""
+    wid = f"{pipeline_id}-{role}"
+    local = f"egg/{wid}/work"
+    repo = base / wid / "repo"
+    repo.mkdir(parents=True)
+    _git("init", "-q", "--initial-branch", local, cwd=repo)
+    (repo / "README.md").write_text("seed\n")
+    _git("add", "README.md", cwd=repo)
+    _git("commit", "-q", "-m", "seed", cwd=repo)
+    anchor = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+    _git("config", f"branch.{local}.merge", f"refs/heads/{assigned}", cwd=repo)
+    _git("update-ref", f"refs/remotes/origin/{assigned}", anchor, cwd=repo)
+    (repo / "a.txt").write_text("a\n")
+    _git("add", "a.txt", cwd=repo)
+    _git("commit", "-q", "-m", "first unpushed", cwd=repo)
+    head = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+    return repo, head
+
+
+class TestRecoveryRefImmutability:
+    """The recovery ref name embeds the short HEAD SHA, so two salvages
+    against the same head land at the same ref. The cleanup sweep
+    (``agent_salvage_cleanup``) relies on this so deletions are safely
+    keyed off the committed-at of the ref's tip — if the ref name were
+    derived from a clock or counter, a re-salvage would force-overwrite
+    and the sweep's age check would point at the wrong commit.
+    """
+
+    def test_resalvage_same_head_uses_same_ref_name(self, tmp_path):
+        repo, head = _seed_worktree(tmp_path, "issue-2429", "coder", "egg/issue-2429/work")
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            first = auto_salvage_pipeline(gateway, "issue-2429")
+            second = auto_salvage_pipeline(gateway, "issue-2429")
+
+        assert first[0].ok and second[0].ok
+        assert first[0].recovery_ref == second[0].recovery_ref
+        # The ref name carries the short SHA from the actual HEAD.
+        assert first[0].recovery_ref == (f"{RECOVERY_BRANCH_PREFIX}/issue-2429/coder/{head[:12]}")
+        # The gateway saw exactly two pushes — neither was forced.
+        assert gateway.push_worktree_branch.call_count == 2
+        for call in gateway.push_worktree_branch.call_args_list:
+            assert call.kwargs["force"] is False
+
+    def test_new_commit_after_salvage_produces_new_ref(self, tmp_path):
+        repo, first_head = _seed_worktree(tmp_path, "issue-2429", "coder", "egg/issue-2429/work")
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = PushResult(ok=True)
+
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            first = auto_salvage_pipeline(gateway, "issue-2429")
+
+        # Agent makes another commit before the next salvage.
+        (repo / "b.txt").write_text("b\n")
+        _git("add", "b.txt", cwd=repo)
+        _git("commit", "-q", "-m", "second unpushed", cwd=repo)
+        new_head = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+
+        with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
+            second = auto_salvage_pipeline(gateway, "issue-2429")
+
+        # Different refs — the original ref is still untouched and points
+        # at first_head, the new ref points at the new HEAD.
+        assert first[0].recovery_ref != second[0].recovery_ref
+        assert first[0].recovery_ref == (
+            f"{RECOVERY_BRANCH_PREFIX}/issue-2429/coder/{first_head[:12]}"
+        )
+        assert second[0].recovery_ref == (
+            f"{RECOVERY_BRANCH_PREFIX}/issue-2429/coder/{new_head[:12]}"
+        )
