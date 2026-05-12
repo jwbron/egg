@@ -358,6 +358,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
                     "slice_id": "slice-2",
+                    "ack_version": 1,
                     "payload": {
                         "reason": (
                             "Reviewed slice-2 work and the diff matches the "
@@ -601,6 +602,7 @@ class TestAllConsensusHandlersRejectMalformedSliceId:
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
                     "slice_id": "../etc/passwd",
+                    "ack_version": 1,
                     "payload": {
                         "reason": (
                             "Reviewed work; the diff matches the proposal "

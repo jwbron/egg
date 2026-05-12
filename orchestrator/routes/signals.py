@@ -155,6 +155,39 @@ def _validate_brc_content(body: str, kind: str) -> str | None:
     return None
 
 
+def _require_route_version(payload: dict[str, Any], key: str) -> tuple[Response, int] | None:
+    """Enforce ``payload[key]`` is an integer >= 1 at the HTTP signals boundary.
+
+    Mirrors ``_require_version_int`` in ``sandbox/egg_agent_tools/handlers/brc.py``
+    so the route surface shares the MCP handler's contract — a client POSTing
+    directly to ``/signals/...`` cannot bypass the version-match guard in
+    ``check_ack_guard`` / ``check_nack_guard`` by omitting the version field
+    (#2674).  Returns an error response tuple on failure, or ``None`` on
+    success.
+    """
+    if key not in payload:
+        return make_error_response(
+            f"'{key}' is required (the producer's current proposal version "
+            "you reviewed; read it from the CONSENSUS_PROPOSE message)",
+            400,
+        )
+    raw = payload[key]
+    try:
+        version = int(raw)
+    except TypeError, ValueError:
+        return make_error_response(
+            f"'{key}' must be an integer; got {raw!r}",
+            400,
+        )
+    if version < 1:
+        return make_error_response(
+            f"'{key}' must be >= 1; got {version} (v0 means no proposal exists yet)",
+            400,
+        )
+    payload[key] = version
+    return None
+
+
 from routes import (  # noqa: E402 — shared helper
     get_repo_path,
     resolve_repo_path_for_pipeline,
@@ -1385,7 +1418,16 @@ def handle_consensus_ack_signal(
     # Forward ack_version from signal data into the payload so the
     # version-match guard can detect stale ACKs.
     if "ack_version" in data and "ack_version" not in payload:
-        payload["ack_version"] = int(data["ack_version"])
+        payload["ack_version"] = data["ack_version"]
+
+    # Require ack_version >= 1 at the route boundary so the HTTP surface
+    # matches the MCP handler's contract (`_require_version_int` in
+    # sandbox/egg_agent_tools/handlers/brc.py). Without this, a client that
+    # omits ack_version bypasses the version-match guard in
+    # check_ack_guard (#2674).
+    version_error = _require_route_version(payload, "ack_version")
+    if version_error is not None:
+        return version_error
 
     # Validate ACK reason content (#1716)
     reason_error = _validate_brc_content(payload.get("reason", ""), "ACK reason")

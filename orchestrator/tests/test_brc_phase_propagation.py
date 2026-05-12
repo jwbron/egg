@@ -367,6 +367,7 @@ class TestAckPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {
                         "reason": "Reviewed src/auth.py: token validation logic is correct, all branches covered by tests"
                     },
@@ -417,6 +418,7 @@ class TestAckPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {
                         "reason": "Reviewed src/auth.py: token validation logic is correct, all branches covered by tests"
                     },

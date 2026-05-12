@@ -1715,3 +1715,118 @@ class TestAckVersionForwarding:
         payload_passed = call_args[0][2]
         # Payload's own ack_version should be preserved, not overwritten
         assert payload_passed.get("ack_version") == 3
+
+
+# ---------------------------------------------------------------------------
+# ACK version presence enforcement at the route boundary (#2674)
+# ---------------------------------------------------------------------------
+
+
+class TestAckVersionRouteEnforcement:
+    """Tests that handle_consensus_ack_signal rejects missing / invalid ack_version.
+
+    Mirrors the ``_require_version_int`` contract on the MCP handler boundary
+    (``sandbox/egg_agent_tools/handlers/brc.py``) so a client POSTing directly
+    to ``/signals/...`` cannot bypass the version-match guard in
+    ``check_ack_guard``.
+    """
+
+    @patch("subprocess.run")
+    def test_ack_rejected_when_ack_version_missing(self, mock_subprocess_run, app):
+        """Payload that omits ack_version (top-level or nested) is rejected with 400."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        # No ack_version at top level or in payload.
+                        "payload": {
+                            "reason": "Reviewed src/auth.py: token validation covers expiry and invalid signatures correctly, all branches tested",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert "ack_version" in body["message"]
+        # Tracker must never be reached — the guard is at the boundary.
+        mock_tracker.handle_ack.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_ack_rejected_when_ack_version_zero(self, mock_subprocess_run, app):
+        """ack_version=0 is rejected because v0 means no proposal exists yet."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "ack_version": 0,
+                        "payload": {
+                            "reason": "Reviewed src/auth.py: token validation covers expiry and invalid signatures correctly, all branches tested",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert ">= 1" in body["message"]
+        mock_tracker.handle_ack.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_ack_rejected_when_ack_version_non_integer(self, mock_subprocess_run, app):
+        """ack_version that is not int-coercible is rejected with 400."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "payload": {
+                            "reason": "Reviewed src/auth.py: token validation covers expiry and invalid signatures correctly, all branches tested",
+                            "ack_version": "not-an-int",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert "must be an integer" in body["message"]
+        mock_tracker.handle_ack.assert_not_called()
