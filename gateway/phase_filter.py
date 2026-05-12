@@ -491,6 +491,38 @@ class PhaseFilter:
                 ],
                 exit_requires="reviewer",
             ),
+            # Jira-epic SDLC support (issue #1557). APPLY is conditional
+            # — inserted only when ``Pipeline.is_epic`` is true. The
+            # applier writes nothing to source code; its only push is the
+            # Won't-Do handoff JSON under ``.egg-state/agent-outputs/``
+            # plus contract updates (Task.jira_action_status etc.). Same
+            # GitHub-side blocklist as IMPLEMENT.
+            PipelinePhase.APPLY: PhasePermissions(
+                allowed_operations=[
+                    Operation(OperationType.GIT, "push *", "Push handoff data"),
+                    Operation(OperationType.EGG_CONTRACT, "add-commit *", "Link commits"),
+                    Operation(OperationType.EGG_CONTRACT, "update-notes *", "Add notes"),
+                    Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
+                ],
+                blocked_operations=[
+                    Operation(
+                        OperationType.GH,
+                        "pr create*",
+                        "Cannot create PRs in apply phase",
+                    ),
+                    Operation(
+                        OperationType.GH,
+                        "issue comment *",
+                        "Agents cannot post comments to GitHub issues",
+                    ),
+                    Operation(
+                        OperationType.GH,
+                        "issue edit *",
+                        "Agents cannot edit GitHub issues",
+                    ),
+                ],
+                exit_requires="reviewer",
+            ),
             PipelinePhase.PR: PhasePermissions(
                 allowed_operations=[
                     Operation(OperationType.GH, "pr create*", "Create PRs"),
@@ -591,6 +623,21 @@ class PhaseFilter:
                 # Checkpoints and agent-outputs are not blocked since they don't match any blocked_patterns
                 # .egg-state/agent-anchors/* is allowed (not in blocked_patterns)
                 description="Implement phase can push code but not .egg-state/ (except checkpoints, agent-outputs, and agent-anchors)",
+            ),
+            # Apply phase (issue #1557). The applier only writes handoff
+            # data + contract updates — no source / docs / test pushes.
+            PipelinePhase.APPLY: PhaseFileRestriction(
+                allowed_patterns=[
+                    ".egg-state/contracts/*",
+                    ".egg-state/agent-outputs/*",
+                    ".egg-state/checkpoints/*",
+                    ".egg-state/agent-anchors/*",
+                    ".egg-state/reviews/*",
+                ],
+                description=(
+                    "Apply phase can push contract updates, agent outputs, "
+                    "checkpoints, agent anchors, and reviews only"
+                ),
             ),
             PipelinePhase.PR: PhaseFileRestriction(
                 allowed_patterns=["*"],
