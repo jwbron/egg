@@ -7566,8 +7566,18 @@ def _commit_statefiles_to_worktree(
         pipeline_identifier=str(pipeline_identifier),
         commit_message=message,
     )
+    # No pathspec: ``git commit -- .egg-state/`` would auto-stage
+    # working-tree changes within that pathspec, including deletions of
+    # files that are present in HEAD but missing from the local
+    # checkout. Agents push drafts to ``origin/<branch>`` from their own
+    # worktrees, so the orchestrator's local checkout can have HEAD at a
+    # commit that contains a draft while the file itself was never
+    # materialised on disk locally. Letting ``commit -- pathspec``
+    # auto-stage that "deletion" wipes the agent's drafts from the work
+    # branch (#2625). Commit only what ``git add`` above explicitly
+    # staged.
     subprocess.run(
-        [*git_base, "commit", "--no-verify", "-m", message, "--", ".egg-state/"],
+        [*git_base, "commit", "--no-verify", "-m", message],
         capture_output=True,
         text=True,
         check=True,
