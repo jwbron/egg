@@ -27,6 +27,7 @@ isn't a hard prerequisite for running the probe.
 
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -100,12 +101,29 @@ def _extract_issuetype_name(body: dict[str, Any]) -> str:
     return name
 
 
+_JIRA_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
+
+
+def _validate_jira_key(jira_key: str) -> str:
+    """Validate a Jira key for shape (#1557 reviewer_code v3 #1 mitigation).
+
+    Atlassian keys follow ``[A-Z][A-Z0-9_]*-\\d+``.  Validating before
+    interpolating into a JQL string defends against injection: a value
+    like ``ENG-1" OR project=BAR"`` would otherwise terminate the
+    quoted JQL operand and inject arbitrary clauses.
+
+    Raises :class:`JiraEpicDetectionError` on any other shape.
+    """
+    if not isinstance(jira_key, str) or not _JIRA_KEY_RE.match(jira_key):
+        raise JiraEpicDetectionError(
+            f"Invalid Jira key {jira_key!r}: must match '<PROJECT>-<NUMBER>'"
+        )
+    return jira_key
+
+
 def _project_key_from_jira_key(jira_key: str) -> str:
     """Return the project portion of a Jira key (e.g. 'ENG' from 'ENG-1234')."""
-    if "-" not in jira_key:
-        raise JiraEpicDetectionError(
-            f"Invalid Jira key '{jira_key}': expected '<PROJECT>-<NUMBER>'"
-        )
+    _validate_jira_key(jira_key)
     return jira_key.split("-", 1)[0]
 
 
@@ -211,29 +229,65 @@ def _run_jql(
             tolerate 400 — that signals a malformed JQL and we surface
             it (#1557 holistic NACK Pass-4 #12).
     """
-    payload: dict[str, Any] = {"jql": jql}
-    if fields is not None:
-        payload["fields"] = fields
+    # Pagination loop (#1557 reviewer_code v3 #6 mitigation). Atlassian's
+    # ``POST /rest/api/3/search/jql`` caps results per page; for epics
+    # with many children the sweep must follow ``nextPageToken`` until
+    # the server returns ``isLast=true`` or omits the cursor. Without
+    # this the reverse-index would silently miss children past page 1
+    # and the in-flight gate would mis-classify them.
+    merged: list[dict[str, Any]] = []
+    next_page_token: str | None = None
+    seen_pages = 0
+    HARD_PAGE_CAP = 200  # 200 pages × 100 results-per-page = 20k children
 
-    try:
-        response = gateway_invoker(
-            "/api/v1/jira/search",
-            method="POST",
-            data=payload,
-        )
-    except Exception as exc:  # noqa: BLE001
-        status_code = getattr(exc, "status_code", None)
-        if status_code == 400 and tolerate_400:
-            logger.warning(
-                "jira_epic_search_field_missing",
-                jql=jql,
-                error=str(exc),
+    while True:
+        payload: dict[str, Any] = {"jql": jql}
+        if fields is not None:
+            payload["fields"] = fields
+        if next_page_token is not None:
+            payload["nextPageToken"] = next_page_token
+
+        try:
+            response = gateway_invoker(
+                "/api/v1/jira/search",
+                method="POST",
+                data=payload,
             )
-            return None
-        # Any other error is fatal — surface it.
-        raise
+        except Exception as exc:  # noqa: BLE001
+            status_code = getattr(exc, "status_code", None)
+            if status_code == 400 and tolerate_400:
+                logger.warning(
+                    "jira_epic_search_field_missing",
+                    jql=jql,
+                    error=str(exc),
+                )
+                return None
+            # Any other error is fatal — surface it.
+            raise
 
-    return _normalise_children_payload(response)
+        page = _normalise_children_payload(response)
+        merged.extend(page)
+
+        # Unwrap envelope to inspect pagination fields.
+        body = response.get("data") if isinstance(response, dict) else response
+        if not isinstance(body, dict):
+            break
+        is_last = body.get("isLast")
+        next_token = body.get("nextPageToken")
+        if is_last or not next_token or not isinstance(next_token, str):
+            break
+        next_page_token = next_token
+
+        seen_pages += 1
+        if seen_pages >= HARD_PAGE_CAP:
+            logger.warning(
+                "jira_epic_search_page_cap_reached",
+                jql=jql,
+                seen_pages=seen_pages,
+            )
+            break
+
+    return merged
 
 
 def search_epic_children(
@@ -267,6 +321,9 @@ def search_epic_children(
             opts into this so a missing mapping surfaces as a HITL gate
             (#1557 decision-2 / holistic NACK Pass-4 #13).
     """
+    # Validate the epic key BEFORE interpolating into JQL (#1557
+    # reviewer_code v3 #1 mitigation — defence against injection).
+    _validate_jira_key(epic_key)
     resolved_project = project_key or _project_key_from_jira_key(epic_key)
 
     skip_epic_link = False
