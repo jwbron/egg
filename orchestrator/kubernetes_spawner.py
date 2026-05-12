@@ -47,6 +47,7 @@ from kubernetes_client import (
     LABEL_CONTAINER_NAME,
     LABEL_ORCHESTRATOR,
     LABEL_PIPELINE_ID,
+    LABEL_SLICE_ID,
     JobOperationError,
     KubernetesClient,
     KubernetesClientError,
@@ -499,6 +500,11 @@ class KubernetesSpawner:
         }
         if issue_number is not None:
             labels["egg.issue.number"] = str(issue_number)
+        # Slice-scoped agents get an additional label so operators can
+        # select on the slice from kubectl (and ``list_slice_jobs`` can
+        # filter without parsing Job names) — see #2666.
+        if slice_id is not None:
+            labels[LABEL_SLICE_ID] = slice_id
 
         # Host UID/GID for file ownership in worktrees
         host_uid = int(os.environ.get("HOST_UID", 1000))
@@ -965,6 +971,21 @@ class KubernetesSpawner:
             labels={LABEL_PIPELINE_ID: pipeline_id},
         )
 
+    def list_slice_jobs(
+        self,
+        pipeline_id: str,
+        slice_id: str,
+    ) -> list[ContainerInfo]:
+        """List slice-scoped Jobs within *pipeline_id*.
+
+        Filters on ``egg.slice.id`` (#2666) so callers don't have to
+        parse Job names to scope an operation to a single slice.
+        Returns an empty list when no Jobs match.
+        """
+        return self.k8s.list_containers(
+            labels={LABEL_PIPELINE_ID: pipeline_id, LABEL_SLICE_ID: slice_id},
+        )
+
     def cleanup_pipeline(
         self,
         pipeline_id: str,
@@ -1155,6 +1176,7 @@ class KubernetesSpawner:
         spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
         spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
         slice_id: str | None = None,
+        wait_for_gateway: bool = True,
     ) -> SpawnedContainer:
         """Restart an agent Job: delete and respawn preserving worktree.
 
@@ -1185,6 +1207,8 @@ class KubernetesSpawner:
                 restarted agent re-enters the per-slice consensus tracker.
                 The restart-budget key includes the slice scope so each
                 slice gets an independent budget.
+            wait_for_gateway: Wait for gateway health before respawning.
+                Forwarded to ``spawn_agent_job``.
 
         Returns:
             SpawnedContainer with new Job info.
@@ -1249,12 +1273,14 @@ class KubernetesSpawner:
             # here because it would route both the k8s and gateway calls
             # through the same identifier, but k8s wants the prefixed form
             # and the gateway session is keyed by the unprefixed form.
+            delete_attempted = False
             try:
                 self.k8s.delete_job(
                     actual_k8s_job_name,
                     self._namespace,
                     propagation_policy="Foreground",
                 )
+                delete_attempted = True
             except PodNotFoundError:
                 logger.debug(
                     "No existing Job found during restart (already removed)",
@@ -1265,6 +1291,18 @@ class KubernetesSpawner:
                     "Failed to delete existing Job during restart, continuing",
                     job_name=actual_k8s_job_name,
                     error=str(e),
+                )
+            # Foreground propagation returns as soon as the deletion is
+            # accepted; the Job lingers with its finalizer until pods are
+            # gone. Wait for the API server to actually remove it before
+            # spawning a Job with the same name, otherwise we race the
+            # finalizer and 409 on AlreadyExists (#2655).
+            if delete_attempted and not self.k8s.wait_for_job_gone(
+                actual_k8s_job_name, self._namespace, timeout_s=30.0
+            ):
+                logger.warning(
+                    "Job still present after 30s wait; respawn may 409 on AlreadyExists",
+                    job_name=actual_k8s_job_name,
                 )
             try:
                 self.gateway.delete_session_by_container(job_name)
@@ -1287,7 +1325,7 @@ class KubernetesSpawner:
                 mode=mode,
                 image=image,
                 extra_env=extra_env,
-                wait_for_gateway=True,
+                wait_for_gateway=wait_for_gateway,
                 repos=repos,
                 phase=phase,
                 command=command,
