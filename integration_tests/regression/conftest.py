@@ -64,7 +64,6 @@ from peer_consensus import _trackers as _global_trackers  # noqa: E402
 from peer_consensus import _trackers_lock as _global_trackers_lock  # noqa: E402
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # k3s slice-spawn helpers (#2632)
 # ---------------------------------------------------------------------------
