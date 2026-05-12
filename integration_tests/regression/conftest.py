@@ -36,7 +36,6 @@ helpers usable in ``import`` statements have to live next door.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import time
@@ -178,28 +177,21 @@ def spawner(egg_stack: Any) -> Generator[Any]:
         host = parsed
         port = egg_stack.gateway_port
 
-    # ``EGG_LAUNCHER_SECRET`` overrides any value in env; GatewayClient
-    # reads it via os.environ when ``launcher_secret`` is omitted.
-    prev_secret = os.environ.get("EGG_LAUNCHER_SECRET")
-    os.environ["EGG_LAUNCHER_SECRET"] = egg_stack.launcher_secret
-    try:
-        gateway = GatewayClient(
-            gateway_host=host,
-            gateway_port=port,
-            launcher_secret=egg_stack.launcher_secret,
-        )
-        k8s = KubernetesClient(namespace=egg_stack.isolated_network)
-        s = KubernetesSpawner(
-            k8s_client=k8s,
-            gateway_client=gateway,
-            namespace=egg_stack.isolated_network,
-        )
-        yield s
-    finally:
-        if prev_secret is None:
-            os.environ.pop("EGG_LAUNCHER_SECRET", None)
-        else:
-            os.environ["EGG_LAUNCHER_SECRET"] = prev_secret
+    # ``launcher_secret`` is passed explicitly to ``GatewayClient`` —
+    # the env-var fallback inside the client never fires here, so no
+    # ``os.environ`` mutation is needed.
+    gateway = GatewayClient(
+        gateway_host=host,
+        gateway_port=port,
+        launcher_secret=egg_stack.launcher_secret,
+    )
+    k8s = KubernetesClient(namespace=egg_stack.isolated_network)
+    s = KubernetesSpawner(
+        k8s_client=k8s,
+        gateway_client=gateway,
+        namespace=egg_stack.isolated_network,
+    )
+    yield s
 
 
 # ---------------------------------------------------------------------------

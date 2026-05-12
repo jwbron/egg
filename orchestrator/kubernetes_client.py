@@ -747,16 +747,48 @@ class KubernetesClient:
             and the subsequent ``spawn_agent_job`` will surface the
             409 with a clear message if it happens.
         """
+        # Import here to avoid a hard module-load dep on kubernetes for
+        # callers that monkey-patch ``batch_api`` directly (unit tests).
+        from kubernetes.client.exceptions import ApiException
+
         normalized = self._normalize_k8s_job_name(name)
         deadline = time.monotonic() + timeout_s
         poll_interval = 0.5
         while True:
             try:
                 self.batch_api.read_namespaced_job(name=normalized, namespace=namespace)
-            except Exception as exc:
+            except ApiException as exc:
+                if exc.status == 404:
+                    return True
+                # Any other ApiException (5xx, RBAC denial, etc.) is not
+                # "Job is gone." Log and keep polling — the caller's
+                # timeout will surface it as a soft warning, and re-raising
+                # would propagate to ``restart_agent_job`` which today
+                # treats this as best-effort.
+                logger.warning(
+                    "wait_for_job_gone: non-404 ApiException while polling",
+                    job_name=normalized,
+                    namespace=namespace,
+                    status=exc.status,
+                    reason=getattr(exc, "reason", None),
+                )
+            except Exception as exc:  # noqa: BLE001 — defensive fallback
+                # Non-ApiException (transient ConnectionError from the
+                # urllib3 layer, monkey-patched test stubs, etc.). The
+                # legacy substring check ran on these and treated
+                # "not found" / "404" as success; keep that compat for
+                # test stubs that raise a plain Exception. Log so a
+                # real connection issue is visible in the logs even
+                # if we never see a real 404.
                 msg = str(exc).lower()
                 if "not found" in msg or "404" in msg:
                     return True
+                logger.warning(
+                    "wait_for_job_gone: non-ApiException while polling",
+                    job_name=normalized,
+                    namespace=namespace,
+                    error=str(exc),
+                )
             if time.monotonic() >= deadline:
                 return False
             time.sleep(poll_interval)

@@ -484,18 +484,9 @@ class KubernetesSpawner:
         if wait_for_gateway:
             health = self.gateway.check_health()
             if not health.healthy:
-                # "degraded" means Squid proxy is down. Squid is only used by
-                # private-mode containers; public-mode containers connect
-                # directly to the internet, so degraded is acceptable there.
-                if health.status == "degraded" and mode == "public":
-                    logger.debug(
-                        "Gateway degraded (Squid down) but mode is public; proceeding",
-                        status=health.status,
-                    )
-                else:
-                    raise KubernetesSpawnError(
-                        f"Gateway is not healthy: {health.error or health.status}"
-                    )
+                raise KubernetesSpawnError(
+                    f"Gateway is not healthy: {health.error or health.status}"
+                )
 
         # Labels for the Job — includes app.kubernetes.io/component:agent
         # so that NetworkPolicies (which select on this label) apply correctly.
@@ -1185,6 +1176,7 @@ class KubernetesSpawner:
         spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
         spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
         slice_id: str | None = None,
+        wait_for_gateway: bool = True,
     ) -> SpawnedContainer:
         """Restart an agent Job: delete and respawn preserving worktree.
 
@@ -1215,6 +1207,8 @@ class KubernetesSpawner:
                 restarted agent re-enters the per-slice consensus tracker.
                 The restart-budget key includes the slice scope so each
                 slice gets an independent budget.
+            wait_for_gateway: Wait for gateway health before respawning.
+                Forwarded to ``spawn_agent_job``.
 
         Returns:
             SpawnedContainer with new Job info.
@@ -1331,7 +1325,7 @@ class KubernetesSpawner:
                 mode=mode,
                 image=image,
                 extra_env=extra_env,
-                wait_for_gateway=True,
+                wait_for_gateway=wait_for_gateway,
                 repos=repos,
                 phase=phase,
                 command=command,
