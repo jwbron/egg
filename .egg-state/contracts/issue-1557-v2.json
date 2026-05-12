@@ -1,7 +1,7 @@
 {
   "acceptance_criteria": [],
   "agent_executions": [],
-  "current_phase": "refine",
+  "current_phase": "implement",
   "decisions": [
     {
       "debounce_until": null,
