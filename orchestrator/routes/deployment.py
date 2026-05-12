@@ -1120,12 +1120,26 @@ def _wait_for_probe_pod(k8s: Any, namespace: str, probe_id: str, *, timeout: flo
 
 
 def _read_probe_log(k8s: Any, namespace: str, pod_name: str) -> str:
+    # The probe writes JSON to stdout. The kubernetes-python client's
+    # ApiClient.deserialize() runs json.loads() on every response body
+    # before coercing to the declared response_type, so a JSON-shaped
+    # pod log gets parsed to a dict and then str()'d back, yielding the
+    # Python dict repr (single quotes, ``True``) instead of the
+    # original JSON. _preload_content=False bypasses that path and
+    # returns the urllib3 HTTPResponse so we can decode the raw bytes.
     try:
-        raw = k8s.core_api.read_namespaced_pod_log(name=pod_name, namespace=namespace)
+        raw = k8s.core_api.read_namespaced_pod_log(
+            name=pod_name, namespace=namespace, _preload_content=False
+        )
     except Exception as exc:
         logger.warning("probe log read failed", pod=pod_name, error=str(exc))
         return ""
-    return str(raw) if raw is not None else ""
+    if raw is None:
+        return ""
+    data = getattr(raw, "data", raw)
+    if isinstance(data, bytes):
+        return data.decode("utf-8", errors="replace")
+    return str(data)
 
 
 def _delete_probe_job(k8s: Any, namespace: str, probe_id: str) -> None:
