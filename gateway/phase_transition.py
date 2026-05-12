@@ -37,10 +37,19 @@ class TransitionRole(StrEnum):
     HUMAN = "human"
 
 
-# Phase transition graph: defines which phases can transition to which
+# Phase transition graph: defines which phases can transition to which.
+#
+# Issue #1557 — Jira-epic SDLC support: ``PLAN`` now has two valid
+# successors (``APPLY`` and ``IMPLEMENT``). The orchestrator scheduler
+# picks ``APPLY`` only when ``Pipeline.is_epic`` is true; non-epic
+# pipelines continue to advance ``PLAN → IMPLEMENT`` directly via
+# ``get_next_phase`` (which returns the first valid target). ``APPLY``
+# is terminal-less without IMPLEMENT — the apply phase always advances
+# to IMPLEMENT once the APPLIER's BRC consensus confirms.
 VALID_TRANSITIONS: dict[PipelinePhase, list[PipelinePhase]] = {
     PipelinePhase.REFINE: [PipelinePhase.PLAN],
-    PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
+    PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT, PipelinePhase.APPLY],
+    PipelinePhase.APPLY: [PipelinePhase.IMPLEMENT],
     PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
     PipelinePhase.PR: [],  # Terminal state - no automatic transitions
 }
