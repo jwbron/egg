@@ -1322,12 +1322,7 @@ class PipelineToolHandler:
                     )
                 }
             if not args.get("jira_ticket"):
-                return {
-                    "error": (
-                        "mode is only meaningful with jira_ticket "
-                        "(issue #1557)"
-                    )
-                }
+                return {"error": ("mode is only meaningful with jira_ticket (issue #1557)")}
 
         if args.get("issue_number"):
             base_id = f"issue-{args['issue_number']}"

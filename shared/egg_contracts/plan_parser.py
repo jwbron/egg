@@ -76,17 +76,13 @@ PLACEHOLDER_ACCEPTANCE_CRITERIA = "Human verification"
 # (issue #1557 — Jira-epic SDLC support). Mirrors the ``Literal`` in
 # ``Task.jira_action`` so the parser can reject unknown values with a
 # ParseWarning instead of letting them slip through as silent drops.
-JIRA_ACTION_VALUES = frozenset(
-    {"create", "edit", "wontdo", "split-of", "consolidate-into"}
-)
+JIRA_ACTION_VALUES = frozenset({"create", "edit", "wontdo", "split-of", "consolidate-into"})
 
 # Valid values for the optional ``jira_action_status`` per-task YAML key
 # (issue #1557 — Jira-epic SDLC support). Mirrors the ``Literal`` in
 # ``Task.jira_action_status``. ``None`` (key absent) is also valid and
 # is treated as ``'pending'`` by the APPLIER.
-JIRA_ACTION_STATUS_VALUES = frozenset(
-    {"pending", "in_flight", "applied", "failed"}
-)
+JIRA_ACTION_STATUS_VALUES = frozenset({"pending", "in_flight", "applied", "failed"})
 
 # Pattern for ``jira_key`` per-task YAML key (issue #1557). Mirrors
 # ``Task.jira_key`` exactly so the parser's warning matches the

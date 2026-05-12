@@ -5464,7 +5464,11 @@ def jira_ticket_transition() -> tuple[Response, int] | Response:
         try:
             from .jira_adf import wrap_text_as_adf
         except ImportError:
-            from jira_adf import wrap_text_as_adf  # type: ignore[no-redef]
+            # Issue #1557 tester v1 lint finding: ``jira_adf`` ships
+            # without a ``py.typed`` marker so mypy reports it as
+            # ``import-untyped``. The companion import at line 5849
+            # already uses the dual-ignore; mirror it here.
+            from jira_adf import wrap_text_as_adf  # type: ignore[no-redef, import-untyped]
         comment_adf = wrap_text_as_adf(comment_text.strip())
 
     try:
@@ -5848,7 +5852,7 @@ def _validate_jira_text_field(
         try:
             from .jira_adf import is_adf_dict
         except ImportError:
-            from jira_adf import is_adf_dict  # type: ignore[no-redef, import-untyped]
+            from jira_adf import is_adf_dict  # type: ignore[no-redef]
         if not is_adf_dict(value):
             return None, make_error(
                 f"{field} must be a string or a valid ADF document",
