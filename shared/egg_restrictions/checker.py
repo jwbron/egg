@@ -10,35 +10,41 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .patterns import AGENT_PATTERNS, AgentFilePattern
+from .patterns import AgentFilePattern, get_agent_pattern_for_repo
 
 
-def get_agent_pattern(role: str) -> AgentFilePattern | None:
+def get_agent_pattern(role: str, repo: str | None = None) -> AgentFilePattern | None:
     """Get the file pattern for an agent role.
 
     Args:
         role: The agent role identifier
+        repo: Optional repository in ``owner/repo`` format. When set, the
+            returned pattern reflects per-repo overrides from
+            ``repositories.yaml`` (#2528). When ``None``, returns the
+            global default pattern for the role.
 
     Returns:
         AgentFilePattern for the role, or None if not found
     """
-    return AGENT_PATTERNS.get(role.lower())
+    return get_agent_pattern_for_repo(role.lower(), repo)
 
 
 def check_agent_file_access(
     role: str,
     files: list[str],
+    repo: str | None = None,
 ) -> tuple[bool, list[str], str]:
     """Check if an agent can modify the given files.
 
     Args:
         role: The agent role identifier
         files: List of file paths being modified
+        repo: Optional repository for per-repo pattern overrides (#2528).
 
     Returns:
         Tuple of (allowed, blocked_files, reason)
     """
-    pattern = get_agent_pattern(role)
+    pattern = get_agent_pattern(role, repo=repo)
     if pattern is None:
         # Unknown role - deny all (deny-by-default)
         return False, files, f"Unknown agent role '{role}' \u2014 access denied (deny-by-default)"
@@ -92,6 +98,7 @@ class AgentRestrictionResult:
 def validate_agent_push(
     role: str,
     files: list[str],
+    repo: str | None = None,
 ) -> AgentRestrictionResult:
     """Validate that an agent can push changes to the given files.
 
@@ -100,6 +107,7 @@ def validate_agent_push(
     Args:
         role: The agent role identifier (e.g., "coder", "tester")
         files: List of file paths being modified in the push
+        repo: Optional repository for per-repo pattern overrides (#2528).
 
     Returns:
         AgentRestrictionResult indicating whether the push is allowed
@@ -110,7 +118,7 @@ def validate_agent_push(
     if not files:
         return AgentRestrictionResult.allow(role, "No files to validate")
 
-    allowed, blocked_files, reason = check_agent_file_access(role, files)
+    allowed, blocked_files, reason = check_agent_file_access(role, files, repo=repo)
 
     if allowed:
         return AgentRestrictionResult.allow(role, reason)
