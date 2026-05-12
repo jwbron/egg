@@ -18,33 +18,32 @@ coverage lives in ``orchestrator/tests/test_mcp_tools.py`` under
 ``TestValidateConfig``; reproducing it in the k3s tier would add cost
 without adding signal.)
 
-## Bugs surfaced while building the suite (filed as follow-ups)
+## Follow-up fixes shipped in the same PR
 
 The default-overlay / probe happy paths in the deployed orchestrator
-are currently broken in three independent ways. The tests below lock
-in the *observable* behaviour today (so any silent fix would flip the
-assertion and force a deliberate test update); the happy-path variants
-are marked ``xfail(strict=True)`` and point at the relevant bug.
+were each broken in independent ways when this suite was first written;
+the fixes ride this PR:
 
-* **#2647 — orchestrator container has no ``kustomize``/``kubectl`` on
-  PATH.** ``orchestrator/Dockerfile`` installs ``git curl gosu`` only,
-  so ``_run_kustomize`` falls through both subprocess invocations and
-  raises ``kustomize_unavailable``. Any default-overlay validation
-  returns HTTP 500.
-* **#2646 — orchestrator ServiceAccount cannot list DaemonSets in
-  ``kube-system`` or nodes cluster-wide.** ``_detect_cni`` and
-  ``_detect_k3s`` both rely on these reads, so ``validate-network-
-  isolation`` always short-circuits with
-  ``network_policy_enforcement_not_detected`` and ``validate-
-  manifests`` always reports ``is_k3s=False`` even on a real k3s
-  cluster (the k3s-gated image-tag rule never fires).
-* **#2648 — orchestrator ServiceAccount can only ``get`` (not
-  ``list``) Deployments in ``egg-system``.** Tangential to #2641 but
-  observed in the same audit: ``_collect_egg_image_tags`` always
-  returns ``{}`` and ``get_deployment_context`` always sets
-  ``images_unavailable: true`` in production.
-
-The tests below do not depend on any of these bugs being fixed.
+* **#2647 — kustomize is now installed in the orchestrator image.**
+  ``_run_kustomize`` no longer raises ``kustomize_unavailable``. The
+  default-overlay path still 404s in CI because the egg repo isn't
+  bind-mounted into the orchestrator pod (a separate gap acknowledged
+  in #2647); locally with the local-overlay host mounts it returns
+  200.
+* **#2646 — orchestrator SA gained ``get,list`` on
+  ``apps/daemonsets`` and ``nodes`` (ClusterRole
+  ``egg-cluster-topology-reader``).** ``_detect_cni`` / ``_detect_k3s``
+  now run, so ``validate-network-isolation`` launches the probe
+  against the Calico-equipped integration cluster instead of
+  short-circuiting.
+* **#2648 — orchestrator SA gained ``list`` on ``apps/deployments``
+  in ``egg-system``.** Tangential to #2641 but observed in the same
+  audit: ``_collect_egg_image_tags`` now returns populated image tags
+  instead of ``{}``.
+* **#2652 — probe field renamed from ``orchestrator_direct_blocked``
+  to ``orchestrator_api_reachable`` with flipped polarity.** The
+  agent→orchestrator heartbeat path is deliberately permitted; the
+  field now reads positively as a healthy-heartbeat signal.
 """
 
 from __future__ import annotations
@@ -91,11 +90,12 @@ def _post(
 class TestValidateDeploymentManifestsLogic:
     """``POST /api/v1/deployment/validate-manifests`` — post-auth behaviour.
 
-    The orchestrator container ships without ``kustomize``/``kubectl`` and
-    without the egg repo bind-mounted, so the happy-path (rendered overlay
-    + warnings list) cannot run in CI today (see B1 in the module
-    docstring). The tests here cover what is reachable: the 404 / 400
-    error paths and the deterministic 500 the missing tooling produces.
+    With #2647 fixed the orchestrator image now ships ``kustomize``.
+    The remaining gap (egg repo not bind-mounted in CI) is acknowledged
+    in #2647 and is out of scope for this PR; the default-overlay path
+    therefore returns 404 in CI and 200 locally with the local-overlay
+    host mounts. The tests below cover both shapes plus the 400 / 404
+    error paths.
     """
 
     def test_missing_overlay_returns_404(
@@ -165,25 +165,25 @@ class TestValidateDeploymentManifestsLogic:
             f"expected 400 for relative traversal, got {resp.status_code}: {resp.text[:500]}"
         )
 
-    def test_default_overlay_in_deployed_orchestrator_returns_500_today(
+    def test_default_overlay_returns_404_or_200_depending_on_repo_mount(
         self,
         orchestrator_url: str,
         lifecycle_secret: str,
     ) -> None:
-        """Default overlay against a real orchestrator pod returns 500 today (B1).
+        """Default overlay returns 200 (repo mounted) or 404 (repo absent).
 
-        With the egg repo bind-mounted at ``/home/egg/repos`` (local
-        overlay), the route finds ``k8s/overlays/local`` but the
-        orchestrator container has neither ``kustomize`` nor ``kubectl``
-        installed, so ``_run_kustomize`` raises ``kustomize_unavailable``
-        and the route returns 500. Locking in the current observable
-        behaviour so the contract is explicit; when B1 is fixed this
-        assertion will need to flip to 200.
+        With #2647 fixed the orchestrator image ships ``kustomize``, so
+        500 ``kustomize_unavailable`` is no longer a valid shape. The
+        remaining gap is whether the egg repo is bind-mounted at
+        ``/home/egg/repos``:
 
-        The fixture path that mounts the repo only exists under the
-        local overlay; in CI the repo isn't mounted at all and the
-        route returns 404 instead. Accept either to keep the test
-        portable across both deployment shapes.
+        * Local-dev (local overlay + ``$HOME/repos/egg`` populated): 200
+          with rendered overlay + warnings list.
+        * CI integration tier (local overlay, ``$HOME/repos`` empty per
+          the workflow's seed step): 404 ``overlay not found``.
+
+        Both are deliberate; 500 anywhere is a regression in either
+        the Dockerfile change or the route's error path.
         """
         resp = _post(
             orchestrator_url,
@@ -191,24 +191,20 @@ class TestValidateDeploymentManifestsLogic:
             secret=lifecycle_secret,
             body={},
         )
-        # Two valid shapes today:
-        #   - 500 kustomize_unavailable: repo IS mounted (local overlay
-        #     pattern), overlay found, kustomize missing.
-        #   - 404 overlay not found: repo is NOT mounted (CI default
-        #     overlay isn't reachable from the orchestrator pod).
-        # Both expose a real gap; 200 would be the post-fix state.
-        assert resp.status_code in (404, 500), (
-            f"expected 404 or 500 in current deployment, got {resp.status_code}: {resp.text[:500]}"
+        assert resp.status_code in (200, 404), (
+            f"expected 200 or 404, got {resp.status_code}: {resp.text[:500]}"
         )
         body = resp.json()
-        assert body["success"] is False
-        msg = (body.get("message") or "").lower()
-        if resp.status_code == 500:
-            assert "kustomize" in msg, (
-                f"500 should be the kustomize_unavailable bug (B1); got: {msg!r}"
-            )
+        if resp.status_code == 200:
+            assert body["success"] is True
+            assert "data" in body
+            assert "overlay_path" in body["data"]
+            assert "warnings" in body["data"]
         else:
-            assert "not found" in msg, f"404 should be the overlay-not-found path; got: {msg!r}"
+            assert body["success"] is False
+            assert "not found" in (body.get("message") or "").lower(), (
+                f"404 should be overlay-not-found; got: {body.get('message')!r}"
+            )
 
     def test_re_validation_is_idempotent_on_error_path(
         self,
@@ -251,13 +247,12 @@ class TestValidateDeploymentManifestsLogic:
 class TestValidateNetworkIsolationLogic:
     """``POST /api/v1/deployment/validate-network-isolation`` — post-auth.
 
-    The probe-pod happy path is currently unreachable because the
-    orchestrator ServiceAccount can't list ``kube-system`` DaemonSets
-    (B2), so ``_detect_cni`` returns ``(None, False)`` and the route
-    short-circuits with ``network_policy_enforcement_not_detected``.
-    The tests below cover the K8s-label-validation logic (which runs
-    before the CNI gate) and the current short-circuit; a
-    ``xfail(strict=True)`` test guards the future happy-path shape.
+    With #2646 fixed the orchestrator SA can now list ``kube-system``
+    DaemonSets and ``nodes`` cluster-wide, so ``_detect_cni`` resolves
+    to ``("calico", True)`` against the integration cluster (which
+    installs Calico via ``scripts/install-calico.sh``). The probe Job
+    actually launches; the happy-path test below exercises its result
+    shape. The earlier short-circuit assertion has been removed.
     """
 
     def test_invalid_pipeline_id_returns_400(
@@ -397,59 +392,12 @@ class TestValidateNetworkIsolationLogic:
             f"expected 200 with default labels, got {resp.status_code}: {resp.text[:500]}"
         )
 
-    def test_route_short_circuits_when_cni_not_detected(
-        self,
-        orchestrator_url: str,
-        lifecycle_secret: str,
-    ) -> None:
-        """Current (B2) behaviour: route reports ``network_policy_enforcement_not_detected``.
-
-        With the production RBAC the orchestrator can't list ``kube-
-        system`` DaemonSets, so the CNI gate fires unconditionally.
-        This test locks in the current observable shape so a future
-        change to the gate (or a fix to B2) surfaces as a deliberate
-        test update.
-
-        When B2 is fixed the route will run the probe instead and this
-        test should be replaced with the happy-path probe-output
-        assertions in
-        ``test_probe_runs_and_returns_expected_shape``.
-        """
-        resp = _post(
-            orchestrator_url,
-            "/api/v1/deployment/validate-network-isolation",
-            secret=lifecycle_secret,
-            body={"pipeline_id": "test-2641", "role": "coder"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()["data"]
-        # B2 is the dominant failure mode in production today. If the
-        # probe ever runs, the response shape changes to {probe_id,
-        # namespace, result} — let that flip be a hard signal by
-        # asserting the error key explicitly.
-        assert data.get("error") == "network_policy_enforcement_not_detected", (
-            "route stopped short-circuiting; B2 may be fixed — flip this "
-            "test to the happy-path assertions"
-        )
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Blocked on B2: orchestrator SA can't list kube-system "
-            "DaemonSets so _detect_cni returns (None, False) and the probe "
-            "never launches. Fix the RBAC and this should pass."
-        ),
-    )
     def test_probe_runs_and_returns_expected_shape(
         self,
         orchestrator_url: str,
         lifecycle_secret: str,
     ) -> None:
         """Happy path: with enforcement detected the probe runs and reports.
-
-        Marked ``xfail(strict=True)`` until B2 lands — when the
-        orchestrator gains RBAC to list kube-system DaemonSets the
-        probe will actually launch and this assertion holds.
 
         Expected probe-output shape (per ``PROBE_COMMAND_TEMPLATE``):
 
@@ -459,12 +407,10 @@ class TestValidateNetworkIsolationLogic:
           arbitrary egress (curl example.com).
         * ``agent_pods_unreachable: True`` — no policy allows agent→
           random-peer:80.
-
-        ``orchestrator_direct_blocked`` is deliberately NOT asserted:
-        ``allow-agent-to-orchestrator`` permits agent→orchestrator:9849
-        for heartbeats, so the field returns ``False`` even when
-        isolation is correctly enforced. The field's name is misleading
-        — see the bug discussion in the PR.
+        * ``orchestrator_api_reachable: True`` — ``allow-agent-to-
+          orchestrator`` permits the agent→orchestrator:9849 heartbeat
+          path. Renamed from ``orchestrator_direct_blocked`` (#2652);
+          the old name read backwards from intent.
         """
         resp = _post(
             orchestrator_url,
@@ -476,11 +422,12 @@ class TestValidateNetworkIsolationLogic:
         assert resp.status_code == 200
         data = resp.json()["data"]
         # Probe-launched shape, not the short-circuit shape.
-        assert "probe_id" in data
+        assert "probe_id" in data, f"expected probe-launched shape with probe_id; got {data!r}"
         result = data["result"]
         assert result.get("gateway_reachable") is True
         assert result.get("internet_blocked") is True
         assert result.get("agent_pods_unreachable") is True
+        assert result.get("orchestrator_api_reachable") is True
 
 
 # ---------------------------------------------------------------------------
@@ -531,15 +478,13 @@ class TestValidationRouteConcurrency:
         orchestrator_url: str,
         lifecycle_secret: str,
     ) -> None:
-        """Concurrent calls each get a distinct response without 409 contention.
+        """Concurrent calls each get a distinct probe_id without 409 contention.
 
-        Under B2 the route short-circuits before submitting a probe Job,
-        so this test mostly proves the route is genuinely stateless
-        across calls. When B2 is fixed and the probe actually launches,
-        the test additionally guards against a probe-id collision
+        With #2646 fixed the probe now launches, so each call produces
+        a ``probe_id`` and the test guards against a probe-id collision
         regression — ``uuid.uuid4().hex[:12]`` is 48 bits of entropy,
-        more than enough for the 5-way fan-out used here, but a
-        regression that hard-codes the id would surface here.
+        more than enough for the 5-way fan-out, but a regression that
+        hard-coded the id would surface here.
         """
 
         def _call(i: int) -> requests.Response:
@@ -572,7 +517,7 @@ class TestValidationRouteConcurrency:
 
 
 class TestValidationRouteSelfConsistency:
-    """Cross-cutting invariants the routes must hold regardless of B1/B2."""
+    """Cross-cutting invariants the routes must hold."""
 
     def test_validation_routes_never_leak_secrets_in_error_messages(
         self,
@@ -658,12 +603,10 @@ class TestProbeJobCleanup:
     """Belt-and-braces: no orphan probe Jobs after the route returns.
 
     The route uses a ``try/finally`` to call ``_delete_probe_job`` and
-    sets ``ttlSecondsAfterFinished: 0`` on the Job. This test enforces
-    that no probe Job persists in ``egg-agents`` after a call — even
-    today's short-circuit (B2) path, which never creates one, must not
-    leave one behind from a previous run. When B2 is fixed and the
-    probe actually launches, the same assertion catches a cleanup
-    regression.
+    sets ``ttlSecondsAfterFinished: 0`` on the Job. With #2646 fixed
+    the probe actually launches, so this assertion catches a cleanup
+    regression where the finally path failed to delete the Job (or the
+    ttl-after-finished GC failed to fire).
     """
 
     def test_no_orphan_probe_jobs_after_call(

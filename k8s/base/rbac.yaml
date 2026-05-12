@@ -63,9 +63,12 @@ metadata:
     app.kubernetes.io/name: orchestrator
     app.kubernetes.io/part-of: egg
 rules:
+  # `list` is required by `_collect_egg_image_tags` in
+  # orchestrator/routes/deployment.py (#2648); without it the wrapper
+  # 403s and `get_deployment_context` reports `images_unavailable`.
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get"]
+    verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
@@ -85,6 +88,42 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: egg-service-log-reader
+subjects:
+  - kind: ServiceAccount
+    name: egg-orchestrator
+    namespace: egg-system
+---
+# Cluster-scope reads for cluster topology probes used by
+# `get_deployment_context` and `validate_network_isolation`:
+# `_detect_k3s` lists nodes cluster-wide, `_detect_cni` / `_detect_k3s`
+# list kube-system DaemonSets. Without this binding the heuristics
+# always returned null/false, masking real k3s + CNI state (#2646).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: egg-cluster-topology-reader
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/part-of: egg
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: egg-cluster-topology-reader
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/part-of: egg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: egg-cluster-topology-reader
 subjects:
   - kind: ServiceAccount
     name: egg-orchestrator

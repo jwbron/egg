@@ -944,7 +944,13 @@ print(json.dumps({
     "gateway_reachable": "$gw".startswith("2") or "$gw".startswith("3"),
     "internet_blocked": "$internet" == "000",
     "agent_pods_unreachable": "$peer" == "000",
-    "orchestrator_direct_blocked": "$orch" == "000",
+    # `allow-agent-to-orchestrator` (k8s/base/network-policies.yaml)
+    # deliberately permits agent->orchestrator:9849 so agents can
+    # heartbeat. So on a correctly-configured cluster this is True;
+    # False is the regression signal (heartbeat path is broken). The
+    # field was previously named `orchestrator_direct_blocked` with
+    # inverted polarity, which read backwards from intent (#2652).
+    "orchestrator_api_reachable": "$orch".startswith("2") or "$orch".startswith("3"),
     "raw": {
         "gateway_status": "$gw",
         "internet_status": "$internet",

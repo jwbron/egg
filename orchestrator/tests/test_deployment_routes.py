@@ -839,7 +839,7 @@ class TestValidateNetworkIsolationRoute:
         fake_pod.metadata.name = "egg-probe-abc123"
         fake_log = (
             '{"gateway_reachable": true, "internet_blocked": true, '
-            '"agent_pods_unreachable": true, "orchestrator_direct_blocked": true}'
+            '"agent_pods_unreachable": true, "orchestrator_api_reachable": true}'
         )
 
         with (
@@ -1474,7 +1474,7 @@ class TestProbeCommandTemplate:
             "gateway_reachable",
             "internet_blocked",
             "agent_pods_unreachable",
-            "orchestrator_direct_blocked",
+            "orchestrator_api_reachable",
         ):
             assert key in PROBE_COMMAND_TEMPLATE
 

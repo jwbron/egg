@@ -5,6 +5,19 @@ RUN apt-get update && apt-get install -y \
     git curl gosu \
     && rm -rf /var/lib/apt/lists/*
 
+# Install kustomize so `validate_deployment_manifests` (POST
+# /api/v1/deployment/validate-manifests) can render overlays. Without
+# it `_run_kustomize` falls through both kustomize and `kubectl
+# kustomize` invocations and the route returns 500
+# `kustomize_unavailable` for every call (#2647). Pinned to a known-
+# good release; bump deliberately.
+ARG KUSTOMIZE_VERSION=5.6.0
+RUN curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
+        -o /tmp/kustomize.tar.gz \
+    && tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize \
+    && rm /tmp/kustomize.tar.gz \
+    && chmod +x /usr/local/bin/kustomize
+
 # Create egg user with UID/GID 1000 as default
 RUN groupadd -g 1000 egg && \
     useradd -m -u 1000 -g 1000 -s /bin/bash egg
