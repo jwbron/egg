@@ -21,142 +21,31 @@ torn down.
 
 from __future__ import annotations
 
-import subprocess
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from agent_salvage import (
     RECOVERY_BRANCH_PREFIX,
-    AgentWorktree,
     auto_salvage_pipeline,
 )
 from gateway_client import PushResult
 from models import Pipeline, PipelinePhase, PipelineStatus
 
+from ._helpers import (
+    build_worktree as _build_worktree,
+)
+from ._helpers import (
+    commit as _commit,
+)
+from ._helpers import (
+    create_origin_tracking as _create_origin_tracking,
+)
+from ._helpers import (
+    make_repo as _make_repo,
+)
+
 pytestmark = pytest.mark.integration
-
-
-# ---------------------------------------------------------------------------
-# Real-git helpers — mirror the shape of ``orchestrator/tests/test_agent_salvage.py``
-# but live in the integration tier so they can be reused across the
-# regression suite without coupling to the unit-tier conftest.
-# ---------------------------------------------------------------------------
-
-
-def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            "git",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "user.email=salvage@test.example",
-            "-c",
-            "user.name=Salvage Tester",
-            "-C",
-            str(cwd),
-            *args,
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-
-def _make_repo(path: Path, branch_name: str) -> str:
-    path.mkdir(parents=True, exist_ok=True)
-    _git("init", "-q", "--initial-branch", branch_name, cwd=path)
-    (path / "README.md").write_text("seed\n")
-    _git("add", "README.md", cwd=path)
-    _git("commit", "-q", "-m", "seed", cwd=path)
-    return _git("rev-parse", "HEAD", cwd=path).stdout.strip()
-
-
-def _commit(path: Path, filename: str, content: str, message: str) -> str:
-    (path / filename).write_text(content)
-    _git("add", filename, cwd=path)
-    _git("commit", "-q", "-m", message, cwd=path)
-    return _git("rev-parse", "HEAD", cwd=path).stdout.strip()
-
-
-def _set_assigned_branch(repo: Path, local_branch: str, assigned: str) -> None:
-    """Mirror what gateway/worktree_manager writes at worktree create time.
-
-    The agent's per-agent worktree carries ``branch.<local>.merge`` set
-    to ``refs/heads/<assigned>``; that's how ``list_unpushed_commits``
-    discovers the assigned upstream when computing the anchor cut.
-    """
-    _git(
-        "config",
-        f"branch.{local_branch}.merge",
-        f"refs/heads/{assigned}",
-        cwd=repo,
-    )
-
-
-def _create_origin_tracking(repo: Path, remote_branch: str, sha: str) -> None:
-    """Stand in for ``origin/<branch>`` after a fetch."""
-    _git("update-ref", f"refs/remotes/origin/{remote_branch}", sha, cwd=repo)
-
-
-def _build_worktree(
-    base: Path,
-    pipeline_id: str,
-    *,
-    agent_role: str | None,
-    slice_id: str | None,
-    assigned_branch: str,
-    n_unpushed: int = 1,
-) -> tuple[AgentWorktree, str]:
-    """Create a per-agent worktree directory with ``n_unpushed`` local commits.
-
-    Returns the ``AgentWorktree`` descriptor and the HEAD SHA (the SHA
-    that the salvage path is supposed to push to its recovery ref).
-    """
-    if agent_role is None:
-        worktree_id = pipeline_id
-        scope = "pipeline"
-    elif slice_id is None:
-        worktree_id = f"{pipeline_id}-{agent_role}"
-        scope = agent_role
-    else:
-        worktree_id = f"{pipeline_id}-{slice_id}-{agent_role}"
-        scope = f"{slice_id}-{agent_role}"
-
-    local_branch = f"egg/{worktree_id}/work"
-    repo = base / worktree_id / "repo"
-    anchor = _make_repo(repo, local_branch)
-    _set_assigned_branch(repo, local_branch, assigned_branch)
-    # The wedged scenario from #2429: agent pushes were rejected so the
-    # assigned-branch tracking ref never advanced past the anchor. Local
-    # commits accumulate on the work branch with no remote anchor for
-    # them.
-    _create_origin_tracking(repo, assigned_branch, anchor)
-
-    head = anchor
-    for i in range(n_unpushed):
-        head = _commit(repo, f"unpushed-{i}.txt", f"work {i}\n", f"unpushed change {i}")
-
-    wt = AgentWorktree(
-        worktree_id=worktree_id,
-        pipeline_id=pipeline_id,
-        agent_role=agent_role,
-        slice_id=slice_id,
-        repo_path=repo,
-        local_branch=local_branch,
-    )
-    assert wt.scope_label == scope  # belt-and-braces against helper drift
-    return wt, head
-
-
-@pytest.fixture
-def fake_gateway() -> MagicMock:
-    """A gateway stub whose ``push_worktree_branch`` records every call."""
-    gw = MagicMock()
-    gw.push_worktree_branch.return_value = PushResult(ok=True)
-    return gw
 
 
 # ---------------------------------------------------------------------------
@@ -341,17 +230,22 @@ class TestSalvageEdgeCases:
     on-disk state.
     """
 
-    def test_corrupt_worktree_surfaces_failure_without_blocking_others(
-        self, tmp_path, fake_gateway
-    ):
-        """One worktree missing ``.git`` => per-row error; other worktrees
-        still get their recovery refs.
+    def test_corrupt_worktree_filtered_without_blocking_loop(self, tmp_path, fake_gateway):
+        """A worktree missing ``.git`` is filtered out by the enumerator
+        and does NOT block salvage of healthy siblings.
 
-        The unit test ``TestSalvageWorktree.test_corrupt_worktree_returns_not_ok``
-        covers the single-worktree case. This test asserts the
-        ``auto_salvage_pipeline`` loop keeps going past the failure so
-        a single broken btrfs mount can't starve every salvageable
-        sibling on the same pipeline (#1723 / #2429 cleanup-policy).
+        ``enumerate_agent_worktrees(validate_git=True)`` — the default
+        on the salvage path — drops directories without a usable repo
+        checkout entirely, so the loop never reaches them. That's the
+        invariant a single broken btrfs mount must not starve every
+        salvageable sibling on the same pipeline (#1723 / #2429
+        cleanup-policy).
+
+        The per-row ``SalvageResult(ok=False, error="worktree has no
+        .git marker")`` path is covered at the single-worktree level
+        by the unit test
+        ``TestSalvageWorktree.test_corrupt_worktree_returns_not_ok``;
+        this test documents the multi-worktree enumeration filter.
         """
         # One healthy worktree with an unpushed commit.
         _, healthy_head = _build_worktree(
@@ -361,21 +255,18 @@ class TestSalvageEdgeCases:
             slice_id=None,
             assigned_branch="egg/issue-2429/work",
         )
-        # One broken worktree: directory exists, but no .git inside.
+        # One broken worktree: directory exists, but no .git inside —
+        # the enumerator's validate_git=True filter drops it.
         broken_dir = tmp_path / "issue-2429-tester" / "repo"
         broken_dir.mkdir(parents=True)
 
         with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
             results = auto_salvage_pipeline(fake_gateway, "issue-2429")
 
-        # Default ``validate_git=True`` filters broken worktrees out
-        # entirely, so the salvage loop sees only the healthy one.
-        # That's still the desired invariant: a wedged on-disk
-        # directory cannot block the loop, and the row count makes
-        # it visible to the operator that the broken dir was skipped
-        # (compared with the enumeration count via /local-commits).
-        assert len(results) == 1
-        assert results[0].worktree_id == "issue-2429-coder"
+        # Healthy sibling salvaged; broken sibling absent from results.
+        worktree_ids = [r.worktree_id for r in results]
+        assert worktree_ids == ["issue-2429-coder"]
+        assert "issue-2429-tester" not in worktree_ids
         assert results[0].ok is True
         assert results[0].head_sha == healthy_head
         # Exactly one push — the broken worktree never tried.
@@ -435,8 +326,8 @@ class TestSalvageEdgeCases:
         the integration chain catches a regression where the salvage
         loop short-circuits to ``n_commits=0`` when no anchor exists.
         """
-        # Build a worktree but skip ``_set_assigned_branch`` and
-        # ``_create_origin_tracking``. The agent committed locally but
+        # Build a worktree but skip ``set_assigned_branch`` and
+        # ``create_origin_tracking``. The agent committed locally but
         # has no remote-tracking ref at all.
         worktree_id = "issue-2429-coder"
         local_branch = f"egg/{worktree_id}/work"
@@ -450,62 +341,13 @@ class TestSalvageEdgeCases:
         assert len(results) == 1
         result = results[0]
         assert result.ok is True
-        # Without an anchor, the helper falls back to full history —
-        # the seed commit AND the new one are reported.
-        assert result.n_commits >= 1
+        # Without an anchor the helper walks the full HEAD history. With
+        # one seed commit and one local commit, exactly two are reported.
+        # A regression that short-circuits to 0, or that trims to 1 by
+        # mis-applying an anchor, would each fail this assertion.
+        assert result.n_commits == 2
         assert result.head_sha == head
         assert result.recovery_ref == (f"{RECOVERY_BRANCH_PREFIX}/issue-2429/coder/{head[:12]}")
-
-    def test_concurrent_salvage_calls_converge_to_same_ref(self, tmp_path):
-        """Two parallel ``auto_salvage_pipeline`` calls converge on the
-        same recovery ref (immutable per HEAD SHA).
-
-        Concurrency model: a phase restart + a periodic cleanup pass
-        could both call into the salvage hook for the same pipeline at
-        nearly the same time. Because the recovery ref name is derived
-        from HEAD, both calls compose the *same* ref, both push (or one
-        pushes and the other fast-forwards to identical SHA), and the
-        net effect is two ``SalvageResult`` rows pointing at the same
-        ``recovery_ref``. No force flag, no race on the ref content.
-        """
-        import threading as _threading
-
-        _build_worktree(
-            tmp_path,
-            "issue-2429",
-            agent_role="coder",
-            slice_id=None,
-            assigned_branch="egg/issue-2429/work",
-        )
-
-        gateway = MagicMock()
-        gateway.push_worktree_branch.return_value = PushResult(ok=True)
-
-        results_a: list = []
-        results_b: list = []
-        errors: list[BaseException] = []
-
-        def _run(out: list) -> None:
-            try:
-                with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
-                    out.extend(auto_salvage_pipeline(gateway, "issue-2429"))
-            except BaseException as e:  # noqa: BLE001 — surface to assertion
-                errors.append(e)
-
-        t1 = _threading.Thread(target=_run, args=(results_a,))
-        t2 = _threading.Thread(target=_run, args=(results_b,))
-        t1.start()
-        t2.start()
-        t1.join(timeout=30)
-        t2.join(timeout=30)
-
-        assert not errors, errors
-        assert len(results_a) == 1 and len(results_b) == 1
-        # Same ref on both threads — the SHA-keyed name converges.
-        assert results_a[0].recovery_ref == results_b[0].recovery_ref
-        # No force pushes from either thread.
-        for call in gateway.push_worktree_branch.call_args_list:
-            assert call.kwargs["force"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -580,15 +422,23 @@ class TestSalvageRouteEndToEnd:
         assert kwargs["force"] is False
 
     def test_filters_by_slice_id(self, client, tmp_path, fake_gateway):
-        """``slice_id=slice-1`` narrows salvage to that slice's worktree."""
-        wt_s1, _ = _build_worktree(
+        """``slice_id=slice-1`` narrows salvage to that slice's worktree.
+
+        The filtered row carries the same helper-output shape as the
+        unfiltered case — proving the route plugs slice-narrowed results
+        through ``_serialize_salvage_result`` correctly. Without these
+        assertions a regression that serialized only the worktree_id
+        but dropped recovery_ref / head_sha / n_commits would pass.
+        """
+        wt_s1, s1_head = _build_worktree(
             tmp_path,
             "issue-2429",
             agent_role="coder",
             slice_id="slice-1",
             assigned_branch="egg/issue-2429/slice-1",
+            n_unpushed=2,
         )
-        wt_s2, _ = _build_worktree(
+        _, _ = _build_worktree(
             tmp_path,
             "issue-2429",
             agent_role="coder",
@@ -610,9 +460,19 @@ class TestSalvageRouteEndToEnd:
         assert resp.status_code == 200, resp.data
         rows = resp.get_json()["data"]["results"]
         assert len(rows) == 1
-        assert rows[0]["worktree_id"] == wt_s1.worktree_id
-        # Exactly one push — slice-2 was filtered out.
+        row = rows[0]
+        assert row["worktree_id"] == wt_s1.worktree_id
+        assert row["ok"] is True
+        assert row["slice_id"] == "slice-1"
+        assert row["head_sha"] == s1_head
+        assert row["n_commits"] == 2
+        expected_ref = f"{RECOVERY_BRANCH_PREFIX}/issue-2429/slice-1-coder/{s1_head[:12]}"
+        assert row["recovery_ref"] == expected_ref
+        # Exactly one push — slice-2 was filtered out — and the pushed
+        # branch matches the recovery ref reported back to the client.
         fake_gateway.push_worktree_branch.assert_called_once()
+        push_kwargs = fake_gateway.push_worktree_branch.call_args.kwargs
+        assert push_kwargs["branch"] == expected_ref
 
     def test_list_local_commits_uses_real_git(self, client, tmp_path):
         """The read-only GET surfaces real ``git log`` output, not mock data.

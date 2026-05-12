@@ -24,7 +24,8 @@ route end-to-end.
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -63,6 +64,7 @@ def _failed_pipeline() -> Pipeline:
         issue_number=2420,
         repo="owner/repo",
         branch="egg/issue-2420/work",
+        base_branch="main",
         mode="issue",
         status=PipelineStatus.FAILED,
         current_phase=PipelinePhase.REFINE,
@@ -110,6 +112,48 @@ def _stub_spawner(*containers: ContainerInfo) -> MagicMock:
     return spawner
 
 
+@dataclass
+class _RouteMocks:
+    """The set of ``routes.pipelines`` patches every guard test needs.
+
+    Returned by ``_patched_route`` so tests get named attributes instead
+    of a 5-deep positional decorator stack that's easy to break when
+    someone reorders.
+    """
+
+    spawner: MagicMock
+    get_repo: MagicMock
+    resolve: MagicMock
+    run: MagicMock
+    lock: MagicMock
+
+
+@contextmanager
+def _patched_route():
+    """Patch the five ``routes.pipelines`` symbols every guard test needs.
+
+    Replaces the per-test stack of five ``@patch`` decorators (whose
+    positional ordering was easy to mis-thread on copy-paste) with a
+    single ``with _patched_route() as m`` context that hands back named
+    attributes.
+    """
+    with ExitStack() as stack:
+        lock = stack.enter_context(
+            patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+        )
+        run = stack.enter_context(patch("routes.pipelines._run_pipeline"))
+        resolve = stack.enter_context(patch("routes.pipelines._resolve_pipeline"))
+        get_repo = stack.enter_context(patch("routes.pipelines.get_repo_path"))
+        spawner = stack.enter_context(patch("routes.pipelines._get_spawner"))
+        yield _RouteMocks(
+            spawner=spawner,
+            get_repo=get_repo,
+            resolve=resolve,
+            run=run,
+            lock=lock,
+        )
+
+
 class TestLivePodGuardBackendIntegration:
     """End-to-end exercise of the live-pod guard through the real helper.
 
@@ -118,26 +162,12 @@ class TestLivePodGuardBackendIntegration:
     ``_LIVE_POD_STATUSES`` filter are the real implementations.
     """
 
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    @patch("routes.pipelines._get_spawner")
-    def test_running_pod_blocks_reset_with_409(
-        self,
-        mock_spawner,
-        mock_get_repo,
-        mock_resolve,
-        mock_run,
-        _mock_lock,
-        client,
-    ):
+    def test_running_pod_blocks_reset_with_409(self, client):
         """A single RUNNING pod labeled to the pipeline => 409
         ``live_pods_present`` with ``live_pod_count=1``, and the route
         passes the correct label selector to the backend.
         """
         pipeline = _failed_pipeline()
-        _setup_route_mocks(mock_get_repo, mock_resolve, pipeline)
         spawner = _stub_spawner(
             ContainerInfo(
                 container_id="pod-1",
@@ -145,48 +175,36 @@ class TestLivePodGuardBackendIntegration:
                 status=ContainerStatus.RUNNING,
             )
         )
-        mock_spawner.return_value = spawner
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
 
-        resp = client.post("/api/v1/pipelines/issue-2420/start")
+            resp = client.post("/api/v1/pipelines/issue-2420/start")
 
-        assert resp.status_code == 409, resp.data
-        body = json.loads(resp.data)
-        assert body["reason"] == "live_pods_present"
-        assert body["details"]["live_pod_count"] == 1
+            assert resp.status_code == 409, resp.data
+            body = json.loads(resp.data)
+            assert body["reason"] == "live_pods_present"
+            assert body["details"]["live_pod_count"] == 1
 
-        # The label selector reached the backend untouched. The literal
-        # comes from ``kubernetes_client.LABEL_PIPELINE_ID`` — assert by
-        # value so a rename surfaces here too.
-        from kubernetes_client import LABEL_PIPELINE_ID
+            # The label selector reached the backend untouched. The literal
+            # comes from ``kubernetes_client.LABEL_PIPELINE_ID`` — assert by
+            # value so a rename surfaces here too.
+            from kubernetes_client import LABEL_PIPELINE_ID
 
-        assert spawner._captured["labels"] == {LABEL_PIPELINE_ID: "issue-2420"}
+            assert spawner._captured["labels"] == {LABEL_PIPELINE_ID: "issue-2420"}
 
-        # Phase state is intact — no orphaning happened.
-        exec_ = pipeline.get_phase_execution(PipelinePhase.REFINE)
-        assert exec_.status == PipelineStatus.FAILED
-        assert exec_.agents != []
-        assert exec_.artifacts != {}
-        mock_run.assert_not_called()
+            # Phase state is intact — no orphaning happened.
+            exec_ = pipeline.get_phase_execution(PipelinePhase.REFINE)
+            assert exec_.status == PipelineStatus.FAILED
+            assert exec_.agents != []
+            assert exec_.artifacts != {}
+            m.run.assert_not_called()
 
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    @patch("routes.pipelines._get_spawner")
     @pytest.mark.parametrize(
         "live_status",
         [ContainerStatus.PENDING, ContainerStatus.CREATING, ContainerStatus.RUNNING],
     )
-    def test_each_live_status_blocks_reset(
-        self,
-        mock_spawner,
-        mock_get_repo,
-        mock_resolve,
-        _mock_run,
-        _mock_lock,
-        client,
-        live_status,
-    ):
+    def test_each_live_status_blocks_reset(self, client, live_status):
         """All three statuses in ``_LIVE_POD_STATUSES`` must count as live.
 
         Each status is its own pod — the regression we guard against is
@@ -195,7 +213,6 @@ class TestLivePodGuardBackendIntegration:
         mock the helper wholesale and miss that class entirely.
         """
         pipeline = _failed_pipeline()
-        _setup_route_mocks(mock_get_repo, mock_resolve, pipeline)
         spawner = _stub_spawner(
             ContainerInfo(
                 container_id="pod-x",
@@ -203,33 +220,21 @@ class TestLivePodGuardBackendIntegration:
                 status=live_status,
             )
         )
-        mock_spawner.return_value = spawner
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
 
-        resp = client.post("/api/v1/pipelines/issue-2420/start")
-        assert resp.status_code == 409, (live_status, resp.data)
-        body = json.loads(resp.data)
-        assert body["reason"] == "live_pods_present"
-        assert body["details"]["live_pod_count"] == 1
+            resp = client.post("/api/v1/pipelines/issue-2420/start")
+            assert resp.status_code == 409, (live_status, resp.data)
+            body = json.loads(resp.data)
+            assert body["reason"] == "live_pods_present"
+            assert body["details"]["live_pod_count"] == 1
 
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    @patch("routes.pipelines._get_spawner")
     @pytest.mark.parametrize(
         "terminal_status",
         [ContainerStatus.FAILED, ContainerStatus.EXITED, ContainerStatus.REMOVED],
     )
-    def test_terminal_pods_do_not_block_reset(
-        self,
-        mock_spawner,
-        mock_get_repo,
-        mock_resolve,
-        _mock_run,
-        _mock_lock,
-        client,
-        terminal_status,
-    ):
+    def test_terminal_pods_do_not_block_reset(self, client, terminal_status):
         """Terminal pods (Failed/Exited/Removed) must NOT count as live.
 
         k8s Jobs default to ``ttlSecondsAfterFinished=600`` so a terminal
@@ -239,7 +244,6 @@ class TestLivePodGuardBackendIntegration:
         would 409 forever until the TTL elapsed.
         """
         pipeline = _failed_pipeline()
-        _setup_route_mocks(mock_get_repo, mock_resolve, pipeline)
         spawner = _stub_spawner(
             ContainerInfo(
                 container_id="pod-terminal",
@@ -247,33 +251,21 @@ class TestLivePodGuardBackendIntegration:
                 status=terminal_status,
             )
         )
-        mock_spawner.return_value = spawner
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
 
-        resp = client.post("/api/v1/pipelines/issue-2420/start")
-        # Reset proceeds — no orphan risk.
-        assert resp.status_code == 200, (terminal_status, resp.data)
-        exec_ = pipeline.get_phase_execution(PipelinePhase.REFINE)
-        assert exec_.status == PipelineStatus.PENDING
-        assert exec_.agents == []
-        assert exec_.artifacts == {}
+            resp = client.post("/api/v1/pipelines/issue-2420/start")
+            # Reset proceeds — no orphan risk.
+            assert resp.status_code == 200, (terminal_status, resp.data)
+            exec_ = pipeline.get_phase_execution(PipelinePhase.REFINE)
+            assert exec_.status == PipelineStatus.PENDING
+            assert exec_.agents == []
+            assert exec_.artifacts == {}
 
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    @patch("routes.pipelines._get_spawner")
-    def test_mixed_terminal_and_live_counts_only_live(
-        self,
-        mock_spawner,
-        mock_get_repo,
-        mock_resolve,
-        _mock_run,
-        _mock_lock,
-        client,
-    ):
+    def test_mixed_terminal_and_live_counts_only_live(self, client):
         """A mixed listing must surface only live pods in ``live_pod_count``."""
         pipeline = _failed_pipeline()
-        _setup_route_mocks(mock_get_repo, mock_resolve, pipeline)
         spawner = _stub_spawner(
             ContainerInfo(
                 container_id="pod-running",
@@ -296,29 +288,18 @@ class TestLivePodGuardBackendIntegration:
                 status=ContainerStatus.FAILED,
             ),
         )
-        mock_spawner.return_value = spawner
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
 
-        resp = client.post("/api/v1/pipelines/issue-2420/start")
-        assert resp.status_code == 409, resp.data
-        body = json.loads(resp.data)
-        assert body["reason"] == "live_pods_present"
-        # Two live (RUNNING + PENDING), two terminal — only live count.
-        assert body["details"]["live_pod_count"] == 2
+            resp = client.post("/api/v1/pipelines/issue-2420/start")
+            assert resp.status_code == 409, resp.data
+            body = json.loads(resp.data)
+            assert body["reason"] == "live_pods_present"
+            # Two live (RUNNING + PENDING), two terminal — only live count.
+            assert body["details"]["live_pod_count"] == 2
 
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    @patch("routes.pipelines._get_spawner")
-    def test_backend_exception_fails_safe_with_check_failed_reason(
-        self,
-        mock_spawner,
-        mock_get_repo,
-        mock_resolve,
-        _mock_run,
-        _mock_lock,
-        client,
-    ):
+    def test_backend_exception_fails_safe_with_check_failed_reason(self, client):
         """A k8s API exception => 409 ``live_pod_check_failed``, not a 500.
 
         The route must not 500 on transient label-query failures —
@@ -326,36 +307,24 @@ class TestLivePodGuardBackendIntegration:
         rather than an opaque error.
         """
         pipeline = _failed_pipeline()
-        _setup_route_mocks(mock_get_repo, mock_resolve, pipeline)
         spawner = MagicMock()
         spawner.backend.list_containers.side_effect = RuntimeError(
             "ApiException: Connection refused"
         )
-        mock_spawner.return_value = spawner
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
 
-        resp = client.post("/api/v1/pipelines/issue-2420/start")
-        assert resp.status_code == 409, resp.data
-        body = json.loads(resp.data)
-        assert body["reason"] == "live_pod_check_failed"
+            resp = client.post("/api/v1/pipelines/issue-2420/start")
+            assert resp.status_code == 409, resp.data
+            body = json.loads(resp.data)
+            assert body["reason"] == "live_pod_check_failed"
 
-        # Phase state preserved despite the unknown live count.
-        exec_ = pipeline.get_phase_execution(PipelinePhase.REFINE)
-        assert exec_.status == PipelineStatus.FAILED
+            # Phase state preserved despite the unknown live count.
+            exec_ = pipeline.get_phase_execution(PipelinePhase.REFINE)
+            assert exec_.status == PipelineStatus.FAILED
 
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    @patch("routes.pipelines._get_spawner")
-    def test_force_true_overrides_live_pods_and_runs_reset(
-        self,
-        mock_spawner,
-        mock_get_repo,
-        mock_resolve,
-        mock_run,
-        _mock_lock,
-        client,
-    ):
+    def test_force_true_overrides_live_pods_and_runs_reset(self, client):
         """``force=true`` proceeds with the reset even when pods are live.
 
         Validates the documented operator override path — required
@@ -363,7 +332,6 @@ class TestLivePodGuardBackendIntegration:
         can't recover from.
         """
         pipeline = _failed_pipeline()
-        _setup_route_mocks(mock_get_repo, mock_resolve, pipeline)
         spawner = _stub_spawner(
             ContainerInfo(
                 container_id="wedged",
@@ -371,46 +339,44 @@ class TestLivePodGuardBackendIntegration:
                 status=ContainerStatus.RUNNING,
             )
         )
-        mock_spawner.return_value = spawner
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
 
-        resp = client.post(
-            "/api/v1/pipelines/issue-2420/start",
-            json={"force": True, "force_reason": "wedged pod, manual recovery"},
-        )
+            resp = client.post(
+                "/api/v1/pipelines/issue-2420/start",
+                json={"force": True, "force_reason": "wedged pod, manual recovery"},
+            )
 
-        assert resp.status_code == 200, resp.data
-        exec_ = pipeline.get_phase_execution(PipelinePhase.REFINE)
-        assert exec_.status == PipelineStatus.PENDING
-        assert exec_.agents == []
-        assert exec_.containers == []
-        assert exec_.artifacts == {}
+            assert resp.status_code == 200, resp.data
+            exec_ = pipeline.get_phase_execution(PipelinePhase.REFINE)
+            assert exec_.status == PipelineStatus.PENDING
+            assert exec_.agents == []
+            assert exec_.containers == []
+            assert exec_.artifacts == {}
 
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    @patch("routes.pipelines._get_spawner")
-    def test_force_string_true_does_not_bypass_guard(
-        self,
-        mock_spawner,
-        mock_get_repo,
-        mock_resolve,
-        _mock_run,
-        _mock_lock,
-        client,
-    ):
-        """Strict-bool: ``"force": "true"`` (string) does NOT bypass the guard.
+    @pytest.mark.parametrize(
+        "non_true_force",
+        # The route comment at routes/pipelines.py:21088-21091 calls out
+        # `"true"`, `1`, `[]`, and `{}` as motivations for the `is True`
+        # strict-bool predicate. All four are truthy under
+        # ``bool(body.get("force"))`` but none equal ``True``; a refactor
+        # to the loose predicate would silently flip every one of them
+        # into an override.
+        ["true", 1, [], {}],
+        ids=["string-true", "int-one", "empty-list", "empty-dict"],
+    )
+    def test_non_true_force_values_do_not_bypass_guard(self, client, non_true_force):
+        """Strict-bool: only literal ``True`` bypasses the guard.
 
-        ``routes/pipelines.py`` documents this explicitly — the predicate
-        is ``body.get("force") is True`` so non-boolean truthy values
-        don't silently flip the override. This is the kind of behavior
-        a refactor could easily regress to ``bool(body.get("force"))``
-        and the unit tier (which mocks the helper) wouldn't catch it
-        because the route still routes to the live-pod branch — only
-        ``_count_live_pods_for_pipeline`` runs in the wrong mode.
+        Every other truthy value — string ``"true"``, ``1``, ``[]``,
+        ``{}`` — must still trip the live-pod guard. The unit tier
+        (which mocks the helper) wouldn't catch a regression to
+        ``bool(body.get("force"))`` because the route still routes to
+        the live-pod branch — only the predicate runs in the wrong
+        mode and the helper would never see the override-skip path.
         """
         pipeline = _failed_pipeline()
-        _setup_route_mocks(mock_get_repo, mock_resolve, pipeline)
         spawner = _stub_spawner(
             ContainerInfo(
                 container_id="pod-1",
@@ -418,16 +384,75 @@ class TestLivePodGuardBackendIntegration:
                 status=ContainerStatus.RUNNING,
             )
         )
-        mock_spawner.return_value = spawner
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
 
-        resp = client.post(
-            "/api/v1/pipelines/issue-2420/start",
-            json={"force": "true"},  # string, not boolean
+            resp = client.post(
+                "/api/v1/pipelines/issue-2420/start",
+                json={"force": non_true_force},
+            )
+            # The guard must still fire for every non-True truthy value.
+            assert resp.status_code == 409, (non_true_force, resp.data)
+            body = json.loads(resp.data)
+            assert body["reason"] == "live_pods_present"
+
+    @pytest.mark.parametrize(
+        # (force_reason payload, expected status, expected reason)
+        "payload,status,reason",
+        [
+            # None — no force_reason supplied is allowed.
+            ({"force": True}, 200, None),
+            # Valid string — accepted.
+            ({"force": True, "force_reason": "ops override"}, 200, None),
+            # Empty / whitespace string — coerced to None (treated as
+            # "not provided"), still accepted.
+            ({"force": True, "force_reason": ""}, 200, None),
+            ({"force": True, "force_reason": "   "}, 200, None),
+            # Non-string — 400 with invalid_force_reason.
+            ({"force": True, "force_reason": 123}, 400, "invalid_force_reason"),
+            ({"force": True, "force_reason": ["nope"]}, 400, "invalid_force_reason"),
+        ],
+        ids=[
+            "none",
+            "valid-string",
+            "empty-string",
+            "whitespace-string",
+            "non-string-int",
+            "non-string-list",
+        ],
+    )
+    def test_force_reason_validation_paths(self, client, payload, status, reason):
+        """``force_reason`` validation has three branches that the unit
+        tier doesn't exercise:
+
+        1. ``None`` / missing — allowed.
+        2. Non-string — 400 ``invalid_force_reason``.
+        3. Empty / whitespace string — coerced to ``None`` server-side.
+
+        A regression that swapped the type check for ``str(...)``
+        coercion would pass the route through with bogus reasons; a
+        regression that rejected None would break the documented
+        "force without reason" path. Parametrize all three to lock the
+        contract.
+        """
+        pipeline = _failed_pipeline()
+        spawner = _stub_spawner(
+            ContainerInfo(
+                container_id="wedged",
+                container_name="egg-stuck",
+                status=ContainerStatus.RUNNING,
+            )
         )
-        # The guard must still fire.
-        assert resp.status_code == 409, resp.data
-        body = json.loads(resp.data)
-        assert body["reason"] == "live_pods_present"
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
+
+            resp = client.post("/api/v1/pipelines/issue-2420/start", json=payload)
+            assert resp.status_code == status, (payload, resp.data)
+            if reason is not None:
+                body = json.loads(resp.data)
+                assert body["reason"] == reason
 
 
 class TestLivePodGuardAwaitingHumanRequestChanges:
@@ -436,20 +461,7 @@ class TestLivePodGuardAwaitingHumanRequestChanges:
     a route refactor that re-orders the guard placement is caught.
     """
 
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    @patch("routes.pipelines._get_spawner")
-    def test_request_changes_with_live_pods_is_blocked(
-        self,
-        mock_spawner,
-        mock_get_repo,
-        mock_resolve,
-        mock_run,
-        _mock_lock,
-        client,
-    ):
+    def test_request_changes_with_live_pods_is_blocked(self, client):
         from models import DecisionStatus, HITLDecision
 
         pipeline = Pipeline(
@@ -457,6 +469,7 @@ class TestLivePodGuardAwaitingHumanRequestChanges:
             issue_number=2420,
             repo="owner/repo",
             branch="egg/issue-2420/work",
+            base_branch="main",
             mode="issue",
             status=PipelineStatus.AWAITING_HUMAN,
             current_phase=PipelinePhase.REFINE,
@@ -484,7 +497,6 @@ class TestLivePodGuardAwaitingHumanRequestChanges:
                 resolved_at=datetime.now(UTC),
             )
         )
-        _setup_route_mocks(mock_get_repo, mock_resolve, pipeline)
         spawner = _stub_spawner(
             ContainerInfo(
                 container_id="live-pod",
@@ -492,13 +504,15 @@ class TestLivePodGuardAwaitingHumanRequestChanges:
                 status=ContainerStatus.RUNNING,
             )
         )
-        mock_spawner.return_value = spawner
+        with _patched_route() as m:
+            _setup_route_mocks(m.get_repo, m.resolve, pipeline)
+            m.spawner.return_value = spawner
 
-        resp = client.post("/api/v1/pipelines/issue-2420/start")
-        assert resp.status_code == 409, resp.data
-        body = json.loads(resp.data)
-        assert body["reason"] == "live_pods_present"
-        # Phase must NOT have been reset.
-        assert exec_.status == PipelineStatus.COMPLETE
-        assert exec_.agents != []
-        mock_run.assert_not_called()
+            resp = client.post("/api/v1/pipelines/issue-2420/start")
+            assert resp.status_code == 409, resp.data
+            body = json.loads(resp.data)
+            assert body["reason"] == "live_pods_present"
+            # Phase must NOT have been reset.
+            assert exec_.status == PipelineStatus.COMPLETE
+            assert exec_.agents != []
+            m.run.assert_not_called()

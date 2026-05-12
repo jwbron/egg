@@ -45,6 +45,18 @@ sys.modules.setdefault("docker.types", MagicMock())
 _TEST_LIFECYCLE_SECRET = "test-lifecycle-secret-regression"
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the ``no_lifecycle_auth`` opt-out marker."""
+    config.addinivalue_line(
+        "markers",
+        (
+            "no_lifecycle_auth: opt out of the autouse Authorization-header "
+            "injection (use for tests that want to assert the route's own "
+            "auth handling, e.g. rejecting requests missing the header)."
+        ),
+    )
+
+
 @pytest.fixture(autouse=True)
 def _set_lifecycle_secret_env():
     """Set ``EGG_LIFECYCLE_SECRET`` so lifecycle-gated routes don't 503.
@@ -72,8 +84,19 @@ def _set_lifecycle_secret_env():
 
 
 @pytest.fixture(autouse=True)
-def _inject_lifecycle_auth(monkeypatch):
-    """Auto-attach ``Authorization: Bearer …`` to every FlaskClient request."""
+def _inject_lifecycle_auth(monkeypatch, request):
+    """Auto-attach ``Authorization: Bearer …`` to every FlaskClient request.
+
+    Tests can opt out per-test with ``@pytest.mark.no_lifecycle_auth``
+    so the route's own auth-rejection paths can be exercised without
+    the wrapper transparently injecting the header. The per-call
+    ``_lifecycle_auth=False`` kwarg is still honored when the wrapper
+    is active.
+    """
+    if request.node.get_closest_marker("no_lifecycle_auth") is not None:
+        yield
+        return
+
     try:
         from flask.testing import FlaskClient
     except ImportError:
@@ -120,3 +143,18 @@ def app():
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture
+def fake_gateway() -> MagicMock:
+    """A gateway stub whose ``push_worktree_branch`` records every call.
+
+    Shared across the salvage regression tests so the stub shape stays
+    uniform — every test asserts against ``push_worktree_branch`` calls
+    with the same kwargs contract.
+    """
+    from gateway_client import PushResult
+
+    gw = MagicMock()
+    gw.push_worktree_branch.return_value = PushResult(ok=True)
+    return gw

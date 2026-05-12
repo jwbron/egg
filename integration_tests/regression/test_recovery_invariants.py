@@ -23,7 +23,6 @@ have historical regression risk:
 
 from __future__ import annotations
 
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -42,6 +41,11 @@ from models import (
     PipelineStatus,
 )
 from startup_reconciliation import reconcile_stale_containers
+
+from ._helpers import commit as _commit_file
+from ._helpers import git as _git
+from ._helpers import make_repo as _make_repo
+from ._helpers import set_assigned_branch as _set_assigned_branch
 
 pytestmark = pytest.mark.integration
 
@@ -231,12 +235,17 @@ class TestCrashBetweenSubmitAndSpawnRecovery:
         # operators reading logs can tell which path fired.
         assert "never spawned" in (pipeline.error or "")
 
-    def test_pending_phase_with_agents_left_to_container_loop(self):
-        """If agents were created, some spawn work started — the
-        un-spawned-phase guard must NOT preemptively mark FAILED.
+    def test_unspawned_guard_does_not_fire_when_agents_present(self):
+        """The un-spawned-phase guard must NOT preemptively mark FAILED
+        once agent records exist — even if no containers were created.
 
-        Catches a regression where the guard's predicate is loosened
-        and accidentally captures partially-spawned phases.
+        ``test_pending_phase_with_no_state_marked_failed`` above asserts
+        the guard fires on the bare "no agents, no containers" shape.
+        This test asserts it does NOT fire as soon as the spawn loop
+        wrote any agent record. A future tightening that loosened the
+        predicate to capture partially-spawned phases (agents present
+        but no containers) would over-fire and flip live RUNNING
+        pipelines to FAILED — caught here.
         """
         pipeline = Pipeline(
             id="issue-2009b",
@@ -265,10 +274,7 @@ class TestCrashBetweenSubmitAndSpawnRecovery:
         docker.list_containers.return_value = []
 
         recovered = reconcile_stale_containers(store, docker)
-        # The un-spawned guard did NOT fire (agents present). Whether
-        # the downstream container loop fires depends on the
-        # persisted container set; with none, the pipeline stays
-        # RUNNING.
+        # Guard didn't fire — pipeline still RUNNING, no save happened.
         assert recovered == 0
         assert pipeline.status == PipelineStatus.RUNNING
 
@@ -278,48 +284,24 @@ class TestCrashBetweenSubmitAndSpawnRecovery:
 # ---------------------------------------------------------------------------
 
 
-def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            "git",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "user.email=recovery@test.example",
-            "-c",
-            "user.name=Recovery Tester",
-            "-C",
-            str(cwd),
-            *args,
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-
 def _seed_worktree(
     base: Path,
     pipeline_id: str,
     role: str,
     assigned: str,
 ) -> tuple[Path, str]:
-    """Build a worktree with one local commit ahead of the anchor."""
+    """Build a worktree with one local commit ahead of the anchor.
+
+    Uses the shared ``_helpers`` git plumbing so this suite and the
+    salvage suite agree on the worktree shape they exercise.
+    """
     wid = f"{pipeline_id}-{role}"
     local = f"egg/{wid}/work"
     repo = base / wid / "repo"
-    repo.mkdir(parents=True)
-    _git("init", "-q", "--initial-branch", local, cwd=repo)
-    (repo / "README.md").write_text("seed\n")
-    _git("add", "README.md", cwd=repo)
-    _git("commit", "-q", "-m", "seed", cwd=repo)
-    anchor = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
-    _git("config", f"branch.{local}.merge", f"refs/heads/{assigned}", cwd=repo)
+    anchor = _make_repo(repo, local)
+    _set_assigned_branch(repo, local, assigned)
     _git("update-ref", f"refs/remotes/origin/{assigned}", anchor, cwd=repo)
-    (repo / "a.txt").write_text("a\n")
-    _git("add", "a.txt", cwd=repo)
-    _git("commit", "-q", "-m", "first unpushed", cwd=repo)
-    head = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+    head = _commit_file(repo, "a.txt", "a\n", "first unpushed")
     return repo, head
 
 
@@ -359,10 +341,7 @@ class TestRecoveryRefImmutability:
             first = auto_salvage_pipeline(gateway, "issue-2429")
 
         # Agent makes another commit before the next salvage.
-        (repo / "b.txt").write_text("b\n")
-        _git("add", "b.txt", cwd=repo)
-        _git("commit", "-q", "-m", "second unpushed", cwd=repo)
-        new_head = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+        new_head = _commit_file(repo, "b.txt", "b\n", "second unpushed")
 
         with patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path):
             second = auto_salvage_pipeline(gateway, "issue-2429")
