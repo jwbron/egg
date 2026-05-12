@@ -51,9 +51,18 @@ def _slice_canonical(raw_id: object) -> str | None:
 def _normalise_dep(raw: object) -> str | None:
     """Normalise a dependency entry to ``slice-<N>``.
 
-    Mirrors ``emit-contract::_normalise_dep`` so the validator catches
-    mis-wired ``dependencies`` / ``serialized_chain_order`` entries before
-    the emitter silently drops them.
+    Stricter analogue of ``emit-contract::_normalise_dep`` (and
+    ``shared/egg_contracts/plan_parser.py::ParsedPhase.to_contract_slice``):
+    where the canonical parsers will silently coerce partial-digit strings
+    like ``"foo3"`` or ``"3foo"`` to ``slice-3`` (via an unanchored
+    ``re.search(r"(\\d+)", s)`` for short strings), this function requires
+    the bare-digit fallback to be the **entire** string (``^\\s*(\\d+)\\s*$``).
+    The intent is defensive: a typo'd ``dependencies`` entry that the
+    canonical parsers would happily mis-resolve fails validation here so the
+    planner is forced to fix it before it reaches the emitter.
+
+    Inputs that DO normalise identically across both: ``"slice-N"``,
+    ``"phase-N"``, ``"Slice N"``, and bare numeric strings of length ≤ 10.
     """
     if raw is None:
         return None

@@ -334,6 +334,8 @@ For cycle N = 1..3:
    python3 "$SKILL_ROOT/bin/validate-yaml-tasks" <plan_path>
    ```
 
+   `$SKILL_ROOT` is **not** carried over from the discovery snippet — Claude Code's Bash tool runs each invocation in a fresh shell. Either substitute the literal absolute path captured in step 0 (e.g. `python3 /home/me/.claude/plugins/egg-tools/refine-plan/skills/refine-plan/bin/validate-yaml-tasks <plan_path>`), or run the discovery snippet inline at the top of this same `Bash` call so `$SKILL_ROOT` exists for the duration of the call.
+
    - Exit 0 / stdout starts with `OK:` → proceed to step 4.
    - Exit 1 / stdout starts with `FAIL:` → treat the FAIL lines as an implicit NACK from a synthetic reviewer `yaml-validator`:
      - Write `verdicts/cycle-<N>/NACK-yaml-validator.json` with the FAIL output as `feedback` and `["<plan_path>:#yaml-tasks"]` as `artifact_references`.
@@ -364,6 +366,8 @@ On convergence, parse the plan's YAML appendix into a Contract at `contracts/<id
 ```bash
 python3 "$SKILL_ROOT/bin/emit-contract" <plan_path> <contract_path> <pipeline_id> [--current-phase plan]
 ```
+
+Same caveat as the validator call: `$SKILL_ROOT` does not persist from the earlier discovery snippet. Either inline the resolved literal path (e.g. `python3 /home/me/.claude/plugins/egg-tools/refine-plan/skills/refine-plan/bin/emit-contract …`), or re-run the discovery snippet at the top of this same `Bash` invocation.
 
 The emitter writes a Contract JSON matching `shared/egg_contracts/models.py::Contract` (schemaVersion 1.1) — egg-canonical field names (`pipeline_id`, `slices[].tasks[]`), `slice-<N>` / `task-<P>-<N>` lowercase IDs, lowercase `"pending"` status enum, `acceptance_criteria` (not `acceptance`), `files_affected` (not `files`), and the full set of optional fields egg expects (defaulted appropriately). Output loads cleanly through `Contract.model_validate` and round-trips identical. It runs without importing egg.
 
