@@ -402,7 +402,7 @@ class TestValidateNetworkIsolationLogic:
         Expected probe-output shape (per ``PROBE_COMMAND_TEMPLATE``):
 
         * ``gateway_reachable: True`` — ``allow-agent-to-gateway``
-          permits agent→gateway:9848.
+          permits agent→gateway:9848.  # noqa: EGG002
         * ``internet_blocked: True`` — ``default-deny-egress`` blocks
           arbitrary egress (curl example.com).
         * ``agent_pods_unreachable: True`` — no policy allows agent→
