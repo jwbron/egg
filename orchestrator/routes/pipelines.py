@@ -1459,6 +1459,37 @@ def create_pipeline() -> tuple[Response, int]:
                 status_code=400,
             )
 
+    # Issue #1557: Jira-epic SDLC parameters. ``jira_ticket`` is the
+    # Atlassian key; ``epic_mode`` is the operator's override
+    # (``'auto' | 'fresh' | 'reassess'``). The MCP submit_task tool
+    # normalises ``jira_ticket`` to upper-case before forwarding.
+    jira_ticket_arg = data.get("jira_ticket")
+    epic_mode_arg = data.get("epic_mode")
+    if jira_ticket_arg is not None:
+        if not isinstance(jira_ticket_arg, str) or not re.fullmatch(
+            r"[A-Z][A-Z0-9_]*-\d+", jira_ticket_arg
+        ):
+            return make_error_response(
+                f"Invalid jira_ticket: {jira_ticket_arg!r} (expected "
+                "<PROJECT>-<number>)",
+                status_code=400,
+                details={"reason": "invalid_jira_ticket"},
+            )
+    if epic_mode_arg is not None:
+        if epic_mode_arg not in ("auto", "fresh", "reassess"):
+            return make_error_response(
+                f"Invalid epic_mode: {epic_mode_arg!r} (must be "
+                "'auto' / 'fresh' / 'reassess')",
+                status_code=400,
+                details={"reason": "invalid_epic_mode"},
+            )
+        if not jira_ticket_arg:
+            return make_error_response(
+                "epic_mode requires jira_ticket",
+                status_code=400,
+                details={"reason": "epic_mode_without_ticket"},
+            )
+
     # Validate mode
     valid_modes = {m.value for m in PipelineMode}
     if mode not in valid_modes:
@@ -1932,6 +1963,52 @@ def create_pipeline() -> tuple[Response, int]:
             # None and fall back to the executor's default path.
             active_roles_to_persist = None
 
+    # Issue #1557: epic detection. Before persisting, resolve
+    # is_epic + pipeline_mode against the gateway when a jira_ticket
+    # was supplied. Failures are non-fatal (the helper fails open) —
+    # we surface them as warnings in the API response but always
+    # proceed with the pipeline creation.
+    epic_warnings: list[str] = []
+    is_epic_resolved = False
+    pipeline_mode_resolved: str | None = None
+    if jira_ticket_arg:
+        try:
+            from jira_epic import resolve_epic_mode
+        except ImportError:  # pragma: no cover - defensive
+            try:
+                from orchestrator.jira_epic import resolve_epic_mode  # type: ignore[no-redef]
+            except ImportError:
+                resolve_epic_mode = None  # type: ignore[assignment]
+        if resolve_epic_mode is not None:
+            try:
+                is_epic_resolved, pipeline_mode_resolved, epic_warnings = (
+                    resolve_epic_mode(
+                        ticket=jira_ticket_arg,
+                        epic_mode_arg=epic_mode_arg,
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Epic detection raised; treating as non-epic",
+                    pipeline_id=pipeline_id,
+                    ticket=jira_ticket_arg,
+                    error=str(exc),
+                )
+            # epic_mode='reassess' against a non-epic was rejected
+            # earlier by ``resolve_epic_mode`` returning is_epic=False;
+            # convert that to an HTTP 400 here so the operator gets a
+            # clear failure rather than a silent demotion.
+            if epic_mode_arg == "reassess" and not is_epic_resolved:
+                return make_error_response(
+                    f"epic_mode='reassess' but Jira ticket "
+                    f"{jira_ticket_arg!r} is not an Epic",
+                    status_code=400,
+                    details={
+                        "reason": "reassess_not_epic",
+                        "warnings": epic_warnings,
+                    },
+                )
+
     try:
         store = get_state_store(repo_path)
         pipeline = store.create_pipeline(
@@ -1953,6 +2030,9 @@ def create_pipeline() -> tuple[Response, int]:
             pr_head_sha=pr_head_sha,
             active_roles=active_roles_to_persist,
             custom_phase=custom_phase if mode == PipelineMode.CUSTOM else None,
+            jira_ticket=jira_ticket_arg,
+            is_epic=is_epic_resolved,
+            pipeline_mode=pipeline_mode_resolved,
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -19421,6 +19501,35 @@ def _run_pipeline(
                 sandbox_env["EGG_JIRA_PROJECT"] = jira_ticket_value.split("-", 1)[0]
             else:
                 sandbox_env["EGG_JIRA_PROJECT"] = ""
+
+            # Jira-epic SDLC support (issue #1557). Export ``EGG_IS_EPIC``
+            # (bool-string) and ``EGG_EPIC_MODE`` (one of
+            # 'epic-fresh', 'epic-reassess', 'ticket', 'github_issue')
+            # so the refiner / task-planner / applier prompts can select
+            # the right mode block. Mapping is derived via
+            # ``prompt_loader.derive_pipeline_mode`` so the orchestrator
+            # and any auxiliary callers agree on the canonical rule.
+            #
+            # Note: ``EGG_PIPELINE_MODE`` is already taken (PipelineMode:
+            # 'issue' / 'babysit' / 'custom' — set above at L19349).
+            # ``EGG_EPIC_MODE`` is the orthogonal Jira-epic dimension.
+            try:
+                from prompt_loader import derive_pipeline_mode
+            except ImportError:  # pragma: no cover - defensive
+                derive_pipeline_mode = None  # type: ignore[assignment]
+            _is_epic_flag = bool(getattr(pipeline, "is_epic", False))
+            _pipeline_mode_attr = getattr(pipeline, "pipeline_mode", None)
+            sandbox_env["EGG_IS_EPIC"] = "true" if _is_epic_flag else "false"
+            if derive_pipeline_mode is not None:
+                sandbox_env["EGG_EPIC_MODE"] = derive_pipeline_mode(
+                    is_epic=_is_epic_flag,
+                    pipeline_mode=_pipeline_mode_attr,
+                    jira_ticket=jira_ticket_value or None,
+                )
+            else:
+                sandbox_env["EGG_EPIC_MODE"] = (
+                    "github_issue" if not jira_ticket_value else "ticket"
+                )
 
             phase_failed = False
             tester_gap_summary: str | None = None
