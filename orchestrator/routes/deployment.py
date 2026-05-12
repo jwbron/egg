@@ -1143,6 +1143,8 @@ def _read_probe_log(k8s: Any, namespace: str, pod_name: str) -> str:
     except Exception as exc:
         logger.warning("probe log read failed", pod=pod_name, error=str(exc))
         return ""
+    if data is None:
+        return ""
     if isinstance(data, bytes):
         return data.decode("utf-8", errors="replace")
     return str(data)

@@ -1569,7 +1569,15 @@ class TestReadProbeLog:
         assert "world" in result
 
     def test_str_fallback_for_object_without_data(self):
-        """If the response has no ``.data`` attribute, ``str()`` it."""
+        """If the response has no ``.data`` attribute, ``str()`` it.
+
+        Defensive-only branch — not reachable in production with the
+        current kubernetes-python client, which always returns a
+        ``urllib3.HTTPResponse`` (always has ``.data``) under
+        ``_preload_content=False``. The fallback exists so a future
+        client upgrade or mock that returns a plain string degrades
+        cleanly rather than crashing.
+        """
         from routes.deployment import _read_probe_log
 
         k8s = MagicMock()
@@ -1585,6 +1593,26 @@ class TestReadProbeLog:
 
         k8s = MagicMock()
         k8s.core_api.read_namespaced_pod_log.return_value = None
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == ""
+
+    def test_returns_empty_string_on_none_data(self):
+        """A response whose ``.data`` is ``None`` yields ``''``, not ``'None'``.
+
+        Closes a gap where ``getattr(raw, "data", raw)`` returns ``None``
+        for ``raw.data is None``, then ``isinstance(None, bytes)`` is
+        ``False`` and ``str(None)`` yields the literal ``'None'`` —
+        which would then flow into ``_parse_probe_output`` as probe log
+        content.
+        """
+        from routes.deployment import _read_probe_log
+
+        raw = MagicMock()
+        raw.data = None
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = raw
 
         result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
 
