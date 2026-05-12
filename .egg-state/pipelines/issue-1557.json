@@ -221,10 +221,10 @@
         {
           "container_id": "eb006fa1-7d0a-400a-8f53-3b5727607fdd",
           "container_name": "egg-sandbox-egg-agent-issue-1557-task-planner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-12T03:07:50.840245Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-12T03:08:56.511361Z",
+          "exit_code": -1,
           "agent_role": "task_planner",
           "session_token": null,
           "pod_name": null,
@@ -277,15 +277,15 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "failed",
           "container_id": "eb006fa1-7d0a-400a-8f53-3b5727607fdd",
           "container_info": null,
           "slice_id": null,
           "started_at": "2026-05-12T03:07:50.840247Z",
-          "completed_at": null,
+          "completed_at": "2026-05-12T03:08:56.552098Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -325,6 +325,13 @@
           "last_lines": [],
           "terminated_at": "2026-05-12T03:08:56.455507Z",
           "container_id": "3d9bbf95-9dce-45eb-82c4-6c0d544df89b"
+        },
+        {
+          "role": "task_planner",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-12T03:08:56.552104Z",
+          "container_id": "eb006fa1-7d0a-400a-8f53-3b5727607fdd"
         }
       ]
     },
@@ -956,7 +963,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-12T03:08:56.455639Z",
+  "updated_at": "2026-05-12T03:08:56.552198Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -970,6 +977,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T03:07:49.601754Z",
-  "version": 73,
+  "version": 74,
   "jira_ticket": null
 }
