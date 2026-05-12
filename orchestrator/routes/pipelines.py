@@ -17583,6 +17583,23 @@ class PlanDraftMissingOnLocalError(RuntimeError):
     """
 
 
+class PlanDraftMissingError(RuntimeError):
+    """Raised by the natural plan-completion populator path when the plan
+    draft is missing from BOTH the local worktree and origin.
+
+    Symmetric to :class:`PlanDraftMissingOnLocalError` (#2337) for the
+    case where the draft was deleted-and-not-replaced rather than left
+    on origin only.  Observed in the wild on issue-1557-v2 (#2627): the
+    orchestrator's pre-sync state-write commit deleted the draft and
+    the consolidated-write step never replaced it, leaving the pipeline
+    to advance to implement with an empty contract and 8 agents
+    spinning ``WAITING_FOR_EVENT`` for ~45 min.  Surfacing as an
+    exception lets the natural call site mark the pipeline FAILED so
+    the operator can intervene.  The force-advance call site (#1941)
+    keeps swallowing.
+    """
+
+
 def _origin_has_plan_draft(repo_path: Path, branch: str, draft_rel: str) -> bool:
     """Return True if ``origin/{branch}:{draft_rel}`` resolves locally.
 
@@ -17648,17 +17665,26 @@ def _populate_contract_from_plan_safe(
     keep the swallow-everything behaviour.
 
     The natural plan-completion call site (``source="plan_complete"``)
-    additionally raises :class:`PlanDraftMissingOnLocalError` when the
-    draft is missing from local but present on origin — the exact
-    silent-failure mode behind #2337.  Caller is expected to mark the
-    pipeline FAILED so the operator can intervene rather than implement
-    silently demoting to monolithic.
+    additionally raises:
+
+    * :class:`PlanDraftMissingOnLocalError` when the draft is missing
+      from local but present on origin — the silent-failure mode
+      behind #2337.
+    * :class:`PlanDraftMissingError` when the draft is missing from
+      BOTH local and origin — the silent-failure mode behind #2627
+      (orchestrator-side delete with no consolidated re-write).
+
+    Caller is expected to mark the pipeline FAILED so the operator can
+    intervene rather than advancing to implement with an empty
+    contract.
     """
     if source == "plan_complete" and branch is not None:
         draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
         if draft_rel is not None:
             local_path = repo_path / draft_rel
-            if not local_path.exists() and _origin_has_plan_draft(repo_path, branch, draft_rel):
+            on_local = local_path.exists()
+            on_origin = _origin_has_plan_draft(repo_path, branch, draft_rel)
+            if not on_local and on_origin:
                 logger.error(
                     "OVERSEER_ALERT plan_draft_missing_on_local_but_present_on_origin",
                     pipeline_id=pipeline_id,
@@ -17673,6 +17699,23 @@ def _populate_contract_from_plan_safe(
                 )
                 raise PlanDraftMissingOnLocalError(
                     f"plan draft {draft_rel} missing on local but present on "
+                    f"origin/{branch} — refusing to advance plan phase"
+                )
+            if not on_local and not on_origin:
+                logger.error(
+                    "OVERSEER_ALERT plan_draft_missing_on_local_and_origin",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    draft_rel=draft_rel,
+                    note=(
+                        "plan draft is missing from both the local worktree "
+                        "and origin/{branch}; advancing would produce an "
+                        "empty contract and strand implement-phase agents "
+                        "with nothing to do (#2627)"
+                    ),
+                )
+                raise PlanDraftMissingError(
+                    f"plan draft {draft_rel} missing on local and "
                     f"origin/{branch} — refusing to advance plan phase"
                 )
 
@@ -20024,12 +20067,15 @@ def _run_pipeline(
             # same helper is invoked from advance_phase so force-advances
             # out of plan see the same populate step (#1941).
             #
-            # ``source="plan_complete"`` makes the wrapper raise
-            # PlanDraftMissingOnLocalError when the draft is missing locally
-            # but present on origin — the silent demotion-to-monolithic
-            # failure mode behind #2337.  We catch it below and mark the
-            # pipeline FAILED so the operator can intervene rather than
-            # implement silently shipping slice-1 alone.
+            # ``source="plan_complete"`` makes the wrapper raise:
+            #   * PlanDraftMissingOnLocalError — draft missing on local
+            #     but present on origin (#2337 silent demotion).
+            #   * PlanDraftMissingError — draft missing on BOTH local
+            #     and origin (#2627 silent advance to empty contract).
+            # We catch either below and mark the pipeline FAILED so the
+            # operator can intervene rather than implement silently
+            # shipping slice-1 alone (#2337) or strand 8 agents on an
+            # empty contract (#2627).
             if current_phase.value == "plan":
                 try:
                     _populate_contract_from_plan_safe(
@@ -20040,14 +20086,23 @@ def _run_pipeline(
                         source="plan_complete",
                         branch=pipeline.branch,
                     )
-                except PlanDraftMissingOnLocalError as missing_err:
+                except (PlanDraftMissingOnLocalError, PlanDraftMissingError) as missing_err:
                     # Mirror the slice-gate failure handler at the
                     # implement-phase entry: mark FAILED in state,
                     # then run the same cleanup sequence as the
                     # ``if phase_failed:`` block above (teardown phase
                     # overseer, report pipeline status, best-effort push
                     # for backup) so both load-bearing failure paths
-                    # have a uniform cleanup story.  Re #2337 review.
+                    # have a uniform cleanup story.  Re #2337 / #2627
+                    # reviews.
+                    if isinstance(missing_err, PlanDraftMissingOnLocalError):
+                        teardown_reason = "plan draft missing on local"
+                        log_message = (
+                            "Pipeline FAILED: plan draft missing on local but present on origin"
+                        )
+                    else:
+                        teardown_reason = "plan draft missing on local and origin"
+                        log_message = "Pipeline FAILED: plan draft missing on local and origin"
                     with get_pipeline_state_lock(pipeline_id):
                         pipeline = store.load_pipeline(pipeline_id)
                         phase_execution = pipeline.get_phase_execution(current_phase)
@@ -20058,7 +20113,7 @@ def _run_pipeline(
                         pipeline.error = str(missing_err)
                         store.save_pipeline(pipeline)
                     logger.error(
-                        "Pipeline FAILED: plan draft missing on local but present on origin",
+                        log_message,
                         pipeline_id=pipeline_id,
                         error=str(missing_err),
                     )
@@ -20073,7 +20128,7 @@ def _run_pipeline(
                                 overseer_container_id,
                                 pipeline_id,
                                 phase_label=str(current_phase),
-                                reason="plan draft missing on local",
+                                reason=teardown_reason,
                             )
                     report_pipeline_status(
                         pipeline,

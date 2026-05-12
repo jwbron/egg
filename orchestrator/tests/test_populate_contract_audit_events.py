@@ -367,25 +367,30 @@ class TestNaturalSourceLoudFail:
         # Inner populator never ran — we short-circuited
         mock_inner.assert_not_called()
 
-    def test_plan_complete_swallows_when_origin_does_not_have_draft(self, tmp_path):
-        """Local missing AND origin missing → fall through to inner (warn-and-return)."""
-        from routes.pipelines import _populate_contract_from_plan_safe
+    def test_plan_complete_raises_when_draft_missing_on_local_and_origin(self, tmp_path):
+        """#2627: local AND origin missing → PlanDraftMissingError (no silent advance)."""
+        from routes.pipelines import (
+            PlanDraftMissingError,
+            _populate_contract_from_plan_safe,
+        )
 
         with (
-            patch("routes.pipelines._origin_has_plan_draft", return_value=False),
+            patch("routes.pipelines._origin_has_plan_draft", return_value=False) as mock_origin,
             patch("routes.pipelines._populate_contract_from_plan") as mock_inner,
+            pytest.raises(PlanDraftMissingError),
         ):
-            # Should not raise.
             _populate_contract_from_plan_safe(
                 tmp_path,
-                "pipeline-2337-no-origin",
+                "pipeline-2627",
                 "issue",
                 issue_number=999,
                 source="plan_complete",
                 branch="egg/issue-999",
             )
-            # Inner ran (which itself logs plan_draft_missing and returns).
-            mock_inner.assert_called_once()
+        # Origin probe ran with the right args
+        mock_origin.assert_called_once()
+        # Inner populator never ran — we short-circuited
+        mock_inner.assert_not_called()
 
     def test_advance_phase_force_swallows_even_when_origin_has_draft(self, tmp_path):
         """Force-advance source keeps the swallow-everything contract from #1941."""
