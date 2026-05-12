@@ -3,7 +3,7 @@ name: sdlc
 description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
 argument-hint: "[--short] [--qualifier <name>] [JIRA-1234 or issue# or description] [--repo owner/name]"
-allowed-tools: Monitor Bash(skills/sdlc/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C * remote:*) AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract mcp__egg__list_checkpoints mcp__egg__search_checkpoints
+allowed-tools: Monitor TaskStop Bash(skills/sdlc/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C * remote:*) AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract mcp__egg__list_checkpoints mcp__egg__search_checkpoints
 ---
 
 # SDLC Pipeline
@@ -330,6 +330,8 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
    Keep the escaped quotes around `<last_cursor>` — the cursor is shaped `msg:<id>|evt:<seq>` and the literal `|` is shell-significant; without quoting the shell would treat it as a pipe.
 
+   **Cache the Monitor's task_id as `monitor_task_id` in conversation context** (returned in the Monitor tool's invocation response). You'll need it to call `TaskStop` before re-arming a new Monitor after HITL (see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) below) — `wait-status` does not exit on `decision.created`, so without an explicit stop the prior CLI keeps polling in parallel and double-emits the next event.
+
    The launcher wraps `sandbox/bin/egg-orch pipeline wait-status`, setting `PYTHONPATH` and `EGG_ORCHESTRATOR_URL` so no host-side configuration is required beyond `make deps`. It loops the orchestrator's `/status/wait` route server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, surfaced to the LLM as one notification per line. The CLI is silent on `no_change`, so the LLM only wakes when something happened. Exit codes (Monitor reports them as the watch's exit code):
 
    | Exit code | Meaning | Skill action |
@@ -410,7 +412,11 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
 **Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Monitor invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side, and Monitor surfaces each emitted line as its own notification. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When Monitor's `timeout_ms` (or the Bash 10-min cap, if you're on the fallback path) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context — the prior CLI is already dead, no `TaskStop` needed. **When returning from a HITL handoff (Phase 4) the prior Monitor is still alive, so call `TaskStop` on its task ID before re-invoking** (Monitor only — on the Bash fallback the prior CLI already exited when the `decision.created` line surfaced; see the re-invocation rule under the exit-code table above). The overseer is the primary deadlock detector and emits `OVERSEER_ALERT` on stalls, which is in the trigger allowlist. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full event allowlist, exit-code contract, and concurrency model.
 
-Path A keeps the dashboard concise via deltas — skip lines that didn't change from the previous emit. Path B always renders full state, including the optional NACK and silent-agent rows.
+### HITL-driven re-arms: stop the prior Monitor first
+
+The exit-code re-arms above (`timeout`, exit code `2`, auto-stopped) are safe to re-invoke without ceremony — the prior CLI has already terminated. **HITL-driven re-arms are different.** When `wait-status` emits `decision.created`, the CLI does not exit — it just yields the JSON line and keeps polling for the next allowed trigger (`decision.resolved` is deliberately off the allowlist, so submitting `provide_input` doesn't wake or terminate it either). If you re-invoke Monitor after HITL without first stopping the prior one, two `wait-status` processes will poll the same `task_id` concurrently, each advancing its own in-process cursor — and both will emit the next allowed event, producing duplicate notifications to the LLM.
+
+**Rule:** before re-arming Monitor after handling HITL, call `TaskStop(task_id=monitor_task_id)` on the cached id from step 2, then start the new Monitor and overwrite `monitor_task_id` with the new id.
 
 ### Failed Status Grace Period
 
@@ -864,9 +870,7 @@ The full status snapshot from `get_status` enriches phase_gate decisions with `d
      {"action": "request_changes", "feedback": "<user's text>", "context": "<resolved questions from 7a, or omit>"}
      ```
 
-After resolving this decision, move to the next pending decision (if any) before resuming monitoring. **On `approve`**, resume monitoring — do not announce the next phase has started yet. If the phase had deferred choice/feedback decisions, the pipeline stays in `awaiting_human` and Wave 2 surfaces them (see [Two-wave surfacing](#two-wave-surfacing)); tell the user: "Approved. The phase's deferred decisions will surface next." If no deferred decisions exist, the pipeline transitions to the next phase normally — you will see the phase change on the next emitted `wait-status` JSON-line.
-
-**After this decision is resolved, call `TaskStop` on the prior Monitor's task ID** (the Monitor that was running when the `decision.created` arrived — it's still alive because `decision.resolved` is excluded from the trigger allowlist, and would otherwise poll `/status/wait` in parallel with the new Monitor and produce duplicate per-event notifications until it hits its `timeout_ms`; #2613) and then re-invoke Monitor with the latest `last_cursor`. (`phase_gate` is always alone in its wave, so there are no other decisions to handle first.)
+After resolving this decision, move to the next pending decision (if any) before resuming monitoring. **On `approve`**, resume monitoring — do not announce the next phase has started yet. If the phase had deferred choice/feedback decisions, the pipeline stays in `awaiting_human` and Wave 2 surfaces them (see [Two-wave surfacing](#two-wave-surfacing)); tell the user: "Approved. The phase's deferred decisions will surface next." If no deferred decisions exist, the pipeline transitions to the next phase normally — you will see the phase change on the next emitted `wait-status` JSON-line. **Once all pending decisions are resolved and you are about to invoke the next Monitor, call `TaskStop(task_id=monitor_task_id)` on the cached id from Phase 3 step 2** — see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first). Do this once, before the re-arm — not after each intermediate approve in a multi-decision batch.
 
 ### For `choice` type decisions:
 
@@ -960,7 +964,7 @@ Arguments:
 
 **Important**: The `response` parameter is a string. Serialize the JSON payload to a string before passing it (e.g., `response: '{"action": "select", "selected": "Option A"}'`).
 
-Confirm the input was submitted, then proceed to the next pending decision. Once all decisions are resolved, **call `TaskStop` on the prior Monitor's task ID** (the one that was running when this batch of `decision.created` events arrived — it's still alive and would otherwise emit duplicates against the new Monitor) and then resume monitoring (Phase 3) by re-invoking Monitor with the latest `last_cursor`.
+Confirm the input was submitted, then proceed to the next pending decision. Once all decisions are resolved, resume monitoring (Phase 3). **Before invoking the next Monitor, call `TaskStop(task_id=monitor_task_id)` on the cached id from Phase 3 step 2** — see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first).
 
 ## Phase 5 — Complete
 
@@ -1361,6 +1365,8 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
    Keep the escaped quotes around `<last_cursor>` — the cursor is shaped `msg:<id>|evt:<seq>` and the literal `|` is shell-significant; without quoting the shell would treat it as a pipe.
 
+   **Cache the Monitor's task_id as `monitor_task_id` in conversation context** (returned in the Monitor tool's invocation response) — needed for `TaskStop` before re-arming after handling a decision (see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) in Phase 3; the same rule applies to the unexpected-decisions path below).
+
    The launcher wraps `sandbox/bin/egg-orch pipeline wait-status` and loops `/status/wait` server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, silent on `no_change`, surfaced as one notification per line. Exit codes:
 
    | Exit code | Meaning | Skill action |
@@ -1407,9 +1413,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
    - On `status: "complete"` or `event_type: "pipeline.completed"` → exit, move to Phase S6.
    - On `status: "failed"` or `event_type: "pipeline.failed"` → apply the **failed status grace period** (see below) before exiting.
 
-Path A keeps the dashboard concise via deltas — skip lines that didn't change from the previous emit. Path B always renders full state, including the optional NACK and silent-agent rows.
-
-**Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Monitor invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side, and Monitor surfaces each emitted line as its own notification. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When Monitor's `timeout_ms` (or the 10-min Bash cap, if you're on the fallback path) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context — the prior CLI is already dead, no `TaskStop` needed. **When returning from inline HITL decision handling the prior Monitor is still alive, so call `TaskStop` on its task ID before re-invoking** (Monitor only — on the Bash fallback the prior CLI already exited when the `decision.created` line surfaced; see the re-invocation rule under the exit-code table above). See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the event allowlist, exit-code contract, and concurrency model.
+**Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Monitor invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side, and Monitor surfaces each emitted line as its own notification. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When Monitor's `timeout_ms` (or the 10-min Bash cap, if you're on the fallback path) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context. HITL-driven re-arms are different — the prior CLI is still alive — so call `TaskStop(task_id=monitor_task_id)` first; see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) in Phase 3. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the event allowlist, exit-code contract, and concurrency model.
 
 ### Failed Status Grace Period
 
@@ -1457,7 +1461,7 @@ With `hitl_gates: false`, decisions should not appear. But if they do, handle th
 - For `feedback` type: present the questions, collect answers, then call `provide_input` with `{"action": "submit_feedback", "answers": {"<id>": "<answer>"}}` serialized as a JSON string.
 - For `phase_gate` type: auto-approve by calling `provide_input` with `{"action": "approve"}` serialized as a JSON string. Log the phase and decision ID, and inform the user.
 
-After resolving any decisions, **call `TaskStop` on the prior Monitor's task ID** (the one that was running when this `decision.created` arrived — it's still alive and would otherwise emit duplicates against the new Monitor) and then resume monitoring by re-invoking Monitor with the latest `last_cursor`.
+After resolving any decisions, resume monitoring. **Before invoking the next Monitor, call `TaskStop(task_id=monitor_task_id)` on the cached id from Phase S5 step 2** — see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first) in Phase 3.
 
 ## Phase S6 — Complete
 
