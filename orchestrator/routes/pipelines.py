@@ -281,6 +281,12 @@ _STATUS_WAIT_EVENT_TYPES = frozenset(
         "pipeline.completed",
         "pipeline.failed",
         "pipeline.cancelled",
+        # #2611 — operators waiting on ``wait-status`` need to wake on
+        # context-PR hook failures so the plan→implement transition's
+        # missing-PR signal isn't log-only. Paired with the
+        # ``CONTEXT_PR_*`` message types below so both sources fire.
+        "context_pr.skipped",
+        "context_pr.failed",
     }
 )
 
@@ -292,6 +298,11 @@ _STATUS_WAIT_MESSAGE_TYPES = (
     "CONSENSUS_CONFIRMED",
     "CONSENSUS_NACK",
     "CONSENSUS_RE_REVIEW",
+    # #2611 — pair with the ``context_pr.*`` event-bus entries above
+    # so a long-poller observes the wrapper's bus emission from
+    # either source (message store or event bus).
+    "CONTEXT_PR_SKIPPED",
+    "CONTEXT_PR_FAILED",
 )
 
 
@@ -1123,6 +1134,8 @@ if _emit_event is not None:
         "pipeline.completed": EventType.PIPELINE_COMPLETED,
         "pipeline.failed": EventType.PIPELINE_FAILED,
         "decision.created": EventType.DECISION_CREATED,
+        "context_pr.skipped": EventType.CONTEXT_PR_SKIPPED,
+        "context_pr.failed": EventType.CONTEXT_PR_FAILED,
     }
 
 
@@ -2166,9 +2179,12 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
     # clear, a fresh pipeline that reuses an id from a prior terminal
     # run (allowed — see branch-reuse logic for terminal-state pipelines)
     # would inherit the prior run's emitted-event set; if the new run
-    # also fails to open its context PR, operators using ``wait-status``
-    # would see no event for the new failure. Same shape as #2053 (the
-    # other per-pipeline-id leak this function exists to plug).
+    # also fails to open its context PR, operators long-polling
+    # ``wait-status`` or reading ``recent_messages`` would see no event
+    # for the new failure (the sinks wired in #2611 also share this
+    # dedupe — see ``_maybe_open_base_pr_for_plan_to_implement``).
+    # Same shape as #2053 (the other per-pipeline-id leak this function
+    # exists to plug).
     try:
         with _context_pr_events_emitted_lock:
             _context_pr_events_emitted.pop(pipeline_id, None)
@@ -5879,17 +5895,24 @@ def _build_role_context(
     return "\n".join(lines)
 
 
-def _build_role_restrictions_section() -> str:
+def _build_role_restrictions_section(repo: str | None = None) -> str:
     """Build a prompt section describing file access restrictions per execution role.
 
     This section is injected into the task_planner prompt so that it can
     assign each task to the correct execution role (coder, tester, documenter)
     based on which files the task will modify.
 
+    Args:
+        repo: Optional ``owner/repo`` for per-repo pattern overrides
+            (#2528). When set, the rendered patterns reflect
+            ``role_patterns:`` from ``repositories.yaml`` for the repo
+            so the planner sees the same boundaries the gateway will
+            enforce. When ``None``, falls back to global defaults.
+
     Returns:
         Formatted markdown string describing role file boundaries.
     """
-    from egg_contracts.agent_roles import get_file_patterns
+    from egg_restrictions.patterns import get_agent_patterns_for_repo
 
     lines: list[str] = [
         "## Execution Role File Restrictions",
@@ -5900,15 +5923,16 @@ def _build_role_restrictions_section() -> str:
         "",
     ]
 
+    patterns_by_role = get_agent_patterns_for_repo(repo)
     for role_name in ("coder", "tester", "documenter"):
-        patterns = get_file_patterns(role_name)
-        if patterns is None:
+        pattern = patterns_by_role.get(role_name)
+        if pattern is None:
             continue
         lines.append(f"### {role_name}")
-        if patterns.get("allowed"):
-            lines.append(f"- **Allowed**: {', '.join(f'`{p}`' for p in patterns['allowed'])}")
-        if patterns.get("blocked"):
-            lines.append(f"- **Blocked**: {', '.join(f'`{p}`' for p in patterns['blocked'])}")
+        if pattern.allowed_patterns:
+            lines.append(f"- **Allowed**: {', '.join(f'`{p}`' for p in pattern.allowed_patterns)}")
+        if pattern.blocked_patterns:
+            lines.append(f"- **Blocked**: {', '.join(f'`{p}`' for p in pattern.blocked_patterns)}")
         lines.append("")
 
     lines.append(
@@ -10603,10 +10627,29 @@ def _maybe_open_base_pr_for_plan_to_implement(
     Failures are logged and swallowed: a transient infra problem in
     this hook must not strand the plan→implement transition (decision-3
     / D3 of #2548).  The inner short-circuits and the swallowed
-    exception path also emit a STATUS message on the pipeline event
-    bus so operators using ``wait-status`` / ``get_status`` see the
-    skipped/failed signal without having to grep orchestrator logs
-    (#2593).
+    exception path also surface a ``context_pr.skipped`` /
+    ``context_pr.failed`` signal on three observability sinks so
+    operators using ``wait-status`` / ``get_status`` see the outcome
+    without having to grep orchestrator logs (#2593, #2611):
+
+    * ``message_store.add_message`` — appends a ``CONTEXT_PR_SKIPPED``
+      / ``CONTEXT_PR_FAILED`` message keyed on the pipeline so
+      ``get_status``'s ``recent_messages`` and the
+      ``/pipelines/<id>/messages`` route pick it up.
+    * ``_emit_pipeline_event`` — publishes a typed event to the
+      in-process ``EventBus`` so SSE subscribers and the
+      ``/status/wait`` long-poll waiter (now in
+      ``_STATUS_WAIT_EVENT_TYPES``) wake on the failure.
+    * ``report_pipeline_status`` — preserved for any future in-process
+      ``StatusReporter`` handler. No production handler is registered
+      today, so this sink is currently a no-op; it stays wired so the
+      pattern matches the other phase/pipeline-lifecycle emit sites
+      in this file and so a future console/file handler picks the
+      signal up automatically.
+
+    All three sinks are best-effort and wrapped in their own
+    ``try/except``: an observability failure must not strand the
+    plan→implement transition.
 
     Bus emission semantics: the ``context_pr.skipped`` /
     ``context_pr.failed`` event reflects *contract state* (does the
@@ -10652,20 +10695,24 @@ def _maybe_open_base_pr_for_plan_to_implement(
             error=str(ctx_err),
         )
 
-    # #2593 — surface "context PR not opened" on the pipeline message
-    # bus so operators using ``wait-status`` / ``get_status`` see the
-    # skip without having to grep orchestrator logs.  Only emit when
-    # the pipeline *should* have a context PR (has a remote and a
-    # base_branch) but doesn't, so we don't spam the bus for local
-    # mode pipelines that legitimately skip the hook.  Re-load the
-    # contract from disk to read the post-hook ``context_pr_number``
-    # rather than trusting the in-memory ``pipeline`` (the hook may
-    # have written through to disk under the per-pipeline state lock
-    # without mutating the caller's reference).  Use
-    # ``_pipeline_identifier`` so the contract path matches the one the
-    # inner hook used (#2593 review issue 7) — both currently resolve
-    # to the same on-disk file, but pinning the resolution keeps the
-    # wrapper from drifting if the ISSUE-mode key logic ever changes.
+    # #2593 — surface "context PR not opened" so operators using
+    # ``wait-status`` / ``get_status`` see the skip without having to
+    # grep orchestrator logs.  #2611 wired the actual sinks: a
+    # ``message_store.add_message`` entry (visible in ``recent_messages``
+    # and ``/pipelines/<id>/messages``) and an ``_emit_pipeline_event``
+    # call (visible to ``/status/wait`` long-pollers and SSE
+    # subscribers).  Only emit when the pipeline *should* have a
+    # context PR (has a remote and a base_branch) but doesn't, so we
+    # don't spam the surfaces for local mode pipelines that
+    # legitimately skip the hook.  Re-load the contract from disk to
+    # read the post-hook ``context_pr_number`` rather than trusting
+    # the in-memory ``pipeline`` (the hook may have written through to
+    # disk under the per-pipeline state lock without mutating the
+    # caller's reference).  Use ``_pipeline_identifier`` so the
+    # contract path matches the one the inner hook used (#2593 review
+    # issue 7) — both currently resolve to the same on-disk file, but
+    # pinning the resolution keeps the wrapper from drifting if the
+    # ISSUE-mode key logic ever changes.
     if pipeline.repo and pipeline.base_branch:
         _ctx_pr_number: int | None = None
         _ctx_identifier = _pipeline_identifier(
@@ -10690,27 +10737,101 @@ def _maybe_open_base_pr_for_plan_to_implement(
             # Dedupe: a single failure on a pipeline should produce one
             # event per kind, not one per transition path that re-ran
             # the hook.  See ``_context_pr_events_emitted`` docstring.
+            # All three sinks below share the dedupe set so a second
+            # wrapper invocation does not append a duplicate
+            # ``recent_messages`` entry or wake ``wait-status`` twice.
+            #
+            # Ordering trade-off: ``already.add(event_type)`` runs
+            # before any sink is invoked so two threads racing on the
+            # same transition cannot both pass the membership check.
+            # The side effect is that a transient sink failure — e.g.
+            # ``add_message`` raising on a Redis hiccup — permanently
+            # consumes the event for this pipeline; no later wrapper
+            # invocation will retry the failed sink.  This matches the
+            # docstring's best-effort contract (an observability
+            # outage must not strand the plan→implement transition),
+            # so do not "fix" it by moving ``already.add`` past the
+            # sinks — that would re-introduce double-emission under
+            # concurrent transition paths.
             with _context_pr_events_emitted_lock:
                 already = _context_pr_events_emitted.setdefault(pipeline_id, set())
                 if event_type in already:
                     return
                 already.add(event_type)
+            _reason = "raised" if raised is not None else "skipped"
+            _detail = f": {str(raised)[:200]}" if raised is not None else ""
+            _status_message = (
+                f"Context PR not opened (source={source}, "
+                f"reason={_reason}){_detail}. "
+                "Slice stack will not have a path to the base "
+                "branch until an operator opens one manually."
+            )
+            # Sink 1: StatusReporter handler chain (no production
+            # handler today; kept for parity with the rest of the
+            # phase/pipeline-lifecycle emit sites).
             try:
-                _reason = "raised" if raised is not None else "skipped"
-                _detail = f": {str(raised)[:200]}" if raised is not None else ""
                 report_pipeline_status(
                     pipeline,
                     event_type=event_type,
-                    message=(
-                        f"Context PR not opened (source={source}, "
-                        f"reason={_reason}){_detail}. "
-                        "Slice stack will not have a path to the base "
-                        "branch until an operator opens one manually."
-                    ),
+                    message=_status_message,
                 )
             except Exception:  # noqa: BLE001
                 # Status reporting is best-effort — must not raise out
                 # of the swallow-all wrapper.
+                pass
+            # Sink 2: pipeline message store, so ``recent_messages``
+            # (via ``get_messages_with_meta``) picks up the event
+            # (#2611).
+            try:
+                try:
+                    from message_store import Message, get_message_store
+                except ImportError:
+                    from orchestrator.message_store import (  # type: ignore[no-redef]
+                        Message,
+                        get_message_store,
+                    )
+                _msg_type = "CONTEXT_PR_FAILED" if raised is not None else "CONTEXT_PR_SKIPPED"
+                # Pin ``phase`` to the literal transition name rather
+                # than ``pipeline.current_phase.value`` so all four
+                # transition paths produce the same ``phase`` value on
+                # the message-store entry (#2611 review item 1).
+                # Two of the paths (autoadvance, HITL resume) fire
+                # before the phase mutates and would report ``"plan"``;
+                # the other two (``advance_phase`` REST and the
+                # implement-entry backstop) fire after and would
+                # report ``"implement"``.  An operator filtering
+                # ``recent_messages`` by ``phase`` would otherwise see
+                # the same logical event split across two buckets
+                # depending on which path fired the hook.  The
+                # ``source`` field still disambiguates the origin.
+                _phase = "plan→implement"
+                get_message_store().add_message(
+                    Message(
+                        pipeline_id=pipeline_id,
+                        from_role="orchestrator",
+                        to_role="all",
+                        message_type=_msg_type,
+                        subject=f"{event_type} (source={source})",
+                        body=_status_message,
+                        phase=_phase,
+                        metadata={
+                            "source": source,
+                            "reason": _reason,
+                            "error": str(raised)[:500] if raised is not None else None,
+                        },
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                # Message-store emission is best-effort — must not
+                # raise out of the swallow-all wrapper.
+                pass
+            # Sink 3: in-process EventBus, so ``/status/wait`` and SSE
+            # subscribers wake on the event (#2611).
+            try:
+                _emit_pipeline_event(pipeline, event_type)
+            except Exception:  # noqa: BLE001
+                # EventBus emission is best-effort — must not raise
+                # out of the swallow-all wrapper.
                 pass
 
 
@@ -12763,27 +12884,31 @@ def _build_producer_orientation(
     )
 
 
-def _build_file_boundary_section(role_value: str) -> str:
+def _build_file_boundary_section(role_value: str, repo: str | None = None) -> str:
     """Build a file boundary section for an agent prompt.
 
-    Reads the role's ``FileAccessPattern`` from ``egg_contracts.agent_roles``
-    and formats it as a prompt section so the agent knows which files it can
-    and cannot push *before* it starts writing files (#1431).
+    Sources the role's allowed/blocked patterns from
+    ``egg_restrictions.patterns.build_agent_patterns`` so the prompt
+    matches what the gateway will actually enforce on push — including
+    per-repo ``role_patterns:`` overrides from ``repositories.yaml``
+    (#2528). The legacy ``egg_contracts.agent_roles`` patterns were
+    Python-only and didn't honour the per-repo knobs, which created a
+    contradictory message for non-Python repos: the gateway would
+    enforce Go conventions while the prompt told the agent the boundary
+    was Python.
 
     Returns an empty string when no patterns are defined for the role.
     """
     try:
-        from egg_contracts.agent_roles import get_role_definition
-
-        role_def = get_role_definition(role_value)
-    except ValueError, KeyError, ImportError:
+        from egg_restrictions.patterns import get_agent_pattern_for_repo
+    except ImportError:
         return ""
 
-    if not role_def or not role_def.file_access:
+    pattern = get_agent_pattern_for_repo(role_value, repo=repo)
+    if pattern is None:
         return ""
 
-    fa = role_def.file_access
-    if not fa.allowed_write and not fa.blocked_write:
+    if not pattern.allowed_patterns and not pattern.blocked_patterns:
         return ""
 
     lines = [
@@ -12793,10 +12918,10 @@ def _build_file_boundary_section(role_value: str) -> str:
         "includes files outside your boundaries. Only create and modify files "
         "you are allowed to push.\n",
     ]
-    if fa.allowed_write:
-        lines.append("**Allowed:** " + ", ".join(f"`{p}`" for p in fa.allowed_write))
-    if fa.blocked_write:
-        lines.append("**Blocked:** " + ", ".join(f"`{p}`" for p in fa.blocked_write))
+    if pattern.allowed_patterns:
+        lines.append("**Allowed:** " + ", ".join(f"`{p}`" for p in pattern.allowed_patterns))
+    if pattern.blocked_patterns:
+        lines.append("**Blocked:** " + ", ".join(f"`{p}`" for p in pattern.blocked_patterns))
 
     # `.github/` staging-dir convention (issue #2508). Surfaced for the
     # coder role specifically because it's the producer that's expected
@@ -12899,7 +13024,9 @@ def _build_agent_prompt(
             repo_path=repo_path,
         )
         # Surface file boundaries so agent knows what it can push (#1431).
-        boundary_section = _build_file_boundary_section(role_value)
+        # Pass repo so the rendered patterns match per-repo overrides
+        # (#2528) the gateway will enforce on push.
+        boundary_section = _build_file_boundary_section(role_value, repo=repo)
         if boundary_section:
             base_prompt += "\n" + boundary_section
         # Producer escape hatch (#2529) — coder is one of the impassing
@@ -13572,8 +13699,11 @@ def _build_agent_prompt(
                 "",
             ]
         )
-        # Append role file restriction info so the planner assigns tasks correctly
-        lines.append(_build_role_restrictions_section())
+        # Append role file restriction info so the planner assigns tasks correctly.
+        # Pass the pipeline's repo so per-repo role_patterns from
+        # repositories.yaml are rendered (#2528) — keeps planner-prompt
+        # boundaries in sync with the gateway's push-time enforcement.
+        lines.append(_build_role_restrictions_section(repo=repo or None))
     elif role_value == "risk_analyst":
         lines.extend(
             [
@@ -13695,7 +13825,9 @@ def _build_agent_prompt(
 
     # File boundaries (#1431) — surface allowed/blocked patterns so
     # the agent avoids creating files the gateway will reject on push.
-    boundary_section = _build_file_boundary_section(role_value)
+    # Pass repo so the rendered patterns match per-repo overrides
+    # (#2528) the gateway will enforce on push.
+    boundary_section = _build_file_boundary_section(role_value, repo=repo)
     if boundary_section:
         lines.append(boundary_section)
 
@@ -18238,6 +18370,164 @@ def _queue_and_await_contract_decisions(
             _save_contract_update(_apply_fb)
 
 
+# ---------------------------------------------------------------------------
+# Jira-epic SDLC scheduling helpers (issue #1557 — task-1-4 / task-2-7)
+# ---------------------------------------------------------------------------
+
+
+def _next_phases_for_epic(
+    pipeline: Pipeline,
+    current_phase: PipelinePhase,
+    default_next_phases: list[PipelinePhase],
+) -> list[PipelinePhase]:
+    """Reroute auto-advance through ``APPLY`` for Jira-epic pipelines.
+
+    Issue #1557: when ``pipeline.is_epic`` is true the orchestrator
+    inserts the new ``APPLY`` phase between ``PLAN`` and ``IMPLEMENT``
+    so the ``APPLIER`` role can drive Jira mutations (epic-Description
+    write, child create / link / Won't-Do) on HITL approval. Non-epic
+    pipelines see ``default_next_phases`` returned unchanged so the
+    pre-#1557 scheduling is preserved bit-for-bit.
+
+    The orchestrator-side scheduler is the authoritative gate per the
+    architecture's "VALID_TRANSITIONS lists APPLY but the scheduler
+    decides whether to actually pick it" design (see the comment on
+    :data:`gateway.phase_transition.VALID_TRANSITIONS`). Returns a
+    single-element list so the call site's ``next_phases[0]`` indexing
+    works without change.
+    """
+    if not getattr(pipeline, "is_epic", False):
+        return default_next_phases
+    if current_phase == PipelinePhase.PLAN:
+        return [PipelinePhase.APPLY]
+    if current_phase == PipelinePhase.APPLY:
+        return [PipelinePhase.IMPLEMENT]
+    return default_next_phases
+
+
+def _drain_wontdo_batch_after_apply(
+    pipeline: Pipeline,
+    worktree_repo_path: Path,
+) -> None:
+    """Run the orchestrator-only Won't-Do drain after ``APPLY`` consensus.
+
+    Trigger chain (issue #1557 task-2-7): the HITL operator approves
+    the plan-gate → ``_persist_phase_gate_resolution`` flips state →
+    the scheduler routes through ``APPLY`` → the applier writes a
+    handoff JSON at ``.egg-state/agent-outputs/<pipeline>-wontdo.json``
+    listing every obsolete child key it could not transition itself
+    (decision-15: agent-facing routes deny Jira transitions) → the
+    APPLIER's CONSENSUS_PROPOSE → REVIEWER_CONTRACT ACK confirms →
+    this hook fires from the auto-advance block, iterates the handoff,
+    and POSTs to ``/api/v1/jira/ticket/transition`` with the launcher-
+    secret bearer token.
+
+    Runs **out of band** from ``_persist_phase_gate_resolution`` so a
+    slow Jira API does not extend the HITL approve POST's latency SLA
+    (task-2-7 acceptance). Fail-open: a missing handoff file means
+    "no Won't-Dos to drain" and returns silently; a per-transition
+    failure surfaces as a logger warning but does not block the
+    pipeline from advancing to ``IMPLEMENT``.
+    """
+    handoff_path = (
+        Path(worktree_repo_path)
+        / ".egg-state"
+        / "agent-outputs"
+        / f"{pipeline.id}-wontdo.json"
+    )
+    if not handoff_path.exists():
+        logger.debug(
+            "Won't-Do drain skipped — no handoff file produced by applier",
+            pipeline_id=pipeline.id,
+            handoff_path=str(handoff_path),
+        )
+        return
+    try:
+        from wontdo_drain import run_wontdo_drain
+
+        result = run_wontdo_drain(handoff_path=handoff_path)
+    except Exception as exc:  # noqa: BLE001 — defensive: drain must not crash auto-advance
+        logger.warning(
+            "Won't-Do drain failed after APPLY phase (continuing)",
+            pipeline_id=pipeline.id,
+            error=str(exc),
+        )
+        return
+    logger.info(
+        "Won't-Do drain complete after APPLY phase",
+        pipeline_id=pipeline.id,
+        succeeded=len(result.succeeded),
+        failed=len(result.failed),
+        skipped=len(result.skipped),
+    )
+
+
+def _write_apply_phase_handoff(
+    pipeline: Pipeline,
+    worktree_repo_path: Path,
+    approved_phase: str,
+) -> None:
+    """Write the applier handoff JSON before the ``APPLY`` phase spawns.
+
+    The applier prompt (``plugins/refine-plan/skills/refine-plan/
+    agents/applier.md``) consumes a one-line JSON identifying which
+    artifact was just approved so it can branch between refine-apply
+    (writing the analysis to the epic Description) and plan-apply
+    (walking ``Task.jira_action`` + driving the Jira CLI per task).
+
+    The handoff lands at
+    ``.egg-state/agent-outputs/<pipeline-id>-apply-handoff.json``
+    inside the per-pipeline worktree so the applier (running in a
+    sandbox container with the same worktree mounted) reads from a
+    deterministic path. Fail-open: I/O errors surface as a logger
+    warning but never abort phase advancement.
+    """
+    handoff_dir = Path(worktree_repo_path) / ".egg-state" / "agent-outputs"
+    try:
+        handoff_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "Failed to create agent-outputs dir for applier handoff (continuing)",
+            pipeline_id=pipeline.id,
+            error=str(exc),
+        )
+        return
+    contract_path = (
+        Path(worktree_repo_path)
+        / ".egg-state"
+        / "contracts"
+        / f"{pipeline.id}.json"
+    )
+    draft_path = (
+        Path(worktree_repo_path)
+        / ".egg-state"
+        / "brc-history"
+        / f"{pipeline.id}-{approved_phase}.md"
+    )
+    payload = {
+        "approved_phase": approved_phase,
+        "contract_path": str(contract_path),
+        "draft_path": str(draft_path),
+    }
+    handoff_path = handoff_dir / f"{pipeline.id}-apply-handoff.json"
+    try:
+        handoff_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        logger.warning(
+            "Failed to write applier handoff JSON (continuing)",
+            pipeline_id=pipeline.id,
+            handoff_path=str(handoff_path),
+            error=str(exc),
+        )
+        return
+    logger.info(
+        "Applier handoff JSON written for APPLY phase",
+        pipeline_id=pipeline.id,
+        approved_phase=approved_phase,
+        handoff_path=str(handoff_path),
+    )
+
+
 def _persist_phase_gate_resolution(
     repo_path: Path,
     pipeline_id: str,
@@ -20577,8 +20867,18 @@ def _run_pipeline(
                         reason="phase ended",
                     )
 
-            # Determine next phase
-            next_phases = transitions.get(current_phase, [])
+            # Determine next phase.  Issue #1557: epic-mode pipelines
+            # route through the new APPLY phase between PLAN and
+            # IMPLEMENT so the APPLIER role can drive Jira mutations on
+            # HITL approval.  ``_next_phases_for_epic`` returns
+            # ``transitions.get(current_phase, [])`` unchanged for
+            # non-epic pipelines so the pre-#1557 scheduling is
+            # preserved bit-for-bit.
+            next_phases = _next_phases_for_epic(
+                pipeline,
+                current_phase,
+                transitions.get(current_phase, []),
+            )
 
             # CUSTOM-mode pipelines run exactly one phase and then
             # terminate — no auto-advance (#1762 TASK-2-9 / decision-9).
@@ -20617,6 +20917,32 @@ def _run_pipeline(
             # phase from clean local state.  Without this, any exception in
             # the new phase's first iteration takes the whole pipeline down.
             next_phase = next_phases[0]
+
+            # Issue #1557: when the just-completed phase is PLAN and the
+            # pipeline is_epic, we are advancing into APPLY.  Write the
+            # applier handoff JSON now (before respawning the driver
+            # thread) so the APPLIER container can read it on its
+            # first wakeup.  ``approved_phase='plan'`` so the applier
+            # drives plan-apply (Task.jira_action walk → child create /
+            # edit / link, Won't-Do handoff for the orchestrator drain).
+            if (
+                getattr(pipeline, "is_epic", False)
+                and current_phase == PipelinePhase.PLAN
+                and next_phase == PipelinePhase.APPLY
+            ):
+                _write_apply_phase_handoff(
+                    pipeline,
+                    worktree_repo_path,
+                    approved_phase="plan",
+                )
+
+            # Issue #1557 task-2-7: when the just-completed phase is
+            # APPLY (BRC consensus confirmed), drain the Won't-Do
+            # handoff JSON before advancing to IMPLEMENT.  The drain
+            # runs out-of-band from the HITL approve POST so a slow
+            # Jira API never extends that handler's latency.
+            if current_phase == PipelinePhase.APPLY:
+                _drain_wontdo_batch_after_apply(pipeline, worktree_repo_path)
             with get_pipeline_state_lock(pipeline_id):
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.current_phase = next_phase
@@ -21229,7 +21555,14 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
                     transitions = PHASE_TRANSITIONS
                     current_phase = pipeline.current_phase
-                    next_phases = transitions.get(current_phase, [])
+                    # Issue #1557 — route epic pipelines through APPLY
+                    # between PLAN and IMPLEMENT.  Non-epic pipelines
+                    # see the default transition unchanged.
+                    next_phases = _next_phases_for_epic(
+                        pipeline,
+                        current_phase,
+                        transitions.get(current_phase, []),
+                    )
                     # CUSTOM-mode pipelines complete after their single
                     # phase — no auto-advance (#1762 TASK-2-9).
                     _is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
@@ -21347,6 +21680,34 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # Advance to next phase
                     next_phase = next_phases[0]
                     pipeline.current_phase = next_phase
+
+                    # Issue #1557: PLAN → APPLY transition on epic
+                    # pipelines (mirrors auto-advance path).  Write the
+                    # applier handoff JSON before the next _run_pipeline
+                    # thread is respawned so the APPLIER container's
+                    # first read finds it on disk.
+                    if (
+                        getattr(pipeline, "is_epic", False)
+                        and current_phase == PipelinePhase.PLAN
+                        and next_phase == PipelinePhase.APPLY
+                    ):
+                        _hitl_apply_worktree = _resolve_pipeline_worktree_path(
+                            pipeline, repo_path
+                        )
+                        _write_apply_phase_handoff(
+                            pipeline,
+                            _hitl_apply_worktree,
+                            approved_phase="plan",
+                        )
+
+                    # Issue #1557 task-2-7: when the resolved phase was
+                    # APPLY (BRC consensus confirmed via HITL recovery
+                    # path), drain the Won't-Do handoff before advancing.
+                    if current_phase == PipelinePhase.APPLY:
+                        _hitl_drain_worktree = _resolve_pipeline_worktree_path(
+                            pipeline, repo_path
+                        )
+                        _drain_wontdo_batch_after_apply(pipeline, _hitl_drain_worktree)
 
                     # Update health monitor phase threshold before agents spawn
                     try:
