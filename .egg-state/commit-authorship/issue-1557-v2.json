@@ -182,6 +182,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_contract"
     },
+    "4d5e0734c46031673fae154ab7bcad564cc9e0f6": {
+      "branch": "egg/issue-1557-v2/slice-1",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T17:30:50.390113+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
     "4e6e07af5eb8e92cf4970a2619d41aa808db7842": {
       "branch": "egg/issue-1557-v2",
       "pipeline_id": "issue-1557-v2",
@@ -195,6 +202,13 @@
       "registered_at": "2026-05-12T05:02:46.150740+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
+    },
+    "5158e33dea436b78eef2361d6a52eb75638189ea": {
+      "branch": "egg/issue-1557-v2/slice-1",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T17:30:50.388180+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "52b7348674d9cb3e26f17ac466f18fbbdd526e7e": {
       "branch": "egg/issue-1557-v2/work",
@@ -356,6 +370,13 @@
       "registered_at": "2026-05-12T05:15:54.626827+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_plan"
+    },
+    "8ed2bdc7d49ec64815c27313f7ad2e567e24741a": {
+      "branch": "egg/issue-1557-v2/slice-1",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T17:30:50.385493+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "912cf3d6b63ea548f9e030c790dd2ec888628669": {
       "branch": "egg/issue-1557-v2/work",
@@ -615,6 +636,13 @@
       "registered_at": "2026-05-12T05:34:05.773640+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_plan"
+    },
+    "ed4fcb33700011992f9ac6839bc6b6597ed7ec3d": {
+      "branch": "egg/issue-1557-v2/slice-1",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T17:30:55.353534+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
     },
     "edc658aa8784307e159422bbaef7dd63082eb39a": {
       "branch": "egg/issue-1557-v2/work",
