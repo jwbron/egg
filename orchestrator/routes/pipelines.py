@@ -281,6 +281,12 @@ _STATUS_WAIT_EVENT_TYPES = frozenset(
         "pipeline.completed",
         "pipeline.failed",
         "pipeline.cancelled",
+        # #2611 — operators waiting on ``wait-status`` need to wake on
+        # context-PR hook failures so the plan→implement transition's
+        # missing-PR signal isn't log-only. Paired with the
+        # ``CONTEXT_PR_*`` message types below so both sources fire.
+        "context_pr.skipped",
+        "context_pr.failed",
     }
 )
 
@@ -292,6 +298,11 @@ _STATUS_WAIT_MESSAGE_TYPES = (
     "CONSENSUS_CONFIRMED",
     "CONSENSUS_NACK",
     "CONSENSUS_RE_REVIEW",
+    # #2611 — pair with the ``context_pr.*`` event-bus entries above
+    # so a long-poller observes the wrapper's bus emission from
+    # either source (message store or event bus).
+    "CONTEXT_PR_SKIPPED",
+    "CONTEXT_PR_FAILED",
 )
 
 
@@ -1123,6 +1134,8 @@ if _emit_event is not None:
         "pipeline.completed": EventType.PIPELINE_COMPLETED,
         "pipeline.failed": EventType.PIPELINE_FAILED,
         "decision.created": EventType.DECISION_CREATED,
+        "context_pr.skipped": EventType.CONTEXT_PR_SKIPPED,
+        "context_pr.failed": EventType.CONTEXT_PR_FAILED,
     }
 
 
@@ -2086,9 +2099,12 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
     # clear, a fresh pipeline that reuses an id from a prior terminal
     # run (allowed — see branch-reuse logic for terminal-state pipelines)
     # would inherit the prior run's emitted-event set; if the new run
-    # also fails to open its context PR, operators using ``wait-status``
-    # would see no event for the new failure. Same shape as #2053 (the
-    # other per-pipeline-id leak this function exists to plug).
+    # also fails to open its context PR, operators long-polling
+    # ``wait-status`` or reading ``recent_messages`` would see no event
+    # for the new failure (the sinks wired in #2611 also share this
+    # dedupe — see ``_maybe_open_base_pr_for_plan_to_implement``).
+    # Same shape as #2053 (the other per-pipeline-id leak this function
+    # exists to plug).
     try:
         with _context_pr_events_emitted_lock:
             _context_pr_events_emitted.pop(pipeline_id, None)
@@ -10523,10 +10539,29 @@ def _maybe_open_base_pr_for_plan_to_implement(
     Failures are logged and swallowed: a transient infra problem in
     this hook must not strand the plan→implement transition (decision-3
     / D3 of #2548).  The inner short-circuits and the swallowed
-    exception path also emit a STATUS message on the pipeline event
-    bus so operators using ``wait-status`` / ``get_status`` see the
-    skipped/failed signal without having to grep orchestrator logs
-    (#2593).
+    exception path also surface a ``context_pr.skipped`` /
+    ``context_pr.failed`` signal on three observability sinks so
+    operators using ``wait-status`` / ``get_status`` see the outcome
+    without having to grep orchestrator logs (#2593, #2611):
+
+    * ``message_store.add_message`` — appends a ``CONTEXT_PR_SKIPPED``
+      / ``CONTEXT_PR_FAILED`` message keyed on the pipeline so
+      ``get_status``'s ``recent_messages`` and the
+      ``/pipelines/<id>/messages`` route pick it up.
+    * ``_emit_pipeline_event`` — publishes a typed event to the
+      in-process ``EventBus`` so SSE subscribers and the
+      ``/status/wait`` long-poll waiter (now in
+      ``_STATUS_WAIT_EVENT_TYPES``) wake on the failure.
+    * ``report_pipeline_status`` — preserved for any future in-process
+      ``StatusReporter`` handler. No production handler is registered
+      today, so this sink is currently a no-op; it stays wired so the
+      pattern matches the other phase/pipeline-lifecycle emit sites
+      in this file and so a future console/file handler picks the
+      signal up automatically.
+
+    All three sinks are best-effort and wrapped in their own
+    ``try/except``: an observability failure must not strand the
+    plan→implement transition.
 
     Bus emission semantics: the ``context_pr.skipped`` /
     ``context_pr.failed`` event reflects *contract state* (does the
@@ -10572,20 +10607,24 @@ def _maybe_open_base_pr_for_plan_to_implement(
             error=str(ctx_err),
         )
 
-    # #2593 — surface "context PR not opened" on the pipeline message
-    # bus so operators using ``wait-status`` / ``get_status`` see the
-    # skip without having to grep orchestrator logs.  Only emit when
-    # the pipeline *should* have a context PR (has a remote and a
-    # base_branch) but doesn't, so we don't spam the bus for local
-    # mode pipelines that legitimately skip the hook.  Re-load the
-    # contract from disk to read the post-hook ``context_pr_number``
-    # rather than trusting the in-memory ``pipeline`` (the hook may
-    # have written through to disk under the per-pipeline state lock
-    # without mutating the caller's reference).  Use
-    # ``_pipeline_identifier`` so the contract path matches the one the
-    # inner hook used (#2593 review issue 7) — both currently resolve
-    # to the same on-disk file, but pinning the resolution keeps the
-    # wrapper from drifting if the ISSUE-mode key logic ever changes.
+    # #2593 — surface "context PR not opened" so operators using
+    # ``wait-status`` / ``get_status`` see the skip without having to
+    # grep orchestrator logs.  #2611 wired the actual sinks: a
+    # ``message_store.add_message`` entry (visible in ``recent_messages``
+    # and ``/pipelines/<id>/messages``) and an ``_emit_pipeline_event``
+    # call (visible to ``/status/wait`` long-pollers and SSE
+    # subscribers).  Only emit when the pipeline *should* have a
+    # context PR (has a remote and a base_branch) but doesn't, so we
+    # don't spam the surfaces for local mode pipelines that
+    # legitimately skip the hook.  Re-load the contract from disk to
+    # read the post-hook ``context_pr_number`` rather than trusting
+    # the in-memory ``pipeline`` (the hook may have written through to
+    # disk under the per-pipeline state lock without mutating the
+    # caller's reference).  Use ``_pipeline_identifier`` so the
+    # contract path matches the one the inner hook used (#2593 review
+    # issue 7) — both currently resolve to the same on-disk file, but
+    # pinning the resolution keeps the wrapper from drifting if the
+    # ISSUE-mode key logic ever changes.
     if pipeline.repo and pipeline.base_branch:
         _ctx_pr_number: int | None = None
         _ctx_identifier = _pipeline_identifier(
@@ -10610,27 +10649,101 @@ def _maybe_open_base_pr_for_plan_to_implement(
             # Dedupe: a single failure on a pipeline should produce one
             # event per kind, not one per transition path that re-ran
             # the hook.  See ``_context_pr_events_emitted`` docstring.
+            # All three sinks below share the dedupe set so a second
+            # wrapper invocation does not append a duplicate
+            # ``recent_messages`` entry or wake ``wait-status`` twice.
+            #
+            # Ordering trade-off: ``already.add(event_type)`` runs
+            # before any sink is invoked so two threads racing on the
+            # same transition cannot both pass the membership check.
+            # The side effect is that a transient sink failure — e.g.
+            # ``add_message`` raising on a Redis hiccup — permanently
+            # consumes the event for this pipeline; no later wrapper
+            # invocation will retry the failed sink.  This matches the
+            # docstring's best-effort contract (an observability
+            # outage must not strand the plan→implement transition),
+            # so do not "fix" it by moving ``already.add`` past the
+            # sinks — that would re-introduce double-emission under
+            # concurrent transition paths.
             with _context_pr_events_emitted_lock:
                 already = _context_pr_events_emitted.setdefault(pipeline_id, set())
                 if event_type in already:
                     return
                 already.add(event_type)
+            _reason = "raised" if raised is not None else "skipped"
+            _detail = f": {str(raised)[:200]}" if raised is not None else ""
+            _status_message = (
+                f"Context PR not opened (source={source}, "
+                f"reason={_reason}){_detail}. "
+                "Slice stack will not have a path to the base "
+                "branch until an operator opens one manually."
+            )
+            # Sink 1: StatusReporter handler chain (no production
+            # handler today; kept for parity with the rest of the
+            # phase/pipeline-lifecycle emit sites).
             try:
-                _reason = "raised" if raised is not None else "skipped"
-                _detail = f": {str(raised)[:200]}" if raised is not None else ""
                 report_pipeline_status(
                     pipeline,
                     event_type=event_type,
-                    message=(
-                        f"Context PR not opened (source={source}, "
-                        f"reason={_reason}){_detail}. "
-                        "Slice stack will not have a path to the base "
-                        "branch until an operator opens one manually."
-                    ),
+                    message=_status_message,
                 )
             except Exception:  # noqa: BLE001
                 # Status reporting is best-effort — must not raise out
                 # of the swallow-all wrapper.
+                pass
+            # Sink 2: pipeline message store, so ``recent_messages``
+            # (via ``get_messages_with_meta``) picks up the event
+            # (#2611).
+            try:
+                try:
+                    from message_store import Message, get_message_store
+                except ImportError:
+                    from orchestrator.message_store import (  # type: ignore[no-redef]
+                        Message,
+                        get_message_store,
+                    )
+                _msg_type = "CONTEXT_PR_FAILED" if raised is not None else "CONTEXT_PR_SKIPPED"
+                # Pin ``phase`` to the literal transition name rather
+                # than ``pipeline.current_phase.value`` so all four
+                # transition paths produce the same ``phase`` value on
+                # the message-store entry (#2611 review item 1).
+                # Two of the paths (autoadvance, HITL resume) fire
+                # before the phase mutates and would report ``"plan"``;
+                # the other two (``advance_phase`` REST and the
+                # implement-entry backstop) fire after and would
+                # report ``"implement"``.  An operator filtering
+                # ``recent_messages`` by ``phase`` would otherwise see
+                # the same logical event split across two buckets
+                # depending on which path fired the hook.  The
+                # ``source`` field still disambiguates the origin.
+                _phase = "plan→implement"
+                get_message_store().add_message(
+                    Message(
+                        pipeline_id=pipeline_id,
+                        from_role="orchestrator",
+                        to_role="all",
+                        message_type=_msg_type,
+                        subject=f"{event_type} (source={source})",
+                        body=_status_message,
+                        phase=_phase,
+                        metadata={
+                            "source": source,
+                            "reason": _reason,
+                            "error": str(raised)[:500] if raised is not None else None,
+                        },
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                # Message-store emission is best-effort — must not
+                # raise out of the swallow-all wrapper.
+                pass
+            # Sink 3: in-process EventBus, so ``/status/wait`` and SSE
+            # subscribers wake on the event (#2611).
+            try:
+                _emit_pipeline_event(pipeline, event_type)
+            except Exception:  # noqa: BLE001
+                # EventBus emission is best-effort — must not raise
+                # out of the swallow-all wrapper.
                 pass
 
 
