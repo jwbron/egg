@@ -377,6 +377,13 @@
           "last_lines": [],
           "terminated_at": "2026-05-12T06:24:52.940540Z",
           "container_id": "ec76c1e6-229e-4319-bb70-3640b82c5817"
+        },
+        {
+          "role": "tester",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-12T17:35:39.684264Z",
+          "container_id": "6aec5ccc-5267-4b7c-a704-6e3609740397"
         }
       ]
     }
@@ -792,7 +799,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T17:35:35.611949Z",
+  "updated_at": "2026-05-12T17:35:39.696298Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -806,6 +813,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T17:35:35.609760Z",
-  "version": 83,
+  "version": 84,
   "jira_ticket": null
 }
