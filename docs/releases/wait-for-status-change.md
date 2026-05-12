@@ -113,6 +113,8 @@ denylist:
 | `PIPELINE_FAILED` | EventBus | Terminal failure. |
 | `PIPELINE_CANCELLED` | EventBus | Operator cancelled. |
 | `DECISION_CREATED` | EventBus | New HITL gate. |
+| `CONTEXT_PR_SKIPPED` | EventBus + message bus | Context PR hook skipped during plan→implement transition. |
+| `CONTEXT_PR_FAILED` | EventBus + message bus | Context PR hook raised during plan→implement transition. |
 
 **Explicitly excluded:** `DECISION_RESOLVED` (the post-
 `provide_input` event — would cause the host to self-wake on its

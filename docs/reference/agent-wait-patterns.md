@@ -879,6 +879,8 @@ even if it changes pipeline state.
 | `PIPELINE_FAILED` | EventBus | Terminal failure. Wire value: `pipeline.failed`. |
 | `PIPELINE_CANCELLED` | EventBus | Operator cancelled the pipeline. Wire value: `pipeline.cancelled`. |
 | `DECISION_CREATED` | EventBus | New HITL gate; surface to the user. Wire value: `decision.created`. |
+| `CONTEXT_PR_SKIPPED` | EventBus + message bus | Context PR hook skipped during plan→implement (hook ran but no context PR number recorded). Wire value: `context_pr.skipped`. |
+| `CONTEXT_PR_FAILED` | EventBus + message bus | Context PR hook raised during plan→implement. Wire value: `context_pr.failed`. |
 
 > **Wire values vs Python constants:** The names in this table are the Python
 > `EventType` constant names. The JSON-lines emit **dotted lowercase wire
