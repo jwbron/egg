@@ -387,10 +387,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "**Plan-node ↔ Jira-key mapping persistence for idempotent re-runs.** The plan draft \"records the existing-key → plan-node mapping (1:1, N:1, 1:N) so the apply step can produce the right edit/create/Won't-Done set\". This mapping needs to survive crash/restart and re-runs. Today nothing in `.egg-state/contracts/<pipeline>.json` carries Jira keys; tasks are TASK-N-M only. Options:",
+      "context": "Open contract question decision-11, registered by an agent during the refine phase.",
+      "options": [
+        "Persist mapping on the contract: extend `task` model with optional `jira_key`, `jira_action` ('create' / 'edit' / 'wontdo' / 'split-of' / 'consolidate-into') fields. Single source of truth; visible to inspect tools; survives crashes. Recommended.",
+        "Persist mapping in the plan draft markdown only (front-matter or fenced YAML block). Plan draft is already source of truth for the proposed plan; less schema work, but apply step has to re-parse markdown.",
+        "Persist mapping in a sibling sidecar file (`.egg-state/jira-mappings/<pipeline>.json`). Decouples from contract schema, easy to inspect / nuke, but introduces a third source-of-truth that can drift.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.183704Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.152623Z",
+  "updated_at": "2026-05-12T04:46:05.192020Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -404,6 +423,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
