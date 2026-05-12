@@ -105,6 +105,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "risk_analyst"
     },
+    "1f159baf16058b186dd68e62db3c7b6fdd2d7133": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:40:33.917324+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
     "24dfdbd04e9fd72ad2261da2c817ff14adebf787": {
       "branch": "egg/issue-1557-v2/work",
       "pipeline_id": "issue-1557-v2",
@@ -188,6 +195,13 @@
       "registered_at": "2026-05-12T05:15:20.013570+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
+    },
+    "54449956ac0b28f76bfe26d91397b56d86230fdb": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:40:50.800437+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_security"
     },
     "54944570a2263ef682cd425fda8b0a03bd1887ea": {
       "branch": "egg/issue-1557-v2",
@@ -413,6 +427,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_refine"
     },
+    "bec84fba6ed139c56f76180ef6255ceb2f68da75": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:40:33.915462+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
     "c0bc9cc8e0a130c7be086cbeefa86549f8ab3376": {
       "branch": "egg/issue-1557-v2/work",
       "pipeline_id": "issue-1557-v2",
@@ -468,6 +489,13 @@
       "registered_at": "2026-05-12T05:02:46.159171+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
+    },
+    "d4a7dc97490e5023f61996a11bc53023ceda2db9": {
+      "branch": "egg/issue-1557-v2/work",
+      "pipeline_id": "issue-1557-v2",
+      "registered_at": "2026-05-12T05:40:33.918655+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     },
     "d7c030e433b2e82697fdf5e2e5f37d084323d288": {
       "branch": "egg/issue-1557-v2",
