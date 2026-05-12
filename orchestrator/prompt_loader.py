@@ -45,17 +45,13 @@ KNOWN_MODES: Final[frozenset[str]] = frozenset(
 # names. Captures the active mode in group 1 for the strip pass.
 # Anchored with `(?m)` (multi-line) so it can match within a long
 # prompt string in one shot.
-_MODE_HEADER_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?m)^##\s*\[mode:\s*([a-z0-9_-]+)\s*\]\s*$"
-)
+_MODE_HEADER_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^##\s*\[mode:\s*([a-z0-9_-]+)\s*\]\s*$")
 
 # Used to detect the next "block boundary" — any header at level 1 or
 # level 2. We deliberately match more than just mode headers so a non-
 # mode level-2 heading (``## Approach``) terminates the active mode's
 # scope cleanly.
-_HEADER_BOUNDARY_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?m)^(#{1,2})\s+\S.*$"
-)
+_HEADER_BOUNDARY_RE: Final[re.Pattern[str]] = re.compile(r"(?m)^(#{1,2})\s+\S.*$")
 
 
 def _looks_like_mode_header(line: str) -> bool:
