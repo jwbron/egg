@@ -458,7 +458,7 @@ lint-yaml-fix: sync-venv-if-uv
 # Build
 # ============================================================================
 
-build:
+build: sync-venv-if-uv
 	@echo "==> Preparing sandbox build context from repositories.yaml..."
 	@$(PYTHON) scripts/prepare-sandbox-build-context.py repo-deps
 	@echo "==> Building images with tag $(EGG_IMAGE_TAG)..."
