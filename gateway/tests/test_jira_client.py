@@ -1301,3 +1301,202 @@ class TestWriteAuthHeader:
             assert req.headers["authorization"] == fake_creds.basic_auth_header()
             # Content-Type set on every write (we always send a body).
             assert req.headers["content-type"] == "application/json"
+
+
+# =============================================================================
+# Issue #1557 slice-2 — JiraClient.get_remotelinks + transition_issue
+# =============================================================================
+
+
+class TestGetRemoteLinks:
+    """Tests for ``JiraClient.get_remotelinks`` (issue #1557 slice-2 task-2-3).
+
+    The method wraps Atlassian's ``GET /rest/api/3/issue/{key}/remotelink``
+    endpoint. The response is normalised to ``{"remotelinks": [...]}`` for
+    caller uniformity (the route's response body shape).
+    """
+
+    def test_happy_path_returns_remotelinks_envelope(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            # Atlassian returns a bare list at the top level for this endpoint.
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 10000,
+                        "object": {
+                            "url": "https://github.com/jwbron/egg/pull/1",
+                        },
+                    }
+                ],
+            )
+
+        client = _make_client(handler, fake_creds)
+        body = client.get_remotelinks("ENG-1")
+        assert "remotelinks" in body
+        assert isinstance(body["remotelinks"], list)
+        assert len(body["remotelinks"]) == 1
+        assert body["remotelinks"][0]["object"]["url"].endswith("/pull/1")
+        # GET method + correct path.
+        assert captured[0].method == "GET"
+        assert "issue/ENG-1/remotelink" in str(captured[0].url)
+
+    def test_empty_remotelinks(self, fake_creds: JiraCredentials):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=[])
+
+        client = _make_client(handler, fake_creds)
+        body = client.get_remotelinks("ENG-1")
+        assert body == {"remotelinks": []}
+
+    def test_404_returns_not_found_envelope(self, fake_creds: JiraCredentials):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"errorMessages": ["not found"]})
+
+        client = _make_client(handler, fake_creds)
+        body = client.get_remotelinks("ENG-999")
+        # Matches the not-found envelope produced by ``_not_found_envelope``
+        # (mirror of get_ticket / get_comments).
+        assert body.get("status") == "not_found"
+        assert body.get("key") == "ENG-999"
+
+    def test_500_raises_upstream_error(self, fake_creds: JiraCredentials):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, json={"err": "boom"})
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError):
+            client.get_remotelinks("ENG-1")
+
+
+class TestTransitionIssue:
+    """Tests for ``JiraClient.transition_issue`` (issue #1557 slice-2 task-2-6).
+
+    **Internal-only** — the agent-facing Jira surface continues to deny
+    transitions via ``JIRA_WRITE_VERBS_DENIED``. This method is called
+    exclusively by the gateway's orchestrator-only ``/transition`` route.
+    The path is composed in-method (``issue/{key}/transitions``) so even
+    if the regex allowlist is widened the agent-facing routes still can't
+    compose this URL.
+    """
+
+    def test_requires_transition_id_or_name(self, fake_creds: JiraCredentials):
+        """Missing both ``transition_id`` and ``transition_name`` → ValueError."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            pytest.fail("upstream should not be called")
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(ValueError):
+            client.transition_issue("ENG-1")
+
+    def test_explicit_transition_id_skips_lookup(self, fake_creds: JiraCredentials):
+        """When ``transition_id`` is supplied directly, no extra GET is made."""
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        status, body = client.transition_issue("ENG-1", transition_id="42")
+        assert status == 204
+        assert body == {}
+        # Only one upstream call — the transitions POST.
+        assert len(captured) == 1
+        assert captured[0].method == "POST"
+        sent = json.loads(captured[0].content.decode())
+        assert sent == {"transition": {"id": "42"}}
+
+    def test_transition_name_lookup(self, fake_creds: JiraCredentials):
+        """Transition name → GET transitions list → POST with matching ID."""
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            if request.method == "GET":
+                return httpx.Response(
+                    200,
+                    json={
+                        "transitions": [
+                            {"id": "5", "name": "Done"},
+                            {"id": "10", "name": "Won't Do"},
+                        ]
+                    },
+                )
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        status, _ = client.transition_issue("ENG-1", transition_name="Won't Do")
+        assert status == 204
+        # Two upstream calls: GET transitions, then POST.
+        assert [r.method for r in captured] == ["GET", "POST"]
+        sent = json.loads(captured[1].content.decode())
+        assert sent["transition"]["id"] == "10"
+
+    def test_transition_name_lookup_case_insensitive(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            if request.method == "GET":
+                return httpx.Response(
+                    200,
+                    json={
+                        "transitions": [
+                            {"id": "10", "name": "Won't Do"},
+                        ]
+                    },
+                )
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        status, _ = client.transition_issue("ENG-1", transition_name="won't do")
+        assert status == 204
+
+    def test_unknown_transition_name_raises(self, fake_creds: JiraCredentials):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET":
+                return httpx.Response(200, json={"transitions": [{"id": "5", "name": "Done"}]})
+            pytest.fail("unknown transition should not trigger POST")
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError) as exc:
+            client.transition_issue("ENG-1", transition_name="Bogus")
+        assert exc.value.status_code == 404
+
+    def test_comment_adf_attached_to_payload(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        adf = {"type": "doc", "version": 1, "content": []}
+        status, _ = client.transition_issue(
+            "ENG-1",
+            transition_id="42",
+            comment_adf=adf,
+        )
+        assert status == 204
+        sent = json.loads(captured[0].content.decode())
+        assert sent["transition"]["id"] == "42"
+        assert sent["update"]["comment"][0]["add"]["body"] == adf
+
+    def test_transition_list_malformed_raises(self, fake_creds: JiraCredentials):
+        """Defensive: a malformed transitions list → JiraUpstreamError."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"transitions": "not a list"})
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError):
+            client.transition_issue("ENG-1", transition_name="Won't Do")
+
+
+# Top-of-file import for ``json`` (used by the new test classes).
+import json  # noqa: E402, F401  — placed at bottom to avoid reflowing the original imports

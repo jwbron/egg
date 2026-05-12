@@ -12,6 +12,7 @@
 # Verbs:
 #   jira ticket get <KEY> [--fields f1,f2]
 #   jira ticket comments <KEY>
+#   jira ticket remotelinks <KEY>
 #   jira ticket create --project KEY --type Task --summary "..." [opts]
 #   jira ticket edit <KEY> [opts]
 #   jira ticket comment add <KEY> [--body ... | --body-file F | --body-stdin] [--idempotency-key K]
@@ -86,6 +87,11 @@ Read commands:
 
   jira ticket comments <KEY>
       Fetch comments on a Jira ticket.
+
+  jira ticket remotelinks <KEY>
+      Fetch remote links on a Jira ticket (issue #1557 slice-2).
+      Used to surface PRs that humans opened against a child ticket
+      so the reassess sweep can treat it as in-flight.
 
   jira search <JQL> [--max-results N] [--fields f1,f2] [--next-page-token TOK]
       Search for issues using JQL. Project scope is enforced by the gateway.
@@ -238,6 +244,27 @@ print(json.dumps({'ticket': sys.argv[1]}))
 " "$ticket_key")
 
     call_gateway "/api/v1/jira/ticket/comments" "$payload"
+}
+
+# Issue #1557 slice-2 — fetch the remote-link list for a ticket.
+# Used by the reassess sweep's in-flight classifier (decision-7
+# signal b) and ad-hoc operator queries. Read-only; inherits the
+# same project-allowlist gating as every other Jira route.
+handle_ticket_remotelinks() {
+    shift  # consume "remotelinks"
+    if [ $# -lt 1 ]; then
+        echo "ERROR: Ticket key required. Usage: jira ticket remotelinks <KEY>" >&2
+        exit 1
+    fi
+    local ticket_key="$1"
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+print(json.dumps({'ticket': sys.argv[1]}))
+" "$ticket_key")
+
+    call_gateway "/api/v1/jira/ticket/remotelinks" "$payload"
 }
 
 handle_search() {
@@ -800,6 +827,9 @@ case "$1" in
             comments)
                 handle_ticket_comments "$@"
                 ;;
+            remotelinks)
+                handle_ticket_remotelinks "$@"
+                ;;
             create)
                 handle_ticket_create "$@"
                 ;;
@@ -811,7 +841,7 @@ case "$1" in
                 handle_ticket_comment "$@"
                 ;;
             *)
-                echo "ERROR: Unknown ticket subcommand '$1'. Use: get, comments, create, edit, comment" >&2
+                echo "ERROR: Unknown ticket subcommand '$1'. Use: get, comments, remotelinks, create, edit, comment" >&2
                 exit 1
                 ;;
         esac

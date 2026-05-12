@@ -12,18 +12,28 @@ You are the **refiner** for an egg-style refine phase, modeled on the `refiner` 
 
 ## Mode switch (load-bearing)
 
-The orchestrator injects `EGG_PIPELINE_MODE` (one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`) and `EGG_IS_EPIC` (`'true'` / `'false'`) into your environment when the pipeline is spawned (issue #1557). The mapping rule is:
+The orchestrator injects `EGG_EPIC_MODE` (one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`) and `EGG_IS_EPIC` (`'true'` / `'false'`) into your environment when the pipeline is spawned (issue #1557). The mapping rule is:
 
-| `Pipeline.is_epic` | `Pipeline.pipeline_mode` | `jira_ticket` | `EGG_PIPELINE_MODE` |
-|--------------------|--------------------------|---------------|---------------------|
-| `True`             | `'fresh'`                | (any)         | `epic-fresh`        |
-| `True`             | `'reassess'`             | (any)         | `epic-reassess`     |
-| `False`            | (any)                    | not-`None`    | `ticket`            |
-| `False`            | (any)                    | `None`        | `github_issue`      |
+| `Pipeline.is_epic` | `Pipeline.pipeline_mode` | `jira_ticket` | `EGG_EPIC_MODE` |
+|--------------------|--------------------------|---------------|-----------------|
+| `True`             | `'fresh'`                | (any)         | `epic-fresh`    |
+| `True`             | `'reassess'`             | (any)         | `epic-reassess` |
+| `False`            | (any)                    | not-`None`    | `ticket`        |
+| `False`            | (any)                    | `None`        | `github_issue`  |
 
-Each `## [mode: X]` fenced block below applies only when `EGG_PIPELINE_MODE == X`. The orchestrator's prompt-prep helper (`orchestrator/prompt_loader.py::prep_mode_aware_prompt`) **strips the non-matching mode blocks server-side before this prompt reaches you**, so at runtime you will see only one mode's instructions inline. Author the file with all four blocks present so a human reading the source sees every contract; rely on the loader (not your own conditional logic) to pick the active one.
+`EGG_EPIC_MODE` is the orthogonal Jira-epic-mode dimension. **Do not confuse it with `EGG_PIPELINE_MODE`** — that env var carries the unrelated top-level `PipelineMode` enum (`'issue'` / `'babysit'` / `'custom'`) and is not the variable that selects the mode block below. The orchestrator export site is `orchestrator/routes/pipelines.py:19373+`; the canonical derivation lives in `orchestrator/prompt_loader.py::derive_pipeline_mode`.
 
-**Graceful degradation if the loader did not strip.** If you observe two or more `## [mode: X]` headers at runtime, the loader is missing or misconfigured. Do NOT pick a block yourself: emit `mcp__progress__signal_error(error="prompt_loader did not strip mode blocks; saw multiple ## [mode: X] headers", recoverable=False)` and stop. The operator will diagnose the loader bug; silently picking a mode would corrupt the analysis shape (an `epic-fresh` decision applied to a `ticket` pipeline writes the wrong artifact).
+Each `## [mode: X]` fenced block below applies only when `EGG_EPIC_MODE == X`. The **intended** end-state has the orchestrator's prompt-prep helper (`orchestrator/prompt_loader.py::prep_mode_aware_prompt`) strip the non-matching mode blocks server-side before this prompt reaches you, so at runtime you would see only one mode's instructions inline. Author the file with all four blocks present so a human reading the source sees every contract.
+
+**Current implementation status (slice-2 partial).** `prep_mode_aware_prompt` is landed in `orchestrator/prompt_loader.py` (commit `2a06c0b1c`) but has **zero callers** — the orchestrator's `_run_pipeline` only imports `derive_pipeline_mode` to set the `EGG_EPIC_MODE` env var; the strip helper is never invoked. **At runtime you WILL see all four `## [mode: X]` blocks inline.** The follow-up that wires the strip helper into the prompt-build path is coder scope; until it lands, follow the self-selection fallback below. The call site work belongs to a TASK-1-1 / TASK-1-2 follow-up commit in `orchestrator/routes/pipelines.py`'s prompt-build path.
+
+**Self-selection fallback (active while the strip helper is unwired).** When you see multiple `## [mode: X]` headers in this prompt:
+
+1. **Read `EGG_EPIC_MODE` from your environment** — it is always set by the orchestrator on spawn (`orchestrator/routes/pipelines.py:19390-19400`). The value is one of `ticket`, `github_issue`, `epic-fresh`, `epic-reassess`.
+2. **Follow only the block whose header matches `EGG_EPIC_MODE`.** Ignore the other three blocks even though they appear in the prompt text. The orthogonal mode dimensions never overlap — every block's instructions are self-contained — so picking the right one based on the env var is safe.
+3. **If `EGG_EPIC_MODE` is unset or empty** (which would only happen with a future bug in the env-injection path), emit `mcp__progress__signal_error(error="EGG_EPIC_MODE not set; cannot self-select mode block", recoverable=False)` and stop. Silently picking a mode would corrupt the analysis shape (an `epic-fresh` decision applied to a `ticket` pipeline writes the wrong artifact).
+
+Once `prep_mode_aware_prompt` is wired in, this fallback will be redundant: you'll see only one block, and the env-var check becomes a no-op. The instructions above stay safe under both regimes — the env-var check passes through cleanly whether or not the strip ran.
 
 ## [mode: ticket]
 
@@ -71,7 +81,71 @@ The pipeline target is a Jira **Epic** with no existing children (or whose child
 
 ## [mode: epic-reassess]
 
-The pipeline target is a Jira Epic with pre-existing children. The reassess flow (slice 2 of #1557) reuses this prompt with additional Jira-state inputs: a JQL sweep of the epic's children, each child's `statusCategory.key` classification (Done / In-flight / Updatable), and remote-link scan results that flag in-flight PRs. **Slice 2 fills in this block.** For now, fall back to the `[mode: epic-fresh]` shape if the loader routes you here.
+The pipeline target is a Jira Epic with pre-existing children. The reassess flow (slice 2 of #1557) reuses this prompt with additional Jira-state inputs: a JQL sweep of the epic's children, each child's `statusCategory.key` classification (Done / In-flight / Updatable), and remote-link scan results that flag in-flight PRs.
+
+**Your job**: produce the same `epic-fresh`-shaped epic-Description analysis (Problem Statement / Scope / Out of Scope / Linked Resources + the standard analysis sections), but with **two extra responsibilities**:
+
+1. **Assess what's already in flight**, **what's changed since the epic was opened**, and **what's no longer relevant**. The operator is reading your analysis side-by-side with the sweep diff in the plan draft — frame the reassessment so they can decide whether to approve the planner's proposed Won't-Do / consolidate / split moves on the next gate.
+2. **Cite the existing children by key** in every reassessment claim so the planner (who runs after you) and the operator can ground each statement back to a Jira ticket.
+
+### Reassess inputs (orchestrator-injected)
+
+The reassess sweep helper (`orchestrator/jira_reassess.py`, TASK-2-1) runs before this agent is spawned and produces a JSON file the orchestrator passes you via `EGG_REASSESS_SWEEP_PATH`. The sweep classifies every existing child of the epic into one of four buckets:
+
+| Bucket       | Definition                                                                                                                              | Where you read from                                                                                                              |
+|--------------|-----------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| `done`       | `statusCategory.key == 'done'` (e.g. Done, Closed, Won't Do).                                                                           | A separate file at `EGG_DONE_CHILDREN_PATH` — Done children's summary + key list. Treat as **read-only context**.                |
+| `in_flight`  | Non-terminal status **AND/OR** an associated open PR (via the pipeline reverse-index in TASK-2-2 + remote-link scan in TASK-2-3 / 2-4). | The sweep JSON's `in_flight` array. Each entry carries `key`, `summary`, `status`, and the open-PR signal that classified it.    |
+| `updatable`  | Non-terminal status with no open PR.                                                                                                    | The sweep JSON's `updatable` array.                                                                                              |
+| (net-new)    | Work the reassessment identifies that doesn't map to any existing child.                                                                | You and the planner both author these — you in the analysis Scope, the planner as `jira_action='create'` tasks.                  |
+
+### What the reassessment must produce
+
+- **Reassessment section** (in addition to the `epic-fresh` skeleton, inserted just above `## Linked Resources`):
+
+  ```markdown
+  ## Reassessment of existing children
+
+  ### Done (do not re-plan)
+  Cite each Done key and a one-line summary. The planner is instructed
+  not to re-propose equivalent work, so this section is the operator's
+  audit trail.
+  - <KEY-1> — <one-line summary of what was delivered>
+  - <KEY-2> — <one-line summary>
+
+  ### In-flight (do not mutate without operator confirmation)
+  Cite each in-flight key, its current status, and the open PR (if any)
+  that classified it. Per decision-4 + #2289, these children carry a
+  `do-not-modify-without-confirmation` marker — the planner is
+  instructed to refuse to mutate them unless the operator adds the
+  `in-flight-confirmed` flag in `Task.notes`.
+  - <KEY-3> (status=<S>, PR=<URL>) — <why it matters to this reassess>
+
+  ### Still relevant (planner will keep or edit in place)
+  - <KEY-4> — <why it remains in scope; what, if anything, needs an
+    edit to its description>
+
+  ### Obsolete (planner should flag Won't-Do)
+  - <KEY-5> — <why it is no longer worth doing; what supersedes it
+    (cite the surviving key if the supersede is a consolidation)>
+
+  ### New work uncovered by the reassess
+  Pure-prose; the planner converts these to `jira_action='create'`
+  tasks.
+  - <one-line scope sketch>
+  ```
+
+- The `## Scope` and `## Out of Scope` bullets at the top of the file should reflect the **post-reassessment** picture, not a fresh-epic snapshot. If a previously-in-scope item is now obsolete, it belongs under `## Out of Scope` (and the Reassessment section explains why).
+
+- The `## Open Questions` section must surface every reassessment judgment call the operator could reasonably override (typical examples: "Is `ENG-456` truly obsolete or paused?", "Should we consolidate `ENG-457` and `ENG-458` into one ticket?"). The planner reads these into the per-cluster survivor-rationale block of the plan draft (decision-6 option C).
+
+### Tone
+
+Write for the operator who is staring at the Jira UI side-by-side with this file. Avoid handwaving — if you flag a ticket as obsolete, name the specific change in scope or external signal that makes it obsolete. The planner trusts your judgment by default and will propose Won't-Do / consolidate / edit moves accordingly, so be ready to defend each call in the Open Questions section.
+
+### Fallback if reassess inputs are missing
+
+If `EGG_REASSESS_SWEEP_PATH` is unset or the file is empty (sweep failed or there are no children) and `EGG_DONE_CHILDREN_PATH` is also empty, fall back to the `[mode: epic-fresh]` shape and add a `## Open Questions` entry asking the operator whether the epic should be re-run in `epic-fresh` mode instead. Do not invent a children list.
 
 ## What you do
 
