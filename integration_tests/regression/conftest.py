@@ -1,52 +1,61 @@
 """Shared fixtures for ``integration_tests/regression/``.
 
-This folder hosts three regression-test families:
+This directory hosts four orthogonal regression tiers:
 
-* **Pipeline recovery / unpushed-commit salvage (#2633).** These tests
-  sit between the unit-tier (``orchestrator/tests/``) and the k3s-tier
-  (``integration_tests/test_*.py`` against a live cluster): they
-  import the real ``pipelines_bp`` blueprint and exercise routes
-  through an in-process Flask test client (same shape as
-  ``integration_tests/test_babysit_pr/``), use the real
+* **Pipeline recovery / unpushed-commit salvage** (issue #2633) — sits
+  between the unit-tier (``orchestrator/tests/``) and the k3s-tier
+  (``integration_tests/test_*.py`` against a live cluster): imports
+  the real ``pipelines_bp`` blueprint and exercises routes through an
+  in-process Flask test client (same shape as
+  ``integration_tests/test_babysit_pr/``), uses the real
   ``agent_salvage`` module, the real git binary, and real worktree
   directories on ``tmp_path``. Only the gateway HTTP client and the
-  spawner backend (the network/k8s boundaries) are stubbed out. The
-  point is to catch regressions in the *wiring* between the route
-  layer, the salvage helpers, and the git plumbing — exactly the
-  seams that the per-module unit tests in ``orchestrator/tests/``
-  mock out.
+  spawner backend (the network/k8s boundaries) are stubbed out. Catches
+  regressions in the *wiring* between the route layer, the salvage
+  helpers, and the git plumbing — exactly the seams that the per-module
+  unit tests in ``orchestrator/tests/`` mock out.
 
-* **BRC consensus regression tests (issue #2635).** The regression
-  tier covers behaviours that have been hand-rolled into postmortems —
-  BRC single-cycle, phase-aware timeouts, NACK round-trip, reviewer
-  disagreement, etc.  Tests live here (not under
-  ``orchestrator/tests/``) because they exercise the orchestrator's
-  Python API at the integration boundary — the same shape #2474
-  recommends after the ScriptedProvider pod-injection avenue was ruled
-  out (the constraint write-up referenced from issue #2635). They do
-  NOT require k3s and never call into the ``egg_stack`` fixture —
-  they drive ``PeerConsensusTracker`` and the timeout-handler entry
-  points in-process against real implementations.
+* **Message store + event bus routing** (issue #2640) — exercises the
+  load-bearing seams between the orchestrator's Flask blueprints, the
+  inter-agent message store (in-memory + Redis Streams), and the
+  in-process ``EventBus``. Real ``Flask`` blueprint and real
+  ``EventBus`` so the routing path under test is the same one
+  production runs. Dual-backend parametrization mirrors the AC pattern
+  from ``orchestrator/tests/test_pipelines_status_wait_route.py``:
+  every test that touches the message store runs against both
+  ``MessageStore`` (in-memory) and ``RedisMessageStore`` backed by
+  ``fakeredis.FakeRedis`` so a regression in either backend surfaces.
 
-* **k3s slice-spawn / restart guards** (issue #2632): drive the real
+* **BRC consensus** (issue #2635) — exercises ``PeerConsensusTracker``
+  and the timeout-handler entry points in-process. Does NOT require
+  k3s and never calls into the ``egg_stack`` fixture — drives the
+  orchestrator's Python API at the integration boundary (the shape
+  #2474 recommends after the ScriptedProvider pod-injection avenue
+  was ruled out).
+
+* **k3s slice-spawn / restart guards** (issue #2632) — drives the real
   ``KubernetesSpawner`` against the locally-deployed egg stack and
-  read pod specs back with ``kubectl get pod -o yaml``.  These pin
+  reads pod specs back with ``kubectl get pod -o yaml``. Pins
   invariants we've regressed historically (slice spawn env threading
   from #2428, slice restart branch ref from the #2410/#2428 follow-ups).
   The k3s fixtures only fire when a test takes the ``spawner`` /
   ``egg_stack`` fixtures, and intentionally pick spawn parameters that
   do NOT require a populated gateway test-repo: roles in
-  ``_ROLES_WITHOUT_WORKTREE`` and ``repos=[]``.  The env-threading and
+  ``_ROLES_WITHOUT_WORKTREE`` and ``repos=[]``. The env-threading and
   slice-id-threading code paths in ``kubernetes_spawner.py`` are
   role-independent (see lines 754-774 of that file at the time of
   writing), so a worktree-free role exercises the same seam the
-  ``coder`` regression in #2428 fired through.  This keeps the test
+  ``coder`` regression in #2428 fired through. This keeps the test
   green on a fresh CI runner where ``$HOME/repos`` is empty.
 
-Tests in this folder are marker-gated under
-``@pytest.mark.integration`` so they run under
+All four tiers are marked ``integration`` (via module-level
+``pytestmark`` in each test file) and run under
 ``make test-integration`` / the ``Test / integration`` CI required
-check alongside the k3s tier.
+check. The k3s fixtures only fire when a test takes the ``spawner`` /
+``egg_stack`` fixtures; the message-bus tests use ``fakeredis`` and
+``unittest.mock.patch`` for the pipeline state-store and the inner
+context-PR hook; the BRC fixtures are either autouse (tracker
+registry) or opt-in.
 
 Plain helper functions (``make_tracker``, ``propose_payload``,
 ``filter_events``, the git/worktree builders, …) live in
@@ -67,10 +76,13 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-# Mirror integration_tests/test_babysit_pr/conftest.py: make sibling
-# ``_helpers.py`` plus the orchestrator/shared trees importable, and
-# stub the kubernetes / docker SDKs so the blueprint loads without
-# those packages installed.
+# sys.path setup: include _REGRESSION_DIR so ``_helpers`` is importable,
+# plus orchestrator + shared + project root so test modules can import
+# the orchestrator's internal modules (events, message_store,
+# redis_message_store, routes.pipelines, peer_consensus, review_graph).
+# Mirrors integration_tests/test_babysit_pr/conftest.py and stubs the
+# kubernetes / docker SDKs so the blueprint loads without those packages
+# installed.
 _REGRESSION_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _REGRESSION_DIR.parent.parent
 for _p in (
@@ -177,6 +189,26 @@ def _inject_lifecycle_auth(monkeypatch, request):
 
     monkeypatch.setattr(FlaskClient, "open", wrapper)
     yield
+
+
+# ---------------------------------------------------------------------------
+# Message-bus routing fixtures (#2640)
+# ---------------------------------------------------------------------------
+#
+# Lifecycle-secret env injection + ``Authorization: Bearer …`` header
+# wrapping live in the pipeline-recovery section above (the
+# ``_set_lifecycle_secret_env`` / ``_inject_lifecycle_auth`` autouse
+# fixtures and ``_TEST_LIFECYCLE_SECRET`` constant). Both tiers need
+# the same machinery; the function-scoped ``monkeypatch`` /
+# ``os.environ`` override is deliberate so a mixed-tree pytest session
+# doesn't race the orchestrator's own session-scoped lifecycle-secret
+# fixture in ``orchestrator/tests/conftest.py``.
+
+
+@pytest.fixture
+def lifecycle_auth_headers() -> dict[str, str]:
+    """Valid ``Authorization`` header for lifecycle-control endpoints."""
+    return {"Authorization": f"Bearer {_TEST_LIFECYCLE_SECRET}"}
 
 
 # ---------------------------------------------------------------------------
