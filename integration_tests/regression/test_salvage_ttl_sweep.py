@@ -240,9 +240,12 @@ class TestStraddleTtlBoundary:
     def test_dry_run_keeps_origin_intact_but_reports_what_would_delete(
         self, tmp_path: Path
     ) -> None:
-        """Same fixture in ``dry_run=True``: no gateway delete, but
-        ``deleted_refs`` still lists the same two ref names so operator
-        previews are accurate.
+        """Same fixture as the wet sweep (all four classification paths)
+        but with ``dry_run=True``: no gateway delete, but ``deleted_refs``
+        still lists the same two ref names so operator previews are
+        accurate, and every classifier's bookkeeping — including
+        ``oldest_remaining_age_days``'s fold over kept refs — stays
+        identical to the wet path.
         """
         repo = tmp_path / "repo"
         _make_repo(repo)
@@ -258,15 +261,27 @@ class TestStraddleTtlBoundary:
         ref_old_2 = "egg/recovered/issue-1/tester/bbb222bbb222"
         _set_remote_tracking(repo, ref_old_2, sha_old_2)
 
+        sha_reachable = _commit_orphan_at(repo, "reachable.txt", "z", "old reachable", when=old)
+        ref_reachable = "egg/recovered/issue-2/coder/ccc333ccc333"
+        _set_remote_tracking(repo, ref_reachable, sha_reachable)
+        # ``main`` carries this commit — classified "reachable" even in dry-run.
+        _set_remote_tracking(repo, "main", sha_reachable)
+
         sha_recent = _commit_orphan_at(repo, "recent.txt", "r", "fresh", when=recent)
         ref_recent = "egg/recovered/issue-3/coder/ddd444ddd444"
         _set_remote_tracking(repo, ref_recent, sha_recent)
+
+        # SHA deliberately never committed locally — unknown age path.
+        ref_unknown = "egg/recovered/issue-4/coder/eee555eee555"
+        sha_unknown = "0" * 40
 
         gateway = MagicMock()
         gateway.list_remote_branches_with_shas.return_value = {
             ref_old_1: sha_old_1,
             ref_old_2: sha_old_2,
+            ref_reachable: sha_reachable,
             ref_recent: sha_recent,
+            ref_unknown: sha_unknown,
         }
         gateway.fetch_branch.return_value = True
 
@@ -277,4 +292,15 @@ class TestStraddleTtlBoundary:
         gateway.delete_remote_branch.assert_not_called()
         # But ``deleted_refs`` still reports what would have gone.
         assert set(report.deleted_refs) == {ref_old_1, ref_old_2}
+        # Every other classifier still books its skip — dry-run only
+        # gates the gateway delete call, not the partition counters.
+        assert report.refs_inspected == 5
         assert report.refs_skipped_recent == 1
+        assert report.refs_skipped_reachable == 1
+        assert report.refs_skipped_unknown_age == 1
+        assert report.refs_skipped_error == 0
+        # ``oldest_remaining_age_days`` still folds in only the kept refs
+        # with readable committer dates — the reachable ref at 200 days
+        # dominates the recent ref at 5 days, just like the wet path.
+        assert report.oldest_remaining_age_days is not None
+        assert 195 <= report.oldest_remaining_age_days <= 205

@@ -977,8 +977,6 @@ def _get_spawner():
     return get_container_spawner()
 
 
-# Container statuses that count as "live" for the purposes of the
-# orphan guard — a pod whose status maps to one of these is still
 # Live-pod status filter (#2420). Hoisted to ``models.LIVE_POD_STATUSES``
 # in #2650 so ``startup_reconciliation`` and this module can't drift;
 # this alias preserves the historical underscore-prefixed name used by

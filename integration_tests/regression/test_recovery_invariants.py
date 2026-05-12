@@ -44,10 +44,8 @@ from models import (
 )
 from startup_reconciliation import reconcile_stale_containers
 
+from ._helpers import build_worktree as _build_worktree
 from ._helpers import commit as _commit_file
-from ._helpers import git as _git
-from ._helpers import make_repo as _make_repo
-from ._helpers import set_assigned_branch as _set_assigned_branch
 
 pytestmark = pytest.mark.integration
 
@@ -307,19 +305,23 @@ def _seed_worktree(
     role: str,
     assigned: str,
 ) -> tuple[Path, str]:
-    """Build a worktree with one local commit ahead of the anchor.
+    """Thin wrapper over ``_helpers.build_worktree`` for tests that only
+    need the repo ``Path`` (not the full ``AgentWorktree`` descriptor).
 
-    Uses the shared ``_helpers`` git plumbing so this suite and the
-    salvage suite agree on the worktree shape they exercise.
+    Keeps the call-site shape the recovery-ref tests expect while routing
+    the actual worktree construction through the shared helper, so this
+    suite and the salvage suite stay aligned on the worktree shape they
+    exercise.
     """
-    wid = f"{pipeline_id}-{role}"
-    local = f"egg/{wid}/work"
-    repo = base / wid / "repo"
-    anchor = _make_repo(repo, local)
-    _set_assigned_branch(repo, local, assigned)
-    _git("update-ref", f"refs/remotes/origin/{assigned}", anchor, cwd=repo)
-    head = _commit_file(repo, "a.txt", "a\n", "first unpushed")
-    return repo, head
+    wt, head = _build_worktree(
+        base,
+        pipeline_id,
+        agent_role=role,
+        slice_id=None,
+        assigned_branch=assigned,
+        n_unpushed=1,
+    )
+    return wt.repo_path, head
 
 
 class TestRecoveryRefImmutability:

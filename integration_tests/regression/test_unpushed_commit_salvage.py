@@ -42,6 +42,9 @@ from ._helpers import (
     create_origin_tracking as _create_origin_tracking,
 )
 from ._helpers import (
+    git as _git,
+)
+from ._helpers import (
     make_repo as _make_repo,
 )
 
@@ -725,23 +728,59 @@ class TestCleanupPipelineEndToEnd:
         assert expected_ref in push_targets
 
     def test_cleanup_pipeline_threads_salvage_mode_and_base_branch(self, tmp_path):
-        """``salvage_mode="private"`` reaches ``push_worktree_branch``.
+        """Both ``salvage_mode="private"`` and ``salvage_base_branch="main"``
+        reach the real ``auto_salvage_pipeline`` and on to the gateway.
 
-        The unit tier proves the helper kwargs are forwarded; this drives
-        the real chain so ``cleanup_pipeline`` → ``auto_salvage_pipeline``
-        → ``salvage_worktree`` → ``gateway.push_worktree_branch`` lands
-        on the gateway with ``mode="private"``. Regression target: a
-        future refactor that drops the mode kwarg silently degrades a
-        private-repo pipeline back to a public-mode push (the #2429
-        review-feedback class).
+        Drives the full chain (``cleanup_pipeline`` →
+        ``auto_salvage_pipeline`` → ``salvage_worktree`` →
+        ``gateway.push_worktree_branch``) and asserts:
+
+        1. ``mode="private"`` lands on the gateway push call.
+        2. ``base_branch="main"`` lands on the ``auto_salvage_pipeline``
+           call (spied via ``wraps``) — this is the kwarg the unit tier
+           covers in isolation; spying here proves the cleanup_pipeline →
+           auto_salvage_pipeline edge actually forwards it.
+        3. The salvage produced a push even with the worktree's assigned
+           branch missing from ``origin/...`` — the base-branch fallback
+           anchor (``origin/main``) is what made an anchor cut possible.
+           Without ``base_branch`` threading this branch of
+           ``_resolve_anchor`` is unreachable and the salvage would fall
+           through to HEAD-only mode (covering the seed commit as
+           unpushed); the ``n_commits == 1`` assertion below pins that.
+
+        Regression targets: a future refactor that drops *either* kwarg
+        silently degrades a private-repo pipeline back to a public-mode
+        push and/or trims the wrong commit range against base-branch
+        fallback. The #2429 incident-class.
         """
-        _build_worktree(
+        import agent_salvage as agent_salvage_module
+
+        # Build the worktree with an assigned branch that has no
+        # ``origin/<assigned>`` tracking ref — so the anchor cut depends
+        # on the ``base_branch`` fallback at ``agent_salvage._resolve_anchor``.
+        wt, head_sha = _build_worktree(
             tmp_path,
             "issue-2659",
             agent_role="coder",
             slice_id=None,
             assigned_branch="egg/issue-2659/work",
         )
+        # ``_build_worktree`` always creates ``origin/<assigned>`` — drop it
+        # so the only resolvable anchor is ``origin/main`` (threaded via
+        # ``base_branch``). Without this, the assigned-branch fast path at
+        # ``_resolve_anchor`` would return first and base_branch threading
+        # would be unobservable.
+        repo = wt.repo_path
+        _git("update-ref", "-d", "refs/remotes/origin/egg/issue-2659/work", cwd=repo)
+        # Create ``origin/main`` pointing at the seed so the base_branch
+        # fallback has something to resolve to.
+        seed_sha = _git(
+            "rev-list",
+            "--max-parents=0",
+            wt.local_branch,
+            cwd=repo,
+        ).stdout.strip()
+        _git("update-ref", "refs/remotes/origin/main", seed_sha, cwd=repo)
 
         gateway = MagicMock()
         gateway.push_worktree_branch.return_value = PushResult(ok=True)
@@ -749,9 +788,21 @@ class TestCleanupPipelineEndToEnd:
 
         spawner = self._make_spawner(gateway)
 
+        captured_results: list[Any] = []
+
+        original_auto_salvage = agent_salvage_module.auto_salvage_pipeline
+
+        def spying_auto_salvage(*args, **kwargs):
+            result = original_auto_salvage(*args, **kwargs)
+            captured_results.append(result)
+            return result
+
+        spy = MagicMock(side_effect=spying_auto_salvage)
+
         with (
             patch("agent_salvage.WORKTREE_BASE_DIR", tmp_path),
             patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch.object(agent_salvage_module, "auto_salvage_pipeline", spy),
         ):
             spawner.cleanup_pipeline(
                 "issue-2659",
@@ -759,9 +810,33 @@ class TestCleanupPipelineEndToEnd:
                 salvage_base_branch="main",
             )
 
+        # (1) ``mode="private"`` reaches the gateway push.
         gateway.push_worktree_branch.assert_called_once()
         push_kwargs = gateway.push_worktree_branch.call_args.kwargs
         assert push_kwargs["mode"] == "private"
+        # The push target is the recovery ref carrying the live HEAD's
+        # short SHA — proves the chain ran end-to-end.
+        assert push_kwargs["branch"] == (
+            f"{RECOVERY_BRANCH_PREFIX}/issue-2659/coder/{head_sha[:12]}"
+        )
+
+        # (2) ``base_branch="main"`` reaches ``auto_salvage_pipeline``.
+        spy.assert_called_once()
+        salvage_kwargs = spy.call_args.kwargs
+        assert salvage_kwargs["base_branch"] == "main"
+        assert salvage_kwargs["mode"] == "private"
+
+        # (3) The fallback-anchor path was taken: exactly one commit was
+        # diff'd against ``origin/main``. With ``base_branch=None`` (or
+        # if the kwarg were dropped at the kubernetes_spawner edge), the
+        # anchor would have resolved to ``None`` and the unpushed-commit
+        # walk would have folded in the seed too — yielding 2 commits.
+        assert len(captured_results) == 1
+        results = captured_results[0]
+        assert len(results) == 1
+        assert results[0].ok is True
+        assert results[0].n_commits == 1
+        assert results[0].head_sha == head_sha
 
     def test_cleanup_pipeline_pushes_one_ref_per_worktree(self, tmp_path):
         """Pipeline-level + per-role + slice-scoped worktrees: one ref each.

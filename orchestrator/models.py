@@ -114,6 +114,16 @@ class ContainerStatus(StrEnum):
 # the two label-scoped pod checks can't drift — drift would reintroduce
 # the #2411 false-positive class (live pipelines marked FAILED at startup
 # while the start_pipeline guard still treats their pods as live).
+#
+# Pending / Creating / Running are the only statuses that map to a pod
+# whose work is still in flight. Terminal phases (Failed / Succeeded →
+# ``ContainerStatus.FAILED`` / ``EXITED``) are deliberately excluded:
+# k8s keeps such pod objects around for the ``ttlSecondsAfterFinished``
+# window (600s in our Job specs) after the container exits, so a naive
+# "any pod with this label" check would treat a recently-finished pod as
+# live and mask a wedged pipeline whose work has actually stopped. The
+# guard's contract is "is there anything still doing work?" — terminal
+# pods objects within the TTL window do not count.
 LIVE_POD_STATUSES: tuple[ContainerStatus, ...] = (
     ContainerStatus.PENDING,
     ContainerStatus.CREATING,
