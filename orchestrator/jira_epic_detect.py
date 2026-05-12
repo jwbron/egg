@@ -28,9 +28,10 @@ isn't a hard prerequisite for running the probe.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 # Add shared directory to path for egg_logging.
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -95,9 +96,7 @@ def _extract_issuetype_name(body: dict[str, Any]) -> str:
     issuetype = fields.get("issuetype") or {}
     name = issuetype.get("name")
     if not isinstance(name, str) or not name:
-        raise JiraEpicDetectionError(
-            f"Jira response missing fields.issuetype.name (got {body!r})"
-        )
+        raise JiraEpicDetectionError(f"Jira response missing fields.issuetype.name (got {body!r})")
     return name
 
 
@@ -138,9 +137,7 @@ def detect_jira_issuetype(
             data={"ticket": jira_key, "fields": ["issuetype"]},
         )
     except Exception as exc:  # noqa: BLE001 — keep callers' error type opaque
-        raise JiraEpicDetectionError(
-            f"Failed to fetch Jira ticket {jira_key}: {exc}"
-        ) from exc
+        raise JiraEpicDetectionError(f"Failed to fetch Jira ticket {jira_key}: {exc}") from exc
 
     issuetype_name = _extract_issuetype_name(response)
     is_epic = issuetype_name.strip().lower() == "epic"
@@ -306,8 +303,7 @@ def resolve_effective_mode(
     """
     if requested_mode not in ("auto", "reassess", "fresh"):
         raise JiraEpicDetectionError(
-            f"requested_mode must be one of auto / reassess / fresh "
-            f"(got {requested_mode!r})"
+            f"requested_mode must be one of auto / reassess / fresh (got {requested_mode!r})"
         )
 
     children = search_epic_children(
