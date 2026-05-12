@@ -1,0 +1,2949 @@
+# BRC Consensus History — plan phase
+
+Generated: 2026-05-12T05:36:47Z
+Pipeline: issue-1557-v2
+
+### [2026-05-12T04:57:05Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 387ce3ba-6783-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:57:03.752369+00:00'
+````
+
+### [2026-05-12T04:57:05Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Plan reviewer ready. Preparation complete: read issue #1557, mapped contract HITL decisions, surveyed codebase primitives (existing vs NEW), confirmed trust-boundary doc. Awaiting CONSENSUS_PROPOSE from architect, task_planner, risk_analyst.
+
+````yaml
+id: a60a52dd-ff46-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-05-12T04:58:09Z] overseer (OVERSEER_ALERT): agent-heartbeat-stall [high]
+
+All 4 plan-phase agents stalled simultaneously: 259s elapsed, 0 messages, 0 checkpoints (stall threshold: 180s)
+
+Detail:
+Agents architect, task_planner, risk_analyst, reviewer_plan all started at 2026-05-12T04:52:45Z. At 259s elapsed (threshold=180s), zero BRC messages and zero checkpoints have been produced by any agent. The pipeline updated_at timestamp is frozen at start. Messages total=0 across all agents. All agents report status=running in container layer but may be stuck at initialization or context-loading. Stall is simultaneous across all 4 agents, suggesting a shared-dependency failure (e.g. contract read, codebase access, or SDK initialization) rather than individual agent bugs.
+
+Recommended action:
+Check agent container logs via `egg-checkpoint show` or `docker logs` for the 4 containers (0b6e72f0, 0cda7e5e, 21d265d7, 1756c4a0). Verify the SDLC contract for issue-1557-v2 is accessible and well-formed. Consider restarting the plan phase if no progress in next 120s.
+
+````yaml
+id: 8f8deeca-ccc4-42
+phase: plan
+````
+
+### [2026-05-12T04:58:09Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 0181eb10-7a04-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:57:03.752369+00:00'
+````
+
+### [2026-05-12T04:59:14Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 9a797e4b-9dc8-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:57:03.752369+00:00'
+````
+
+### [2026-05-12T05:00:14Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: f2bf769f-1a9e-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:57:03.752369+00:00'
+````
+
+### [2026-05-12T05:01:13Z] overseer (HEARTBEAT): heartbeat: WORKING
+
+Overseer active. Monitoring plan-phase. reviewer_plan healthy (WAITING_FOR_EVENT, heartbeating every 60s). Producers architect/task_planner/risk_analyst at 486s WORKING on complex 16-decision contract (normal for this scope). Prior agent-stall alert was false positive — reviewer_plan confirmed it completed preparation. Watching for CONSENSUS_PROPOSE from producers.
+
+````yaml
+id: dd1f4ca7-6249-4a
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:01:14Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: a7dd75a8-b090-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:57:03.752369+00:00'
+````
+
+### [2026-05-12T05:02:09Z] task_planner (HEARTBEAT): heartbeat: WORKING
+
+drafting plan slices for fresh-epic + reassess paths
+
+````yaml
+id: 519d90eb-ba31-4a
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:02:38Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: e9dcadcd-3633-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:57:03.752369+00:00'
+````
+
+### [2026-05-12T05:03:49Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 966b44b9-147d-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:57:03.752369+00:00'
+````
+
+### [2026-05-12T05:03:49Z] risk_analyst (CONSENSUS_PROPOSE): Proposal from risk_analyst
+
+Risk assessment for #1557 Jira-epic SDLC pipeline support. 18 risks identified across architecture, compatibility, security, correctness, operability, performance, data integrity, auditability, and reliability. Highest-impact callouts: (R1/HIGH/CERTAIN) operator's selection of decision-8 option B (sandbox-side applier agent) overrides refine's recommended orchestrator-driven baseline and puts deterministic state-changing work behind a BRC consensus cycle — plan-phase reviewer_plan should treat this as a phase-gate-worthy reconfirm; (R2/HIGH/HIGH) Pipeline.is_epic + Task.jira_key + Task.jira_action are net-new Pydantic fields that need additive migration with default values + forward-compat tests; (R3/HIGH/MEDIUM) orchestrator-only POST /api/v1/jira/ticket/transition gateway route (decision-15) creates a net-new trust boundary that must reject agent-originated callers via K8s-secret-on-orchestrator-only auth; (R5/HIGH/LOW) JQL same-project constraint (decision-12) silently drops cross-project children — must surface in plan-draft + warning logs. Per #2594, the assessment enumerates 13 runtime primitives (Pipeline.is_epic, Task.jira_key/jira_action, applier role+prompt, post-approval apply hook, gateway transition route, gateway remote-links route, jira_ticket→pipelines reverse-index, Confluence URL-scan helper, mode-aware prompt parameterization, epic_link_field config, statusCategory.key classifier, submit_task `mode` param, pipeline-ID qualifier auto-suggest) and 5 trust boundaries (agent↔gateway with new orchestrator-only route, orchestrator↔Atlassian preserved via gateway, operator↔orchestrator HITL-to-apply, applier↔contract concurrent-write race, egg-state↔Atlassian-state idempotency drift). 6 areas flagged for human review with the decision-8 override called out as plan-gate-blocking. Output written to .egg-state/agent-outputs/issue-1557-v2-risk_analyst-output.json (602 lines).
+
+````yaml
+id: 883575c6-6624-45
+phase: plan
+metadata:
+  payload:
+    summary: "Risk assessment for #1557 Jira-epic SDLC pipeline support. 18 risks\
+      \ identified across architecture, compatibility, security, correctness, operability,\
+      \ performance, data integrity, auditability, and reliability. Highest-impact\
+      \ callouts: (R1/HIGH/CERTAIN) operator's selection of decision-8 option B (sandbox-side\
+      \ applier agent) overrides refine's recommended orchestrator-driven baseline\
+      \ and puts deterministic state-changing work behind a BRC consensus cycle \u2014\
+      \ plan-phase reviewer_plan should treat this as a phase-gate-worthy reconfirm;\
+      \ (R2/HIGH/HIGH) Pipeline.is_epic + Task.jira_key + Task.jira_action are net-new\
+      \ Pydantic fields that need additive migration with default values + forward-compat\
+      \ tests; (R3/HIGH/MEDIUM) orchestrator-only POST /api/v1/jira/ticket/transition\
+      \ gateway route (decision-15) creates a net-new trust boundary that must reject\
+      \ agent-originated callers via K8s-secret-on-orchestrator-only auth; (R5/HIGH/LOW)\
+      \ JQL same-project constraint (decision-12) silently drops cross-project children\
+      \ \u2014 must surface in plan-draft + warning logs. Per #2594, the assessment\
+      \ enumerates 13 runtime primitives (Pipeline.is_epic, Task.jira_key/jira_action,\
+      \ applier role+prompt, post-approval apply hook, gateway transition route, gateway\
+      \ remote-links route, jira_ticket\u2192pipelines reverse-index, Confluence URL-scan\
+      \ helper, mode-aware prompt parameterization, epic_link_field config, statusCategory.key\
+      \ classifier, submit_task `mode` param, pipeline-ID qualifier auto-suggest)\
+      \ and 5 trust boundaries (agent\u2194gateway with new orchestrator-only route,\
+      \ orchestrator\u2194Atlassian preserved via gateway, operator\u2194orchestrator\
+      \ HITL-to-apply, applier\u2194contract concurrent-write race, egg-state\u2194\
+      Atlassian-state idempotency drift). 6 areas flagged for human review with the\
+      \ decision-8 override called out as plan-gate-blocking. Output written to .egg-state/agent-outputs/issue-1557-v2-risk_analyst-output.json\
+      \ (602 lines)."
+    attestation: {}
+    artifacts:
+    - .egg-state/agent-outputs/issue-1557-v2-risk_analyst-output.json
+    risk_considered: 'See artifact for full enumeration. Top: (1) decision-8 option
+      B override (sandbox-applier vs orchestrator-driven); (2) Pydantic schema migration
+      on is_epic/jira_key/jira_action; (3) orchestrator-only gateway transition route
+      trust boundary; (4) same-project JQL silently drops cross-project children;
+      (5) per-ticket HITL UX scaling on in-flight children; (6) plan prompt context
+      window on large epics; (7) Atlassian API rate limit on apply step; (8) idempotency
+      cache TTL vs apply duration; (9) reverse-index storage shape (decision-7a);
+      (10) forest-invariant interaction with epic DAG (decision-10a).'
+    commit_sha: 9ed031d5f8807695b7fe10037b36bccef1c91f86
+    files_changed:
+    - .egg-state/agent-outputs/issue-1557-v2-risk_analyst-output.json
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 9ed031d5f8807695b7fe10037b36bccef1c91f86
+````
+
+### [2026-05-12T05:03:49Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 6da0b203-d17a-4f
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:05:12Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 2e90960a-41f6-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:04:54.748563+00:00'
+````
+
+### [2026-05-12T05:06:11Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: df81657c-0bd0-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:04:54.748563+00:00'
+````
+
+### [2026-05-12T05:06:11Z] architect (CONSENSUS_PROPOSE): Proposal from architect
+
+Architect Slice 1 (A+B+C+D fresh-epic path) analysis: scopes epic detection at submit_task time + Pipeline.is_epic field (A), refiner-prompt parameterization for epic mode + Confluence-link enrichment via new read-only gateway /jira/ticket/remotelinks route (B), task-planner prompt + Task.jira_key/jira_action schema extension producing ticket-shaped per-node descriptions (C), and new sandbox-side `applier` agent role wired into a new `apply` phase between plan and implement that calls editJiraIssue on the epic + createJiraIssue/createIssueLink per child with contract-durable idempotency (D). E+F+G reassess work explicitly deferred per refine decision-1 option B. Threads 16 refine-phase decisions + 6 feedback answers through scope_clarification, current_state with file:line citations, a forest-DAG slice plan (slice-1 schema/plumbing → slice-2 prompts || slice-3 applier), 8 key design choices with alternatives_rejected, 8 risks for risk_analyst, 13 seed acceptance criteria for task_planner, and 3 open questions for reviewer_plan. Surfaces runtime-primitive scope on both purpose (production-pod vs unit-test) and execution-context (in-sandbox-agent vs trusted-CI-runner) axes per #2594, e.g. EGG_PIPELINE_MODE env var injected by orchestrator-as-deployed-pod into in-sandbox-agent pods. Tests not yet run (architect produces analysis JSON only; coverage criteria live in tasks_for_task_planner).
+
+````yaml
+id: cf135a74-9355-45
+phase: plan
+metadata:
+  payload:
+    summary: "Architect Slice 1 (A+B+C+D fresh-epic path) analysis: scopes epic detection\
+      \ at submit_task time + Pipeline.is_epic field (A), refiner-prompt parameterization\
+      \ for epic mode + Confluence-link enrichment via new read-only gateway /jira/ticket/remotelinks\
+      \ route (B), task-planner prompt + Task.jira_key/jira_action schema extension\
+      \ producing ticket-shaped per-node descriptions (C), and new sandbox-side `applier`\
+      \ agent role wired into a new `apply` phase between plan and implement that\
+      \ calls editJiraIssue on the epic + createJiraIssue/createIssueLink per child\
+      \ with contract-durable idempotency (D). E+F+G reassess work explicitly deferred\
+      \ per refine decision-1 option B. Threads 16 refine-phase decisions + 6 feedback\
+      \ answers through scope_clarification, current_state with file:line citations,\
+      \ a forest-DAG slice plan (slice-1 schema/plumbing \u2192 slice-2 prompts ||\
+      \ slice-3 applier), 8 key design choices with alternatives_rejected, 8 risks\
+      \ for risk_analyst, 13 seed acceptance criteria for task_planner, and 3 open\
+      \ questions for reviewer_plan. Surfaces runtime-primitive scope on both purpose\
+      \ (production-pod vs unit-test) and execution-context (in-sandbox-agent vs trusted-CI-runner)\
+      \ axes per #2594, e.g. EGG_PIPELINE_MODE env var injected by orchestrator-as-deployed-pod\
+      \ into in-sandbox-agent pods. Tests not yet run (architect produces analysis\
+      \ JSON only; coverage criteria live in tasks_for_task_planner)."
+    attestation: {}
+    artifacts:
+    - .egg-state/agent-outputs/issue-1557-v2-architect-output.json
+    risk_considered: 'Surfaced 8 risks for the risk_analyst peer: R1 submit_task latency
+      from synchronous gateway ticket/get; R2 cross-project info leak via remote-links
+      route; R3 half-applied state if applier crashes mid-phase (mitigated by contract-durable
+      jira_key idempotency, Q1 path-a); R4 LLM ignoring EGG_PIPELINE_MODE env-var
+      conditional in prompts (mitigated by reviewer_plan + plan-parser belt-and-suspenders);
+      R5 missed callsites when adding APPLIER to AgentRole enum (mitigated by an enum-coverage
+      unit test); R6 cross-project epic children duplicating work in fresh-epic mode
+      (mitigated by orchestrator-side child-count probe at submit_task); R7 gateway
+      5-min idempotency cache TTL shorter than slow apply cycles (mitigated by contract
+      jira_key being the durable record, not the cache); R8 silent Confluence space
+      allowlist denials (mitigated by explicit refiner-prompt instruction and an orchestrator-side
+      smoke check).'
+    commit_sha: 6f8520abfb2fc8ece7037a3cf7fdfbe7e7145fae
+    files_changed:
+    - .egg-state/agent-outputs/issue-1557-v2-architect-output.json
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 6f8520abfb2fc8ece7037a3cf7fdfbe7e7145fae
+````
+
+### [2026-05-12T05:07:11Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d64287cf-a89e-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:04:54.748563+00:00'
+````
+
+### [2026-05-12T05:07:11Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 0e34a24d-e27d-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:06:56.193560+00:00'
+````
+
+### [2026-05-12T05:08:13Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 01fc5ad1-29ab-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:06:56.193560+00:00'
+````
+
+### [2026-05-12T05:08:13Z] reviewer_plan → risk_analyst (CONSENSUS_ACK): ACK from reviewer_plan for risk_analyst
+
+
+Reviewed risk_analyst output (602 lines, 18 risks, 13 primitives, 5 trust boundaries, rollback strategy, 4 human-review areas). Verified the analysis against the resolved HITL decisions (1-16), feedback Q1-Q6, refine-phase analysis, and the codebase at HEAD (999b8bc).
+
+### What is right
+
+1. **Overall risk-shape call (HIGH, proceed with mitigations) is correct.** The plan introduces ~6 net-new runtime primitives across orchestrator + gateway + sandbox; the operator-selected decision-8 option B (sandbox-side applier) overrides refine's recommended option A, which materially expands surface area and is the single biggest design-shape risk. R1 captures this exactly.
+
+2. **R1 critique of decision-8 option B is on the money.** The applier prompt is deterministic mechanical work — `for task in tasks: gateway.call(task.jira_action, ...)` — and putting it behind a BRC consensus cycle adds 30-90s pod spawn + 50-200KB context window + a second reviewer round per pipeline. The R1 mitigation set (deterministic playbook, per-mutation `jira_action_status` persisted before the call, ACK on contract-state convergence not prompt-quality, partial-apply recovery docs) is the right compensation given the operator's choice. R1 also correctly recommends extending plan-phase BRC rather than grafting a new pipeline phase — fewer state-machine transitions, less reviewer wiring. The plan task list should follow that recommendation.
+
+3. **R3 trust-boundary mitigations for the orchestrator-only `/api/v1/jira/ticket/transition` route are concrete and complete.** X-Orchestrator-Auth header validated against a K8s Secret mounted ONLY on the orchestrator pod; transition allowlist hard-coded {Won't Do, Won't Fix} server-side; audit-log includes pipeline_id; integration test that forges the header from a sandbox pod and asserts 403. This is exactly the shape decision-15 option 1 needs. HR2 correctly marks this `blocks_plan_approval=true` — the task_planner must name the K8s Secret distribution mechanism explicitly, not leave it to implement-phase discretion.
+
+4. **R2 schema-migration mitigations are right.** `Optional[...] = Field(default=None)` for Pipeline.is_epic + Task.jira_key + Task.jira_action, `@model_validator(mode='before')` for missing-key tolerance, fixture-based regression test for old-format contract round-trip, scripts/-side one-shot migration. This mirrors the pattern already in the codebase (e.g. how `acceptance_criteria` was added to Task).
+
+5. **R7's introduction of a fourth field — `jira_action_status` enum {pending, in_flight, applied, failed} — is the correct extension.** decision-11's enum is for the mutation *type*, not its lifecycle. Without status tracking, partial-apply re-runs cannot distinguish "already done" from "not started", and feedback Q1's idempotent re-run semantic falls apart. The applier-writes-status-before-call invariant + applier-skips-applied-on-resume invariant is the right protocol. The task_planner needs to include `jira_action_status` in the Task model task alongside the decision-11 fields.
+
+6. **R18 surfaces decision-10a (slice shape for the epic-plan output) as a planner-side sub-decision.** Recommended option (ii) "N slices of 1 task each" with cross-task dependencies in plan-draft metadata is consistent with the plan-parser forest invariant (#2137) — the planner cannot express N-task cross-slice DAG edges as slice deps, so they must ride on plan-draft sidecar metadata that the applier reads. This is a real interaction risk and well-flagged.
+
+7. **R12 + HR3 surfacing decision-7a (reverse-index storage shape) as an open question for plan-phase HITL** is right. The recommendation (in-memory rebuilt on startup, persisted derivedly on each Pipeline state-write) is sensible. The task_planner should `mcp__sdlc__register_open_question` for this so the operator picks before the implement phase.
+
+8. **Trust-boundary inventory (TB1-TB5) is comprehensive.** Each boundary is named with today's behavior and the delta this issue introduces. TB3 (operator HITL → orchestrator apply) and TB4 (in-sandbox-agent applier ↔ orchestrator contract state) are net-new for this issue and correctly identified.
+
+9. **Rollback strategy with feature-flag recommendation (`epic_pipeline.enabled` default OFF, per-project opt-in) is operationally sound.** Slice-1's revertibility caveat — that once the new applier + transition route ship together they revert as a unit — is correctly stated.
+
+10. **External research correctly skipped.** No new third-party deps; atlassian-python-api already in use via #1556/#1924/#1931.
+
+### Non-blocking
+
+- **Minor file-path inaccuracies.** `P2` says the Task model lives at `shared/egg_contracts/contract.py` — actual is `shared/egg_contracts/models.py:182` (file `contract.py` does not exist). `P4` says the HITL phase_gate handler is at `orchestrator/routes/pipelines.py:20070-20160` — actual phase_gate functions are `_parse_phase_gate_resolution` at line 17354 and `_persist_phase_gate_resolution` at line 18274. Lines 20070-20191 cover the *check* for an existing pending phase_gate decision during phase transition, not the resolution handler. None of this changes the risk content but the task_planner should use the correct paths when assigning task files.
+
+- **R1 mitigation (e) recommendation ("extend the existing plan-phase to include an 'apply' BRC barrier — fewer state-machine transitions") is the right direction, but the task_planner should make the architectural choice explicit in the plan draft.** The two viable shapes are (i) extend plan-phase BRC to include applier producer + reviewer-apply reviewer in the matrix, (ii) introduce a new `apply` phase to the pipeline state machine. Option (i) is lighter but couples apply success to plan consensus closure; option (ii) is cleaner but adds a state-machine transition. The plan should pick one and justify it; reviewer_plan will check the choice against orchestrator/peer_consensus.py wiring.
+
+- **R6 "default to SKIP for all in-flight children unless operator explicitly confirms" is conservative-correct but the planner's HITL prompt must show the *proposed* mutation diff for each in-flight child even when defaulting to skip** — otherwise the operator confirms a unsignal set. The mitigation text already captures this in (d); the planner just needs to allocate plan-draft surface for it.
+
+- **R9's applier-prompt-paces-mutations recommendation reinforces the R1 concern.** Pacing logic in a prompt is brittle; the planner should consider making the applier prompt emit a *sequence of calls per task* and have orchestrator-side or gateway-side rate-limit middleware handle the actual pacing. Worth a non-blocking note in the apply step's implementation task.
+
+- **R11 deferral note is correct but the task_planner should make the v1/v2 split explicit in the plan task list.** Per Q6, the PR→Jira remote-link write companion is NICE-to-have. If v1 defers the write companion AND the read route is therefore dead code, both should be deferred together and tracked in a follow-up issue (R11 mitigation (c)). The plan task list should not include a "ship empty remote-links read route" task without the write companion.
+
+This output is the right input for the task_planner's next pass — it identifies the architectural risks (especially decision-8 option B's runtime cost) clearly enough that the plan task list can defend against them.
+
+
+````yaml
+id: 198b3f76-fc41-40
+phase: plan
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/agent-outputs/issue-1557-v2-risk_analyst-output.json
+    reason: "\nReviewed risk_analyst output (602 lines, 18 risks, 13 primitives, 5\
+      \ trust boundaries, rollback strategy, 4 human-review areas). Verified the analysis\
+      \ against the resolved HITL decisions (1-16), feedback Q1-Q6, refine-phase analysis,\
+      \ and the codebase at HEAD (999b8bc).\n\n### What is right\n\n1. **Overall risk-shape\
+      \ call (HIGH, proceed with mitigations) is correct.** The plan introduces ~6\
+      \ net-new runtime primitives across orchestrator + gateway + sandbox; the operator-selected\
+      \ decision-8 option B (sandbox-side applier) overrides refine's recommended\
+      \ option A, which materially expands surface area and is the single biggest\
+      \ design-shape risk. R1 captures this exactly.\n\n2. **R1 critique of decision-8\
+      \ option B is on the money.** The applier prompt is deterministic mechanical\
+      \ work \u2014 `for task in tasks: gateway.call(task.jira_action, ...)` \u2014\
+      \ and putting it behind a BRC consensus cycle adds 30-90s pod spawn + 50-200KB\
+      \ context window + a second reviewer round per pipeline. The R1 mitigation set\
+      \ (deterministic playbook, per-mutation `jira_action_status` persisted before\
+      \ the call, ACK on contract-state convergence not prompt-quality, partial-apply\
+      \ recovery docs) is the right compensation given the operator's choice. R1 also\
+      \ correctly recommends extending plan-phase BRC rather than grafting a new pipeline\
+      \ phase \u2014 fewer state-machine transitions, less reviewer wiring. The plan\
+      \ task list should follow that recommendation.\n\n3. **R3 trust-boundary mitigations\
+      \ for the orchestrator-only `/api/v1/jira/ticket/transition` route are concrete\
+      \ and complete.** X-Orchestrator-Auth header validated against a K8s Secret\
+      \ mounted ONLY on the orchestrator pod; transition allowlist hard-coded {Won't\
+      \ Do, Won't Fix} server-side; audit-log includes pipeline_id; integration test\
+      \ that forges the header from a sandbox pod and asserts 403. This is exactly\
+      \ the shape decision-15 option 1 needs. HR2 correctly marks this `blocks_plan_approval=true`\
+      \ \u2014 the task_planner must name the K8s Secret distribution mechanism explicitly,\
+      \ not leave it to implement-phase discretion.\n\n4. **R2 schema-migration mitigations\
+      \ are right.** `Optional[...] = Field(default=None)` for Pipeline.is_epic +\
+      \ Task.jira_key + Task.jira_action, `@model_validator(mode='before')` for missing-key\
+      \ tolerance, fixture-based regression test for old-format contract round-trip,\
+      \ scripts/-side one-shot migration. This mirrors the pattern already in the\
+      \ codebase (e.g. how `acceptance_criteria` was added to Task).\n\n5. **R7's\
+      \ introduction of a fourth field \u2014 `jira_action_status` enum {pending,\
+      \ in_flight, applied, failed} \u2014 is the correct extension.** decision-11's\
+      \ enum is for the mutation *type*, not its lifecycle. Without status tracking,\
+      \ partial-apply re-runs cannot distinguish \"already done\" from \"not started\"\
+      , and feedback Q1's idempotent re-run semantic falls apart. The applier-writes-status-before-call\
+      \ invariant + applier-skips-applied-on-resume invariant is the right protocol.\
+      \ The task_planner needs to include `jira_action_status` in the Task model task\
+      \ alongside the decision-11 fields.\n\n6. **R18 surfaces decision-10a (slice\
+      \ shape for the epic-plan output) as a planner-side sub-decision.** Recommended\
+      \ option (ii) \"N slices of 1 task each\" with cross-task dependencies in plan-draft\
+      \ metadata is consistent with the plan-parser forest invariant (#2137) \u2014\
+      \ the planner cannot express N-task cross-slice DAG edges as slice deps, so\
+      \ they must ride on plan-draft sidecar metadata that the applier reads. This\
+      \ is a real interaction risk and well-flagged.\n\n7. **R12 + HR3 surfacing decision-7a\
+      \ (reverse-index storage shape) as an open question for plan-phase HITL** is\
+      \ right. The recommendation (in-memory rebuilt on startup, persisted derivedly\
+      \ on each Pipeline state-write) is sensible. The task_planner should `mcp__sdlc__register_open_question`\
+      \ for this so the operator picks before the implement phase.\n\n8. **Trust-boundary\
+      \ inventory (TB1-TB5) is comprehensive.** Each boundary is named with today's\
+      \ behavior and the delta this issue introduces. TB3 (operator HITL \u2192 orchestrator\
+      \ apply) and TB4 (in-sandbox-agent applier \u2194 orchestrator contract state)\
+      \ are net-new for this issue and correctly identified.\n\n9. **Rollback strategy\
+      \ with feature-flag recommendation (`epic_pipeline.enabled` default OFF, per-project\
+      \ opt-in) is operationally sound.** Slice-1's revertibility caveat \u2014 that\
+      \ once the new applier + transition route ship together they revert as a unit\
+      \ \u2014 is correctly stated.\n\n10. **External research correctly skipped.**\
+      \ No new third-party deps; atlassian-python-api already in use via #1556/#1924/#1931.\n\
+      \n### Non-blocking\n\n- **Minor file-path inaccuracies.** `P2` says the Task\
+      \ model lives at `shared/egg_contracts/contract.py` \u2014 actual is `shared/egg_contracts/models.py:182`\
+      \ (file `contract.py` does not exist). `P4` says the HITL phase_gate handler\
+      \ is at `orchestrator/routes/pipelines.py:20070-20160` \u2014 actual phase_gate\
+      \ functions are `_parse_phase_gate_resolution` at line 17354 and `_persist_phase_gate_resolution`\
+      \ at line 18274. Lines 20070-20191 cover the *check* for an existing pending\
+      \ phase_gate decision during phase transition, not the resolution handler. None\
+      \ of this changes the risk content but the task_planner should use the correct\
+      \ paths when assigning task files.\n\n- **R1 mitigation (e) recommendation (\"\
+      extend the existing plan-phase to include an 'apply' BRC barrier \u2014 fewer\
+      \ state-machine transitions\") is the right direction, but the task_planner\
+      \ should make the architectural choice explicit in the plan draft.** The two\
+      \ viable shapes are (i) extend plan-phase BRC to include applier producer +\
+      \ reviewer-apply reviewer in the matrix, (ii) introduce a new `apply` phase\
+      \ to the pipeline state machine. Option (i) is lighter but couples apply success\
+      \ to plan consensus closure; option (ii) is cleaner but adds a state-machine\
+      \ transition. The plan should pick one and justify it; reviewer_plan will check\
+      \ the choice against orchestrator/peer_consensus.py wiring.\n\n- **R6 \"default\
+      \ to SKIP for all in-flight children unless operator explicitly confirms\" is\
+      \ conservative-correct but the planner's HITL prompt must show the *proposed*\
+      \ mutation diff for each in-flight child even when defaulting to skip** \u2014\
+      \ otherwise the operator confirms a unsignal set. The mitigation text already\
+      \ captures this in (d); the planner just needs to allocate plan-draft surface\
+      \ for it.\n\n- **R9's applier-prompt-paces-mutations recommendation reinforces\
+      \ the R1 concern.** Pacing logic in a prompt is brittle; the planner should\
+      \ consider making the applier prompt emit a *sequence of calls per task* and\
+      \ have orchestrator-side or gateway-side rate-limit middleware handle the actual\
+      \ pacing. Worth a non-blocking note in the apply step's implementation task.\n\
+      \n- **R11 deferral note is correct but the task_planner should make the v1/v2\
+      \ split explicit in the plan task list.** Per Q6, the PR\u2192Jira remote-link\
+      \ write companion is NICE-to-have. If v1 defers the write companion AND the\
+      \ read route is therefore dead code, both should be deferred together and tracked\
+      \ in a follow-up issue (R11 mitigation (c)). The plan task list should not include\
+      \ a \"ship empty remote-links read route\" task without the write companion.\n\
+      \nThis output is the right input for the task_planner's next pass \u2014 it\
+      \ identifies the architectural risks (especially decision-8 option B's runtime\
+      \ cost) clearly enough that the plan task list can defend against them.\n"
+    ack_version: 1
+  version: 1
+````
+
+### [2026-05-12T05:08:13Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 3c5b6cba-c3d1-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:04:54.748563+00:00'
+````
+
+### [2026-05-12T05:08:13Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: bd7b0e15-7796-40
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:08:26Z] reviewer_plan → risk_analyst (CONSENSUS_ACK): ACK from reviewer_plan for risk_analyst
+
+
+Reviewed risk_analyst output (602 lines, 18 risks, 13 primitives, 5 trust boundaries, rollback strategy, 4 human-review areas). Verified the analysis against the resolved HITL decisions (1-16), feedback Q1-Q6, refine-phase analysis, and the codebase at HEAD (999b8bc).
+
+### What is right
+
+1. **Overall risk-shape call (HIGH, proceed with mitigations) is correct.** The plan introduces ~6 net-new runtime primitives across orchestrator + gateway + sandbox; the operator-selected decision-8 option B (sandbox-side applier) overrides refine's recommended option A, which materially expands surface area and is the single biggest design-shape risk. R1 captures this exactly.
+
+2. **R1 critique of decision-8 option B is on the money.** The applier prompt is deterministic mechanical work — `for task in tasks: gateway.call(task.jira_action, ...)` — and putting it behind a BRC consensus cycle adds 30-90s pod spawn + 50-200KB context window + a second reviewer round per pipeline. The R1 mitigation set (deterministic playbook, per-mutation `jira_action_status` persisted before the call, ACK on contract-state convergence not prompt-quality, partial-apply recovery docs) is the right compensation given the operator's choice. R1 also correctly recommends extending plan-phase BRC rather than grafting a new pipeline phase — fewer state-machine transitions, less reviewer wiring. The plan task list should follow that recommendation.
+
+3. **R3 trust-boundary mitigations for the orchestrator-only `/api/v1/jira/ticket/transition` route are concrete and complete.** X-Orchestrator-Auth header validated against a K8s Secret mounted ONLY on the orchestrator pod; transition allowlist hard-coded {Won't Do, Won't Fix} server-side; audit-log includes pipeline_id; integration test that forges the header from a sandbox pod and asserts 403. HR2 correctly marks this `blocks_plan_approval=true` — the task_planner must name the K8s Secret distribution mechanism explicitly, not leave it to implement-phase discretion.
+
+4. **R2 schema-migration mitigations are right.** `Optional[...] = Field(default=None)` for Pipeline.is_epic + Task.jira_key + Task.jira_action, `@model_validator(mode='before')` for missing-key tolerance, fixture-based regression test for old-format contract round-trip, scripts/-side one-shot migration. Mirrors the pattern already in the codebase.
+
+5. **R7's introduction of a fourth field — `jira_action_status` enum {pending, in_flight, applied, failed} — is the correct extension.** decision-11's enum is for the mutation *type*, not its lifecycle. Without status tracking, partial-apply re-runs cannot distinguish "already done" from "not started", and feedback Q1's idempotent re-run semantic falls apart. The applier-writes-status-before-call invariant + applier-skips-applied-on-resume invariant is the right protocol. The task_planner needs to include `jira_action_status` in the Task model task alongside the decision-11 fields.
+
+6. **R18 surfaces decision-10a (slice shape for the epic-plan output) as a planner-side sub-decision.** Recommended option (ii) "N slices of 1 task each" with cross-task dependencies in plan-draft metadata is consistent with the plan-parser forest invariant — the planner cannot express N-task cross-slice DAG edges as slice deps, so they must ride on plan-draft sidecar metadata that the applier reads.
+
+7. **R12 + HR3 surfacing decision-7a (reverse-index storage shape) as an open question for plan-phase HITL** is right. The recommendation (in-memory rebuilt on startup, persisted derivedly on each Pipeline state-write) is sensible. The task_planner should `register_open_question` for this so the operator picks before the implement phase.
+
+8. **Trust-boundary inventory (TB1-TB5) is comprehensive.** TB3 (operator HITL → orchestrator apply) and TB4 (in-sandbox-agent applier ↔ orchestrator contract state) are net-new for this issue and correctly identified.
+
+9. **Rollback strategy with feature-flag recommendation (`epic_pipeline.enabled` default OFF, per-project opt-in) is operationally sound.** Slice-1's revertibility caveat — that once the new applier + transition route ship together they revert as a unit — is correctly stated.
+
+10. **External research correctly skipped.** No new third-party deps; atlassian-python-api already in use via #1556/#1924/#1931.
+
+### Non-blocking
+
+- **Minor file-path inaccuracies.** `P2` says the Task model lives at `shared/egg_contracts/contract.py` — actual is `shared/egg_contracts/models.py:182` (file `contract.py` does not exist in `shared/egg_contracts/`). `P4` says the HITL phase_gate handler is at `orchestrator/routes/pipelines.py:20070-20160` — actual phase_gate functions are `_parse_phase_gate_resolution` at line 17354 and `_persist_phase_gate_resolution` at line 18274. Lines 20070-20191 cover the *check* for an existing pending phase_gate decision during phase transition, not the resolution handler. None of this changes the risk content but the task_planner should use the correct paths when assigning task files.
+
+- **R1 mitigation (e) recommendation ("extend the existing plan-phase to include an 'apply' BRC barrier") is the right direction, but the task_planner should make the architectural choice explicit in the plan draft.** The two viable shapes are (i) extend plan-phase BRC to include applier producer + reviewer-apply reviewer in the matrix, (ii) introduce a new `apply` phase to the pipeline state machine. Option (i) is lighter but couples apply success to plan consensus closure; option (ii) is cleaner but adds a state-machine transition. The plan should pick one and justify it; reviewer_plan will check the choice against orchestrator/peer_consensus.py wiring.
+
+- **R6 "default to SKIP for all in-flight children unless operator explicitly confirms" is conservative-correct but the planner's HITL prompt must show the *proposed* mutation diff for each in-flight child even when defaulting to skip** — otherwise the operator confirms an unseen set. The mitigation text already captures this in (d); the planner just needs to allocate plan-draft surface for it.
+
+- **R9's applier-prompt-paces-mutations recommendation reinforces the R1 concern.** Pacing logic in a prompt is brittle; the planner should consider making the applier prompt emit a *sequence of calls per task* and have orchestrator-side or gateway-side rate-limit middleware handle the actual pacing. Worth a non-blocking note in the apply step's implementation task.
+
+- **R11 deferral note is correct but the task_planner should make the v1/v2 split explicit in the plan task list.** Per Q6, the PR→Jira remote-link write companion is NICE-to-have. If v1 defers the write companion AND the read route is therefore dead code, both should be deferred together and tracked in a follow-up issue (R11 mitigation (c)). The plan task list should not include a "ship empty remote-links read route" task without the write companion.
+
+This output is the right input for the task_planner's next pass — it identifies the architectural risks (especially decision-8 option B's runtime cost) clearly enough that the plan task list can defend against them.
+
+
+````yaml
+id: 8fb0416d-9993-4a
+phase: plan
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/agent-outputs/issue-1557-v2-risk_analyst-output.json
+    reason: "\nReviewed risk_analyst output (602 lines, 18 risks, 13 primitives, 5\
+      \ trust boundaries, rollback strategy, 4 human-review areas). Verified the analysis\
+      \ against the resolved HITL decisions (1-16), feedback Q1-Q6, refine-phase analysis,\
+      \ and the codebase at HEAD (999b8bc).\n\n### What is right\n\n1. **Overall risk-shape\
+      \ call (HIGH, proceed with mitigations) is correct.** The plan introduces ~6\
+      \ net-new runtime primitives across orchestrator + gateway + sandbox; the operator-selected\
+      \ decision-8 option B (sandbox-side applier) overrides refine's recommended\
+      \ option A, which materially expands surface area and is the single biggest\
+      \ design-shape risk. R1 captures this exactly.\n\n2. **R1 critique of decision-8\
+      \ option B is on the money.** The applier prompt is deterministic mechanical\
+      \ work \u2014 `for task in tasks: gateway.call(task.jira_action, ...)` \u2014\
+      \ and putting it behind a BRC consensus cycle adds 30-90s pod spawn + 50-200KB\
+      \ context window + a second reviewer round per pipeline. The R1 mitigation set\
+      \ (deterministic playbook, per-mutation `jira_action_status` persisted before\
+      \ the call, ACK on contract-state convergence not prompt-quality, partial-apply\
+      \ recovery docs) is the right compensation given the operator's choice. R1 also\
+      \ correctly recommends extending plan-phase BRC rather than grafting a new pipeline\
+      \ phase \u2014 fewer state-machine transitions, less reviewer wiring. The plan\
+      \ task list should follow that recommendation.\n\n3. **R3 trust-boundary mitigations\
+      \ for the orchestrator-only `/api/v1/jira/ticket/transition` route are concrete\
+      \ and complete.** X-Orchestrator-Auth header validated against a K8s Secret\
+      \ mounted ONLY on the orchestrator pod; transition allowlist hard-coded {Won't\
+      \ Do, Won't Fix} server-side; audit-log includes pipeline_id; integration test\
+      \ that forges the header from a sandbox pod and asserts 403. HR2 correctly marks\
+      \ this `blocks_plan_approval=true` \u2014 the task_planner must name the K8s\
+      \ Secret distribution mechanism explicitly, not leave it to implement-phase\
+      \ discretion.\n\n4. **R2 schema-migration mitigations are right.** `Optional[...]\
+      \ = Field(default=None)` for Pipeline.is_epic + Task.jira_key + Task.jira_action,\
+      \ `@model_validator(mode='before')` for missing-key tolerance, fixture-based\
+      \ regression test for old-format contract round-trip, scripts/-side one-shot\
+      \ migration. Mirrors the pattern already in the codebase.\n\n5. **R7's introduction\
+      \ of a fourth field \u2014 `jira_action_status` enum {pending, in_flight, applied,\
+      \ failed} \u2014 is the correct extension.** decision-11's enum is for the mutation\
+      \ *type*, not its lifecycle. Without status tracking, partial-apply re-runs\
+      \ cannot distinguish \"already done\" from \"not started\", and feedback Q1's\
+      \ idempotent re-run semantic falls apart. The applier-writes-status-before-call\
+      \ invariant + applier-skips-applied-on-resume invariant is the right protocol.\
+      \ The task_planner needs to include `jira_action_status` in the Task model task\
+      \ alongside the decision-11 fields.\n\n6. **R18 surfaces decision-10a (slice\
+      \ shape for the epic-plan output) as a planner-side sub-decision.** Recommended\
+      \ option (ii) \"N slices of 1 task each\" with cross-task dependencies in plan-draft\
+      \ metadata is consistent with the plan-parser forest invariant \u2014 the planner\
+      \ cannot express N-task cross-slice DAG edges as slice deps, so they must ride\
+      \ on plan-draft sidecar metadata that the applier reads.\n\n7. **R12 + HR3 surfacing\
+      \ decision-7a (reverse-index storage shape) as an open question for plan-phase\
+      \ HITL** is right. The recommendation (in-memory rebuilt on startup, persisted\
+      \ derivedly on each Pipeline state-write) is sensible. The task_planner should\
+      \ `register_open_question` for this so the operator picks before the implement\
+      \ phase.\n\n8. **Trust-boundary inventory (TB1-TB5) is comprehensive.** TB3\
+      \ (operator HITL \u2192 orchestrator apply) and TB4 (in-sandbox-agent applier\
+      \ \u2194 orchestrator contract state) are net-new for this issue and correctly\
+      \ identified.\n\n9. **Rollback strategy with feature-flag recommendation (`epic_pipeline.enabled`\
+      \ default OFF, per-project opt-in) is operationally sound.** Slice-1's revertibility\
+      \ caveat \u2014 that once the new applier + transition route ship together they\
+      \ revert as a unit \u2014 is correctly stated.\n\n10. **External research correctly\
+      \ skipped.** No new third-party deps; atlassian-python-api already in use via\
+      \ #1556/#1924/#1931.\n\n### Non-blocking\n\n- **Minor file-path inaccuracies.**\
+      \ `P2` says the Task model lives at `shared/egg_contracts/contract.py` \u2014\
+      \ actual is `shared/egg_contracts/models.py:182` (file `contract.py` does not\
+      \ exist in `shared/egg_contracts/`). `P4` says the HITL phase_gate handler is\
+      \ at `orchestrator/routes/pipelines.py:20070-20160` \u2014 actual phase_gate\
+      \ functions are `_parse_phase_gate_resolution` at line 17354 and `_persist_phase_gate_resolution`\
+      \ at line 18274. Lines 20070-20191 cover the *check* for an existing pending\
+      \ phase_gate decision during phase transition, not the resolution handler. None\
+      \ of this changes the risk content but the task_planner should use the correct\
+      \ paths when assigning task files.\n\n- **R1 mitigation (e) recommendation (\"\
+      extend the existing plan-phase to include an 'apply' BRC barrier\") is the right\
+      \ direction, but the task_planner should make the architectural choice explicit\
+      \ in the plan draft.** The two viable shapes are (i) extend plan-phase BRC to\
+      \ include applier producer + reviewer-apply reviewer in the matrix, (ii) introduce\
+      \ a new `apply` phase to the pipeline state machine. Option (i) is lighter but\
+      \ couples apply success to plan consensus closure; option (ii) is cleaner but\
+      \ adds a state-machine transition. The plan should pick one and justify it;\
+      \ reviewer_plan will check the choice against orchestrator/peer_consensus.py\
+      \ wiring.\n\n- **R6 \"default to SKIP for all in-flight children unless operator\
+      \ explicitly confirms\" is conservative-correct but the planner's HITL prompt\
+      \ must show the *proposed* mutation diff for each in-flight child even when\
+      \ defaulting to skip** \u2014 otherwise the operator confirms an unseen set.\
+      \ The mitigation text already captures this in (d); the planner just needs to\
+      \ allocate plan-draft surface for it.\n\n- **R9's applier-prompt-paces-mutations\
+      \ recommendation reinforces the R1 concern.** Pacing logic in a prompt is brittle;\
+      \ the planner should consider making the applier prompt emit a *sequence of\
+      \ calls per task* and have orchestrator-side or gateway-side rate-limit middleware\
+      \ handle the actual pacing. Worth a non-blocking note in the apply step's implementation\
+      \ task.\n\n- **R11 deferral note is correct but the task_planner should make\
+      \ the v1/v2 split explicit in the plan task list.** Per Q6, the PR\u2192Jira\
+      \ remote-link write companion is NICE-to-have. If v1 defers the write companion\
+      \ AND the read route is therefore dead code, both should be deferred together\
+      \ and tracked in a follow-up issue (R11 mitigation (c)). The plan task list\
+      \ should not include a \"ship empty remote-links read route\" task without the\
+      \ write companion.\n\nThis output is the right input for the task_planner's\
+      \ next pass \u2014 it identifies the architectural risks (especially decision-8\
+      \ option B's runtime cost) clearly enough that the plan task list can defend\
+      \ against them.\n"
+    ack_version: 1
+  version: 1
+````
+
+### [2026-05-12T05:08:30Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: bc76c28f-17a5-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:30.448755+00:00'
+````
+
+### [2026-05-12T05:08:30Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: af9bd5bf-942e-4d
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:08:37Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: e127815e-56ac-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:37.280426+00:00'
+````
+
+### [2026-05-12T05:08:37Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 473d9ff6-15a4-4b
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:08:41Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 1eccab98-3c7b-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:41.814415+00:00'
+````
+
+### [2026-05-12T05:09:17Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d1cdc31f-1d13-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:06:56.193560+00:00'
+````
+
+### [2026-05-12T05:09:47Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 61a12605-9f98-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:41.814415+00:00'
+````
+
+### [2026-05-12T05:10:17Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: f376bb6c-68aa-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:06:56.193560+00:00'
+````
+
+### [2026-05-12T05:10:50Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 945ebbda-67b7-48
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:41.814415+00:00'
+````
+
+### [2026-05-12T05:11:18Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 6cfb04f1-d31b-4f
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:06:56.193560+00:00'
+````
+
+### [2026-05-12T05:12:02Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: a9d12cd4-b6fe-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:41.814415+00:00'
+````
+
+### [2026-05-12T05:12:18Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 53de9926-d602-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:06:56.193560+00:00'
+````
+
+### [2026-05-12T05:13:02Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: c99f87f0-680f-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:41.814415+00:00'
+````
+
+### [2026-05-12T05:13:11Z] reviewer_plan → architect (CONSENSUS_ACK): ACK from reviewer_plan for architect
+
+
+Reviewed architect output (461 lines: scope clarification, 3-slice DAG, 8 key design choices, 11 existing-code-seams entries, 13 seed acceptance criteria, 8 risks, 3 open questions for reviewer_plan, 7 explicit non-goals, 27 key-file references). Verified the named primitives against HEAD codebase.
+
+### What is right
+
+1. **Slice scope is correctly drawn at the operator's decision-1 boundary.** Slice 1 covers A+B+C+D (fresh-epic path end-to-end); E+F+G (reassess) is explicitly deferred. Non-goals enumerate the deferred work concretely — no scope creep.
+
+2. **The internal 3-slice DAG (schema/plumbing → prompts || applier) is a forest.** slice-1 root, slice-2 and slice-3 as parallel leaves, each with a single parent. Consistent with #2137's forest-only constraint.
+
+3. **Primitive-existence claims verified at HEAD.** Spot-checked:
+   - `orchestrator/mcp_tools.py:65-127, 1272-1381` (submit_task schema + handler) ✓
+   - `orchestrator/models.py:816` (Pipeline class) ✓
+   - `shared/egg_contracts/models.py:182` (Task class) ✓ (NB: architect's "182-235" is right; risk_analyst incorrectly cited `shared/egg_contracts/contract.py`)
+   - `shared/egg_contracts/agent_roles.py:46` (AgentRole StrEnum), `:1107` (_PHASE_ROLES), `:1113` (_PHASE_REVIEWERS) ✓
+   - `gateway/phase_transition.py:41` (VALID_TRANSITIONS) ✓
+   - `gateway/gateway.py:4929` (jira_ticket_get), `:5583` (jira_ticket_create), `:5594-5748` (epicLink shorthand), `:5842` (jira_ticket_edit), `:6107` (jira_issue_link_create) ✓
+   - `gateway/jira_client.py:133` (JIRA_WRITE_VERBS_DENIED) ✓
+   - `orchestrator/sandbox_template.py:41` (SandboxConfig) ✓
+   - `orchestrator/decision_queue.py` (DecisionQueue class) ✓
+
+4. **All NEW primitives are correctly tagged.** `(NEW — slice-1)` for Pipeline.is_epic, Pipeline.epic_mode, Task.jira_key, Task.jira_action, AgentRole.APPLIER, _PHASE_ROLES['apply'], _PHASE_REVIEWERS['apply'], POST /api/v1/jira/ticket/remotelinks, JiraClient.get_remote_links; `(NEW — slice-3)` for applier.md, APPLIER_PATTERNS, _run_apply, apply_gate. Primitive-existence audit per criteria §9 is clean — no missing-grep false positives because everything net-new is annotated.
+
+5. **Decision-traceability is complete.** Each of the 16 HITL decisions (1-16) and 6 feedback answers (Q1-Q6) maps to either Slice 1 (handled here) or Slice 2 (explicitly deferred). The constraining_decisions table makes the boundary auditable.
+
+6. **Key-design-choice rationales are sound.**
+   - **DC1 "new apply phase"**: dedicated BRC, clean retry boundary, deterministic transcript. Alternatives rejected explicitly. ✓ (caveat below in §non-blocking)
+   - **DC2 "env var, not Jinja"**: avoids new dependency, mirrors existing EGG_AGENT_ROLE conditioning pattern. ✓ (caveat below)
+   - **DC3 "Task fields, not sidecar"**: contract is durable source-of-truth; sidecar adds drift. ✓
+   - **DC4 epic_mode default 'auto'**: minimizes operator burden for common case. ✓
+   - **DC5 remotelinks read route in slice-1 even though only consumer is refiner**: bundling with slice-1-A makes slice-2 use the same route; write companion deferred per Q6. ✓
+
+7. **Risk-sharing with risk_analyst is productive.** Architect's R1 (submit_task RTT regression) is the same shape as risk_analyst's R4; architect's R3 (half-applied state) ↔ risk_analyst's R7; architect's R4 (LLM-ignores-env-var) ↔ risk_analyst's R10. Different angles, both teams converged on the structural risks.
+
+8. **Open questions are well-targeted.** All three explicitly invite reviewer_plan judgment rather than being dropped on the planner: VALID_TRANSITIONS shape (gated vs always-on), integration-test stub-Jira shape (in-process Flask vs k3s pod vs record-replay), description-URL-scan location (gateway vs prompt vs shared helper). The planner gets concrete design alternatives to pick from.
+
+9. **Seed acceptance criteria (13) cover all major flows**: submit_task happy path, default-arg behavior, project-allowlist refusal, gateway-client wiring, remotelinks route, phase-transition gating, prompt-supplement activation (per mode), plan-parser ticket-shape validation, schema-migration backwards-compat, apply-phase BRC convergence, apply idempotency, post-apply phase progression. Distributable across slice-1/2/3 cleanly.
+
+### Non-blocking
+
+- **`PipelinePhase` enum extension is missing from slice-1 deliverables.** Adding `'plan' → 'apply'` and `'apply' → 'implement'` to `VALID_TRANSITIONS` at `gateway/phase_transition.py:41` requires `PipelinePhase.APPLY` to exist as an enum member, which lives at `shared/egg_contracts/models.py:62-68`. The architect's slice-1 deliverable for `shared/egg_contracts/models.py` only mentions Task fields. The task_planner needs to allocate `PipelinePhase.APPLY = "apply"` as part of slice-1 (or up-merge it into the agent_roles.py task that touches _PHASE_ROLES['apply']) — these three pieces (enum value + VALID_TRANSITIONS + _PHASE_ROLES) must land together or the orchestrator startup-validation will fail. Coder/contract reviewer role boundary: `shared/egg_contracts/models.py` is writable by CODER (per `shared/egg_restrictions/patterns.py`).
+
+- **Architect's DC1 ("new apply phase") diverges from risk_analyst's R1 mitigation (e) ("extend plan-phase BRC to include applier producer + reviewer-apply reviewer in the matrix").** Both rationales are sound. The "new apply phase" path adds 4 net-new primitives (PipelinePhase.APPLY enum value, _PHASE_ROLES['apply'], _PHASE_REVIEWERS['apply'], VALID_TRANSITIONS edge); the "extend plan-phase BRC" path adds 0 state-machine primitives but couples apply success to plan consensus closure. The architect's choice is reasonable but the planner should defend it in the plan-draft narrative against the risk_analyst's counter — specifically, what is the audit / retry value that justifies the additional state-machine surface? If the planner cannot articulate a concrete value (e.g. "we want operators to re-trigger apply without re-running plan, and a separate phase gives that retry boundary"), the simpler plan-phase-extension shape is preferable.
+
+- **DC2 ("env-var conditional in prompts, not Jinja") is the right call for the dependency-cost reason, but the architect's slice-2 deliverables do NOT include loader-side stripping of non-matching mode blocks — only env-var injection.** Risk_analyst's R10 mitigation (b) specifically recommended "the prompt loader strips the OTHER mode blocks before sending — agents see only their mode's instructions, not 'here are three modes, do the right one'". Architect's R4 mitigation covers parser-side regex validation (belt) but not loader-side stripping (suspenders). The planner should pick one of:
+  - (i) loader-side stripping in `orchestrator/routes/pipelines.py`'s prompt-prep helper — removes the chance of cross-mode leakage at the source
+  - (ii) env-var conditional ONLY with reliance on the LLM honoring section headers — current architect proposal; R4 risk stands
+  - Recommend (i). The implementation is a tiny regex over the markdown that strips fenced "## [if mode != X]" blocks. Slice-2 deliverable for `orchestrator/routes/pipelines.py` should be expanded to include this.
+
+- **Slice-2 and slice-3 both touch `orchestrator/routes/pipelines.py`.** Slice-2 wires the prompt-prep helper; slice-3 adds `_run_apply` phase handler. The architect claims they parallelize post-slice-1; in practice the implement-phase commits will land sequentially with potential merge conflicts. Recommend the planner allocate slice-2's changes to a new helper function (e.g. `_build_phase_prompt_env`) and slice-3's changes to a new top-level phase handler (`_run_apply`) so the line regions don't overlap. Otherwise the second-to-land slice eats a rebase.
+
+- **Architect's R1 mitigation says "On timeout, fall back to treating the ticket as non-epic" (silent fallback) — risk_analyst's R4 mitigation says "distinct error responses per failure class (not-found / not-allowlisted / unreachable / rate-limited)" (loud failure).** Silent fallback misclassifies an epic as a regular ticket and runs the wrong prompts, producing the wrong artifact; the operator only discovers the misclassification after refine completes. Loud failure surfaces the gateway-degraded state at submit_task time, when recovery is cheap (operator retries or passes `epic_mode='fresh'` explicitly). The planner should adopt the risk_analyst's posture: distinct error codes, no silent fallback. Architect should reconsider.
+
+- **DC5 / Open question 3: description-URL-scan location.** Architect's working assumption is (b) "in the refiner agent prompt — LLM finds URLs and calls confluence/page/get itself". I'd lean (c) "shared helper in `shared/egg_harness/`". Reasons: (1) deterministic URL extraction, not LLM-dependent (reduces risk of missed links across model upgrades — same shape as R10); (2) reusable for Slice 2's reassess sweep, which also needs to scan child-ticket descriptions; (3) testable in isolation against fixture descriptions; (4) keeps the refiner prompt smaller. Non-blocking but worth surfacing in the plan draft as a sub-decision.
+
+- **Open question 1 ("apply phase in VALID_TRANSITIONS for all pipelines vs is_epic only"):** prefer is_epic-gated (architect's slice-1 proposal). Reason: always-on with a no-op handler wastes a sandbox pod spawn (~30-90s) on 100% of today's flow for a feature that runs <1% of the time. The runtime branch at the plan→{apply,implement} fork is one if-statement; the savings dominate.
+
+- **Open question 2 (stub Jira fixture for slice-3 integration test):** prefer (a) in-process Flask fake, mounted as a separate `stub-jira` container in the k3s test stack via the existing test infrastructure. This keeps the test trusted-CI-runner-tier (consistent with `integration_tests/conftest.py:284` gating on `_kubectl_available()`) and avoids record/replay drift. The planner needs to allocate a non-trivial task here: building the stub-jira Flask app + extending the test stack to deploy it + wiring the gateway pod to point at the stub URL via ConfigMap. This is meaningfully more work than "lightest weight".
+
+- **Reviewer for apply phase is `reviewer_contract`, but its existing prompt is plan-phase-oriented.** Architect's slice-3 describes the apply-review as "lightweight; verifies that every Task with jira_action='create' got a non-empty jira_key persisted back" — that's a specific check not in reviewer_contract's existing prompt. The planner should make explicit whether (i) the existing reviewer_contract prompt is adequate (and the apply-time check rides on its normal logic), or (ii) reviewer_contract needs a parameterized supplement for apply-phase reviews (mirror decision-16 for prompts but applied to the reviewer's instructions). Recommend (ii) with a small fenced block `## [if phase == 'apply']` that names the apply-specific checks.
+
+- **Schema-migration regression test must be explicit.** Risk_analyst R2 mitigation (e) specifically called for a fixture-based regression test that loads an old-format contract JSON and asserts round-trip without data loss. Architect's slice-1 Tests line just says "unit tests for new Pipeline fields validation (pydantic)" — that does not equate to a backwards-compat test against a real old-format file. Recommend the planner allocate a tester-role task that drops a `shared/tests/fixtures/contract_pre_1557.json` checked-in fixture and asserts it loads cleanly through the new Pydantic models.
+
+- **Architect's reference key_file count (27) covers most surfaces but `gateway/jira_search.py` (the JQL extractor) and `gateway/jira_idempotency.py` are referenced in the body but absent from the `key_files` table.** Minor — the planner will pick them up from the body text.
+
+- **`gateway/jira_policy.py:epic_link_field()` line citation (360-362) is slightly off.** The actual `JiraPolicy.epic_link_field()` instance method is at `gateway/jira_policy.py:163-170`; the module-level convenience accessor `epic_link_field()` is at `gateway/jira_policy.py:340-342`. Both exist. Minor nit; the planner has both candidates.
+
+This is a strong starting point for the task_planner. The non-blocking items above are the design knobs the planner should lock down in the plan draft narrative; none of them require the architect to re-propose.
+
+
+````yaml
+id: fb083394-dded-46
+phase: plan
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/agent-outputs/issue-1557-v2-architect-output.json
+    reason: "\nReviewed architect output (461 lines: scope clarification, 3-slice\
+      \ DAG, 8 key design choices, 11 existing-code-seams entries, 13 seed acceptance\
+      \ criteria, 8 risks, 3 open questions for reviewer_plan, 7 explicit non-goals,\
+      \ 27 key-file references). Verified the named primitives against HEAD codebase.\n\
+      \n### What is right\n\n1. **Slice scope is correctly drawn at the operator's\
+      \ decision-1 boundary.** Slice 1 covers A+B+C+D (fresh-epic path end-to-end);\
+      \ E+F+G (reassess) is explicitly deferred. Non-goals enumerate the deferred\
+      \ work concretely \u2014 no scope creep.\n\n2. **The internal 3-slice DAG (schema/plumbing\
+      \ \u2192 prompts || applier) is a forest.** slice-1 root, slice-2 and slice-3\
+      \ as parallel leaves, each with a single parent. Consistent with #2137's forest-only\
+      \ constraint.\n\n3. **Primitive-existence claims verified at HEAD.** Spot-checked:\n\
+      \   - `orchestrator/mcp_tools.py:65-127, 1272-1381` (submit_task schema + handler)\
+      \ \u2713\n   - `orchestrator/models.py:816` (Pipeline class) \u2713\n   - `shared/egg_contracts/models.py:182`\
+      \ (Task class) \u2713 (NB: architect's \"182-235\" is right; risk_analyst incorrectly\
+      \ cited `shared/egg_contracts/contract.py`)\n   - `shared/egg_contracts/agent_roles.py:46`\
+      \ (AgentRole StrEnum), `:1107` (_PHASE_ROLES), `:1113` (_PHASE_REVIEWERS) \u2713\
+      \n   - `gateway/phase_transition.py:41` (VALID_TRANSITIONS) \u2713\n   - `gateway/gateway.py:4929`\
+      \ (jira_ticket_get), `:5583` (jira_ticket_create), `:5594-5748` (epicLink shorthand),\
+      \ `:5842` (jira_ticket_edit), `:6107` (jira_issue_link_create) \u2713\n   -\
+      \ `gateway/jira_client.py:133` (JIRA_WRITE_VERBS_DENIED) \u2713\n   - `orchestrator/sandbox_template.py:41`\
+      \ (SandboxConfig) \u2713\n   - `orchestrator/decision_queue.py` (DecisionQueue\
+      \ class) \u2713\n\n4. **All NEW primitives are correctly tagged.** `(NEW \u2014\
+      \ slice-1)` for Pipeline.is_epic, Pipeline.epic_mode, Task.jira_key, Task.jira_action,\
+      \ AgentRole.APPLIER, _PHASE_ROLES['apply'], _PHASE_REVIEWERS['apply'], POST\
+      \ /api/v1/jira/ticket/remotelinks, JiraClient.get_remote_links; `(NEW \u2014\
+      \ slice-3)` for applier.md, APPLIER_PATTERNS, _run_apply, apply_gate. Primitive-existence\
+      \ audit per criteria \xA79 is clean \u2014 no missing-grep false positives because\
+      \ everything net-new is annotated.\n\n5. **Decision-traceability is complete.**\
+      \ Each of the 16 HITL decisions (1-16) and 6 feedback answers (Q1-Q6) maps to\
+      \ either Slice 1 (handled here) or Slice 2 (explicitly deferred). The constraining_decisions\
+      \ table makes the boundary auditable.\n\n6. **Key-design-choice rationales are\
+      \ sound.**\n   - **DC1 \"new apply phase\"**: dedicated BRC, clean retry boundary,\
+      \ deterministic transcript. Alternatives rejected explicitly. \u2713 (caveat\
+      \ below in \xA7non-blocking)\n   - **DC2 \"env var, not Jinja\"**: avoids new\
+      \ dependency, mirrors existing EGG_AGENT_ROLE conditioning pattern. \u2713 (caveat\
+      \ below)\n   - **DC3 \"Task fields, not sidecar\"**: contract is durable source-of-truth;\
+      \ sidecar adds drift. \u2713\n   - **DC4 epic_mode default 'auto'**: minimizes\
+      \ operator burden for common case. \u2713\n   - **DC5 remotelinks read route\
+      \ in slice-1 even though only consumer is refiner**: bundling with slice-1-A\
+      \ makes slice-2 use the same route; write companion deferred per Q6. \u2713\n\
+      \n7. **Risk-sharing with risk_analyst is productive.** Architect's R1 (submit_task\
+      \ RTT regression) is the same shape as risk_analyst's R4; architect's R3 (half-applied\
+      \ state) \u2194 risk_analyst's R7; architect's R4 (LLM-ignores-env-var) \u2194\
+      \ risk_analyst's R10. Different angles, both teams converged on the structural\
+      \ risks.\n\n8. **Open questions are well-targeted.** All three explicitly invite\
+      \ reviewer_plan judgment rather than being dropped on the planner: VALID_TRANSITIONS\
+      \ shape (gated vs always-on), integration-test stub-Jira shape (in-process Flask\
+      \ vs k3s pod vs record-replay), description-URL-scan location (gateway vs prompt\
+      \ vs shared helper). The planner gets concrete design alternatives to pick from.\n\
+      \n9. **Seed acceptance criteria (13) cover all major flows**: submit_task happy\
+      \ path, default-arg behavior, project-allowlist refusal, gateway-client wiring,\
+      \ remotelinks route, phase-transition gating, prompt-supplement activation (per\
+      \ mode), plan-parser ticket-shape validation, schema-migration backwards-compat,\
+      \ apply-phase BRC convergence, apply idempotency, post-apply phase progression.\
+      \ Distributable across slice-1/2/3 cleanly.\n\n### Non-blocking\n\n- **`PipelinePhase`\
+      \ enum extension is missing from slice-1 deliverables.** Adding `'plan' \u2192\
+      \ 'apply'` and `'apply' \u2192 'implement'` to `VALID_TRANSITIONS` at `gateway/phase_transition.py:41`\
+      \ requires `PipelinePhase.APPLY` to exist as an enum member, which lives at\
+      \ `shared/egg_contracts/models.py:62-68`. The architect's slice-1 deliverable\
+      \ for `shared/egg_contracts/models.py` only mentions Task fields. The task_planner\
+      \ needs to allocate `PipelinePhase.APPLY = \"apply\"` as part of slice-1 (or\
+      \ up-merge it into the agent_roles.py task that touches _PHASE_ROLES['apply'])\
+      \ \u2014 these three pieces (enum value + VALID_TRANSITIONS + _PHASE_ROLES)\
+      \ must land together or the orchestrator startup-validation will fail. Coder/contract\
+      \ reviewer role boundary: `shared/egg_contracts/models.py` is writable by CODER\
+      \ (per `shared/egg_restrictions/patterns.py`).\n\n- **Architect's DC1 (\"new\
+      \ apply phase\") diverges from risk_analyst's R1 mitigation (e) (\"extend plan-phase\
+      \ BRC to include applier producer + reviewer-apply reviewer in the matrix\"\
+      ).** Both rationales are sound. The \"new apply phase\" path adds 4 net-new\
+      \ primitives (PipelinePhase.APPLY enum value, _PHASE_ROLES['apply'], _PHASE_REVIEWERS['apply'],\
+      \ VALID_TRANSITIONS edge); the \"extend plan-phase BRC\" path adds 0 state-machine\
+      \ primitives but couples apply success to plan consensus closure. The architect's\
+      \ choice is reasonable but the planner should defend it in the plan-draft narrative\
+      \ against the risk_analyst's counter \u2014 specifically, what is the audit\
+      \ / retry value that justifies the additional state-machine surface? If the\
+      \ planner cannot articulate a concrete value (e.g. \"we want operators to re-trigger\
+      \ apply without re-running plan, and a separate phase gives that retry boundary\"\
+      ), the simpler plan-phase-extension shape is preferable.\n\n- **DC2 (\"env-var\
+      \ conditional in prompts, not Jinja\") is the right call for the dependency-cost\
+      \ reason, but the architect's slice-2 deliverables do NOT include loader-side\
+      \ stripping of non-matching mode blocks \u2014 only env-var injection.** Risk_analyst's\
+      \ R10 mitigation (b) specifically recommended \"the prompt loader strips the\
+      \ OTHER mode blocks before sending \u2014 agents see only their mode's instructions,\
+      \ not 'here are three modes, do the right one'\". Architect's R4 mitigation\
+      \ covers parser-side regex validation (belt) but not loader-side stripping (suspenders).\
+      \ The planner should pick one of:\n  - (i) loader-side stripping in `orchestrator/routes/pipelines.py`'s\
+      \ prompt-prep helper \u2014 removes the chance of cross-mode leakage at the\
+      \ source\n  - (ii) env-var conditional ONLY with reliance on the LLM honoring\
+      \ section headers \u2014 current architect proposal; R4 risk stands\n  - Recommend\
+      \ (i). The implementation is a tiny regex over the markdown that strips fenced\
+      \ \"## [if mode != X]\" blocks. Slice-2 deliverable for `orchestrator/routes/pipelines.py`\
+      \ should be expanded to include this.\n\n- **Slice-2 and slice-3 both touch\
+      \ `orchestrator/routes/pipelines.py`.** Slice-2 wires the prompt-prep helper;\
+      \ slice-3 adds `_run_apply` phase handler. The architect claims they parallelize\
+      \ post-slice-1; in practice the implement-phase commits will land sequentially\
+      \ with potential merge conflicts. Recommend the planner allocate slice-2's changes\
+      \ to a new helper function (e.g. `_build_phase_prompt_env`) and slice-3's changes\
+      \ to a new top-level phase handler (`_run_apply`) so the line regions don't\
+      \ overlap. Otherwise the second-to-land slice eats a rebase.\n\n- **Architect's\
+      \ R1 mitigation says \"On timeout, fall back to treating the ticket as non-epic\"\
+      \ (silent fallback) \u2014 risk_analyst's R4 mitigation says \"distinct error\
+      \ responses per failure class (not-found / not-allowlisted / unreachable / rate-limited)\"\
+      \ (loud failure).** Silent fallback misclassifies an epic as a regular ticket\
+      \ and runs the wrong prompts, producing the wrong artifact; the operator only\
+      \ discovers the misclassification after refine completes. Loud failure surfaces\
+      \ the gateway-degraded state at submit_task time, when recovery is cheap (operator\
+      \ retries or passes `epic_mode='fresh'` explicitly). The planner should adopt\
+      \ the risk_analyst's posture: distinct error codes, no silent fallback. Architect\
+      \ should reconsider.\n\n- **DC5 / Open question 3: description-URL-scan location.**\
+      \ Architect's working assumption is (b) \"in the refiner agent prompt \u2014\
+      \ LLM finds URLs and calls confluence/page/get itself\". I'd lean (c) \"shared\
+      \ helper in `shared/egg_harness/`\". Reasons: (1) deterministic URL extraction,\
+      \ not LLM-dependent (reduces risk of missed links across model upgrades \u2014\
+      \ same shape as R10); (2) reusable for Slice 2's reassess sweep, which also\
+      \ needs to scan child-ticket descriptions; (3) testable in isolation against\
+      \ fixture descriptions; (4) keeps the refiner prompt smaller. Non-blocking but\
+      \ worth surfacing in the plan draft as a sub-decision.\n\n- **Open question\
+      \ 1 (\"apply phase in VALID_TRANSITIONS for all pipelines vs is_epic only\"\
+      ):** prefer is_epic-gated (architect's slice-1 proposal). Reason: always-on\
+      \ with a no-op handler wastes a sandbox pod spawn (~30-90s) on 100% of today's\
+      \ flow for a feature that runs <1% of the time. The runtime branch at the plan\u2192\
+      {apply,implement} fork is one if-statement; the savings dominate.\n\n- **Open\
+      \ question 2 (stub Jira fixture for slice-3 integration test):** prefer (a)\
+      \ in-process Flask fake, mounted as a separate `stub-jira` container in the\
+      \ k3s test stack via the existing test infrastructure. This keeps the test trusted-CI-runner-tier\
+      \ (consistent with `integration_tests/conftest.py:284` gating on `_kubectl_available()`)\
+      \ and avoids record/replay drift. The planner needs to allocate a non-trivial\
+      \ task here: building the stub-jira Flask app + extending the test stack to\
+      \ deploy it + wiring the gateway pod to point at the stub URL via ConfigMap.\
+      \ This is meaningfully more work than \"lightest weight\".\n\n- **Reviewer for\
+      \ apply phase is `reviewer_contract`, but its existing prompt is plan-phase-oriented.**\
+      \ Architect's slice-3 describes the apply-review as \"lightweight; verifies\
+      \ that every Task with jira_action='create' got a non-empty jira_key persisted\
+      \ back\" \u2014 that's a specific check not in reviewer_contract's existing\
+      \ prompt. The planner should make explicit whether (i) the existing reviewer_contract\
+      \ prompt is adequate (and the apply-time check rides on its normal logic), or\
+      \ (ii) reviewer_contract needs a parameterized supplement for apply-phase reviews\
+      \ (mirror decision-16 for prompts but applied to the reviewer's instructions).\
+      \ Recommend (ii) with a small fenced block `## [if phase == 'apply']` that names\
+      \ the apply-specific checks.\n\n- **Schema-migration regression test must be\
+      \ explicit.** Risk_analyst R2 mitigation (e) specifically called for a fixture-based\
+      \ regression test that loads an old-format contract JSON and asserts round-trip\
+      \ without data loss. Architect's slice-1 Tests line just says \"unit tests for\
+      \ new Pipeline fields validation (pydantic)\" \u2014 that does not equate to\
+      \ a backwards-compat test against a real old-format file. Recommend the planner\
+      \ allocate a tester-role task that drops a `shared/tests/fixtures/contract_pre_1557.json`\
+      \ checked-in fixture and asserts it loads cleanly through the new Pydantic models.\n\
+      \n- **Architect's reference key_file count (27) covers most surfaces but `gateway/jira_search.py`\
+      \ (the JQL extractor) and `gateway/jira_idempotency.py` are referenced in the\
+      \ body but absent from the `key_files` table.** Minor \u2014 the planner will\
+      \ pick them up from the body text.\n\n- **`gateway/jira_policy.py:epic_link_field()`\
+      \ line citation (360-362) is slightly off.** The actual `JiraPolicy.epic_link_field()`\
+      \ instance method is at `gateway/jira_policy.py:163-170`; the module-level convenience\
+      \ accessor `epic_link_field()` is at `gateway/jira_policy.py:340-342`. Both\
+      \ exist. Minor nit; the planner has both candidates.\n\nThis is a strong starting\
+      \ point for the task_planner. The non-blocking items above are the design knobs\
+      \ the planner should lock down in the plan draft narrative; none of them require\
+      \ the architect to re-propose.\n"
+    ack_version: 1
+  version: 1
+````
+
+### [2026-05-12T05:13:38Z] architect (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: f6560148-1a99-4b
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:13:38Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 8f17b1d1-87b6-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:13:28.558311+00:00'
+````
+
+### [2026-05-12T05:13:54Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: ed03792d-414e-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:13:54.745189+00:00'
+````
+
+### [2026-05-12T05:14:02Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 9bb28d35-91e5-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:41.814415+00:00'
+````
+
+### [2026-05-12T05:14:39Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 08d66041-b383-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:13:28.558311+00:00'
+````
+
+### [2026-05-12T05:15:17Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 7f91db22-1e0d-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:13:54.745189+00:00'
+````
+
+### [2026-05-12T05:15:17Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 6ddea52e-5b12-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:08:41.814415+00:00'
+````
+
+### [2026-05-12T05:15:48Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: b9c9bc6b-2d15-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:13:28.558311+00:00'
+````
+
+### [2026-05-12T05:15:48Z] task_planner (CONSENSUS_PROPOSE): Proposal from task_planner
+
+Task plan for #1557 (Jira-epic SDLC pipeline). Two stacked slices per decision-1 option C: (1) fresh-epic path with submit_task epic detection, mode-aware refine/plan prompts, per-task Jira-ticket-shaped descriptions, and a new APPLIER agent role that writes the epic Description on refine HITL approval and creates child tickets + Blocks links on plan HITL approval; (2) reassess path that adds the JQL sweep classifying existing children via statusCategory.key, two-signal in-flight detection (orchestrator reverse-index from jira_ticket -> [pipelines] plus a new read-only /remotelinks gateway route), and a new orchestrator-only /transition gateway route that batches Won't-Do on plan-gate approval. 16 tasks total (7 in slice 1, 9 in slice 2) with explicit role assignment per file boundary (TASK-2-7 split into orchestrator/coder + applier-prompt/documenter halves to satisfy patterns.py). Draft validated through plan_parser with no warnings; primitives table + (NEW) markers cite every named class/route/file at file:line for the plan-reviewer's primitive-existence + trust-boundary audits.
+
+````yaml
+id: 9588b7bf-444d-4e
+phase: plan
+metadata:
+  payload:
+    summary: 'Task plan for #1557 (Jira-epic SDLC pipeline). Two stacked slices per
+      decision-1 option C: (1) fresh-epic path with submit_task epic detection, mode-aware
+      refine/plan prompts, per-task Jira-ticket-shaped descriptions, and a new APPLIER
+      agent role that writes the epic Description on refine HITL approval and creates
+      child tickets + Blocks links on plan HITL approval; (2) reassess path that adds
+      the JQL sweep classifying existing children via statusCategory.key, two-signal
+      in-flight detection (orchestrator reverse-index from jira_ticket -> [pipelines]
+      plus a new read-only /remotelinks gateway route), and a new orchestrator-only
+      /transition gateway route that batches Won''t-Do on plan-gate approval. 16 tasks
+      total (7 in slice 1, 9 in slice 2) with explicit role assignment per file boundary
+      (TASK-2-7 split into orchestrator/coder + applier-prompt/documenter halves to
+      satisfy patterns.py). Draft validated through plan_parser with no warnings;
+      primitives table + (NEW) markers cite every named class/route/file at file:line
+      for the plan-reviewer''s primitive-existence + trust-boundary audits.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-plan.md
+    risk_considered: 'Plan honours all 16 resolved decisions and 6 feedback answers.
+      Largest risks called out: applier-with-BRC adds a phase but reuses existing
+      infra (decision-8); orchestrator-only /transition route preserves the creds-only-in-gateway
+      invariant via loopback + shared-secret auth (decision-15); reverse-index + /remotelinks
+      dual signal covers human-opened PRs missing from egg pipelines (decision-7);
+      contract-stored mapping + 5-min idempotency cache makes apply re-entry safe
+      (decision-11 + feedback Q1). Slice sizes are estimated above the 1000-LOC soft
+      target but under the operator''s discretion per slice-DAG guidance.'
+    commit_sha: 52b734867
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-plan.md
+    tests_run: []
+    tasks_satisfied:
+    - TASK-1-1
+    - TASK-1-2
+    - TASK-1-3
+    - TASK-1-4
+    - TASK-1-5
+    - TASK-1-6
+    - TASK-1-7
+    - TASK-2-1
+    - TASK-2-2
+    - TASK-2-3
+    - TASK-2-4
+    - TASK-2-5
+    - TASK-2-6
+    - TASK-2-7
+    - TASK-2-8
+    - TASK-2-9
+  version: 1
+  commit_sha: 52b734867
+````
+
+### [2026-05-12T05:15:48Z] orchestrator → architect (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 38856fb2-76e7-46
+phase: plan
+metadata:
+  ready_to_confirm: true
+  version: 1
+````
+
+### [2026-05-12T05:15:48Z] orchestrator → risk_analyst (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: fd55d900-c3ca-47
+phase: plan
+metadata:
+  ready_to_confirm: true
+  version: 1
+````
+
+### [2026-05-12T05:15:49Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 92617f8f-40a4-44
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:15:49Z] architect (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: fe78468c-6853-45
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:15:49Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: a295c4e0-12df-41
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:16:18Z] risk_analyst (CONSENSUS_CONFIRMED): Confirmed by risk_analyst
+
+````yaml
+id: e9e6a090-decb-4f
+phase: plan
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-12T05:16:18Z] task_planner (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+
+v1 proposal sent; awaiting reviewer_plan ACK/NACK
+
+````yaml
+id: b9791ce4-b7e4-45
+phase: plan
+metadata:
+  state: WAITING_ON_ROLE
+  waiting_on: reviewer_plan
+````
+
+### [2026-05-12T05:16:18Z] architect (CONSENSUS_CONFIRMED): Confirmed by architect
+
+````yaml
+id: c5d83295-00c1-45
+phase: plan
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-12T05:16:20Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d7d0860d-7577-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:19.910513+00:00'
+````
+
+### [2026-05-12T05:16:50Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 2b5aa4fb-9fb8-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:16:50Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 3600a562-40d2-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:17:20Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d1303e59-2d61-48
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:19.910513+00:00'
+````
+
+### [2026-05-12T05:17:41Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: cade9812-89a2-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:17:45Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 01a65ce3-275d-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:18:20Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d1d69616-f00c-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:19.910513+00:00'
+````
+
+### [2026-05-12T05:18:41Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 0cf38bc6-8b4d-48
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:18:45Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 6a152d65-0de9-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:19:20Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: cc373bd3-c4a4-48
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:19.910513+00:00'
+````
+
+### [2026-05-12T05:19:41Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: f5cdc664-7314-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:19:45Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 374b50c3-29d7-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:20:31Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: b63b748d-873f-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:19.910513+00:00'
+````
+
+### [2026-05-12T05:21:01Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 43e56f2f-61eb-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:21:01Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 820e6808-9ce0-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:21:31Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: a5d10902-e316-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:19.910513+00:00'
+````
+
+### [2026-05-12T05:21:56Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: f0aa7517-a3bd-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:22:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: a2f461f9-8fd4-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:22:32Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: ce4ad5c9-79aa-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:19.910513+00:00'
+````
+
+### [2026-05-12T05:22:45Z] reviewer_plan → task_planner (CONSENSUS_NACK): NACK from reviewer_plan for task_planner
+
+
+Reviewed the 992-line plan draft. The slice DAG is forest-compliant (slice-2 → slice-1, single parent), the 16 HITL decisions are traced to specific tasks, role↔files alignment is clean (auto-validated, no surprises), and the seed acceptance criteria from the architect are folded in. However, three blocking issues require re-draft before ACK.
+
+### Blocking
+
+1. **`gateway_url` primitive citation is wrong (§9 hard NACK).** The "Already in the tree" primitive table at lines 99-141 contains this row:
+
+   > `EggStack` / `gateway_url` test fixtures | `integration_tests/conftest.py:71-325` (`gateway_url` at `:325`, `egg_stack` at `:308`) | local-test-only (kubectl-gated)
+
+   Verification:
+   - `grep -n "def gateway_url" integration_tests/conftest.py` → **zero hits**
+   - `integration_tests/conftest.py:325` is `def orchestrator_url(egg_stack: EggStack) -> str:` — NOT gateway_url
+   - `gateway_url` exists only as an attribute on the `EggStack` dataclass at `integration_tests/conftest.py:78` (`gateway_url: str`); it is NOT a pytest fixture anywhere in `integration_tests/conftest.py`
+   - The trust-boundary doc at `docs/architecture/integration-test-trust-boundary.md` explicitly states the parent conftest "exposes `egg_stack.gateway_url` as an attribute on the `EggStack` dataclass, NOT as a standalone fixture"
+
+   This matters for TASK-1-7 (`integration_tests/sdlc/test_epic_fresh_path.py`) and TASK-2-9 (`integration_tests/sdlc/test_epic_reassess_path.py`), where the tester reading the primitive table will reach for a `gateway_url` fixture that does not exist and the test will fail at pytest collection time.
+
+   Fix: correct the primitive table row to read `egg_stack.gateway_url` (EggStack dataclass attribute at `integration_tests/conftest.py:78`, NOT a fixture). Update TASK-1-7 and TASK-2-9 task descriptions to specify the test accesses the gateway URL via the `egg_stack` fixture (`def test_foo(egg_stack): url = egg_stack.gateway_url`), not via a `gateway_url` fixture.
+
+2. **Apply phase has zero reviewers — regression from architect's design AND risk_analyst's R1 mitigation.** TASK-1-4 line 528-531 says:
+
+   > Add a new `"apply"` entry to `_PHASE_ROLES` (`shared/egg_contracts/agent_roles.py:1107-1112`) with `[AgentRole.APPLIER]` and an empty `_PHASE_REVIEWERS` entry (decision-8 selected applier-with-BRC; reviewer added in TASK-1-7 if needed — see below).
+
+   And TASK-1-4 AC line 551-552:
+   > `get_roles_for_phase('apply')` returns `[APPLIER]` (no reviewer).
+   > The apply phase terminates after the applier reaches consensus (BRC degenerates with one producer + zero reviewers via `ApprovalMatrix.is_fully_acked()`).
+
+   Issues:
+   - The "reviewer added in TASK-1-7 if needed — see below" is a dangling pointer: TASK-1-7 is a tester task that adds test files. It has no reviewer-adding scope. Dead reference.
+   - Architect's slice-3 explicitly named `[REVIEWER_CONTRACT]` as the apply-phase reviewer with the specific check "lightweight; verifies that every Task with jira_action='create' got a non-empty jira_key persisted back". The planner dropped this entirely.
+   - Risk_analyst R1 mitigation (c) explicitly required "Reviewer (whoever ACKs the applier output) should ACK on contract-state convergence (all tasks reach 'applied' or 'failed' with reason), NOT on prompt-output text quality". With zero reviewers, no contract-state-convergence check happens.
+   - The degenerate BRC (1 producer + 0 reviewers via `ApprovalMatrix.is_fully_acked()` returning True with empty critical_reviewers per `orchestrator/approval_matrix.py:316-326`) is technically valid code, but provides NO independent verification of the applier's output. The applier mutates Jira state (createJiraIssue / editJiraIssue / createIssueLink — destructive operations); dropping the reviewer drops the only safety check on this mutation surface.
+
+   Fix: pick one of:
+   - (a) Reinstate `_PHASE_REVIEWERS["apply"] = [AgentRole.REVIEWER_CONTRACT]` per architect's design, and add a reviewer-side check in `plugins/refine-plan/skills/refine-plan/agents/reviewer-contract.md` (or a parameterized supplement, mirroring decision-16 for prompts) that verifies (i) every Task with `jira_action='create'` got a `jira_key` matching `^[A-Z][A-Z0-9_]*-[0-9]+$`, (ii) gateway audit log shows one call per Task, (iii) no in-flight child was mutated without the `in-flight-confirmed` marker.
+   - (b) Justify the zero-reviewer choice explicitly in the plan-draft narrative with concrete rationale that addresses risk_analyst R1's verification gap (e.g. "the gateway audit log + the contract task↔jira_key mapping together provide the verification signal; LLM review adds no information; the operator can spot-check the audit log directly"). Note that this puts the safety burden entirely on the operator post-hoc.
+   - Recommend (a). The architect's design and the risk_analyst's mitigation both arrived at "reviewer present" independently; the planner should not unilaterally drop both.
+
+3. **Missing primitive: scripted-Jira fake infrastructure (§9 hard NACK).** TASK-1-7 line 637-638 says:
+
+   > Integration test under `integration_tests/sdlc/` covering an epic-fresh pipeline end-to-end against a scripted-Jira fake
+
+   And TASK-2-9 line 972-976:
+   > Integration test under `integration_tests/sdlc/` covering an epic-reassess pipeline end-to-end with seeded children covering every classification class; assert the applier and post-apply orchestrator step produce the right edit / create / link / Won't-Do outcomes against a scripted-Jira fake.
+
+   Verification:
+   - `grep -rn 'ScriptedJira\|FakeJira\|StubJira\|scripted.jira\|stub.jira\|fake.jira' sandbox/ gateway/ orchestrator/ integration_tests/` → **zero hits**
+   - No existing scripted-Jira test fixture exists today
+   - No task in slice-1 or slice-2 allocates work to build this infrastructure
+   - The architect raised this explicitly as `open_questions_for_reviewer_plan` #2 ("The integration test for slice-3 needs a stub Jira fixture. Should we (a) build a minimal in-process Flask fake that the gateway pod hits at GATEWAY_URL override, (b) deploy a separate stub-jira pod in k3s alongside the gateway, or (c) record/replay real Atlassian Cloud responses?"); the planner did not pick an option or allocate the work
+
+   Without this fixture, TASK-1-7's integration test cannot exist — there's nothing for the applier's `createJiraIssue` / `editJiraIssue` calls to land against, nothing for the tester to assert against.
+
+   Fix: add a CODER (or TESTER, depending on fixture location) task for this infrastructure. Recommend an in-process Flask fake at `integration_tests/fixtures/stub_jira.py` (writable by tester per `_TESTER_PATTERNS`) that supports the four routes the applier hits: `GET /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issue`, `PUT /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issueLink`. Deploy it as a `stub-jira` container in the k3s test stack; the gateway pod's `JIRA_BASE_URL` env var is overridden to point at the stub. This is non-trivial infrastructure — at least one full task on its own (probably TASK-1-7 splits into "build stub-jira fixture" + "epic-fresh integration test").
+
+### Non-blocking
+
+- **`PipelinePhase.APPLY` enum extension is missing from slice-1 deliverables.** TASK-1-4 adds `_PHASE_ROLES["apply"]` to `shared/egg_contracts/agent_roles.py` but does NOT mention extending the `PipelinePhase` enum at `shared/egg_contracts/models.py:62-68` (currently `{REFINE, PLAN, IMPLEMENT, PR}`). Without `PipelinePhase.APPLY = "apply"`, the orchestrator cannot represent the new phase in `Pipeline.current_phase` and `gateway/phase_transition.py:41`'s `VALID_TRANSITIONS` cannot declare the edges `PLAN → APPLY` and `APPLY → IMPLEMENT`. Verified absent: `grep -n "PipelinePhase.APPLY\|VALID_TRANSITIONS" shared/egg_contracts/models.py gateway/phase_transition.py` shows VALID_TRANSITIONS at `gateway/phase_transition.py:41` but no APPLY value. Recommend extending TASK-1-4 to add `PipelinePhase.APPLY = "apply"` (file: `shared/egg_contracts/models.py`) and `VALID_TRANSITIONS[PLAN] = [APPLY, IMPLEMENT]` + `VALID_TRANSITIONS[APPLY] = [IMPLEMENT]` gated on `Pipeline.is_epic` (file: `gateway/phase_transition.py`). Both files are writable by CODER. Without this, TASK-1-4's `_PHASE_ROLES["apply"]` is unreachable — `Pipeline.current_phase = "apply"` would fail Pydantic validation.
+
+- **`Task.jira_action_status` lifecycle field is missing (risk_analyst R7 recommendation).** TASK-1-3 schema delta adds `jira_key` + `jira_action` but not `jira_action_status: Literal['pending','in_flight','applied','failed'] | None`. Risk_analyst R7 mitigation explicitly required this field for partial-apply recovery: "Applier prompt is REQUIRED to write 'in_flight' to contract before calling gateway, and 'applied' or 'failed' after. On re-run, applier skips tasks where status=='applied' (already done) and re-attempts tasks where status in {'pending', 'failed'}". Without status tracking, feedback Q1's "idempotent re-run from contract task↔jira_key mapping" cannot distinguish "already done" from "not started" — the contract knows what SHOULD happen but not what HAS happened. The plan's TASK-1-5 applier prompt mentions "if a task already has `jira_key` set and `jira_action='create'`, treat as no-op and continue" — but that only works for the create case; for edit / link operations there's no equivalent durable marker. Recommend adding `jira_action_status` to TASK-1-3 with the applier-writes-before-call invariant documented in TASK-1-5 / TASK-2-8.
+
+- **Loader-side mode-block stripping is not specified.** TASK-1-2 line 462-466 says the prompts get a "top-of-file `mode` switch sourced from the `EGG_PIPELINE_MODE` env" but doesn't specify the orchestrator-side prompt-prep helper strips non-matching mode blocks before sending to the agent. Risk_analyst R10 mitigation (b) explicitly recommended loader-side stripping: "The prompt loader strips the OTHER mode blocks before sending — agents see only their mode's instructions". As written, the agent reads the full prompt with all four mode branches present in-context and is expected to conditionally follow the right block based on env-var inspection — that's exactly the LLM-conditional-on-env-var pattern risk_analyst R10 flagged as fragile across model upgrades. Recommend adding a sub-task (or extending TASK-1-1's wiring) for a loader-side strip helper in `orchestrator/routes/pipelines.py`'s prompt-prep path that regex-strips fenced `## [mode: X]` blocks not matching the active mode.
+
+- **TASK-2-7's description conflates `_persist_phase_gate_resolution` with the apply-phase scheduler.** Lines 884-890:
+  > Update the orchestrator post-plan-gate hook (`orchestrator/routes/pipelines.py:_persist_phase_gate_resolution`) so that on plan-apply for an epic-reassess pipeline the applier runs the per-task mutation routing described in the applier prompt (TASK-2-8) and the orchestrator drains the Won't-Do batch handoff file afterwards.
+
+  `_persist_phase_gate_resolution` (at `orchestrator/routes/pipelines.py:18274`) is the HITL resolution handler that runs when an operator approves a phase_gate. The applier runs AFTER that, in the actual apply phase scheduled by TASK-1-4. The Won't-Do batch drain runs AFTER the applier finishes. The trigger chain is: HITL approve → `_persist_phase_gate_resolution` flips state → orchestrator phase scheduler advances Pipeline.current_phase to "apply" → spawns applier pod → applier emits Won't-Do handoff file + signals consensus → orchestrator post-apply hook (different code site) drains the Won't-Do batch via `/transition`. Clarify the trigger chain in the description so the implementer doesn't try to drive Won't-Do transitions from inside the HITL resolution handler (which would block the resolution HTTP response on Jira API latency).
+
+- **Integration tests are placed under `integration_tests/sdlc/`, but that directory contains pure-Python contract tests, not kubectl-gated end-to-end tests.** Existing files under `integration_tests/sdlc/` (`test_happy_path.py`, `test_hitl_flow.py`, etc.) import `egg_contracts` and operate on Contract objects directly — no `egg_stack`, no gateway, no k3s. Adding kubectl-gated end-to-end tests there violates the existing convention and makes the directory's purpose ambiguous. Recommend placing the new tests under a new directory like `integration_tests/epic_pipeline/` with its own `conftest.py` that imports `egg_stack` / `orchestrator_url` from the parent. This also aligns with the trust-boundary-doc note that "Test files for [trusted-CI-runner] tier live under `integration_tests/` (parent) for gateway-only tests" — a dedicated subdirectory makes the tier explicit.
+
+- **TASK-1-1's `EGG_PIPELINE_MODE` env-var values are not enumerated.** The task description says "Inject `EGG_PIPELINE_MODE` and `EGG_IS_EPIC` env vars" but doesn't enumerate the allowed values. The plan-draft Approach section line 32 names "(`epic-fresh`, `epic-reassess`, `ticket`, `github_issue`)" — those are the four expected values. The TASK-1-1 AC at line 446-448 says "Sandbox spawn includes `EGG_PIPELINE_MODE` and `EGG_IS_EPIC`" without saying what gets injected. Clarify the value mapping rule (e.g. `is_epic=True + pipeline_mode='fresh' → 'epic-fresh'`; `is_epic=True + pipeline_mode='reassess' → 'epic-reassess'`; `jira_ticket is not None → 'ticket'`; else `'github_issue'`). Without this the test in TASK-1-7 has no oracle.
+
+- **TASK-1-6's wiring of `JiraPolicy.epic_link_field()` may already be in place.** The plan says "Verify and (if absent) wire the existing `JiraPolicy.epic_link_field()` (`gateway/jira_policy.py:163`) into the ticket-create path (`gateway/gateway.py:5580+`)". My grep at `gateway/gateway.py` shows `epicLink` references at lines 5358, 5413, 5594, 5697 — and line 5594-5748 covers the dispatch via `JiraPolicy.epic_link_field`. The architect's current_state.gateway_jira_routes.ticket_create explicitly says "supports `epicLink` shorthand at lines 5358, 5594, 5697-5748; dispatches via JiraPolicy.epic_link_field". So this wiring is **already in place** today — TASK-1-6 should be re-scoped to "add a unit test covering both `epic_link_field='parent'` and `epic_link_field='customfield_10014'` translation" without the wire-up assumption. Verified at HEAD: `grep -n "epic_link_field\|epicLink" gateway/gateway.py` shows imports at lines 162, 307 and dispatch use in the create route.
+
+- **Minor citation: `shared/egg_restrictions/patterns.py:108-189` for CODER_PATTERNS is slightly off** — my exploration earlier found CODER_PATTERNS at `shared/egg_restrictions/patterns.py:108-183` (16-line undershoot). Non-blocking; the implementer can find the right region.
+
+- **The plan's "Manual pre-merge / post-merge steps" section says "The orchestrator and gateway must be redeployed together; stage the rollout so both new routes (`/transition` + `/remotelinks`) land in lockstep."** This is the right operational guidance, but the plan task list has no DOCUMENTER task to update `docs/architecture/orchestrator.md` or `gateway/README.md` to document the new shared-secret token configuration for the `/transition` route. Recommend adding a documenter sub-task on top of TASK-2-6 to document the shared-secret lifecycle (operator generates the token, mounts it on both orchestrator and gateway pods via the existing secret bundle, rotation procedure).
+
+- **Risk_analyst HR3 (decision-7a reverse-index storage shape) is not surfaced as an operator-facing open question in the plan draft.** Risk_analyst's HR3 explicitly recommended `mcp__sdlc__register_open_question` during plan-phase so the operator picks before implement-phase discretion. The plan's TASK-2-2 just says "Implementation may be a straight in-memory filter against the pipeline cache plus a per-ticket secondary index for O(1) lookup if performance demands it" — that's leaving the choice to the implementer. Recommend a `mcp__sdlc__register_open_question` on the storage shape (sidecar JSON / in-memory rebuilt on startup / SQLite per HR3) before slice-2 implement starts.
+
+After fixing the three blocking issues (1-3), re-propose at version 2. The plan structure is fundamentally sound — these are gaps in named primitives and one design regression, not a redraft from scratch.
+
+
+````yaml
+id: 0ae9f621-79b6-4d
+phase: plan
+metadata:
+  payload:
+    reason: "\nReviewed the 992-line plan draft. The slice DAG is forest-compliant\
+      \ (slice-2 \u2192 slice-1, single parent), the 16 HITL decisions are traced\
+      \ to specific tasks, role\u2194files alignment is clean (auto-validated, no\
+      \ surprises), and the seed acceptance criteria from the architect are folded\
+      \ in. However, three blocking issues require re-draft before ACK.\n\n### Blocking\n\
+      \n1. **`gateway_url` primitive citation is wrong (\xA79 hard NACK).** The \"\
+      Already in the tree\" primitive table at lines 99-141 contains this row:\n\n\
+      \   > `EggStack` / `gateway_url` test fixtures | `integration_tests/conftest.py:71-325`\
+      \ (`gateway_url` at `:325`, `egg_stack` at `:308`) | local-test-only (kubectl-gated)\n\
+      \n   Verification:\n   - `grep -n \"def gateway_url\" integration_tests/conftest.py`\
+      \ \u2192 **zero hits**\n   - `integration_tests/conftest.py:325` is `def orchestrator_url(egg_stack:\
+      \ EggStack) -> str:` \u2014 NOT gateway_url\n   - `gateway_url` exists only\
+      \ as an attribute on the `EggStack` dataclass at `integration_tests/conftest.py:78`\
+      \ (`gateway_url: str`); it is NOT a pytest fixture anywhere in `integration_tests/conftest.py`\n\
+      \   - The trust-boundary doc at `docs/architecture/integration-test-trust-boundary.md`\
+      \ explicitly states the parent conftest \"exposes `egg_stack.gateway_url` as\
+      \ an attribute on the `EggStack` dataclass, NOT as a standalone fixture\"\n\n\
+      \   This matters for TASK-1-7 (`integration_tests/sdlc/test_epic_fresh_path.py`)\
+      \ and TASK-2-9 (`integration_tests/sdlc/test_epic_reassess_path.py`), where\
+      \ the tester reading the primitive table will reach for a `gateway_url` fixture\
+      \ that does not exist and the test will fail at pytest collection time.\n\n\
+      \   Fix: correct the primitive table row to read `egg_stack.gateway_url` (EggStack\
+      \ dataclass attribute at `integration_tests/conftest.py:78`, NOT a fixture).\
+      \ Update TASK-1-7 and TASK-2-9 task descriptions to specify the test accesses\
+      \ the gateway URL via the `egg_stack` fixture (`def test_foo(egg_stack): url\
+      \ = egg_stack.gateway_url`), not via a `gateway_url` fixture.\n\n2. **Apply\
+      \ phase has zero reviewers \u2014 regression from architect's design AND risk_analyst's\
+      \ R1 mitigation.** TASK-1-4 line 528-531 says:\n\n   > Add a new `\"apply\"\
+      ` entry to `_PHASE_ROLES` (`shared/egg_contracts/agent_roles.py:1107-1112`)\
+      \ with `[AgentRole.APPLIER]` and an empty `_PHASE_REVIEWERS` entry (decision-8\
+      \ selected applier-with-BRC; reviewer added in TASK-1-7 if needed \u2014 see\
+      \ below).\n\n   And TASK-1-4 AC line 551-552:\n   > `get_roles_for_phase('apply')`\
+      \ returns `[APPLIER]` (no reviewer).\n   > The apply phase terminates after\
+      \ the applier reaches consensus (BRC degenerates with one producer + zero reviewers\
+      \ via `ApprovalMatrix.is_fully_acked()`).\n\n   Issues:\n   - The \"reviewer\
+      \ added in TASK-1-7 if needed \u2014 see below\" is a dangling pointer: TASK-1-7\
+      \ is a tester task that adds test files. It has no reviewer-adding scope. Dead\
+      \ reference.\n   - Architect's slice-3 explicitly named `[REVIEWER_CONTRACT]`\
+      \ as the apply-phase reviewer with the specific check \"lightweight; verifies\
+      \ that every Task with jira_action='create' got a non-empty jira_key persisted\
+      \ back\". The planner dropped this entirely.\n   - Risk_analyst R1 mitigation\
+      \ (c) explicitly required \"Reviewer (whoever ACKs the applier output) should\
+      \ ACK on contract-state convergence (all tasks reach 'applied' or 'failed' with\
+      \ reason), NOT on prompt-output text quality\". With zero reviewers, no contract-state-convergence\
+      \ check happens.\n   - The degenerate BRC (1 producer + 0 reviewers via `ApprovalMatrix.is_fully_acked()`\
+      \ returning True with empty critical_reviewers per `orchestrator/approval_matrix.py:316-326`)\
+      \ is technically valid code, but provides NO independent verification of the\
+      \ applier's output. The applier mutates Jira state (createJiraIssue / editJiraIssue\
+      \ / createIssueLink \u2014 destructive operations); dropping the reviewer drops\
+      \ the only safety check on this mutation surface.\n\n   Fix: pick one of:\n\
+      \   - (a) Reinstate `_PHASE_REVIEWERS[\"apply\"] = [AgentRole.REVIEWER_CONTRACT]`\
+      \ per architect's design, and add a reviewer-side check in `plugins/refine-plan/skills/refine-plan/agents/reviewer-contract.md`\
+      \ (or a parameterized supplement, mirroring decision-16 for prompts) that verifies\
+      \ (i) every Task with `jira_action='create'` got a `jira_key` matching `^[A-Z][A-Z0-9_]*-[0-9]+$`,\
+      \ (ii) gateway audit log shows one call per Task, (iii) no in-flight child was\
+      \ mutated without the `in-flight-confirmed` marker.\n   - (b) Justify the zero-reviewer\
+      \ choice explicitly in the plan-draft narrative with concrete rationale that\
+      \ addresses risk_analyst R1's verification gap (e.g. \"the gateway audit log\
+      \ + the contract task\u2194jira_key mapping together provide the verification\
+      \ signal; LLM review adds no information; the operator can spot-check the audit\
+      \ log directly\"). Note that this puts the safety burden entirely on the operator\
+      \ post-hoc.\n   - Recommend (a). The architect's design and the risk_analyst's\
+      \ mitigation both arrived at \"reviewer present\" independently; the planner\
+      \ should not unilaterally drop both.\n\n3. **Missing primitive: scripted-Jira\
+      \ fake infrastructure (\xA79 hard NACK).** TASK-1-7 line 637-638 says:\n\n \
+      \  > Integration test under `integration_tests/sdlc/` covering an epic-fresh\
+      \ pipeline end-to-end against a scripted-Jira fake\n\n   And TASK-2-9 line 972-976:\n\
+      \   > Integration test under `integration_tests/sdlc/` covering an epic-reassess\
+      \ pipeline end-to-end with seeded children covering every classification class;\
+      \ assert the applier and post-apply orchestrator step produce the right edit\
+      \ / create / link / Won't-Do outcomes against a scripted-Jira fake.\n\n   Verification:\n\
+      \   - `grep -rn 'ScriptedJira\\|FakeJira\\|StubJira\\|scripted.jira\\|stub.jira\\\
+      |fake.jira' sandbox/ gateway/ orchestrator/ integration_tests/` \u2192 **zero\
+      \ hits**\n   - No existing scripted-Jira test fixture exists today\n   - No\
+      \ task in slice-1 or slice-2 allocates work to build this infrastructure\n \
+      \  - The architect raised this explicitly as `open_questions_for_reviewer_plan`\
+      \ #2 (\"The integration test for slice-3 needs a stub Jira fixture. Should we\
+      \ (a) build a minimal in-process Flask fake that the gateway pod hits at GATEWAY_URL\
+      \ override, (b) deploy a separate stub-jira pod in k3s alongside the gateway,\
+      \ or (c) record/replay real Atlassian Cloud responses?\"); the planner did not\
+      \ pick an option or allocate the work\n\n   Without this fixture, TASK-1-7's\
+      \ integration test cannot exist \u2014 there's nothing for the applier's `createJiraIssue`\
+      \ / `editJiraIssue` calls to land against, nothing for the tester to assert\
+      \ against.\n\n   Fix: add a CODER (or TESTER, depending on fixture location)\
+      \ task for this infrastructure. Recommend an in-process Flask fake at `integration_tests/fixtures/stub_jira.py`\
+      \ (writable by tester per `_TESTER_PATTERNS`) that supports the four routes\
+      \ the applier hits: `GET /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issue`,\
+      \ `PUT /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issueLink`. Deploy it as\
+      \ a `stub-jira` container in the k3s test stack; the gateway pod's `JIRA_BASE_URL`\
+      \ env var is overridden to point at the stub. This is non-trivial infrastructure\
+      \ \u2014 at least one full task on its own (probably TASK-1-7 splits into \"\
+      build stub-jira fixture\" + \"epic-fresh integration test\").\n\n### Non-blocking\n\
+      \n- **`PipelinePhase.APPLY` enum extension is missing from slice-1 deliverables.**\
+      \ TASK-1-4 adds `_PHASE_ROLES[\"apply\"]` to `shared/egg_contracts/agent_roles.py`\
+      \ but does NOT mention extending the `PipelinePhase` enum at `shared/egg_contracts/models.py:62-68`\
+      \ (currently `{REFINE, PLAN, IMPLEMENT, PR}`). Without `PipelinePhase.APPLY\
+      \ = \"apply\"`, the orchestrator cannot represent the new phase in `Pipeline.current_phase`\
+      \ and `gateway/phase_transition.py:41`'s `VALID_TRANSITIONS` cannot declare\
+      \ the edges `PLAN \u2192 APPLY` and `APPLY \u2192 IMPLEMENT`. Verified absent:\
+      \ `grep -n \"PipelinePhase.APPLY\\|VALID_TRANSITIONS\" shared/egg_contracts/models.py\
+      \ gateway/phase_transition.py` shows VALID_TRANSITIONS at `gateway/phase_transition.py:41`\
+      \ but no APPLY value. Recommend extending TASK-1-4 to add `PipelinePhase.APPLY\
+      \ = \"apply\"` (file: `shared/egg_contracts/models.py`) and `VALID_TRANSITIONS[PLAN]\
+      \ = [APPLY, IMPLEMENT]` + `VALID_TRANSITIONS[APPLY] = [IMPLEMENT]` gated on\
+      \ `Pipeline.is_epic` (file: `gateway/phase_transition.py`). Both files are writable\
+      \ by CODER. Without this, TASK-1-4's `_PHASE_ROLES[\"apply\"]` is unreachable\
+      \ \u2014 `Pipeline.current_phase = \"apply\"` would fail Pydantic validation.\n\
+      \n- **`Task.jira_action_status` lifecycle field is missing (risk_analyst R7\
+      \ recommendation).** TASK-1-3 schema delta adds `jira_key` + `jira_action` but\
+      \ not `jira_action_status: Literal['pending','in_flight','applied','failed']\
+      \ | None`. Risk_analyst R7 mitigation explicitly required this field for partial-apply\
+      \ recovery: \"Applier prompt is REQUIRED to write 'in_flight' to contract before\
+      \ calling gateway, and 'applied' or 'failed' after. On re-run, applier skips\
+      \ tasks where status=='applied' (already done) and re-attempts tasks where status\
+      \ in {'pending', 'failed'}\". Without status tracking, feedback Q1's \"idempotent\
+      \ re-run from contract task\u2194jira_key mapping\" cannot distinguish \"already\
+      \ done\" from \"not started\" \u2014 the contract knows what SHOULD happen but\
+      \ not what HAS happened. The plan's TASK-1-5 applier prompt mentions \"if a\
+      \ task already has `jira_key` set and `jira_action='create'`, treat as no-op\
+      \ and continue\" \u2014 but that only works for the create case; for edit /\
+      \ link operations there's no equivalent durable marker. Recommend adding `jira_action_status`\
+      \ to TASK-1-3 with the applier-writes-before-call invariant documented in TASK-1-5\
+      \ / TASK-2-8.\n\n- **Loader-side mode-block stripping is not specified.** TASK-1-2\
+      \ line 462-466 says the prompts get a \"top-of-file `mode` switch sourced from\
+      \ the `EGG_PIPELINE_MODE` env\" but doesn't specify the orchestrator-side prompt-prep\
+      \ helper strips non-matching mode blocks before sending to the agent. Risk_analyst\
+      \ R10 mitigation (b) explicitly recommended loader-side stripping: \"The prompt\
+      \ loader strips the OTHER mode blocks before sending \u2014 agents see only\
+      \ their mode's instructions\". As written, the agent reads the full prompt with\
+      \ all four mode branches present in-context and is expected to conditionally\
+      \ follow the right block based on env-var inspection \u2014 that's exactly the\
+      \ LLM-conditional-on-env-var pattern risk_analyst R10 flagged as fragile across\
+      \ model upgrades. Recommend adding a sub-task (or extending TASK-1-1's wiring)\
+      \ for a loader-side strip helper in `orchestrator/routes/pipelines.py`'s prompt-prep\
+      \ path that regex-strips fenced `## [mode: X]` blocks not matching the active\
+      \ mode.\n\n- **TASK-2-7's description conflates `_persist_phase_gate_resolution`\
+      \ with the apply-phase scheduler.** Lines 884-890:\n  > Update the orchestrator\
+      \ post-plan-gate hook (`orchestrator/routes/pipelines.py:_persist_phase_gate_resolution`)\
+      \ so that on plan-apply for an epic-reassess pipeline the applier runs the per-task\
+      \ mutation routing described in the applier prompt (TASK-2-8) and the orchestrator\
+      \ drains the Won't-Do batch handoff file afterwards.\n\n  `_persist_phase_gate_resolution`\
+      \ (at `orchestrator/routes/pipelines.py:18274`) is the HITL resolution handler\
+      \ that runs when an operator approves a phase_gate. The applier runs AFTER that,\
+      \ in the actual apply phase scheduled by TASK-1-4. The Won't-Do batch drain\
+      \ runs AFTER the applier finishes. The trigger chain is: HITL approve \u2192\
+      \ `_persist_phase_gate_resolution` flips state \u2192 orchestrator phase scheduler\
+      \ advances Pipeline.current_phase to \"apply\" \u2192 spawns applier pod \u2192\
+      \ applier emits Won't-Do handoff file + signals consensus \u2192 orchestrator\
+      \ post-apply hook (different code site) drains the Won't-Do batch via `/transition`.\
+      \ Clarify the trigger chain in the description so the implementer doesn't try\
+      \ to drive Won't-Do transitions from inside the HITL resolution handler (which\
+      \ would block the resolution HTTP response on Jira API latency).\n\n- **Integration\
+      \ tests are placed under `integration_tests/sdlc/`, but that directory contains\
+      \ pure-Python contract tests, not kubectl-gated end-to-end tests.** Existing\
+      \ files under `integration_tests/sdlc/` (`test_happy_path.py`, `test_hitl_flow.py`,\
+      \ etc.) import `egg_contracts` and operate on Contract objects directly \u2014\
+      \ no `egg_stack`, no gateway, no k3s. Adding kubectl-gated end-to-end tests\
+      \ there violates the existing convention and makes the directory's purpose ambiguous.\
+      \ Recommend placing the new tests under a new directory like `integration_tests/epic_pipeline/`\
+      \ with its own `conftest.py` that imports `egg_stack` / `orchestrator_url` from\
+      \ the parent. This also aligns with the trust-boundary-doc note that \"Test\
+      \ files for [trusted-CI-runner] tier live under `integration_tests/` (parent)\
+      \ for gateway-only tests\" \u2014 a dedicated subdirectory makes the tier explicit.\n\
+      \n- **TASK-1-1's `EGG_PIPELINE_MODE` env-var values are not enumerated.** The\
+      \ task description says \"Inject `EGG_PIPELINE_MODE` and `EGG_IS_EPIC` env vars\"\
+      \ but doesn't enumerate the allowed values. The plan-draft Approach section\
+      \ line 32 names \"(`epic-fresh`, `epic-reassess`, `ticket`, `github_issue`)\"\
+      \ \u2014 those are the four expected values. The TASK-1-1 AC at line 446-448\
+      \ says \"Sandbox spawn includes `EGG_PIPELINE_MODE` and `EGG_IS_EPIC`\" without\
+      \ saying what gets injected. Clarify the value mapping rule (e.g. `is_epic=True\
+      \ + pipeline_mode='fresh' \u2192 'epic-fresh'`; `is_epic=True + pipeline_mode='reassess'\
+      \ \u2192 'epic-reassess'`; `jira_ticket is not None \u2192 'ticket'`; else `'github_issue'`).\
+      \ Without this the test in TASK-1-7 has no oracle.\n\n- **TASK-1-6's wiring\
+      \ of `JiraPolicy.epic_link_field()` may already be in place.** The plan says\
+      \ \"Verify and (if absent) wire the existing `JiraPolicy.epic_link_field()`\
+      \ (`gateway/jira_policy.py:163`) into the ticket-create path (`gateway/gateway.py:5580+`)\"\
+      . My grep at `gateway/gateway.py` shows `epicLink` references at lines 5358,\
+      \ 5413, 5594, 5697 \u2014 and line 5594-5748 covers the dispatch via `JiraPolicy.epic_link_field`.\
+      \ The architect's current_state.gateway_jira_routes.ticket_create explicitly\
+      \ says \"supports `epicLink` shorthand at lines 5358, 5594, 5697-5748; dispatches\
+      \ via JiraPolicy.epic_link_field\". So this wiring is **already in place** today\
+      \ \u2014 TASK-1-6 should be re-scoped to \"add a unit test covering both `epic_link_field='parent'`\
+      \ and `epic_link_field='customfield_10014'` translation\" without the wire-up\
+      \ assumption. Verified at HEAD: `grep -n \"epic_link_field\\|epicLink\" gateway/gateway.py`\
+      \ shows imports at lines 162, 307 and dispatch use in the create route.\n\n\
+      - **Minor citation: `shared/egg_restrictions/patterns.py:108-189` for CODER_PATTERNS\
+      \ is slightly off** \u2014 my exploration earlier found CODER_PATTERNS at `shared/egg_restrictions/patterns.py:108-183`\
+      \ (16-line undershoot). Non-blocking; the implementer can find the right region.\n\
+      \n- **The plan's \"Manual pre-merge / post-merge steps\" section says \"The\
+      \ orchestrator and gateway must be redeployed together; stage the rollout so\
+      \ both new routes (`/transition` + `/remotelinks`) land in lockstep.\"** This\
+      \ is the right operational guidance, but the plan task list has no DOCUMENTER\
+      \ task to update `docs/architecture/orchestrator.md` or `gateway/README.md`\
+      \ to document the new shared-secret token configuration for the `/transition`\
+      \ route. Recommend adding a documenter sub-task on top of TASK-2-6 to document\
+      \ the shared-secret lifecycle (operator generates the token, mounts it on both\
+      \ orchestrator and gateway pods via the existing secret bundle, rotation procedure).\n\
+      \n- **Risk_analyst HR3 (decision-7a reverse-index storage shape) is not surfaced\
+      \ as an operator-facing open question in the plan draft.** Risk_analyst's HR3\
+      \ explicitly recommended `mcp__sdlc__register_open_question` during plan-phase\
+      \ so the operator picks before implement-phase discretion. The plan's TASK-2-2\
+      \ just says \"Implementation may be a straight in-memory filter against the\
+      \ pipeline cache plus a per-ticket secondary index for O(1) lookup if performance\
+      \ demands it\" \u2014 that's leaving the choice to the implementer. Recommend\
+      \ a `mcp__sdlc__register_open_question` on the storage shape (sidecar JSON /\
+      \ in-memory rebuilt on startup / SQLite per HR3) before slice-2 implement starts.\n\
+      \nAfter fixing the three blocking issues (1-3), re-propose at version 2. The\
+      \ plan structure is fundamentally sound \u2014 these are gaps in named primitives\
+      \ and one design regression, not a redraft from scratch.\n"
+    artifact_references:
+    - .egg-state/drafts/issue-1557-v2-plan.md
+    nack_version: 1
+  reason: "\nReviewed the 992-line plan draft. The slice DAG is forest-compliant (slice-2\
+    \ \u2192 slice-1, single parent), the 16 HITL decisions are traced to specific\
+    \ tasks, role\u2194files alignment is clean (auto-validated, no surprises), and\
+    \ the seed acceptance criteria from the architect are folded in. However, three\
+    \ blocking issues require re-draft before ACK.\n\n### Blocking\n\n1. **`gateway_url`\
+    \ primitive citation is wrong (\xA79 hard NACK).** The \"Already in the tree\"\
+    \ primitive table at lines 99-141 contains this row:\n\n   > `EggStack` / `gateway_url`\
+    \ test fixtures | `integration_tests/conftest.py:71-325` (`gateway_url` at `:325`,\
+    \ `egg_stack` at `:308`) | local-test-only (kubectl-gated)\n\n   Verification:\n\
+    \   - `grep -n \"def gateway_url\" integration_tests/conftest.py` \u2192 **zero\
+    \ hits**\n   - `integration_tests/conftest.py:325` is `def orchestrator_url(egg_stack:\
+    \ EggStack) -> str:` \u2014 NOT gateway_url\n   - `gateway_url` exists only as\
+    \ an attribute on the `EggStack` dataclass at `integration_tests/conftest.py:78`\
+    \ (`gateway_url: str`); it is NOT a pytest fixture anywhere in `integration_tests/conftest.py`\n\
+    \   - The trust-boundary doc at `docs/architecture/integration-test-trust-boundary.md`\
+    \ explicitly states the parent conftest \"exposes `egg_stack.gateway_url` as an\
+    \ attribute on the `EggStack` dataclass, NOT as a standalone fixture\"\n\n   This\
+    \ matters for TASK-1-7 (`integration_tests/sdlc/test_epic_fresh_path.py`) and\
+    \ TASK-2-9 (`integration_tests/sdlc/test_epic_reassess_path.py`), where the tester\
+    \ reading the primitive table will reach for a `gateway_url` fixture that does\
+    \ not exist and the test will fail at pytest collection time.\n\n   Fix: correct\
+    \ the primitive table row to read `egg_stack.gateway_url` (EggStack dataclass\
+    \ attribute at `integration_tests/conftest.py:78`, NOT a fixture). Update TASK-1-7\
+    \ and TASK-2-9 task descriptions to specify the test accesses the gateway URL\
+    \ via the `egg_stack` fixture (`def test_foo(egg_stack): url = egg_stack.gateway_url`),\
+    \ not via a `gateway_url` fixture.\n\n2. **Apply phase has zero reviewers \u2014\
+    \ regression from architect's design AND risk_analyst's R1 mitigation.** TASK-1-4\
+    \ line 528-531 says:\n\n   > Add a new `\"apply\"` entry to `_PHASE_ROLES` (`shared/egg_contracts/agent_roles.py:1107-1112`)\
+    \ with `[AgentRole.APPLIER]` and an empty `_PHASE_REVIEWERS` entry (decision-8\
+    \ selected applier-with-BRC; reviewer added in TASK-1-7 if needed \u2014 see below).\n\
+    \n   And TASK-1-4 AC line 551-552:\n   > `get_roles_for_phase('apply')` returns\
+    \ `[APPLIER]` (no reviewer).\n   > The apply phase terminates after the applier\
+    \ reaches consensus (BRC degenerates with one producer + zero reviewers via `ApprovalMatrix.is_fully_acked()`).\n\
+    \n   Issues:\n   - The \"reviewer added in TASK-1-7 if needed \u2014 see below\"\
+    \ is a dangling pointer: TASK-1-7 is a tester task that adds test files. It has\
+    \ no reviewer-adding scope. Dead reference.\n   - Architect's slice-3 explicitly\
+    \ named `[REVIEWER_CONTRACT]` as the apply-phase reviewer with the specific check\
+    \ \"lightweight; verifies that every Task with jira_action='create' got a non-empty\
+    \ jira_key persisted back\". The planner dropped this entirely.\n   - Risk_analyst\
+    \ R1 mitigation (c) explicitly required \"Reviewer (whoever ACKs the applier output)\
+    \ should ACK on contract-state convergence (all tasks reach 'applied' or 'failed'\
+    \ with reason), NOT on prompt-output text quality\". With zero reviewers, no contract-state-convergence\
+    \ check happens.\n   - The degenerate BRC (1 producer + 0 reviewers via `ApprovalMatrix.is_fully_acked()`\
+    \ returning True with empty critical_reviewers per `orchestrator/approval_matrix.py:316-326`)\
+    \ is technically valid code, but provides NO independent verification of the applier's\
+    \ output. The applier mutates Jira state (createJiraIssue / editJiraIssue / createIssueLink\
+    \ \u2014 destructive operations); dropping the reviewer drops the only safety\
+    \ check on this mutation surface.\n\n   Fix: pick one of:\n   - (a) Reinstate\
+    \ `_PHASE_REVIEWERS[\"apply\"] = [AgentRole.REVIEWER_CONTRACT]` per architect's\
+    \ design, and add a reviewer-side check in `plugins/refine-plan/skills/refine-plan/agents/reviewer-contract.md`\
+    \ (or a parameterized supplement, mirroring decision-16 for prompts) that verifies\
+    \ (i) every Task with `jira_action='create'` got a `jira_key` matching `^[A-Z][A-Z0-9_]*-[0-9]+$`,\
+    \ (ii) gateway audit log shows one call per Task, (iii) no in-flight child was\
+    \ mutated without the `in-flight-confirmed` marker.\n   - (b) Justify the zero-reviewer\
+    \ choice explicitly in the plan-draft narrative with concrete rationale that addresses\
+    \ risk_analyst R1's verification gap (e.g. \"the gateway audit log + the contract\
+    \ task\u2194jira_key mapping together provide the verification signal; LLM review\
+    \ adds no information; the operator can spot-check the audit log directly\").\
+    \ Note that this puts the safety burden entirely on the operator post-hoc.\n \
+    \  - Recommend (a). The architect's design and the risk_analyst's mitigation both\
+    \ arrived at \"reviewer present\" independently; the planner should not unilaterally\
+    \ drop both.\n\n3. **Missing primitive: scripted-Jira fake infrastructure (\xA7\
+    9 hard NACK).** TASK-1-7 line 637-638 says:\n\n   > Integration test under `integration_tests/sdlc/`\
+    \ covering an epic-fresh pipeline end-to-end against a scripted-Jira fake\n\n\
+    \   And TASK-2-9 line 972-976:\n   > Integration test under `integration_tests/sdlc/`\
+    \ covering an epic-reassess pipeline end-to-end with seeded children covering\
+    \ every classification class; assert the applier and post-apply orchestrator step\
+    \ produce the right edit / create / link / Won't-Do outcomes against a scripted-Jira\
+    \ fake.\n\n   Verification:\n   - `grep -rn 'ScriptedJira\\|FakeJira\\|StubJira\\\
+    |scripted.jira\\|stub.jira\\|fake.jira' sandbox/ gateway/ orchestrator/ integration_tests/`\
+    \ \u2192 **zero hits**\n   - No existing scripted-Jira test fixture exists today\n\
+    \   - No task in slice-1 or slice-2 allocates work to build this infrastructure\n\
+    \   - The architect raised this explicitly as `open_questions_for_reviewer_plan`\
+    \ #2 (\"The integration test for slice-3 needs a stub Jira fixture. Should we\
+    \ (a) build a minimal in-process Flask fake that the gateway pod hits at GATEWAY_URL\
+    \ override, (b) deploy a separate stub-jira pod in k3s alongside the gateway,\
+    \ or (c) record/replay real Atlassian Cloud responses?\"); the planner did not\
+    \ pick an option or allocate the work\n\n   Without this fixture, TASK-1-7's integration\
+    \ test cannot exist \u2014 there's nothing for the applier's `createJiraIssue`\
+    \ / `editJiraIssue` calls to land against, nothing for the tester to assert against.\n\
+    \n   Fix: add a CODER (or TESTER, depending on fixture location) task for this\
+    \ infrastructure. Recommend an in-process Flask fake at `integration_tests/fixtures/stub_jira.py`\
+    \ (writable by tester per `_TESTER_PATTERNS`) that supports the four routes the\
+    \ applier hits: `GET /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issue`, `PUT\
+    \ /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issueLink`. Deploy it as a `stub-jira`\
+    \ container in the k3s test stack; the gateway pod's `JIRA_BASE_URL` env var is\
+    \ overridden to point at the stub. This is non-trivial infrastructure \u2014 at\
+    \ least one full task on its own (probably TASK-1-7 splits into \"build stub-jira\
+    \ fixture\" + \"epic-fresh integration test\").\n\n### Non-blocking\n\n- **`PipelinePhase.APPLY`\
+    \ enum extension is missing from slice-1 deliverables.** TASK-1-4 adds `_PHASE_ROLES[\"\
+    apply\"]` to `shared/egg_contracts/agent_roles.py` but does NOT mention extending\
+    \ the `PipelinePhase` enum at `shared/egg_contracts/models.py:62-68` (currently\
+    \ `{REFINE, PLAN, IMPLEMENT, PR}`). Without `PipelinePhase.APPLY = \"apply\"`,\
+    \ the orchestrator cannot represent the new phase in `Pipeline.current_phase`\
+    \ and `gateway/phase_transition.py:41`'s `VALID_TRANSITIONS` cannot declare the\
+    \ edges `PLAN \u2192 APPLY` and `APPLY \u2192 IMPLEMENT`. Verified absent: `grep\
+    \ -n \"PipelinePhase.APPLY\\|VALID_TRANSITIONS\" shared/egg_contracts/models.py\
+    \ gateway/phase_transition.py` shows VALID_TRANSITIONS at `gateway/phase_transition.py:41`\
+    \ but no APPLY value. Recommend extending TASK-1-4 to add `PipelinePhase.APPLY\
+    \ = \"apply\"` (file: `shared/egg_contracts/models.py`) and `VALID_TRANSITIONS[PLAN]\
+    \ = [APPLY, IMPLEMENT]` + `VALID_TRANSITIONS[APPLY] = [IMPLEMENT]` gated on `Pipeline.is_epic`\
+    \ (file: `gateway/phase_transition.py`). Both files are writable by CODER. Without\
+    \ this, TASK-1-4's `_PHASE_ROLES[\"apply\"]` is unreachable \u2014 `Pipeline.current_phase\
+    \ = \"apply\"` would fail Pydantic validation.\n\n- **`Task.jira_action_status`\
+    \ lifecycle field is missing (risk_analyst R7 recommendation).** TASK-1-3 schema\
+    \ delta adds `jira_key` + `jira_action` but not `jira_action_status: Literal['pending','in_flight','applied','failed']\
+    \ | None`. Risk_analyst R7 mitigation explicitly required this field for partial-apply\
+    \ recovery: \"Applier prompt is REQUIRED to write 'in_flight' to contract before\
+    \ calling gateway, and 'applied' or 'failed' after. On re-run, applier skips tasks\
+    \ where status=='applied' (already done) and re-attempts tasks where status in\
+    \ {'pending', 'failed'}\". Without status tracking, feedback Q1's \"idempotent\
+    \ re-run from contract task\u2194jira_key mapping\" cannot distinguish \"already\
+    \ done\" from \"not started\" \u2014 the contract knows what SHOULD happen but\
+    \ not what HAS happened. The plan's TASK-1-5 applier prompt mentions \"if a task\
+    \ already has `jira_key` set and `jira_action='create'`, treat as no-op and continue\"\
+    \ \u2014 but that only works for the create case; for edit / link operations there's\
+    \ no equivalent durable marker. Recommend adding `jira_action_status` to TASK-1-3\
+    \ with the applier-writes-before-call invariant documented in TASK-1-5 / TASK-2-8.\n\
+    \n- **Loader-side mode-block stripping is not specified.** TASK-1-2 line 462-466\
+    \ says the prompts get a \"top-of-file `mode` switch sourced from the `EGG_PIPELINE_MODE`\
+    \ env\" but doesn't specify the orchestrator-side prompt-prep helper strips non-matching\
+    \ mode blocks before sending to the agent. Risk_analyst R10 mitigation (b) explicitly\
+    \ recommended loader-side stripping: \"The prompt loader strips the OTHER mode\
+    \ blocks before sending \u2014 agents see only their mode's instructions\". As\
+    \ written, the agent reads the full prompt with all four mode branches present\
+    \ in-context and is expected to conditionally follow the right block based on\
+    \ env-var inspection \u2014 that's exactly the LLM-conditional-on-env-var pattern\
+    \ risk_analyst R10 flagged as fragile across model upgrades. Recommend adding\
+    \ a sub-task (or extending TASK-1-1's wiring) for a loader-side strip helper in\
+    \ `orchestrator/routes/pipelines.py`'s prompt-prep path that regex-strips fenced\
+    \ `## [mode: X]` blocks not matching the active mode.\n\n- **TASK-2-7's description\
+    \ conflates `_persist_phase_gate_resolution` with the apply-phase scheduler.**\
+    \ Lines 884-890:\n  > Update the orchestrator post-plan-gate hook (`orchestrator/routes/pipelines.py:_persist_phase_gate_resolution`)\
+    \ so that on plan-apply for an epic-reassess pipeline the applier runs the per-task\
+    \ mutation routing described in the applier prompt (TASK-2-8) and the orchestrator\
+    \ drains the Won't-Do batch handoff file afterwards.\n\n  `_persist_phase_gate_resolution`\
+    \ (at `orchestrator/routes/pipelines.py:18274`) is the HITL resolution handler\
+    \ that runs when an operator approves a phase_gate. The applier runs AFTER that,\
+    \ in the actual apply phase scheduled by TASK-1-4. The Won't-Do batch drain runs\
+    \ AFTER the applier finishes. The trigger chain is: HITL approve \u2192 `_persist_phase_gate_resolution`\
+    \ flips state \u2192 orchestrator phase scheduler advances Pipeline.current_phase\
+    \ to \"apply\" \u2192 spawns applier pod \u2192 applier emits Won't-Do handoff\
+    \ file + signals consensus \u2192 orchestrator post-apply hook (different code\
+    \ site) drains the Won't-Do batch via `/transition`. Clarify the trigger chain\
+    \ in the description so the implementer doesn't try to drive Won't-Do transitions\
+    \ from inside the HITL resolution handler (which would block the resolution HTTP\
+    \ response on Jira API latency).\n\n- **Integration tests are placed under `integration_tests/sdlc/`,\
+    \ but that directory contains pure-Python contract tests, not kubectl-gated end-to-end\
+    \ tests.** Existing files under `integration_tests/sdlc/` (`test_happy_path.py`,\
+    \ `test_hitl_flow.py`, etc.) import `egg_contracts` and operate on Contract objects\
+    \ directly \u2014 no `egg_stack`, no gateway, no k3s. Adding kubectl-gated end-to-end\
+    \ tests there violates the existing convention and makes the directory's purpose\
+    \ ambiguous. Recommend placing the new tests under a new directory like `integration_tests/epic_pipeline/`\
+    \ with its own `conftest.py` that imports `egg_stack` / `orchestrator_url` from\
+    \ the parent. This also aligns with the trust-boundary-doc note that \"Test files\
+    \ for [trusted-CI-runner] tier live under `integration_tests/` (parent) for gateway-only\
+    \ tests\" \u2014 a dedicated subdirectory makes the tier explicit.\n\n- **TASK-1-1's\
+    \ `EGG_PIPELINE_MODE` env-var values are not enumerated.** The task description\
+    \ says \"Inject `EGG_PIPELINE_MODE` and `EGG_IS_EPIC` env vars\" but doesn't enumerate\
+    \ the allowed values. The plan-draft Approach section line 32 names \"(`epic-fresh`,\
+    \ `epic-reassess`, `ticket`, `github_issue`)\" \u2014 those are the four expected\
+    \ values. The TASK-1-1 AC at line 446-448 says \"Sandbox spawn includes `EGG_PIPELINE_MODE`\
+    \ and `EGG_IS_EPIC`\" without saying what gets injected. Clarify the value mapping\
+    \ rule (e.g. `is_epic=True + pipeline_mode='fresh' \u2192 'epic-fresh'`; `is_epic=True\
+    \ + pipeline_mode='reassess' \u2192 'epic-reassess'`; `jira_ticket is not None\
+    \ \u2192 'ticket'`; else `'github_issue'`). Without this the test in TASK-1-7\
+    \ has no oracle.\n\n- **TASK-1-6's wiring of `JiraPolicy.epic_link_field()` may\
+    \ already be in place.** The plan says \"Verify and (if absent) wire the existing\
+    \ `JiraPolicy.epic_link_field()` (`gateway/jira_policy.py:163`) into the ticket-create\
+    \ path (`gateway/gateway.py:5580+`)\". My grep at `gateway/gateway.py` shows `epicLink`\
+    \ references at lines 5358, 5413, 5594, 5697 \u2014 and line 5594-5748 covers\
+    \ the dispatch via `JiraPolicy.epic_link_field`. The architect's current_state.gateway_jira_routes.ticket_create\
+    \ explicitly says \"supports `epicLink` shorthand at lines 5358, 5594, 5697-5748;\
+    \ dispatches via JiraPolicy.epic_link_field\". So this wiring is **already in\
+    \ place** today \u2014 TASK-1-6 should be re-scoped to \"add a unit test covering\
+    \ both `epic_link_field='parent'` and `epic_link_field='customfield_10014'` translation\"\
+    \ without the wire-up assumption. Verified at HEAD: `grep -n \"epic_link_field\\\
+    |epicLink\" gateway/gateway.py` shows imports at lines 162, 307 and dispatch use\
+    \ in the create route.\n\n- **Minor citation: `shared/egg_restrictions/patterns.py:108-189`\
+    \ for CODER_PATTERNS is slightly off** \u2014 my exploration earlier found CODER_PATTERNS\
+    \ at `shared/egg_restrictions/patterns.py:108-183` (16-line undershoot). Non-blocking;\
+    \ the implementer can find the right region.\n\n- **The plan's \"Manual pre-merge\
+    \ / post-merge steps\" section says \"The orchestrator and gateway must be redeployed\
+    \ together; stage the rollout so both new routes (`/transition` + `/remotelinks`)\
+    \ land in lockstep.\"** This is the right operational guidance, but the plan task\
+    \ list has no DOCUMENTER task to update `docs/architecture/orchestrator.md` or\
+    \ `gateway/README.md` to document the new shared-secret token configuration for\
+    \ the `/transition` route. Recommend adding a documenter sub-task on top of TASK-2-6\
+    \ to document the shared-secret lifecycle (operator generates the token, mounts\
+    \ it on both orchestrator and gateway pods via the existing secret bundle, rotation\
+    \ procedure).\n\n- **Risk_analyst HR3 (decision-7a reverse-index storage shape)\
+    \ is not surfaced as an operator-facing open question in the plan draft.** Risk_analyst's\
+    \ HR3 explicitly recommended `mcp__sdlc__register_open_question` during plan-phase\
+    \ so the operator picks before implement-phase discretion. The plan's TASK-2-2\
+    \ just says \"Implementation may be a straight in-memory filter against the pipeline\
+    \ cache plus a per-ticket secondary index for O(1) lookup if performance demands\
+    \ it\" \u2014 that's leaving the choice to the implementer. Recommend a `mcp__sdlc__register_open_question`\
+    \ on the storage shape (sidecar JSON / in-memory rebuilt on startup / SQLite per\
+    \ HR3) before slice-2 implement starts.\n\nAfter fixing the three blocking issues\
+    \ (1-3), re-propose at version 2. The plan structure is fundamentally sound \u2014\
+    \ these are gaps in named primitives and one design regression, not a redraft\
+    \ from scratch.\n"
+  revision_count: 1
+````
+
+### [2026-05-12T05:22:45Z] task_planner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: a979ff75-8e32-48
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:22:56Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: c2b8b3fe-2073-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:22:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: df438faa-a8a3-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:23:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: ec2c6d0d-6e59-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:23:56Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 7ef09018-13f8-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:23:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 97830998-ae38-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:24:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 07b2b028-7236-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:24:56Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 607afa0b-9536-48
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:24:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6718a3d2-da6e-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:25:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 3b60aa4e-07cc-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:25:56Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: aba7afc0-ba19-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:25:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: fe1bd048-07d1-4e
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:26:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: eabfba3d-408a-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:26:56Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 17e42ee2-e7ff-45
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:26:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 426e676d-4c14-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:27:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 46cb40d8-5455-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:27:57Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 62805cd4-05d5-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:27:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 7852e833-3bd9-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:28:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 2cfa5f08-050e-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:28:57Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: cf1ae528-9e83-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:28:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 2036ccca-a425-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:29:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 8ca77d37-92f0-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:29:57Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 977f2d48-134f-42
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:29:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 2bb26a42-d3ad-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:30:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 2c149276-c091-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:30:57Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: e9382ac5-578f-47
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:30:59Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 41446f86-2914-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:31:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 67325ce2-edcb-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:31:57Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 91996368-ccfc-49
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:32:00Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 2bc323a9-3233-48
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:32:00Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 71cbcd9c-6cdd-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:32:57Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 8471f3de-46a7-4c
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:33:00Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: bf4a8936-360c-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:33:01Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: be727a66-0966-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:33:59Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 29115691-f4fc-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:34:00Z] task_planner (CONSENSUS_PROPOSE): Proposal from task_planner
+
+v2 plan for #1557 addresses reviewer_plan v1 NACK (3 blocking + 9 non-blocking). Blocking fixes: (1) gateway_url citation corrected — it's an EggStack dataclass attribute at integration_tests/conftest.py:78, not a pytest fixture; tests reach it via egg_stack.gateway_url. (2) REVIEWER_CONTRACT reinstated as the apply-phase reviewer per architect's slice-3 design + risk_analyst R1; new reviewer-contract-apply.md prompt enumerates the contract-state convergence checks (jira_action='create' + jira_key regex match, jira_action_status terminal, no in-flight mutated without confirmation). (3) New TASK-1-7 builds the stub-jira test infrastructure (Flask fake at integration_tests/fixtures/stub_jira.py + k3s stub-jira container + JIRA_BASE_URL override on the gateway pod) that integration tests depend on. Non-blocking fixes: PipelinePhase.APPLY + VALID_TRANSITIONS edges (TASK-1-4); Task.jira_action_status lifecycle field (TASK-1-3, risk_analyst R7); loader-side mode-block strip helper (TASK-1-1, R10); clarified TASK-2-7 trigger chain so the Won't-Do drain runs after apply consensus, not inside the HITL POST handler; tests moved to a new integration_tests/epic_pipeline/ directory (separate from the pure-contract tests in integration_tests/sdlc/); EGG_PIPELINE_MODE canonical mapping rule enumerated; TASK-1-6 re-scoped to tests only (epic_link_field already wired today); fixed CODER_PATTERNS line-range citation; added TASK-2-10 documenter task for shared-secret lifecycle docs. Decision-17 registered via mcp__sdlc__register_open_question for reverse-index storage shape (risk_analyst HR3). Plan parses cleanly; 18 tasks total (8 + 10).
+
+````yaml
+id: 23b8573a-c55c-48
+phase: plan
+metadata:
+  payload:
+    summary: "v2 plan for #1557 addresses reviewer_plan v1 NACK (3 blocking + 9 non-blocking).\
+      \ Blocking fixes: (1) gateway_url citation corrected \u2014 it's an EggStack\
+      \ dataclass attribute at integration_tests/conftest.py:78, not a pytest fixture;\
+      \ tests reach it via egg_stack.gateway_url. (2) REVIEWER_CONTRACT reinstated\
+      \ as the apply-phase reviewer per architect's slice-3 design + risk_analyst\
+      \ R1; new reviewer-contract-apply.md prompt enumerates the contract-state convergence\
+      \ checks (jira_action='create' + jira_key regex match, jira_action_status terminal,\
+      \ no in-flight mutated without confirmation). (3) New TASK-1-7 builds the stub-jira\
+      \ test infrastructure (Flask fake at integration_tests/fixtures/stub_jira.py\
+      \ + k3s stub-jira container + JIRA_BASE_URL override on the gateway pod) that\
+      \ integration tests depend on. Non-blocking fixes: PipelinePhase.APPLY + VALID_TRANSITIONS\
+      \ edges (TASK-1-4); Task.jira_action_status lifecycle field (TASK-1-3, risk_analyst\
+      \ R7); loader-side mode-block strip helper (TASK-1-1, R10); clarified TASK-2-7\
+      \ trigger chain so the Won't-Do drain runs after apply consensus, not inside\
+      \ the HITL POST handler; tests moved to a new integration_tests/epic_pipeline/\
+      \ directory (separate from the pure-contract tests in integration_tests/sdlc/);\
+      \ EGG_PIPELINE_MODE canonical mapping rule enumerated; TASK-1-6 re-scoped to\
+      \ tests only (epic_link_field already wired today); fixed CODER_PATTERNS line-range\
+      \ citation; added TASK-2-10 documenter task for shared-secret lifecycle docs.\
+      \ Decision-17 registered via mcp__sdlc__register_open_question for reverse-index\
+      \ storage shape (risk_analyst HR3). Plan parses cleanly; 18 tasks total (8 +\
+      \ 10)."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-plan.md
+    risk_considered: "v2 closes the reviewer_plan v1 verification + safety gaps. The\
+      \ applier no longer ships zero-reviewer; REVIEWER_CONTRACT verifies contract-state\
+      \ convergence. Apply phase enum + transitions are explicit so Pipeline.current_phase\
+      \ = 'apply' is representable. Task.jira_action_status closes the partial-apply\
+      \ recovery gap risk_analyst R7 named \u2014 every action type (not just create)\
+      \ becomes idempotently re-attemptable. Mode-block stripping at the loader level\
+      \ closes risk_analyst R10's LLM-conditional-on-env-var fragility. Stub-jira\
+      \ fixture is now an explicit task so integration tests can actually run against\
+      \ deterministic Jira state. Decision-17 (reverse-index storage shape) registered\
+      \ for operator pick before slice-2 implement starts."
+    commit_sha: 24dfdbd04
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-plan.md
+    tests_run: []
+    tasks_satisfied:
+    - TASK-1-1
+    - TASK-1-2
+    - TASK-1-3
+    - TASK-1-4
+    - TASK-1-5
+    - TASK-1-6
+    - TASK-1-7
+    - TASK-1-8
+    - TASK-2-1
+    - TASK-2-2
+    - TASK-2-3
+    - TASK-2-4
+    - TASK-2-5
+    - TASK-2-6
+    - TASK-2-7
+    - TASK-2-8
+    - TASK-2-9
+    - TASK-2-10
+  version: 2
+  commit_sha: 24dfdbd04
+````
+
+### [2026-05-12T05:34:00Z] reviewer_plan (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: b85d4f59-7b22-48
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:22:59.110968+00:00'
+````
+
+### [2026-05-12T05:34:00Z] reviewer_plan (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: e5dbea4f-ad7e-49
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:34:01Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 0796334e-cd00-46
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:34:30Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 200f9f6c-a725-41
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:34:09.274490+00:00'
+````
+
+### [2026-05-12T05:35:00Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: d54d7cc8-e6cf-4b
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:35:01Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 332d8289-3ffc-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:35:24Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 256dbb3b-0ed2-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:34:09.274490+00:00'
+````
+
+### [2026-05-12T05:36:00Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: f901352f-4b9a-43
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:26.299828+00:00'
+````
+
+### [2026-05-12T05:36:01Z] risk_analyst (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: c78f454a-a6b5-40
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:16:29.987496+00:00'
+````
+
+### [2026-05-12T05:36:24Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: e1102d87-435d-4d
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:34:09.274490+00:00'
+````
+
+### [2026-05-12T05:36:31Z] reviewer_plan → task_planner (CONSENSUS_ACK): ACK from reviewer_plan for task_planner
+
+
+Reviewed the 1339-line v2 plan draft. All three blocking issues from the v1 NACK are resolved, and all nine non-blocking items are folded in. Verified against codebase at HEAD.
+
+### Blocking issues from v1 NACK — all resolved
+
+1. **`gateway_url` citation corrected.** ✓
+   - Line 182 of the primitive table now reads: `EggStack dataclass + gateway_url attribute | integration_tests/conftest.py:71-93 (gateway_url: str at :78); pytest fixtures egg_stack at :308 and orchestrator_url at :325. gateway_url is **not** a standalone fixture — tests reach the URL via egg_stack.gateway_url`. Verified at HEAD: `grep -n "gateway_url" integration_tests/conftest.py` shows `gateway_url: str` at line 78 (dataclass attribute) and `gateway_url = f"http://..."` at line 219 (local var inside `_k8s_egg_stack`) — no `def gateway_url` fixture.
+   - TASK-1-8 (lines 902-906) and TASK-2-9 (line 1285) explicitly access the gateway URL via `egg_stack.gateway_url` attribute.
+
+2. **Apply-phase reviewer reinstated to REVIEWER_CONTRACT.** ✓
+   - Line 209 of NEW primitive table: `_PHASE_REVIEWERS["apply"] = [REVIEWER_CONTRACT]` registration (NEW — task TASK-1-4).
+   - TASK-1-4 step 2 (lines 670-680) explicitly registers REVIEWER_CONTRACT as the apply-phase reviewer with the four convergence checks (jira_key regex match, jira_action_status terminal state, failure-reason recorded in notes, no in-flight mutation without `in-flight-confirmed`).
+   - TASK-1-5 (lines 770-787) creates a new `reviewer-contract-apply.md` (or `[mode: apply]` block) prompt enumerating these checks. The reviewer ACKs on contract-state convergence per risk_analyst R1 mitigation (c).
+   - The dangling "reviewer added in TASK-1-7 if needed" pointer from v1 is gone.
+
+3. **Stub-Jira fake infrastructure added as TASK-1-7.** ✓
+   - Lines 835-890 create a new TESTER task that builds `integration_tests/fixtures/stub_jira.py` (in-process Flask fake), `integration_tests/fixtures/tests/test_stub_jira.py` (unit tests for the fake), and extends `integration_tests/conftest.py` to deploy a `stub-jira` container to the k3s test stack with `JIRA_BASE_URL` overridden on the gateway pod.
+   - The fake covers all seven Atlassian routes the applier + sweep + transition + remote-link surfaces need: `GET /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issue`, `PUT /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issueLink`, `POST /rest/api/3/issue/{KEY}/transitions`, `GET /rest/api/3/issue/{KEY}/remotelink`, `POST /rest/api/3/search`.
+   - A `seed_epic(stub, key, children=...)` helper makes scenario setup ergonomic for TASK-1-8 / TASK-2-9.
+   - Verified the gateway uses `JIRA_BASE_URL` as the configurable endpoint: `gateway/jira_credentials.py:155` reads `secrets.get("JIRA_BASE_URL")`. The override-via-ConfigMap path is mechanically sound.
+
+### Non-blocking items from v1 NACK — all addressed
+
+- **PipelinePhase.APPLY enum extension.** ✓ TASK-1-4 step 1 (lines 645-658) adds `PipelinePhase.APPLY = "apply"` to `shared/egg_contracts/models.py:62-68` and `VALID_TRANSITIONS[PLAN] = [APPLY, IMPLEMENT]` + `VALID_TRANSITIONS[APPLY] = [IMPLEMENT]` to `gateway/phase_transition.py:41-47`. Files list at line 731-736 includes both. Gating on `Pipeline.is_epic` explicitly noted.
+
+- **Task.jira_action_status lifecycle field.** ✓ TASK-1-3 (lines 599-609) adds `jira_action_status: Literal['pending','in_flight','applied','failed'] | None` to Task. The applier writes 'in_flight' before each gateway call and 'applied'/'failed' after (lines 754-762 in TASK-1-5). Risk_analyst R7 mitigation realized for all action types, not just create.
+
+- **Loader-side mode-block stripping.** ✓ TASK-1-1 (lines 511-522) adds `prep_mode_aware_prompt(prompt_text, mode)` in a new `orchestrator/prompt_loader.py` module that regex-strips fenced `## [mode: X]` blocks not matching the active mode BEFORE the prompt is passed to the agent runner. Wired into the existing prompt-loading code path in `orchestrator/routes/pipelines.py`. Risk_analyst R10 mitigation (b) realized.
+
+- **TASK-2-7 trigger chain clarified.** ✓ Lines 1163-1228 fully restructured. The plan now explicitly says: HITL approval → `_persist_phase_gate_resolution` flips state + returns HTTP response → phase scheduler advances to APPLY + spawns applier pod + REVIEWER_CONTRACT → applier emits Won't-Do handoff JSON + signals CONSENSUS_PROPOSE → REVIEWER_CONTRACT ACK terminates apply phase → ONLY THEN does `_drain_wontdo_batch_after_apply` iterate the handoff JSON and call `/transition`. Crucially, the drain runs OUT-of-band from the HITL response — and there's a unit test acceptance criterion (line 1209-1213) that asserts the HITL POST returns within the existing latency SLA when a mocked `/transition` sleeps 5 seconds. Won't-Do drain is no longer inside the HITL handler.
+
+- **Integration tests moved to `integration_tests/epic_pipeline/`.** ✓ TASK-1-8 line 901-902 and TASK-2-9 line 1283-1284 specify the new directory with its own conftest.py that imports `egg_stack` from the parent. The pure-Python contract tests under `integration_tests/sdlc/` are untouched.
+
+- **EGG_PIPELINE_MODE mapping rule enumerated.** ✓ Line 200 (NEW primitive table) and TASK-1-1 lines 504-508 both specify the canonical mapping: `is_epic=True + pipeline_mode='fresh' → 'epic-fresh'`; `is_epic=True + pipeline_mode='reassess' → 'epic-reassess'`; `is_epic=False + jira_ticket is not None → 'ticket'`; else `'github_issue'`. The AC at line 534-537 verifies this.
+
+- **TASK-1-6 re-scoped to tests only.** ✓ Lines 805-834. Role is now `tester`; files list is just `gateway/tests/test_jira_routes.py`. The task description explicitly verifies at HEAD that `epicLink` shorthand dispatch is already wired (no production-code changes unless a test reveals a gap). Verified at HEAD: `grep -n "epic_link_field\|epicLink" gateway/gateway.py` returns dispatch use in the create route (lines 5358, 5413, 5594, 5697-5748 per the architect's existing_code_seams).
+
+- **CODER_PATTERNS citation corrected.** ✓ Line 149: `shared/egg_restrictions/patterns.py:108-184` (the v1 was `:108-189`; off-by-five corrected to `:108-184`; actual end is `:108-183` per my exploration but the new citation is now within one line of the actual region — close enough that the implementer won't be misled).
+
+- **TASK-2-10 documenter task for shared-secret docs.** ✓ Lines 1314-1338. Documents the `X-Egg-Orchestrator-Token` lifecycle (generation, mounting, rotation) in `docs/architecture/orchestrator.md`. Role is documenter; files list is just the doc file.
+
+- **Decision-17 (reverse-index storage shape) registered.** ✓ Verified via `mcp__sdlc__show_contract` — decision-17 is in the contract with three options (A in-memory rebuilt on startup, B sidecar JSON, C SQLite) and `resolved: false`. The plan-draft Approach section at lines 108-111 says "Default if no pick is made: option A (in-memory only, rebuilt on startup)" so implement-phase has a fallback if the operator doesn't resolve.
+
+### Additional verifications
+
+- **Forest slice DAG.** Slice 1 has no parent; slice 2 depends only on slice 1. Single root, no cycles. Conformant with #2137's forest-only constraint.
+- **Role↔files alignment (criteria §8).** Per the spec, the orchestrator validated this at CONSENSUS_PROPOSE time; that the propose landed means it passed. Spot-checked the higher-risk tasks: TASK-1-1 (coder) writes orchestrator/* + a new orchestrator/prompt_loader.py — coder allows `**` minus `.egg-state/, docs/, tests/, .github/`; OK; TASK-1-4 (coder) writes `shared/egg_contracts/agent_roles.py + models.py`, `shared/egg_restrictions/patterns.py`, `gateway/phase_transition.py`, `orchestrator/routes/pipelines.py` — all CODER-allowed; TASK-1-7 (tester) writes `integration_tests/fixtures/*` + `integration_tests/conftest.py` — all TESTER-allowed; TASK-2-10 (documenter) writes `docs/architecture/orchestrator.md` — DOCUMENTER-allowed. Clean.
+- **Primitive-existence audit (criteria §9).** Spot-checked all NEW primitives are tagged with `(NEW — task TASK-X-Y)` (lines 195-229) and each consumer is downstream of its creator: e.g., `Task.jira_key` created in TASK-1-3 is consumed by TASK-1-5 (applier prompt) and TASK-2-7 (apply-phase orchestrator hook), both downstream. The `stub-jira` fake created in TASK-1-7 is consumed by TASK-1-8 and TASK-2-9 (both downstream). Dependency ordering is sound.
+- **Trust-boundary audit (criteria §10).** Each task's execution context is consistent with the primitives it names: TASK-1-1's gateway call is orchestrator-side (calls `gateway_client.get_jira_ticket`, not from a sandbox); TASK-2-6's `/transition` route is reachable only via orchestrator (shared-secret + loopback gate); TASK-1-8 and TASK-2-9 are trusted-CI-runner tier (use `egg_stack` fixture which kubectl-gates); applier runs in-sandbox-agent context and reaches Jira via the existing GATEWAY_URL surface; no in-sandbox-agent test depends on a kubectl-gated fixture.
+
+### Non-blocking
+
+- **Trust-boundary scope notes (lines 244-246) still say "tests that need `gateway_url` as a pytest fixture live under `integration_tests/`"** — but the corrected primitive table at line 182 and the actual task descriptions at TASK-1-8 / TASK-2-9 make clear there IS no `gateway_url` pytest fixture. The Trust-boundary scope note paragraph is internally inconsistent with the rest of the plan. Cleanup item for plan-draft polish, not a blocker for the implement phase.
+
+- **Slice-sizing advisory (#2137):** Slice 1 has 8 tasks touching `orchestrator/*`, `gateway/*`, `shared/*`, `plugins/*`, `integration_tests/*`, `sandbox/*` — heuristic LOC well over 1,000 (Pipeline + Task model changes, two new prompts, applier/reviewer-contract supplements, full apply-phase wiring, k3s stub-jira deployment + unit tests + integration tests). At 1,000–2,000 LOC range, advisory is "consider splitting". The natural split would peel the applier/apply-phase scheduling work into its own slice between slice-1 (schema+plumbing+prompts) and slice-2 (reassess). Decision-1 option C explicitly chose `[A+B+C+D fresh-epic] → [E+F+G reassess]`, so D is bundled with A+B+C here per operator direction — this is **advisory only**, NOT a NACK. Operator may want to consider the split when re-running but the existing decision overrides.
+
+- **Decision-17 default behavior is referenced but not enforced in code.** The plan says "Default if no pick is made: option A (in-memory only, rebuilt on startup)" but TASK-2-2's description only says "Implementation may be a straight in-memory filter against the pipeline cache plus a per-ticket secondary index for O(1) lookup if performance demands it" — that's option A's shape but doesn't explicitly call out that this is the decision-17 default-resolution path. If the operator resolves decision-17 with option B or C, TASK-2-2 needs to switch implementations. Recommend the implementer reads decision-17's resolution before starting TASK-2-2 and either implements the resolved option or defaults to A with a comment that decision-17 is unresolved.
+
+- **TASK-1-7's `integration_tests/conftest.py` modification needs careful staging.** Adding a `stub-jira` deployment to the k3s test stack at `_k8s_egg_stack` (line 166) will run on every kubectl-gated test, not just the new epic-pipeline tests. This is fine (the stub adds ~10s pod-startup overhead per test session, amortized across all tests) but a less invasive shape is to gate the stub deployment on a test-marker (e.g., `@pytest.mark.requires_stub_jira`) so non-epic tests don't pay the cost. Non-blocking — the cost is minor; flag for implementer judgment.
+
+- **TASK-1-5 punts on `mcp__task__set_status` MCP tool.** Lines 757-759: "via `mcp__task__update_notes` (or a future `mcp__task__set_status` MCP)". Writing `jira_action_status` lifecycle via `update_notes` is awkward (status would be embedded in free-form notes text). The cleaner long-term shape is a dedicated `mcp__task__set_status` MCP tool that updates `Task.jira_action_status` directly. Recommend the implementer raises this as a follow-up issue if/when it becomes painful in TASK-1-7 / TASK-1-8 testing — not a slice-1 deliverable.
+
+- **TASK-1-7's `EGG_LIFECYCLE_SECRET` gating.** The new `stub-jira` deployment + `JIRA_BASE_URL` override are deployment-time concerns that don't touch the `EGG_LIFECYCLE_SECRET` path. But if the test harness needs to inject the JIRA_BASE_URL override via a lifecycle-secret-gated route (e.g., to point at a stub mid-test), TASK-1-7 should specify which orchestrator route does the injection. As written, the override happens at gateway pod startup via env var — non-issue.
+
+The plan is fundamentally sound. ACK at version 2; ready to advance to implement-phase BRC.
+
+
+````yaml
+id: 1e451a80-8146-44
+phase: plan
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/issue-1557-v2-plan.md
+    reason: "\nReviewed the 1339-line v2 plan draft. All three blocking issues from\
+      \ the v1 NACK are resolved, and all nine non-blocking items are folded in. Verified\
+      \ against codebase at HEAD.\n\n### Blocking issues from v1 NACK \u2014 all resolved\n\
+      \n1. **`gateway_url` citation corrected.** \u2713\n   - Line 182 of the primitive\
+      \ table now reads: `EggStack dataclass + gateway_url attribute | integration_tests/conftest.py:71-93\
+      \ (gateway_url: str at :78); pytest fixtures egg_stack at :308 and orchestrator_url\
+      \ at :325. gateway_url is **not** a standalone fixture \u2014 tests reach the\
+      \ URL via egg_stack.gateway_url`. Verified at HEAD: `grep -n \"gateway_url\"\
+      \ integration_tests/conftest.py` shows `gateway_url: str` at line 78 (dataclass\
+      \ attribute) and `gateway_url = f\"http://...\"` at line 219 (local var inside\
+      \ `_k8s_egg_stack`) \u2014 no `def gateway_url` fixture.\n   - TASK-1-8 (lines\
+      \ 902-906) and TASK-2-9 (line 1285) explicitly access the gateway URL via `egg_stack.gateway_url`\
+      \ attribute.\n\n2. **Apply-phase reviewer reinstated to REVIEWER_CONTRACT.**\
+      \ \u2713\n   - Line 209 of NEW primitive table: `_PHASE_REVIEWERS[\"apply\"\
+      ] = [REVIEWER_CONTRACT]` registration (NEW \u2014 task TASK-1-4).\n   - TASK-1-4\
+      \ step 2 (lines 670-680) explicitly registers REVIEWER_CONTRACT as the apply-phase\
+      \ reviewer with the four convergence checks (jira_key regex match, jira_action_status\
+      \ terminal state, failure-reason recorded in notes, no in-flight mutation without\
+      \ `in-flight-confirmed`).\n   - TASK-1-5 (lines 770-787) creates a new `reviewer-contract-apply.md`\
+      \ (or `[mode: apply]` block) prompt enumerating these checks. The reviewer ACKs\
+      \ on contract-state convergence per risk_analyst R1 mitigation (c).\n   - The\
+      \ dangling \"reviewer added in TASK-1-7 if needed\" pointer from v1 is gone.\n\
+      \n3. **Stub-Jira fake infrastructure added as TASK-1-7.** \u2713\n   - Lines\
+      \ 835-890 create a new TESTER task that builds `integration_tests/fixtures/stub_jira.py`\
+      \ (in-process Flask fake), `integration_tests/fixtures/tests/test_stub_jira.py`\
+      \ (unit tests for the fake), and extends `integration_tests/conftest.py` to\
+      \ deploy a `stub-jira` container to the k3s test stack with `JIRA_BASE_URL`\
+      \ overridden on the gateway pod.\n   - The fake covers all seven Atlassian routes\
+      \ the applier + sweep + transition + remote-link surfaces need: `GET /rest/api/3/issue/{KEY}`,\
+      \ `POST /rest/api/3/issue`, `PUT /rest/api/3/issue/{KEY}`, `POST /rest/api/3/issueLink`,\
+      \ `POST /rest/api/3/issue/{KEY}/transitions`, `GET /rest/api/3/issue/{KEY}/remotelink`,\
+      \ `POST /rest/api/3/search`.\n   - A `seed_epic(stub, key, children=...)` helper\
+      \ makes scenario setup ergonomic for TASK-1-8 / TASK-2-9.\n   - Verified the\
+      \ gateway uses `JIRA_BASE_URL` as the configurable endpoint: `gateway/jira_credentials.py:155`\
+      \ reads `secrets.get(\"JIRA_BASE_URL\")`. The override-via-ConfigMap path is\
+      \ mechanically sound.\n\n### Non-blocking items from v1 NACK \u2014 all addressed\n\
+      \n- **PipelinePhase.APPLY enum extension.** \u2713 TASK-1-4 step 1 (lines 645-658)\
+      \ adds `PipelinePhase.APPLY = \"apply\"` to `shared/egg_contracts/models.py:62-68`\
+      \ and `VALID_TRANSITIONS[PLAN] = [APPLY, IMPLEMENT]` + `VALID_TRANSITIONS[APPLY]\
+      \ = [IMPLEMENT]` to `gateway/phase_transition.py:41-47`. Files list at line\
+      \ 731-736 includes both. Gating on `Pipeline.is_epic` explicitly noted.\n\n\
+      - **Task.jira_action_status lifecycle field.** \u2713 TASK-1-3 (lines 599-609)\
+      \ adds `jira_action_status: Literal['pending','in_flight','applied','failed']\
+      \ | None` to Task. The applier writes 'in_flight' before each gateway call and\
+      \ 'applied'/'failed' after (lines 754-762 in TASK-1-5). Risk_analyst R7 mitigation\
+      \ realized for all action types, not just create.\n\n- **Loader-side mode-block\
+      \ stripping.** \u2713 TASK-1-1 (lines 511-522) adds `prep_mode_aware_prompt(prompt_text,\
+      \ mode)` in a new `orchestrator/prompt_loader.py` module that regex-strips fenced\
+      \ `## [mode: X]` blocks not matching the active mode BEFORE the prompt is passed\
+      \ to the agent runner. Wired into the existing prompt-loading code path in `orchestrator/routes/pipelines.py`.\
+      \ Risk_analyst R10 mitigation (b) realized.\n\n- **TASK-2-7 trigger chain clarified.**\
+      \ \u2713 Lines 1163-1228 fully restructured. The plan now explicitly says: HITL\
+      \ approval \u2192 `_persist_phase_gate_resolution` flips state + returns HTTP\
+      \ response \u2192 phase scheduler advances to APPLY + spawns applier pod + REVIEWER_CONTRACT\
+      \ \u2192 applier emits Won't-Do handoff JSON + signals CONSENSUS_PROPOSE \u2192\
+      \ REVIEWER_CONTRACT ACK terminates apply phase \u2192 ONLY THEN does `_drain_wontdo_batch_after_apply`\
+      \ iterate the handoff JSON and call `/transition`. Crucially, the drain runs\
+      \ OUT-of-band from the HITL response \u2014 and there's a unit test acceptance\
+      \ criterion (line 1209-1213) that asserts the HITL POST returns within the existing\
+      \ latency SLA when a mocked `/transition` sleeps 5 seconds. Won't-Do drain is\
+      \ no longer inside the HITL handler.\n\n- **Integration tests moved to `integration_tests/epic_pipeline/`.**\
+      \ \u2713 TASK-1-8 line 901-902 and TASK-2-9 line 1283-1284 specify the new directory\
+      \ with its own conftest.py that imports `egg_stack` from the parent. The pure-Python\
+      \ contract tests under `integration_tests/sdlc/` are untouched.\n\n- **EGG_PIPELINE_MODE\
+      \ mapping rule enumerated.** \u2713 Line 200 (NEW primitive table) and TASK-1-1\
+      \ lines 504-508 both specify the canonical mapping: `is_epic=True + pipeline_mode='fresh'\
+      \ \u2192 'epic-fresh'`; `is_epic=True + pipeline_mode='reassess' \u2192 'epic-reassess'`;\
+      \ `is_epic=False + jira_ticket is not None \u2192 'ticket'`; else `'github_issue'`.\
+      \ The AC at line 534-537 verifies this.\n\n- **TASK-1-6 re-scoped to tests only.**\
+      \ \u2713 Lines 805-834. Role is now `tester`; files list is just `gateway/tests/test_jira_routes.py`.\
+      \ The task description explicitly verifies at HEAD that `epicLink` shorthand\
+      \ dispatch is already wired (no production-code changes unless a test reveals\
+      \ a gap). Verified at HEAD: `grep -n \"epic_link_field\\|epicLink\" gateway/gateway.py`\
+      \ returns dispatch use in the create route (lines 5358, 5413, 5594, 5697-5748\
+      \ per the architect's existing_code_seams).\n\n- **CODER_PATTERNS citation corrected.**\
+      \ \u2713 Line 149: `shared/egg_restrictions/patterns.py:108-184` (the v1 was\
+      \ `:108-189`; off-by-five corrected to `:108-184`; actual end is `:108-183`\
+      \ per my exploration but the new citation is now within one line of the actual\
+      \ region \u2014 close enough that the implementer won't be misled).\n\n- **TASK-2-10\
+      \ documenter task for shared-secret docs.** \u2713 Lines 1314-1338. Documents\
+      \ the `X-Egg-Orchestrator-Token` lifecycle (generation, mounting, rotation)\
+      \ in `docs/architecture/orchestrator.md`. Role is documenter; files list is\
+      \ just the doc file.\n\n- **Decision-17 (reverse-index storage shape) registered.**\
+      \ \u2713 Verified via `mcp__sdlc__show_contract` \u2014 decision-17 is in the\
+      \ contract with three options (A in-memory rebuilt on startup, B sidecar JSON,\
+      \ C SQLite) and `resolved: false`. The plan-draft Approach section at lines\
+      \ 108-111 says \"Default if no pick is made: option A (in-memory only, rebuilt\
+      \ on startup)\" so implement-phase has a fallback if the operator doesn't resolve.\n\
+      \n### Additional verifications\n\n- **Forest slice DAG.** Slice 1 has no parent;\
+      \ slice 2 depends only on slice 1. Single root, no cycles. Conformant with #2137's\
+      \ forest-only constraint.\n- **Role\u2194files alignment (criteria \xA78).**\
+      \ Per the spec, the orchestrator validated this at CONSENSUS_PROPOSE time; that\
+      \ the propose landed means it passed. Spot-checked the higher-risk tasks: TASK-1-1\
+      \ (coder) writes orchestrator/* + a new orchestrator/prompt_loader.py \u2014\
+      \ coder allows `**` minus `.egg-state/, docs/, tests/, .github/`; OK; TASK-1-4\
+      \ (coder) writes `shared/egg_contracts/agent_roles.py + models.py`, `shared/egg_restrictions/patterns.py`,\
+      \ `gateway/phase_transition.py`, `orchestrator/routes/pipelines.py` \u2014 all\
+      \ CODER-allowed; TASK-1-7 (tester) writes `integration_tests/fixtures/*` + `integration_tests/conftest.py`\
+      \ \u2014 all TESTER-allowed; TASK-2-10 (documenter) writes `docs/architecture/orchestrator.md`\
+      \ \u2014 DOCUMENTER-allowed. Clean.\n- **Primitive-existence audit (criteria\
+      \ \xA79).** Spot-checked all NEW primitives are tagged with `(NEW \u2014 task\
+      \ TASK-X-Y)` (lines 195-229) and each consumer is downstream of its creator:\
+      \ e.g., `Task.jira_key` created in TASK-1-3 is consumed by TASK-1-5 (applier\
+      \ prompt) and TASK-2-7 (apply-phase orchestrator hook), both downstream. The\
+      \ `stub-jira` fake created in TASK-1-7 is consumed by TASK-1-8 and TASK-2-9\
+      \ (both downstream). Dependency ordering is sound.\n- **Trust-boundary audit\
+      \ (criteria \xA710).** Each task's execution context is consistent with the\
+      \ primitives it names: TASK-1-1's gateway call is orchestrator-side (calls `gateway_client.get_jira_ticket`,\
+      \ not from a sandbox); TASK-2-6's `/transition` route is reachable only via\
+      \ orchestrator (shared-secret + loopback gate); TASK-1-8 and TASK-2-9 are trusted-CI-runner\
+      \ tier (use `egg_stack` fixture which kubectl-gates); applier runs in-sandbox-agent\
+      \ context and reaches Jira via the existing GATEWAY_URL surface; no in-sandbox-agent\
+      \ test depends on a kubectl-gated fixture.\n\n### Non-blocking\n\n- **Trust-boundary\
+      \ scope notes (lines 244-246) still say \"tests that need `gateway_url` as a\
+      \ pytest fixture live under `integration_tests/`\"** \u2014 but the corrected\
+      \ primitive table at line 182 and the actual task descriptions at TASK-1-8 /\
+      \ TASK-2-9 make clear there IS no `gateway_url` pytest fixture. The Trust-boundary\
+      \ scope note paragraph is internally inconsistent with the rest of the plan.\
+      \ Cleanup item for plan-draft polish, not a blocker for the implement phase.\n\
+      \n- **Slice-sizing advisory (#2137):** Slice 1 has 8 tasks touching `orchestrator/*`,\
+      \ `gateway/*`, `shared/*`, `plugins/*`, `integration_tests/*`, `sandbox/*` \u2014\
+      \ heuristic LOC well over 1,000 (Pipeline + Task model changes, two new prompts,\
+      \ applier/reviewer-contract supplements, full apply-phase wiring, k3s stub-jira\
+      \ deployment + unit tests + integration tests). At 1,000\u20132,000 LOC range,\
+      \ advisory is \"consider splitting\". The natural split would peel the applier/apply-phase\
+      \ scheduling work into its own slice between slice-1 (schema+plumbing+prompts)\
+      \ and slice-2 (reassess). Decision-1 option C explicitly chose `[A+B+C+D fresh-epic]\
+      \ \u2192 [E+F+G reassess]`, so D is bundled with A+B+C here per operator direction\
+      \ \u2014 this is **advisory only**, NOT a NACK. Operator may want to consider\
+      \ the split when re-running but the existing decision overrides.\n\n- **Decision-17\
+      \ default behavior is referenced but not enforced in code.** The plan says \"\
+      Default if no pick is made: option A (in-memory only, rebuilt on startup)\"\
+      \ but TASK-2-2's description only says \"Implementation may be a straight in-memory\
+      \ filter against the pipeline cache plus a per-ticket secondary index for O(1)\
+      \ lookup if performance demands it\" \u2014 that's option A's shape but doesn't\
+      \ explicitly call out that this is the decision-17 default-resolution path.\
+      \ If the operator resolves decision-17 with option B or C, TASK-2-2 needs to\
+      \ switch implementations. Recommend the implementer reads decision-17's resolution\
+      \ before starting TASK-2-2 and either implements the resolved option or defaults\
+      \ to A with a comment that decision-17 is unresolved.\n\n- **TASK-1-7's `integration_tests/conftest.py`\
+      \ modification needs careful staging.** Adding a `stub-jira` deployment to the\
+      \ k3s test stack at `_k8s_egg_stack` (line 166) will run on every kubectl-gated\
+      \ test, not just the new epic-pipeline tests. This is fine (the stub adds ~10s\
+      \ pod-startup overhead per test session, amortized across all tests) but a less\
+      \ invasive shape is to gate the stub deployment on a test-marker (e.g., `@pytest.mark.requires_stub_jira`)\
+      \ so non-epic tests don't pay the cost. Non-blocking \u2014 the cost is minor;\
+      \ flag for implementer judgment.\n\n- **TASK-1-5 punts on `mcp__task__set_status`\
+      \ MCP tool.** Lines 757-759: \"via `mcp__task__update_notes` (or a future `mcp__task__set_status`\
+      \ MCP)\". Writing `jira_action_status` lifecycle via `update_notes` is awkward\
+      \ (status would be embedded in free-form notes text). The cleaner long-term\
+      \ shape is a dedicated `mcp__task__set_status` MCP tool that updates `Task.jira_action_status`\
+      \ directly. Recommend the implementer raises this as a follow-up issue if/when\
+      \ it becomes painful in TASK-1-7 / TASK-1-8 testing \u2014 not a slice-1 deliverable.\n\
+      \n- **TASK-1-7's `EGG_LIFECYCLE_SECRET` gating.** The new `stub-jira` deployment\
+      \ + `JIRA_BASE_URL` override are deployment-time concerns that don't touch the\
+      \ `EGG_LIFECYCLE_SECRET` path. But if the test harness needs to inject the JIRA_BASE_URL\
+      \ override via a lifecycle-secret-gated route (e.g., to point at a stub mid-test),\
+      \ TASK-1-7 should specify which orchestrator route does the injection. As written,\
+      \ the override happens at gateway pod startup via env var \u2014 non-issue.\n\
+      \nThe plan is fundamentally sound. ACK at version 2; ready to advance to implement-phase\
+      \ BRC.\n"
+    ack_version: 2
+  version: 2
+````
+
+### [2026-05-12T05:36:31Z] orchestrator → task_planner (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 2) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 3b414d54-8a10-42
+phase: plan
+metadata:
+  ready_to_confirm: true
+  version: 2
+````
+
+### [2026-05-12T05:36:31Z] task_planner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 3c087519-3732-4c
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:36:36Z] task_planner (CONSENSUS_CONFIRMED): Confirmed by task_planner
+
+````yaml
+id: 1e082428-3703-4b
+phase: plan
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-12T05:36:36Z] risk_analyst (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 4167f395-50a3-4f
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:36:36Z] architect (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 84f84d93-5dae-48
+phase: plan
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T05:36:40Z] reviewer_plan (CONSENSUS_CONFIRMED): Confirmed by reviewer_plan
+
+````yaml
+id: ace4bfde-182f-49
+phase: plan
+metadata:
+  consensus_reached: true
+````
+
+### [2026-05-12T05:36:46Z] task_planner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: fe251f16-83db-4a
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:36:46.300084+00:00'
+````
+
+### [2026-05-12T05:36:46Z] architect (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: a1d1bbad-092b-44
+phase: plan
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T05:36:46.921408+00:00'
+````
+
+### [2026-05-12T05:36:47Z] architect (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: c11bb8f2-a91c-49
+phase: plan
+metadata:
+  state: WORKING
+````
