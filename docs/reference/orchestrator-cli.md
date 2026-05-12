@@ -270,7 +270,7 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
   - `force_reason` (string, optional) — audit note explaining why `force=true` was used.
 - **`populate_contract`**: No additional parameters. Resolves the pipeline's worktree path, reads the plan document, extracts task structure, and writes tasks and acceptance criteria to the contract. Returns phase and task counts on success.
 
-**Error reason codes** (#1939): The four endpoints normally surface a stable, machine-readable `reason` field in error responses — switch on `reason` rather than parsing the human-readable `message`. Two cases break this convention and are noted inline in the table: `populate_contract`'s `forest_violation` 422 ships the structured errors under an `error` key (no `reason`), and the earlier 400-list shape returns a list of structured entries rather than a top-level `reason`. Key codes:
+**Error reason codes** (#1939): The four endpoints normally surface a stable, machine-readable `reason` field in error responses — switch on `reason` rather than parsing the human-readable `message`. One case breaks this convention and is noted inline in the table: `populate_contract`'s `forest_violation` 422 ships the structured errors under an `error` key (no `reason`). Key codes:
 
 | Endpoint | `reason` | HTTP | Meaning / fix |
 |----------|----------|------|---------------|
