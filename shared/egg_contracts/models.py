@@ -263,9 +263,7 @@ class Task(EggContractBaseModel):
             "when the task has no Jira footprint."
         ),
     )
-    jira_action: Literal[
-        "create", "edit", "wontdo", "split-of", "consolidate-into"
-    ] | None = Field(
+    jira_action: Literal["create", "edit", "wontdo", "split-of", "consolidate-into"] | None = Field(
         default=None,
         description=(
             "Jira mutation the APPLIER should perform for this task on "
@@ -278,9 +276,7 @@ class Task(EggContractBaseModel):
             "invariant; see #1557 decision-15)."
         ),
     )
-    jira_action_status: Literal[
-        "pending", "in_flight", "applied", "failed"
-    ] | None = Field(
+    jira_action_status: Literal["pending", "in_flight", "applied", "failed"] | None = Field(
         default=None,
         description=(
             "Durable apply-lifecycle status (#1557 risk_analyst R7). "
@@ -307,7 +303,11 @@ class Task(EggContractBaseModel):
         if isinstance(v, str):
             trimmed = v.strip()
             return trimmed or None
-        return v
+        # Non-str / non-None inputs fall through to Pydantic's own type
+        # validator which will raise; returning ``None`` here narrows the
+        # declared ``str | None`` return type (mypy ``no-any-return``,
+        # reviewer #1557 tester v1 lint finding).
+        return None
 
 
 class Slice(EggContractBaseModel):
