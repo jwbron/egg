@@ -1124,6 +1124,7 @@ if _emit_event is not None:
         "phase.revision_requested": EventType.PHASE_STARTED,  # re-entering phase
         "pipeline.completed": EventType.PIPELINE_COMPLETED,
         "pipeline.failed": EventType.PIPELINE_FAILED,
+        "pipeline.cancelled": EventType.PIPELINE_CANCELLED,
         "decision.created": EventType.DECISION_CREATED,
         "context_pr.skipped": EventType.CONTEXT_PR_SKIPPED,
         "context_pr.failed": EventType.CONTEXT_PR_FAILED,
@@ -2189,7 +2190,19 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
     try:
         store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
+        prev_status = _pipeline.status
         pipeline = store.update_pipeline(pipeline_id, data)
+
+        # Emit the terminal event before kicking off cleanup so /status/wait
+        # long-pollers wake immediately on cancellation rather than waiting
+        # for the late-subscriber synth path on their next poll (#2663). The
+        # run loop emits pipeline.completed / pipeline.failed from its own
+        # terminal transitions; the PATCH path is the only place the
+        # CANCELLED transition originates, so we emit it here. Gate on the
+        # status *transition* (not equality) so idempotent retries against an
+        # already-cancelled pipeline don't re-wake long-pollers.
+        if pipeline.status == PipelineStatus.CANCELLED and prev_status != PipelineStatus.CANCELLED:
+            _emit_pipeline_event(pipeline, "pipeline.cancelled")
 
         # If pipeline is being cancelled or failed, clean up containers
         # and cancel any pending decisions so wait_for_decision() unblocks.
@@ -10256,7 +10269,28 @@ def _open_context_pr_for_pipeline(
             error=str(fetch_err),
         )
 
-    tmp_worktree = Path(tempfile.mkdtemp(prefix=f"egg-context-{pipeline_id}-", dir="/tmp"))
+    # Root under WORKTREE_BASE_DIR so the path falls inside the gateway's
+    # repo-path allowlist (gateway/git_client.py ALLOWED_REPO_PATHS) — a
+    # ``/tmp`` location would be rejected by ``validate_repo_path`` and
+    # the subsequent ``push_worktree_branch`` call would fail with
+    # ``repo_path must be within allowed directories`` (#2684).  Falls
+    # back to the system temp dir in environments where the base path
+    # is absent (e.g. unit tests) — emit a warning on that branch so a
+    # broken docker volume mount in production is noisy rather than
+    # silently recreating the #2684 push-rejection.
+    if WORKTREE_BASE_DIR.exists():
+        tmp_dir_base = str(WORKTREE_BASE_DIR)
+    else:
+        logger.warning(
+            "Context PR hook: WORKTREE_BASE_DIR missing — falling back to "
+            "system temp (likely a broken volume mount in production; the "
+            "push to the context branch will be rejected by the gateway "
+            "allowlist) (#2684)",
+            pipeline_id=pipeline_id,
+            worktree_base_dir=str(WORKTREE_BASE_DIR),
+        )
+        tmp_dir_base = None
+    tmp_worktree = Path(tempfile.mkdtemp(prefix=f"egg-context-{pipeline_id}-", dir=tmp_dir_base))
     # Use a unique sub-path so ``git worktree add`` doesn't collide with
     # the (already-created-by-mkdtemp) directory.  ``git worktree add``
     # refuses to add to an existing non-empty directory.
@@ -11013,8 +11047,34 @@ def _commit_slice_brc_history_to_integration_branch(
             error=str(fetch_err),
         )
 
+    # Root under WORKTREE_BASE_DIR so the temp path falls inside the
+    # gateway's repo-path allowlist (gateway/git_client.py
+    # ALLOWED_REPO_PATHS).  A ``/tmp`` location is rejected by
+    # ``validate_repo_path``, which silently failed the BRC-history
+    # push and left slice PRs without their consensus transcript
+    # (#2684).  Falls back to system temp when the base dir is absent
+    # (e.g. unit tests) — emit a warning on that branch so a broken
+    # docker volume mount in production is noisy rather than silently
+    # recreating the #2684 push-rejection.
+    if WORKTREE_BASE_DIR.exists():
+        tmp_dir_base = str(WORKTREE_BASE_DIR)
+    else:
+        logger.warning(
+            "Per-slice BRC commit: WORKTREE_BASE_DIR missing — falling "
+            "back to system temp (likely a broken volume mount in "
+            "production; the push to the integration branch will be "
+            "rejected by the gateway allowlist) (#2684)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            integration_branch=integration_branch,
+            worktree_base_dir=str(WORKTREE_BASE_DIR),
+        )
+        tmp_dir_base = None
     tmp_worktree = Path(
-        tempfile.mkdtemp(prefix=f"egg-slice-brc-{pipeline_id}-{slice_id}-", dir="/tmp")
+        tempfile.mkdtemp(
+            prefix=f"egg-slice-brc-{pipeline_id}-{slice_id}-",
+            dir=tmp_dir_base,
+        )
     )
     wt_path = tmp_worktree / "wt"
 

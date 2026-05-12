@@ -104,8 +104,10 @@ def create_or_update_anchor(agent_id: str) -> tuple[Response, int]:
         return _make_error(agent_id_error)
 
     body = request.get_json()
-    if not body:
+    if body is None:
         return _make_error("Missing request body")
+    if not isinstance(body, dict):
+        return _make_error("Request body must be a JSON object")
 
     # Validate agent_id consistency between URL and body
     body_agent_id = body.get("agent_id")
@@ -288,7 +290,10 @@ def gc_anchors(pipeline_id: str) -> tuple[Response, int]:
     For completed pipelines: archive to checkpoint then clear from Redis.
     For failed pipelines: set 7-day TTL.
     """
-    body = request.get_json() or {}
+    raw = request.get_json()
+    if raw is not None and not isinstance(raw, dict):
+        return _make_error("Request body must be a JSON object")
+    body = raw if raw is not None else {}
     pipeline_status = body.get("status", "completed")
 
     r = _get_redis()
