@@ -2503,7 +2503,11 @@ class TestBabysitPr:
         # pr_number is intentionally not in required so the handler can return
         # a structured {"error": "pr_number must be a positive integer"} when
         # it is omitted rather than Pydantic raising a generic "Field required".
-        assert schema["required"] == ["repo"]
+        # Assert by membership rather than exact list/order so adding another
+        # required field in a later PR doesn't force this test to update.
+        required = set(schema["required"])
+        assert "repo" in required
+        assert "pr_number" not in required
         assert "pr_number" in schema["properties"]
         assert schema["properties"]["pr_number"]["type"] == "integer"
         assert schema["properties"]["repo"]["type"] == "string"

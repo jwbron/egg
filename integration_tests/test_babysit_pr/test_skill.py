@@ -261,7 +261,10 @@ class TestBabysitPRToolRegistration:
         # pr_number is intentionally not in required so the handler can return
         # a structured {"error": "pr_number must be a positive integer"} envelope
         # when it is omitted, rather than Pydantic raising "Field required".
+        # The "pr_number not in required" assertion is the property under test;
+        # "repo in required" is the positive companion that locks in shape.
         assert "repo" in required
+        assert "pr_number" not in required
         props = tool["inputSchema"]["properties"]
         assert "pr_number" in props
         assert props["pr_number"]["type"] == "integer"

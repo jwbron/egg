@@ -8,6 +8,7 @@ Runs as a sidecar alongside the orchestrator.
 
 import asyncio
 import functools
+import inspect
 import json
 import sys
 import threading
@@ -163,8 +164,6 @@ class MCPServer:
         # We create wrapper functions that delegate to PipelineToolHandler.
         def _make_tool_fn(tool_name: str, tool_schema: dict):
             """Build an async tool function for FastMCP from a tool schema."""
-            required = set(tool_schema.get("required", []))
-            properties = tool_schema.get("properties", {})
 
             async def tool_fn(**kwargs) -> str:
                 if not rate_limiter.allow():
@@ -185,30 +184,7 @@ class MCPServer:
                 )
                 return json.dumps(result, indent=2)
 
-            # Build a useful signature so FastMCP can inspect parameters
-            import inspect
-
-            params = []
-            for prop_name, prop_def in properties.items():
-                default = prop_def.get("default", inspect.Parameter.empty)
-                is_optional = prop_name not in required
-                if is_optional and default is inspect.Parameter.empty:
-                    default = None
-                annotation = _json_type_to_python(prop_def)
-                if is_optional:
-                    # Pydantic v2 requires Optional[T] (not bare T) for fields
-                    # with a None default — bare T with default=None causes
-                    # "Field required" errors when the argument is omitted.
-                    annotation = annotation | None
-                params.append(
-                    inspect.Parameter(
-                        prop_name,
-                        inspect.Parameter.KEYWORD_ONLY,
-                        default=default,
-                        annotation=annotation,
-                    )
-                )
-            tool_fn.__signature__ = inspect.Signature(params, return_annotation=str)
+            tool_fn.__signature__ = _build_tool_signature(tool_schema)
             tool_fn.__name__ = tool_name
             tool_fn.__qualname__ = tool_name
             return tool_fn
@@ -258,6 +234,53 @@ def _json_type_to_python(prop_def: dict) -> type:
         "object": dict,
     }
     return mapping.get(json_type, str)
+
+
+def _build_tool_signature(tool_schema: dict) -> inspect.Signature:
+    """Build an :class:`inspect.Signature` from a JSON-Schema tool definition.
+
+    FastMCP builds a Pydantic argument model from the registered tool's
+    signature.  We construct one keyword-only parameter per JSON-Schema
+    property, with three rules:
+
+    * Required fields (listed in ``required``) keep the bare Python
+      annotation and have no default; Pydantic reports ``"Field required"``
+      when the caller omits them.
+    * Optional fields that already declare a default in the schema (e.g.
+      ``status_filter`` defaults to ``"active"``) keep that default and
+      the bare annotation.  This is deliberate — widening to ``T | None``
+      here would let a caller send ``null`` past the Pydantic gate, after
+      which ``args.get(name, default)`` returns ``None`` and the
+      handler's branch on the schema default would silently never fire.
+    * Optional fields with no schema default get a synthesized
+      ``default=None`` *and* a widened ``T | None`` annotation.  Pydantic
+      v2 raises ``"Field required"`` for a bare ``T`` with ``default=None``
+      when the argument is omitted, so the widening is mandatory only
+      in this branch.
+    """
+    required = set(tool_schema.get("required", []))
+    properties = tool_schema.get("properties", {})
+
+    params: list[inspect.Parameter] = []
+    for prop_name, prop_def in properties.items():
+        default = prop_def.get("default", inspect.Parameter.empty)
+        is_optional = prop_name not in required
+        synthesized_none_default = False
+        if is_optional and default is inspect.Parameter.empty:
+            default = None
+            synthesized_none_default = True
+        annotation = _json_type_to_python(prop_def)
+        if synthesized_none_default:
+            annotation = annotation | None
+        params.append(
+            inspect.Parameter(
+                prop_name,
+                inspect.Parameter.KEYWORD_ONLY,
+                default=default,
+                annotation=annotation,
+            )
+        )
+    return inspect.Signature(params, return_annotation=str)
 
 
 def start_mcp_server(

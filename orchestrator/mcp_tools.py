@@ -246,7 +246,14 @@ PIPELINE_TOOLS = [
             "properties": {
                 "pr_number": {
                     "type": "integer",
-                    "description": "GitHub PR number to babysit (must be open, non-fork, non-empty).",
+                    "description": (
+                        "Required. GitHub PR number to babysit (must be open, non-fork, "
+                        "non-empty). Intentionally omitted from the schema's `required` "
+                        "list so the handler can return a structured "
+                        '`{"error": "pr_number must be a positive integer"}` envelope '
+                        "when it is missing or non-positive, rather than Pydantic "
+                        'raising a generic "Field required" — see #2665.'
+                    ),
                 },
                 "repo": {
                     "type": "string",
@@ -1331,10 +1338,12 @@ class PipelineToolHandler:
 
         try:
             # The create_pipeline route calls ls_remote_branch via the gateway,
-            # which can take up to 30s when the gateway's git network call
-            # times out (e.g. non-existent repo).  Use 120s so this call
-            # survives the worst-case gateway I/O path.
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=120)
+            # which itself bounds at 30s.  We cap our request at 25s so the
+            # MCP client (~30s streamable-HTTP deadline, see GET_STATUS_MAX_WAIT
+            # in mcp_server.py) always sees a definite response or our own
+            # timeout error within its budget, instead of the client giving
+            # up first and the caller having to retry into a 409.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=25)
         except HTTPError as e:
             # Read the response body once upfront to avoid stream-exhaustion
             # issues if multiple branches need to inspect it.
@@ -1486,9 +1495,10 @@ class PipelineToolHandler:
             data["config"] = config
 
         try:
-            # Same 120s rationale as _handle_submit_task: the create_pipeline
-            # route's ls_remote_branch gateway call can take up to 30s.
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=120)
+            # Same 25s rationale as _handle_submit_task: stay inside the
+            # MCP client's ~30s streamable-HTTP deadline so the caller
+            # always sees a definite response or our own timeout error.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=25)
         except HTTPError as e:
             try:
                 raw_body = e.read()
@@ -1603,8 +1613,8 @@ class PipelineToolHandler:
             data["config"] = config
 
         try:
-            # Same 120s rationale as _handle_submit_task.
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=120)
+            # Same 25s rationale as _handle_submit_task.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=25)
         except HTTPError as e:
             try:
                 raw_body = e.read()

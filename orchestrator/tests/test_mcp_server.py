@@ -27,6 +27,7 @@ end-to-end:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import threading
 from unittest.mock import AsyncMock
 
@@ -35,6 +36,7 @@ from mcp_server import (
     GET_STATUS_MAX_WAIT,
     RateLimiter,
     _apply_get_status_wait,
+    _build_tool_signature,
     _json_type_to_python,
 )
 
@@ -81,6 +83,106 @@ class TestJsonTypeToPython:
         # ``prop.get("type", "string")`` — a schema entry that omits
         # ``type`` (rare but valid JSON Schema) maps to ``str``.
         assert _json_type_to_python({}) is str
+
+
+# ---------------------------------------------------------------------------
+# _build_tool_signature — JSON-Schema → inspect.Signature
+# ---------------------------------------------------------------------------
+
+
+class TestBuildToolSignature:
+    """Locks in the three-rule contract that drives ``_make_tool_fn``:
+
+    1. Required fields keep the bare annotation with no default (Pydantic
+       fires "Field required" when omitted).
+    2. Optional fields with a schema-declared default keep that default
+       and the **bare** annotation — widening to ``T | None`` would let a
+       caller send ``null`` past the Pydantic gate, after which
+       ``args.get(name, default)`` returns ``None`` and the handler's
+       schema-default branch never fires.  This regressed once before
+       the rule was tightened.
+    3. Optional fields with no schema default get ``default=None`` and a
+       widened ``T | None`` annotation so Pydantic v2 stops mis-firing
+       "Field required" for omitted args.
+    """
+
+    def test_required_field_has_no_default(self) -> None:
+        sig = _build_tool_signature(
+            {
+                "type": "object",
+                "properties": {"task_id": {"type": "string"}},
+                "required": ["task_id"],
+            }
+        )
+        param = sig.parameters["task_id"]
+        assert param.default is inspect.Parameter.empty
+        assert param.annotation is str
+
+    def test_optional_field_with_schema_default_is_not_widened(self) -> None:
+        # ``status_filter`` default="active" — the bare ``str`` annotation
+        # makes Pydantic reject ``null`` so the handler never has to
+        # second-guess what the caller meant.
+        sig = _build_tool_signature(
+            {
+                "type": "object",
+                "properties": {
+                    "status_filter": {"type": "string", "default": "active"},
+                },
+            }
+        )
+        param = sig.parameters["status_filter"]
+        assert param.default == "active"
+        assert param.annotation is str
+
+    def test_optional_field_without_default_synthesizes_none_and_widens(self) -> None:
+        # ``pr_number`` is optional in the schema and has no default — we
+        # must synthesize ``default=None`` and widen so Pydantic accepts
+        # omission instead of raising "Field required".
+        sig = _build_tool_signature(
+            {
+                "type": "object",
+                "properties": {"pr_number": {"type": "integer"}},
+                "required": [],
+            }
+        )
+        param = sig.parameters["pr_number"]
+        assert param.default is None
+        assert param.annotation == int | None
+
+    @pytest.mark.parametrize(
+        ("json_type", "default_value", "expected_annotation"),
+        [
+            ("integer", 10, int),  # list_tasks.limit
+            ("boolean", False, bool),  # cancel_task.cleanup
+            ("number", 0, float),  # get_status.wait
+        ],
+    )
+    def test_non_none_schema_defaults_keep_bare_annotation(
+        self, json_type, default_value, expected_annotation
+    ) -> None:
+        sig = _build_tool_signature(
+            {
+                "type": "object",
+                "properties": {
+                    "field": {"type": json_type, "default": default_value},
+                },
+            }
+        )
+        param = sig.parameters["field"]
+        assert param.default == default_value
+        assert param.annotation is expected_annotation
+
+    def test_object_property_maps_to_dict(self) -> None:
+        sig = _build_tool_signature(
+            {
+                "type": "object",
+                "properties": {"config": {"type": "object"}},
+            }
+        )
+        param = sig.parameters["config"]
+        # Optional, no schema default → synthesized None + widened.
+        assert param.default is None
+        assert param.annotation == dict | None
 
 
 # ---------------------------------------------------------------------------
