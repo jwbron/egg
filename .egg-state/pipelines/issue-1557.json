@@ -182,10 +182,10 @@
         {
           "container_id": "374c7d6e-4fbb-4e01-8fc8-ed1d9e97d5c4",
           "container_name": "egg-sandbox-egg-agent-issue-1557-risk-analyst",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-05-12T03:07:50.840215Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-12T03:08:28.367556Z",
+          "exit_code": -1,
           "agent_role": "risk_analyst",
           "session_token": null,
           "pod_name": null,
@@ -235,15 +235,15 @@
       "agents": [
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "failed",
           "container_id": "374c7d6e-4fbb-4e01-8fc8-ed1d9e97d5c4",
           "container_info": null,
           "slice_id": null,
           "started_at": "2026-05-12T03:07:50.840227Z",
-          "completed_at": null,
+          "completed_at": "2026-05-12T03:08:28.398518Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -304,7 +304,15 @@
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "c42c1022ff2ca1860dba4461f218cc2ae46e8e9e",
-      "agent_exits": []
+      "agent_exits": [
+        {
+          "role": "risk_analyst",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-05-12T03:08:28.398525Z",
+          "container_id": "374c7d6e-4fbb-4e01-8fc8-ed1d9e97d5c4"
+        }
+      ]
     },
     "implement": {
       "phase": "implement",
@@ -934,7 +942,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-12T03:08:22.833741Z",
+  "updated_at": "2026-05-12T03:08:28.398605Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -948,6 +956,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T03:07:49.601754Z",
-  "version": 70,
+  "version": 71,
   "jira_ticket": null
 }
