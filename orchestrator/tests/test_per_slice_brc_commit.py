@@ -770,14 +770,19 @@ class TestGatewayAllowlistCompatibility:
     def test_production_worktree_base_dir_lies_within_gateway_allowlist(self):
         """Pin the contract between orchestrator and gateway.
 
-        ``WORKTREE_BASE_DIR`` (``/home/egg/.egg-worktrees``) is where
-        the slice-BRC temp worktree lives; the gateway's
-        ``ALLOWED_REPO_PATHS`` must contain a prefix that covers it.
-        If either side drifts, this test catches the silent-push-
-        rejection regression before it lands.
+        ``WORKTREE_BASE_DIR`` is where the slice-BRC temp worktree
+        lives; the gateway's ``ALLOWED_REPO_PATHS`` must contain a
+        prefix that covers it.  This test reads ``WORKTREE_BASE_DIR``
+        from the orchestrator module rather than hardcoding the
+        production path, so a drift on *either* side
+        (orchestrator-side path move OR gateway-side allowlist tweak)
+        trips the regression instead of silently passing against a
+        stale hardcoded prefix.
         """
+        from routes.pipelines import WORKTREE_BASE_DIR
+
         from gateway.git_client import validate_repo_path
 
-        candidate = "/home/egg/.egg-worktrees/egg-slice-brc-pipeline-x-slice-y-abc/wt"
+        candidate = str(WORKTREE_BASE_DIR / "egg-slice-brc-pipeline-x-slice-y-abc" / "wt")
         ok, error = validate_repo_path(candidate)
         assert ok, f"WORKTREE_BASE_DIR drifted out of gateway ALLOWED_REPO_PATHS: {error}"

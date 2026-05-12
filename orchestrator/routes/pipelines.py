@@ -10217,8 +10217,21 @@ def _open_context_pr_for_pipeline(
     # the subsequent ``push_worktree_branch`` call would fail with
     # ``repo_path must be within allowed directories`` (#2684).  Falls
     # back to the system temp dir in environments where the base path
-    # is absent (e.g. unit tests).
-    tmp_dir_base = str(WORKTREE_BASE_DIR) if WORKTREE_BASE_DIR.exists() else None
+    # is absent (e.g. unit tests) — emit a warning on that branch so a
+    # broken docker volume mount in production is noisy rather than
+    # silently recreating the #2684 push-rejection.
+    if WORKTREE_BASE_DIR.exists():
+        tmp_dir_base = str(WORKTREE_BASE_DIR)
+    else:
+        logger.warning(
+            "Context PR hook: WORKTREE_BASE_DIR missing — falling back to "
+            "system temp (likely a broken volume mount in production; the "
+            "push to the context branch will be rejected by the gateway "
+            "allowlist) (#2684)",
+            pipeline_id=pipeline_id,
+            worktree_base_dir=str(WORKTREE_BASE_DIR),
+        )
+        tmp_dir_base = None
     tmp_worktree = Path(tempfile.mkdtemp(prefix=f"egg-context-{pipeline_id}-", dir=tmp_dir_base))
     # Use a unique sub-path so ``git worktree add`` doesn't collide with
     # the (already-created-by-mkdtemp) directory.  ``git worktree add``
@@ -10982,8 +10995,23 @@ def _commit_slice_brc_history_to_integration_branch(
     # ``validate_repo_path``, which silently failed the BRC-history
     # push and left slice PRs without their consensus transcript
     # (#2684).  Falls back to system temp when the base dir is absent
-    # (e.g. unit tests).
-    tmp_dir_base = str(WORKTREE_BASE_DIR) if WORKTREE_BASE_DIR.exists() else None
+    # (e.g. unit tests) — emit a warning on that branch so a broken
+    # docker volume mount in production is noisy rather than silently
+    # recreating the #2684 push-rejection.
+    if WORKTREE_BASE_DIR.exists():
+        tmp_dir_base = str(WORKTREE_BASE_DIR)
+    else:
+        logger.warning(
+            "Per-slice BRC commit: WORKTREE_BASE_DIR missing — falling "
+            "back to system temp (likely a broken volume mount in "
+            "production; the push to the integration branch will be "
+            "rejected by the gateway allowlist) (#2684)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            integration_branch=integration_branch,
+            worktree_base_dir=str(WORKTREE_BASE_DIR),
+        )
+        tmp_dir_base = None
     tmp_worktree = Path(
         tempfile.mkdtemp(
             prefix=f"egg-slice-brc-{pipeline_id}-{slice_id}-",
