@@ -82,7 +82,14 @@ def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
         "GIT_COMMITTER_EMAIL": "test@example.com",
     }
     return subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", *args],
+        [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
         cwd=cwd,
         env=env,
         capture_output=True,
