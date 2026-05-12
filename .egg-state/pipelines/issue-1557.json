@@ -230,6 +230,45 @@
           "pod_name": null,
           "namespace": "egg-agents",
           "job_name": "egg-sandbox-egg-agent-issue-1557-task-planner"
+        },
+        {
+          "container_id": "c392ef71-ab7e-4082-add4-a55b5bf03905",
+          "container_name": "egg-sandbox-egg-agent-issue-1557-reviewer-plan",
+          "status": "running",
+          "started_at": "2026-05-12T03:12:12.628615Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_plan",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1557-reviewer-plan"
+        },
+        {
+          "container_id": "b907ce07-9a80-46a0-b5fd-3b53692a915d",
+          "container_name": "egg-sandbox-egg-agent-issue-1557-risk-analyst",
+          "status": "running",
+          "started_at": "2026-05-12T03:12:12.628630Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "risk_analyst",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1557-risk-analyst"
+        },
+        {
+          "container_id": "3a8bde17-d4f1-4f6a-b0dd-5fb736932322",
+          "container_name": "egg-sandbox-egg-agent-issue-1557-architect",
+          "status": "running",
+          "started_at": "2026-05-12T03:12:12.628637Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "architect",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1557-architect"
         }
       ],
       "agents": [
@@ -286,6 +325,62 @@
           "commit": null,
           "outputs": {},
           "error": "Container exited with code -1",
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_plan",
+          "status": "running",
+          "container_id": "c392ef71-ab7e-4082-add4-a55b5bf03905",
+          "container_info": null,
+          "slice_id": null,
+          "started_at": "2026-05-12T03:12:12.628625Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "risk_analyst",
+          "status": "running",
+          "container_id": "b907ce07-9a80-46a0-b5fd-3b53692a915d",
+          "container_info": null,
+          "slice_id": null,
+          "started_at": "2026-05-12T03:12:12.628634Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "3a8bde17-d4f1-4f6a-b0dd-5fb736932322",
+          "container_info": null,
+          "slice_id": null,
+          "started_at": "2026-05-12T03:12:12.628639Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "task_planner",
+          "status": "failed",
+          "container_id": null,
+          "container_info": null,
+          "slice_id": null,
+          "started_at": "2026-05-12T03:12:12.628641Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
           "retry_count": 0,
           "conflicts": []
         }
@@ -981,7 +1076,7 @@
     }
   ],
   "created_at": "2026-05-11T21:45:13.200816Z",
-  "updated_at": "2026-05-12T03:08:56.589601Z",
+  "updated_at": "2026-05-12T03:12:12.628703Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -995,6 +1090,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T03:07:49.601754Z",
-  "version": 75,
+  "version": 76,
   "jira_ticket": null
 }
