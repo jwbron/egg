@@ -1034,7 +1034,13 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
 
         # Import and call the populate function
-        from routes.pipelines import _populate_contract_from_plan
+        from routes.pipelines import (
+            _commit_statefiles_to_worktree,
+            _compute_gateway_mode,
+            _get_spawner,
+            _pipeline_identifier,
+            _populate_contract_from_plan,
+        )
 
         _populate_contract_from_plan(
             repo_path=worktree_path,
@@ -1042,6 +1048,55 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
             issue_number=pipeline.issue_number,
         )
+
+        # Persist the populated contract back to origin so fresh agent
+        # spawns (restart_phase, restart_agent, post-cancel restart) pull
+        # the populated state on respawn rather than the empty contract
+        # on origin.  Without this, the route mutates only the
+        # orchestrator's local worktree and is unusable as a recovery
+        # primitive — the implement-start guard would refuse to demote
+        # to monolithic and the pipeline would wedge.  See #2629.
+        #
+        # Failures here are fail-soft: ``pushed_to_origin`` in the
+        # response data tells the caller whether the contract is
+        # visible to agents.  ``False`` means the operator must commit
+        # and push themselves before respawning.
+        pushed_to_origin = False
+        if pipeline.branch and worktree_path != store.repo_path:
+            try:
+                identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
+                committed = _commit_statefiles_to_worktree(
+                    worktree_path,
+                    f"Populate contract for {identifier} (#2629)",
+                    pipeline_identifier=identifier,
+                    pipeline_id=pipeline_id,
+                )
+                # Skip the push when the commit was a no-op — the helper
+                # is idempotent and the contents on origin already
+                # match.  An unconditional push would still fast-forward
+                # to a no-op but would burn a gateway round-trip.
+                if committed:
+                    gateway_mode, _ = _compute_gateway_mode(pipeline)
+                    push_result = _get_spawner().gateway.push_worktree_branch(
+                        pipeline_id=pipeline_id,
+                        repo_path=str(worktree_path),
+                        branch=pipeline.branch,
+                        mode=gateway_mode,
+                        base_branch=pipeline.base_branch,
+                    )
+                    pushed_to_origin = bool(push_result)
+                    if not pushed_to_origin:
+                        logger.warning(
+                            "populate_contract: push failed (continuing)",
+                            pipeline_id=pipeline_id,
+                            detail=push_result.describe(),
+                        )
+            except Exception as persist_err:  # noqa: BLE001
+                logger.warning(
+                    "populate_contract: persist to origin failed (continuing)",
+                    pipeline_id=pipeline_id,
+                    error=str(persist_err),
+                )
 
         # Read back the contract to report counts. Contracts are keyed by
         # pipeline_id; the loader's compat shim covers legacy paths.
@@ -1055,11 +1110,17 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
                 data={
                     "phase_count": len(contract.slices),
                     "task_count": task_count,
+                    "pushed_to_origin": pushed_to_origin,
                 },
             )
         except Exception:
-            # Populate succeeded but we can't read counts — still success
-            return make_success_response("Contract populated from plan")
+            # Populate succeeded but we can't read counts — still success.
+            # Surface ``pushed_to_origin`` so the caller can tell whether
+            # the recovery is visible to agents.
+            return make_success_response(
+                "Contract populated from plan",
+                data={"pushed_to_origin": pushed_to_origin},
+            )
 
     except InvalidPipelineIdError:
         return make_error_response(
