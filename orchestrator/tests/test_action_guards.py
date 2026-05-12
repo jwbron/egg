@@ -211,6 +211,21 @@ class TestCheckAckGuard:
         assert result.details["ack_version"] == 1
         assert result.details["current_version"] == 2
 
+    def test_pre_proposal_version_claim_rejected(self, graph, matrix):
+        """ACK with explicit version against v0 producer -> rejected (#2654).
+
+        Matrix has no recorded proposal — ``current_version`` is 0.
+        Predictive ``ack_version > 0`` claims used to slip past the
+        version-match guard (which only fired for ``current_version > 0``)
+        and survive ``_invalidate_pre_proposal_acks`` (which only clears
+        version-0 entries).  The guard now rejects them outright.
+        """
+        result = check_ack_guard("reviewer_code", "coder", graph, matrix=matrix, ack_version=1)
+        assert result.allowed is False
+        assert result.details["guard"] == "version_mismatch"
+        assert result.details["current_version"] == 0
+        assert result.details["ack_version"] == 1
+
 
 # ---------------------------------------------------------------------------
 # check_nack_guard
