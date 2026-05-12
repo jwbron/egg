@@ -168,10 +168,11 @@ class TestApplyGetStatusWait:
 
 class TestRateLimiter:
     """Locks in the limiter's documented behavior and tests the
-    concurrency claim (single-event-loop) against the actual deployed
-    shape (stateless-HTTP tool calls run in ``anyio.to_thread`` workers,
-    so the limiter is hit from multiple OS threads — not the event loop
-    alone)."""
+    thread-safety invariant against the actual deployed shape
+    (stateless-HTTP tool calls run in ``anyio.to_thread`` workers, so
+    the limiter is hit from multiple OS threads — not the event loop
+    alone).  The lock added in #2669 must keep the limiter exact under
+    that contention."""
 
     def test_allows_up_to_max(self) -> None:
         limiter = RateLimiter(max_requests=3, window_seconds=60)
@@ -192,21 +193,17 @@ class TestRateLimiter:
         now[0] += 11  # advance past the window
         assert limiter.allow() is True  # first call has expired
 
-    def test_threaded_burst_does_not_overshoot(self) -> None:
+    def test_threaded_burst_is_exact(self) -> None:
         """Under stateless-HTTP mode the limiter is hit from multiple OS
-        threads.  Without a lock the worst-case overshoot is one entry
-        per concurrent thread because each thread can read the prune-
-        and-len race the same way before any of them have appended.
+        threads.  With the lock added in #2669, the limiter must be
+        exact under contention: a burst of ``num_threads`` workers must
+        see exactly ``max_requests`` successes and the rest rejections,
+        regardless of interpreter scheduling.
 
-        Asserting an exact count is brittle (it depends on interpreter
-        scheduling), so we assert a bounded overshoot:
-
-            allowed_count <= max_requests + num_threads
-
-        which is the worst case for the lockless sliding-window
-        implementation.  A regression that, say, dropped the prune
-        step or never appended would fail this either by always
-        allowing or by never allowing.
+        A regression that removed the lock would re-introduce the
+        prune-and-len race (each thread reads the same pruned state
+        before any have appended) and produce ``allowed_count > max_requests``
+        — exactly what this test pins against.
         """
         max_requests = 10
         num_threads = 50
@@ -228,14 +225,7 @@ class TestRateLimiter:
             t.join()
 
         allowed_count = sum(1 for r in results if r)
-        # Must allow at least max_requests (every limiter call sees
-        # its own append, so even worst-case scheduling never hides
-        # max_requests successes).
-        assert allowed_count >= max_requests, (
-            f"limiter allowed only {allowed_count} of {max_requests}"
-        )
-        # Hard upper bound on overshoot for the lockless impl.
-        assert allowed_count <= max_requests + num_threads, (
-            f"limiter overshot: allowed {allowed_count}, max {max_requests}, "
-            f"num_threads {num_threads}"
+        assert allowed_count == max_requests, (
+            f"limiter allowed {allowed_count}, expected exactly {max_requests} "
+            f"(num_threads={num_threads})"
         )

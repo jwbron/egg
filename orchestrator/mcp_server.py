@@ -68,26 +68,36 @@ async def _apply_get_status_wait(tool_name: str, kwargs: dict) -> None:
 
 
 class RateLimiter:
-    """Simple sliding-window rate limiter (async-safe)."""
+    """Thread-safe sliding-window rate limiter.
+
+    FastMCP runs with ``stateless_http=True`` and dispatches each tool
+    call through ``anyio.to_thread.run_sync`` (see :func:`MCPServer.create_app`),
+    so :meth:`allow` can be hit from multiple OS worker threads under
+    contention.  Mutations to ``_requests`` are guarded by ``_lock`` so
+    the limiter stays exact across that boundary.
+    """
 
     def __init__(self, max_requests: int = DEFAULT_RATE_LIMIT, window_seconds: int = 60):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: list[float] = []
+        self._lock = threading.Lock()
 
     def allow(self) -> bool:
         """Check if a request is allowed.
 
-        Safe to call from the event loop — single-event-loop usage means
-        no concurrent calls to this method, so no locks are needed.
+        Prunes expired entries and records the new one atomically — see
+        the class docstring for why the lock is required despite the
+        async wrapper.
         """
         now = time.time()
         cutoff = now - self.window_seconds
-        self._requests = [t for t in self._requests if t > cutoff]
-        if len(self._requests) >= self.max_requests:
-            return False
-        self._requests.append(now)
-        return True
+        with self._lock:
+            self._requests = [t for t in self._requests if t > cutoff]
+            if len(self._requests) >= self.max_requests:
+                return False
+            self._requests.append(now)
+            return True
 
 
 class MCPServer:

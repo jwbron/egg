@@ -36,10 +36,9 @@ Coverage explicitly *not* attempted here (tracked separately):
   here only assert the JSON envelope.  Tracked: #2665.
 * Rate limiting — the in-process ``RateLimiter`` is shared across
   all MCP tools.  Driving 30+ rapid calls from CI would pollute the
-  sliding window for downstream tests; the contention bound is
-  instead verified by
+  sliding window for downstream tests; the threaded-burst exactness
+  invariant (#2669, now lock-guarded) is instead verified by
   ``orchestrator/tests/test_mcp_server.py::TestRateLimiter``.
-  Underlying thread-safety invariant tracked: #2669.
 * Production reachability of the MCP server via a k8s ``Service``
   (it currently runs on the orchestrator pod's hostPort, local-dev
   overlay only).  Tracked: #2667.
