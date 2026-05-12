@@ -39,6 +39,8 @@ Why this test uses ``REVIEWER_CODE`` instead of ``CODER``:
 
 from __future__ import annotations
 
+import concurrent.futures
+
 import pytest
 
 from integration_tests.regression.conftest import (
@@ -85,6 +87,11 @@ def _spawn_slice(spawner, pipeline_id: str, slice_id: str, namespace: str) -> di
         repos=[],  # see module docstring
         mode="public",
         slice_id=slice_id,
+        # The integration runner may report ``degraded`` gateway health
+        # (Squid down) — we exercise the spawner / k8s seam, not the
+        # gateway. Skipping the health gate keeps the test from depending
+        # on operator-grade gateway state.
+        wait_for_gateway=False,
         # Repro #2428: simulate the pipeline-level ``sandbox_env`` carrying
         # the pipeline-wide branch into a per-slice spawn. The spawner's
         # ``_PROTECTED_ENV_KEYS`` must drop this and keep the per-slice
@@ -114,18 +121,41 @@ class TestSliceSpawnEnvThreading:
         The #2428 regression would manifest as ``EGG_BRANCH = egg/<pid>/work``
         on every pod — i.e. the ``extra_env`` override winning. The fix
         keeps the spawner's ``branch`` parameter authoritative.
+
+        Spawns are issued in parallel threads — the canonical k3s
+        concurrency shape — so a regression that only manifests when a
+        shared lock or in-flight state is clobbered between siblings
+        (e.g. a future change to ``spawn_agent_job`` that mutates
+        shared spawner state without proper isolation) is also caught.
         """
         slices = ["slice-1", "slice-2", "slice-3"]
+        # Parallel spawns: each thread invokes ``spawn_agent_job`` for
+        # its slice. ``_spawn_slice`` is read-only against ``spawner``
+        # apart from the spawn itself, and the spawner is internally
+        # thread-safe (restart locks, label dicts built per-call). If a
+        # future change clobbers shared state between concurrent spawns,
+        # the env-threading assertions below will fail.
+        slice_to_pod: dict[str, dict] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(slices)) as pool:
+            future_to_slice = {
+                pool.submit(
+                    _spawn_slice,
+                    spawner,
+                    slice_pipeline_id,
+                    slice_id,
+                    egg_stack.isolated_network,
+                ): slice_id
+                for slice_id in slices
+            }
+            for future in concurrent.futures.as_completed(future_to_slice):
+                slice_id = future_to_slice[future]
+                slice_to_pod[slice_id] = future.result()
+
         seen_branches: dict[str, str] = {}
         seen_slice_ids: dict[str, str] = {}
         seen_job_names: set[str] = set()
         for slice_id in slices:
-            pod = _spawn_slice(
-                spawner,
-                slice_pipeline_id,
-                slice_id,
-                egg_stack.isolated_network,
-            )
+            pod = slice_to_pod[slice_id]
             env = env_from_pod(pod)
 
             expected_branch = f"egg/issue-2632/{slice_id}"
@@ -189,6 +219,7 @@ class TestSliceSpawnEnvThreading:
             repos=[],
             mode="public",
             slice_id=slice_id,
+            wait_for_gateway=False,
             # Critically: no ``extra_env`` — exercise the default
             # env-derivation path, not the override-rejection path.
         )

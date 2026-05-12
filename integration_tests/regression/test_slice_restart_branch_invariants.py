@@ -92,6 +92,9 @@ class TestRestartSliceBranchInvariants:
 
         slice_id = "slice-2"
         slice_branch = "egg/issue-2632/slice-2"
+        # ``wait_for_gateway=False``: the integration runner may report
+        # ``degraded`` gateway health (Squid down). We exercise the
+        # spawner / k8s seam, not the gateway, so we skip the gate.
         common_kwargs: dict[str, Any] = {
             "pipeline_id": slice_pipeline_id,
             "agent_role": AgentRole.REVIEWER_CODE,
@@ -101,6 +104,7 @@ class TestRestartSliceBranchInvariants:
             "repos": [],
             "mode": "public",
             "slice_id": slice_id,
+            "wait_for_gateway": False,
         }
 
         # Initial spawn.
@@ -185,6 +189,7 @@ class TestRestartSliceBranchInvariants:
             repos=[],
             mode="public",
             slice_id=slice_id,
+            wait_for_gateway=False,
         )
         slice_job_name = slice_spawn.container_info.job_name
 
@@ -197,6 +202,7 @@ class TestRestartSliceBranchInvariants:
             branch=f"egg/{slice_pipeline_id}/work",
             repos=[],
             mode="public",
+            wait_for_gateway=False,
         )
         pipeline_job_name = pipeline_spawn.container_info.job_name
         assert pipeline_job_name != slice_job_name, (
@@ -215,6 +221,7 @@ class TestRestartSliceBranchInvariants:
             branch=f"egg/{slice_pipeline_id}/work",
             repos=[],
             mode="public",
+            wait_for_gateway=False,
             reason="pipeline-level restart should not touch slice",
         )
 
