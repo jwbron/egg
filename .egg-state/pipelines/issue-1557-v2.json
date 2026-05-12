@@ -349,10 +349,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "**Confluence-link extraction from epic description**: the issue's refine inputs include \"linked Confluence pages\". `gateway/jira_client.py` does NOT expose `/rest/api/3/issue/{key}/remotelink` today (not in the allowed-path regex), and no helper parses ADF / description text for Confluence URLs. Options:",
+      "context": "Open contract question decision-9, registered by an agent during the refine phase.",
+      "options": [
+        "URL-scan the epic description (ADF + rendered HTML) for `https://*.atlassian.net/wiki/spaces/...` patterns; for each match call `POST /api/v1/confluence/page/get` via the existing #1931 gateway. No new gateway routes. Misses Confluence pages attached as Jira remote-links (the normal way to attach docs to a ticket).",
+        "Add a new gateway route `POST /api/v1/jira/ticket/remotelinks` (read-only, allowlisted) AND scan the description URLs. Covers both inline links and the canonical \"attach as remote link\" Jira UI flow at the cost of a new gateway surface.",
+        "Skip Confluence integration in v1: the operator pastes relevant Confluence URLs into the `submit_task` description if they're needed. Lightest cut; defers all Confluence wiring to a follow-up.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.101409Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.066205Z",
+  "updated_at": "2026-05-12T04:46:05.109636Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -366,6 +385,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null
 }
