@@ -71,7 +71,71 @@ The pipeline target is a Jira **Epic** with no existing children (or whose child
 
 ## [mode: epic-reassess]
 
-The pipeline target is a Jira Epic with pre-existing children. The reassess flow (slice 2 of #1557) reuses this prompt with additional Jira-state inputs: a JQL sweep of the epic's children, each child's `statusCategory.key` classification (Done / In-flight / Updatable), and remote-link scan results that flag in-flight PRs. **Slice 2 fills in this block.** For now, fall back to the `[mode: epic-fresh]` shape if the loader routes you here.
+The pipeline target is a Jira Epic with pre-existing children. The reassess flow (slice 2 of #1557) reuses this prompt with additional Jira-state inputs: a JQL sweep of the epic's children, each child's `statusCategory.key` classification (Done / In-flight / Updatable), and remote-link scan results that flag in-flight PRs.
+
+**Your job**: produce the same `epic-fresh`-shaped epic-Description analysis (Problem Statement / Scope / Out of Scope / Linked Resources + the standard analysis sections), but with **two extra responsibilities**:
+
+1. **Assess what's already in flight**, **what's changed since the epic was opened**, and **what's no longer relevant**. The operator is reading your analysis side-by-side with the sweep diff in the plan draft — frame the reassessment so they can decide whether to approve the planner's proposed Won't-Do / consolidate / split moves on the next gate.
+2. **Cite the existing children by key** in every reassessment claim so the planner (who runs after you) and the operator can ground each statement back to a Jira ticket.
+
+### Reassess inputs (orchestrator-injected)
+
+The reassess sweep helper (`orchestrator/jira_reassess.py`, TASK-2-1) runs before this agent is spawned and produces a JSON file the orchestrator passes you via `EGG_REASSESS_SWEEP_PATH`. The sweep classifies every existing child of the epic into one of four buckets:
+
+| Bucket       | Definition                                                                                                                              | Where you read from                                                                                                              |
+|--------------|-----------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| `done`       | `statusCategory.key == 'done'` (e.g. Done, Closed, Won't Do).                                                                           | A separate file at `EGG_DONE_CHILDREN_PATH` — Done children's summary + key list. Treat as **read-only context**.                |
+| `in_flight`  | Non-terminal status **AND/OR** an associated open PR (via the pipeline reverse-index in TASK-2-2 + remote-link scan in TASK-2-3 / 2-4). | The sweep JSON's `in_flight` array. Each entry carries `key`, `summary`, `status`, and the open-PR signal that classified it.    |
+| `updatable`  | Non-terminal status with no open PR.                                                                                                    | The sweep JSON's `updatable` array.                                                                                              |
+| (net-new)    | Work the reassessment identifies that doesn't map to any existing child.                                                                | You and the planner both author these — you in the analysis Scope, the planner as `jira_action='create'` tasks.                  |
+
+### What the reassessment must produce
+
+- **Reassessment section** (in addition to the `epic-fresh` skeleton, inserted just above `## Linked Resources`):
+
+  ```markdown
+  ## Reassessment of existing children
+
+  ### Done (do not re-plan)
+  Cite each Done key and a one-line summary. The planner is instructed
+  not to re-propose equivalent work, so this section is the operator's
+  audit trail.
+  - <KEY-1> — <one-line summary of what was delivered>
+  - <KEY-2> — <one-line summary>
+
+  ### In-flight (do not mutate without operator confirmation)
+  Cite each in-flight key, its current status, and the open PR (if any)
+  that classified it. Per decision-4 + #2289, these children carry a
+  `do-not-modify-without-confirmation` marker — the planner is
+  instructed to refuse to mutate them unless the operator adds the
+  `in-flight-confirmed` flag in `Task.notes`.
+  - <KEY-3> (status=<S>, PR=<URL>) — <why it matters to this reassess>
+
+  ### Still relevant (planner will keep or edit in place)
+  - <KEY-4> — <why it remains in scope; what, if anything, needs an
+    edit to its description>
+
+  ### Obsolete (planner should flag Won't-Do)
+  - <KEY-5> — <why it is no longer worth doing; what supersedes it
+    (cite the surviving key if the supersede is a consolidation)>
+
+  ### New work uncovered by the reassess
+  Pure-prose; the planner converts these to `jira_action='create'`
+  tasks.
+  - <one-line scope sketch>
+  ```
+
+- The `## Scope` and `## Out of Scope` bullets at the top of the file should reflect the **post-reassessment** picture, not a fresh-epic snapshot. If a previously-in-scope item is now obsolete, it belongs under `## Out of Scope` (and the Reassessment section explains why).
+
+- The `## Open Questions` section must surface every reassessment judgment call the operator could reasonably override (typical examples: "Is `ENG-456` truly obsolete or paused?", "Should we consolidate `ENG-457` and `ENG-458` into one ticket?"). The planner reads these into the per-cluster survivor-rationale block of the plan draft (decision-6 option C).
+
+### Tone
+
+Write for the operator who is staring at the Jira UI side-by-side with this file. Avoid handwaving — if you flag a ticket as obsolete, name the specific change in scope or external signal that makes it obsolete. The planner trusts your judgment by default and will propose Won't-Do / consolidate / edit moves accordingly, so be ready to defend each call in the Open Questions section.
+
+### Fallback if reassess inputs are missing
+
+If `EGG_REASSESS_SWEEP_PATH` is unset or the file is empty (sweep failed or there are no children) and `EGG_DONE_CHILDREN_PATH` is also empty, fall back to the `[mode: epic-fresh]` shape and add a `## Open Questions` entry asking the operator whether the epic should be re-run in `epic-fresh` mode instead. Do not invent a children list.
 
 ## What you do
 

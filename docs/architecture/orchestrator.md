@@ -120,6 +120,84 @@ The orchestrator supports two pipeline modes:
 
 The `babysit` mode registers with the same orchestrator infrastructure (state store, health monitoring, HITL decision queue) as issue mode. Under the hood it is an implement-phase pipeline with `has_contract=false`, which filters `reviewer_contract` out of the role roster and carries no contract/plan artifacts. The cycle runs once per invocation — there is no polling loop; CI failures, if any, are observed and addressed by the producers as part of BRC orientation.
 
+## Orchestrator-Only Jira Transitions (`/api/v1/jira/ticket/transition`) — #1557 decision-15
+
+The Jira-epic SDLC pipelines introduced by [issue #1557](https://github.com/jwbron/egg/issues/1557) need to transition pre-existing child tickets to **Won't Do** when the reassess flow supersedes them (consolidations, obsoletes, replanned scopes). The agent-facing Jira gateway intentionally **forbids transitions** today (`gateway/jira_client.py:133` `JIRA_WRITE_VERBS_DENIED`), and the trust-boundary decision keeps it that way: there is no Jira state-machine surface available to in-sandbox agents.
+
+Instead, transitions land via a **separate orchestrator-only gateway route**, `POST /api/v1/jira/ticket/transition`, gated on **loopback source + shared-secret token**. The applier in the sandbox writes Won't-Do candidates to a handoff JSON (see `plugins/refine-plan/skills/refine-plan/agents/applier.md`'s "Out of scope: Won't-Do transitions" section); after the apply phase reaches BRC consensus, the orchestrator's `_drain_wontdo_batch_after_apply` hook reads the handoff and calls `/transition` once per entry, out of band from the HITL HTTP response so Jira API latency does not block operator approvals.
+
+### Trust model
+
+The route's auth has **two independent gates** — both must pass:
+
+1. **Loopback / cluster-internal source.** The request's source IP must originate inside the cluster network (e.g. the orchestrator pod's k8s subnet). The gateway rejects calls from outside the cluster with HTTP 403 even when the shared-secret token is correct. This forecloses the case where the shared-secret leaks to a compromised sandbox or external attacker — they would still need network access to the gateway's pod-internal listener to use it.
+2. **Shared-secret token** (`X-Egg-Orchestrator-Token` header). The gateway compares the request header in **constant time** against `$EGG_ORCHESTRATOR_TOKEN` (env-injected on the gateway pod, same shape as the existing launcher secret). The orchestrator pod reads the same secret from its own env at startup and attaches the header to every `/transition` call. Constant-time compare prevents timing-oracle leakage of the secret prefix.
+
+In addition to the two gates, the route allowlists `transition_name` to `{"Won't Do", "Won't Fix"}` only — the orchestrator cannot use this route to drive arbitrary workflow transitions (e.g. `Done`, `In Progress`). Other transition names return HTTP 400. The audit log records caller IP, transition name, ticket key, and pipeline ID on every invocation.
+
+The agent-facing Jira surface (`validate_jira_api_path` + `JIRA_WRITE_VERBS_DENIED`) is **unchanged** — sandbox agents continue to be denied transitions. The `/transition` route is reachable only from inside the cluster network with the orchestrator token. See `gateway/jira_client.py:491+` for the four pre-existing internal-only Jira helpers that bypass `validate_jira_api_path`; `/transition` follows the same pattern.
+
+### `X-Egg-Orchestrator-Token` lifecycle
+
+The shared-secret token is named `EGG_ORCHESTRATOR_TOKEN` (and surfaced in the HTTP header as `X-Egg-Orchestrator-Token`). It is **not** the same secret as the launcher secret (`launcher_secret` Bearer auth, used for session creation) — the launcher secret authenticates **into** the gateway from outside the cluster, while `EGG_ORCHESTRATOR_TOKEN` authenticates orchestrator-issued, cluster-internal calls into a specific narrow route surface. They are stored in different secret bundles and rotate on different schedules.
+
+#### Generation
+
+The token is a high-entropy random string (≥ 32 bytes of `/dev/urandom`, base64url-encoded). It is generated **once per cluster deployment** and stored in the existing Atlassian secret bundle alongside the Jira / Confluence credentials, under the key `orchestrator_token`. Example shape (do not check this value in):
+
+```bash
+# Generate a fresh token (run on the cluster admin host, not in a pod):
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Pipe the output into the cluster secret manager — for self-hosted k8s, this is typically a `Secret` named `egg-atlassian-credentials` in the `egg-system` namespace; for a managed secret store (HashiCorp Vault, AWS Secrets Manager, etc.) follow that operator's bundle convention. The token is **never** written to the source tree, `CLAUDE.md`, or `.egg-state/`.
+
+#### Mounting
+
+The same secret value must be readable by both pods, projected into the same env var name:
+
+- **Gateway pod**: env `EGG_ORCHESTRATOR_TOKEN` ← Atlassian secret bundle key `orchestrator_token`. The gateway reads it once at startup and pins it for the lifetime of the process; constant-time comparisons against `X-Egg-Orchestrator-Token` use the pinned value.
+- **Orchestrator pod**: env `EGG_ORCHESTRATOR_TOKEN` ← same secret bundle, same key. The orchestrator reads it once at startup and attaches it to every outbound call from `_drain_wontdo_batch_after_apply` (and any future orchestrator-only routes added under the same trust model).
+
+The k8s manifests for both pods reference the same `Secret` resource so a single rotation (`kubectl edit secret egg-atlassian-credentials` plus a rolling restart of both deployments) replaces the value cluster-wide. There is no per-pipeline or per-pod token; the secret is a deployment-level singleton.
+
+#### Sandbox isolation
+
+Sandbox / agent pods **do not receive** `EGG_ORCHESTRATOR_TOKEN`. The container spawner's env-allowlist (`orchestrator/container_spawner.py`) excludes the variable from the agent-side env it composes. This is the same isolation pattern used for the Atlassian API credentials themselves — the agent talks to the gateway over the `launcher_secret` Bearer path and never sees the upstream Atlassian token.
+
+If a sandbox somehow obtained the token (e.g. exfiltrated through a misconfigured logging path), the **loopback / cluster-internal source gate** still blocks the call: the agent pod's source IP, when routed to the gateway, originates from the agent pod's k8s subnet, which is distinct from the orchestrator subnet. The gate's allowlist is "orchestrator subnet only" — leaks to other subnets do not authorize the route.
+
+#### Rotation
+
+To rotate the shared secret:
+
+1. Generate a new token using the procedure above.
+2. Update the `orchestrator_token` key in the Atlassian secret bundle (atomic write — both pods will pick it up on next restart, not mid-flight).
+3. Roll the gateway deployment first (`kubectl rollout restart deployment/gateway -n egg-system`). Until the orchestrator is rolled, in-flight orchestrator → gateway calls will see HTTP 401 because the orchestrator is still sending the old token. **This is the expected fail-closed behaviour** — the orchestrator's `_drain_wontdo_batch_after_apply` hook tolerates 401 by logging a structured warning and leaving the Won't-Do task at `jira_action_status='failed'` with reason `'orchestrator token rotation in progress'`. Pending Won't-Dos are re-attempted on the next apply phase or via an operator-initiated re-drain.
+4. Roll the orchestrator deployment (`kubectl rollout restart deployment/orchestrator -n egg-system`). The new token comes online and pending Won't-Dos resolve on the next apply re-run.
+5. Verify by triggering a synthetic Won't-Do (e.g. a test epic with a single obsolete child) and watching the gateway audit log for the `transition` entry.
+
+Rotation does **not** require draining the cluster or pausing pipelines. The 401-on-mismatch behaviour is by design — it is preferable to fail-closed and leave a recoverable signal on the contract than to fail-open by accepting an outdated secret. The window between the gateway and orchestrator restarts should be measured in seconds for typical k8s rolling restarts; longer windows degrade gracefully into deferred Won't-Dos.
+
+For day-to-day operations, the token should rotate on the same cadence as the upstream Atlassian credentials (typically quarterly). On a credential incident (suspected leak), rotate immediately and audit the gateway log for `/transition` invocations that pre-date the rotation timestamp.
+
+#### Why agent-facing routes still deny transitions
+
+Even with the shared-secret token in place, transitions remain denied for the agent-facing path (the `/api/v1/jira/ticket/*` routes that take a `launcher_secret` Bearer header). The reasoning:
+
+- **Blast radius.** The agent-facing path is reachable from every sandbox in the cluster, and the `launcher_secret` is rotated less aggressively than the orchestrator token because every agent restart would require a new secret. Allowing transitions on the agent path widens the attack surface to "any sandbox" instead of "the orchestrator only".
+- **Allowlist scope.** The agent path's policy module (`gateway/jira_client.py::JIRA_WRITE_VERBS_DENIED`) explicitly denies the `transition` verb because Jira's transition surface is a state-machine API — allowing arbitrary transition names from sandbox would mean re-implementing Jira's workflow guards on the gateway side. The orchestrator-only path narrows transitions to `{Won't Do, Won't Fix}` allowlist, which is policy that can be inspected and audited without modelling Jira's full state machine.
+- **Audit symmetry.** Every `/transition` call carries the pipeline ID in the orchestrator's request body, so the audit log can correlate Jira state changes back to the SDLC pipeline that triggered them. The agent-facing path has no such correlation (sandbox calls are pipeline-scoped only via worktree path, which doesn't reach the gateway audit layer).
+
+See `plugins/refine-plan/skills/refine-plan/agents/applier.md`'s "Out of scope: Won't-Do transitions" for the sandbox-side counterpart: the applier emits a handoff JSON and never attempts to call `/transition` directly.
+
+### Cross-references
+
+- Gateway-side route definition + audit log shape: `gateway/gateway.py` (search for `transition`); see also `gateway/README.md` for the deployment-time secret bundle layout.
+- Sandbox-side Won't-Do handoff producer: `plugins/refine-plan/skills/refine-plan/agents/applier.md` (sections "Out of scope: Won't-Do transitions" and "In-flight refusal").
+- Orchestrator-side drain hook: `orchestrator/routes/pipelines.py::_drain_wontdo_batch_after_apply` (TASK-2-7 of #1557 slice 2).
+- Issue-level decision record: [#1557 decision-15](https://github.com/jwbron/egg/issues/1557) (trust-boundary for Jira transitions).
+
 ## Network Mode
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:
@@ -617,6 +695,7 @@ if is_orchestrator_mode():
 | `EGG_BRANCH` | Target branch for the agent's worktree | `egg/{pipeline_id}/work` |
 | `EGG_PRIVATE_MODE` | Private network mode (set by host wrapper, detected by `egg-sdlc`) | None |
 | `HOST_HOME` | Host machine's home directory (e.g., `/home/user`); used to translate host worktree paths to orchestrator-accessible paths | None |
+| `EGG_ORCHESTRATOR_TOKEN` | Shared-secret token for the orchestrator-only `/api/v1/jira/ticket/transition` gateway route. Mounted on both orchestrator and gateway pods from the Atlassian secret bundle (`orchestrator_token` key). Never injected into sandbox / agent pods. See [Orchestrator-Only Jira Transitions](#orchestrator-only-jira-transitions-apiv1jiratickettransition--1557-decision-15) for the generation, rotation, and trust-model details. | None |
 | `EGG_ORCH_MAX_PARALLEL_SLICES` | Slice-DAG: per-pipeline slice spawn concurrency cap (#2137) | `2` |
 | `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` | Slice-DAG: orchestrator-process-wide cap on slices in flight across **all** running pipelines (#2241). Each slice spawns ~8 containers; the default of 4 reflects the observed host saturation ceiling. Slices that exceed the cap stay READY and re-yield next poll tick. Per-process — HA replicas each maintain their own counter. | `4` |
 | `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` | Slice-DAG: per-slice BRC re-proposal ceiling before HITL escalation (#2137) | `3` |
