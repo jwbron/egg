@@ -41,6 +41,14 @@ COPY shared/egg_git/ ./egg_git/
 COPY shared/egg_anchor/ ./egg_anchor/
 COPY shared/egg_health/ ./egg_health/
 
+# Copy config module (#2528: orchestrator reads per-repo role_patterns
+# from repositories.yaml so plan-time validation and the planner prompt
+# match what the gateway will enforce at push time). The two-step
+# import in shared/egg_restrictions/patterns.py falls back from
+# ``config.repo_config`` to top-level ``repo_config``, mirroring the
+# gateway's existing pattern.
+COPY config/repo_config.py ./repo_config.py
+
 # Copy anchor schema files (required by egg_anchor.validator)
 COPY .egg/schemas/ ./.egg/schemas/
 

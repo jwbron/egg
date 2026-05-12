@@ -31,12 +31,16 @@ Usage:
     reviewer = get_default_reviewer()
 """
 
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
+
+_LOGGER_NAME = "egg.repo_config"
+logger = logging.getLogger(_LOGGER_NAME)
 
 
 def _get_config_path() -> Path:
@@ -356,6 +360,114 @@ def reload_config() -> None:
     """
     global _checkpoint_repos_cache
     _checkpoint_repos_cache = None
+    # Per-repo role patterns are cached inside egg_restrictions; clearing
+    # that cache here keeps the SIGHUP path single-entry. Imported lazily
+    # so this module doesn't pull egg_restrictions at every config load.
+    try:
+        from egg_restrictions.patterns import reset_pattern_cache
+
+        reset_pattern_cache()
+    except ImportError:
+        pass
+
+
+_VALID_ROLE_PATTERN_KEYS = frozenset({"tests_globs", "code_globs", "docs_globs"})
+
+
+def get_repo_role_patterns(repo: str) -> dict[str, list[str]] | None:
+    """Get the per-repo role-pattern overrides for a repository (#2528).
+
+    Repos can declare alternate test/code/docs file conventions in
+    ``repositories.yaml`` so non-Python repos (Go, JS/TS, …) get correct
+    coder/tester/documenter boundaries. Only the language-convention
+    glob lists are configurable; security-relevant blocklists
+    (``.egg-state/contracts/``, ``.github/``) stay fixed and cannot be
+    relaxed by the target repo.
+
+    Schema (all keys optional):
+
+    .. code-block:: yaml
+
+        repo_settings:
+          owner/example-go-repo:
+            role_patterns:
+              tests_globs: ["**/*_test.go", "**/testdata/**"]
+              code_globs:  ["**/*.go"]
+              docs_globs:  ["**/*.md", "docs/"]
+
+    Args:
+        repo: Repository in ``owner/repo`` format.
+
+    Returns:
+        A dict containing only the keys the repo configured (any subset
+        of ``tests_globs`` / ``code_globs`` / ``docs_globs`` whose value
+        is a non-empty list of strings). Returns ``None`` when no
+        ``role_patterns`` block is set, or when every configured key is
+        invalid.
+
+        Dropped input emits a WARNING log so operators can correlate a
+        repo's stale globs with the offending key/value:
+
+        - Unknown keys (e.g. an attempt to invent a
+          ``contracts_blocklist`` knob, or a typo such as
+          ``tests_glob`` missing the trailing ``s``).
+        - Non-list values (``tests_globs: 42``).
+        - Non-string list entries (``tests_globs: [null]``).
+
+        Defense-in-depth: dropping unknown keys at the parser layer
+        keeps a misconfigured repo from widening security boundaries.
+        The pattern builders also ignore anything outside the three
+        knobs, but the parser is the single place that produces a
+        diagnostic signal.
+    """
+    raw = get_repo_setting(repo, "role_patterns", None)
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        logger.warning(
+            "repositories.yaml: role_patterns for %r must be a mapping, got %s; "
+            "ignoring entire block",
+            repo,
+            type(raw).__name__,
+        )
+        return None
+
+    out: dict[str, list[str]] = {}
+    for key, value in raw.items():
+        if key not in _VALID_ROLE_PATTERN_KEYS:
+            logger.warning(
+                "repositories.yaml: role_patterns key %r is not recognised for "
+                "repo %r (valid keys: %s); dropping",
+                key,
+                repo,
+                sorted(_VALID_ROLE_PATTERN_KEYS),
+            )
+            continue
+        if not isinstance(value, list):
+            logger.warning(
+                "repositories.yaml: role_patterns.%s for repo %r must be a list, got %s; dropping",
+                key,
+                repo,
+                type(value).__name__,
+            )
+            continue
+        cleaned: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item:
+                cleaned.append(item)
+            else:
+                logger.warning(
+                    "repositories.yaml: role_patterns.%s for repo %r contains "
+                    "invalid entry %r (expected non-empty string); dropping that "
+                    "entry",
+                    key,
+                    repo,
+                    item,
+                )
+        if cleaned:
+            out[key] = cleaned
+
+    return out or None
 
 
 def get_all_checkpoint_repos() -> frozenset[str]:
