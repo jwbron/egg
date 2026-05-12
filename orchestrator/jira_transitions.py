@@ -110,6 +110,31 @@ def _feature_flag_enabled() -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _wrap_text_as_adf(text: str) -> dict[str, Any]:
+    """Wrap a plain-text string in Atlassian Document Format (ADF).
+
+    Atlassian REST API v3 rejects raw strings for issue-comment bodies
+    (#1557 reviewer_code v3 #8); every comment must be an ADF document.
+    This is a minimal wrapper — paragraph node with one text leaf — that
+    matches the gateway-side ``gateway/jira_adf.py::wrap_text_as_adf``
+    contract.  We re-implement here rather than importing because the
+    orchestrator-direct transitions client lives outside the gateway
+    package boundary by design (decision-11).
+    """
+    return {
+        "version": 1,
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": text},
+                ],
+            }
+        ],
+    }
+
+
 class JiraTransitionsClient:
     """Thin client that issues Atlassian ``/transitions`` calls.
 
@@ -146,30 +171,81 @@ class JiraTransitionsClient:
     ) -> TransitionResult:
         """Transition ``child_key`` to a Won't-Do-ish status.
 
-        Idempotent re-runs: if the ticket is already in a Won't-Do status,
-        the call short-circuits with ``status="already_in_state"`` instead
-        of hitting Atlassian with an invalid transition.
+        Idempotent re-runs (reviewer_code v3 #7): checks BOTH
+        ``status.statusCategory.key == "done"`` AND
+        ``resolution.name`` against the Won't-Do set so the most common
+        Atlassian workflow shape ("Done" with ``resolution="Won't Do"``)
+        short-circuits cleanly.
 
-        Audit logging: emits one structured ``orch_jira_transition_attempt``
-        log line per call with the principal taken from the active
-        Atlassian username — operators have a paper trail for every
-        orchestrator-direct write.
+        Audit logging (reviewer_security v3 #14): emits one structured
+        ``orch_jira_transition_attempt`` log line at the start of every
+        attempt AND on every exit path (success / already-in-state /
+        transition-not-found / credentials-unavailable / 4xx / 5xx),
+        so operators have a paper trail regardless of outcome.
         """
+        # Always emit a pre-flight audit line so failure paths are
+        # captured. Subsequent log lines carry the outcome status.
+        principal = "<unknown>"
+        try:
+            creds = self._creds_provider()
+            principal = creds.username
+        except JiraCredentialsUnavailable as exc:
+            logger.warning(
+                "orch_jira_transition_attempt",
+                epic_key=epic_key,
+                child_key=child_key,
+                from_status=None,
+                to_status=None,
+                transition_id=None,
+                principal=principal,
+                outcome="credentials_unavailable",
+                error=str(exc),
+            )
+            raise
+
         if not _feature_flag_enabled():
+            logger.warning(
+                "orch_jira_transition_attempt",
+                epic_key=epic_key,
+                child_key=child_key,
+                from_status=None,
+                to_status=None,
+                transition_id=None,
+                principal=principal,
+                outcome="feature_flag_disabled",
+            )
             raise OrchJiraTransitionsDisabled(
                 "EGG_ENABLE_ORCH_JIRA_TRANSITIONS is not set; orchestrator-"
                 "direct Jira transitions are opt-in (risk_analyst R1)."
             )
 
+        # 1. Inspect current status AND resolution (idempotency short-circuit).
         try:
-            creds = self._creds_provider()
-        except JiraCredentialsUnavailable:
+            current, current_category, current_resolution = self._get_current_state(
+                creds, child_key
+            )
+        except JiraTransitionFailed as exc:
+            logger.warning(
+                "orch_jira_transition_attempt",
+                epic_key=epic_key,
+                child_key=child_key,
+                from_status=None,
+                to_status=None,
+                transition_id=None,
+                principal=principal,
+                outcome="status_fetch_failed",
+                error=str(exc),
+            )
             raise
 
-        # 1. Inspect current status (idempotency short-circuit).
-        current = self._get_current_status(creds, child_key)
-        current_lower = current.lower()
-        if current_lower in WONT_DO_NAMES:
+        # Already-in-state per reviewer_code v3 #7: the common Atlassian
+        # workflow has ``status="Done"`` + ``resolution="Won't Do"``.
+        current_lower = (current or "").lower()
+        resolution_lower = (current_resolution or "").lower()
+        is_wont_do = current_lower in WONT_DO_NAMES or (
+            current_category == "done" and resolution_lower in WONT_DO_NAMES
+        )
+        if is_wont_do:
             logger.info(
                 "orch_jira_transition_attempt",
                 epic_key=epic_key,
@@ -177,8 +253,9 @@ class JiraTransitionsClient:
                 from_status=current,
                 to_status=current,
                 transition_id=None,
-                principal=creds.username,
-                short_circuit=True,
+                principal=principal,
+                outcome="already_in_state",
+                resolution=current_resolution,
             )
             return TransitionResult(
                 status="already_in_state",
@@ -199,7 +276,8 @@ class JiraTransitionsClient:
                 from_status=current,
                 to_status=None,
                 transition_id=None,
-                principal=creds.username,
+                principal=principal,
+                outcome="transition_not_found",
                 error="wont_do_transition_not_available",
             )
             return TransitionResult(
@@ -210,19 +288,39 @@ class JiraTransitionsClient:
                 transition_id=None,
             )
 
-        # 3. POST the transition.
+        # 3. POST the transition. Comment body is wrapped in ADF per
+        #    reviewer_code v3 #8 — Atlassian REST API v3 rejects raw
+        #    strings for issue-comment bodies.
         body: dict[str, Any] = {"transition": {"id": transition_id}}
-        if comment.strip():
+        stripped_comment = comment.strip()
+        if stripped_comment:
             body["update"] = {
-                "comment": [{"add": {"body": comment.strip()}}],
+                "comment": [{"add": {"body": _wrap_text_as_adf(stripped_comment)}}],
             }
 
-        self._post_transition(creds, child_key, body)
+        try:
+            self._post_transition(creds, child_key, body)
+        except JiraTransitionFailed as exc:
+            logger.warning(
+                "orch_jira_transition_attempt",
+                epic_key=epic_key,
+                child_key=child_key,
+                from_status=current,
+                to_status=None,
+                transition_id=transition_id,
+                principal=principal,
+                outcome="post_failed",
+                error=str(exc),
+            )
+            raise
 
         # 4. Re-fetch to confirm the new status (defence in depth — partial
         #    workflow definitions sometimes accept a transition but leave
         #    the ticket in the prior state).
-        new_status = self._get_current_status(creds, child_key)
+        try:
+            new_status, _new_category, _new_resolution = self._get_current_state(creds, child_key)
+        except JiraTransitionFailed:
+            new_status = None
         logger.info(
             "orch_jira_transition_attempt",
             epic_key=epic_key,
@@ -230,16 +328,39 @@ class JiraTransitionsClient:
             from_status=current,
             to_status=new_status,
             transition_id=transition_id,
-            principal=creds.username,
+            principal=principal,
+            outcome="applied",
         )
 
         return TransitionResult(
             status="applied",
             child_key=child_key,
             from_status=current,
-            to_status=new_status,
+            to_status=new_status or "",
             transition_id=transition_id,
         )
+
+    def close(self) -> None:
+        """Close the underlying httpx.Client (#1557 reviewer_security #11).
+
+        Long-running orchestrator processes accumulate connection pools
+        if the client is never closed; expose an explicit close hook
+        for orchestrator shutdown.  Safe to call multiple times.
+        """
+        with self._lock:
+            client = self._http_client
+            self._http_client = None
+        if client is not None:
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001 — defensive: don't raise on shutdown
+                pass
+
+    def __enter__(self) -> JiraTransitionsClient:
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()
 
     # ------------------------------------------------------------------
     # Internal HTTP helpers
@@ -277,7 +398,26 @@ class JiraTransitionsClient:
         }
 
     def _get_current_status(self, creds: JiraCredentials, child_key: str) -> str:
-        url = f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}?fields=status"
+        """Backward-compat shim for callers that only need the status name."""
+        status, _category, _resolution = self._get_current_state(creds, child_key)
+        return status
+
+    def _get_current_state(
+        self, creds: JiraCredentials, child_key: str
+    ) -> tuple[str, str | None, str | None]:
+        """Fetch ``(status_name, status_category_key, resolution_name)``.
+
+        Per #1557 reviewer_code v3 #7: the idempotency short-circuit
+        must check the ``resolution`` field too because the most common
+        Atlassian "Won't Do" workflow shape leaves ``status="Done"``
+        with ``resolution="Won't Do"``.  Returning the status_category
+        in addition lets the caller distinguish "Done category +
+        Won't-Do resolution" from "Done category + Fixed resolution".
+        """
+        url = (
+            f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}"
+            "?fields=status,resolution"
+        )
         client = self._client()
         # Brief retry on 429 to honour Atlassian rate-limits politely.
         for attempt in (0, 1):
@@ -294,7 +434,16 @@ class JiraTransitionsClient:
                 status_code=response.status_code,
             )
         body = response.json()
-        return (body.get("fields") or {}).get("status", {}).get("name") or "Unknown"
+        fields = body.get("fields") or {}
+        status_block = fields.get("status") or {}
+        status_name = status_block.get("name") or "Unknown"
+        category_block = status_block.get("statusCategory") or {}
+        category_key = category_block.get("key")
+        resolution_block = fields.get("resolution") or {}
+        resolution_name = (
+            resolution_block.get("name") if isinstance(resolution_block, dict) else None
+        )
+        return status_name, category_key, resolution_name
 
     def _resolve_wont_do_transition_id(
         self, creds: JiraCredentials, child_key: str, project_key: str
@@ -352,6 +501,15 @@ class JiraTransitionsClient:
     def _post_transition(
         self, creds: JiraCredentials, child_key: str, body: dict[str, Any]
     ) -> None:
+        # Defence in depth (#1557 reviewer_security v3 #15): the
+        # feature flag is also enforced here so future callers that
+        # invoke ``_post_transition`` directly without going through
+        # ``transition_to_wont_do`` can't bypass the opt-in posture.
+        if not _feature_flag_enabled():
+            raise OrchJiraTransitionsDisabled(
+                "EGG_ENABLE_ORCH_JIRA_TRANSITIONS is not set; "
+                "_post_transition refusing to dispatch the write."
+            )
         url = f"{creds.base_url}/rest/api/3/issue/{quote(child_key, safe='')}/transitions"
         client = self._client()
         response = client.post(url, headers=self._headers(creds), json=body)

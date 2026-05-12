@@ -6,6 +6,7 @@ including container state, HITL decisions, and agent coordination.
 """
 
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -14,6 +15,16 @@ from typing import Any, Literal, NamedTuple
 from egg_contracts.models import PipelinePhase
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from slice_id_validation import SLICE_ID_PATTERN
+
+# Module-level logger used by Pipeline helpers (e.g. get_epic_apply
+# error reporting per #1557 reviewer_code v3 #5). Falls back to
+# stdlib logging when egg_logging isn't on sys.path (tests).
+try:  # pragma: no cover — egg_logging is normally available
+    from egg_logging import get_logger as _get_logger
+
+    _models_logger = _get_logger("orchestrator.models")
+except ImportError:  # pragma: no cover
+    _models_logger = logging.getLogger("orchestrator.models")
 
 # Phase-aware fallback defaults for consensus timeout. Calibrated against
 # producer/reviewer fan-out and iteration profile per phase — see #2263.
@@ -1229,6 +1240,28 @@ class Pipeline(BaseModel):
             )
         return trimmed
 
+    @model_validator(mode="after")
+    def _validate_jira_ticket_or_epic_key(self) -> Pipeline:
+        """Reject pipelines that set both ``jira_ticket`` AND ``jira_epic_key``.
+
+        Per #1557 reviewer_code v3 #6: the two fields are
+        mutually-exclusive — the detection probe at
+        ``submit_task``-time decides which one to persist based on the
+        Atlassian issuetype. A pipeline carrying both is structurally
+        ambiguous and downstream branches that gate on either field
+        would each fire incorrectly. Surface the violation at
+        construction time rather than letting it propagate.
+        """
+        if self.jira_ticket and self.jira_epic_key:
+            raise ValueError(
+                "jira_ticket and jira_epic_key are mutually exclusive — "
+                "the issuetype-detection probe persists exactly one of "
+                "them based on the Atlassian issuetype "
+                f"(got jira_ticket={self.jira_ticket!r}, "
+                f"jira_epic_key={self.jira_epic_key!r})"
+            )
+        return self
+
     def get_epic_apply(self) -> EpicApplyArtifact | None:
         """Return the parsed ``epic_apply`` artifact, or None when unset.
 
@@ -1236,6 +1269,13 @@ class Pipeline(BaseModel):
         encoded at ``self.phases["plan"].artifacts["epic_apply"]``; callers
         SHOULD use this getter rather than reaching into the raw dict so
         future schema migrations are localised here.
+
+        Per #1557 reviewer_code v3 #5: malformed artifacts log an
+        ``epic_apply_artifact_invalid`` warning rather than silently
+        returning None — the apply step's "no prior artifact" path
+        treats None as "fresh epic; re-run everything", which on a
+        malformed (rather than absent) artifact would silently re-issue
+        every ``createJiraIssue``.
         """
         plan_phase = self.phases.get(PipelinePhase.PLAN.value)
         if plan_phase is None:
@@ -1245,11 +1285,23 @@ class Pipeline(BaseModel):
             return None
         try:
             data = json.loads(raw)
-        except TypeError, ValueError:
+        except (TypeError, ValueError) as exc:
+            _models_logger.warning(
+                "epic_apply_artifact_invalid",
+                pipeline_id=getattr(self, "id", None),
+                reason="json_decode_failed",
+                error=str(exc),
+            )
             return None
         try:
             return EpicApplyArtifact.model_validate(data)
-        except Exception:  # pragma: no cover — defensive against future migrations
+        except Exception as exc:  # noqa: BLE001
+            _models_logger.warning(
+                "epic_apply_artifact_invalid",
+                pipeline_id=getattr(self, "id", None),
+                reason="pydantic_validation_failed",
+                error=str(exc),
+            )
             return None
 
     def set_epic_apply(self, artifact: EpicApplyArtifact) -> None:
