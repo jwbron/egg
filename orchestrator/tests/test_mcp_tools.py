@@ -2500,7 +2500,11 @@ class TestBabysitPr:
 
         tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
         schema = tools_by_name["babysit_pr"]["inputSchema"]
-        assert schema["required"] == ["pr_number", "repo"]
+        # pr_number is intentionally not in required so the handler can return
+        # a structured {"error": "pr_number must be a positive integer"} when
+        # it is omitted rather than Pydantic raising a generic "Field required".
+        assert schema["required"] == ["repo"]
+        assert "pr_number" in schema["properties"]
         assert schema["properties"]["pr_number"]["type"] == "integer"
         assert schema["properties"]["repo"]["type"] == "string"
 
