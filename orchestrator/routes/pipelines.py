@@ -7492,6 +7492,13 @@ def _commit_statefiles_to_worktree(
     Falls back to staging the entire ``.egg-state/`` directory when both
     *pipeline_identifier* and *pipeline_id* are ``None`` (backwards-compat).
 
+    Any pre-existing staged changes in the worktree's index are discarded
+    on entry — the helper runs ``git read-tree HEAD`` before staging (see
+    :func:`_read_tree_head` for the cross-worktree-ref-advance defence
+    from #2626).  Only files matching the pipeline scope and present on
+    disk are committed; callers must not pre-stage state they expect this
+    helper to preserve.
+
     The commit is idempotent (skips when nothing is staged).
     Raises ``subprocess.CalledProcessError`` on git failure.
     Call sites decide whether to abort or continue.

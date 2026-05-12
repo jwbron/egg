@@ -51,6 +51,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -59,6 +60,15 @@ if str(_orchestrator_path) not in sys.path:
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
+
+# Mock docker before importing modules that depend on it — keeps the
+# import surface consistent with ``test_commit_statefiles_scoping.py`` so
+# both files defend against the same missing-dep failure mode rather than
+# one relying on the ``try/except ImportError`` fallback in
+# ``orchestrator/routes/pipelines.py``.
+sys.modules.setdefault("docker", MagicMock())
+sys.modules.setdefault("docker.errors", MagicMock())
+sys.modules.setdefault("docker.types", MagicMock())
 
 from routes.pipelines import _commit_statefiles_to_worktree
 
