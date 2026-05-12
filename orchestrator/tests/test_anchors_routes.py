@@ -309,3 +309,72 @@ class TestGCAnchors:
         )
         assert response.status_code == 200
         mock_redis.expire.assert_called()
+
+
+class TestNonObjectJsonBodyReturns400:
+    """Sweep of the #2656 fix into the anchors routes (PR #2645).
+
+    ``create_or_update_anchor`` and ``gc_anchors`` previously did
+    ``data = request.get_json() or {}`` then ``data.get(...)``. When the
+    body was syntactically-valid JSON but not an object (list / scalar),
+    ``.get`` raised ``AttributeError`` and the handler's generic
+    ``except Exception`` mapper returned 500. Both handlers now reject
+    non-dict bodies with ``400 Request body must be a JSON object``
+    before any ``.get`` call, mirroring the original decisions-route fix.
+    """
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
+    )
+    def test_create_anchor_non_object_json_body_returns_400(self, client, raw_body):
+        """POST /anchors/<agent_id> with non-object JSON body returns 400."""
+        response = client.post(
+            "/api/v1/anchors/coder-abc12345",
+            content_type="application/json",
+            data=raw_body,
+        )
+        assert response.status_code == 400, response.data
+        body = response.get_json()
+        assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
+    )
+    def test_gc_anchors_non_object_json_body_returns_400(self, client, raw_body):
+        """POST /anchors/gc/<pipeline_id> with non-object JSON body returns 400.
+
+        The guard runs before any Redis call so a non-dict body must
+        reject regardless of whether the pipeline has anchors.
+        """
+        response = client.post(
+            "/api/v1/anchors/gc/issue-1032",
+            content_type="application/json",
+            data=raw_body,
+        )
+        assert response.status_code == 400, response.data
+        body = response.get_json()
+        assert body["success"] is False
+        assert "json object" in body["message"].lower(), body

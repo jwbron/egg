@@ -358,6 +358,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
                     "slice_id": "slice-2",
+                    "ack_version": 1,
                     "payload": {
                         "reason": (
                             "Reviewed slice-2 work and the diff matches the "
@@ -391,6 +392,7 @@ class TestAllConsensusHandlersRouteToSliceTracker:
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
                     "slice_id": "slice-2",
+                    "nack_version": 1,
                     "payload": {
                         "reason": (
                             "Slice-2 NACK: the diff is missing test coverage "
@@ -601,6 +603,7 @@ class TestAllConsensusHandlersRejectMalformedSliceId:
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
                     "slice_id": "../etc/passwd",
+                    "ack_version": 1,
                     "payload": {
                         "reason": (
                             "Reviewed work; the diff matches the proposal "
@@ -623,6 +626,7 @@ class TestAllConsensusHandlersRejectMalformedSliceId:
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
                     "slice_id": "phase-2",  # legacy shape rejected at signal boundary
+                    "nack_version": 1,
                     "payload": {
                         "reason": (
                             "NACK: the diff is missing test coverage for "

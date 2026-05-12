@@ -1,6 +1,6 @@
 """Shared fixtures for ``integration_tests/regression/``.
 
-This directory hosts four orthogonal regression tiers:
+This directory hosts five orthogonal regression tiers:
 
 * **Pipeline recovery / unpushed-commit salvage** (issue #2633) — sits
   between the unit-tier (``orchestrator/tests/``) and the k3s-tier
@@ -26,6 +26,19 @@ This directory hosts four orthogonal regression tiers:
   ``MessageStore`` (in-memory) and ``RedisMessageStore`` backed by
   ``fakeredis.FakeRedis`` so a regression in either backend surfaces.
 
+* **HITL HTTP round-trip helpers** (issues #2474, #2634) — pin the
+  ``/api/v1/pipelines/<id>/decisions/...`` HTTP surface against the
+  locally-deployed egg stack. The tier uses
+  :func:`deterministic_pipeline_id` to derive a syntactically valid
+  ``pipeline-{8 hex chars}`` id from each test's pytest nodeid so
+  re-runs reuse the same id (and 404 assertions don't silently turn
+  into 400 ``InvalidPipelineIdError`` ones), and
+  :func:`lifecycle_secret` / :func:`lifecycle_bearer` to read the
+  orchestrator's lifecycle bearer from
+  ``gateway-secrets/lifecycle-secret`` in ``egg-system``. Happy-path
+  tests skip cleanly when the secret is unreachable; auth-rejection
+  tests don't need it.
+
 * **BRC consensus** (issue #2635) — exercises ``PeerConsensusTracker``
   and the timeout-handler entry points in-process. Does NOT require
   k3s and never calls into the ``egg_stack`` fixture — drives the
@@ -48,14 +61,15 @@ This directory hosts four orthogonal regression tiers:
   ``coder`` regression in #2428 fired through. This keeps the test
   green on a fresh CI runner where ``$HOME/repos`` is empty.
 
-All four tiers are marked ``integration`` (via module-level
+All five tiers are marked ``integration`` (via module-level
 ``pytestmark`` in each test file) and run under
 ``make test-integration`` / the ``Test / integration`` CI required
 check. The k3s fixtures only fire when a test takes the ``spawner`` /
 ``egg_stack`` fixtures; the message-bus tests use ``fakeredis`` and
 ``unittest.mock.patch`` for the pipeline state-store and the inner
 context-PR hook; the BRC fixtures are either autouse (tracker
-registry) or opt-in.
+registry) or opt-in; the HITL fixtures are opt-in via
+``lifecycle_bearer`` / ``regression_pipeline_id``.
 
 Plain helper functions (``make_tracker``, ``propose_payload``,
 ``filter_events``, the git/worktree builders, …) live in
@@ -66,6 +80,8 @@ next door.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -209,6 +225,105 @@ def _inject_lifecycle_auth(monkeypatch, request):
 def lifecycle_auth_headers() -> dict[str, str]:
     """Valid ``Authorization`` header for lifecycle-control endpoints."""
     return {"Authorization": f"Bearer {_TEST_LIFECYCLE_SECRET}"}
+
+
+# ---------------------------------------------------------------------------
+# HITL HTTP round-trip helpers (#2474, #2634)
+# ---------------------------------------------------------------------------
+
+_LIFECYCLE_SECRET_NAMESPACE = "egg-system"
+_LIFECYCLE_SECRET_NAME = "gateway-secrets"
+_LIFECYCLE_SECRET_KEY = "lifecycle-secret"
+
+
+def deterministic_pipeline_id(test_nodeid: str) -> str:
+    """Return a stable, **syntactically valid** pipeline id from a nodeid.
+
+    The id matches the ``pipeline-{8 hex chars}`` arm of
+    ``state_store.PIPELINE_ID_PATTERN`` — any other shape (e.g. the
+    ``regression-<hex>`` shape from #2474's recovered attempt) trips
+    ``InvalidPipelineIdError`` → 400 before the 404 path runs, masking
+    "pipeline not found" assertions.
+
+    SHA-1 is used as a stable digest, not a cryptographic hash, so the
+    Bandit warning is suppressed.
+    """
+    digest = hashlib.sha1(test_nodeid.encode("utf-8")).hexdigest()  # noqa: S324
+    return f"pipeline-{digest[:8]}"
+
+
+def lifecycle_secret() -> str | None:
+    """Return the orchestrator's ``EGG_LIFECYCLE_SECRET`` if reachable.
+
+    Reads ``gateway-secrets/lifecycle-secret`` from the ``egg-system``
+    namespace. Returns ``None`` if kubectl is missing, the secret is
+    absent, or the value cannot be decoded — callers should
+    ``pytest.skip`` rather than fail in that case so happy-path tests
+    are skipped cleanly when run by a developer without read access on
+    the secret (CI has it).
+    """
+    cmd = [
+        "kubectl",
+        "-n",
+        _LIFECYCLE_SECRET_NAMESPACE,
+        "get",
+        "secret",
+        _LIFECYCLE_SECRET_NAME,
+        "-o",
+        f"jsonpath={{.data.{_LIFECYCLE_SECRET_KEY}}}",
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except OSError, subprocess.TimeoutExpired:
+        return None
+    if result.returncode != 0 or not result.stdout:
+        return None
+    try:
+        # ``.strip()`` because ``kubectl create secret --from-file`` keeps
+        # every byte of the source file including the trailing newline;
+        # a ``\n`` inside ``f"Bearer {secret}"`` is rejected by
+        # ``http.client.putheader``.
+        return base64.b64decode(result.stdout).decode("utf-8").strip()
+    except ValueError, UnicodeDecodeError:
+        return None
+
+
+@pytest.fixture(scope="session")
+def lifecycle_bearer() -> str:
+    """Return an ``Authorization: Bearer ...`` value or skip the test.
+
+    Used by happy-path tests that need to call
+    ``@require_lifecycle_secret`` endpoints. When the secret is not
+    reachable from the test runner (developer laptop without rbac on
+    the secret) the test is skipped, not failed.
+
+    Session-scoped: the lifecycle secret is a singleton per cluster, so
+    we read it once per pytest session instead of per parametrized
+    case. ``TestHitlResolvePayloadEdgeCases`` alone fans out to 7
+    cases, each of which would otherwise re-shell-out to ``kubectl``
+    with a 15-second timeout — tens of seconds of pure subprocess
+    overhead per run on a slow cluster.
+    """
+    secret = lifecycle_secret()
+    if not secret:
+        pytest.skip(
+            "lifecycle-secret not readable from gateway-secrets in "
+            f"namespace {_LIFECYCLE_SECRET_NAMESPACE} — happy-path "
+            "lifecycle endpoint tests skipped"
+        )
+    return f"Bearer {secret}"
+
+
+@pytest.fixture
+def regression_pipeline_id(request: pytest.FixtureRequest) -> str:
+    """Stable pipeline id derived from the calling test's pytest nodeid."""
+    return deterministic_pipeline_id(request.node.nodeid)
 
 
 # ---------------------------------------------------------------------------
@@ -471,3 +586,31 @@ def advisory_blocker_graph() -> ReviewGraph:
             ReviewEdge("reviewer_contract", "coder", ReviewCriticality.ADVISORY),
         ]
     )
+
+
+__all__ = [
+    # HITL HTTP round-trip helpers (#2474, #2634).
+    "deterministic_pipeline_id",
+    "lifecycle_bearer",
+    "lifecycle_secret",
+    "regression_pipeline_id",
+    # k3s slice-spawn helpers (#2632). The ``spawner`` fixture is
+    # consumed via pytest injection rather than a direct import, but is
+    # listed here so the public surface mirrors what ``import *`` would
+    # expose and IDE auto-imports / ``dir(conftest)`` stay honest.
+    "env_from_pod",
+    "kubectl_get_pod_yaml",
+    "spawner",
+    # BRC consensus fixtures (#2635). Listed for the same reason as
+    # ``spawner`` — these are pytest-injected, not directly imported,
+    # but belong in the public surface so ``dir(conftest)`` and ``import
+    # *`` reflect the full set. ``_reset_tracker_registry`` is autouse
+    # and ``filter_events`` is both the bare helper from ``_helpers`` and
+    # the fixture name it's exposed under via ``name="filter_events"``.
+    "_reset_tracker_registry",
+    "advisory_blocker_graph",
+    "event_capture",
+    "filter_events",
+    "single_reviewer_graph",
+    "two_reviewer_graph",
+]

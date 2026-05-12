@@ -1,16 +1,23 @@
 # `integration_tests/regression/`
 
-k3s regression guards that pin invariants the SDLC pipeline has
-regressed historically. Tests in here drive the real
-`KubernetesSpawner` against the locally-deployed egg stack and
-inspect resulting pod specs with `kubectl get pod -o yaml`. Per
-[#2474](https://github.com/jwbron/egg/issues/2474), agents writing
-these can't validate them locally — correctness is verified by the
-`Test / aggregate` required check on the PR.
+Cross-module regression guards that pin invariants the SDLC pipeline
+has regressed historically. The directory hosts three orthogonal
+tiers (see `conftest.py` for the fixture catalog):
 
-Originating issue: [#2632](https://github.com/jwbron/egg/issues/2632).
+| Tier | Drives | Needs k3s? | Originating issue |
+|---|---|---|---|
+| **k3s slice-spawn / restart** | Real `KubernetesSpawner` against the locally-deployed egg stack; pod specs read back with `kubectl get pod -o yaml`. | ✅ yes | [#2632](https://github.com/jwbron/egg/issues/2632) |
+| **HITL HTTP round-trip** | The `/api/v1/pipelines/<id>/decisions/...` HTTP surface against the live orchestrator + gateway. Auth-rejection / shape tests run without k3s; happy-path tests skip cleanly when `gateway-secrets/lifecycle-secret` is unreachable from the test runner. | ⚠️ partial — happy-path needs the lifecycle secret from `egg-system` | [#2474](https://github.com/jwbron/egg/issues/2474), [#2634](https://github.com/jwbron/egg/issues/2634) |
+| **BRC consensus** | `PeerConsensusTracker` and timeout-handler entry points in-process — the shape #2474 recommends after ScriptedProvider pod-injection was ruled out. | ❌ no | [#2635](https://github.com/jwbron/egg/issues/2635) |
+
+Per [#2474](https://github.com/jwbron/egg/issues/2474), agents writing
+the k3s-tier tests can't validate them locally — correctness is
+verified by the `Test / aggregate` required check on the PR. The BRC
+and HITL-shape tiers run on a developer laptop without a cluster.
 
 ## What's covered today
+
+### k3s slice-spawn / restart tier
 
 | File | Invariant | Status |
 |---|---|---|
@@ -19,6 +26,27 @@ Originating issue: [#2632](https://github.com/jwbron/egg/issues/2632).
 | `test_long_name_round_trip.py` | A Job created with a name > 63 chars (triggering truncation in `create_container`) must be round-trippable through `delete_job` using the same input name. Direct regression guard for [#2644](https://github.com/jwbron/egg/issues/2644). | ✅ green (was `xfail` before this PR shipped the [#2644](https://github.com/jwbron/egg/issues/2644) fix) |
 | `test_slice_restart_branch_invariants.py::test_restart_preserves_egg_branch_and_slice_id` | `restart_agent_job` for a slice-scoped agent preserves `EGG_BRANCH` and `EGG_SLICE_ID` on the new pod. The slice restart in #2632 starting-point #2. | ✅ green (was `xfail` before this PR shipped the [#2644](https://github.com/jwbron/egg/issues/2644) + [#2655](https://github.com/jwbron/egg/issues/2655) fixes) |
 | `test_slice_restart_branch_invariants.py::test_restart_isolates_slice_from_pipeline_level_agent` | Restarting a pipeline-level agent of the same role doesn't disturb the slice-scoped Job's env or restart-budget. | ✅ green (was `xfail` before this PR shipped the [#2644](https://github.com/jwbron/egg/issues/2644) + [#2655](https://github.com/jwbron/egg/issues/2655) fixes) |
+
+### HITL HTTP round-trip tier
+
+| File | Invariant | Status |
+|---|---|---|
+| `test_hitl_round_trip.py::TestHitlRoutesRegistered` | All 6 HITL endpoints resolve on the live blueprint; 404 envelopes reference the pipeline id (so Flask's stock route-missing 404 doesn't silently pass). | ✅ green |
+| `test_hitl_round_trip.py::TestHitlLifecycleAuth` | `/resolve` and `/cancel` reject missing / bogus / non-Bearer headers — #1769 parity. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlUnknownPipelineReturns404` | Agent-facing routes return canonical 404 envelopes referencing the pipeline id. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlQueueDecisionPayloadValidation` | Missing question / invalid `decision_type` / invalid `phase` / no-body → structured 400 (or 415 for no Content-Type), never 500. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlResolveRequiresResolution` | `/resolve` with auth + empty body → 400, pinning body-validation-after-auth ordering. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlPipelineIdValidation` | Malformed / path-traversal pipeline ids → 400 (`InvalidPipelineIdError`); 404 branches must NOT look like pipeline-not-found. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlHttpMethodEnforcement` | DELETE/PUT/PATCH on POST routes, GET on /resolve / /cancel, POST on /status → 405. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlMalformedJsonBody` | Invalid JSON → 400 (with canonical envelope). Non-object JSON (list / scalar, truthy and falsy) → 400 (#2656 fix). `null` body coerces correctly. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlResolvePayloadEdgeCases` | Null / `""` / `"   "` / dict / list / int / `False` resolution — pins which trip the `if not resolution` check vs which fall through (and that dict/list don't 500 the `json.dumps` normalisation). | ✅ green |
+| `test_hitl_round_trip.py::TestHitlCancelOnUnknownDecision` | `/cancel` with auth on missing decision → 404 envelope with pipeline id. | ✅ green |
+| `test_hitl_round_trip.py::TestHitlOversizedPayload` | 5 MB question body doesn't 500 or hang. | ✅ green |
+| `test_hitl_round_trip.py::test_deterministic_pipeline_id_is_syntactically_valid` | Helper emits `pipeline-<8hex>` (validated by importing `state_store.validate_pipeline_id`) so 404 assertions don't silently turn into 400 assertions. | ✅ green |
+
+### BRC consensus tier
+
+In-process tests of `PeerConsensusTracker`, timeout-handler triage, and review-graph topology — 30 invariants across `test_brc_*.py` files originally landed by #2635. These are byte-identical on this PR (the merge from `main` brought them in unchanged); see #2635 for the per-file breakdown.
 
 ## Bugs surfaced while writing these tests
 

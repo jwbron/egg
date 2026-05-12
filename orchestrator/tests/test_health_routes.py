@@ -105,6 +105,49 @@ class TestResolveAlertsEndpoint:
         assert data["resolved"] is True
         mock_monitor.resolve_alerts.assert_called_once_with("coder", "heartbeat_timeout")
 
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
+    )
+    @patch("health_monitor.get_health_monitor")
+    def test_non_object_json_body_returns_400(self, mock_get_monitor, client, raw_body):
+        """Sweep of the #2656 fix into the health routes (PR #2645).
+
+        ``resolve_pipeline_health_alerts`` previously did
+        ``data = request.get_json() or {}`` then ``data.get(...)``. When
+        the body was syntactically-valid JSON but not an object (list /
+        scalar), ``.get`` raised ``AttributeError`` and the handler's
+        generic exception mapper returned 500. The handler now rejects
+        non-dict bodies with ``400 Request body must be a JSON object``
+        before any ``.get`` call.
+
+        Note: this endpoint's error envelope uses the ``"error"`` key
+        rather than ``"message"`` (pre-existing inconsistency with the
+        decisions / messages / anchors / containers routes), so the
+        assertion targets ``body["error"]`` here.
+        """
+        mock_get_monitor.return_value = MagicMock()
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/health/alerts/resolve",
+            content_type="application/json",
+            data=raw_body,
+        )
+        assert response.status_code == 400, response.data
+        body = response.get_json()
+        assert body["success"] is False
+        assert "json object" in body["error"].lower(), body
+
 
 class TestHealthEndpointIsolationFromMessageStore:
     """Issue #1897 TASK-4-3 (regression lock): ``GET /api/v1/health`` MUST
