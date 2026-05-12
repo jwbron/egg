@@ -173,9 +173,27 @@
       "agent_exits": []
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "context": "**Warning**: No analysis draft was found on the work branch. The agent may not have written the output to the expected path.",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:16:54.455211Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:16:22.474666Z",
+  "updated_at": "2026-05-12T04:16:54.460282Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -189,6 +207,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9,
+  "version": 10,
   "jira_ticket": null
 }
