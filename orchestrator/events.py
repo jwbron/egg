@@ -47,6 +47,12 @@ class EventType(StrEnum):
     PHASE_COMPLETED = "phase.completed"
     PHASE_FAILED = "phase.failed"
 
+    # Context PR hook outcomes (#2611). Emitted by the
+    # plan→implement transition wrapper when the hook ran but
+    # the post-hook contract still records no context PR number.
+    CONTEXT_PR_SKIPPED = "context_pr.skipped"
+    CONTEXT_PR_FAILED = "context_pr.failed"
+
     # Agent lifecycle
     AGENT_STARTED = "agent.started"
     AGENT_COMPLETED = "agent.completed"

@@ -465,6 +465,270 @@ class TestMessageBusEmission:
 
 
 # ---------------------------------------------------------------------------
+# Observability sinks (#2611): emissions must reach the message store AND
+# the event bus, not just the (handler-less) StatusReporter chain.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fresh_message_store(monkeypatch):
+    """Pin an in-memory ``MessageStore`` singleton for the test so the
+    wrapper's emission lands in a fresh store the test can read back
+    without depending on a Redis backend (#2611).
+    """
+    monkeypatch.setenv("EGG_MESSAGE_STORE_BACKEND", "memory")
+
+    import message_store as _ms
+
+    monkeypatch.setattr(_ms, "_message_store", _ms.MessageStore())
+    return _ms.get_message_store()
+
+
+class TestObservabilitySinks:
+    """The wrapper must surface ``context_pr.*`` events on three sinks
+    so operators have parity with the in-code docstring claim:
+
+    * ``message_store.add_message`` — ``recent_messages`` /
+      ``/pipelines/<id>/messages``.
+    * ``_emit_pipeline_event`` — ``/status/wait`` + SSE.
+    * ``report_pipeline_status`` — legacy ``StatusReporter`` handlers.
+
+    Prior to #2611 only the third sink was wired, and no production
+    handler was registered, so ``recent_messages`` and ``wait-status``
+    never observed the event.  These tests pin all three sinks so a
+    future refactor that drops one fails loudly.
+    """
+
+    def _make_contract_without_pr(self, raised: bool):
+        """Build a contract whose post-hook ``context_pr_number`` is
+        ``None`` — the precondition for the emit branch firing.  When
+        ``raised`` is True the wrapper should pick ``context_pr.failed``;
+        otherwise ``context_pr.skipped``.
+        """
+        from egg_contracts.models import (
+            Contract,
+            IssueInfo,
+            PRMetadata,
+        )
+        from egg_contracts.models import (
+            PipelinePhase as ContractPhase,
+        )
+
+        return Contract(
+            issue=IssueInfo(number=2593, title="t", url=""),
+            pipeline_id="issue-2593",
+            current_phase=ContractPhase.PLAN,
+            pr=PRMetadata(title="t") if raised else None,
+        )
+
+    def test_message_store_receives_context_pr_failed_entry(
+        self, tmp_path, issue_pipeline, spawner, fresh_message_store
+    ):
+        """When the inner hook raises and the post-hook contract still
+        has no context PR, ``recent_messages`` must include a
+        ``CONTEXT_PR_FAILED`` entry tagged with the source."""
+        contract = self._make_contract_without_pr(raised=True)
+
+        def _fake_load(identifier, repo_root):
+            return contract
+
+        with (
+            patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch("egg_contracts.loader.load_contract", _fake_load),
+        ):
+            inner.side_effect = RuntimeError("gateway down")
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="advance_phase_rest",
+            )
+
+        messages = fresh_message_store.get_messages("issue-2593")
+        failed = [m for m in messages if m.message_type == "CONTEXT_PR_FAILED"]
+        assert len(failed) == 1, (
+            f"expected exactly one CONTEXT_PR_FAILED message in the "
+            f"store; got message_types={[m.message_type for m in messages]!r}"
+        )
+        assert "advance_phase_rest" in failed[0].body
+        # Metadata exposes the source/reason/error for downstream UIs.
+        assert failed[0].metadata.get("source") == "advance_phase_rest"
+        assert failed[0].metadata.get("reason") == "raised"
+        assert "gateway down" in (failed[0].metadata.get("error") or "")
+
+    def test_message_store_receives_context_pr_skipped_entry(
+        self, tmp_path, issue_pipeline, spawner, fresh_message_store
+    ):
+        """Silent short-circuit must surface as a ``CONTEXT_PR_SKIPPED``
+        message-store entry (not just a logger.info)."""
+        contract = self._make_contract_without_pr(raised=False)
+
+        def _fake_load(identifier, repo_root):
+            return contract
+
+        with (
+            patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch("egg_contracts.loader.load_contract", _fake_load),
+        ):
+            inner.return_value = None
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="hitl_resume",
+            )
+
+        messages = fresh_message_store.get_messages("issue-2593")
+        skipped = [m for m in messages if m.message_type == "CONTEXT_PR_SKIPPED"]
+        assert len(skipped) == 1, (
+            f"expected exactly one CONTEXT_PR_SKIPPED message in the "
+            f"store; got message_types={[m.message_type for m in messages]!r}"
+        )
+        assert "hitl_resume" in skipped[0].body
+        assert skipped[0].metadata.get("reason") == "skipped"
+
+    def test_event_bus_receives_context_pr_event(
+        self, tmp_path, issue_pipeline, spawner, fresh_message_store
+    ):
+        """``_emit_pipeline_event`` must be called with the event-type
+        string so ``/status/wait`` waiters wake."""
+        contract = self._make_contract_without_pr(raised=True)
+
+        def _fake_load(identifier, repo_root):
+            return contract
+
+        emitted: list[tuple] = []
+
+        def _fake_emit(pipeline, event_type_str):
+            emitted.append((pipeline.id, event_type_str))
+
+        with (
+            patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch.object(_pipelines_mod, "_emit_pipeline_event", _fake_emit),
+            patch("egg_contracts.loader.load_contract", _fake_load),
+        ):
+            inner.side_effect = RuntimeError("gateway down")
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="advance_phase_rest",
+            )
+
+        assert ("issue-2593", "context_pr.failed") in emitted, (
+            f"expected _emit_pipeline_event to fire with 'context_pr.failed'; got {emitted!r}"
+        )
+
+    def test_event_type_string_maps_to_typed_eventtype(self):
+        """The event-bus mapping must know ``context_pr.skipped`` and
+        ``context_pr.failed`` — otherwise ``_emit_pipeline_event``
+        no-ops via ``mapped is None`` and the bus emission is silently
+        dropped before reaching ``/status/wait`` (regression class
+        #2611).
+        """
+        assert "context_pr.skipped" in _pipelines_mod._EVENT_TYPE_MAP
+        assert "context_pr.failed" in _pipelines_mod._EVENT_TYPE_MAP
+
+    def test_status_wait_allowlists_include_context_pr(self):
+        """``/status/wait`` filters wake-ups via two allowlists.  Both
+        must accept the new sinks so a long-poller is unblocked by
+        either source (message store or event bus)."""
+        assert "context_pr.skipped" in _pipelines_mod._STATUS_WAIT_EVENT_TYPES
+        assert "context_pr.failed" in _pipelines_mod._STATUS_WAIT_EVENT_TYPES
+        assert "CONTEXT_PR_SKIPPED" in _pipelines_mod._STATUS_WAIT_MESSAGE_TYPES
+        assert "CONTEXT_PR_FAILED" in _pipelines_mod._STATUS_WAIT_MESSAGE_TYPES
+
+    def test_repeated_invocations_dedupe_all_three_sinks(
+        self, tmp_path, issue_pipeline, spawner, fresh_message_store
+    ):
+        """The dedupe set guarding the emit branch must cover all three
+        sinks — otherwise a second wrapper invocation would double up
+        ``recent_messages`` or wake ``wait-status`` twice on the same
+        underlying failure."""
+        contract = self._make_contract_without_pr(raised=True)
+
+        def _fake_load(identifier, repo_root):
+            return contract
+
+        emitted: list[tuple] = []
+        reports: list[tuple] = []
+
+        def _fake_emit(pipeline, event_type_str):
+            emitted.append((pipeline.id, event_type_str))
+
+        def _fake_report(pipeline, event_type=None, message=None):
+            reports.append((event_type, message))
+
+        with (
+            patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch.object(_pipelines_mod, "_emit_pipeline_event", _fake_emit),
+            patch.object(_pipelines_mod, "report_pipeline_status", _fake_report),
+            patch("egg_contracts.loader.load_contract", _fake_load),
+        ):
+            inner.side_effect = RuntimeError("gateway down")
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="run_pipeline_autoadvance",
+            )
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="implement_entry_backstop",
+            )
+
+        # All three sinks must respect the dedupe.
+        store_msgs = [
+            m
+            for m in fresh_message_store.get_messages("issue-2593")
+            if m.message_type == "CONTEXT_PR_FAILED"
+        ]
+        assert len(store_msgs) == 1, (
+            f"dedupe failure: expected 1 CONTEXT_PR_FAILED message in "
+            f"the store across two wrapper invocations; got "
+            f"{len(store_msgs)}"
+        )
+        assert emitted.count(("issue-2593", "context_pr.failed")) == 1, (
+            f"dedupe failure: expected 1 _emit_pipeline_event call "
+            f"with context_pr.failed; got {emitted!r}"
+        )
+        assert len([r for r in reports if r[0] == "context_pr.failed"]) == 1, (
+            f"dedupe failure: expected 1 report_pipeline_status call "
+            f"with context_pr.failed; got {reports!r}"
+        )
+
+    def test_message_store_failure_does_not_strand_transition(
+        self, tmp_path, issue_pipeline, spawner
+    ):
+        """The wrapper's swallow-all contract (#2548 decision-3) extends
+        to the message-store sink: if ``add_message`` blows up, the
+        wrapper must still return cleanly.  Otherwise an observability
+        outage would strand the plan→implement transition."""
+        contract = self._make_contract_without_pr(raised=True)
+
+        def _fake_load(identifier, repo_root):
+            return contract
+
+        import message_store as _ms
+
+        with (
+            patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner,
+            patch.object(_ms.MessageStore, "add_message", side_effect=RuntimeError("store down")),
+            patch("egg_contracts.loader.load_contract", _fake_load),
+        ):
+            inner.side_effect = RuntimeError("gateway down")
+            # Must not raise — observability emission is best-effort.
+            _maybe_open_base_pr_for_plan_to_implement(
+                issue_pipeline,
+                spawner,
+                tmp_path,
+                source="advance_phase_rest",
+            )
+
+
+# ---------------------------------------------------------------------------
 # Call-site wiring: the four transition paths route through the helper
 # ---------------------------------------------------------------------------
 
