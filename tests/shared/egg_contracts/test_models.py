@@ -264,6 +264,42 @@ class TestDecision:
         assert decision.resolved is True
         assert decision.resolution == "approved"
 
+    def test_decision_id_accepts_decision_prefix(self):
+        """``decision-N`` ids (pipeline-side phase_gate writes mirrored
+        into the contract by the bridge) must validate."""
+        decision = Decision(
+            id="decision-42",
+            question="Approve plan?",
+            type=DecisionType.HITL,
+        )
+        assert decision.id == "decision-42"
+
+    def test_decision_id_accepts_cq_prefix(self):
+        """``cq-N`` ids (agent-registered contract questions) must
+        validate. Added in #2616 as part of the namespace split between
+        the contract-side and pipeline-side allocators."""
+        decision = Decision(
+            id="cq-7",
+            question="Which approach?",
+            type=DecisionType.HITL,
+        )
+        assert decision.id == "cq-7"
+
+    def test_decision_id_rejects_other_prefix(self):
+        """Only the two registered prefixes are accepted — guards
+        against accidental drift where someone introduces a third
+        namespace without thinking through the cross-allocator
+        collision implications."""
+        with pytest.raises(ValidationError):
+            Decision(id="hitl-1", question="?", type=DecisionType.HITL)
+
+    def test_decision_id_rejects_missing_number(self):
+        """Empty numeric suffix is rejected by the pattern."""
+        with pytest.raises(ValidationError):
+            Decision(id="decision-", question="?", type=DecisionType.HITL)
+        with pytest.raises(ValidationError):
+            Decision(id="cq-", question="?", type=DecisionType.HITL)
+
 
 class TestAuditEntry:
     """Tests for AuditEntry model."""
