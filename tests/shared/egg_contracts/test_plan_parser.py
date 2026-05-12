@@ -1,12 +1,14 @@
 """Tests for egg_contracts.plan_parser module."""
 
 import pytest
+import yaml
 from egg_contracts.plan_parser import (
     ParsedPhase,
     ParsedTask,
     ParseResult,
     ParseWarning,
     _normalize_optional_string,
+    extract_epic_metadata_from_yaml,
     extract_pr_metadata_from_yaml,
     format_warnings_for_comment,
     parse_phases_from_markdown,
@@ -2039,3 +2041,337 @@ phases:
         assert not any(
             "Invalid YAML in yaml-tasks code fence" in w.message for w in result.warnings
         )
+
+
+# ---------------------------------------------------------------------------
+# #1557 TASK-1-11 — epic-mode YAML extensions
+# ---------------------------------------------------------------------------
+
+
+class TestExtractEpicMetadataConsolidations:
+    """``consolidations:`` is an N→1 mapping of existing-keys → survivor-key.
+    Each entry is a free-form mapping that we forward to the orchestrator's
+    post-plan populator — the parser's job is to reject obvious shape errors
+    (non-list block, non-mapping entry) and otherwise pass things through.
+    """
+
+    def test_well_formed_consolidations_pass_through(self):
+        yaml_data = {
+            "consolidations": [
+                {
+                    "children": ["PROJ-1", "PROJ-2"],
+                    "survivor": "PROJ-1",
+                    "rationale": "PROJ-2 is a duplicate scope",
+                },
+                {
+                    "children": ["PROJ-3", "PROJ-4", "PROJ-5"],
+                    "survivor": "PROJ-3",
+                    "rationale": "merged into PROJ-3",
+                },
+            ]
+        }
+        consolidations, splits, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert len(consolidations) == 2
+        assert consolidations[0]["survivor"] == "PROJ-1"
+        assert consolidations[1]["children"] == ["PROJ-3", "PROJ-4", "PROJ-5"]
+        assert splits == []
+        assert epic_apply == []
+        assert warnings == []
+
+    def test_consolidations_must_be_a_list(self):
+        yaml_data = {"consolidations": {"children": ["PROJ-1"], "survivor": "PROJ-1"}}
+        consolidations, _, _, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert consolidations == []
+        assert any("'consolidations' must be a list" in w.message for w in warnings)
+
+    def test_consolidation_entries_must_be_mappings(self):
+        yaml_data = {
+            "consolidations": [
+                {"children": ["PROJ-1"], "survivor": "PROJ-1"},
+                "not-a-mapping",
+                ["also-not-a-mapping"],
+            ]
+        }
+        consolidations, _, _, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        # Only the valid mapping survives; the two invalid entries each
+        # emit a warning.
+        assert len(consolidations) == 1
+        assert sum("consolidation entry must be a mapping" in w.message for w in warnings) == 2
+
+    def test_absent_consolidations_yields_empty_list(self):
+        consolidations, splits, epic_apply, warnings = extract_epic_metadata_from_yaml({})
+        assert consolidations == []
+        assert splits == []
+        assert epic_apply == []
+        assert warnings == []
+
+
+class TestExtractEpicMetadataSplits:
+    """``splits:`` mirrors consolidations but in the 1→N direction."""
+
+    def test_well_formed_splits_pass_through(self):
+        yaml_data = {
+            "splits": [
+                {
+                    "original": "PROJ-7",
+                    "new_node_ids": ["node-7a", "node-7b"],
+                    "rationale": "too large to land in one slice",
+                }
+            ]
+        }
+        _, splits, _, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert len(splits) == 1
+        assert splits[0]["original"] == "PROJ-7"
+        assert splits[0]["new_node_ids"] == ["node-7a", "node-7b"]
+        assert warnings == []
+
+    def test_splits_must_be_a_list(self):
+        yaml_data = {"splits": "not-a-list"}
+        _, splits, _, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert splits == []
+        assert any("'splits' must be a list" in w.message for w in warnings)
+
+    def test_split_entries_must_be_mappings(self):
+        yaml_data = {
+            "splits": [
+                {"original": "PROJ-1", "new_node_ids": ["a", "b"]},
+                42,
+            ]
+        }
+        _, splits, _, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert len(splits) == 1
+        assert any("split entry must be a mapping" in w.message for w in warnings)
+
+
+class TestExtractEpicMetadataEpicApply:
+    """``epic_apply:`` is the most validated of the three blocks: action
+    must be in a fixed set, ``wont_do`` MUST carry a non-empty
+    ``wont_do_reason`` (#1557 R6), and ``link_type`` (when supplied) must
+    be a known Atlassian link verb.
+    """
+
+    def test_well_formed_create_and_edit_entries(self):
+        yaml_data = {
+            "epic_apply": [
+                {
+                    "action": "create",
+                    "target_jira_key": None,
+                    "wont_do_reason": None,
+                    "link_type": "Blocks",
+                },
+                {
+                    "action": "edit",
+                    "target_jira_key": "PROJ-9",
+                    "link_type": "Is blocked by",
+                },
+            ]
+        }
+        _, _, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert len(epic_apply) == 2
+        assert epic_apply[0]["action"] == "create"
+        assert epic_apply[1]["target_jira_key"] == "PROJ-9"
+        assert warnings == []
+
+    def test_unknown_action_is_rejected(self):
+        yaml_data = {"epic_apply": [{"action": "delete", "target_jira_key": "PROJ-1"}]}
+        _, _, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        # Unknown action → entry dropped, warning emitted.
+        assert epic_apply == []
+        assert any("epic_apply.action must be one of" in w.message for w in warnings)
+
+    def test_missing_action_is_rejected(self):
+        yaml_data = {"epic_apply": [{"target_jira_key": "PROJ-1"}]}
+        _, _, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert epic_apply == []
+        assert any("epic_apply.action must be one of" in w.message for w in warnings)
+
+    def test_wont_do_requires_reason(self):
+        """A ``wont_do`` action MUST carry a populated ``wont_do_reason`` —
+        the R6 mitigation refuses to ingest a silent obsolete entry."""
+        yaml_data = {
+            "epic_apply": [
+                {"action": "wont_do", "target_jira_key": "PROJ-1"},
+                {
+                    "action": "wont_do",
+                    "target_jira_key": "PROJ-2",
+                    "wont_do_reason": "   ",
+                },
+                {
+                    "action": "wont_do",
+                    "target_jira_key": "PROJ-3",
+                    "wont_do_reason": "Superseded by PROJ-9",
+                },
+            ]
+        }
+        _, _, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert len(epic_apply) == 1
+        assert epic_apply[0]["target_jira_key"] == "PROJ-3"
+        # Two warnings — one per missing/blank reason.
+        assert sum("wont_do entry missing wont_do_reason" in w.message for w in warnings) == 2
+
+    def test_invalid_link_type_drops_field_keeps_entry(self):
+        """An unknown ``link_type`` is dropped but the entry survives so the
+        apply step can still issue the create/edit without a link."""
+        yaml_data = {
+            "epic_apply": [
+                {
+                    "action": "create",
+                    "target_jira_key": None,
+                    "link_type": "Spawns",  # not in _EPIC_LINK_TYPES
+                }
+            ]
+        }
+        _, _, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert len(epic_apply) == 1
+        assert "link_type" not in epic_apply[0]
+        assert any("link_type must be one of" in w.message for w in warnings)
+
+    def test_epic_apply_must_be_a_list(self):
+        yaml_data = {"epic_apply": {"action": "create"}}
+        _, _, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert epic_apply == []
+        assert any("'epic_apply' must be a list" in w.message for w in warnings)
+
+    def test_epic_apply_entry_must_be_mapping(self):
+        yaml_data = {"epic_apply": ["create"]}
+        _, _, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert epic_apply == []
+        assert any("epic_apply entry must be a mapping" in w.message for w in warnings)
+
+    def test_none_yaml_returns_empty_tuple(self):
+        consolidations, splits, epic_apply, warnings = extract_epic_metadata_from_yaml(None)
+        assert consolidations == []
+        assert splits == []
+        assert epic_apply == []
+        assert warnings == []
+
+
+class TestParsePlanWithEpicExtensions:
+    """End-to-end via :func:`parse_plan` — the three epic blocks reach the
+    ``ParseResult`` and are surfaced through ``to_epic_metadata`` for the
+    orchestrator's post-plan populator.
+    """
+
+    EPIC_PLAN = """# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: "Apply epic plan"
+  description: |
+    Body.
+  test_plan: |
+    - Automated: parser tests
+consolidations:
+  - children: [PROJ-1, PROJ-2]
+    survivor: PROJ-1
+    rationale: PROJ-2 is a duplicate
+splits:
+  - original: PROJ-7
+    new_node_ids: [node-7a, node-7b]
+    rationale: too large
+epic_apply:
+  - action: create
+    target_jira_key: null
+    link_type: Blocks
+  - action: edit
+    target_jira_key: PROJ-9
+  - action: wont_do
+    target_jira_key: PROJ-3
+    wont_do_reason: Superseded by PROJ-9
+slices:
+  - id: 1
+    name: Apply
+    goal: Apply the plan
+    tasks:
+      - id: TASK-1-1
+        description: Land the apply step
+        acceptance: Applies cleanly
+```
+"""
+
+    def test_parse_plan_surfaces_all_three_blocks(self):
+        result = parse_plan(self.EPIC_PLAN)
+        assert result.success, result.error
+        assert len(result.consolidations) == 1
+        assert len(result.splits) == 1
+        assert len(result.epic_apply) == 3
+        # Sanity-check the entries weren't shuffled or lost.
+        assert result.consolidations[0]["survivor"] == "PROJ-1"
+        assert result.splits[0]["original"] == "PROJ-7"
+        assert {e["action"] for e in result.epic_apply} == {"create", "edit", "wont_do"}
+
+    def test_to_epic_metadata_bundle_round_trips(self):
+        result = parse_plan(self.EPIC_PLAN)
+        meta = result.to_epic_metadata()
+        # Plain dict, not a Pydantic model — the populator stashes it raw.
+        assert isinstance(meta, dict)
+        assert set(meta.keys()) == {"consolidations", "splits", "epic_apply"}
+        assert meta["consolidations"] == result.consolidations
+        assert meta["splits"] == result.splits
+        assert meta["epic_apply"] == result.epic_apply
+        # The bundle is a copy — mutating it must not mutate the result.
+        meta["consolidations"].append({"intruder": True})
+        assert {"intruder": True} not in result.consolidations
+
+    def test_plan_without_epic_blocks_yields_empty_lists(self):
+        plain_plan = """# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: "Plain plan"
+  description: Body
+  test_plan: covered
+slices:
+  - id: 1
+    name: Setup
+    tasks:
+      - id: TASK-1-1
+        description: do thing
+        acceptance: done
+```
+"""
+        result = parse_plan(plain_plan)
+        assert result.success
+        assert result.consolidations == []
+        assert result.splits == []
+        assert result.epic_apply == []
+        assert result.to_epic_metadata() == {
+            "consolidations": [],
+            "splits": [],
+            "epic_apply": [],
+        }
+
+    def test_yaml_roundtrip_through_safe_dump(self):
+        """A representative epic-mode plan round-trips: YAML → parse → emit
+        the captured ``consolidations``/``splits``/``epic_apply`` → parse
+        again → identical bundle. This is the safety net for downstream
+        contracts that re-serialize the bundle into the contract JSON.
+        """
+        result1 = parse_plan(self.EPIC_PLAN)
+        bundle = result1.to_epic_metadata()
+        # Re-emit and re-parse via the same extractor.
+        re_emitted = yaml.safe_dump(bundle, sort_keys=True)
+        round_tripped = yaml.safe_load(re_emitted)
+        # Same keys, same values.
+        consolidations2, splits2, epic_apply2, _ = extract_epic_metadata_from_yaml(round_tripped)
+        assert consolidations2 == bundle["consolidations"]
+        assert splits2 == bundle["splits"]
+        assert epic_apply2 == bundle["epic_apply"]
+
+    def test_unknown_keys_are_ignored(self):
+        """Adversarial: a future planner could emit unknown top-level
+        keys. The current parser must not blow up — it accepts the known
+        three and silently ignores the rest (forward-compat shim)."""
+        yaml_data = {
+            "consolidations": [],
+            "epic_apply_v2": [{"action": "wat"}],  # unknown future key
+            "out_of_range_count": 9999999999,
+        }
+        consolidations, splits, epic_apply, warnings = extract_epic_metadata_from_yaml(yaml_data)
+        assert consolidations == []
+        assert splits == []
+        assert epic_apply == []
+        # No warnings — unknown keys are silently ignored.
+        assert warnings == []

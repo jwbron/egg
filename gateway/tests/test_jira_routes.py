@@ -135,11 +135,9 @@ class TestRouteEnumeration:
         each view function carries the private-mode marker.  This catches a
         future contributor adding a new Jira route without the decorator.
 
-        With #1924 the surface grows from four read routes to eight (four
-        reads + four writes), so the lower bound moves to 8.  The four new
-        write routes (``ticket/create``, ``ticket/edit``, ``ticket/comment/
-        add``, ``issue-link/create``) MUST also carry the marker — that's
-        enforced by this same loop, not a separate assertion.
+        With #1924 the surface grew from four read routes to eight (four
+        reads + four writes); #1557 TASK-1-6 adds a ninth (the read-only
+        ``ticket/remotelinks`` route).  The lower bound moves to 9.
         """
         found = 0
         for rule in gateway.app.url_map.iter_rules():
@@ -151,11 +149,12 @@ class TestRouteEnumeration:
                 f"the @require_private_mode decorator."
             )
             found += 1
-        assert found >= 8, f"Expected at least 8 Jira routes; found {found}"
+        assert found >= 9, f"Expected at least 9 Jira routes; found {found}"
 
     def test_all_eight_jira_routes_registered(self, client):
-        """Pin the exact route set so a regression that drops a write
-        route surfaces immediately."""
+        """Pin the exact route set so a regression that drops a route
+        surfaces immediately.  Includes the #1557 ``ticket/remotelinks``
+        addition (TASK-1-6)."""
         rules = {
             rule.rule
             for rule in gateway.app.url_map.iter_rules()
@@ -166,11 +165,13 @@ class TestRouteEnumeration:
             "/api/v1/jira/ticket/comments",
             "/api/v1/jira/search",
             "/api/v1/jira/execute",
-            # New in #1924:
+            # #1924:
             "/api/v1/jira/ticket/create",
             "/api/v1/jira/ticket/edit",
             "/api/v1/jira/ticket/comment/add",
             "/api/v1/jira/issue-link/create",
+            # #1557 TASK-1-6:
+            "/api/v1/jira/ticket/remotelinks",
         }
         missing = expected - rules
         assert not missing, f"Missing Jira routes: {sorted(missing)}"
@@ -1527,3 +1528,264 @@ class TestIssueLinkCreate:
         details = success["details"]
         # Comment body never logged verbatim.
         assert "see issue #1924" not in json.dumps(details)
+
+
+# =============================================================================
+# /api/v1/jira/ticket/remotelinks  (#1557 TASK-1-6)
+#
+# Read-only remote-link route used by the existing-children sweep to detect
+# in-flight signals (e.g. a child ticket with a linked GitHub PR).  Mirrors
+# the audit / private-mode / allowlist conventions of the four read routes
+# above.  No companion write route in this PR.
+# =============================================================================
+
+
+class TestTicketRemoteLinks:
+    """``POST /api/v1/jira/ticket/remotelinks``."""
+
+    OP = "jira_ticket_remotelinks"
+    PATH = "/api/v1/jira/ticket/remotelinks"
+
+    def test_public_mode_returns_403_and_audits(self, client, public_headers, captured_audit):
+        resp = client.post(
+            self.PATH,
+            headers=public_headers,
+            data=json.dumps({"ticket": "ENG-1"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+        body = json.loads(resp.data)
+        assert "private network mode" in body["message"].lower()
+        assert any(a["event_type"] == "private_mode_required" for a in captured_audit)
+
+    def test_route_carries_private_mode_marker(self, client):
+        """The new route MUST carry the @require_private_mode decorator
+        (route-enumeration regression — same invariant the
+        ``TestRouteEnumeration`` class enforces across all jira routes)."""
+        view = gateway.app.view_functions.get("jira_ticket_remotelinks")
+        assert view is not None, "remotelinks route is not registered"
+        assert getattr(view, PRIVATE_MODE_MARKER_ATTR, False) is True
+
+    def test_route_registered_with_url_map(self, client):
+        """``/api/v1/jira/ticket/remotelinks`` shows up in the URL map."""
+        rules = {
+            rule.rule
+            for rule in gateway.app.url_map.iter_rules()
+            if rule.rule.startswith("/api/v1/jira/")
+        }
+        assert self.PATH in rules
+
+    def test_invalid_ticket_shape_rejected(self, client, private_headers, captured_audit):
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({"ticket": "lowercase-1"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        rejected = [a for a in captured_audit if a["event_type"] == f"{self.OP}_rejected"]
+        assert rejected
+        assert "invalid ticket" in rejected[0]["details"].get("reason", "").lower()
+
+    def test_missing_ticket_rejected(self, client, private_headers, captured_audit):
+        """Empty body → ticket is None → invalid-shape rejection."""
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        rejected = [a for a in captured_audit if a["event_type"] == f"{self.OP}_rejected"]
+        assert rejected
+
+    def test_non_string_ticket_rejected(self, client, private_headers, captured_audit):
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({"ticket": 42}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_unicode_ticket_rejected(self, client, private_headers, captured_audit):
+        # Cyrillic 'E' (U+0415).
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({"ticket": "ЕNG-1"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_disallowed_project_returns_403(
+        self, client, private_headers, captured_audit, monkeypatch
+    ):
+        monkeypatch.setattr(gateway, "is_project_allowed", lambda p: False)
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({"ticket": "SEC-1"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+        body = json.loads(resp.data)
+        assert body.get("data", {}).get("project") == "SEC"
+        denied = [a for a in captured_audit if a["event_type"] == f"{self.OP}_denied"]
+        assert denied
+        assert denied[0]["details"]["reason"] == "project not allowlisted"
+
+    def test_happy_path_wrapped_list(self, client, private_headers, allow_eng, captured_audit):
+        """JiraClient.get_remote_links returns a dict with ``remoteLinks``;
+        the route forwards it under ``data`` and audits success."""
+        fake_client = MagicMock()
+        fake_client.get_remote_links.return_value = {
+            "remoteLinks": [
+                {
+                    "id": 10000,
+                    "object": {
+                        "url": "https://github.com/foo/bar/pull/42",
+                        "title": "PR #42",
+                    },
+                },
+            ],
+        }
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({"ticket": "ENG-1"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200, resp.data
+        body = json.loads(resp.data)
+        # Envelope passes through verbatim under ``data``.
+        assert body["data"]["remoteLinks"][0]["object"]["url"] == (
+            "https://github.com/foo/bar/pull/42"
+        )
+        fake_client.get_remote_links.assert_called_once_with("ENG-1")
+
+        success = [a for a in captured_audit if a["event_type"] == self.OP]
+        assert success
+        details = success[0]["details"]
+        assert details["ticket"] == "ENG-1"
+        assert details["project"] == "ENG"
+        assert details["pipeline_id"] == "issue-1556"
+        assert details["agent_role"] == "coder"
+        assert details["jira_ticket"] == "ENG-123"
+        assert details["not_found"] is False
+
+    def test_not_found_envelope_passes_through_as_200(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """A 404 from Atlassian comes back as the ``not_found`` envelope; the
+        route still returns HTTP 200 (parity with ``/ticket/get`` and
+        ``/ticket/comments``)."""
+        fake_client = MagicMock()
+        fake_client.get_remote_links.return_value = {
+            "status": "not_found",
+            "key": "ENG-999",
+            "upstream_status": 404,
+        }
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({"ticket": "ENG-999"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        body = json.loads(resp.data)
+        assert body["data"]["status"] == "not_found"
+        success = [a for a in captured_audit if a["event_type"] == self.OP]
+        assert success
+        assert success[0]["details"]["not_found"] is True
+
+    def test_missing_credentials_returns_503(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """``JiraCredentialsUnavailable`` from the client → HTTP 503."""
+        fake_client = MagicMock()
+        fake_client.get_remote_links.side_effect = JiraCredentialsUnavailable("no creds")
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({"ticket": "ENG-1"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 503
+
+    def test_upstream_5xx_collapses_to_502_and_audits(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """5xx from Atlassian collapses to 502 (per
+        ``_jira_error_from_upstream``) and a structured upstream-error audit
+        record is written."""
+        fake_client = MagicMock()
+        fake_client.get_remote_links.side_effect = JiraUpstreamError(
+            500, "boom", "issue/ENG-1/remotelink"
+        )
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({"ticket": "ENG-1"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 502
+        upstream = [a for a in captured_audit if a["event_type"] == f"{self.OP}_upstream_error"]
+        assert upstream
+        details = upstream[-1]["details"]
+        assert details["ticket"] == "ENG-1"
+        assert details["project"] == "ENG"
+        assert details["upstream_status"] == 500
+
+    def test_upstream_404_passes_through_as_4xx(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """A 4xx ``JiraUpstreamError`` from somewhere outside the
+        ``not_found`` envelope path keeps its status (e.g. an Atlassian
+        ``400`` or ``403`` would surface verbatim)."""
+        fake_client = MagicMock()
+        fake_client.get_remote_links.side_effect = JiraUpstreamError(
+            400, "bad request", "issue/ENG-1/remotelink"
+        )
+        with patch.object(gateway, "get_jira_client", return_value=fake_client):
+            resp = client.post(
+                self.PATH,
+                headers=private_headers,
+                data=json.dumps({"ticket": "ENG-1"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 400
+        upstream = [a for a in captured_audit if a["event_type"] == f"{self.OP}_upstream_error"]
+        assert upstream
+
+    def test_invalid_ticket_audit_carries_session_context(
+        self, client, private_headers, captured_audit
+    ):
+        """Rejection audit picks up session-scoped Jira context (pipeline_id,
+        agent_role, jira_ticket) just like the success path."""
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps({"ticket": "bad"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        rejected = [a for a in captured_audit if a["event_type"] == f"{self.OP}_rejected"]
+        assert rejected
+        details = rejected[-1]["details"]
+        assert details["pipeline_id"] == "issue-1556"
+        assert details["agent_role"] == "coder"
+        assert details["jira_ticket"] == "ENG-123"
+
+    def test_route_operation_grammar_matches_other_reads(self, client):
+        """Audit grammar regression: success event_type equals the operation
+        identifier ``jira_ticket_remotelinks`` (same shape as ``jira_ticket_get``,
+        ``jira_ticket_comments``).  Pinning this avoids drift across audit
+        consumers that bucket by ``event_type``."""
+        # No behaviour to exercise — this test just asserts the constant on
+        # the class itself matches the route's audit identifier.
+        assert self.OP == "jira_ticket_remotelinks"
