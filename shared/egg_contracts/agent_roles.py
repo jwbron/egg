@@ -66,6 +66,12 @@ class AgentRole(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
+    # Jira-epic SDLC support (issue #1557). The APPLIER role drives
+    # Jira mutations (epic Description writes, child create/edit/link,
+    # Won't-Do handoff) on operator approval of the refine/plan HITL
+    # gates. It runs inside the sandbox and uses only the agent-facing
+    # gateway Jira routes — credentials never leave the gateway.
+    APPLIER = "applier"
     # Analysis roles (analyze and plan)
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -425,6 +431,60 @@ RISK_ANALYST_ROLE = AgentRoleDefinition(
     can_run_in_parallel=True,  # Can run in parallel with task_planner
     produces_outputs=["risk_assessment", "mitigation_plan"],
     requires_inputs=["architecture_analysis"],
+)
+
+
+# Jira-epic SDLC support (issue #1557). The APPLIER drives Jira
+# mutations after the refine/plan HITL gates resolve. It reads the
+# contract + relevant draft and calls the agent-facing gateway Jira
+# routes (``ticket/edit``, ``ticket/create``, ``issue-link/create``).
+# ``Won't Do`` transitions are **not** in the applier's purview — the
+# applier produces a handoff JSON that the orchestrator drains via the
+# orchestrator-only ``/transition`` route. Restricted to write only the
+# agent-outputs handoff directory; the applier never edits source.
+APPLIER_ROLE = AgentRoleDefinition(
+    role=AgentRole.APPLIER,
+    description=(
+        "Applies Jira mutations (epic Description writes, child "
+        "create/edit/link, Won't-Do handoff) on operator approval of "
+        "refine/plan HITL gates for epic-mode pipelines."
+    ),
+    category=AgentCategory.EXECUTION,
+    responsibilities=[
+        "Read EGG_PIPELINE_MODE + the just-approved phase + contract path",
+        "For refine-apply: write the analysis to the epic Description",
+        "For plan-apply: walk Task.jira_action and dispatch per-action",
+        "Write jira_action_status='in_flight' before each call; flip to "
+        "'applied' or 'failed' after",
+        "Emit a Won't-Do handoff JSON for the orchestrator to drain",
+        "Refuse to mutate in-flight children without the override marker",
+    ],
+    dependencies=[],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "src/",
+            "lib/",
+            "shared/",
+            "gateway/",
+            "sandbox/",
+            "action/",
+            "orchestrator/",
+            "plugins/",
+            "docs/",
+            "tests/",
+            "test/",
+            ".egg-state/contracts/",
+            ".egg-state/drafts/",
+            ".github/",
+        ],
+    ),
+    can_run_in_parallel=False,
+    produces_outputs=["jira_apply_report", "wontdo_handoff"],
+    requires_inputs=["analysis_draft", "task_breakdown"],
 )
 
 
@@ -896,6 +956,7 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.CODER: CODER_ROLE,
     AgentRole.TESTER: TESTER_ROLE,
     AgentRole.DOCUMENTER: DOCUMENTER_ROLE,
+    AgentRole.APPLIER: APPLIER_ROLE,
     # Analysis roles
     AgentRole.ARCHITECT: ARCHITECT_ROLE,
     AgentRole.TASK_PLANNER: TASK_PLANNER_ROLE,
@@ -934,6 +995,10 @@ AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
     AgentRole.CODER: Role.IMPLEMENTER,
     AgentRole.TESTER: Role.IMPLEMENTER,
     AgentRole.DOCUMENTER: Role.IMPLEMENTER,
+    # Applier (issue #1557): mutates Task.jira_* lifecycle fields on the
+    # contract during the apply phase; same contract privileges as other
+    # execution producers.
+    AgentRole.APPLIER: Role.IMPLEMENTER,
     # Analysis: draft plans and analyses; write the same contract fields
     # an implementer does (commits, notes, decisions).
     AgentRole.ARCHITECT: Role.IMPLEMENTER,
@@ -1108,6 +1173,11 @@ _PHASE_ROLES: dict[str, list[AgentRole]] = {
     "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],
     "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     "refine": [AgentRole.REFINER],
+    # Apply phase (issue #1557): single producer (APPLIER) reviewed by
+    # REVIEWER_CONTRACT on contract-state convergence. Inserted between
+    # PLAN and IMPLEMENT only for epic pipelines — the orchestrator
+    # scheduler skips this phase when ``Pipeline.is_epic == False``.
+    "apply": [AgentRole.APPLIER],
 }
 
 _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
@@ -1124,6 +1194,17 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "refine": [
         AgentRole.REVIEWER_REFINE,
         AgentRole.REVIEWER_AGENT_DESIGN,
+    ],
+    # Apply phase reviewer (issue #1557 — architect's slice-3 design +
+    # risk_analyst R1 mitigation). REVIEWER_CONTRACT ACKs on
+    # contract-state convergence (every Task with jira_action='create'
+    # has a non-null jira_key matching ^[A-Z][A-Z0-9_]*-[0-9]+$, every
+    # Task has jira_action_status in {'applied', 'failed'}, no in-flight
+    # child mutated without the 'in-flight-confirmed' marker). The
+    # reviewer ACKs on contract state, NOT on prompt-output text
+    # quality.
+    "apply": [
+        AgentRole.REVIEWER_CONTRACT,
     ],
 }
 
