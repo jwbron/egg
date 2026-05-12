@@ -13,6 +13,7 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 from uuid import uuid4
@@ -7849,12 +7850,21 @@ def _ensure_statefiles_on_branch(
         # Without this, recreated contracts lose the planner-generated PR
         # title/description and fall back to the generic pipeline ID title.
         # See: https://github.com/jwbron/egg/issues/1432
-        _populate_contract_from_plan(
+        _restore_populate_result = _populate_contract_from_plan(
             worktree_repo_path,
             pipeline.id,
             pipeline.mode.value if pipeline.mode else "issue",
             pipeline.issue_number,
         )
+        # #2627 follow-up: this is a best-effort restoration path on a
+        # recreated contract — failure here is recoverable on later
+        # pipeline steps, so we just log the structured outcome.
+        if _restore_populate_result.outcome != PopulateOutcome.POPULATED:
+            logger.info(
+                "Restored-contract populate produced non-POPULATED outcome",
+                pipeline_id=pipeline.id,
+                outcome=_restore_populate_result.outcome.value,
+            )
 
         # File-staging identifier still uses _pipeline_identifier convention.
         identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
@@ -13900,6 +13910,54 @@ def _persist_hitl_decision(
         return None
 
 
+def _emit_empty_contract_hitl(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    store: StateStore,
+    *,
+    reason: str,
+    draft_slice_count: int | None,
+    gate: Literal[
+        "slice_gate",
+        "start_phase_implement_safety_net",
+        "plan_complete",
+    ],
+    phase: PipelinePhase | None = None,
+):
+    """Persist a dedicated HITL naming the empty-contract divergence (#2627).
+
+    Built on top of :func:`_persist_hitl_decision` so it inherits the
+    "load → mutate → save under lock" persistence semantics that make
+    the decision survive the FAILED-write the calling block does next.
+    Best-effort: a persistence failure logs and returns None so the
+    surrounding FAILED-cleanup is not blocked.
+
+    Returns the persisted decision (or None on persistence failure).
+
+    Plain "Retry phase" against this HITL would respawn the implement
+    phase into the same empty-contract state, so the option set is
+    distinct from the generic phase-failure decision: callers are
+    expected to wire each option to its concrete recovery action
+    (see :data:`_EMPTY_CONTRACT_HITL_OPTIONS` for the mapping).
+    """
+    # ``_empty_contract_hitl_question`` is defined further down the
+    # module alongside the other #2627 follow-up helpers; importing
+    # the symbol here keeps the call-site test isolated from module
+    # top-level ordering.
+    return _persist_hitl_decision(
+        pipeline_id,
+        pipeline,
+        store,
+        question=_empty_contract_hitl_question(
+            reason=reason,
+            draft_slice_count=draft_slice_count,
+            gate=gate,
+        ),
+        options=list(_EMPTY_CONTRACT_HITL_OPTIONS),
+        phase=phase,
+    )
+
+
 def _check_brc_progress_gate(
     pipeline_id: str,
     slice_id: str | None,
@@ -17539,15 +17597,22 @@ def _slice_gate_block_monolithic_demotion(
     worktree_repo_path: Path,
     pipeline_id: str,
     issue_number: int | None,
-) -> str | None:
+) -> "SliceGateMonolithicBlock | None":  # noqa: UP037 — forward ref; see docstring
     """#2337 defensive recheck for the slice-loop gate.
 
     Called only when ``contract.slices`` is empty at implement-phase entry.
-    Returns a non-None failure message when the on-disk plan draft parses
-    to N>1 slices — the exact contract+plan mismatch that demoted
-    issue-2261's 15-slice plan to a monolithic slice-1 PR (#2337).  When
-    this fires the implement phase should be marked FAILED rather than
-    silently routed through ``_run_concurrent_phase``.
+    Returns a :class:`SliceGateMonolithicBlock` when the on-disk plan
+    draft parses to N>1 slices — the exact contract+plan mismatch that
+    demoted issue-2261's 15-slice plan to a monolithic slice-1 PR
+    (#2337).  When this fires the implement phase should be marked
+    FAILED rather than silently routed through ``_run_concurrent_phase``.
+
+    The returned tuple carries the human-readable ``message`` plus the
+    parsed ``draft_slice_count`` so the caller can emit a dedicated HITL
+    naming the divergence inline without having to re-parse the message
+    (#2627 follow-up).  The annotation is quoted because
+    ``SliceGateMonolithicBlock`` is declared further down the module to
+    keep it grouped with the other #2627 follow-up types.
 
     Returns ``None`` when:
     * The plan draft is missing on local — there's nothing to parse, and
@@ -17582,10 +17647,13 @@ def _slice_gate_block_monolithic_demotion(
         return None
     if draft_slice_count <= 1:
         return None
-    return (
-        f"plan draft parses to {draft_slice_count} slices but contract.slices "
-        f"is empty — populator silently failed earlier (#2337); refusing to "
-        f"demote to monolithic implement"
+    return SliceGateMonolithicBlock(
+        message=(
+            f"plan draft parses to {draft_slice_count} slices but contract.slices "
+            f"is empty — populator silently failed earlier (#2337); refusing to "
+            f"demote to monolithic implement"
+        ),
+        draft_slice_count=draft_slice_count,
     )
 
 
@@ -17619,8 +17687,144 @@ class PlanDraftMissingOnLocalAndOriginError(RuntimeError):
     """
 
 
+class PopulateOutcome(StrEnum):
+    """Structured discriminator for :func:`_populate_contract_from_plan` outcomes.
+
+    Added in #2627 follow-up: previously the populator returned ``None``
+    on every branch (success, draft-missing, parse-failed, etc.), so
+    callers couldn't tell "populated N>0 tasks" from "silently produced
+    an empty contract" without re-loading the contract and counting.
+    The slice-gate guard at implement-phase entry catches the empty
+    contract case after the orchestrator has already transitioned to
+    implement, leaving a generic Retry/Accept/Abort HITL that respawns
+    into the same broken state.  A structured outcome lets the
+    plan-complete and start_phase=implement call sites fail-fast at
+    the boundary with an actionable HITL inline.
+    """
+
+    POPULATED = "populated"
+    DRAFT_MISSING = "draft_missing"
+    NO_DRAFT_PATH = "no_draft_path"
+    PARSE_FAILED = "parse_failed"
+    EMPTY_RESULT = "empty_result"
+    CONTRACT_LOAD_FAILED = "contract_load_failed"
+    EGG_CONTRACTS_UNAVAILABLE = "egg_contracts_unavailable"
+    FOREST_VIOLATION = "forest_violation"
+    UNEXPECTED_EXCEPTION = "unexpected_exception"
+
+
+class PopulateProducedEmptyContractError(RuntimeError):
+    """Raised at the natural plan-completion call site when
+    :func:`_populate_contract_from_plan_safe` returns a ``PopulateResult``
+    whose outcome indicates the populate step ran but produced no
+    populated slices/PR metadata (``EMPTY_RESULT`` / ``PARSE_FAILED``).
+
+    Orthogonal to :class:`PlanDraftMissingOnLocalError` /
+    :class:`PlanDraftMissingOnLocalAndOriginError` (which fire when the
+    draft is missing from one or both refs).  This case is the
+    populate-succeeded-but-yielded-nothing failure mode flagged under
+    #2627's "Additionally — and orthogonally" section: the draft
+    exists, but parsing it produced an empty contract.  The slice-gate
+    at implement-phase entry would catch the divergence later, but
+    failing at the boundary lets the same dedicated HITL fire for both
+    paths.  Force-advance call sites (#1941) keep swallowing — they
+    inspect the return value but never raise.
+    """
+
+    def __init__(self, outcome: PopulateOutcome) -> None:
+        super().__init__(
+            f"plan populate produced {outcome.value} outcome — refusing to "
+            f"advance plan phase with empty contract"
+        )
+        self.outcome = outcome
+
+
+class PopulateResult(NamedTuple):
+    """Return type of :func:`_populate_contract_from_plan` and its safe wrapper.
+
+    ``slice_count`` and ``task_count`` are populated only on
+    ``POPULATED`` (zero on every failure outcome).  ``FOREST_VIOLATION``
+    is observed at the wrapper after catching the inner raise — the
+    inner function continues to ``raise ForestValidationError`` so
+    HTTP callers keep their 422 contract.
+    """
+
+    outcome: PopulateOutcome
+    slice_count: int = 0
+    task_count: int = 0
+
+
+class SliceGateMonolithicBlock(NamedTuple):
+    """Return type of :func:`_slice_gate_block_monolithic_demotion`.
+
+    Carries the human-readable failure message plus the parsed slice
+    count so callers can emit a structured HITL naming the divergence
+    inline (#2627 follow-up).  Previously the helper returned a bare
+    ``str`` and the slice count had to be re-parsed from the message,
+    making the dedicated HITL payload awkward to build.
+    """
+
+    message: str
+    draft_slice_count: int
+
+
+# Recovery options offered by the dedicated empty-contract HITL emitted
+# from the slice-gate, start_phase=implement safety net, and plan-complete
+# paths.  Plain "Retry phase" would respawn into the same empty-contract
+# state (#2627 incident); these options map each choice to a concrete
+# operator action that actually changes state.
+_EMPTY_CONTRACT_HITL_OPTIONS = [
+    "Repopulate contract from plan draft and retry",
+    "Restart plan phase",
+    "Abort pipeline",
+]
+
+
+def _empty_contract_hitl_question(
+    *,
+    reason: str,
+    draft_slice_count: int | None,
+    gate: str,
+) -> str:
+    """Build the HITL question text naming the empty-contract root cause inline.
+
+    ``reason`` is the operator-visible identifier (typically a
+    :class:`PopulateOutcome` value or the slice-gate's own discriminator).
+    ``draft_slice_count`` is None when the plan draft itself could not be
+    parsed (so we can't quote a count).  ``gate`` names the call site
+    that detected the divergence — ``slice_gate`` /
+    ``start_phase_implement_safety_net`` / ``plan_complete`` — so the
+    operator sees which guard fired.
+    """
+    if draft_slice_count is not None:
+        divergence_line = (
+            f"contract.slices is empty but the on-disk plan draft parses "
+            f"to {draft_slice_count} slices"
+        )
+    else:
+        divergence_line = (
+            "contract.slices is empty and the plan draft is missing, "
+            "unparseable, or yielded no tasks"
+        )
+    return (
+        f"Implement-phase blocked at {gate}: {divergence_line} "
+        f"(reason={reason}). The populate-from-plan step silently failed "
+        f"earlier (#2337 / #2627), so pipeline state and the contract have "
+        f"diverged. Plain restart_phase implement will respawn into the "
+        f"same broken state. How to proceed?\n"
+        f"- 'Repopulate contract from plan draft and retry' — run "
+        f"POST /pipelines/{{id}}/phase/populate-contract, then "
+        f"restart_phase implement.\n"
+        f"- 'Restart plan phase' — restart_phase plan to regenerate the "
+        f"draft from scratch.\n"
+        f"- 'Abort pipeline' — cancel_task."
+    )
+
+
 def _plan_draft_missing_failure_metadata(
-    err: PlanDraftMissingOnLocalError | PlanDraftMissingOnLocalAndOriginError,
+    err: PlanDraftMissingOnLocalError
+    | PlanDraftMissingOnLocalAndOriginError
+    | PopulateProducedEmptyContractError,
 ) -> tuple[str, str]:
     """Return ``(teardown_reason, log_message)`` for the plan-draft-missing
     failure handler in :func:`_run_pipeline`.
@@ -17629,15 +17833,26 @@ def _plan_draft_missing_failure_metadata(
     full ``_run_pipeline`` integration setup — a typo that swapped the
     two branches would otherwise pass the existing populator-helper
     tests.  Re #2627 review.
+
+    Also handles :class:`PopulateProducedEmptyContractError` (#2627
+    follow-up): the orthogonal "draft existed but populate yielded
+    nothing" failure mode routes through the same handler, so the
+    metadata helper learns one more branch instead of the call site
+    growing a parallel dispatch.
     """
     if isinstance(err, PlanDraftMissingOnLocalError):
         return (
             "plan draft missing on local",
             "Pipeline FAILED: plan draft missing on local but present on origin",
         )
+    if isinstance(err, PlanDraftMissingOnLocalAndOriginError):
+        return (
+            "plan draft missing on local and origin",
+            "Pipeline FAILED: plan draft missing on local and origin",
+        )
     return (
-        "plan draft missing on local and origin",
-        "Pipeline FAILED: plan draft missing on local and origin",
+        f"populate produced {err.outcome.value} outcome",
+        (f"Pipeline FAILED: plan populate produced empty contract ({err.outcome.value})"),
     )
 
 
@@ -17696,7 +17911,7 @@ def _populate_contract_from_plan_safe(
     ] = "advance_phase_force",
     branch: str | None = None,
     current_phase: PipelinePhase | None = None,
-) -> None:
+) -> PopulateResult:
     """Run :func:`_populate_contract_from_plan` without propagating failures.
 
     Shared call path for the three code sites that run the populate step
@@ -17725,6 +17940,14 @@ def _populate_contract_from_plan_safe(
     Caller is expected to mark the pipeline FAILED so the operator can
     intervene rather than advancing to implement with an empty
     contract.
+
+    Returns a :class:`PopulateResult` so non-raising failure modes are
+    still inspectable: callers that need to fail-fast on
+    ``EMPTY_RESULT`` / ``PARSE_FAILED`` (#2627 follow-up) can branch on
+    the outcome.  ``ForestValidationError`` raised by the inner is
+    caught and translated to ``PopulateResult(FOREST_VIOLATION, 0, 0)``;
+    any other unexpected exception translates to
+    ``PopulateResult(UNEXPECTED_EXCEPTION, 0, 0)``.
     """
     if source == "plan_complete" and branch is not None:
         draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
@@ -17768,7 +17991,7 @@ def _populate_contract_from_plan_safe(
                 )
 
     try:
-        _populate_contract_from_plan(
+        return _populate_contract_from_plan(
             repo_path,
             pipeline_id,
             pipeline_mode,
@@ -17789,6 +18012,7 @@ def _populate_contract_from_plan_safe(
             source="safe_wrapper",
             errors=forest_err.errors,
         )
+        return PopulateResult(PopulateOutcome.FOREST_VIOLATION)
     except Exception as pop_err:
         logger.warning(
             "contract_phases_ingest_failed",
@@ -17798,6 +18022,7 @@ def _populate_contract_from_plan_safe(
             error=str(pop_err),
             exc_info=True,
         )
+        return PopulateResult(PopulateOutcome.UNEXPECTED_EXCEPTION)
 
 
 def _populate_contract_from_plan(
@@ -17807,11 +18032,21 @@ def _populate_contract_from_plan(
     issue_number: int | None = None,
     *,
     current_phase: PipelinePhase | None = None,
-) -> None:
+) -> PopulateResult:
     """Read the plan draft and populate the contract with tasks.
 
     Extracts task structure from markdown headers in the plan draft
     and writes tasks + acceptance criteria to the contract.
+
+    Returns a :class:`PopulateResult` whose ``outcome`` discriminates
+    success from each silent-failure mode (#2627 follow-up).  Callers
+    that need to fail-fast on an empty contract — natural plan-complete
+    and the ``start_phase=implement`` safety net — branch on ``outcome``
+    to surface a dedicated HITL instead of advancing into an implement
+    phase with nothing to do.  ``ForestValidationError`` continues to
+    raise so HTTP callers keep their structured-422 contract; the
+    wrapper translates that raise into
+    ``PopulateResult(FOREST_VIOLATION, 0, 0)``.
 
     When ``current_phase`` is provided, the contract's
     ``current_phase`` is advanced to that value **only if it would move
@@ -17837,7 +18072,7 @@ def _populate_contract_from_plan(
             pipeline_id=pipeline_id,
             reason="egg_contracts_unavailable",
         )
-        return
+        return PopulateResult(PopulateOutcome.EGG_CONTRACTS_UNAVAILABLE)
 
     # Resolve draft path
     draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
@@ -17847,7 +18082,7 @@ def _populate_contract_from_plan(
             pipeline_id=pipeline_id,
             reason="no_draft_path",
         )
-        return
+        return PopulateResult(PopulateOutcome.NO_DRAFT_PATH)
 
     plan_path = repo_path / draft_rel
     if not plan_path.exists():
@@ -17857,7 +18092,7 @@ def _populate_contract_from_plan(
             reason="plan_draft_missing",
             path=str(plan_path),
         )
-        return
+        return PopulateResult(PopulateOutcome.DRAFT_MISSING)
 
     try:
         contract = load_contract(pipeline_id, repo_path)
@@ -17868,7 +18103,7 @@ def _populate_contract_from_plan(
             reason="contract_load_failed",
             error=str(load_err),
         )
-        return
+        return PopulateResult(PopulateOutcome.CONTRACT_LOAD_FAILED)
 
     try:
         from egg_contracts.plan_parser import parse_plan
@@ -17883,7 +18118,7 @@ def _populate_contract_from_plan(
                 reason="parse_failed",
                 error=result.error,
             )
-            return
+            return PopulateResult(PopulateOutcome.PARSE_FAILED)
 
         for warning in result.warnings:
             logger.warning(
@@ -18030,13 +18265,19 @@ def _populate_contract_from_plan(
 
         if changed:
             save_contract(contract, repo_path)
+            slice_count = len(contract.slices)
             task_count = sum(len(s.tasks) for s in contract.slices)
             logger.info(
                 "contract_phases_populated",
                 pipeline_id=pipeline_id,
-                phase_count=len(contract.slices),
+                phase_count=slice_count,
                 task_count=task_count,
                 has_pr_metadata=contract.pr is not None,
+            )
+            return PopulateResult(
+                PopulateOutcome.POPULATED,
+                slice_count=slice_count,
+                task_count=task_count,
             )
         else:
             # Parse succeeded but yielded neither phases nor PR metadata —
@@ -18048,6 +18289,7 @@ def _populate_contract_from_plan(
                 reason="empty_result",
                 warning_count=len(result.warnings),
             )
+            return PopulateResult(PopulateOutcome.EMPTY_RESULT)
 
     except ForestValidationError:
         # Re-raise so callers with HTTP context (or the safe wrapper)
@@ -18064,6 +18306,7 @@ def _populate_contract_from_plan(
             error=str(e),
             exc_info=True,
         )
+        return PopulateResult(PopulateOutcome.UNEXPECTED_EXCEPTION)
 
 
 def _sync_pipeline_decisions_to_contract(
@@ -19000,12 +19243,25 @@ def _run_pipeline(
                             )
 
                             # Populate the contract from the plan's yaml-tasks appendix
-                            _populate_contract_from_plan(
+                            _inline_plan_populate_result = _populate_contract_from_plan(
                                 worktree_repo_path,
                                 pipeline_id,
                                 pipeline_mode,
                                 pipeline.issue_number,
                             )
+                            # #2627 follow-up: warn-and-continue on non-POPULATED.
+                            # This is the initial-contract creation path (a
+                            # pre-generated plan handed to ``start_pipeline``);
+                            # failing here would block legitimate pipelines that
+                            # recover via the natural plan-phase populator a few
+                            # blocks later.  We only attach the structured
+                            # outcome as audit signal.
+                            if _inline_plan_populate_result.outcome != PopulateOutcome.POPULATED:
+                                logger.warning(
+                                    "Pre-generated plan populate produced non-POPULATED outcome",
+                                    pipeline_id=pipeline_id,
+                                    outcome=_inline_plan_populate_result.outcome.value,
+                                )
 
                 # Commit all .egg-state/ files so they're on the feature branch
                 issue_ref = (
@@ -19160,13 +19416,65 @@ def _run_pipeline(
                 # ``"implement"``; widening it to other start_phase values
                 # is a two-line change (this guard plus the matching
                 # ``initial_phase`` mapping in start_pipeline).
-                _populate_contract_from_plan(
+                _safety_net_populate_result = _populate_contract_from_plan(
                     worktree_repo_path,
                     pipeline_id,
                     pipeline_mode,
                     pipeline.issue_number,
                     current_phase=pipeline.current_phase,
                 )
+                # #2627 follow-up: fail-fast on non-POPULATED outcomes from
+                # the safety net.  Without this guard the implement phase
+                # spawns into the same empty-contract state that #2627
+                # surfaced — the slice-gate at implement-phase entry would
+                # eventually catch it, but at that point the pipeline has
+                # already advanced and the operator sees the empty-contract
+                # divergence after the loop is running.  Catching it here
+                # is earlier and cheaper.
+                _failure_outcomes = {
+                    PopulateOutcome.EMPTY_RESULT,
+                    PopulateOutcome.PARSE_FAILED,
+                    PopulateOutcome.DRAFT_MISSING,
+                    PopulateOutcome.NO_DRAFT_PATH,
+                }
+                if _safety_net_populate_result.outcome in _failure_outcomes:
+                    _safety_net_error = (
+                        f"start_phase=implement safety-net populate produced "
+                        f"{_safety_net_populate_result.outcome.value} outcome — "
+                        f"refusing to spawn implement-phase agents on an "
+                        f"empty contract (#2627)"
+                    )
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = _safety_net_error
+                        store.save_pipeline(pipeline)
+                    # Emit the dedicated empty-contract HITL inline so the
+                    # operator sees an actionable decision instead of a
+                    # generic ``status: failed`` with no recovery path
+                    # other than ``restart_phase implement`` (which would
+                    # respawn into the same empty-contract state).
+                    _emit_empty_contract_hitl(
+                        pipeline_id,
+                        pipeline,
+                        store,
+                        reason=_safety_net_populate_result.outcome.value,
+                        draft_slice_count=None,
+                        gate="start_phase_implement_safety_net",
+                        phase=pipeline.current_phase,
+                    )
+                    logger.error(
+                        "OVERSEER_ALERT start_phase_implement_safety_net_empty_contract",
+                        pipeline_id=pipeline_id,
+                        outcome=_safety_net_populate_result.outcome.value,
+                    )
+                    report_pipeline_status(
+                        pipeline,
+                        event_type="pipeline.failed",
+                        message=f"Pipeline failed: {_safety_net_error[:100]}",
+                    )
+                    _emit_pipeline_event(pipeline, "pipeline.failed")
+                    return
 
         # Check for feedback preserved by the recovery path in start_pipeline
         # or by the inline request_changes handler.  When either stores
@@ -19810,7 +20118,7 @@ def _run_pipeline(
                     # to use the legacy monolithic path so existing
                     # pipelines are unaffected.
                     _use_slice_loop = False
-                    _slice_gate_failure: str | None = None
+                    _slice_gate_failure: SliceGateMonolithicBlock | None = None
                     if current_phase.value == "implement":
                         try:
                             from egg_contracts.loader import (
@@ -19841,21 +20149,39 @@ def _run_pipeline(
                             )
 
                     if _slice_gate_failure is not None:
+                        _slice_gate_msg = _slice_gate_failure.message
                         with get_pipeline_state_lock(pipeline_id):
                             pipeline = store.load_pipeline(pipeline_id)
                             phase_execution = pipeline.get_phase_execution(current_phase)
                             if phase_execution.cycle_timings:
                                 phase_execution.cycle_timings[-1].completed_at = datetime.now(UTC)
                             phase_execution.status = PipelineStatus.FAILED
-                            phase_execution.error = _slice_gate_failure
+                            phase_execution.error = _slice_gate_msg
                             phase_execution.completed_at = datetime.now(UTC)
                             pipeline.status = PipelineStatus.FAILED
-                            pipeline.error = _slice_gate_failure
+                            pipeline.error = _slice_gate_msg
                             store.save_pipeline(pipeline)
+                        # #2627 follow-up: emit a dedicated HITL naming the
+                        # empty-contract root cause inline.  The generic
+                        # post-failure Retry/Accept/Abort decision respawns
+                        # implement into the same empty-contract state; this
+                        # HITL's options map to repopulate / restart-plan /
+                        # abort so the operator has a recovery path that
+                        # actually changes state.
+                        _emit_empty_contract_hitl(
+                            pipeline_id,
+                            pipeline,
+                            store,
+                            reason="slice_gate_blocked_monolithic_demotion",
+                            draft_slice_count=_slice_gate_failure.draft_slice_count,
+                            gate="slice_gate",
+                            phase=current_phase,
+                        )
                         logger.error(
                             "OVERSEER_ALERT slice_gate_blocked_monolithic_demotion",
                             pipeline_id=pipeline_id,
-                            error=_slice_gate_failure,
+                            error=_slice_gate_msg,
+                            draft_slice_count=_slice_gate_failure.draft_slice_count,
                         )
                         phase_failed = True
                         break
@@ -20126,7 +20452,7 @@ def _run_pipeline(
             # empty contract (#2627).
             if current_phase.value == "plan":
                 try:
-                    _populate_contract_from_plan_safe(
+                    _plan_complete_populate_result = _populate_contract_from_plan_safe(
                         worktree_repo_path,
                         pipeline_id,
                         pipeline_mode,
@@ -20134,9 +20460,23 @@ def _run_pipeline(
                         source="plan_complete",
                         branch=pipeline.branch,
                     )
+                    # #2627 follow-up: populate-succeeded-but-empty is the
+                    # orthogonal failure mode flagged in the issue.  The
+                    # draft existed (so neither PlanDraftMissing variant
+                    # fired), but parsing produced no slices and no PR
+                    # metadata.  Synthesize a raise so the same
+                    # FAILED-cleanup handler below runs.
+                    if _plan_complete_populate_result.outcome in {
+                        PopulateOutcome.EMPTY_RESULT,
+                        PopulateOutcome.PARSE_FAILED,
+                    }:
+                        raise PopulateProducedEmptyContractError(
+                            _plan_complete_populate_result.outcome
+                        )
                 except (
                     PlanDraftMissingOnLocalError,
                     PlanDraftMissingOnLocalAndOriginError,
+                    PopulateProducedEmptyContractError,
                 ) as missing_err:
                     # Mirror the slice-gate failure handler at the
                     # implement-phase entry: mark FAILED in state,
@@ -20156,6 +20496,27 @@ def _run_pipeline(
                         pipeline.status = PipelineStatus.FAILED
                         pipeline.error = str(missing_err)
                         store.save_pipeline(pipeline)
+                    # #2627 follow-up: emit the dedicated empty-contract
+                    # HITL so the operator sees an actionable decision
+                    # (repopulate / restart-plan / abort) inline with the
+                    # FAILED status, instead of having to dig through
+                    # pipeline.error and the generic consensus-timeout
+                    # decision.
+                    if isinstance(missing_err, PlanDraftMissingOnLocalError):
+                        _hitl_reason = "plan_draft_missing_on_local"
+                    elif isinstance(missing_err, PlanDraftMissingOnLocalAndOriginError):
+                        _hitl_reason = "plan_draft_missing_on_local_and_origin"
+                    else:
+                        _hitl_reason = missing_err.outcome.value
+                    _emit_empty_contract_hitl(
+                        pipeline_id,
+                        pipeline,
+                        store,
+                        reason=_hitl_reason,
+                        draft_slice_count=None,
+                        gate="plan_complete",
+                        phase=current_phase,
+                    )
                     logger.error(
                         log_message,
                         pipeline_id=pipeline_id,
@@ -21364,13 +21725,23 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         _hitl_worktree_path = _resolve_pipeline_worktree_path(pipeline, repo_path)
                         try:
                             _pipeline_mode = pipeline.mode.value if pipeline.mode else "issue"
-                            _populate_contract_from_plan_safe(
+                            _hitl_populate_result = _populate_contract_from_plan_safe(
                                 _hitl_worktree_path,
                                 pipeline_id,
                                 _pipeline_mode,
                                 pipeline.issue_number,
                                 source="hitl_plan_gate_approval",
                             )
+                            # #1941: HITL plan-gate approval is a recovery
+                            # hammer like force-advance — blocking it on a
+                            # populate failure defeats the purpose.  We log
+                            # the structured outcome but never raise.
+                            if _hitl_populate_result.outcome != PopulateOutcome.POPULATED:
+                                logger.warning(
+                                    "HITL plan-gate approval populate produced non-POPULATED outcome",
+                                    pipeline_id=pipeline_id,
+                                    outcome=_hitl_populate_result.outcome.value,
+                                )
                             try:
                                 _commit_statefiles_to_worktree(
                                     _hitl_worktree_path,

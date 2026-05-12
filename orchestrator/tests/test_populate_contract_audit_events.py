@@ -486,6 +486,34 @@ class TestPlanDraftMissingFailureMetadata:
         # phrase (teardown reason is the field the overseer sees).
         assert local_meta[0] != both_meta[0]
 
+    def test_populate_produced_empty_contract_error_maps_to_outcome_strings(self):
+        """#2627 follow-up: the helper also dispatches on
+        :class:`PopulateProducedEmptyContractError` so the orthogonal
+        "draft existed but populate yielded nothing" failure mode shares
+        the same FAILED-cleanup handler as the draft-missing variants.
+        """
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateProducedEmptyContractError,
+            _plan_draft_missing_failure_metadata,
+        )
+
+        reason, message = _plan_draft_missing_failure_metadata(
+            PopulateProducedEmptyContractError(PopulateOutcome.EMPTY_RESULT)
+        )
+        assert reason == "populate produced empty_result outcome"
+        assert "empty contract" in message
+        assert "empty_result" in message
+
+        # parse_failed routes through the same branch — the helper
+        # keys on the outcome, not the exception class, so a future
+        # PopulateOutcome value doesn't need a new branch.
+        reason2, message2 = _plan_draft_missing_failure_metadata(
+            PopulateProducedEmptyContractError(PopulateOutcome.PARSE_FAILED)
+        )
+        assert "parse_failed" in reason2
+        assert "parse_failed" in message2
+
 
 class TestOriginHasPlanDraft:
     """#2337: ``_origin_has_plan_draft`` probes ``origin/{branch}:{path}``
@@ -640,6 +668,250 @@ class TestRegressionEmptyPhases:
             "yaml-tasks parses cleanly — see issue #2134 / #1931."
         )
         assert len(contract.phases[0].tasks) == 1
+
+
+class TestPopulateResultReturnValue:
+    """#2627 follow-up: ``_populate_contract_from_plan`` returns a
+    :class:`PopulateResult` whose ``outcome`` discriminates success
+    from each silent-failure mode so callers can fail-fast on an
+    empty contract instead of advancing to implement with nothing
+    to do.
+    """
+
+    def test_returns_populated_outcome_on_success(self, tmp_path):
+        from egg_contracts.loader import create_contract
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateResult,
+            _populate_contract_from_plan,
+        )
+
+        pipeline_id = "pipeline-result-success"
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text(SAMPLE_PLAN)
+
+        result = _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+        assert isinstance(result, PopulateResult)
+        assert result.outcome == PopulateOutcome.POPULATED
+        assert result.slice_count == 1
+        assert result.task_count == 1
+
+    def test_returns_egg_contracts_unavailable_outcome(self, tmp_path):
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
+
+        with patch.dict(sys.modules, {"egg_contracts.loader": None}):
+            result = _populate_contract_from_plan(tmp_path, "pipeline-no-loader", "local")
+        assert result.outcome == PopulateOutcome.EGG_CONTRACTS_UNAVAILABLE
+        assert result.slice_count == 0
+        assert result.task_count == 0
+
+    def test_returns_no_draft_path_outcome(self, tmp_path):
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
+
+        with patch("routes.pipelines._get_draft_path", return_value=None):
+            result = _populate_contract_from_plan(tmp_path, "pipeline-no-path", "local")
+        assert result.outcome == PopulateOutcome.NO_DRAFT_PATH
+
+    def test_returns_draft_missing_outcome(self, tmp_path):
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
+
+        result = _populate_contract_from_plan(tmp_path, "pipeline-no-draft", "local")
+        assert result.outcome == PopulateOutcome.DRAFT_MISSING
+
+    def test_returns_contract_load_failed_outcome(self, tmp_path):
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
+
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / "pipeline-bad-contract-plan.md").write_text(SAMPLE_PLAN)
+
+        with patch(
+            "egg_contracts.loader.load_contract",
+            side_effect=RuntimeError("contract corrupt"),
+        ):
+            result = _populate_contract_from_plan(tmp_path, "pipeline-bad-contract", "local")
+        assert result.outcome == PopulateOutcome.CONTRACT_LOAD_FAILED
+
+    def test_returns_parse_failed_outcome(self, tmp_path):
+        from egg_contracts.loader import create_contract
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-bad-parse-result"
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text("# Plan\n")
+
+        fake_result = MagicMock()
+        fake_result.success = False
+        fake_result.error = "yaml-tasks missing"
+
+        with patch("egg_contracts.plan_parser.parse_plan", return_value=fake_result):
+            result = _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+        assert result.outcome == PopulateOutcome.PARSE_FAILED
+
+    def test_returns_empty_result_outcome(self, tmp_path):
+        from egg_contracts.loader import create_contract
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-empty-result"
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text("# Plan\n")
+
+        fake_result = MagicMock()
+        fake_result.success = True
+        fake_result.warnings = []
+        fake_result.to_contract_slices.return_value = []
+        fake_result.pr_title = None
+
+        with patch("egg_contracts.plan_parser.parse_plan", return_value=fake_result):
+            result = _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+        assert result.outcome == PopulateOutcome.EMPTY_RESULT
+
+    def test_returns_unexpected_exception_outcome(self, tmp_path):
+        from egg_contracts.loader import create_contract
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
+
+        pipeline_id = "pipeline-exc-result"
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text(SAMPLE_PLAN)
+
+        with patch(
+            "egg_contracts.plan_parser.parse_plan",
+            side_effect=RuntimeError("kaboom"),
+        ):
+            result = _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+        assert result.outcome == PopulateOutcome.UNEXPECTED_EXCEPTION
+
+
+class TestSafeWrapperReturnValue:
+    """The safe wrapper forwards the inner ``PopulateResult`` and
+    translates raises into structured outcomes.  Force-advance and
+    HITL plan-gate approval call sites rely on this to log without
+    raising (#1941)."""
+
+    def test_safe_wrapper_returns_inner_populated_result(self, tmp_path):
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateResult,
+            _populate_contract_from_plan_safe,
+        )
+
+        sentinel = PopulateResult(PopulateOutcome.POPULATED, slice_count=3, task_count=7)
+        with patch(
+            "routes.pipelines._populate_contract_from_plan",
+            return_value=sentinel,
+        ):
+            result = _populate_contract_from_plan_safe(tmp_path, "pipeline-wrap-ok", "local")
+        assert result == sentinel
+
+    def test_safe_wrapper_returns_forest_violation_after_catching_raise(self, tmp_path):
+        from routes.pipelines import (
+            ForestValidationError,
+            PopulateOutcome,
+            _populate_contract_from_plan_safe,
+        )
+
+        with patch(
+            "routes.pipelines._populate_contract_from_plan",
+            side_effect=ForestValidationError("nope", errors=["bad"]),
+        ):
+            result = _populate_contract_from_plan_safe(tmp_path, "pipeline-wrap-forest", "local")
+        assert result.outcome == PopulateOutcome.FOREST_VIOLATION
+
+    def test_safe_wrapper_returns_unexpected_exception_outcome(self, tmp_path):
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan_safe
+
+        with patch(
+            "routes.pipelines._populate_contract_from_plan",
+            side_effect=RuntimeError("inner blew up"),
+        ):
+            result = _populate_contract_from_plan_safe(tmp_path, "pipeline-wrap-exc", "local")
+        assert result.outcome == PopulateOutcome.UNEXPECTED_EXCEPTION
+
+
+class TestPlanCompleteEmptyContractRaisesAfterPopulate:
+    """#2627 follow-up: source="plan_complete" plus populate-yielded-empty
+    triggers a :class:`PopulateProducedEmptyContractError` at the
+    natural call site so the FAILED-cleanup handler that already
+    catches :class:`PlanDraftMissingError` covers the orthogonal
+    "draft existed but produced zero tasks" failure mode too.
+
+    The wrapper itself doesn't raise this; the
+    ``_run_pipeline`` call site translates the non-raising
+    ``EMPTY_RESULT``/``PARSE_FAILED`` outcome into the new
+    exception so a single ``except`` clause handles all
+    empty-contract paths.
+    """
+
+    def test_exception_class_is_runtime_error_subclass(self):
+        from routes.pipelines import (
+            PopulateOutcome,
+            PopulateProducedEmptyContractError,
+        )
+
+        err = PopulateProducedEmptyContractError(PopulateOutcome.EMPTY_RESULT)
+        assert isinstance(err, RuntimeError)
+        assert err.outcome == PopulateOutcome.EMPTY_RESULT
+        assert "empty_result" in str(err)
+
+
+class TestEmptyContractHitl:
+    """#2627 follow-up: the dedicated HITL emitted from the slice-gate,
+    safety-net, and plan-complete paths names the empty-contract root
+    cause inline and offers recovery options that won't loop the
+    pipeline back into the same broken state."""
+
+    def test_question_text_lists_three_distinct_recovery_options(self):
+        from routes.pipelines import (
+            _EMPTY_CONTRACT_HITL_OPTIONS,
+            _empty_contract_hitl_question,
+        )
+
+        # Plain ``Retry phase`` against the generic HITL respawns into
+        # the same empty-contract state — the operator-incident loop
+        # documented on #2627.  These options must be distinct from the
+        # generic Retry/Accept/Abort set so the SDLC skill renders them
+        # as a fresh decision, not a collapsed duplicate.
+        assert "Repopulate contract from plan draft and retry" in _EMPTY_CONTRACT_HITL_OPTIONS
+        assert "Restart plan phase" in _EMPTY_CONTRACT_HITL_OPTIONS
+        assert "Abort pipeline" in _EMPTY_CONTRACT_HITL_OPTIONS
+        # Disjoint from the generic phase-failure options to ensure
+        # operators see the dedicated HITL rather than a dedup.
+        assert "Retry phase" not in _EMPTY_CONTRACT_HITL_OPTIONS
+        assert "Accept current state" not in _EMPTY_CONTRACT_HITL_OPTIONS
+
+        # The question text must name the root cause and the gate that
+        # detected the divergence so operators don't have to dig.
+        question = _empty_contract_hitl_question(
+            reason="empty_result",
+            draft_slice_count=3,
+            gate="plan_complete",
+        )
+        assert "3 slices" in question
+        assert "plan_complete" in question
+        assert "empty_result" in question
+
+    def test_question_text_handles_missing_slice_count(self):
+        from routes.pipelines import _empty_contract_hitl_question
+
+        # When the draft is missing entirely, the gate has no parsed
+        # slice count to quote; the question should still describe the
+        # divergence without crashing or claiming a fake count.
+        question = _empty_contract_hitl_question(
+            reason="plan_draft_missing",
+            draft_slice_count=None,
+            gate="plan_complete",
+        )
+        assert "missing" in question or "unparseable" in question
+        assert "plan_draft_missing" in question
 
 
 if __name__ == "__main__":

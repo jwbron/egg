@@ -133,29 +133,36 @@ _SINGLE_SLICE_PLAN = textwrap.dedent(
 
 
 class TestSliceGateBlockMonolithicDemotion:
-    def test_returns_failure_message_when_plan_has_multiple_slices(self, tmp_path):
+    def test_returns_failure_when_plan_has_multiple_slices(self, tmp_path):
+        from routes.pipelines import SliceGateMonolithicBlock
+
         pipeline_id = "issue-2261"
         _write_plan(tmp_path, pipeline_id, _MULTI_SLICE_PLAN, issue_number=2261)
-        msg = _slice_gate_block_monolithic_demotion(tmp_path, pipeline_id, issue_number=2261)
-        assert msg is not None
-        assert "monolithic" in msg
-        assert "#2337" in msg
+        result = _slice_gate_block_monolithic_demotion(tmp_path, pipeline_id, issue_number=2261)
+        assert result is not None
+        assert isinstance(result, SliceGateMonolithicBlock)
+        assert "monolithic" in result.message
+        assert "#2337" in result.message
+        # The structured count is what the dedicated HITL payload reads,
+        # so a regression in the count would silently mis-attribute the
+        # divergence to the operator.  _MULTI_SLICE_PLAN has three slices.
+        assert result.draft_slice_count == 3
 
     def test_returns_none_for_single_slice_plan(self, tmp_path):
         pipeline_id = "issue-2261-single"
         _write_plan(tmp_path, pipeline_id, _SINGLE_SLICE_PLAN)
-        msg = _slice_gate_block_monolithic_demotion(tmp_path, pipeline_id, issue_number=None)
-        assert msg is None
+        result = _slice_gate_block_monolithic_demotion(tmp_path, pipeline_id, issue_number=None)
+        assert result is None
 
     def test_returns_none_when_draft_missing(self, tmp_path):
         # No draft file written.
-        msg = _slice_gate_block_monolithic_demotion(tmp_path, "issue-no-draft", issue_number=999)
-        assert msg is None
+        result = _slice_gate_block_monolithic_demotion(tmp_path, "issue-no-draft", issue_number=999)
+        assert result is None
 
     def test_returns_none_when_parser_fails(self, tmp_path):
         pipeline_id = "issue-broken-plan"
         _write_plan(tmp_path, pipeline_id, "not a valid plan, no yaml-tasks block")
-        msg = _slice_gate_block_monolithic_demotion(tmp_path, pipeline_id, issue_number=None)
+        result = _slice_gate_block_monolithic_demotion(tmp_path, pipeline_id, issue_number=None)
         # Parser failure shouldn't block the legacy monolithic path —
         # only an unambiguous "plan parses to N>1 slices" should.
-        assert msg is None
+        assert result is None
