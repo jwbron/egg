@@ -190,10 +190,31 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should this work be decomposed into slices? Each slice has its own integration branch, BRC consensus, and PR (siblings in a wave run in parallel via the slice scheduler). Name the concrete parts inside the brackets so the operator can see which work each slice owns:\n- A = submit_task epic detection + orchestrator-side `is_epic` flag + pipeline context plumbing\n- B = refine prompt update so the analysis is shaped as a self-contained epic problem statement + scope (and is written to the epic Description on approval)\n- C = plan prompt update so every plan node is a fully-formed Jira ticket description (problem, scope, AC, OOS, links) and the plan draft records the existing-key → plan-node mapping\n- D = orchestrator post-approval apply step (epic editJiraIssue, child createJiraIssue, createIssueLink, idempotent re-entry)\n- E = reassess sweep (read existing children via JQL, classify Done / In-flight / Updatable, surface diff in plan draft)\n- F = in-flight detection (Jira status + orchestrator reverse-index from jira_ticket → open PR; needed to honor #2289 `do-not-modify-without-confirmation` markers)\n- G = Won't-Do transitions for flagged-obsolete children (requires orchestrator-side Jira credentials separate from the agent-facing gateway, OR a new gateway route — both are decisions in their own right)",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Single slice: A+B+C+D+E+F+G ship together (1 PR)",
+        "Two slices in parallel: [A+B+C prompts/plumbing] || [D+E+F+G apply+reassess] (2 PRs, both targeting main; the second slice mocks the first's hooks for testing)",
+        "Two slices with dependency: [A+B+C+D fresh-epic path end-to-end] -> [E+F+G reassess path] (2 PRs, reassess builds on fresh)",
+        "Three slices with dependency: [A+B+C prompts/plumbing] -> [D apply] -> [E+F+G reassess] (3 PRs)",
+        "Four slices: [A+B+C] -> [D] -> [E] -> [F+G] (4 PRs, smallest reviewable units)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:04.764330Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:03.187604Z",
+  "updated_at": "2026-05-12T04:46:04.773864Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -207,6 +228,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
