@@ -270,7 +270,7 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
   - `force_reason` (string, optional) — audit note explaining why `force=true` was used.
 - **`populate_contract`**: No additional parameters. Resolves the pipeline's worktree path, reads the plan document, extracts task structure, and writes tasks and acceptance criteria to the contract. Returns phase and task counts on success.
 
-**Error reason codes** (#1939): All four endpoints include a stable, machine-readable `reason` field in error responses. Switch on `reason` rather than parsing the human-readable `message`. Key codes:
+**Error reason codes** (#1939): The four endpoints normally surface a stable, machine-readable `reason` field in error responses — switch on `reason` rather than parsing the human-readable `message`. Two cases break this convention and are noted inline in the table: `populate_contract`'s `forest_violation` 422 ships the structured errors under an `error` key (no `reason`), and the earlier 400-list shape returns a list of structured entries rather than a top-level `reason`. Key codes:
 
 | Endpoint | `reason` | HTTP | Meaning / fix |
 |----------|----------|------|---------------|
@@ -286,13 +286,15 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
 | `complete_phase` | `unresolved_hitl_decisions` | 409 | Phase has pending HITL decisions; `details.unresolved_decision_ids` lists them. Resolve or pass `force=true` |
 | `complete_phase` | `invalid_artifacts` | 400 | `artifacts` must be a JSON object with string values |
 | `complete_phase` | `invalid_force_reason` | 400 | `force_reason` must be a non-empty string |
-| `populate_contract` | `draft_missing` | 404 | Plan draft missing from both local worktree and origin; re-run the plan phase or restore the draft file |
+| `populate_contract` | `draft_missing` | 404 | Plan draft missing from the pipeline's local worktree at the configured draft path; re-run the plan phase or restore the file before retrying. The HTTP endpoint calls `_populate_contract_from_plan` directly, so this is a local-only check — the safe wrapper's extra origin lookup (which raises `PlanDraftMissingOnLocal{,AndOrigin}Error` instead) only applies to internal `source="plan_complete"` callers, not HTTP |
 | `populate_contract` | `no_draft_path` | 404 | No draft path configured for this pipeline |
-| `populate_contract` | `parse_failed` | 422 | Plan draft found but could not be parsed (malformed `yaml-tasks` section) |
-| `populate_contract` | `empty_result` | 422 | Plan draft parsed successfully but produced no tasks |
-| `populate_contract` | `contract_load_failed` | 500 | Contract could not be loaded after population |
-| `populate_contract` | `egg_contracts_unavailable` | 500 | `egg_contracts` package unavailable in the sandbox |
-| `populate_contract` | `unexpected_exception` | 500 | Unexpected internal error during contract population |
+| `populate_contract` | `parse_failed` | 422 | `parse_plan` returned `success=False` — e.g., empty plan document, missing or malformed `yaml-tasks` appendix, or other parser-rejected input |
+| `populate_contract` | `empty_result` | 422 | Parse succeeded but produced no slices/tasks **and** no PR metadata (`changed=False`); a draft yielding only a `pr_title` would still come back as `POPULATED` |
+| `populate_contract` | `forest_violation` | 422 | Plan emitted a multi-parent slice DAG (#2137). **Response body shape is `{"error": "forest_violation", "errors": [...]}` — note the key is `error`, not `reason`** (clients switching only on `reason` will miss this case). The structured errors are also stashed on `contract.plan_review_feedback` so the plan reviewer NACKs the planner |
+| `populate_contract` | `contract_load_failed` | 500 | Existing contract on disk could not be loaded prior to population (the load happens first; if it fails the populator never runs) |
+| `populate_contract` | `egg_contracts_unavailable` | 500 | `egg_contracts` package failed to import in the orchestrator process (the endpoint runs orchestrator-side, not in the agent sandbox) |
+| `populate_contract` | `unexpected_exception` | 500 | Unexpected internal error inside the populator helper (`_populate_contract_from_plan`'s catch-all) |
+| `populate_contract` | `populate_contract_failed` | 500 | Residual catch-all for exceptions that escape the populator helper itself — e.g., `get_state_store_for_pipeline` / `resolve_worktree_path` raise, or the dynamic `from routes.pipelines import …` fails. Normally pre-empted by one of the specific codes above |
 | `advance_phase`, `start_phase`, `complete_phase`, `fail_phase` | `version_conflict` | 409 | Concurrent modification detected; retry the request |
 | all | `invalid_pipeline_id` | 400 | Pipeline ID format is invalid |
 | all | `pipeline_not_found` | 404 | No pipeline with that ID exists |
