@@ -21,11 +21,14 @@ handler in-process.
   The actual field is ``PipelineConfig.consensus_timeout_minutes_plan``
   (minutes, lives on ``PipelineConfig`` rather than the contract's
   ``phase_configs``).  Tests use the real field name.
-* ``handle_timeout`` only triages edges that have a recorded entry in
-  the approval matrix — a producer that proposed but received no
-  ACK/NACK yet does **not** appear in ``get_all_blocking_edges()``
-  and falls through to the "proceed" (no-alert) branch.  Tests
-  record a NACK to materialise an entry.
+* An idle reviewer with no ACK/NACK **does** appear in
+  ``get_all_blocking_edges()`` — the matrix constructor pre-populates
+  one PENDING entry per graph edge, so a producer waiting on a
+  no-show reviewer drives the timeout handler to the appropriate
+  branch (critical → escalate, advisory-only → notify).  The
+  ``test_idle_*`` cases below pin this end-to-end; #2653 was filed on
+  the misread that ``_entries`` is empty until ``record_ack`` /
+  ``record_nack`` populates it.
 * The **advisory-only** branch is intentionally silent at the
   OVERSEER_ALERT layer — see ``test_pipelines_routes.py::
   test_brc_handled_without_escalate_no_alert``.  Operator visibility
@@ -205,6 +208,90 @@ class TestPhaseAwareTimeoutPropagation:
         assert len(timeouts) == 1
         assert timeouts[0].data["type"] == "timeout_advisory_only"
         # Operator-facing alert layer stays silent on the advisory branch.
+        assert alerts == []
+
+    def test_idle_critical_reviewer_fires_overseer_alert(
+        self, event_capture, filter_events
+    ) -> None:
+        """A producer waiting on a no-show critical reviewer escalates at timeout.
+
+        Pins the operator-facing alert for the case operators most
+        care about: producer proposed, critical reviewer never showed
+        up.  The matrix constructor pre-populates one PENDING edge
+        per graph edge, so ``get_all_blocking_edges`` returns the
+        idle reviewer and the handler takes the escalate branch.
+        Issue #2653 was filed on the assumption that this branch was
+        silent; the test verifies it is not.
+        """
+        pipeline_id = "issue-2653-timeout-idle-critical"
+        config = PipelineConfig(consensus_timeout_minutes_plan=20)
+        pipeline = _make_pipeline(pipeline_id, config, PipelinePhase.PLAN)
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        tracker = make_tracker(pipeline_id, graph)
+        # Producer proposes; reviewer never ACKs or NACKs.
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+
+        capture, alerts = _capture_alerts()
+        with capture:
+            _handle_brc_consensus_timeout(
+                pipeline,
+                pipeline_id,
+                consensus_timeout=20 * 60,
+                blocking_agents=["reviewer_code"],
+                store=None,
+                slice_id=None,
+                active_role_names=["coder", "reviewer_code"],
+            )
+
+        failures = filter_events(
+            event_capture(),
+            pipeline_id=pipeline_id,
+            event_type=EventType.CONSENSUS_FAILURE,
+        )
+        assert any(e.data.get("type") == "timeout_critical" for e in failures)
+        assert len(alerts) == 1
+        alert = alerts[0]
+        assert alert.metadata["consensus_timeout_minutes"] == 20
+        assert alert.metadata["priority"] == "high"
+        assert "reviewer_code" in alert.metadata["blocking_agents"]
+
+    def test_idle_advisory_reviewer_fires_notification(self, event_capture, filter_events) -> None:
+        """Idle advisory reviewer routes to the advisory-only branch, not silence.
+
+        Pairs with the critical case to lock in that the
+        pre-populated PENDING edges respect the reviewer's
+        criticality — advisory-only stays silent at the alert layer
+        but still emits ``CONSENSUS_TIMEOUT``.
+        """
+        pipeline_id = "issue-2653-timeout-idle-advisory"
+        pipeline = _make_pipeline(
+            pipeline_id,
+            PipelineConfig(consensus_timeout_minutes_plan=15),
+            PipelinePhase.PLAN,
+        )
+        graph = ReviewGraph([ReviewEdge("reviewer_contract", "coder", ReviewCriticality.ADVISORY)])
+        tracker = make_tracker(pipeline_id, graph)
+        tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
+
+        capture, alerts = _capture_alerts()
+        with capture:
+            _handle_brc_consensus_timeout(
+                pipeline,
+                pipeline_id,
+                consensus_timeout=15 * 60,
+                blocking_agents=["reviewer_contract"],
+                store=None,
+                slice_id=None,
+                active_role_names=["coder", "reviewer_contract"],
+            )
+
+        timeouts = filter_events(
+            event_capture(),
+            pipeline_id=pipeline_id,
+            event_type=EventType.CONSENSUS_TIMEOUT,
+        )
+        assert len(timeouts) == 1
+        assert timeouts[0].data["type"] == "timeout_advisory_only"
         assert alerts == []
 
     def test_consensus_reached_before_timeout_is_no_op(self, event_capture, filter_events) -> None:

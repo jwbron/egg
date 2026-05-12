@@ -154,31 +154,53 @@ class TestBRCSingleCycleGuardsHonored:
 
     PIPELINE_ID = "issue-2635-single-cycle-guards"
 
-    def test_pre_proposal_ack_is_recorded_then_invalidated(self, single_reviewer_graph) -> None:
-        """A pre-proposal ACK is *recorded at version 0* and invalidated on PROPOSE.
+    def test_pre_proposal_ack_without_version_is_recorded_then_invalidated(
+        self, single_reviewer_graph
+    ) -> None:
+        """A pre-proposal ACK *with no version claim* lands at v0 and is invalidated.
 
-        ``check_ack_guard``'s version-match clause only fires when the
-        producer's current proposal version is ``> 0`` — a reviewer
-        racing the producer with ``ack_version=1`` therefore lands a
-        version-0 ACK in the matrix.  The producer's first PROPOSE
+        When the reviewer omits ``ack_version``, ``check_ack_guard``'s
+        version-match clause is skipped (the in-process test path
+        documented on ``handle_ack``) and the ACK is recorded at the
+        producer's current version (0).  The producer's first PROPOSE
         bumps the version and ``_invalidate_pre_proposal_acks`` clears
         the stale entry, surfacing the invalidated reviewer in
         ``stale_reviewers`` so the wait-loop knows to re-review.
 
-        This test pins the *actual* behavior so a future refactor of
-        the guard ordering doesn't silently regress the invalidation
-        rescue (see #2635 gap-audit note in the PR body).
+        Pins the rescue path so a future refactor of the guard ordering
+        doesn't silently regress the invalidation safety net.
         """
         tracker = make_tracker(self.PIPELINE_ID + "-ack", single_reviewer_graph)
-        # Reviewer ACKs before producer proposes — guard accepts because
-        # current proposal version is 0.  Omitting ``ack_version`` so the
-        # version-match clause skips (test-path comment in handle_ack).
+        # Reviewer ACKs before producer proposes — guard skips the
+        # version-match clause because ``ack_version`` is omitted.
         result = tracker.handle_ack("reviewer_code", "coder", ack_payload())
         assert result["status"] == "acked"
         assert result["version"] == 0
         # Now the producer proposes — invalidation kicks in.
         result = tracker.handle_propose("coder", propose_payload(commit_sha="abc"))
         assert "reviewer_code" in result["stale_reviewers"]
+
+    def test_pre_proposal_ack_with_explicit_version_is_rejected(
+        self, single_reviewer_graph
+    ) -> None:
+        """An explicit ``ack_version > 0`` against a v0 producer is rejected (#2654).
+
+        The previous version-match clause only fired when the
+        producer's current version was ``> 0``, so a predictive
+        ``ack_version=1`` claim against a never-proposed producer
+        slipped through and was recorded at v1.  Since
+        ``_invalidate_pre_proposal_acks`` only clears v0 entries, that
+        recorded v1 entry could have bypassed the rescue.  The guard
+        now rejects the claim outright — the reviewer must wait for
+        the producer to propose before naming a version.
+        """
+        tracker = make_tracker(self.PIPELINE_ID + "-ack-explicit", single_reviewer_graph)
+        with pytest.raises(ValueError, match="version mismatch"):
+            tracker.handle_ack(
+                "reviewer_code",
+                "coder",
+                {"ack_version": 1, **ack_payload()},
+            )
 
     def test_producer_confirm_before_full_acks_is_pending(self, two_reviewer_graph) -> None:
         """A producer must wait for every critical reviewer to ACK.
