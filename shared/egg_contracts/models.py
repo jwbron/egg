@@ -332,7 +332,20 @@ class DecisionOption(EggContractBaseModel):
 class Decision(EggContractBaseModel):
     """A HITL decision point."""
 
-    id: str = Field(..., pattern=r"^decision-[0-9]+$", description="Unique decision identifier")
+    id: str = Field(
+        ...,
+        pattern=r"^(decision|cq)-[0-9]+$",
+        description=(
+            "Unique decision identifier. Two prefixes share this namespace: "
+            "``decision-N`` (legacy / pipeline phase_gate writes via the "
+            "bridge) and ``cq-N`` (agent-registered contract questions). "
+            "Splitting the prefixes prevents the collision in #2616 where "
+            "the contract-side allocator (``len(decisions)+1``) and the "
+            "pipeline-side allocator (``len(pipeline.decisions)+1``) drift "
+            "after the bridge mirrors contract decisions into the pipeline "
+            "queue and the phase_gate consumes the next pipeline ID."
+        ),
+    )
     question: str = Field(..., min_length=1, description="The decision question")
     type: DecisionType = Field(..., description="Decision type")
     phase: PipelinePhase | None = Field(

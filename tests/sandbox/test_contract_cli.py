@@ -979,7 +979,7 @@ class TestAddDecisionWithMockGateway:
 
         assert result == 0
         captured = capsys.readouterr()
-        assert "<!-- egg-hitl-decision id=decision-1 -->" in captured.out
+        assert "<!-- egg-hitl-decision id=cq-1 -->" in captured.out
         assert "**Which approach?**" in captured.out
         assert "- [ ] Option A" in captured.out
         assert "- [ ] Option B" in captured.out
@@ -1020,7 +1020,7 @@ class TestAddDecisionWithMockGateway:
 
         assert result == 0
         captured = capsys.readouterr()
-        assert "<!-- egg-hitl-decision id=decision-1 -->" in captured.out
+        assert "<!-- egg-hitl-decision id=cq-1 -->" in captured.out
         assert "Other" not in captured.out
 
     def test_explicit_phase_overrides_contract(self, mock_gateway_factory):

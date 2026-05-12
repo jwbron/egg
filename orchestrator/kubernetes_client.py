@@ -74,6 +74,7 @@ LABEL_ORCHESTRATOR = "egg.orchestrator"
 LABEL_PIPELINE_ID = "egg.pipeline.id"
 LABEL_AGENT_ROLE = "egg.agent.role"
 LABEL_CONTAINER_NAME = "egg.container.name"
+LABEL_SLICE_ID = "egg.slice.id"
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,31 @@ class KubernetesClient:
                 "[a-z0-9]([a-z0-9.-]*[a-z0-9])? (max 63 chars)"
             )
 
+    def _normalize_k8s_job_name(self, name: str) -> str:
+        """Return the on-API form of a Job name.
+
+        Prepends ``JOB_PREFIX`` if missing and applies the 63-char
+        truncation (54 readable chars + ``-`` + 8-char SHA-1 digest of
+        the full prefixed name). The output is what the k8s API server
+        actually stored when ``create_container`` provisioned the Job.
+
+        Apply this any time a name is about to be handed to the k8s API
+        so callers in different parts of the codebase that compose the
+        un-truncated name (e.g. ``KubernetesSpawner._build_k8s_job_names``)
+        still find the Job. Without this, ``delete_job`` /
+        ``get_pod_for_job`` silently 404 on long names and the orchestrator
+        thinks the Job is already gone (#2644).
+        """
+        import hashlib
+
+        if not name.startswith(self.JOB_PREFIX):
+            name = f"{self.JOB_PREFIX}{name}"
+        if len(name) > 63:
+            digest = hashlib.sha1(name.encode(), usedforsecurity=False).hexdigest()[:8]
+            readable = name[:54].rstrip("-")
+            name = f"{readable}-{digest}"
+        return name
+
     # ------------------------------------------------------------------
     # ContainerBackend protocol — public interface
     # ------------------------------------------------------------------
@@ -229,25 +255,11 @@ class KubernetesClient:
         from kubernetes import client as k8s_client
 
         image = image or self.DEFAULT_SANDBOX_IMAGE
-        # Only prepend JOB_PREFIX if the name doesn't already start with it,
-        # to prevent double-prefixing when callers pass pre-formatted names.
-        if name.startswith(self.JOB_PREFIX):
-            job_name = name
-        else:
-            job_name = f"{self.JOB_PREFIX}{name}"
-        # k8s names are capped at 63 chars (RFC 1123). Long pipeline IDs
-        # (e.g. with qualifiers) combined with long role names like
-        # reviewer_agent_design can exceed this. Truncate and append a
-        # short hash of the original to preserve uniqueness.
-        if len(job_name) > 63:
-            import hashlib
-
-            digest = hashlib.sha1(job_name.encode(), usedforsecurity=False).hexdigest()[:8]
-            # Reserve 9 chars for "-<digest>" + the trailing hyphen; trim
-            # the readable part and strip any trailing hyphen so we don't
-            # end up with two in a row.
-            readable = job_name[:54].rstrip("-")
-            job_name = f"{readable}-{digest}"
+        # Normalize once — prefix + 63-char truncation. The same helper
+        # runs in delete_job / get_pod_for_job so every API call sees
+        # the same on-server name regardless of which call site composed
+        # the input (#2644).
+        job_name = self._normalize_k8s_job_name(name)
         self._validate_name(job_name)
 
         # Build labels
@@ -685,28 +697,101 @@ class KubernetesClient:
         """Delete a Kubernetes Job.
 
         Args:
-            name: Job name.
+            name: Job name. Normalized via :meth:`_normalize_k8s_job_name`
+                so a caller-supplied un-truncated name still resolves to
+                the truncated form ``create_container`` actually stored.
             namespace: Namespace containing the Job.
             propagation_policy: ``Background``, ``Foreground``, or ``Orphan``.
             grace_period_seconds: Optional grace period before forceful deletion.
         """
         from kubernetes import client as k8s_client
 
+        normalized = self._normalize_k8s_job_name(name)
         try:
             self.batch_api.delete_namespaced_job(
-                name=name,
+                name=normalized,
                 namespace=namespace,
                 body=k8s_client.V1DeleteOptions(
                     propagation_policy=propagation_policy,
                     grace_period_seconds=grace_period_seconds,
                 ),
             )
-            logger.info("Job deleted", job_name=name, namespace=namespace)
+            logger.info("Job deleted", job_name=normalized, namespace=namespace)
         except Exception as exc:
             error_msg = str(exc).lower()
             if "not found" in error_msg or "404" in error_msg:
-                raise PodNotFoundError(f"Job {name} not found in {namespace}") from exc
-            raise JobOperationError(f"Failed to delete job {name}: {exc}") from exc
+                raise PodNotFoundError(f"Job {normalized} not found in {namespace}") from exc
+            raise JobOperationError(f"Failed to delete job {normalized}: {exc}") from exc
+
+    def wait_for_job_gone(
+        self,
+        name: str,
+        namespace: str,
+        timeout_s: float = 30.0,
+    ) -> bool:
+        """Poll until *name* no longer exists in the API server.
+
+        ``delete_namespaced_job`` with ``Foreground`` propagation
+        returns as soon as the deletion request is accepted; the Job
+        then lingers with a ``deletionTimestamp`` and the
+        ``foregroundDeletion`` finalizer until its dependent pods are
+        fully terminated. Issuing a ``create_namespaced_job`` with the
+        same name during that window returns 409 ``AlreadyExists`` —
+        the race ``restart_agent_job`` hit on every long-named slice
+        restart (#2655).
+
+        Returns:
+            ``True`` if the Job is gone, ``False`` on timeout. Callers
+            on the respawn path treat timeout as a soft warning and
+            proceed; a stale finalizer is rarer than the original race
+            and the subsequent ``spawn_agent_job`` will surface the
+            409 with a clear message if it happens.
+        """
+        # Import here to avoid a hard module-load dep on kubernetes for
+        # callers that monkey-patch ``batch_api`` directly (unit tests).
+        from kubernetes.client.exceptions import ApiException
+
+        normalized = self._normalize_k8s_job_name(name)
+        deadline = time.monotonic() + timeout_s
+        poll_interval = 0.5
+        while True:
+            try:
+                self.batch_api.read_namespaced_job(name=normalized, namespace=namespace)
+            except ApiException as exc:
+                if exc.status == 404:
+                    return True
+                # Any other ApiException (5xx, RBAC denial, etc.) is not
+                # "Job is gone." Log and keep polling — the caller's
+                # timeout will surface it as a soft warning, and re-raising
+                # would propagate to ``restart_agent_job`` which today
+                # treats this as best-effort.
+                logger.warning(
+                    "wait_for_job_gone: non-404 ApiException while polling",
+                    job_name=normalized,
+                    namespace=namespace,
+                    status=exc.status,
+                    reason=getattr(exc, "reason", None),
+                )
+            except Exception as exc:  # noqa: BLE001 — defensive fallback
+                # Non-ApiException (transient ConnectionError from the
+                # urllib3 layer, monkey-patched test stubs, etc.). The
+                # legacy substring check ran on these and treated
+                # "not found" / "404" as success; keep that compat for
+                # test stubs that raise a plain Exception. Log so a
+                # real connection issue is visible in the logs even
+                # if we never see a real 404.
+                msg = str(exc).lower()
+                if "not found" in msg or "404" in msg:
+                    return True
+                logger.warning(
+                    "wait_for_job_gone: non-ApiException while polling",
+                    job_name=normalized,
+                    namespace=namespace,
+                    error=str(exc),
+                )
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(poll_interval)
 
     def list_jobs(
         self,
@@ -772,24 +857,28 @@ class KubernetesClient:
     ) -> str:
         """Find the pod belonging to *job_name*.
 
-        Returns the name of the first matching pod.
+        Returns the name of the first matching pod. The ``job-name``
+        label that the Job controller stamps on dependent pods is the
+        truncated form, so normalize before constructing the selector
+        (#2644).
 
         Raises:
             PodNotFoundError: If no pod is found for the Job.
         """
-        label_selector = f"job-name={job_name}"
+        normalized = self._normalize_k8s_job_name(job_name)
+        label_selector = f"job-name={normalized}"
         try:
             pods = self.core_api.list_namespaced_pod(
                 namespace=namespace,
                 label_selector=label_selector,
             )
             if not pods.items:
-                raise PodNotFoundError(f"No pods found for job {job_name} in {namespace}")
+                raise PodNotFoundError(f"No pods found for job {normalized} in {namespace}")
             return pods.items[0].metadata.name
         except PodNotFoundError:
             raise
         except Exception as exc:
-            raise JobOperationError(f"Failed to find pod for job {job_name}: {exc}") from exc
+            raise JobOperationError(f"Failed to find pod for job {normalized}: {exc}") from exc
 
     def get_pod_logs(
         self,

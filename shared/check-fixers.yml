@@ -11,7 +11,7 @@ version: "1"
 defaults:
   model: "sonnet"
   timeout: "15"
-  max_retries: 3
+  max_retries: 10
 
 workflows:
   Lint:
@@ -21,33 +21,33 @@ workflows:
         uv sync --extra dev 2>/dev/null || true
         .venv/bin/ruff check --fix --unsafe-fixes .
         .venv/bin/ruff format .
-      max_retries: 3
+      max_retries: 10
     Shell:
       non_llm_fix: |
         if command -v shfmt >/dev/null 2>&1; then
           find . -name "*.sh" -not -path "./.venv/*" -not -path "./.git/*" | xargs shfmt -w -i 2 -ci -bn
         fi
-      max_retries: 2
+      max_retries: 10
     YAML:
       non_llm_fix: |
         find . \( -name "*.yaml" -o -name "*.yml" \) -not -path "./.venv/*" -not -path "./.git/*" | while read -r f; do
           sed -i 's/[[:space:]]*$//' "$f"
           [ -n "$(tail -c1 "$f")" ] && echo "" >> "$f"
         done
-      max_retries: 2
+      max_retries: 10
     Docker:
-      max_retries: 2
+      max_retries: 10
     Actions:
-      max_retries: 2
+      max_retries: 10
     "Custom Checks":
-      max_retries: 2
+      max_retries: 10
   Test:
     "Unit Tests":
       model: "opus"
       timeout: "15"
-      max_retries: 2
+      max_retries: 10
     "Security Scan":
-      max_retries: 2
+      max_retries: 10
     # On PR CI, integration tests run as a nested job of the `Test` workflow
     # via `uses: ./.github/workflows/test-integration.yml`. The GH jobs API
     # reports the failure under the composite name `<caller-job>/<inner-job>`,
@@ -55,4 +55,4 @@ workflows:
     "Integration Tests / Integration Tests":
       model: "opus"
       timeout: "30"
-      max_retries: 2
+      max_retries: 10
