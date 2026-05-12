@@ -286,10 +286,19 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
 | `complete_phase` | `unresolved_hitl_decisions` | 409 | Phase has pending HITL decisions; `details.unresolved_decision_ids` lists them. Resolve or pass `force=true` |
 | `complete_phase` | `invalid_artifacts` | 400 | `artifacts` must be a JSON object with string values |
 | `complete_phase` | `invalid_force_reason` | 400 | `force_reason` must be a non-empty string |
-| `populate_contract` | `populate_contract_failed` | 500 | Internal error during contract population |
+| `populate_contract` | `draft_missing` | 404 | Plan draft file not found in the worktree; re-run the plan phase or manually place the draft before retrying |
+| `populate_contract` | `no_draft_path` | 404 | Worktree has no draft path configured (legacy pipelines); verify the pipeline's worktree is set up correctly |
+| `populate_contract` | `parse_failed` | 422 | Plan draft was found but could not be parsed into contract phases/tasks; fix the `yaml-tasks` appendix and retry |
+| `populate_contract` | `empty_result` | 422 | Plan draft parsed successfully but produced zero tasks; the `yaml-tasks` appendix may be empty or all tasks were filtered out |
+| `populate_contract` | `contract_load_failed` | 500 | Contract populated but could not be read back to verify counts; retry or check worktree integrity |
+| `populate_contract` | `egg_contracts_unavailable` | 500 | `egg_contracts` package is not installed in the orchestrator environment |
+| `populate_contract` | `unexpected_exception` | 500 | Unhandled exception inside `_populate_contract_from_plan` (the structured populate call); check orchestrator logs for details |
+| `populate_contract` | `populate_contract_failed` | 500 | Endpoint-level fallback for exceptions raised *outside* `_populate_contract_from_plan` (e.g., `resolve_worktree_path` failure, an unexpected error from `get_state_store_for_pipeline`, or a `ForestValidationError.to_response()` that itself raised); distinct from `unexpected_exception`, which comes from inside the populate call |
 | `advance_phase`, `start_phase`, `complete_phase`, `fail_phase` | `version_conflict` | 409 | Concurrent modification detected; retry the request |
 | all | `invalid_pipeline_id` | 400 | Pipeline ID format is invalid |
 | all | `pipeline_not_found` | 404 | No pipeline with that ID exists |
+
+Note: `populate_contract` also emits a 422 response with `{"error": "forest_violation", "errors": [...]}` (#2137 TASK-2-2) when the populated contract violates the task-forest invariants. This response carries an `error` field rather than `reason`, so it is not listed in the table above — callers should handle it as a separate case alongside the `reason`-coded 422 responses (`parse_failed`, `empty_result`).
 
 The REST-only endpoints `fail_phase` and `get_current_phase` also include `reason` in error responses (e.g., `missing_error_message` for `fail_phase`) plus the shared `invalid_pipeline_id` and `pipeline_not_found` codes. `fail_phase` additionally emits `version_conflict`.
 

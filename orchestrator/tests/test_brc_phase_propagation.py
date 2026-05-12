@@ -367,6 +367,7 @@ class TestAckPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {
                         "reason": "Reviewed src/auth.py: token validation logic is correct, all branches covered by tests"
                     },
@@ -417,6 +418,7 @@ class TestAckPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {
                         "reason": "Reviewed src/auth.py: token validation logic is correct, all branches covered by tests"
                     },
@@ -473,6 +475,7 @@ class TestNackPhasePropagation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {
                         "reason": "Missing unit tests for token expiry edge cases and invalid signature handling paths"
                     },
@@ -825,6 +828,7 @@ class TestPhasePropagationEdgeCases:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {
                         "reason": "Implementation has SQL injection in query builder module, user input is not sanitized"
                     },

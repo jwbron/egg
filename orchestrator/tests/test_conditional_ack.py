@@ -512,6 +512,7 @@ class TestSignalPathIntegration:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {
                         "artifact_references": ["src/a.py"],
                         "reason": self._SUBSTANTIVE_REASON,
@@ -553,6 +554,7 @@ class TestSignalPathIntegration:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {
                         "artifact_references": ["src/a.py"],
                         "reason": self._SUBSTANTIVE_REASON,
