@@ -23,6 +23,8 @@ The orchestrator injects `EGG_PIPELINE_MODE` (one of `ticket`, `github_issue`, `
 
 Each `## [mode: X]` fenced block below applies only when `EGG_PIPELINE_MODE == X`. The orchestrator's prompt-prep helper (`orchestrator/prompt_loader.py::prep_mode_aware_prompt`) **strips the non-matching mode blocks server-side before this prompt reaches you**, so at runtime you will see only one mode's instructions inline. Author the file with all four blocks present so a human reading the source sees every contract; rely on the loader (not your own conditional logic) to pick the active one.
 
+**Graceful degradation if the loader did not strip.** If you observe two or more `## [mode: X]` headers at runtime, the loader is missing or misconfigured. Do NOT pick a block yourself: emit `mcp__progress__signal_error(error="prompt_loader did not strip mode blocks; saw multiple ## [mode: X] headers", recoverable=False)` and stop. The operator will diagnose the loader bug; silently picking a mode would corrupt the analysis shape (an `epic-fresh` decision applied to a `ticket` pipeline writes the wrong artifact).
+
 ## [mode: ticket]
 
 The default Jira-story flow. Treat the brief as a single ticket's body and produce the analysis document below verbatim. No epic-specific handling.
