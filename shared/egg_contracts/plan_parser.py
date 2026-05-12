@@ -212,6 +212,13 @@ class ParseResult:
     # ``pr_description`` for the context-PR framing in that case).
     pr_context_title: str | None = None
     pr_context_description: str | None = None
+    # #1557 TASK-1-11 — epic-mode extras. Populated when the planner
+    # emits one of the three new top-level YAML blocks; empty lists
+    # when the plan is not epic-keyed or the planner omitted the
+    # block.
+    consolidations: list[dict[str, Any]] = field(default_factory=list)
+    splits: list[dict[str, Any]] = field(default_factory=list)
+    epic_apply: list[dict[str, Any]] = field(default_factory=list)
 
     def to_contract_phases(self) -> list[Slice]:
         """Backward-compat alias for ``to_contract_slices`` (#2137).
@@ -225,6 +232,20 @@ class ParseResult:
     def to_contract_slices(self) -> list[Slice]:
         """Convert all parsed slices to contract Slice models."""
         return [phase.to_contract_slice() for phase in self.phases]
+
+    def to_epic_metadata(self) -> dict[str, Any]:
+        """Return the epic-mode metadata bundle (#1557 TASK-1-11).
+
+        Returns a plain dict so the orchestrator's post-plan populator
+        can stash the metadata on the contract's slice metadata
+        without taking a hard dependency on the Pydantic schema here.
+        Empty when the plan emitted no epic-mode YAML blocks.
+        """
+        return {
+            "consolidations": list(self.consolidations),
+            "splits": list(self.splits),
+            "epic_apply": list(self.epic_apply),
+        }
 
 
 # Regex pattern for task IDs in markdown
@@ -1023,6 +1044,169 @@ def extract_pr_context_metadata_from_yaml(
     return context_title, context_description, warnings
 
 
+# Valid actions for the ``epic_apply:`` block (#1557 TASK-1-11). Reject
+# unknown verbs at parse time so a typo doesn't reach the apply step.
+_EPIC_APPLY_ACTIONS: frozenset[str] = frozenset(
+    {"create", "edit", "consolidate", "split", "wont_do"}
+)
+
+
+# Valid link types per #1557 feedback Q3.
+_EPIC_LINK_TYPES: frozenset[str] = frozenset(
+    {"Blocks", "Is blocked by", "Relates to"}
+)
+
+
+def extract_epic_metadata_from_yaml(
+    yaml_data: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[ParseWarning]]:
+    """Extract the three #1557 epic-mode YAML blocks.
+
+    Recognised top-level keys:
+
+    * ``consolidations:`` — list of
+      ``{children: [...], survivor: <KEY>, rationale: ...}``.
+    * ``splits:`` — list of
+      ``{original: <KEY>, new_node_ids: [...], rationale: ...}``.
+    * ``epic_apply:`` — per plan-node
+      ``{action: create|edit|consolidate|split|wont_do,
+        target_jira_key: <KEY|null>,
+        wont_do_reason: <str|null>,
+        link_type: <Blocks|Is blocked by|Relates to|null>}``.
+
+    Won't-Do entries are checked for a populated ``wont_do_reason`` —
+    #1557 R6 mitigation.  An entry missing the reason produces a
+    warning AND is dropped from the returned list, so the orchestrator's
+    post-plan populator never sees a silent "obsolete: <key>" with no
+    rationale.
+    """
+    warnings: list[ParseWarning] = []
+    if yaml_data is None:
+        return [], [], [], warnings
+
+    consolidations: list[dict[str, Any]] = []
+    splits: list[dict[str, Any]] = []
+    epic_apply: list[dict[str, Any]] = []
+
+    raw_consol = yaml_data.get("consolidations")
+    if raw_consol is not None:
+        if not isinstance(raw_consol, list):
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message="'consolidations' must be a list",
+                    context="epic-mode consolidations block ignored",
+                )
+            )
+        else:
+            for entry in raw_consol:
+                if not isinstance(entry, dict):
+                    warnings.append(
+                        ParseWarning(
+                            line_number=None,
+                            message="consolidation entry must be a mapping",
+                            context=str(entry),
+                        )
+                    )
+                    continue
+                consolidations.append(entry)
+
+    raw_splits = yaml_data.get("splits")
+    if raw_splits is not None:
+        if not isinstance(raw_splits, list):
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message="'splits' must be a list",
+                    context="epic-mode splits block ignored",
+                )
+            )
+        else:
+            for entry in raw_splits:
+                if not isinstance(entry, dict):
+                    warnings.append(
+                        ParseWarning(
+                            line_number=None,
+                            message="split entry must be a mapping",
+                            context=str(entry),
+                        )
+                    )
+                    continue
+                splits.append(entry)
+
+    raw_apply = yaml_data.get("epic_apply")
+    if raw_apply is not None:
+        if not isinstance(raw_apply, list):
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message="'epic_apply' must be a list",
+                    context="epic_apply block ignored",
+                )
+            )
+        else:
+            for entry in raw_apply:
+                if not isinstance(entry, dict):
+                    warnings.append(
+                        ParseWarning(
+                            line_number=None,
+                            message="epic_apply entry must be a mapping",
+                            context=str(entry),
+                        )
+                    )
+                    continue
+                action = entry.get("action")
+                if not isinstance(action, str) or action not in _EPIC_APPLY_ACTIONS:
+                    warnings.append(
+                        ParseWarning(
+                            line_number=None,
+                            message=(
+                                f"epic_apply.action must be one of "
+                                f"{sorted(_EPIC_APPLY_ACTIONS)} (got {action!r})"
+                            ),
+                            context=str(entry),
+                        )
+                    )
+                    continue
+                # Won't-Do entries MUST carry a non-empty reason (#1557 R6).
+                if action == "wont_do":
+                    reason = entry.get("wont_do_reason")
+                    if not (isinstance(reason, str) and reason.strip()):
+                        warnings.append(
+                            ParseWarning(
+                                line_number=None,
+                                message=(
+                                    "epic_apply.wont_do entry missing "
+                                    "wont_do_reason — refusing to ingest "
+                                    "without a rationale (#1557 R6)."
+                                ),
+                                context=str(entry),
+                            )
+                        )
+                        continue
+                link_type = entry.get("link_type")
+                if link_type is not None and (
+                    not isinstance(link_type, str) or link_type not in _EPIC_LINK_TYPES
+                ):
+                    warnings.append(
+                        ParseWarning(
+                            line_number=None,
+                            message=(
+                                f"epic_apply.link_type must be one of "
+                                f"{sorted(_EPIC_LINK_TYPES)} (got {link_type!r})"
+                            ),
+                            context=str(entry),
+                        )
+                    )
+                    # Drop the malformed link_type but keep the entry —
+                    # the apply step can still issue the create/edit
+                    # without a link.
+                    entry = {k: v for k, v in entry.items() if k != "link_type"}
+                epic_apply.append(entry)
+
+    return consolidations, splits, epic_apply, warnings
+
+
 def parse_phases_from_markdown(content: str) -> list[ParsedPhase]:
     """
     Parse phase sections from markdown content.
@@ -1217,6 +1401,13 @@ def parse_plan(content: str) -> ParseResult:
     )
     warnings.extend(pr_context_warnings)
 
+    # Epic-mode metadata (#1557 TASK-1-11). Empty lists when the plan
+    # is not epic-keyed or the planner omitted the blocks.
+    consolidations, splits, epic_apply, epic_warnings = (
+        extract_epic_metadata_from_yaml(yaml_data)
+    )
+    warnings.extend(epic_warnings)
+
     return ParseResult(
         success=True,
         phases=phases,
@@ -1228,6 +1419,9 @@ def parse_plan(content: str) -> ParseResult:
         pr_manual_steps=pr_manual_steps,
         pr_context_title=pr_context_title,
         pr_context_description=pr_context_description,
+        consolidations=consolidations,
+        splits=splits,
+        epic_apply=epic_apply,
     )
 
 

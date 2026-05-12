@@ -436,6 +436,30 @@ class JiraClient:
         _raise_for_status(response, f"issue/{key}/comment")
         return _safe_json(response, f"issue/{key}/comment")
 
+    def get_remote_links(self, key: str) -> dict[str, Any]:
+        """Fetch the remote-link list for an issue (#1557 TASK-1-6).
+
+        Atlassian exposes remote links (Confluence pages, external URLs,
+        GitHub PRs, ...) at ``GET /rest/api/3/issue/{key}/remotelink``.
+        Reads only — no write surface; the gateway has no
+        ``add_remote_link`` companion in this PR.
+
+        Same 404 / 429 semantics as :meth:`get_ticket`: a 404 is
+        translated to a ``{"status": "not_found", "key": key, ...}``
+        envelope, and 429 retries once honouring ``Retry-After``.
+        """
+        response = self._request("GET", f"issue/{key}/remotelink")
+        if response.status_code == 404:
+            return _not_found_envelope(key)
+        _raise_for_status(response, f"issue/{key}/remotelink")
+        body = _safe_json(response, f"issue/{key}/remotelink")
+        # Atlassian returns a bare JSON array for remote links, not an
+        # object envelope.  Wrap it so the route's ``data`` envelope has
+        # a consistent shape across read endpoints.
+        if isinstance(body, list):
+            return {"remoteLinks": body}
+        return body  # pragma: no cover — Atlassian always returns a list
+
     def search(
         self,
         jql: str,

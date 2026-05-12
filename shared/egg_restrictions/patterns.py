@@ -626,6 +626,35 @@ INSPECTOR_PATTERNS = AgentFilePattern(
     ],
 )
 
+# Apply-epic agent pattern (#1557 TASK-1-10).
+# The apply-epic agent dispatches Jira mutations via the gateway and
+# never writes source files. It does write structured-output JSON to
+# agent-outputs/ (for the orchestrator to pick up) so the agent-side
+# code path mirrors the inspector pattern.
+APPLY_EPIC_PATTERNS = AgentFilePattern(
+    role=AgentRole.APPLY_EPIC,
+    description="agent-outputs only — never writes source/tests/docs",
+    allowed_patterns=[
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        "src/",
+        "lib/",
+        "shared/",
+        "gateway/",
+        "sandbox/",
+        "action/",
+        "orchestrator/",
+        "docs/",
+        "tests/",
+        "test/",
+        ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/reviews/",
+        ".github/",
+    ],
+)
+
 
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
@@ -648,4 +677,5 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.AUTOFIXER: AUTOFIXER_PATTERNS,
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_PATTERNS,
     AgentRole.INSPECTOR: INSPECTOR_PATTERNS,
+    AgentRole.APPLY_EPIC: APPLY_EPIC_PATTERNS,
 }
