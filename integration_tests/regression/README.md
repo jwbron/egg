@@ -47,8 +47,10 @@ and #2655 to land before they flip to passing.
 ## Gap audit — what should be in here but isn't yet
 
 Pulled from [#2632](https://github.com/jwbron/egg/issues/2632) and
-recent slice/BRC postmortems. Items below are seeds for future
-expansion of this directory.
+recent slice/BRC postmortems. Tracking issues:
+
+- **[#2664](https://github.com/jwbron/egg/issues/2664)** — umbrella for the remaining #2474 starting points (HITL, salvage, BRC, babysit-PR push, etc.).
+- **[#2666](https://github.com/jwbron/egg/issues/2666)** — slice-scoped pods missing an `egg.slice.id` label (operability gap).
 
 | Invariant | Why it matters | Why not yet |
 |---|---|---|
