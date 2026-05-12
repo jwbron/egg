@@ -540,16 +540,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T04:46:05.445828Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T04:51:45.884872Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"(a) re-run idempotently from the saved task↔key mapping, treating already-mutated tickets as no-ops. Idempotency is enforced via the contract-stored task↔key mapping (decision-12 opt-1) + gateway's existing 5-min idempotency cache. Half-applied state is recoverable by re-invoking apply; the contract is the durable record of which mutations have already landed.\", \"Q2\": \"(a) Force a new pipeline-id qualifier (e.g. --qualifier=v2). The orchestrator's pipeline state is owned per-id; auto-archiving or in-place resuming would conflate audit trails across runs. Operator picks a qualifier when re-running (we did exactly this for this v2 retry).\", \"Q3\": \"(a) Set a Jira remote-link on the child pointing to the PR. Done by the apply / implement agent via the new gateway route added in decision-10 (POST /api/v1/jira/ticket/remotelinks would need a write companion). This is the canonical Atlassian-side wiring; the reverse-index from decision-8 opt-2 is for egg's in-flight detection.\", \"Q4\": \"MVP is single-site by design (matches today's single Atlassian credential bundle in the gateway). The contract should refuse a submit_task that names a Jira key from a non-configured project allowlist. Multi-site is not on the near-term roadmap; if it lands, the project↔site indirection in gateway/jira_policy.py is the right seam — but don't add it speculatively.\", \"Q5\": \"Literally submit_task(jira_ticket='ENG-123', mode='auto'|'fresh'|'reassess') from the host's Claude session. Default mode='auto' detects reassess if children exist, fresh otherwise. The description field of submit_task can carry operator hints for first-pass refine (e.g. 'Scope this epic narrowly to X'); for reassess, it can declare what's changed since the last pass. No new launch UX.\", \"Q6\": \"MUST-haves for v1: (a) fresh-epic path end-to-end, (b) reassess path with classify+consolidate+split+leave-alone+in-flight handling, (d) Won't-Do transitions for obsolete children. NICE-to-haves (acceptable to defer): (c) Confluence-page enrichment of refine inputs, (e) PR↔Jira remote-link wiring (the read path for in-flight detection is MUST per (b); the write path of stamping PR-link back on the child is the nice-to-have).\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:51:43.339644Z",
+  "updated_at": "2026-05-12T04:51:45.891329Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 45,
+  "version": 46,
   "jira_ticket": null
 }
