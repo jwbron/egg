@@ -41,7 +41,30 @@ for _p in (
 import pytest  # noqa: E402
 from _helpers import EventFilter, filter_events  # noqa: E402
 from events import Event, get_event_bus  # noqa: E402
+from peer_consensus import _trackers as _global_trackers  # noqa: E402
+from peer_consensus import _trackers_lock as _global_trackers_lock  # noqa: E402
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_tracker_registry() -> Generator[None]:
+    """Snapshot + restore the global ``_trackers`` registry around each test.
+
+    ``create_peer_consensus_tracker`` stores trackers in a module-level
+    dict keyed by pipeline_id.  Without cleanup these survive across
+    tests and a later test's ``get_peer_consensus_tracker(same_id)``
+    can find leftover state from a previous test (the surfaced gap
+    in #2635 PR review).  Snapshot+restore is safer than ``clear()``
+    in case a parent test suite seeded trackers we shouldn't remove.
+    """
+    with _global_trackers_lock:
+        snapshot = dict(_global_trackers)
+    try:
+        yield
+    finally:
+        with _global_trackers_lock:
+            _global_trackers.clear()
+            _global_trackers.update(snapshot)
 
 
 @pytest.fixture
