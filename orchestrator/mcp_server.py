@@ -219,13 +219,26 @@ class MCPServer:
 
 
 def _json_type_to_python(prop_def: dict) -> type:
-    """Map JSON Schema type to Python type annotation for FastMCP."""
+    """Map JSON Schema type to Python type annotation for FastMCP.
+
+    FastMCP builds a Pydantic model from the tool's signature
+    annotations and rejects any call whose argument shape doesn't
+    match.  Missing ``"array"`` / ``"object"`` rows in the mapping
+    silently fell through to ``str`` here, which made any dict-valued
+    (``config``) or list-valued (``roles``) parameter unreachable
+    over the MCP transport — the client got
+    ``"Input should be a valid string"`` from Pydantic *before* the
+    tool handler ever ran, even though the JSON-Schema input the
+    tool advertised said ``object`` / ``array``.
+    """
     json_type = prop_def.get("type", "string")
-    mapping = {
+    mapping: dict[str, type] = {
         "string": str,
         "integer": int,
         "number": float,
         "boolean": bool,
+        "array": list,
+        "object": dict,
     }
     return mapping.get(json_type, str)
 
