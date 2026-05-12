@@ -929,6 +929,7 @@ class TestNackContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {"reason": ""},
                 },
                 Path("/tmp/repo"),
@@ -947,6 +948,7 @@ class TestNackContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {"reason": "Missing tests"},
                 },
                 Path("/tmp/repo"),
@@ -965,6 +967,7 @@ class TestNackContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {"reason": "No issues"},
                 },
                 Path("/tmp/repo"),
@@ -1000,6 +1003,7 @@ class TestNackContentValidation:
                     {
                         "agent_role": "reviewer_code",
                         "producer_role": "coder",
+                        "nack_version": 1,
                         "payload": {
                             "reason": (
                                 "SQL injection vulnerability in auth.py line 42: "
@@ -1028,6 +1032,7 @@ class TestNackContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {"reason": "bad"},
                 },
                 Path("/tmp/repo"),

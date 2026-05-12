@@ -1830,3 +1830,255 @@ class TestAckVersionRouteEnforcement:
         assert body["success"] is False
         assert "must be an integer" in body["message"]
         mock_tracker.handle_ack.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_ack_rejected_when_ack_version_is_none(self, mock_subprocess_run, app):
+        """Explicit JSON ``null`` for ack_version is treated as absent (TypeError branch).
+
+        Covers the ``int(None)`` → ``TypeError`` arm of the helper that the
+        string-coercion case (``int("not-an-int")`` → ``ValueError``) misses.
+        Also pins the absent-vs-null equivalence: both produce the "required"
+        message, matching the MCP helper.
+        """
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "payload": {
+                            "ack_version": None,
+                            "reason": "Reviewed src/auth.py: token validation covers expiry and invalid signatures correctly, all branches tested",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert "is required" in body["message"]
+        mock_tracker.handle_ack.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_ack_rejected_when_ack_version_negative(self, mock_subprocess_run, app):
+        """ack_version=-1 is rejected — locks down the off-by-one on ``< 1``."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "ack_version": -1,
+                        "payload": {
+                            "reason": "Reviewed src/auth.py: token validation covers expiry and invalid signatures correctly, all branches tested",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert ">= 1" in body["message"]
+        mock_tracker.handle_ack.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# NACK version presence enforcement at the route boundary (#2674)
+# ---------------------------------------------------------------------------
+
+
+class TestNackVersionRouteEnforcement:
+    """Tests that handle_consensus_nack_signal rejects missing / invalid nack_version.
+
+    Mirrors :class:`TestAckVersionRouteEnforcement` — the helper is shared
+    (``_require_route_version``) so the NACK route must enforce the same
+    contract or a client POSTing directly to ``/signals/...`` could bypass
+    the version-match guard in ``check_nack_guard``.
+    """
+
+    @patch("subprocess.run")
+    def test_nack_rejected_when_nack_version_missing(self, mock_subprocess_run, app):
+        """Payload that omits nack_version (top-level or nested) is rejected with 400."""
+        with app.app_context():
+            from routes.signals import handle_consensus_nack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_nack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        # No nack_version at top level or in payload.
+                        "payload": {
+                            "reason": "Missing unit tests for token expiry edge cases and invalid signature handling paths",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert "nack_version" in body["message"]
+        mock_tracker.handle_nack.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_nack_rejected_when_nack_version_zero(self, mock_subprocess_run, app):
+        """nack_version=0 is rejected because v0 means no proposal exists yet."""
+        with app.app_context():
+            from routes.signals import handle_consensus_nack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_nack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "nack_version": 0,
+                        "payload": {
+                            "reason": "Missing unit tests for token expiry edge cases and invalid signature handling paths",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert ">= 1" in body["message"]
+        mock_tracker.handle_nack.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_nack_rejected_when_nack_version_non_integer(self, mock_subprocess_run, app):
+        """nack_version that is not int-coercible is rejected with 400."""
+        with app.app_context():
+            from routes.signals import handle_consensus_nack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_nack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "payload": {
+                            "nack_version": "not-an-int",
+                            "reason": "Missing unit tests for token expiry edge cases and invalid signature handling paths",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert "must be an integer" in body["message"]
+        mock_tracker.handle_nack.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_nack_rejected_when_nack_version_is_none(self, mock_subprocess_run, app):
+        """Explicit JSON ``null`` for nack_version is treated as absent (TypeError branch)."""
+        with app.app_context():
+            from routes.signals import handle_consensus_nack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_nack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "payload": {
+                            "nack_version": None,
+                            "reason": "Missing unit tests for token expiry edge cases and invalid signature handling paths",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert "is required" in body["message"]
+        mock_tracker.handle_nack.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_nack_rejected_when_nack_version_negative(self, mock_subprocess_run, app):
+        """nack_version=-1 is rejected — locks down the off-by-one on ``< 1``."""
+        with app.app_context():
+            from routes.signals import handle_consensus_nack_signal
+
+            mock_tracker = MagicMock()
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                response, status_code = handle_consensus_nack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "nack_version": -1,
+                        "payload": {
+                            "reason": "Missing unit tests for token expiry edge cases and invalid signature handling paths",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert ">= 1" in body["message"]
+        mock_tracker.handle_nack.assert_not_called()
