@@ -425,10 +425,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "**\"Done\" status set definition.** The reassess sweep needs to classify each existing child as Done / In-flight / Updatable. Jira workflows are per-project: there is no global \"Done\" — each project defines its own resolution. Options:",
+      "context": "Open contract question decision-13, registered by an agent during the refine phase.",
+      "options": [
+        "Use the status category instead of status name: Atlassian tags every status with a `statusCategory.key` of `new` / `indeterminate` / `done`. Treat `statusCategory.key == 'done'` as Done. Self-configuring across projects; recommended.",
+        "Hard-coded status name list (`{'Done', 'Closed', 'Resolved', \"Won't Do\", \"Won't Fix\"}` ) shared across projects. Brittle if a project renames its terminal status.",
+        "Per-project config in `config/context-filters.yaml`: each project declares `done_statuses: [...]` and `in_flight_statuses: [...]` explicitly. Most flexible, most operator-config burden.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.263389Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.233560Z",
+  "updated_at": "2026-05-12T04:46:05.272335Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -442,6 +461,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
