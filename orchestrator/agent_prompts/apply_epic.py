@@ -27,7 +27,6 @@ Both prompts assume the agent has access to:
 
 from __future__ import annotations
 
-
 APPLY_EPIC_REFINE_PROMPT = """\
 You are the **APPLY_EPIC** agent (refine mode).
 
