@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
+
+from egg_contracts.decisions import next_cq_id
 
 from egg_agent_tools.handlers._gateway import (
     container_id_field,
@@ -20,18 +21,6 @@ _VALID_PHASES = {"refine", "plan", "implement", "pr"}
 # on ``decisions.N``.  Same pattern as ``_GAP_RETRY_ATTEMPTS`` in
 # ``task.py``.
 _DECISION_RETRY_ATTEMPTS = 3
-
-# Agent-registered contract questions use the ``cq-N`` prefix so they
-# don't collide with the orchestrator's pipeline-side ``decision-N``
-# allocator (see #2616).  The bridge at phase_gate time mirrors each
-# contract decision into a freshly-numbered pipeline decision, and the
-# phase_gate itself consumes the next pipeline ID — so after a refine
-# with ``cq-1..cq-13`` the pipeline holds 13 mirrors plus the gate at
-# ``decision-14``.  Without the prefix split, a mid-implement
-# ``register_open_question`` reading ``len(contract.decisions) == 13``
-# would re-allocate ``decision-14`` and collide with the resolved gate
-# on the next ``provide_input`` call.
-_CQ_ID_PATTERN = re.compile(r"^cq-([0-9]+)$")
 
 
 def _resolve_identifier(req: dict[str, Any]) -> int | str:
@@ -113,20 +102,15 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         next_idx = len(decisions)
         decision_phase = phase or contract.get("current_phase")
 
-        # The numeric suffix counts only cq-prefixed ids so it stays
-        # stable as legacy ``decision-N`` entries (written by the
-        # orchestrator's bridge before #2616) come and go.
-        next_cq_n = 1 + max(
-            (
-                int(m.group(1))
-                for m in (_CQ_ID_PATTERN.match(d.get("id", "")) for d in decisions)
-                if m
-            ),
-            default=0,
-        )
+        # Agent-registered contract questions allocate ``cq-N`` from a
+        # counter that ignores ``decision-N`` entries (written by the
+        # orchestrator's pipeline-side bridge). See
+        # ``shared/egg_contracts/decisions.py`` for the namespace split
+        # rationale (#2616).
+        new_id = next_cq_id(decisions)
 
         new_decision = {
-            "id": f"cq-{next_cq_n}",
+            "id": new_id,
             "question": question,
             "type": "hitl",
             "phase": decision_phase,
