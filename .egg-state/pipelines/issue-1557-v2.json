@@ -230,10 +230,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "**Hierarchy mechanism for linking children to the epic** (your open-question #1). Different Jira projects use different parent fields: classic projects use the **Epic Link** custom field (typically `customfield_10014`); next-gen / team-managed projects use the native **parent** field. The apply step's `createJiraIssue` call needs to set one of them, and `editJiraIssue` for an existing child needs to re-target it on consolidation/split. Note: `gateway/jira_policy.py` already has an `epic_link_field()` config hook per project. Options:",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "Per-project configuration only: each allowlisted project declares `epic_link_field: 'parent' | 'customfield_10014'` in `config/context-filters.yaml`; apply step reads it. Operator owns correctness; no runtime probing. Recommended baseline.",
+        "Auto-detect via Atlassian project metadata (`GET /rest/api/3/project/{key}` to read project type / hierarchy config) and pick `parent` for next-gen, `customfield_10014` for classic. Self-configuring but adds a new gateway route.",
+        "Try `parent` first, fall back to `Epic Link` on 400. Self-healing but masks misconfigurations and pollutes the audit log with rejected writes.",
+        "Per-project configuration with auto-detect on missing config: explicit config wins; if absent, probe once and cache. Combines both upsides at the cost of carrying both code paths.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:04.846849Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:04.813634Z",
+  "updated_at": "2026-05-12T04:46:04.855602Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -247,6 +267,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null
 }
