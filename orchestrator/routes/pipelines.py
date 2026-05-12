@@ -10211,7 +10211,15 @@ def _open_context_pr_for_pipeline(
             error=str(fetch_err),
         )
 
-    tmp_worktree = Path(tempfile.mkdtemp(prefix=f"egg-context-{pipeline_id}-", dir="/tmp"))
+    # Root under WORKTREE_BASE_DIR so the path falls inside the gateway's
+    # repo-path allowlist (gateway/git_client.py ALLOWED_REPO_PATHS) — a
+    # ``/tmp`` location would be rejected by ``validate_repo_path`` and
+    # the subsequent ``push_worktree_branch`` call would fail with
+    # ``repo_path must be within allowed directories`` (#2684).  Falls
+    # back to the system temp dir in environments where the base path
+    # is absent (e.g. unit tests).
+    tmp_dir_base = str(WORKTREE_BASE_DIR) if WORKTREE_BASE_DIR.exists() else None
+    tmp_worktree = Path(tempfile.mkdtemp(prefix=f"egg-context-{pipeline_id}-", dir=tmp_dir_base))
     # Use a unique sub-path so ``git worktree add`` doesn't collide with
     # the (already-created-by-mkdtemp) directory.  ``git worktree add``
     # refuses to add to an existing non-empty directory.
@@ -10968,8 +10976,19 @@ def _commit_slice_brc_history_to_integration_branch(
             error=str(fetch_err),
         )
 
+    # Root under WORKTREE_BASE_DIR so the temp path falls inside the
+    # gateway's repo-path allowlist (gateway/git_client.py
+    # ALLOWED_REPO_PATHS).  A ``/tmp`` location is rejected by
+    # ``validate_repo_path``, which silently failed the BRC-history
+    # push and left slice PRs without their consensus transcript
+    # (#2684).  Falls back to system temp when the base dir is absent
+    # (e.g. unit tests).
+    tmp_dir_base = str(WORKTREE_BASE_DIR) if WORKTREE_BASE_DIR.exists() else None
     tmp_worktree = Path(
-        tempfile.mkdtemp(prefix=f"egg-slice-brc-{pipeline_id}-{slice_id}-", dir="/tmp")
+        tempfile.mkdtemp(
+            prefix=f"egg-slice-brc-{pipeline_id}-{slice_id}-",
+            dir=tmp_dir_base,
+        )
     )
     wt_path = tmp_worktree / "wt"
 
