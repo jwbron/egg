@@ -70,6 +70,19 @@ def require_private_mode[F: Callable[..., Any]](f: F) -> F:
     @functools.wraps(f)
     def decorated(*args: Any, **kwargs: Any) -> Any:
         session_mode = getattr(g, "session_mode", None)
+        # Issue #1557 reviewer_code v1 finding #1: routes that use
+        # ``@require_session_or_launcher_auth`` may set
+        # ``g.auth_actor='launcher'`` and leave ``session_mode=None``
+        # — the orchestrator-internal call path. The launcher secret
+        # is held only by the orchestrator (mounted at
+        # ``/secrets/launcher-secret``), so a request that authenticated
+        # with it is by definition not coming from a sandboxed agent
+        # and the private-mode gate is not the correct guard. Accept
+        # the launcher path unconditionally; the route's own
+        # project-allowlist + idempotency guards remain in force.
+        auth_actor = getattr(g, "auth_actor", None)
+        if auth_actor == "launcher":
+            return f(*args, **kwargs)
         if session_mode != "private":
             # Lazy import — gateway.py imports this module near the top, so a
             # module-level import would be circular.

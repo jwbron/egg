@@ -4927,7 +4927,13 @@ def _project_not_allowlisted_response(
 
 
 @app.route("/api/v1/jira/ticket/get", methods=["POST"])
-@require_session_auth
+# Issue #1557 reviewer_code v1 finding #1: accept either a session
+# token (agent path) or the launcher secret (orchestrator-internal
+# path used by ``orchestrator.jira_epic.is_epic_for_ticket`` at
+# submit-task time). ``require_private_mode`` is patched to accept
+# ``g.auth_actor == 'launcher'`` so the orchestrator-only call
+# does not get rejected by the agent-facing private-mode gate.
+@require_session_or_launcher_auth
 @require_private_mode
 def jira_ticket_get() -> tuple[Response, int] | Response:
     """Fetch a single Jira issue.
@@ -5010,7 +5016,11 @@ def jira_ticket_get() -> tuple[Response, int] | Response:
 
 
 @app.route("/api/v1/jira/search", methods=["POST"])
-@require_session_auth
+# Issue #1557 reviewer_code v1 finding #1: same launcher-auth
+# bypass as ``/api/v1/jira/ticket/get`` — the reassess sweep in
+# ``orchestrator.jira_reassess.run_reassess_sweep`` uses the
+# launcher secret to enumerate epic children.
+@require_session_or_launcher_auth
 @require_private_mode
 def jira_search() -> tuple[Response, int] | Response:
     """Run a JQL query against Atlassian Cloud.
@@ -5196,7 +5206,11 @@ def jira_ticket_comments() -> tuple[Response, int] | Response:
 
 
 @app.route("/api/v1/jira/ticket/remotelinks", methods=["POST"])
-@require_session_auth
+# Issue #1557 reviewer_code v1 finding #1: same launcher-auth
+# bypass as ``/api/v1/jira/ticket/get`` — the in-flight signal-b
+# detection in ``orchestrator.jira_reassess.fetch_remote_links``
+# uses the launcher secret to read each child's remote-link list.
+@require_session_or_launcher_auth
 @require_private_mode
 def jira_ticket_remotelinks() -> tuple[Response, int] | Response:
     """Fetch the remote-link list for a Jira issue (issue #1557 slice-2).
