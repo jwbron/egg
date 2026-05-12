@@ -438,10 +438,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T04:46:05.263389Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T04:50:51.011650Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Use the status category instead of status name: Atlassian tags every status with a `statusCategory.key` of `new` / `indeterminate` / `done`. Treat `statusCategory.key == 'done'` as Done. Self-configuring across projects; recommended.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -549,7 +549,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:50:48.571053Z",
+  "updated_at": "2026-05-12T04:50:51.016192Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 41,
+  "version": 42,
   "jira_ticket": null
 }
