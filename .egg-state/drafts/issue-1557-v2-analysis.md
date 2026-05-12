@@ -45,7 +45,7 @@ Issues #1556 (read-only v1, **closed/merged**), #1924 (write verbs, **closed/mer
 | Link create | `POST /api/v1/jira/issue-link/create` | `gateway.py:6104-...`. Link-type allowlist via `jira.link_types` in `config/context-filters.yaml`; default `["Blocks", "Relates"]`. Idempotency cache via `gateway/jira_idempotency.py` (5 min TTL). |
 | Execute (passthrough) | `POST /api/v1/jira/execute` | `gateway.py:5201-...`. GET-only, regex allowlist. Specifically **excludes** `search/jql` (must go through `/search` so the JQL scope extractor runs) and **excludes** `/transitions`, `/remotelink`, etc. |
 
-**Transitions are forbidden by design** (`gateway/jira_client.py:133-145` `JIRA_WRITE_VERBS_DENIED`, `gateway/jira_client.py:217-283` `validate_jira_api_path`). The path segment "transitions" is hard-denied.
+**Transitions are forbidden by design** (`gateway/jira_client.py:133-146` `JIRA_WRITE_VERBS_DENIED`, `gateway/jira_client.py:217-283` `validate_jira_api_path`). The path segment "transitions" is hard-denied.
 
 **Remote-links are NOT exposed**: `/rest/api/3/issue/{key}/remotelink` is not in the read-only allowed paths.
 
@@ -65,7 +65,7 @@ On HITL approval (`orchestrator/routes/pipelines.py:20070-20160`), the orchestra
 
 ### Plan phase
 
-Task-planner prompt at `plugins/refine-plan/skills/refine-plan/agents/task-planner.md`. Output: plan markdown plus a `# yaml-tasks` fenced block parsed by `shared/egg_contracts/plan_parser.py:76-150`:
+Task-planner prompt at `plugins/refine-plan/skills/refine-plan/agents/task-planner.md`. Output: plan markdown plus a `# yaml-tasks` fenced block parsed by `shared/egg_contracts/plan_parser.py` (`parse_phases_from_yaml` at line 413, `parse_plan` entry at line 1065; the `ParsedTask` / `ParsedPhase` dataclasses sit at lines 76-150):
 
 ```yaml
 slices:
@@ -94,7 +94,7 @@ Same HITL gate flow on plan approval: contract is populated with tasks/phases/cr
 
 ### `/impact-analysis` skill (referenced in issue)
 
-**Does not exist in the repo.** The issue references a `parent = <KEY> OR "Epic Link" = <KEY>` query shape "already demonstrated by the `/impact-analysis` skill", but `**/impact-analysis*` and `**/impact_analysis*` glob to nothing. The pattern needs to be implemented; and as currently shaped it would be **rejected by the JQL extractor** (`OR` is not allowed; both clauses must AND with a `project` scope — see decision-12).
+**Does not exist in the repo.** The issue references a `parent = <KEY> OR "Epic Link" = <KEY>` query shape "already demonstrated by the `/impact-analysis` skill", but `**/impact-analysis*` and `**/impact_analysis*` glob to nothing. The pattern needs to be implemented; and as currently shaped it would be **rejected by the JQL extractor** (`OR` is not allowed; both clauses must AND with a `project` scope — see decision-12). The literal `parent = K OR "Epic Link" = K` shape must be re-shaped into **two AND-`project`-scoped queries** issued in sequence (one `project = X AND parent = K`, one `project = X AND "Epic Link" = K`) and the result sets union'd by the orchestrator — single-query equivalents are blocked by the JQL extractor's no-OR rule.
 
 ### `#2137` (independent implement phases / stacked slice PRs)
 
@@ -151,7 +151,7 @@ Net-new primitives needed for #1557 (all are decisions surfaced in Open Question
 - **Plan-parser forest invariant**: `plan_parser.py:1284-1350` rejects multi-parent slices and cycles. The epic-pipeline plan output is a Jira-decomposition graph, not a code slice DAG, so this invariant only applies if we lean on `slices:` to represent the epic-plan structure (which is itself a decision — see decision-10's implications).
 - **Atlassian-API quirks**: ticket-edit cannot set arbitrary custom fields today; transitions are forbidden by the agent-facing gateway. Anything that needs those fields must add a new orchestrator-only route (decision-15) or remain out of scope.
 - **`fields` parameter behavior**: with `fields` omitted, `gateway/jira_client.py` does not pass a field list to Atlassian — the default field set is returned, which is not guaranteed to include `issuetype` long-term. Epic-detection callers should request it explicitly (decision-2).
-- **File-write boundaries (gateway-enforced)**: REFINER (this role) can only push `.egg-state/drafts/` and `.egg-state/agent-outputs/`. Implementation work for #1557 spans `orchestrator/`, `gateway/`, `shared/`, `plugins/refine-plan/`, `sandbox/scripts/jira` — those are coder / tester / documenter territory, not refiner.
+- **File-write boundaries (gateway-enforced)**: REFINER (this role) can only push `.egg-state/drafts/` and `.egg-state/agent-outputs/`. Implementation work for #1557 spans `orchestrator/`, `gateway/`, `shared/`, `plugins/refine-plan/`, `sandbox/scripts/jira` — those are coder / tester / documenter territory, not refiner. **Plan must allocate each task's `role:` so file-write boundaries hold**: roughly `coder` for `orchestrator/`, `gateway/`, `shared/`, `sandbox/scripts/jira`; `documenter` for `plugins/refine-plan/skills/refine-plan/agents/*.md`, `docs/`, and `config/context-filters.yaml` schema doc; `tester` for `orchestrator/tests/`, `gateway/tests/`, `shared/tests/`. Tasks that touch both code and docs will need to be split per role.
 
 **Business / scope:**
 
@@ -210,6 +210,8 @@ The decisions below are mostly **independent dimensions** of the design (detecti
 
 **Option A (orchestrator-driven apply, parameterized prompts, contract-stored mapping)**, subject to the decisions registered below. The rationale is that apply is deterministic mechanical orchestration, not creative producer output, and the orchestrator already owns the equivalent state-changing primitive for advancing pipeline phases on HITL resolution; adding "and also POST these Jira mutations" to that same code path keeps the state machine honest. The parameterized prompt design (decision-16, opt 1) keeps refine / plan agents as single sources of truth. The contract-stored mapping (decision-11, opt 1) carries the task↔key relationship through restarts and re-runs and combines with the gateway's existing idempotency cache to make apply re-entry safe.
 
+Recommended slice decomposition (decision-1, opt 3): **two slices on a dependency edge** — slice-1 = A+B+C+D (fresh-epic path end-to-end: submit_task detection + refine prompt + plan prompt + apply), slice-2 = E+F+G (reassess sweep + in-flight detection + Won't-Do transitions) built on slice-1's primitives. Two PRs, no parallelism gain (reassess strictly extends fresh-epic, so a sequential edge is natural) but each PR is reviewable in isolation and slice-2 doesn't have to mock slice-1's hooks. Inside each slice, the cross-component role allocation noted in the Constraints section gives the planner a deterministic split: coder for orchestrator/gateway/shared/sandbox-script changes, documenter for prompt-file and config-doc changes, tester for tests.
+
 Big-rock dimensions left to the operator: slice decomposition (decision-1), in-flight detection mechanism (decision-7), and the Won't-Do credential / route question (decision-15). Everything else is detail-shaping.
 
 ## Open Questions
@@ -222,10 +224,10 @@ Big-rock dimensions left to the operator: slice decomposition (decision-1), in-f
 - **decision-4 — Reassess Won't-Do approval**: batch on plan-gate approval vs per-ticket HITL vs hybrid vs out of scope (markdown-only recommendation).
 - **decision-5 — Done-children plan-prompt signal**: exclude entirely vs include with do-not-replan marker (summary only) vs include with do-not-replan marker (full description).
 - **decision-6 — Consolidation survivor heuristic**: oldest vs most-linked vs planner-picks-with-HITL-override vs highest-status vs hybrid.
-- **decision-7 — In-flight PR detection mechanism**: orchestrator reverse-index only vs both signals (index + remote-links route) vs remote-links only vs Jira status only.
+- **decision-7 — In-flight PR detection mechanism**: orchestrator reverse-index only vs both signals (index + remote-links route) vs remote-links only vs Jira status only. **Storage-shape sub-decision (decision-7a, raise during plan)**: the pipeline store is JSON-on-disk per-pipeline-ID today, so a `jira_ticket → [pipelines]` lookup is O(N) unless backed by (i) a sidecar index file rewritten on pipeline create / PR open, (ii) an in-memory derived index rebuilt on orchestrator startup by scanning the pipeline directory, or (iii) a SQLite cache. Pick during planning; folding it into decision-7 directly would overload the option list.
 - **decision-8 — Apply step location**: orchestrator-side post-approval hook (recommended) vs new sandbox-side `applier` agent role vs hybrid with verifier.
-- **decision-9 — Confluence-link extraction**: URL-scan description vs scan + new remote-links route vs out of scope in v1.
-- **decision-10 — Plan-YAML schema for ticket-shaped tasks**: reuse `tasks[].description` with section template (recommended) vs add sibling `jira_ticket_body` field vs structured sub-tree.
+- **decision-9 — Confluence-link extraction**: URL-scan description vs scan + new remote-links route vs out of scope in v1. **Placement note**: under option 1 or 2, the helper most naturally runs **in-sandbox inside the refiner** (already has the description, already has Confluence-CLI access via `sandbox/scripts/confluence`); placing it orchestrator-side would require giving the orchestrator a Confluence client. Reuse the existing in-sandbox path unless an explicit reason emerges.
+- **decision-10 — Plan-YAML schema for ticket-shaped tasks**: reuse `tasks[].description` with section template (recommended) vs add sibling `jira_ticket_body` field vs structured sub-tree. **Slice-granularity sub-question (decision-10a, raise during plan)**: at what `slices:` granularity does the epic-plan emit child tickets — (i) one slice with N tasks where each task = one Jira child; (ii) N slices of 1 task each; (iii) N slices with cross-task dependency edges encoded via slice `dependencies:` to mirror Blocks links. Option (iii) is the closest semantic match to "Blocks" edges in Jira but interacts with the plan-parser forest invariant (`plan_parser.py:1284-1350` — multi-parent slices are rejected) so cycles / fan-in clusters need serialisation. Pick during planning.
 - **decision-11 — Plan-node ↔ Jira-key mapping persistence**: on contract task (recommended) vs in plan draft markdown vs sidecar file.
 - **decision-12 — JQL discovery: project scope**: same-project children only (recommended) vs loosen JQL extractor to allow Epic Link as scope vs all-allowlisted-projects loop.
 - **decision-13 — "Done" status set**: `statusCategory.key == 'done'` (recommended) vs hard-coded status name list vs per-project config.
@@ -244,7 +246,7 @@ Big-rock dimensions left to the operator: slice decomposition (decision-1), in-f
 
 ## Complexity Assessment
 
-**high** — this is an architectural change with at least seven independently-implementable parts (A–G in decision-1), it spans orchestrator + gateway + sandbox + prompts + contract schema, and at least three of the parts (orchestrator reverse-index, apply hook, transition route) are net-new infrastructure rather than extensions of existing patterns. The slice DAG question in decision-1 is the lever that decides whether this ships as one large PR or as 2–4 parallel/dependent PRs.
+**high** — broad surface across orchestrator + gateway + sandbox + prompts + contract schema, with at least three net-new infrastructure pieces (orchestrator reverse-index, post-approval apply hook, orchestrator-only gateway transition route) rather than extensions of existing patterns. Under the recommended 2-slice decomposition (decision-1 option C) the seven A–G parts cluster as **A+B+C+D in slice-1** (fresh-epic end-to-end) and **E+F+G in slice-2** (reassess path); under option A (single slice) the seven parts collapse into one slice's task list. The slice DAG question in decision-1 is the lever that decides whether this ships as one large PR, two dependent PRs, or 2–4 parallel/dependent PRs.
 
 ---
 
