@@ -535,6 +535,373 @@ class TestHitlPipelineIdValidation:
             )
 
 
+class TestHitlHttpMethodEnforcement:
+    """HITL routes only accept the methods their handlers declare.
+
+    Flask's MethodView routing returns 405 (with the canonical
+    Werkzeug error envelope) for unmatched methods. Pin this so a
+    refactor that silently widened a route's method list — e.g.
+    accidentally adding ``DELETE`` to ``/decisions`` because of a
+    blueprint-level ``methods=["GET", "POST", "DELETE"]`` typo — fails
+    loud rather than silent.
+    """
+
+    # (method, path_template) pairs that the blueprint MUST reject.
+    # Each pair targets a route that exists in ``_HITL_ROUTES`` but with
+    # the wrong HTTP method.
+    _DISALLOWED = [
+        ("DELETE", "/api/v1/pipelines/{pipeline_id}/decisions"),
+        ("PUT", "/api/v1/pipelines/{pipeline_id}/decisions"),
+        ("PATCH", "/api/v1/pipelines/{pipeline_id}/decisions"),
+        (
+            "DELETE",
+            "/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}",
+        ),
+        (
+            "PUT",
+            "/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}",
+        ),
+        (
+            "PATCH",
+            "/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}",
+        ),
+        (
+            "GET",
+            "/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}/resolve",
+        ),
+        (
+            "DELETE",
+            "/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}/resolve",
+        ),
+        (
+            "GET",
+            "/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}/cancel",
+        ),
+        (
+            "DELETE",
+            "/api/v1/pipelines/{pipeline_id}/decisions/{decision_id}/cancel",
+        ),
+        ("POST", "/api/v1/pipelines/{pipeline_id}/decisions/status"),
+    ]
+
+    @pytest.mark.parametrize(
+        ("method", "template"),
+        _DISALLOWED,
+        ids=[f"{m} {t}" for m, t in _DISALLOWED],
+    )
+    def test_disallowed_method_405(
+        self,
+        orchestrator_url: str,
+        regression_pipeline_id: str,
+        method: str,
+        template: str,
+    ) -> None:
+        path = _format_path(template, regression_pipeline_id, _placeholder_decision_id())
+        resp = _call(orchestrator_url, method, path)
+        assert resp.status_code == 405, (
+            f"{method} {path}: expected 405 (method not allowed), got "
+            f"{resp.status_code}: {resp.text[:500]}"
+        )
+
+
+class TestHitlMalformedJsonBody:
+    """Bodies that claim ``application/json`` but aren't valid JSON.
+
+    Flask's ``get_json(silent=False)`` raises ``BadRequest`` here, which
+    Werkzeug renders as 400. The handler downstream uses ``request.get_json()``
+    without ``silent=`` — if that ever switched to ``silent=True``,
+    invalid JSON would silently parse as ``None`` and the "Missing
+    request body" path would shadow the JSON-decode failure, losing
+    operator-visible diagnostic in the audit log.
+    """
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        [
+            "this is not json",
+            "{not: valid",
+            "{",
+            '"unterminated string',
+        ],
+        ids=["plain-text", "unclosed-brace", "single-brace", "unterminated-string"],
+    )
+    def test_invalid_json_with_json_content_type_400(
+        self,
+        orchestrator_url: str,
+        regression_pipeline_id: str,
+        raw_body: str,
+    ) -> None:
+        path = f"/api/v1/pipelines/{regression_pipeline_id}/decisions"
+        resp = requests.post(
+            f"{orchestrator_url}{path}",
+            data=raw_body.encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        # Flask's bad-JSON handler returns 400 (the body is
+        # ``application/json`` but doesn't parse). Werkzeug 3.x uses the
+        # default error renderer, which the orchestrator overrides to
+        # the canonical envelope — so 400 with a JSON body is the
+        # expected shape. We don't probe the exact message because
+        # Werkzeug's wording changes between minor versions.
+        assert resp.status_code == 400, (
+            f"POST {path} body={raw_body!r}: expected 400, got "
+            f"{resp.status_code}: {resp.text[:500]}"
+        )
+
+    @pytest.mark.parametrize(
+        "non_object_json",
+        [
+            pytest.param(
+                "[1, 2, 3]",
+                marks=pytest.mark.xfail(
+                    reason="#2656: list body raises AttributeError → 500, should be 400",
+                    strict=True,
+                ),
+                id="array",
+            ),
+            pytest.param(
+                '"a string body"',
+                marks=pytest.mark.xfail(
+                    reason="#2656: scalar body raises AttributeError → 500, should be 400",
+                    strict=True,
+                ),
+                id="string",
+            ),
+            pytest.param(
+                "42",
+                marks=pytest.mark.xfail(
+                    reason="#2656: scalar body raises AttributeError → 500, should be 400",
+                    strict=True,
+                ),
+                id="number",
+            ),
+            pytest.param(
+                "true",
+                marks=pytest.mark.xfail(
+                    reason="#2656: scalar body raises AttributeError → 500, should be 400",
+                    strict=True,
+                ),
+                id="bool",
+            ),
+            # ``null`` deserialises to ``None``, which the handler's
+            # ``data = request.get_json() or {}`` coerces to ``{}`` and
+            # the ``Missing question`` 400 branch then catches. That
+            # works today; pin it so a refactor that drops the ``or {}``
+            # coercion (regressing to the AttributeError path) breaks.
+            pytest.param("null", id="null"),
+        ],
+    )
+    def test_non_object_json_body_400(
+        self,
+        orchestrator_url: str,
+        regression_pipeline_id: str,
+        non_object_json: str,
+    ) -> None:
+        """A syntactically-valid JSON body that isn't a dict.
+
+        Tracked as #2656: ``queue_decision`` does ``data =
+        request.get_json() or {}`` then ``data.get("question")``. When
+        ``data`` is a list / scalar, ``.get`` raises ``AttributeError``
+        and the handler's generic ``except Exception`` mapper returns
+        500 — leaking ``DecisionQueue`` internals and turning a bad
+        client into a noisy log entry. Expected shape is 400 with the
+        canonical envelope.
+
+        The four primitive shapes (array / string / number / bool) are
+        ``xfail(strict=True)`` so a fix flips them to XPASS and the
+        test author has to drop the mark. ``null`` is the one shape
+        that works correctly today (coerced to ``{}`` and routed to
+        the missing-question 400 branch) — pinning it guards the
+        coercion path.
+        """
+        path = f"/api/v1/pipelines/{regression_pipeline_id}/decisions"
+        resp = requests.post(
+            f"{orchestrator_url}{path}",
+            data=non_object_json.encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        assert resp.status_code == 400, (
+            f"POST {path} body={non_object_json!r}: expected 400 "
+            f"(non-object body), got {resp.status_code}: {resp.text[:500]}"
+        )
+        _assert_error_envelope(resp, f"POST {path} body={non_object_json!r}")
+
+
+class TestHitlResolvePayloadEdgeCases:
+    """Edge-case ``resolution`` values exercised via the live HTTP path.
+
+    ``resolve_decision`` normalises non-string resolutions to a JSON
+    string (``json.dumps(resolution)``) and rejects empty/missing ones
+    with 400. Once those checks pass, the handler hits the state-store
+    lookup, which 404s for our placeholder decision id — so each test
+    here pins what happens *before* the lookup runs.
+    """
+
+    @pytest.mark.parametrize(
+        ("body", "expect_validation_error"),
+        [
+            ({"resolution": None}, True),
+            ({"resolution": ""}, True),
+            ({"resolution": "   "}, False),  # whitespace bypasses ``if not``
+            ({"resolution": {"opt": "a"}}, False),  # dict → json.dumps
+            ({"resolution": ["a", "b"]}, False),  # list → json.dumps
+            ({"resolution": 42}, False),  # int passes the truthiness check
+            ({"resolution": False}, True),  # falsy primitive
+        ],
+        ids=[
+            "explicit-null",
+            "empty-string",
+            "whitespace-only",
+            "dict",
+            "list",
+            "int",
+            "bool-false",
+        ],
+    )
+    def test_resolution_edge_case(
+        self,
+        orchestrator_url: str,
+        regression_pipeline_id: str,
+        lifecycle_bearer: str,
+        body: dict,
+        expect_validation_error: bool,
+    ) -> None:
+        path = (
+            f"/api/v1/pipelines/{regression_pipeline_id}/decisions/"
+            f"{_placeholder_decision_id()}/resolve"
+        )
+        resp = _call(
+            orchestrator_url,
+            "POST",
+            path,
+            json_body=body,
+            headers={"Authorization": lifecycle_bearer},
+        )
+        if expect_validation_error:
+            # The ``if not resolution`` branch catches None, "", 0, False.
+            # Anything else passes validation and falls through to the
+            # state-store lookup, which 404s for our placeholder
+            # decision id.
+            assert resp.status_code == 400, (
+                f"POST {path} body={body!r}: expected 400 "
+                f"(missing resolution), got {resp.status_code}: "
+                f"{resp.text[:500]}"
+            )
+            env = _assert_error_envelope(resp, f"POST {path}")
+            assert "resolution" in (env.get("message") or "").lower(), (
+                f"POST {path}: 400 envelope should mention resolution; got {env!r}"
+            )
+        else:
+            # Validation passed → lookup → 404. Crucially, NOT 500:
+            # the handler must not bubble TypeError / AttributeError
+            # from the json.dumps normalisation path. A regression that
+            # removed the ``isinstance(resolution, str)`` check before
+            # passing to ``queue.resolve_decision`` would surface as a
+            # 500 here on dict/list bodies.
+            assert resp.status_code == 404, (
+                f"POST {path} body={body!r}: expected 404 "
+                f"(pipeline or decision not found, validation passed), "
+                f"got {resp.status_code}: {resp.text[:500]}"
+            )
+            env = _assert_error_envelope(resp, f"POST {path}")
+            # The pipeline check fires before the decision lookup, so
+            # an unknown pipeline surfaces "Pipeline … not found"; an
+            # unknown decision on a real pipeline would surface
+            # "Decision … not found". Both are acceptable here — we
+            # don't have real-pipeline infra (filed as #2657) so we
+            # observe the pipeline-not-found path. The point of the
+            # assertion is that the envelope names what was missing,
+            # not which check fired first.
+            msg = (env.get("message") or "").lower()
+            assert "pipeline" in msg or "decision" in msg, (
+                f"POST {path}: 404 envelope should reference the missing "
+                f"pipeline or decision; got {env!r}"
+            )
+
+
+class TestHitlCancelOnUnknownDecision:
+    """``/cancel`` with valid auth on a missing decision returns a structured 404.
+
+    The handler is body-less (no payload to validate) so the path
+    immediately reaches the state-store lookup after auth. The 404
+    envelope must carry the decision id so an operator can trace which
+    cancel call missed.
+    """
+
+    def test_cancel_unknown_decision_404(
+        self,
+        orchestrator_url: str,
+        regression_pipeline_id: str,
+        lifecycle_bearer: str,
+    ) -> None:
+        decision_id = _placeholder_decision_id()
+        path = f"/api/v1/pipelines/{regression_pipeline_id}/decisions/{decision_id}/cancel"
+        resp = _call(
+            orchestrator_url,
+            "POST",
+            path,
+            headers={"Authorization": lifecycle_bearer},
+        )
+        # Pipeline doesn't exist → 404 via PipelineNotFoundError.
+        # If the pipeline DID exist we'd 404 via DecisionNotFoundError
+        # with the decision id in the message. Both paths must surface
+        # the envelope; we only have the no-pipeline path reachable
+        # without real-pipeline infra (filed as a follow-up).
+        assert resp.status_code == 404, (
+            f"POST {path} with auth: expected 404, got {resp.status_code}: {resp.text[:500]}"
+        )
+        env = _assert_error_envelope(resp, f"POST {path}")
+        # The pipeline-not-found message references the pipeline id;
+        # a refactor that consolidated 404 paths without preserving the
+        # id would break operator triage.
+        assert regression_pipeline_id in (env.get("message") or ""), (
+            f"POST {path}: 404 envelope should reference the pipeline id; got {env!r}"
+        )
+
+
+class TestHitlOversizedPayload:
+    """The orchestrator must reject pathologically large bodies cleanly.
+
+    Werkzeug enforces ``MAX_CONTENT_LENGTH`` if set; without it the
+    handler still has to cope. The unauthenticated ``POST /decisions``
+    is the most exposed surface (anything in-cluster can queue) so a
+    DoS-shaped body — 50 MB of JSON — must surface as a structured 4xx,
+    never a 500 or a hang past our test timeout.
+    """
+
+    def test_large_question_payload(
+        self,
+        orchestrator_url: str,
+        regression_pipeline_id: str,
+    ) -> None:
+        # ~5 MB question — big enough to stress the handler without
+        # making the test runner OOM under parallel execution. The
+        # field has no documented max; if the handler accepts this
+        # silently, a follow-up should add a cap. The point of this
+        # test is "doesn't hang, doesn't 500" — any structured
+        # 4xx/2xx response inside the 30-second budget is acceptable.
+        huge_question = "x" * (5 * 1024 * 1024)
+        path = f"/api/v1/pipelines/{regression_pipeline_id}/decisions"
+        resp = _call(
+            orchestrator_url,
+            "POST",
+            path,
+            json_body={"question": huge_question},
+            timeout=30,
+        )
+        assert resp.status_code < 500, (
+            f"POST {path} with 5 MB body: handler must not 500; got "
+            f"{resp.status_code}: {resp.text[:500]}"
+        )
+        # The body shape is JSON for any 4xx the handler emits; on a
+        # 413 from Werkzeug we'd still expect JSON because the
+        # orchestrator's error mapper renders it.
+        if resp.status_code >= 400:
+            _assert_error_envelope(resp, f"POST {path} (5 MB body)")
+
+
 def test_deterministic_pipeline_id_is_syntactically_valid() -> None:
     """The helper's output must match ``PIPELINE_ID_PATTERN``.
 
