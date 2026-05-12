@@ -911,11 +911,12 @@ class TestDrainWontdoBatchAfterApplyCallable:
             captured["handoff_path"] = str(handoff_path)
             return _DR()
 
-        import routes.pipelines as routes_pipelines
-
-        with patch.object(
-            routes_pipelines, "run_wontdo_drain", create=True, side_effect=_fake_drain
-        ):
+        # The helper does a local ``from wontdo_drain import run_wontdo_drain``
+        # inside the function body, so the patch must land on the source
+        # module (``wontdo_drain.run_wontdo_drain``) — patching the import
+        # target on ``routes.pipelines`` would not be picked up by the
+        # local re-import.
+        with patch.object(wontdo_drain, "run_wontdo_drain", side_effect=_fake_drain):
             _drain_wontdo_batch_after_apply(pipeline, tmp_path)
 
         assert captured.get("handoff_path", "").endswith("with-handoff-wontdo.json"), (

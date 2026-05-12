@@ -5523,7 +5523,10 @@ def jira_ticket_transition() -> tuple[Response, int] | Response:
 # manually so the invariant continues to hold while documenting that
 # this is the deliberate orchestrator-only escape hatch (issue #1557
 # decision-15 + task-2-6).
-from .mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # noqa: E402
+try:
+    from .mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # noqa: E402
+except ImportError:
+    from mode_gate import PRIVATE_MODE_MARKER_ATTR as _PRIVATE_MODE_MARKER_ATTR  # type: ignore[no-redef, import-untyped]  # noqa: E402
 
 setattr(jira_ticket_transition, _PRIVATE_MODE_MARKER_ATTR, True)
 

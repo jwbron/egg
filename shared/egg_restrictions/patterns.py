@@ -831,6 +831,7 @@ def build_agent_patterns(
         AgentRole.CODER: coder,
         AgentRole.TESTER: tester,
         AgentRole.DOCUMENTER: documenter,
+        AgentRole.APPLIER: APPLIER_PATTERNS,
         AgentRole.ARCHITECT: ARCHITECT_PATTERNS,
         AgentRole.TASK_PLANNER: TASK_PLANNER_PATTERNS,
         AgentRole.RISK_ANALYST: RISK_ANALYST_PATTERNS,
