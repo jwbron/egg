@@ -845,10 +845,28 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Retry phase\"}",
       "phase": "implement",
       "content_changed": null
+    },
+    {
+      "id": "decision-21",
+      "question": "8 container(s) exited with non-zero code; consensus incomplete; agents never confirmed: tester, reviewer_code_holistic, coder, reviewer_concurrency, reviewer_security, documenter, reviewer_contract, reviewer_code. Committed work is preserved on the per-role branch — 'Retry phase' restarts with artifacts intact. How to proceed?",
+      "context": "",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T17:36:01.048405Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T17:36:01.029735Z",
+  "updated_at": "2026-05-12T17:36:01.048468Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -862,6 +880,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-12T17:35:35.609760Z",
-  "version": 91,
+  "version": 92,
   "jira_ticket": null
 }
