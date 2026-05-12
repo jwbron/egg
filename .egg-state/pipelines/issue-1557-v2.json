@@ -362,10 +362,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-05-12T04:46:05.101409Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-05-12T04:49:47.008376Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Add a new gateway route `POST /api/v1/jira/ticket/remotelinks` (read-only, allowlisted) AND scan the description URLs. Covers both inline links and the canonical \\\"attach as remote link\\\" Jira UI flow at the cost of a new gateway surface.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -549,7 +549,7 @@
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:49:44.590201Z",
+  "updated_at": "2026-05-12T04:49:47.013075Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 37,
+  "version": 38,
   "jira_ticket": null
 }
