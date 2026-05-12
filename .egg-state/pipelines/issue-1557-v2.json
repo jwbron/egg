@@ -368,10 +368,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "**Plan YAML schema for per-task Jira ticket descriptions.** Today's plan YAML has `tasks[].description` (free-form markdown); the issue says every plan node must be \"fully-formed Jira ticket description\" (problem statement, scope, AC, OOS, cross-links). Options for shape:",
+      "context": "Open contract question decision-10, registered by an agent during the refine phase.",
+      "options": [
+        "Reuse the existing `description` field but require ticket-shaped content (sections: Problem, Scope, Acceptance, OOS, Links). Lightest schema change — just prompt + planner enforcement; no migration concerns for non-Jira pipelines. Recommended.",
+        "Add a new optional sibling field `tasks[].jira_ticket_body` populated only when the parent pipeline is epic-mode; `description` keeps its current free-form role. Cleanest separation; doubles the planner's output for epics.",
+        "Replace `description` with a structured sub-tree (`problem`, `scope`, `acceptance`, `out_of_scope`, `cross_links`) for *all* plan tasks (not just epic mode). Most consistent but a breaking change to the contract schema.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.143857Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.109636Z",
+  "updated_at": "2026-05-12T04:46:05.152623Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -385,6 +404,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null
 }
