@@ -501,10 +501,55 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-18",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "The reassess apply step is not pure inserts: it edits existing tickets in place, splits / consolidates, and transitions others to Won't Do. If apply partially succeeds (3 of 7 mutations land before a network error), what is the operator's expected recovery? (a) re-run idempotently from the saved task↔key mapping, treating already-mutated tickets as no-ops; (b) emit a clear half-applied-state error and require the operator to manually retry / unwind in Jira; (c) maintain a per-apply 'undo log' that the orchestrator can replay backwards. Each has very different storage + Atlassian-API implications.",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Pipeline-ID collision for re-runs on the same epic: today `submit_task <EPIC-KEY>` is rejected with HTTP 409 if a pipeline already exists for that key. For a reassess flow that explicitly RE-runs against an existing epic with children, what's the desired behavior? (a) Force a new pipeline-id qualifier (`<EPIC-KEY>-v2`, `-v3`, …); (b) Auto-archive the prior pipeline and create a fresh one with the same id; (c) Resume the existing pipeline from refine; (d) Open-ended.",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "PR ↔ Jira-ticket linkage: when an implement pipeline for a child ticket (`<CHILD-KEY>`) opens a PR, should the orchestrator also (a) set a Jira remote-link on the child pointing to the PR, (b) post a Jira comment on the child with the PR URL, (c) both, or (d) neither (rely on Atlassian's DVCS connector / GitHub-for-Jira app to backfill the link). Note this is also the question that decides whether the `jira_ticket → open PR` reverse-lookup (#1557 in-flight detection) needs a Jira-side signal at all or can live entirely in orchestrator state.",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Multi-Atlassian-site posture: today the gateway holds one Atlassian credential bundle and serves one site. Is this MVP single-site by design (and should the contract refuse a `submit_task` that names a Jira key from a non-configured site), or is multi-site on the near-term roadmap and we should leave a project-↔-site indirection in `gateway/jira_policy.py` from day one?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "How is the operator going to launch a Jira-epic SDLC pipeline in practice? The issue says 'user's normal Claude Code host session talking to the egg MCP server' — is that literally `submit_task(jira_ticket='ENG-123', description='Reassess this epic')` from the host's Claude session and that's the entire UX? Anything special-cased about the description for reassess mode vs first-pass refine? Anything we should plumb through `submit_task` arguments to disambiguate (e.g. `epic_mode: 'fresh' | 'reassess' | 'auto'`)?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Acceptance criteria for v1 success: which of these are MUST-haves for shipping #1557 vs nice-to-haves? — (a) fresh-epic path: submit_task on an empty epic produces refine→plan→HITL→apply that writes the analysis to the epic Description and creates child tickets with the planned descriptions and Blocks links. (b) reassess path: same as (a) but on an epic with pre-existing children, the planner consolidates / splits / leaves-alone correctly and the apply step honors in-flight markers. (c) Confluence-page enrichment of refine inputs. (d) Won't-Do transitions for obsolete children. (e) PR↔Jira remote-link wiring.",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-12T04:46:05.445828Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-12T03:49:39.907882Z",
-  "updated_at": "2026-05-12T04:46:05.409804Z",
+  "updated_at": "2026-05-12T04:46:05.454726Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -518,6 +563,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 28,
+  "version": 29,
   "jira_ticket": null
 }
