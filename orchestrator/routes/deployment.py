@@ -1127,16 +1127,22 @@ def _read_probe_log(k8s: Any, namespace: str, pod_name: str) -> str:
     # Python dict repr (single quotes, ``True``) instead of the
     # original JSON. _preload_content=False bypasses that path and
     # returns the urllib3 HTTPResponse so we can decode the raw bytes.
+    #
+    # With ``_preload_content=False`` the actual network read happens at
+    # ``.data`` access (urllib3 reads-to-EOF lazily and caches), so the
+    # ``try/except`` must wrap the ``.data`` access too — otherwise a
+    # mid-stream connection reset or malformed transfer-encoding would
+    # propagate up and 500 the route handler.
     try:
         raw = k8s.core_api.read_namespaced_pod_log(
             name=pod_name, namespace=namespace, _preload_content=False
         )
+        if raw is None:
+            return ""
+        data = getattr(raw, "data", raw)
     except Exception as exc:
         logger.warning("probe log read failed", pod=pod_name, error=str(exc))
         return ""
-    if raw is None:
-        return ""
-    data = getattr(raw, "data", raw)
     if isinstance(data, bytes):
         return data.decode("utf-8", errors="replace")
     return str(data)

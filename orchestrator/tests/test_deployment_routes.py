@@ -1526,6 +1526,103 @@ class TestProbeCommandTemplate:
         )
 
 
+class TestReadProbeLog:
+    """Unit coverage of ``_read_probe_log``.
+
+    The function passes ``_preload_content=False`` to bypass the
+    kubernetes-python ``ApiClient.deserialize()`` JSON-coercion path,
+    so the returned object is a raw ``urllib3.HTTPResponse`` whose
+    ``.data`` attribute contains bytes. The integration suite covers
+    the end-to-end happy path against a real cluster, but the
+    bytes/str branching and the body-read exception envelope need
+    direct unit coverage.
+    """
+
+    def test_decodes_bytes_payload(self):
+        """The ``.data`` bytes path round-trips through utf-8 decode."""
+        from routes.deployment import _read_probe_log
+
+        raw = MagicMock()
+        raw.data = b'{"gateway_reachable": true}'
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = raw
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == '{"gateway_reachable": true}'
+        k8s.core_api.read_namespaced_pod_log.assert_called_once_with(
+            name="egg-probe-abc", namespace="egg-agents", _preload_content=False
+        )
+
+    def test_replaces_undecodable_bytes(self):
+        """Invalid utf-8 sequences are replaced rather than raising."""
+        from routes.deployment import _read_probe_log
+
+        raw = MagicMock()
+        raw.data = b"hello \xff\xfe world"
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = raw
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert "hello" in result
+        assert "world" in result
+
+    def test_str_fallback_for_object_without_data(self):
+        """If the response has no ``.data`` attribute, ``str()`` it."""
+        from routes.deployment import _read_probe_log
+
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = "plain string log"
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == "plain string log"
+
+    def test_returns_empty_string_on_none(self):
+        """A ``None`` response yields an empty string, not a crash."""
+        from routes.deployment import _read_probe_log
+
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = None
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == ""
+
+    def test_swallows_exception_from_request(self):
+        """Errors during the kubernetes-python call return ``''``."""
+        from routes.deployment import _read_probe_log
+
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.side_effect = RuntimeError("boom")
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == ""
+
+    def test_swallows_exception_from_data_access(self):
+        """Body-read failures via ``.data`` are caught, not propagated.
+
+        ``_preload_content=False`` defers the actual network read to
+        ``.data`` access. A mid-stream connection reset or malformed
+        transfer-encoding raises there; the route handler relies on
+        ``_read_probe_log`` returning ``''`` rather than 500'ing.
+        """
+        from routes.deployment import _read_probe_log
+
+        raw = MagicMock()
+        type(raw).data = property(
+            lambda self: (_ for _ in ()).throw(ConnectionResetError("stream reset"))
+        )
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = raw
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == ""
+
+
 # ---------------------------------------------------------------------------
 # module sanity
 # ---------------------------------------------------------------------------
