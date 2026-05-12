@@ -5195,6 +5195,86 @@ def jira_ticket_comments() -> tuple[Response, int] | Response:
     return make_success("Jira ticket comments fetched", body)
 
 
+@app.route("/api/v1/jira/ticket/remotelinks", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_ticket_remotelinks() -> tuple[Response, int] | Response:
+    """Fetch remote links for a Jira issue (#1557 TASK-1-6).
+
+    Request body::
+
+        {"ticket": "FOO-123"}
+
+    Returns the remote-link list (Confluence pages, external URLs,
+    GitHub PR references, ...) discovered via
+    ``GET /rest/api/3/issue/{key}/remotelink``.  Used by the
+    existing-children sweep (TASK-1-12) to cross-check whether a child
+    ticket has a GitHub PR linked to it (one of the in-flight detection
+    signals per decision-8).
+
+    Read-only; no companion write route in this PR.
+    """
+    data = request.get_json(silent=True) or {}
+    ticket = data.get("ticket")
+
+    if not isinstance(ticket, str) or not _JIRA_TICKET_KEY_RE.fullmatch(ticket):
+        audit_log(
+            "jira_ticket_remotelinks_rejected",
+            "jira_ticket_remotelinks",
+            success=False,
+            details={
+                "reason": "invalid ticket shape",
+                "ticket": ticket,
+                **_session_jira_context(),
+            },
+        )
+        return make_error(
+            "Invalid ticket key (expected e.g. 'FOO-123')",
+            status_code=400,
+            details={"ticket": ticket},
+        )
+
+    project = extract_project_key(ticket)
+    if not is_project_allowed(project):
+        return _project_not_allowlisted_response(
+            event="jira_ticket_remotelinks_denied",
+            ticket=ticket,
+            project=project,
+            reason="project not allowlisted",
+        )
+
+    try:
+        body = get_jira_client().get_remote_links(ticket)
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        audit_log(
+            "jira_ticket_remotelinks_upstream_error",
+            "jira_ticket_remotelinks",
+            success=False,
+            details={
+                "ticket": ticket,
+                "project": project,
+                "upstream_status": exc.status_code,
+                **_session_jira_context(),
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    audit_log(
+        "jira_ticket_remotelinks",
+        "jira_ticket_remotelinks",
+        success=True,
+        details={
+            "ticket": ticket,
+            "project": project,
+            "not_found": body.get("status") == "not_found",
+            **_session_jira_context(),
+        },
+    )
+    return make_success("Jira ticket remote links fetched", body)
+
+
 @app.route("/api/v1/jira/execute", methods=["POST"])
 @require_session_auth
 @require_private_mode
