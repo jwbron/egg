@@ -1,41 +1,27 @@
 """k3s regression guard for long-Job-name round-trips (#2644).
 
 ``KubernetesClient.create_container`` truncates Job names > 63 chars
-and appends an 8-char SHA digest. ``delete_job``,
-``read_namespaced_job``, and ``get_pod_for_job`` do NOT apply the
-same truncation today — they pass the un-truncated name straight to
-the k8s API, which 404s because the Job exists under the truncated
+and appends an 8-char SHA digest. Before #2644 landed, ``delete_job``,
+``read_namespaced_job``, and ``get_pod_for_job`` did NOT apply the
+same truncation — they passed the un-truncated name straight to the
+k8s API, which 404'd because the Job existed under the truncated
 form.
 
 This test pins the round-trip: create a Job with an input name long
 enough to trigger truncation, then delete it via the same client.
-A regression that retains the asymmetry leaves the Job in the
-namespace after the delete (no 404 propagated, but the Job is still
-there), which the assertion catches.
+A regression that re-introduces the asymmetry would leave the Job
+in the namespace after the delete (no 404 propagated, but the Job
+is still there), which the assertion catches.
 
-Currently ``xfail(strict=True)`` on #2644 — this is the focused
-regression guard the issue references. When #2644 lands, flip to
-non-xfail.
-
-See the issue body for the suggested fix shape (extract truncation
-into a ``KubernetesClient._normalize_k8s_job_name`` helper).
+The fix landed via ``KubernetesClient._normalize_k8s_job_name``
+which both ``create_container`` and ``delete_job`` invoke.
 """
 
 from __future__ import annotations
 
 import pytest
 
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Blocked on #2644: delete_job doesn't truncate names > 63 "
-            "chars symmetric with create_container, so the Job stays "
-            "alive after the delete. Flip back once #2644 lands."
-        ),
-    ),
-]
+pytestmark = [pytest.mark.integration]
 
 
 def test_long_name_create_then_delete_round_trips(egg_stack):
