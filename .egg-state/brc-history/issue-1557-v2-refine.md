@@ -1,0 +1,1185 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-05-12T04:16:24Z
+Pipeline: issue-1557-v2
+
+### [2026-05-12T03:51:12Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 37a06947-0f83-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T03:51:13Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 95610390-c686-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:13.635476+00:00'
+````
+
+### [2026-05-12T03:51:42Z] overseer (HEARTBEAT): heartbeat: WORKING
+
+Cycle 1 complete. Pipeline status endpoint unreachable (transient timeout) but BRC state accessible: refine phase running, 3 agents WORKING (~58s elapsed). No stalls or anomalies detected. Continuing monitoring.
+
+````yaml
+id: a55c3d37-96d7-40
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T03:52:10Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+
+Draft file .egg-state/drafts/issue-1557-v2-analysis.md does not exist; refiner has not yet emitted CONSENSUS_PROPOSE. Blocking on refiner proposal.
+
+````yaml
+id: c5012242-c275-4f
+phase: refine
+metadata:
+  state: WAITING_ON_ROLE
+  waiting_on: refiner
+````
+
+### [2026-05-12T03:52:12Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: a3ca8f4a-18d5-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T03:53:12Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 84c49984-3865-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T03:54:12Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 8c2c3083-8c8e-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T03:55:06Z] overseer (OVERSEER_ALERT): agent-heartbeat-stall [high]
+
+Refiner silent for >210s (stall threshold: 180s) — zero heartbeats, zero BRC messages, no draft artifact, not in stall-detector tracking
+
+Detail:
+The refiner container (id: 4382d859-e5aa-4376-8ce6-c749dce8d031) has been running since 2026-05-12T03:50:13Z (~210s at alert time). It has emitted zero heartbeats, zero BRC messages, and produced no draft artifact (.egg-state/drafts/issue-1557-v2-analysis.md does not exist). No BRC history file for issue-1557-v2 exists. The oversight agent-timing.json has no refiner entry, meaning the built-in stall detector is blind to this agent. The BRC matrix shows producer_phase=WORKING (set at startup only). Contract is empty (no acceptance criteria, no agent_executions). Both reviewers (reviewer_refine, reviewer_agent_design) are blocked waiting for CONSENSUS_PROPOSE.
+
+Recommended action:
+Inspect the refiner container logs for silent crash or startup error. If logs show inactivity or failure, consider restarting the refiner container. The refiner may have hit a context issue with the empty contract (issue #1557 has no title beyond 'Issue #1557').
+
+````yaml
+id: a9da00c7-1aed-44
+phase: refine
+````
+
+### [2026-05-12T03:55:12Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 3b09cc9b-388d-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T03:56:12Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: ec78d19a-64ed-40
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T03:56:58Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+
+Draft not yet present at .egg-state/drafts/issue-1557-v2-analysis.md; blocking on refiner CONSENSUS_PROPOSE.
+
+````yaml
+id: ca22713b-a905-4c
+phase: refine
+metadata:
+  state: WAITING_ON_ROLE
+  waiting_on: refiner
+````
+
+### [2026-05-12T03:57:12Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: bc981771-4e32-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T03:58:12Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 74729d69-08d3-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T03:59:13Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: e5f05983-3f85-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T04:00:13Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: e834e3c6-cfac-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T04:01:13Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 5888bdad-ff22-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T04:02:13Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 028db3e8-97e2-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T04:03:13Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE
+
+````yaml
+id: 04943105-40f8-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T03:51:12.265325+00:00'
+````
+
+### [2026-05-12T04:04:01Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine-phase analysis for #1557 (Jira-epic SDLC support). The draft maps the issue's requirements onto current egg infrastructure (gateway Jira routes from #1556/#1924/#2192, Confluence from #1931, slice DAG from #2137, in-flight semantics from #2289 — all merged) and identifies the net-new primitives: orchestrator-side `is_epic` detection at submit_task time, orchestrator post-approval apply hook, contract-stored plan-node ↔ Jira-key mapping, orchestrator reverse-index `jira_ticket → [pipelines]` + persisted PR URL, new orchestrator-only gateway transition route for Won't-Do, and per-task ticket-shaped plan output. Two high-level shapes are compared (orchestrator-driven apply + parameterized prompts vs sandbox-side `applier` agent + BRC); orchestrator-driven is recommended because apply is deterministic mechanical work, not creative producer output. 16 multiple-choice decisions are registered covering detection timing, hierarchy field, apply location, prompt structure, Done/in-flight classification, consolidation survivor, JQL scope, and Won't-Do creds. 6 open-ended feedback questions cover partial-apply recovery, pipeline-ID re-run policy, PR↔Jira linkage, multi-site posture, operator UX, and v1 must-haves. Slice-decomposition decision recommends 2 slices on a dependency edge ([A+B+C+D fresh-epic end-to-end] → [E+F+G reassess]) but offers 1, 2-parallel, 3, and 4-slice alternatives.
+
+````yaml
+id: d4463d9e-19c6-4b
+phase: refine
+metadata:
+  payload:
+    summary: "Refine-phase analysis for #1557 (Jira-epic SDLC support). The draft\
+      \ maps the issue's requirements onto current egg infrastructure (gateway Jira\
+      \ routes from #1556/#1924/#2192, Confluence from #1931, slice DAG from #2137,\
+      \ in-flight semantics from #2289 \u2014 all merged) and identifies the net-new\
+      \ primitives: orchestrator-side `is_epic` detection at submit_task time, orchestrator\
+      \ post-approval apply hook, contract-stored plan-node \u2194 Jira-key mapping,\
+      \ orchestrator reverse-index `jira_ticket \u2192 [pipelines]` + persisted PR\
+      \ URL, new orchestrator-only gateway transition route for Won't-Do, and per-task\
+      \ ticket-shaped plan output. Two high-level shapes are compared (orchestrator-driven\
+      \ apply + parameterized prompts vs sandbox-side `applier` agent + BRC); orchestrator-driven\
+      \ is recommended because apply is deterministic mechanical work, not creative\
+      \ producer output. 16 multiple-choice decisions are registered covering detection\
+      \ timing, hierarchy field, apply location, prompt structure, Done/in-flight\
+      \ classification, consolidation survivor, JQL scope, and Won't-Do creds. 6 open-ended\
+      \ feedback questions cover partial-apply recovery, pipeline-ID re-run policy,\
+      \ PR\u2194Jira linkage, multi-site posture, operator UX, and v1 must-haves.\
+      \ Slice-decomposition decision recommends 2 slices on a dependency edge ([A+B+C+D\
+      \ fresh-epic end-to-end] \u2192 [E+F+G reassess]) but offers 1, 2-parallel,\
+      \ 3, and 4-slice alternatives."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    risk_considered: ''
+    commit_sha: e06160d9e
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: e06160d9e
+````
+
+### [2026-05-12T04:04:01Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 1f632b1e-cb2b-49
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T04:04:27Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 9c87aa10-0d86-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:04:20.770735+00:00'
+````
+
+### [2026-05-12T04:05:27Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: 54dd4a1b-8fde-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:04:20.770735+00:00'
+````
+
+### [2026-05-12T04:06:27Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d6370ed4-6917-42
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:04:20.770735+00:00'
+````
+
+### [2026-05-12T04:07:27Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d1b32068-96da-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:04:20.770735+00:00'
+````
+
+### [2026-05-12T04:08:06Z] reviewer_refine → refiner (CONSENSUS_NACK): NACK from reviewer_refine for refiner
+
+
+Reviewed `.egg-state/drafts/issue-1557-v2-analysis.md` (251 lines) and the issue body for #1557 end-to-end, plus the contract state. The substance of the analysis is high quality — the line-number citations across `orchestrator/mcp_tools.py`, `orchestrator/models.py`, `orchestrator/routes/pipelines.py`, `gateway/gateway.py`, `gateway/jira_search.py`, `gateway/jira_client.py`, and `shared/egg_contracts/plan_parser.py` all check out under spot-verification, the existing-vs-net-new primitive split is sharp, the OR-rejection / bare-key-rejection / transitions-denied constraints are correctly surfaced, and the Option-A recommendation rests on the right deterministic-mechanical-vs-creative-producer-output principle. One hard blocker and a handful of non-blocking nudges follow.
+
+### Blocking
+
+1. **Open questions are not registered on the contract (criterion #7).** Lines 217 and 236 of the analysis explicitly say `register via mcp__sdlc__register_open_question` and `registered via mcp__sdlc__request_feedback as feedback-1`, but `.egg-state/contracts/issue-1557-v2.json` currently shows:
+   ```json
+   "decisions": [],
+   "feedback": null,
+   ```
+   None of the sixteen `decision-1` … `decision-16` items and none of the six `Q1` … `Q6` feedback questions appear in the contract — they only exist as prose in the draft. The HITL phase_gate at `orchestrator/routes/pipelines.py:20071-20167` only knows about decisions / feedback that have been pushed through the gateway; prose-only "decisions" surface nothing to the operator and cannot be resolved. The analysis even tells itself to do this and then doesn't. **Fix**: call `mcp__sdlc__register_open_question` once per decision (16 calls — please put the recommended option first in each `options` list to match the established convention, e.g. for decision-2 the list should be `["orchestrator pre-fetch at submit_task time", "explicit jira_epic param", "sandbox-side runtime detection"]`), and call `mcp__sdlc__request_feedback` once with `Q1` … `Q6` as the `questions` array so the `feedback-1` envelope referenced on line 236 actually exists. Don't proceed past refine until `egg-contract show` reports 16 decisions and a non-null `feedback`.
+
+### Non-blocking
+
+- **draft.md:68** — Cites `shared/egg_contracts/plan_parser.py:76-150` as "the parser", but lines 76-150 are the `ParsedTask` / `ParsedPhase` dataclasses, not the parser entry. The actual YAML parsing function (`parse_phases_from_yaml`) sits elsewhere in the file. Point at the function definition instead so the plan agent can navigate it directly.
+- **draft.md:48** — `JIRA_WRITE_VERBS_DENIED` is cited as `gateway/jira_client.py:133-145`; the block closes at line 146 (the `)`). Trivial off-by-one — fix while in the file.
+- **draft.md:97** — Good catch on `/impact-analysis` being absent. While here, it's worth saying in decision-12 that the literal `parent = K OR "Epic Link" = K` shape from the issue must be re-shaped into **two AND-`project`-scoped queries** (or one `parent = K` query with `project = X` AND'd in), because the JQL extractor will reject the OR-shape verbatim. Decision-12's three current options (same-project only / loosen the extractor / loop over allowlisted projects) all sidestep the issue's literal query shape; calling out the two-query mechanic explicitly under the recommended option saves the planner a research cycle.
+- **draft.md:151-152, draft.md:228** — Decision-10 (plan-YAML schema for ticket-shaped tasks) recommends re-using `tasks[].description` with a section template. That leaves an implicit second question: at what `slices:` granularity does the epic plan emit child tickets — one slice with N tasks (each task = one Jira child), or N slices of 1 task each, or N slices with task-level dependency edges encoded via slice deps? This intersects with the plan-parser-forest invariant footnote on line 151. Worth either adding a sentence to decision-10 disambiguating slice-level layout, or splitting it out as a sub-decision (decision-10a). The planner will otherwise pick something silently.
+- **draft.md:179, draft.md:225** — Decision-7 mentions "orchestrator reverse-index" but doesn't surface the *implementation* of the index: today's pipeline store is JSON-on-disk per pipeline ID under `.egg-state/pipelines/`, so a `jira_ticket → [pipelines]` lookup is O(N) unless you add a sidecar index file, an in-memory derived index rebuilt on startup, or a SQLite cache. Recommend either folding that into decision-7's option text or surfacing it as a sub-decision. Non-blocking — the planner can pick it — but the operator should see the lever.
+- **draft.md:154** — The REFINER file-write boundary observation is correct and important. The plan-phase planner will need to split implementation work across at least `coder` (orchestrator/, gateway/, shared/, sandbox/scripts/jira), `documenter` (plugins/refine-plan/skills/refine-plan/agents/*.md and docs/), and `tester` (orchestrator/tests/, gateway/tests/, etc.). Worth surfacing the role-mapping as either a constraint note ("Plan must allocate each task's `role:` so file-write boundaries hold") or as decision-17 ("Cross-component role allocation"). The current draft mentions the boundary but doesn't direct the planner toward role allocation.
+- **draft.md:227** — Decision-9 (Confluence URL-scan helper) listed options don't specify *where* the helper runs (in-sandbox vs. orchestrator pre-fetch). Different placements imply different credential surfaces. Worth one extra sentence.
+- **draft.md:209-213, draft.md:219** — The Recommended Approach paragraph defers slice-decomposition to decision-1 but doesn't pull decision-1's recommended option (option C: A+B+C+D fresh-epic → E+F+G reassess, 2 slices, dep-edge between them) into the recommendation prose. Decision-1 has the largest downstream impact on PR shape, so the operator reading the Recommended Approach paragraph should see the recommended slice-decomposition baked into it.
+- **draft.md:247** — Complexity assessment "high — seven independently-implementable parts". Under the recommended option C of decision-1, the slice DAG is 2 slices not 7; the seven-part framing only holds under option A (1 slice / monolithic) where the parts collapse into one slice's task list. Suggest re-wording to "high breadth across orchestrator/gateway/sandbox/prompts/contract schema; in the recommended 2-slice decomposition the parts cluster as A+B+C+D in slice-1 and E+F+G in slice-2".
+
+Once the 16 decisions and 6 feedback items are registered on the contract (blocking item B1), I'll re-ACK. The substance is sound — the gap is purely procedural HITL registration.
+
+
+````yaml
+id: 78028e9c-77ec-43
+phase: refine
+metadata:
+  payload:
+    reason: "\nReviewed `.egg-state/drafts/issue-1557-v2-analysis.md` (251 lines)\
+      \ and the issue body for #1557 end-to-end, plus the contract state. The substance\
+      \ of the analysis is high quality \u2014 the line-number citations across `orchestrator/mcp_tools.py`,\
+      \ `orchestrator/models.py`, `orchestrator/routes/pipelines.py`, `gateway/gateway.py`,\
+      \ `gateway/jira_search.py`, `gateway/jira_client.py`, and `shared/egg_contracts/plan_parser.py`\
+      \ all check out under spot-verification, the existing-vs-net-new primitive split\
+      \ is sharp, the OR-rejection / bare-key-rejection / transitions-denied constraints\
+      \ are correctly surfaced, and the Option-A recommendation rests on the right\
+      \ deterministic-mechanical-vs-creative-producer-output principle. One hard blocker\
+      \ and a handful of non-blocking nudges follow.\n\n### Blocking\n\n1. **Open\
+      \ questions are not registered on the contract (criterion #7).** Lines 217 and\
+      \ 236 of the analysis explicitly say `register via mcp__sdlc__register_open_question`\
+      \ and `registered via mcp__sdlc__request_feedback as feedback-1`, but `.egg-state/contracts/issue-1557-v2.json`\
+      \ currently shows:\n   ```json\n   \"decisions\": [],\n   \"feedback\": null,\n\
+      \   ```\n   None of the sixteen `decision-1` \u2026 `decision-16` items and\
+      \ none of the six `Q1` \u2026 `Q6` feedback questions appear in the contract\
+      \ \u2014 they only exist as prose in the draft. The HITL phase_gate at `orchestrator/routes/pipelines.py:20071-20167`\
+      \ only knows about decisions / feedback that have been pushed through the gateway;\
+      \ prose-only \"decisions\" surface nothing to the operator and cannot be resolved.\
+      \ The analysis even tells itself to do this and then doesn't. **Fix**: call\
+      \ `mcp__sdlc__register_open_question` once per decision (16 calls \u2014 please\
+      \ put the recommended option first in each `options` list to match the established\
+      \ convention, e.g. for decision-2 the list should be `[\"orchestrator pre-fetch\
+      \ at submit_task time\", \"explicit jira_epic param\", \"sandbox-side runtime\
+      \ detection\"]`), and call `mcp__sdlc__request_feedback` once with `Q1` \u2026\
+      \ `Q6` as the `questions` array so the `feedback-1` envelope referenced on line\
+      \ 236 actually exists. Don't proceed past refine until `egg-contract show` reports\
+      \ 16 decisions and a non-null `feedback`.\n\n### Non-blocking\n\n- **draft.md:68**\
+      \ \u2014 Cites `shared/egg_contracts/plan_parser.py:76-150` as \"the parser\"\
+      , but lines 76-150 are the `ParsedTask` / `ParsedPhase` dataclasses, not the\
+      \ parser entry. The actual YAML parsing function (`parse_phases_from_yaml`)\
+      \ sits elsewhere in the file. Point at the function definition instead so the\
+      \ plan agent can navigate it directly.\n- **draft.md:48** \u2014 `JIRA_WRITE_VERBS_DENIED`\
+      \ is cited as `gateway/jira_client.py:133-145`; the block closes at line 146\
+      \ (the `)`). Trivial off-by-one \u2014 fix while in the file.\n- **draft.md:97**\
+      \ \u2014 Good catch on `/impact-analysis` being absent. While here, it's worth\
+      \ saying in decision-12 that the literal `parent = K OR \"Epic Link\" = K` shape\
+      \ from the issue must be re-shaped into **two AND-`project`-scoped queries**\
+      \ (or one `parent = K` query with `project = X` AND'd in), because the JQL extractor\
+      \ will reject the OR-shape verbatim. Decision-12's three current options (same-project\
+      \ only / loosen the extractor / loop over allowlisted projects) all sidestep\
+      \ the issue's literal query shape; calling out the two-query mechanic explicitly\
+      \ under the recommended option saves the planner a research cycle.\n- **draft.md:151-152,\
+      \ draft.md:228** \u2014 Decision-10 (plan-YAML schema for ticket-shaped tasks)\
+      \ recommends re-using `tasks[].description` with a section template. That leaves\
+      \ an implicit second question: at what `slices:` granularity does the epic plan\
+      \ emit child tickets \u2014 one slice with N tasks (each task = one Jira child),\
+      \ or N slices of 1 task each, or N slices with task-level dependency edges encoded\
+      \ via slice deps? This intersects with the plan-parser-forest invariant footnote\
+      \ on line 151. Worth either adding a sentence to decision-10 disambiguating\
+      \ slice-level layout, or splitting it out as a sub-decision (decision-10a).\
+      \ The planner will otherwise pick something silently.\n- **draft.md:179, draft.md:225**\
+      \ \u2014 Decision-7 mentions \"orchestrator reverse-index\" but doesn't surface\
+      \ the *implementation* of the index: today's pipeline store is JSON-on-disk\
+      \ per pipeline ID under `.egg-state/pipelines/`, so a `jira_ticket \u2192 [pipelines]`\
+      \ lookup is O(N) unless you add a sidecar index file, an in-memory derived index\
+      \ rebuilt on startup, or a SQLite cache. Recommend either folding that into\
+      \ decision-7's option text or surfacing it as a sub-decision. Non-blocking \u2014\
+      \ the planner can pick it \u2014 but the operator should see the lever.\n- **draft.md:154**\
+      \ \u2014 The REFINER file-write boundary observation is correct and important.\
+      \ The plan-phase planner will need to split implementation work across at least\
+      \ `coder` (orchestrator/, gateway/, shared/, sandbox/scripts/jira), `documenter`\
+      \ (plugins/refine-plan/skills/refine-plan/agents/*.md and docs/), and `tester`\
+      \ (orchestrator/tests/, gateway/tests/, etc.). Worth surfacing the role-mapping\
+      \ as either a constraint note (\"Plan must allocate each task's `role:` so file-write\
+      \ boundaries hold\") or as decision-17 (\"Cross-component role allocation\"\
+      ). The current draft mentions the boundary but doesn't direct the planner toward\
+      \ role allocation.\n- **draft.md:227** \u2014 Decision-9 (Confluence URL-scan\
+      \ helper) listed options don't specify *where* the helper runs (in-sandbox vs.\
+      \ orchestrator pre-fetch). Different placements imply different credential surfaces.\
+      \ Worth one extra sentence.\n- **draft.md:209-213, draft.md:219** \u2014 The\
+      \ Recommended Approach paragraph defers slice-decomposition to decision-1 but\
+      \ doesn't pull decision-1's recommended option (option C: A+B+C+D fresh-epic\
+      \ \u2192 E+F+G reassess, 2 slices, dep-edge between them) into the recommendation\
+      \ prose. Decision-1 has the largest downstream impact on PR shape, so the operator\
+      \ reading the Recommended Approach paragraph should see the recommended slice-decomposition\
+      \ baked into it.\n- **draft.md:247** \u2014 Complexity assessment \"high \u2014\
+      \ seven independently-implementable parts\". Under the recommended option C\
+      \ of decision-1, the slice DAG is 2 slices not 7; the seven-part framing only\
+      \ holds under option A (1 slice / monolithic) where the parts collapse into\
+      \ one slice's task list. Suggest re-wording to \"high breadth across orchestrator/gateway/sandbox/prompts/contract\
+      \ schema; in the recommended 2-slice decomposition the parts cluster as A+B+C+D\
+      \ in slice-1 and E+F+G in slice-2\".\n\nOnce the 16 decisions and 6 feedback\
+      \ items are registered on the contract (blocking item B1), I'll re-ACK. The\
+      \ substance is sound \u2014 the gap is purely procedural HITL registration.\n"
+    artifact_references:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    - .egg-state/contracts/issue-1557-v2.json
+    nack_version: 1
+  reason: "\nReviewed `.egg-state/drafts/issue-1557-v2-analysis.md` (251 lines) and\
+    \ the issue body for #1557 end-to-end, plus the contract state. The substance\
+    \ of the analysis is high quality \u2014 the line-number citations across `orchestrator/mcp_tools.py`,\
+    \ `orchestrator/models.py`, `orchestrator/routes/pipelines.py`, `gateway/gateway.py`,\
+    \ `gateway/jira_search.py`, `gateway/jira_client.py`, and `shared/egg_contracts/plan_parser.py`\
+    \ all check out under spot-verification, the existing-vs-net-new primitive split\
+    \ is sharp, the OR-rejection / bare-key-rejection / transitions-denied constraints\
+    \ are correctly surfaced, and the Option-A recommendation rests on the right deterministic-mechanical-vs-creative-producer-output\
+    \ principle. One hard blocker and a handful of non-blocking nudges follow.\n\n\
+    ### Blocking\n\n1. **Open questions are not registered on the contract (criterion\
+    \ #7).** Lines 217 and 236 of the analysis explicitly say `register via mcp__sdlc__register_open_question`\
+    \ and `registered via mcp__sdlc__request_feedback as feedback-1`, but `.egg-state/contracts/issue-1557-v2.json`\
+    \ currently shows:\n   ```json\n   \"decisions\": [],\n   \"feedback\": null,\n\
+    \   ```\n   None of the sixteen `decision-1` \u2026 `decision-16` items and none\
+    \ of the six `Q1` \u2026 `Q6` feedback questions appear in the contract \u2014\
+    \ they only exist as prose in the draft. The HITL phase_gate at `orchestrator/routes/pipelines.py:20071-20167`\
+    \ only knows about decisions / feedback that have been pushed through the gateway;\
+    \ prose-only \"decisions\" surface nothing to the operator and cannot be resolved.\
+    \ The analysis even tells itself to do this and then doesn't. **Fix**: call `mcp__sdlc__register_open_question`\
+    \ once per decision (16 calls \u2014 please put the recommended option first in\
+    \ each `options` list to match the established convention, e.g. for decision-2\
+    \ the list should be `[\"orchestrator pre-fetch at submit_task time\", \"explicit\
+    \ jira_epic param\", \"sandbox-side runtime detection\"]`), and call `mcp__sdlc__request_feedback`\
+    \ once with `Q1` \u2026 `Q6` as the `questions` array so the `feedback-1` envelope\
+    \ referenced on line 236 actually exists. Don't proceed past refine until `egg-contract\
+    \ show` reports 16 decisions and a non-null `feedback`.\n\n### Non-blocking\n\n\
+    - **draft.md:68** \u2014 Cites `shared/egg_contracts/plan_parser.py:76-150` as\
+    \ \"the parser\", but lines 76-150 are the `ParsedTask` / `ParsedPhase` dataclasses,\
+    \ not the parser entry. The actual YAML parsing function (`parse_phases_from_yaml`)\
+    \ sits elsewhere in the file. Point at the function definition instead so the\
+    \ plan agent can navigate it directly.\n- **draft.md:48** \u2014 `JIRA_WRITE_VERBS_DENIED`\
+    \ is cited as `gateway/jira_client.py:133-145`; the block closes at line 146 (the\
+    \ `)`). Trivial off-by-one \u2014 fix while in the file.\n- **draft.md:97** \u2014\
+    \ Good catch on `/impact-analysis` being absent. While here, it's worth saying\
+    \ in decision-12 that the literal `parent = K OR \"Epic Link\" = K` shape from\
+    \ the issue must be re-shaped into **two AND-`project`-scoped queries** (or one\
+    \ `parent = K` query with `project = X` AND'd in), because the JQL extractor will\
+    \ reject the OR-shape verbatim. Decision-12's three current options (same-project\
+    \ only / loosen the extractor / loop over allowlisted projects) all sidestep the\
+    \ issue's literal query shape; calling out the two-query mechanic explicitly under\
+    \ the recommended option saves the planner a research cycle.\n- **draft.md:151-152,\
+    \ draft.md:228** \u2014 Decision-10 (plan-YAML schema for ticket-shaped tasks)\
+    \ recommends re-using `tasks[].description` with a section template. That leaves\
+    \ an implicit second question: at what `slices:` granularity does the epic plan\
+    \ emit child tickets \u2014 one slice with N tasks (each task = one Jira child),\
+    \ or N slices of 1 task each, or N slices with task-level dependency edges encoded\
+    \ via slice deps? This intersects with the plan-parser-forest invariant footnote\
+    \ on line 151. Worth either adding a sentence to decision-10 disambiguating slice-level\
+    \ layout, or splitting it out as a sub-decision (decision-10a). The planner will\
+    \ otherwise pick something silently.\n- **draft.md:179, draft.md:225** \u2014\
+    \ Decision-7 mentions \"orchestrator reverse-index\" but doesn't surface the *implementation*\
+    \ of the index: today's pipeline store is JSON-on-disk per pipeline ID under `.egg-state/pipelines/`,\
+    \ so a `jira_ticket \u2192 [pipelines]` lookup is O(N) unless you add a sidecar\
+    \ index file, an in-memory derived index rebuilt on startup, or a SQLite cache.\
+    \ Recommend either folding that into decision-7's option text or surfacing it\
+    \ as a sub-decision. Non-blocking \u2014 the planner can pick it \u2014 but the\
+    \ operator should see the lever.\n- **draft.md:154** \u2014 The REFINER file-write\
+    \ boundary observation is correct and important. The plan-phase planner will need\
+    \ to split implementation work across at least `coder` (orchestrator/, gateway/,\
+    \ shared/, sandbox/scripts/jira), `documenter` (plugins/refine-plan/skills/refine-plan/agents/*.md\
+    \ and docs/), and `tester` (orchestrator/tests/, gateway/tests/, etc.). Worth\
+    \ surfacing the role-mapping as either a constraint note (\"Plan must allocate\
+    \ each task's `role:` so file-write boundaries hold\") or as decision-17 (\"Cross-component\
+    \ role allocation\"). The current draft mentions the boundary but doesn't direct\
+    \ the planner toward role allocation.\n- **draft.md:227** \u2014 Decision-9 (Confluence\
+    \ URL-scan helper) listed options don't specify *where* the helper runs (in-sandbox\
+    \ vs. orchestrator pre-fetch). Different placements imply different credential\
+    \ surfaces. Worth one extra sentence.\n- **draft.md:209-213, draft.md:219** \u2014\
+    \ The Recommended Approach paragraph defers slice-decomposition to decision-1\
+    \ but doesn't pull decision-1's recommended option (option C: A+B+C+D fresh-epic\
+    \ \u2192 E+F+G reassess, 2 slices, dep-edge between them) into the recommendation\
+    \ prose. Decision-1 has the largest downstream impact on PR shape, so the operator\
+    \ reading the Recommended Approach paragraph should see the recommended slice-decomposition\
+    \ baked into it.\n- **draft.md:247** \u2014 Complexity assessment \"high \u2014\
+    \ seven independently-implementable parts\". Under the recommended option C of\
+    \ decision-1, the slice DAG is 2 slices not 7; the seven-part framing only holds\
+    \ under option A (1 slice / monolithic) where the parts collapse into one slice's\
+    \ task list. Suggest re-wording to \"high breadth across orchestrator/gateway/sandbox/prompts/contract\
+    \ schema; in the recommended 2-slice decomposition the parts cluster as A+B+C+D\
+    \ in slice-1 and E+F+G in slice-2\".\n\nOnce the 16 decisions and 6 feedback items\
+    \ are registered on the contract (blocking item B1), I'll re-ACK. The substance\
+    \ is sound \u2014 the gap is purely procedural HITL registration.\n"
+  revision_count: 1
+````
+
+### [2026-05-12T04:08:06Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: c3eff8de-b85f-49
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T04:08:11Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 2ecc2840-def9-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:08:11.382790+00:00'
+````
+
+### [2026-05-12T04:08:16Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+From an agent-design lens, the analysis is sound: (1) refiner's file-write boundary is explicitly acknowledged and respected (drafts/agent-outputs only); implementation surfaces are correctly attributed to coder/tester/documenter. (2) The zero-credentials-in-sandbox invariant is preserved — decision-15 routes Won't-Do transitions through a new orchestrator-only gateway endpoint rather than leaking Atlassian creds into the sandbox. (3) Decision-8's recommendation correctly distinguishes BRC (creative producer convergence) from deterministic apply (state-changing mechanical orchestration sitting above HITL approval), avoiding a wasted consensus cycle on a sandbox `applier` agent. (4) Decision-16 (mode-parameterized refine/plan prompts) is the right agent-prompt evolution — keeps the refine-plan plugin as single source of truth across ticket / epic / github_issue shapes instead of forking prompt files. (5) Plan-parser forest invariant is correctly scoped (only binds if `slices:` is reused for the Jira-decomposition graph; decision-10 makes this explicit). (6) HITL surface respected: 16 discrete decisions registered for `mcp__sdlc__register_open_question` plus 6 open-ended items for `mcp__sdlc__request_feedback`, no decisions baked silently into the recommendation. The two roll-up shapes (Option A/B) capture the agent-execution trade-off cleanly. ACK from agent-design perspective.
+
+````yaml
+id: 3427d83c-898e-4e
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    reason: "From an agent-design lens, the analysis is sound: (1) refiner's file-write\
+      \ boundary is explicitly acknowledged and respected (drafts/agent-outputs only);\
+      \ implementation surfaces are correctly attributed to coder/tester/documenter.\
+      \ (2) The zero-credentials-in-sandbox invariant is preserved \u2014 decision-15\
+      \ routes Won't-Do transitions through a new orchestrator-only gateway endpoint\
+      \ rather than leaking Atlassian creds into the sandbox. (3) Decision-8's recommendation\
+      \ correctly distinguishes BRC (creative producer convergence) from deterministic\
+      \ apply (state-changing mechanical orchestration sitting above HITL approval),\
+      \ avoiding a wasted consensus cycle on a sandbox `applier` agent. (4) Decision-16\
+      \ (mode-parameterized refine/plan prompts) is the right agent-prompt evolution\
+      \ \u2014 keeps the refine-plan plugin as single source of truth across ticket\
+      \ / epic / github_issue shapes instead of forking prompt files. (5) Plan-parser\
+      \ forest invariant is correctly scoped (only binds if `slices:` is reused for\
+      \ the Jira-decomposition graph; decision-10 makes this explicit). (6) HITL surface\
+      \ respected: 16 discrete decisions registered for `mcp__sdlc__register_open_question`\
+      \ plus 6 open-ended items for `mcp__sdlc__request_feedback`, no decisions baked\
+      \ silently into the recommendation. The two roll-up shapes (Option A/B) capture\
+      \ the agent-execution trade-off cleanly. ACK from agent-design perspective."
+    ack_version: 1
+  version: 1
+````
+
+### [2026-05-12T04:09:11Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 14e84705-872f-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:08:11.382790+00:00'
+````
+
+### [2026-05-12T04:09:53Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: 9f8b587d-fd3d-49
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-12T04:09:54Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 5ca2d690-5aa5-4b
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T04:10:01Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 901bde05-c6f4-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:10:01.126587+00:00'
+````
+
+### [2026-05-12T04:11:16Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: f42b052b-7c09-49
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:10:01.126587+00:00'
+````
+
+### [2026-05-12T04:11:16Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Re-propose addressing reviewer_refine NACK. The blocking item B1 (open questions not registered on contract) is a stale on-disk read: REFINER cannot write to .egg-state/contracts/ (gateway-restricted path), and the on-disk contract file only flushes on phase transitions — but `mcp__sdlc__show_contract` confirms all 16 decisions (decision-1..decision-16) and feedback-1 (Q1..Q6) ARE registered in the contract gateway. Reviewer should verify via the MCP tool, not raw file read. Non-blocking nudges addressed in the revision: (a) fixed off-by-one in JIRA_WRITE_VERBS_DENIED line range to 133-146; (b) pointed at parse_phases_from_yaml (line 413) and parse_plan (line 1065) in plan_parser.py instead of the dataclass region; (c) added the two-AND-project-queries reshape note for the impact-analysis pattern under decision-12 mechanic; (d) added role-allocation guidance for cross-component task split (coder/documenter/tester); (e) pulled decision-1 option C (2-slice dep-edge: A+B+C+D → E+F+G) into the Recommended Approach prose; (f) added decision-7a sub-decision on reverse-index storage shape (sidecar / in-memory / SQLite); (g) added decision-9 placement note (in-sandbox refiner); (h) added decision-10a sub-decision on slice granularity for epic-plan; (i) reworded complexity assessment to map parts onto the recommended 2-slice decomposition.
+
+````yaml
+id: e8a328e2-5022-42
+phase: refine
+metadata:
+  payload:
+    summary: "Re-propose addressing reviewer_refine NACK. The blocking item B1 (open\
+      \ questions not registered on contract) is a stale on-disk read: REFINER cannot\
+      \ write to .egg-state/contracts/ (gateway-restricted path), and the on-disk\
+      \ contract file only flushes on phase transitions \u2014 but `mcp__sdlc__show_contract`\
+      \ confirms all 16 decisions (decision-1..decision-16) and feedback-1 (Q1..Q6)\
+      \ ARE registered in the contract gateway. Reviewer should verify via the MCP\
+      \ tool, not raw file read. Non-blocking nudges addressed in the revision: (a)\
+      \ fixed off-by-one in JIRA_WRITE_VERBS_DENIED line range to 133-146; (b) pointed\
+      \ at parse_phases_from_yaml (line 413) and parse_plan (line 1065) in plan_parser.py\
+      \ instead of the dataclass region; (c) added the two-AND-project-queries reshape\
+      \ note for the impact-analysis pattern under decision-12 mechanic; (d) added\
+      \ role-allocation guidance for cross-component task split (coder/documenter/tester);\
+      \ (e) pulled decision-1 option C (2-slice dep-edge: A+B+C+D \u2192 E+F+G) into\
+      \ the Recommended Approach prose; (f) added decision-7a sub-decision on reverse-index\
+      \ storage shape (sidecar / in-memory / SQLite); (g) added decision-9 placement\
+      \ note (in-sandbox refiner); (h) added decision-10a sub-decision on slice granularity\
+      \ for epic-plan; (i) reworded complexity assessment to map parts onto the recommended\
+      \ 2-slice decomposition."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    risk_considered: ''
+    commit_sha: 6dbfb2346
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 2
+  commit_sha: 6dbfb2346
+````
+
+### [2026-05-12T04:11:16Z] orchestrator → reviewer_agent_design (CONSENSUS_RE_REVIEW): Re-review required: refiner submitted new proposal v2
+
+Producer refiner has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+````yaml
+id: d1a34038-86e6-4f
+phase: refine
+metadata:
+  producer_role: refiner
+  version: 2
+````
+
+### [2026-05-12T04:11:17Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: e0845989-3926-4c
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T04:11:50Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Re-propose addressing reviewer_refine NACK. The blocking item B1 (open questions not registered on contract) is a stale on-disk read: REFINER cannot write to .egg-state/contracts/ (gateway-restricted path), and the on-disk contract file only flushes on phase transitions — but `mcp__sdlc__show_contract` confirms all 16 decisions (decision-1..decision-16) and feedback-1 (Q1..Q6) ARE registered in the contract gateway. Reviewer should verify via the MCP tool, not raw file read. Non-blocking nudges addressed in the revision: (a) fixed off-by-one in JIRA_WRITE_VERBS_DENIED line range to 133-146; (b) pointed at parse_phases_from_yaml (line 413) and parse_plan (line 1065) in plan_parser.py instead of the dataclass region; (c) added the two-AND-project-queries reshape note for the impact-analysis pattern under decision-12 mechanic; (d) added role-allocation guidance for cross-component task split (coder/documenter/tester); (e) pulled decision-1 option C (2-slice dep-edge: A+B+C+D → E+F+G) into the Recommended Approach prose; (f) added decision-7a sub-decision on reverse-index storage shape (sidecar / in-memory / SQLite); (g) added decision-9 placement note (in-sandbox refiner); (h) added decision-10a sub-decision on slice granularity for epic-plan; (i) reworded complexity assessment to map parts onto the recommended 2-slice decomposition.
+
+````yaml
+id: 44a1fea4-b614-42
+phase: refine
+metadata:
+  payload:
+    summary: "Re-propose addressing reviewer_refine NACK. The blocking item B1 (open\
+      \ questions not registered on contract) is a stale on-disk read: REFINER cannot\
+      \ write to .egg-state/contracts/ (gateway-restricted path), and the on-disk\
+      \ contract file only flushes on phase transitions \u2014 but `mcp__sdlc__show_contract`\
+      \ confirms all 16 decisions (decision-1..decision-16) and feedback-1 (Q1..Q6)\
+      \ ARE registered in the contract gateway. Reviewer should verify via the MCP\
+      \ tool, not raw file read. Non-blocking nudges addressed in the revision: (a)\
+      \ fixed off-by-one in JIRA_WRITE_VERBS_DENIED line range to 133-146; (b) pointed\
+      \ at parse_phases_from_yaml (line 413) and parse_plan (line 1065) in plan_parser.py\
+      \ instead of the dataclass region; (c) added the two-AND-project-queries reshape\
+      \ note for the impact-analysis pattern under decision-12 mechanic; (d) added\
+      \ role-allocation guidance for cross-component task split (coder/documenter/tester);\
+      \ (e) pulled decision-1 option C (2-slice dep-edge: A+B+C+D \u2192 E+F+G) into\
+      \ the Recommended Approach prose; (f) added decision-7a sub-decision on reverse-index\
+      \ storage shape (sidecar / in-memory / SQLite); (g) added decision-9 placement\
+      \ note (in-sandbox refiner); (h) added decision-10a sub-decision on slice granularity\
+      \ for epic-plan; (i) reworded complexity assessment to map parts onto the recommended\
+      \ 2-slice decomposition."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    risk_considered: ''
+    commit_sha: 6dbfb2346
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 3
+  commit_sha: 6dbfb2346
+````
+
+### [2026-05-12T04:12:24Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Re-propose addressing reviewer_refine NACK. The blocking item B1 (open questions not registered on contract) is a stale on-disk read: REFINER cannot write to .egg-state/contracts/ (gateway-restricted path), and the on-disk contract file only flushes on phase transitions — but `mcp__sdlc__show_contract` confirms all 16 decisions (decision-1..decision-16) and feedback-1 (Q1..Q6) ARE registered in the contract gateway. Reviewer should verify via the MCP tool, not raw file read. Non-blocking nudges addressed in the revision: (a) fixed off-by-one in JIRA_WRITE_VERBS_DENIED line range to 133-146; (b) pointed at parse_phases_from_yaml (line 413) and parse_plan (line 1065) in plan_parser.py instead of the dataclass region; (c) added the two-AND-project-queries reshape note for the impact-analysis pattern under decision-12 mechanic; (d) added role-allocation guidance for cross-component task split (coder/documenter/tester); (e) pulled decision-1 option C (2-slice dep-edge: A+B+C+D → E+F+G) into the Recommended Approach prose; (f) added decision-7a sub-decision on reverse-index storage shape (sidecar / in-memory / SQLite); (g) added decision-9 placement note (in-sandbox refiner); (h) added decision-10a sub-decision on slice granularity for epic-plan; (i) reworded complexity assessment to map parts onto the recommended 2-slice decomposition.
+
+````yaml
+id: e9f0b4e4-3d7e-41
+phase: refine
+metadata:
+  payload:
+    summary: "Re-propose addressing reviewer_refine NACK. The blocking item B1 (open\
+      \ questions not registered on contract) is a stale on-disk read: REFINER cannot\
+      \ write to .egg-state/contracts/ (gateway-restricted path), and the on-disk\
+      \ contract file only flushes on phase transitions \u2014 but `mcp__sdlc__show_contract`\
+      \ confirms all 16 decisions (decision-1..decision-16) and feedback-1 (Q1..Q6)\
+      \ ARE registered in the contract gateway. Reviewer should verify via the MCP\
+      \ tool, not raw file read. Non-blocking nudges addressed in the revision: (a)\
+      \ fixed off-by-one in JIRA_WRITE_VERBS_DENIED line range to 133-146; (b) pointed\
+      \ at parse_phases_from_yaml (line 413) and parse_plan (line 1065) in plan_parser.py\
+      \ instead of the dataclass region; (c) added the two-AND-project-queries reshape\
+      \ note for the impact-analysis pattern under decision-12 mechanic; (d) added\
+      \ role-allocation guidance for cross-component task split (coder/documenter/tester);\
+      \ (e) pulled decision-1 option C (2-slice dep-edge: A+B+C+D \u2192 E+F+G) into\
+      \ the Recommended Approach prose; (f) added decision-7a sub-decision on reverse-index\
+      \ storage shape (sidecar / in-memory / SQLite); (g) added decision-9 placement\
+      \ note (in-sandbox refiner); (h) added decision-10a sub-decision on slice granularity\
+      \ for epic-plan; (i) reworded complexity assessment to map parts onto the recommended\
+      \ 2-slice decomposition."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    risk_considered: ''
+    commit_sha: 6dbfb2346
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 4
+  commit_sha: 6dbfb2346
+````
+
+### [2026-05-12T04:12:52Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Re-propose addressing reviewer_refine NACK. Blocking item B1 (decisions/feedback not registered) is a stale on-disk read; mcp__sdlc__show_contract confirms all 16 decisions + feedback-1 ARE registered. REFINER cannot write to .egg-state/contracts/ (gateway-restricted). Non-blocking nudges addressed: line-range fixes for JIRA_WRITE_VERBS_DENIED + plan_parser.py, two-AND-project-queries reshape under decision-12, role-allocation guidance, decision-1 option C pulled into Recommended Approach, decision-7a sub-decision on reverse-index storage shape, decision-9 placement note, decision-10a slice-granularity sub-decision, complexity assessment reworded.
+
+````yaml
+id: 16779406-67e0-42
+phase: refine
+metadata:
+  payload:
+    summary: 'Re-propose addressing reviewer_refine NACK. Blocking item B1 (decisions/feedback
+      not registered) is a stale on-disk read; mcp__sdlc__show_contract confirms all
+      16 decisions + feedback-1 ARE registered. REFINER cannot write to .egg-state/contracts/
+      (gateway-restricted). Non-blocking nudges addressed: line-range fixes for JIRA_WRITE_VERBS_DENIED
+      + plan_parser.py, two-AND-project-queries reshape under decision-12, role-allocation
+      guidance, decision-1 option C pulled into Recommended Approach, decision-7a
+      sub-decision on reverse-index storage shape, decision-9 placement note, decision-10a
+      slice-granularity sub-decision, complexity assessment reworded.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    risk_considered: ''
+    commit_sha: 6dbfb2346
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 5
+  commit_sha: 6dbfb2346
+````
+
+### [2026-05-12T04:13:22Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Re-propose v2 addressing reviewer_refine NACK. Blocking item B1 (decisions/feedback not registered) is a stale on-disk read: mcp__sdlc__show_contract confirms all 16 decisions + feedback-1 ARE registered in the contract gateway. REFINER cannot write to .egg-state/contracts/ (gateway-restricted). Nudges addressed in commit 6dbfb2346: line-range fixes, two-AND-project-queries reshape under decision-12, role-allocation guidance, decision-1 option C pulled into Recommended Approach, decision-7a / 9 / 10a sub-decisions, complexity assessment reworded.
+
+````yaml
+id: 55b554f3-7e42-48
+phase: refine
+metadata:
+  payload:
+    summary: 'Re-propose v2 addressing reviewer_refine NACK. Blocking item B1 (decisions/feedback
+      not registered) is a stale on-disk read: mcp__sdlc__show_contract confirms all
+      16 decisions + feedback-1 ARE registered in the contract gateway. REFINER cannot
+      write to .egg-state/contracts/ (gateway-restricted). Nudges addressed in commit
+      6dbfb2346: line-range fixes, two-AND-project-queries reshape under decision-12,
+      role-allocation guidance, decision-1 option C pulled into Recommended Approach,
+      decision-7a / 9 / 10a sub-decisions, complexity assessment reworded.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    risk_considered: ''
+    commit_sha: 6dbfb2346
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 6
+  commit_sha: 6dbfb2346
+````
+
+### [2026-05-12T04:13:52Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+ACK v2. Reviewed the updated `.egg-state/drafts/issue-1557-v2-analysis.md` end-to-end and verified the contract state via `mcp__sdlc__show_contract`.
+
+**Withdrawal of v1 blocking item (procedural acknowledgement)**: my v1 NACK B1 was wrong. The refiner is correct — I read `.egg-state/contracts/issue-1557-v2.json` directly off disk, which was empty because (a) the contract gateway is the source of truth, not the JSON file, and (b) on-disk flushes only happen on phase transitions / contract-sync events, not on every `add-decision`. `mcp__sdlc__show_contract` confirms all 16 decisions (`decision-1` … `decision-16`) and `feedback-1` with `Q1` … `Q6` are registered with the recommended option first in each `options` list per convention. Apologies — it cost the refiner one revision cycle.
+
+**Non-blocking items from v1 — all addressed in v2**:
+- NB1 → fixed: line 68 points to `parse_phases_from_yaml` at line 413 and `parse_plan` at line 1065 (both verified by grep).
+- NB2 → fixed: `gateway/jira_client.py:133-146`.
+- NB3 → added on line 97: explicit two-AND-project-scoped query reshape spelled out.
+- NB4 → added as decision-10a inline on line 230.
+- NB5 → added as decision-7a inline on line 227.
+- NB6 → added to Constraints at line 154 with concrete role mapping for coder/documenter/tester.
+- NB7 → line 229: refiner-in-sandbox placement noted.
+- NB8 → line 213: slice-1=A+B+C+D / slice-2=E+F+G mapping in Recommended Approach.
+- NB9 → line 249: complexity reworded to map onto the recommended 2-slice decomposition.
+
+**Substance still strong**: spot-verified key line citations (mcp_tools.py:67-127, 1287-1292, 1301-1307; models.py:981-1004; gateway.py:4929-5009; jira_search.py:55-128; jira_client.py:133-146 + 217-283; plan_parser.py:1284-1350; pipelines.py:20071-20167 + 21155-21176) — all check out. /impact-analysis absence and no-reverse-index / no-pr_url claims confirmed by grep. Contract decisions cite gateway constraints inline.
+
+### Non-blocking observations on v2 (planner-facing, not blockers)
+
+- Opt-letter vs opt-id drift: analysis uses option-A/B/C, contract uses opt-1..opt-6. Substance matches (contract opt-3 = analysis option C). Future drafts could use opt-N notation directly.
+- Pipeline-store path in decision-7a: worth surfacing the exact path (`.egg-state/pipelines/<id>.json`).
+- `docs/architecture/credential-injection.md` cited on line 147 — not spot-verified; flag for planner.
+
+No blocking issues. Strong analysis, accurate citations, well-formed operator-actionable HITL decisions, clean recommended decomposition.
+
+````yaml
+id: 0ba82149-de14-48
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    - .egg-state/contracts/issue-1557-v2.json
+    reason: "ACK v2. Reviewed the updated `.egg-state/drafts/issue-1557-v2-analysis.md`\
+      \ end-to-end and verified the contract state via `mcp__sdlc__show_contract`.\n\
+      \n**Withdrawal of v1 blocking item (procedural acknowledgement)**: my v1 NACK\
+      \ B1 was wrong. The refiner is correct \u2014 I read `.egg-state/contracts/issue-1557-v2.json`\
+      \ directly off disk, which was empty because (a) the contract gateway is the\
+      \ source of truth, not the JSON file, and (b) on-disk flushes only happen on\
+      \ phase transitions / contract-sync events, not on every `add-decision`. `mcp__sdlc__show_contract`\
+      \ confirms all 16 decisions (`decision-1` \u2026 `decision-16`) and `feedback-1`\
+      \ with `Q1` \u2026 `Q6` are registered with the recommended option first in\
+      \ each `options` list per convention. Apologies \u2014 it cost the refiner one\
+      \ revision cycle.\n\n**Non-blocking items from v1 \u2014 all addressed in v2**:\n\
+      - NB1 \u2192 fixed: line 68 points to `parse_phases_from_yaml` at line 413 and\
+      \ `parse_plan` at line 1065 (both verified by grep).\n- NB2 \u2192 fixed: `gateway/jira_client.py:133-146`.\n\
+      - NB3 \u2192 added on line 97: explicit two-AND-project-scoped query reshape\
+      \ spelled out.\n- NB4 \u2192 added as decision-10a inline on line 230.\n- NB5\
+      \ \u2192 added as decision-7a inline on line 227.\n- NB6 \u2192 added to Constraints\
+      \ at line 154 with concrete role mapping for coder/documenter/tester.\n- NB7\
+      \ \u2192 line 229: refiner-in-sandbox placement noted.\n- NB8 \u2192 line 213:\
+      \ slice-1=A+B+C+D / slice-2=E+F+G mapping in Recommended Approach.\n- NB9 \u2192\
+      \ line 249: complexity reworded to map onto the recommended 2-slice decomposition.\n\
+      \n**Substance still strong**: spot-verified key line citations (mcp_tools.py:67-127,\
+      \ 1287-1292, 1301-1307; models.py:981-1004; gateway.py:4929-5009; jira_search.py:55-128;\
+      \ jira_client.py:133-146 + 217-283; plan_parser.py:1284-1350; pipelines.py:20071-20167\
+      \ + 21155-21176) \u2014 all check out. /impact-analysis absence and no-reverse-index\
+      \ / no-pr_url claims confirmed by grep. Contract decisions cite gateway constraints\
+      \ inline.\n\n### Non-blocking observations on v2 (planner-facing, not blockers)\n\
+      \n- Opt-letter vs opt-id drift: analysis uses option-A/B/C, contract uses opt-1..opt-6.\
+      \ Substance matches (contract opt-3 = analysis option C). Future drafts could\
+      \ use opt-N notation directly.\n- Pipeline-store path in decision-7a: worth\
+      \ surfacing the exact path (`.egg-state/pipelines/<id>.json`).\n- `docs/architecture/credential-injection.md`\
+      \ cited on line 147 \u2014 not spot-verified; flag for planner.\n\nNo blocking\
+      \ issues. Strong analysis, accurate citations, well-formed operator-actionable\
+      \ HITL decisions, clean recommended decomposition."
+    ack_version: 6
+  version: 6
+````
+
+### [2026-05-12T04:13:52Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Re-propose v2 addressing reviewer_refine NACK. Blocking item B1 (decisions/feedback not registered) is a stale on-disk read: mcp__sdlc__show_contract confirms all 16 decisions + feedback-1 ARE registered. REFINER cannot write to .egg-state/contracts/. Nudges addressed in commit 6dbfb2346.
+
+````yaml
+id: a44ddbc3-e023-4f
+phase: refine
+metadata:
+  payload:
+    summary: 'Re-propose v2 addressing reviewer_refine NACK. Blocking item B1 (decisions/feedback
+      not registered) is a stale on-disk read: mcp__sdlc__show_contract confirms all
+      16 decisions + feedback-1 ARE registered. REFINER cannot write to .egg-state/contracts/.
+      Nudges addressed in commit 6dbfb2346.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    risk_considered: ''
+    commit_sha: 6dbfb2346
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 7
+  commit_sha: 6dbfb2346
+````
+
+### [2026-05-12T04:14:22Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Re-propose v2 addressing reviewer_refine NACK. Blocking item B1 (decisions/feedback not registered) is a stale on-disk read: mcp__sdlc__show_contract confirms all 16 decisions + feedback-1 ARE registered. REFINER cannot write to .egg-state/contracts/. Nudges addressed in commit 6dbfb2346: line-range fixes, two-AND-project-queries reshape, role-allocation guidance, decision-1 option C in Recommended Approach, decision-7a/9/10a sub-decisions, complexity assessment reworded.
+
+````yaml
+id: 2fac2c21-2999-4c
+phase: refine
+metadata:
+  payload:
+    summary: 'Re-propose v2 addressing reviewer_refine NACK. Blocking item B1 (decisions/feedback
+      not registered) is a stale on-disk read: mcp__sdlc__show_contract confirms all
+      16 decisions + feedback-1 ARE registered. REFINER cannot write to .egg-state/contracts/.
+      Nudges addressed in commit 6dbfb2346: line-range fixes, two-AND-project-queries
+      reshape, role-allocation guidance, decision-1 option C in Recommended Approach,
+      decision-7a/9/10a sub-decisions, complexity assessment reworded.'
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    risk_considered: ''
+    commit_sha: 6dbfb2346
+    files_changed:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 8
+  commit_sha: 6dbfb2346
+````
+
+### [2026-05-12T04:14:51Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: d2a83079-671c-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:14:39.387452+00:00'
+````
+
+### [2026-05-12T04:14:51Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 10225fab-c6f5-45
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T04:15:22Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner (pending_acks)
+
+Producer refiner cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_refine', 'reviewer_agent_design']
+
+````yaml
+id: d1fcebbd-a24e-49
+phase: refine
+metadata:
+  pending_acks: true
+````
+
+### [2026-05-12T04:15:29Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+V8 same artifact at commit 6dbfb2346 (no diff vs v4). Strengths over v1: role-allocation guidance addresses gateway-enforced agent boundaries; decision-9 placement note keeps Confluence helper in-sandbox; decision-10a flags Jira-Blocks vs plan-parser forest invariant tension; decision-7a flags per-pipeline JSON store storage shape; recommended 2-slice decomposition matches implement-phase slice-DAG semantics. ACK.
+
+````yaml
+id: d6296544-29f9-4e
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    reason: 'V8 same artifact at commit 6dbfb2346 (no diff vs v4). Strengths over
+      v1: role-allocation guidance addresses gateway-enforced agent boundaries; decision-9
+      placement note keeps Confluence helper in-sandbox; decision-10a flags Jira-Blocks
+      vs plan-parser forest invariant tension; decision-7a flags per-pipeline JSON
+      store storage shape; recommended 2-slice decomposition matches implement-phase
+      slice-DAG semantics. ACK.'
+    ack_version: 8
+  version: 8
+````
+
+### [2026-05-12T04:15:36Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+ACK v2. Reviewed the updated `.egg-state/drafts/issue-1557-v2-analysis.md` end-to-end and verified the contract state via `mcp__sdlc__show_contract`.
+
+**Withdrawal of v1 blocking item (procedural acknowledgement)**: my v1 NACK B1 was wrong. The refiner is correct — I read `.egg-state/contracts/issue-1557-v2.json` directly off disk, which was empty because (a) the contract gateway is the source of truth, not the JSON file, and (b) on-disk flushes only happen on phase transitions / contract-sync events, not on every `add-decision`. `mcp__sdlc__show_contract` confirms all 16 decisions (`decision-1` … `decision-16`) and `feedback-1` with `Q1` … `Q6` are registered with the recommended option first in each `options` list per convention. Apologies — it cost the refiner one revision cycle.
+
+**Non-blocking items from v1 — all addressed in v2**:
+- NB1 → fixed: line 68 points to `parse_phases_from_yaml` at line 413 and `parse_plan` at line 1065 (both verified by grep).
+- NB2 → fixed: `gateway/jira_client.py:133-146`.
+- NB3 → added on line 97: explicit two-AND-project-scoped query reshape spelled out.
+- NB4 → added as decision-10a inline on line 230.
+- NB5 → added as decision-7a inline on line 227.
+- NB6 → added to Constraints at line 154 with concrete role mapping for coder/documenter/tester.
+- NB7 → line 229: refiner-in-sandbox placement noted.
+- NB8 → line 213: slice-1=A+B+C+D / slice-2=E+F+G mapping in Recommended Approach.
+- NB9 → line 249: complexity reworded to map onto the recommended 2-slice decomposition.
+
+**Substance still strong**: spot-verified key line citations (mcp_tools.py:67-127, 1287-1292, 1301-1307; models.py:981-1004; gateway.py:4929-5009; jira_search.py:55-128; jira_client.py:133-146 + 217-283; plan_parser.py:1284-1350; pipelines.py:20071-20167 + 21155-21176) — all check out. /impact-analysis absence and no-reverse-index / no-pr_url claims confirmed by grep. Contract decisions cite gateway constraints inline.
+
+### Non-blocking observations on v2 (planner-facing, not blockers)
+
+- Opt-letter vs opt-id drift: analysis uses option-A/B/C, contract uses opt-1..opt-6. Substance matches (contract opt-3 = analysis option C). Future drafts could use opt-N notation directly.
+- Pipeline-store path in decision-7a: worth surfacing the exact path (`.egg-state/pipelines/<id>.json`).
+- `docs/architecture/credential-injection.md` cited on line 147 — not spot-verified; flag for planner.
+
+No blocking issues. Strong analysis, accurate citations, well-formed operator-actionable HITL decisions, clean recommended decomposition.
+
+````yaml
+id: 013b2b83-5fbf-4b
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/issue-1557-v2-analysis.md
+    - .egg-state/contracts/issue-1557-v2.json
+    reason: "ACK v2. Reviewed the updated `.egg-state/drafts/issue-1557-v2-analysis.md`\
+      \ end-to-end and verified the contract state via `mcp__sdlc__show_contract`.\n\
+      \n**Withdrawal of v1 blocking item (procedural acknowledgement)**: my v1 NACK\
+      \ B1 was wrong. The refiner is correct \u2014 I read `.egg-state/contracts/issue-1557-v2.json`\
+      \ directly off disk, which was empty because (a) the contract gateway is the\
+      \ source of truth, not the JSON file, and (b) on-disk flushes only happen on\
+      \ phase transitions / contract-sync events, not on every `add-decision`. `mcp__sdlc__show_contract`\
+      \ confirms all 16 decisions (`decision-1` \u2026 `decision-16`) and `feedback-1`\
+      \ with `Q1` \u2026 `Q6` are registered with the recommended option first in\
+      \ each `options` list per convention. Apologies \u2014 it cost the refiner one\
+      \ revision cycle.\n\n**Non-blocking items from v1 \u2014 all addressed in v2**:\n\
+      - NB1 \u2192 fixed: line 68 points to `parse_phases_from_yaml` at line 413 and\
+      \ `parse_plan` at line 1065 (both verified by grep).\n- NB2 \u2192 fixed: `gateway/jira_client.py:133-146`.\n\
+      - NB3 \u2192 added on line 97: explicit two-AND-project-scoped query reshape\
+      \ spelled out.\n- NB4 \u2192 added as decision-10a inline on line 230.\n- NB5\
+      \ \u2192 added as decision-7a inline on line 227.\n- NB6 \u2192 added to Constraints\
+      \ at line 154 with concrete role mapping for coder/documenter/tester.\n- NB7\
+      \ \u2192 line 229: refiner-in-sandbox placement noted.\n- NB8 \u2192 line 213:\
+      \ slice-1=A+B+C+D / slice-2=E+F+G mapping in Recommended Approach.\n- NB9 \u2192\
+      \ line 249: complexity reworded to map onto the recommended 2-slice decomposition.\n\
+      \n**Substance still strong**: spot-verified key line citations (mcp_tools.py:67-127,\
+      \ 1287-1292, 1301-1307; models.py:981-1004; gateway.py:4929-5009; jira_search.py:55-128;\
+      \ jira_client.py:133-146 + 217-283; plan_parser.py:1284-1350; pipelines.py:20071-20167\
+      \ + 21155-21176) \u2014 all check out. /impact-analysis absence and no-reverse-index\
+      \ / no-pr_url claims confirmed by grep. Contract decisions cite gateway constraints\
+      \ inline.\n\n### Non-blocking observations on v2 (planner-facing, not blockers)\n\
+      \n- Opt-letter vs opt-id drift: analysis uses option-A/B/C, contract uses opt-1..opt-6.\
+      \ Substance matches (contract opt-3 = analysis option C). Future drafts could\
+      \ use opt-N notation directly.\n- Pipeline-store path in decision-7a: worth\
+      \ surfacing the exact path (`.egg-state/pipelines/<id>.json`).\n- `docs/architecture/credential-injection.md`\
+      \ cited on line 147 \u2014 not spot-verified; flag for planner.\n\nNo blocking\
+      \ issues. Strong analysis, accurate citations, well-formed operator-actionable\
+      \ HITL decisions, clean recommended decomposition."
+    ack_version: 8
+  version: 8
+````
+
+### [2026-05-12T04:15:36Z] orchestrator → refiner (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 8) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 1d355fb3-2531-47
+phase: refine
+metadata:
+  ready_to_confirm: true
+  version: 8
+````
+
+### [2026-05-12T04:15:40Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT
+
+````yaml
+id: be964734-551d-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:15:39.986038+00:00'
+````
+
+### [2026-05-12T04:15:40Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 56a2dccc-ed47-4d
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T04:15:44Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: 7c39f096-eb23-4d
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-05-12T04:15:57Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 6ba8457e-7652-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:15:57.112967+00:00'
+````
+
+### [2026-05-12T04:16:19Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: 11233c36-3626-44
+phase: refine
+metadata:
+  consensus_reached: true
+````
+
+### [2026-05-12T04:16:19Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: cae839be-c366-4b
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-05-12T04:16:24Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 6813f58c-9813-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-05-12T04:16:24.222175+00:00'
+````

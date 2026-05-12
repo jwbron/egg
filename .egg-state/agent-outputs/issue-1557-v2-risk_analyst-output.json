@@ -1,0 +1,602 @@
+{
+  "issue": 1557,
+  "pipeline_id": "issue-1557-v2",
+  "phase": "plan",
+  "role": "risk_analyst",
+  "title": "Risk Assessment: Add SDLC pipeline support for Jira epics",
+  "summary": "Plan-phase risk assessment for #1557 (Jira-epic SDLC pipeline). Overall risk is HIGH — the surface spans orchestrator + gateway + sandbox + prompts + contract schema, with at least four net-new runtime primitives (Pipeline.is_epic, jira_ticket→pipelines reverse-index, post-approval apply hook, applier agent role, orchestrator-only gateway transition route) rather than extensions of existing patterns. The operator-selected sandbox-side `applier` agent (decision-8 option B) overrides the refine analysis's recommended orchestrator-driven baseline; that choice trades deterministic state-machine semantics for BRC-mediated apply, which is the single biggest design-shape risk in this assessment. Other high-impact risks: (a) JQL same-project constraint (decision-12) silently drops cross-project children with no operator-visible warning; (b) the new orchestrator-only transition route (decision-15) is a net-new trust boundary that must reject agent-originated callers; (c) plan-prompt context window for large epics with many non-Done children; (d) Pipeline schema migration for the `is_epic` flag and `jira_key`/`jira_action` task fields across orchestrator restarts; (e) per-ticket HITL gating for in-flight children scales poorly on epics with many active children. The slice decomposition (decision-1 option C: [A+B+C+D fresh-epic] → [E+F+G reassess]) concentrates net-new infra in slice-1 and adds operational complexity in slice-2; sequenced delivery reduces parallel risk but means slice-1 PR review must surface all the new primitives without slice-2 context.",
+  "overall_risk_level": "HIGH",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+
+  "context": {
+    "issue": "#1557 — Add SDLC pipeline support for Jira epics",
+    "head_commit_at_assessment": "999b8bc034161c4fa98d470f7c19d69c908f962b",
+    "refine_analysis": ".egg-state/drafts/issue-1557-v2-analysis.md (commit 6dbfb23464)",
+    "resolved_decisions": [
+      "decision-1: 2-slice DAG, [A+B+C+D fresh-epic end-to-end] → [E+F+G reassess]",
+      "decision-2: orchestrator pre-fetch at submit_task time; persists is_epic on Pipeline",
+      "decision-3: per-project epic_link_field config in context-filters.yaml",
+      "decision-4: batch Won't-Do transitions on plan-gate approval",
+      "decision-5: exclude Done children from plan prompt",
+      "decision-6: planner picks consolidation survivor with HITL override",
+      "decision-7: BOTH signals — orchestrator reverse-index AND new POST /api/v1/jira/ticket/remotelinks gateway route",
+      "decision-8: NEW sandbox-side `applier` agent role (overrides refine's recommended orchestrator-driven baseline)",
+      "decision-9: scan description for Confluence URLs + new gateway remote-links route",
+      "decision-10: reuse description field with required Problem/Scope/Acceptance/OOS/Links sections",
+      "decision-11: persist jira_key + jira_action on contract task model",
+      "decision-12: same-project JQL only (cross-project children silently invisible)",
+      "decision-13: statusCategory.key == 'done' classifier",
+      "decision-14: statusCategory.key == 'indeterminate' for in-flight",
+      "decision-15: new orchestrator-only POST /api/v1/jira/ticket/transition gateway route (loopback + shared-secret)",
+      "decision-16: parameterize refiner/planner prompts via mode=epic|ticket|github_issue"
+    ],
+    "feedback_q1_to_q6": "Q1 idempotent re-run; Q2 force new pipeline-id qualifier; Q3 set Jira remote-link on child→PR (needs write-companion to decision-9's read route); Q4 MVP single-site; Q5 submit_task(jira_ticket, mode='auto'|'fresh'|'reassess'); Q6 MUST: fresh-epic, reassess (classify/consolidate/split/leave-alone/in-flight), Won't-Do transitions; NICE: Confluence enrichment, PR→Jira remote-link write."
+  },
+
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Sandbox-side `applier` agent role (decision-8 option B) puts mechanical state-changing work behind a BRC consensus cycle",
+      "category": "architecture",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "Apply step is deterministic mechanical work — emit a fixed sequence of editJiraIssue/createJiraIssue/createIssueLink/transition calls per the contract task↔key mapping. Running this through a NEW agent role + BRC consensus cycle adds: (1) an extra sandbox pod spawn per pipeline (~30-90s warm-up), (2) an extra prompt context window (the applier reads the entire contract task↔key map plus per-task ticket bodies, easily 50-200KB for medium epics), (3) a second reviewer ACK round for what is essentially a `for task in tasks: gateway.call(task.jira_action, ...)` loop, (4) partial-apply failure modes (3-of-7 calls succeed, network error mid-loop) that surface from inside an agent prompt rather than from orchestrator code where the state machine can durably persist progress. Feedback Q1 says recovery is 'idempotent re-run from contract mapping' — that semantics is easy to encode in orchestrator Python but tricky to keep coherent across multiple LLM invocations of an applier prompt that may inadvertently re-order, batch, or skip mutations.",
+      "description": "The refine analysis explicitly recommended option A (orchestrator-driven apply) with Cons of option B enumerated: 'Apply is deterministic mechanical work, not creative producer output; running it through BRC produces no signal at high cost (extra agent spawn, extra consensus cycle, extra prompt context window). Failure modes (partial apply, network errors) bubble out of an agent prompt rather than out of orchestrator code, which is harder to reason about for state-machine purposes. Pushes more responsibility into prompts (the apply prompt has to track per-mutation success / partial-apply / retry) when this kind of work is naturally code, not LLM. Adds a new phase to the pipeline state machine (or a new role to the plan phase).' Operator chose option B anyway. That choice means the plan must allocate: (a) a NEW `applier.md` agent prompt (writable by documenter role per file-write boundaries — plugins/refine-plan/skills/refine-plan/agents/applier.md), (b) a NEW reviewer role (or extend reviewer_plan to ACK the apply outcome — undocumented today), (c) a NEW pipeline phase OR a sub-phase grafted onto plan-phase completion (orchestrator/routes/pipelines.py state machine extension), (d) orchestrator-side wiring to spawn the applier on HITL approval, (e) BRC consensus barrier for the applier output.",
+      "affected_files": [
+        "plugins/refine-plan/skills/refine-plan/agents/applier.md (NEW)",
+        "plugins/refine-plan/skills/refine-plan/agents/reviewer-apply.md (NEW, possibly)",
+        "orchestrator/routes/pipelines.py (apply phase wiring + HITL→apply transition)",
+        "orchestrator/peer_consensus.py (BRC matrix for the new role)",
+        "orchestrator/models.py (PipelinePhase / agent-role enum extension)",
+        "sandbox/scripts/jira (existing CLI is what the applier shells out to)"
+      ],
+      "mitigation": {
+        "strategy": "Plan must (a) treat the apply step as a deterministic playbook with NO creative judgment — the applier prompt should read the contract task↔key mapping and emit a strictly ordered sequence of gateway calls, with hard error semantics on each (no retry-from-prompt; let orchestrator drive retries). (b) Persist per-mutation status to the contract before calling out (e.g. mark task.jira_action_status='in_flight' before the gateway call, 'applied' after success); this gives orchestrator and operator both a durable view of partial-apply state, independent of the applier prompt's transcript. (c) Reviewer (whoever ACKs the applier output) should ACK on contract-state convergence (all tasks reach 'applied' or 'failed' with reason), NOT on prompt-output text quality — frame the reviewer prompt accordingly. (d) Document the partial-apply recovery procedure (Q1) explicitly in applier.md and in docs/guides/sdlc-pipeline.md so future on-callers know to re-spawn the applier with the same contract; the gateway's 5-min idempotency cache plus the contract mapping makes this safe IF mappings are written-before-call (see R7). (e) Avoid grafting a brand-new pipeline phase; instead extend the existing plan-phase to include an 'apply' BRC barrier — fewer state-machine transitions, simpler reviewer wiring. (f) Add an integration test that exercises the applier against a recorded Jira mock with deliberately injected 3-of-7 partial-failure semantics and confirms a re-spawn converges to all-applied.",
+        "effort": "HIGH",
+        "residual_risk": "MEDIUM — the BRC-mediated apply pattern is more failure-tolerant than orchestrator-direct apply but slower; on a 50-child reassess epic, the applier may take 5-10 minutes wall-clock with a full review cycle. Operator should be informed that apply latency is non-trivial."
+      },
+      "requires_human_review": true,
+      "review_reason": "The operator's selection of option B over the refine analysis's recommended option A is a substantive architectural call that should be reconfirmed in the plan-gate. If after seeing the plan-phase task list the operator decides that the BRC overhead is not worth the agent-mediation, switching to option A is still possible at low cost (the orchestrator-side hook is much smaller than the agent + prompt + reviewer surface). Plan-phase reviewer_plan should treat this as a phase-gate-worthy callout."
+    },
+    {
+      "id": "R2",
+      "title": "Pipeline.is_epic flag and contract task.jira_key / task.jira_action are net-new Pydantic schema fields; in-flight pipelines and concurrent orchestrator restarts must roll forward cleanly",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "Pipeline.is_epic (decision-2) is persisted to .egg-state/pipelines/<id>.json; task.jira_key + task.jira_action (decision-11) are persisted to .egg-state/contracts/<id>.json. Both are read by orchestrator on every restart and by HTTP/MCP read endpoints. If the Pydantic model adds these fields as REQUIRED, every existing in-flight pipeline state file (and every running orchestrator deployment that hasn't been redeployed) will fail to deserialize on restart, taking the orchestrator down. Even with `Field(default=...)` for forward compatibility, downstream code paths (the apply hook, the inspect-tools, the plan-parser) must handle missing/None values gracefully on pipelines that pre-date the migration.",
+      "description": "orchestrator/models.py defines Pipeline at line 816 and the contract Task model nearby. Both classes have on-disk JSON persistence. The codebase has prior examples of similar additive migrations (pr_number, pr_head_sha, slices), but each must be done with: (a) `Field(default=...)` for new optional fields; (b) `model_validate` (Pydantic v2) on read tolerates extra/missing fields; (c) downstream consumers must defend against `is_epic is None` (treat as False) and `jira_action is None` (treat as 'create' for new tasks, 'edit' for tasks with existing jira_key from past runs). The reverse-index from decision-7 implies an additional write path (some kind of sidecar state file or in-memory index that must be rebuilt on startup from the Pipeline directory scan); if the rebuild is incomplete on startup, in-flight detection will misclassify children.",
+      "affected_files": [
+        "orchestrator/models.py (Pipeline, Task, Phase model fields)",
+        "orchestrator/routes/pipelines.py (read/write paths)",
+        "orchestrator/state_store.py (any sidecar index)",
+        "shared/egg_contracts/plan_parser.py (ParsedTask must round-trip jira_key/jira_action)",
+        "shared/egg_contracts/contract.py (Task model + contract validators)"
+      ],
+      "mitigation": {
+        "strategy": "(a) ALL new Pydantic fields land as `Optional[...] = Field(default=None)` (or sensible default). (b) Add a Pydantic v2 `@model_validator(mode='before')` to Pipeline and Task that silently fills missing keys with defaults — same shape the codebase already uses for prior migrations. (c) Every consumer of `task.jira_action` must check for None and fall back to a documented default. (d) Write a one-shot migration script under scripts/ that rewrites existing pipeline + contract files with default values for the new fields, runnable post-deploy to catch any state files that didn't go through a normal write cycle. (e) Add a regression test under shared/tests/test_egg_contracts/ that loads an old-format contract JSON (checked into tests/fixtures/) and asserts it round-trips through the new model without data loss. (f) Reverse-index startup-rebuild: orchestrator should rebuild on startup from a scan of .egg-state/pipelines/, log entries that lack pr_url or jira_ticket, and skip rather than fail. The reverse-index must be persisted on every pipeline-state write, not derived lazily.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW once mitigations are present. The well-trodden pattern of additive Pydantic migrations in this codebase makes this category of risk manageable as long as the plan task-list explicitly assigns the migration test."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "Orchestrator-only POST /api/v1/jira/ticket/transition gateway route (decision-15) is a new trust boundary; agents must not be able to call it",
+      "category": "security",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "Today's invariant: agents cannot transition Jira tickets — JIRA_WRITE_VERBS_DENIED in gateway/jira_client.py:133 blocks `transitions` as a path segment, and validate_jira_api_path enforces it for /execute. Decision-15 punches a new hole specifically for the orchestrator to drive Won't-Do transitions during reassess apply. If the auth gate on this route is misconfigured (or absent), any sandbox agent on the gateway's network can call it and transition tickets at will. The risk surface is small (allowlisted to Won't-Do/Won't-Fix) but transitioning a ticket to Won't-Do is destructive and difficult to walk back manually in Jira.",
+      "description": "Gateway is reachable from BOTH the sandbox network and the orchestrator pod (same K8s cluster, same Service object). The conventional 'orchestrator-only' separation in egg today is enforced via: (a) the cluster-internal loopback address that only the orchestrator can reach (not feasible here — gateway is on the cluster network), (b) shared-secret tokens (e.g. `X-Orchestrator-Token` header validated against a K8s Secret only the orchestrator pod mounts), (c) IP-based allowlist via NetworkPolicy or service-mesh. The least-bad choice for v1 is (b) — a shared secret in a K8s Secret that the orchestrator deployment mounts and the sandbox deployment does NOT. The plan must specify which mechanism is used and ensure the secret is NOT in the sandbox's pod spec.",
+      "affected_files": [
+        "gateway/gateway.py (new route handler)",
+        "gateway/jira_client.py (loosen JIRA_WRITE_VERBS_DENIED OR add a separate code path)",
+        "k8s/base/gateway/configmap.yaml or secret.yaml (new orchestrator-only secret)",
+        "k8s/base/orchestrator/deployment.yaml (mount the secret)",
+        "orchestrator/jira_client.py or similar (caller library)"
+      ],
+      "mitigation": {
+        "strategy": "(a) New gateway route validates an `X-Orchestrator-Auth` header against a K8s Secret value (or environment variable injected from one); reject all callers without it with 403, no fallback. (b) The Secret is mounted ONLY on the orchestrator pod (k8s/base/orchestrator/deployment.yaml secret volume); the sandbox pod-spec does NOT mount it and there is NO codepath in the sandbox image that constructs the header. (c) Transition allowlist enforced at the gateway: hard-coded set {'Won't Do', 'Won't Fix'} (and case-insensitive matching for project workflow variance); ANY other transition value returns 400 even if the auth header is correct. (d) Audit-log entries include the orchestrator-auth caller identity AND the pipeline_id requesting the transition (header field), so transitions are traceable to a specific reassess run. (e) Integration test: spawn a sandbox pod, prove that calls to /api/v1/jira/ticket/transition without the header return 403 and that calls WITH a forged header (from sandbox env) also return 403. (f) Document the trust-boundary explicitly in docs/architecture/credential-injection.md and gateway/README.md so future contributors know not to expose the secret to the sandbox.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW once the K8s Secret separation and header validation are in place; the residual risk is operational (a misconfigured deployment that leaks the secret into the sandbox pod spec) and is detectable by integration tests that confirm the sandbox cannot read the secret."
+      },
+      "requires_human_review": true,
+      "review_reason": "Plan-phase reviewer_plan should explicitly verify that (a) the gateway route's auth design is named in the plan task list (not left to implement-phase discretion), and (b) k8s/base/sandbox/deployment.yaml is NOT among the files the gateway-side coder task touches. This is the kind of trust-boundary risk #2594 calls out: the primitive (gateway transition route) is being added in a way that depends on a runtime-secret-distribution mechanism that doesn't exist yet."
+    },
+    {
+      "id": "R4",
+      "title": "submit_task pre-fetch (decision-2) introduces a new RTT + failure mode on a previously zero-IO MCP call",
+      "category": "reliability",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "Today submit_task is a fast local MCP call: validate the ticket-key regex, create a Pipeline row, dispatch start. Decision-2 inserts a synchronous gateway call (POST /api/v1/jira/ticket/get with `fields=['issuetype','status','description','summary','parent']`) before the Pipeline row is created. New failure modes: (a) gateway unreachable (502/503) — submit_task fails with 5xx, operator sees opaque error; (b) ticket not found — 404; (c) project not allowlisted — 403; (d) Atlassian rate-limited — 429; (e) network timeout — request hang on a normally-sub-second MCP call. Operator UX degrades: they thought they were submitting a task and instead get a 5xx from the MCP server.",
+      "description": "orchestrator/mcp_tools.py:1272-1381 is the current submit_task handler. The pre-fetch adds an in-process await on a gateway HTTP call before Pipeline creation. If the gateway is unhealthy, submit_task currently succeeds (the agents discover gateway-down at first call); after this change submit_task fails closed. The operator's recovery flow is: re-issue submit_task. That's fine if the gateway is transiently unavailable, but if the project is not allowlisted (403), the operator can't recover without a config change — and they may not realize the requested ticket is on a project the gateway hasn't been configured for. Decision-12 (same-project-only JQL) makes the second failure mode (project-not-allowlisted on auto-detection's JQL for children) extra-likely.",
+      "affected_files": [
+        "orchestrator/mcp_tools.py (submit_task handler)",
+        "orchestrator/jira_client.py or wherever the gateway-bound call lives",
+        "shared/egg_contracts/contract.py (validation of jira_epic input)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Pre-fetch wrapped in a short timeout (e.g. 10s) with a single retry on transient errors. (b) Distinct error responses per failure class — `not-found` (404 surface), `not-allowlisted` (403 with project name surfaced), `unreachable` (502 with retry hint), `rate-limited` (429 with backoff hint). (c) The pre-fetch may be SKIPPED if the operator passes mode='ticket' (no need to detect; treat the ticket as a regular ticket). (d) The mode='auto' detection (Q5) does an additional JQL for children when issuetype=Epic; if the JQL fails because the project isn't allowlisted, mode='auto' should fall back to mode='fresh' rather than failing the entire submit_task — children that exist in Jira will simply be re-created (with the gateway's idempotency cache catching same-summary same-project re-creates within 5 min). (e) Cache the get-ticket response on the Pipeline row so the refiner / planner / applier don't redo the same call.",
+        "effort": "LOW",
+        "residual_risk": "LOW — well-trodden HTTP-RTT-on-submit pattern; the failure modes are visible at submission rather than mid-pipeline, which is preferable to today's behavior of discovering gateway-down halfway through refine."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "JQL same-project constraint (decision-12) silently drops cross-project children from reassess sweep",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "When an epic in project ENG has child stories in project KORE (rare but possible — happens when teams use a shared platform epic with feature children scattered across team-owned projects), the reassess JQL `project = ENG AND \"Epic Link\" = ENG-123` returns ONLY the ENG-project children. The KORE children: (a) don't appear in the plan-phase 'existing children' set, (b) get re-proposed as net-new even though they exist, (c) may end up duplicated in Jira as ENG-456 created with the same summary as an existing KORE-99, (d) are NOT flagged for Won't-Do because the planner doesn't see them as 'obsolete' — they're invisible. The user sees no warning that cross-project children were skipped.",
+      "description": "gateway/jira_search.py:55-128 requires `project = X` or `project IN (...)` at top level. Decision-12 picks option 1 (same-project only). The risk is correctness, not security or performance — the reassess sweep produces a WRONG plan output when cross-project children exist, with no signal to the operator. Refine analysis flagged this risk but the operator picked option 1 anyway, presumably because cross-project epic decomposition is genuinely rare in their org.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (reassess sweep that builds the JQL)",
+        "orchestrator/applier or wherever reassess discovery lives",
+        "plugins/refine-plan/skills/refine-plan/agents/task-planner.md (must declare 'existing children list is scoped to same project as epic')"
+      ],
+      "mitigation": {
+        "strategy": "(a) The reassess sweep MUST log a clear warning (and surface it in the plan draft markdown) when it cannot detect cross-project children, e.g. 'Reassess scope: project=ENG only. Children in other projects are NOT visible to this pipeline. If the epic has cross-project children, file a follow-up.' (b) Documentation of decision-12 must include this caveat prominently. (c) Optional follow-up: the applier could probe `parent` field on the epic's `getJiraIssue` response — if the epic has cross-project parent/child Atlassian metadata, log a warning. (d) Plan draft should include the JQL used so the operator can spot-check it before approving. (e) Add an integration test (mocked Jira) that confirms a cross-project child does NOT appear in the planner's input.",
+        "effort": "LOW",
+        "residual_risk": "MEDIUM — the silence-by-design is the core risk; a logged warning + plan-draft callout is the best mitigation without revisiting decision-12. If this becomes a real problem in production, decision-12 can be revisited (option 3: loop through allowlisted projects)."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Per-ticket HITL gating for in-flight children scales poorly on large epics",
+      "category": "operability",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "On an epic with 30 children where 15 are in-flight (status=In Progress / In Review / Code Review / Blocked / has-open-PR), the apply step refuses mutations on every in-flight child without a per-ticket HITL confirmation. That's 15 individual decision points the operator must resolve. The HITL UX in egg today (mcp__sdlc__register_open_question + plan-draft markdown checklists) is workable for 1-3 decisions per phase but is operationally awkward for 15+. Operators may rubber-stamp them, defeating the purpose, or abandon reassess on large epics.",
+      "description": "Issue #1557 says 'in-flight children carry a `do-not-modify-without-confirmation` marker; mutations require per-ticket HITL' (resolved from #2289 fold-in). The HITL gate per ticket is described in the issue body but the UX scaling implications were not enumerated. The plan must decide how the per-ticket decisions are bundled in the HITL surface — one combined decision per in-flight cluster? A markdown checklist where the operator ticks 'skip / confirm' on each row? — or in-flight children get a flat 'skip for this run' default with the operator overriding individuals.",
+      "affected_files": [
+        "plugins/refine-plan/skills/refine-plan/agents/task-planner.md (must instruct the planner to bundle in-flight children into the plan draft for inspection)",
+        "orchestrator/routes/pipelines.py (HITL gate creation for in-flight clusters)",
+        "applier prompt (must understand per-task in-flight skip semantics)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan draft surfaces a single 'in-flight children' table with one row per in-flight child: [ticket-key | status | proposed-mutation | linked-PR | confirm/skip]. (b) HITL decision is a SINGLE register_open_question with a markdown options block listing each in-flight ticket; operator approves the bulk OR provides a free-form override list (option 'Other'). (c) Default to SKIP for all in-flight children unless the operator explicitly confirms — fail-safe. (d) The plan draft must show what each skipped mutation WOULD have done (the diff against the existing description), so the operator can compare and decide once with full information. (e) Net-new children that depend on an in-flight child are NOT subject to the per-ticket HITL gate; the apply step creates them normally per #2289 spec. (f) Make sure the planner's prompt is clear that 'in-flight' is a hard boundary — do not consolidate-away an in-flight child even if the rest of the planning suggests it.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the bundled-HITL UX scales linearly in operator time, not multiplicatively. Operators with 30+ in-flight children on one epic are an edge case."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Gateway idempotency cache TTL (5 min) is shorter than apply duration for large epics; partial-apply re-runs may double-create",
+      "category": "data_integrity",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "gateway/jira_idempotency.py caches verb+project+key for 5 minutes. On a 50-child reassess apply that takes longer than 5 minutes (plausible: 50 mutations * ~3s each = ~150s, but in series with retries and rate-limit backoff it can be much more), the idempotency window expires mid-run. If the apply is re-spawned (e.g., due to a sandbox crash, or an applier-prompt's internal retry), the second run sees an empty cache for the early-completed mutations — but those mutations ALREADY HAPPENED in Jira and will be re-attempted. Without per-mutation status persisted on the contract BEFORE the gateway call, double-creates and double-edits are possible.",
+      "description": "Feedback Q1 says recovery is 'idempotent re-run from saved task↔key mapping, treating already-mutated tickets as no-ops.' The mapping is on the contract task. For this to work safely the order must be: (1) write task.jira_action_status='in_flight' to contract, (2) call gateway, (3) on success write task.jira_action_status='applied' with the resulting jira_key (for creates), on failure write task.jira_action_status='failed'+error. The applier prompt MUST follow this order — write-before-call, NOT write-after-call. If write-after-call, a crash between (2) and (3) leaves Jira mutated and contract showing 'in_flight'; the re-run sees 'in_flight' and may retry (double-create) or may skip (silently abandon).",
+      "affected_files": [
+        "applier prompt + helper",
+        "shared/egg_contracts/contract.py (task.jira_action_status field)",
+        "orchestrator/models.py (Task model extension)",
+        "gateway/jira_idempotency.py (consider extending TTL for orchestrator-originated calls)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Add task.jira_action_status as a third Pydantic field (alongside jira_key + jira_action from decision-11) with values {'pending', 'in_flight', 'applied', 'failed'}. (b) Applier prompt is REQUIRED to write 'in_flight' to contract before calling gateway, and 'applied' or 'failed' after. (c) On re-run, applier skips tasks where status=='applied' (already done) and re-attempts tasks where status in {'pending', 'failed'}. Tasks stuck in 'in_flight' on re-run are CONFLICT cases that need operator review (probably a crash mid-apply; the operator should manually check Jira and update contract). (d) Consider extending the gateway idempotency cache TTL to 60 min for orchestrator-tagged calls (the X-Orchestrator-Auth header from R3 can be the key for the longer TTL). (e) Integration test: simulate a crash mid-apply at the gateway level, re-spawn applier, assert no double-creates and that the contract converges.",
+        "effort": "MEDIUM",
+        "residual_risk": "MEDIUM — manual operator intervention is the last-resort recovery for 'in_flight' stuck tasks; the alternative (auto-retry on stuck) is too dangerous given the destructiveness of double-Won't-Do or double-create."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "Plan prompt context window may overflow on large epics with many non-Done children",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "Decision-5 excludes Done children from the plan prompt, but decision-10 says each non-Done child must be planned as a fully-formed ticket-shaped description (Problem, Scope, Acceptance, OOS, Links). For an epic with 50 non-Done children each carrying a 2-5 KiB existing description, the plan prompt context is: refine analysis (~10-20 KiB) + 50 children * ~3 KiB = ~160-170 KiB. Plus the existing planner.md (~10 KiB) + system instructions (~5 KiB). Claude Sonnet's 200K context is enough; Claude Opus is fine; but heavy use of tool-call transcripts and the planner's iterative draft revisions can balloon prompt-output combined past the model's working limit.",
+      "description": "Real-world Jira epics rarely have more than ~30 non-Done children at one time (Done children are excluded). But the 'all non-Done children must be planned with ticket-shaped descriptions' rule means EVERY non-Done child contributes meaningfully to prompt size, not just the few the planner decides to mutate. A 50-child epic is an extreme case; a 20-child epic is normal-size and well within budget.",
+      "affected_files": [
+        "plugins/refine-plan/skills/refine-plan/agents/task-planner.md",
+        "shared/egg_harness/* (if context-trimming logic is needed)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan prompt instructions include a graceful-degradation hint: if more than N (e.g. 25) non-Done children exist, the planner may produce a HITL request asking the operator to scope-narrow before continuing. (b) Add input-size logging at the planner spawn so over-budget cases surface in monitoring. (c) Document the limit in docs/guides/sdlc-pipeline.md so operators know to chunk very large epics. (d) Existing-child descriptions can be truncated to summary + first paragraph (typically the 'Problem' section) before being fed to the prompt — the planner still has enough to make consolidate/split/leave-alone calls; full descriptions are pulled lazily only for children the planner decides to mutate. (e) The applier (not the planner) is the one that needs full descriptions for editJiraIssue — so the planner can work with truncated views and the applier re-fetches full state at apply time.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the operator's natural workflow on a 50-child epic is to scope it down anyway."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "Atlassian API rate limit on apply step for large reassess runs",
+      "category": "performance",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Apply for a 50-child reassess run: ~5 reads (epic + sample children for description-fetch on mutation) + ~50 writes (mix of edit / create / Won't-Do transition + comment) + ~10-50 createIssueLink calls for cross-task dependencies = 65-105 API calls in a single apply. Atlassian Cloud rate-limits at ~10 requests/second per token; bursts above ~50 in a short window trigger 429s. The gateway has retry logic for 429 but synchronous serial retries inflate apply wall-clock time and risk the applier prompt timing out.",
+      "description": "gateway/jira_client.py has retry behavior on transient errors. For very large reassess runs, the apply step might run 5-15 minutes wall-clock with 429-induced backoffs. This interacts with R7 (idempotency TTL) and the applier's prompt-level timeout. Worst case: a 30-minute apply that the applier-prompt times out on, the re-spawned applier sees stale idempotency cache, and double-mutates a subset.",
+      "affected_files": [
+        "gateway/jira_client.py (retry/backoff logic)",
+        "applier prompt (must handle apply timing)",
+        "orchestrator/peer_consensus.py (apply phase BRC consensus timeout)"
+      ],
+      "mitigation": {
+        "strategy": "(a) The applier prompt batches mutations with brief inter-call pauses (10 req/sec floor) to stay under the rate limit. (b) The applier's BRC consensus_timeout_minutes_plan (or a new apply-phase timeout) should be set generously — at least 30 minutes — for reassess runs. (c) The gateway retry logic must honor `Retry-After` headers from 429 responses, not just exponential backoff. (d) On apply completion, the applier reports a summary count (total mutations, succeeded, failed, retried) to the plan draft so operators see whether the run was healthy. (e) Cross-task createIssueLink calls can be batched/parallelized only if the gateway supports it (it doesn't today — each link is a separate POST); document this limit. (f) For very large epics, the plan could naturally split into multiple slices (decision-1 option C natively does this for fresh vs reassess paths) but within a single reassess all children apply together.",
+        "effort": "LOW",
+        "residual_risk": "MEDIUM — rate-limit handling will get tested against real Atlassian instances and may need tuning. Operators with large reassess runs may see apply latency in the 10+ minute range."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R10",
+      "title": "Refine/plan prompt parameterization (decision-16) — non-epic regressions",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Prompts are parameterized via `mode: epic | ticket | github_issue` (decision-16). The refiner.md and task-planner.md templates get conditional blocks added. If the conditional block leaks instructions into non-epic invocations (e.g., the planner starts producing ticket-shaped descriptions for github_issue pipelines), the existing fleet of GitHub-issue and Jira-ticket pipelines may regress.",
+      "description": "plugins/refine-plan/skills/refine-plan/agents/refiner.md and task-planner.md are read by every refine/plan-phase invocation. Adding a conditional 'if mode==epic, do X' block depends on (a) the orchestrator injecting `mode` correctly, (b) the prompt template rendering the conditional correctly, (c) the planner agent respecting the conditional (LLMs sometimes ignore conditional guards in long prompts). Risk: GitHub-issue pipelines start producing ticket-shaped descriptions because the planner's prompt now mentions ticket shape as one of the options.",
+      "affected_files": [
+        "plugins/refine-plan/skills/refine-plan/agents/refiner.md",
+        "plugins/refine-plan/skills/refine-plan/agents/task-planner.md",
+        "plugins/refine-plan/skills/refine-plan/agents/architect.md (if it also branches)",
+        "shared/egg_harness/prompt_loader or wherever prompts get assembled with mode injection",
+        "orchestrator/routes/pipelines.py (mode propagation)"
+      ],
+      "mitigation": {
+        "strategy": "(a) The conditional block in each prompt is fenced and labelled clearly (e.g. `## [if mode == 'epic']`). (b) The prompt loader strips the OTHER mode blocks before sending — agents see only their mode's instructions, not 'here are three modes, do the right one'. (c) Add regression tests: spawn refiner / planner under mode='ticket' and mode='github_issue' against a fixture issue and assert the output looks identical to today's baseline (no leaked ticket-shape boilerplate). (d) Add a per-mode integration test under integration_tests/ that runs a fresh pipeline in each mode and assertion-checks the draft markdown structure. (e) Plan tasks for prompt changes are documenter-role (per file-write boundaries); the documenter must be told to keep ticket/github_issue paths byte-for-byte equivalent to today's prompts (after extraction of common-prelude into the prompt frame).",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW once mode-stripping in the loader + per-mode regression tests are in place."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R11",
+      "title": "PR→Jira remote-link write companion is NICE-to-have (Q3+Q6); deferral degrades in-flight detection",
+      "category": "data_integrity",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Decision-7 specifies BOTH signals for in-flight detection: orchestrator reverse-index AND a new gateway POST /api/v1/jira/ticket/remotelinks route (read-only). Q3 says when an implement pipeline opens a PR, the orchestrator should set a Jira remote-link on the child pointing to the PR (write companion to the read route). Q6 marks the write companion as NICE-to-have. If deferred, in-flight detection has TWO sources: (a) reverse-index, which catches PRs opened by egg pipelines but misses human-opened PRs; (b) remote-links read, which is empty if nothing populates them. So in v1, in-flight detection effectively relies on the reverse-index alone — same as decision-7 option 1.",
+      "description": "The 'covers human-opened PRs' justification for decision-7 option 2 vs option 1 depends on the write companion existing. Without it, decision-7 option 2 reduces to option 1 in practice, and the gateway gets a new (unused) read route. The operator marked it NICE-to-have probably because the alternative is acceptable — the reverse-index covers the common case and human-opened PRs against egg-managed children are rare. But the plan should be explicit about this tradeoff so the v1 PR doesn't accidentally land the read route alone (dead code) or land both routes and the reverse-index (over-engineering for v1).",
+      "affected_files": [
+        "gateway/gateway.py (read route AND, if scope expands, write route)",
+        "gateway/jira_client.py (extend allowlist for remote-links GET and possibly POST)",
+        "orchestrator/routes/pipelines.py (PR-open hook that sets the remote-link)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan must explicitly decide whether v1 ships the write companion or defers it. If deferred, the read route is ALSO deferred (don't ship dead code) and decision-7 effectively reduces to option 1 for v1. (b) Document the tradeoff in the plan draft so operators know human-opened PRs are invisible to in-flight detection until a follow-up adds the write companion. (c) File a follow-up issue for the write companion regardless of v1's scope so it's tracked. (d) Confluence-link extraction (decision-9) has the same shape — read route exists, write companion not needed since refiner only reads. So decision-9's read route does ship in v1.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the operator's prioritization stands; this is an explicit-scoping callout for the planner, not a blocker."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R12",
+      "title": "Reverse-index from jira_ticket → pipelines (decision-7, sub-question 7a) — net-new state-store schema with crash-recovery semantics",
+      "category": "data_integrity",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "Today Pipeline.jira_ticket is advisory metadata only — no index. The reverse-index is needed so 'what pipelines are open against jira-ticket X' is an O(1) lookup at reassess time. Possible implementations: (i) sidecar index file rewritten on pipeline create / PR-open / pipeline-complete, (ii) in-memory derived index rebuilt on startup by scanning .egg-state/pipelines/, (iii) SQLite cache. Each has different crash-recovery properties. The refine analysis flagged this as decision-7a for the plan phase to resolve.",
+      "description": "If the index is a sidecar file (i), an orphaned partial write on crash leaves it inconsistent with the per-pipeline JSON files — reassess sees stale entries. If it's in-memory (ii), every orchestrator restart rebuilds it by scanning the pipeline directory (cheap for <1000 pipelines but unbounded if the directory grows). If SQLite (iii), it's a new persistent store with migration concerns. The plan must pick one and the choice has long-term operational implications.",
+      "affected_files": [
+        "orchestrator/state_store.py (if sidecar)",
+        "orchestrator/routes/pipelines.py (PR-open hook that updates index)",
+        "orchestrator/main.py or app startup (if in-memory rebuild)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Plan task-planner must surface decision-7a as an explicit sub-decision in the plan draft with options (sidecar / in-memory / SQLite). RECOMMENDED: option (ii) in-memory rebuilt on startup, persisted derivedly on each Pipeline state-write — simplest, no new state-store, scales to tens of thousands of pipelines (the orchestrator already scans the pipeline directory on startup for other purposes). (b) Whatever option wins, the implementation must include a periodic full-rebuild (every N hours) to converge any drift; (c) PR-open hook (in pipelines.py, where today the PR is created during implement-phase HITL approval) calls into the index update. (d) The index returns Pipeline.pr_url + Pipeline.is_pr_open (derived from PR status, not just URL presence) so the reassess sweep gets actionable in-flight signals. (e) Test: spawn N pipelines, restart the orchestrator, assert the reverse-index converges.",
+        "effort": "MEDIUM",
+        "residual_risk": "LOW once tested against startup-rebuild."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R13",
+      "title": "submit_task pipeline-ID collision policy (Q2: force new qualifier) — operator UX risk on reassess flow",
+      "category": "operability",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "Today submit_task on a Jira-ticket-key already in use returns 409. Feedback Q2 says: force a new qualifier (e.g. ENG-123-v2, ENG-123-v3). For the reassess flow, the operator's mental model is 're-run reassess on ENG-123' — but they MUST pass a new pipeline ID qualifier or the call fails. New operators will hit 409 on every re-run until they learn the convention.",
+      "description": "The reassess path is the second-pass workflow; first-pass is fresh-epic. So a typical pipeline lifetime: submit_task(jira_ticket='ENG-123') creates pipeline 'ENG-123'; first-pass refine→plan→HITL→apply lands children. Some weeks later the operator wants to reassess: submit_task(jira_ticket='ENG-123', mode='reassess') — but pipeline ENG-123 still exists in state-store. 409. Operator now needs submit_task(jira_ticket='ENG-123', qualifier='v2', mode='reassess') → pipeline ENG-123-v2.",
+      "affected_files": [
+        "orchestrator/mcp_tools.py (submit_task validation + suggestion message)",
+        "docs/guides/sdlc-pipeline.md (operator UX docs)"
+      ],
+      "mitigation": {
+        "strategy": "(a) submit_task's 409 error message must include suggested next-qualifier: 'Pipeline ENG-123 already exists. Re-run with qualifier=v2 to start ENG-123-v2.' (b) Optional: submit_task accepts an explicit `--reassess` shortcut that auto-picks the next available qualifier (find max qualifier in state-store, increment). (c) Document the convention in docs/guides/sdlc-pipeline.md. (d) The pipeline-ID qualifier auto-suggestion logic is small but the UX matters; the planner should NOT skip this. (e) Old pipeline state — does it stay around indefinitely, get archived, get GC'd? Q2 says 'pipeline state is owned per-id; auto-archiving or in-place resuming would conflate audit trails' — explicit per-pipeline state ownership is the rule. The plan task list must NOT include 'archive old pipelines' as it conflicts with operator's explicit choice.",
+        "effort": "LOW",
+        "residual_risk": "LOW — operator hits 409 once, learns convention, never hits it again."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R14",
+      "title": "Per-project epic_link_field config (decision-3) — misconfiguration cascades to 400-error apply",
+      "category": "operability",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "Decision-3 puts epic_link_field per-project in config/context-filters.yaml. If a project is configured as 'parent' but is actually a classic project that needs customfield_10014 (or vice versa), every createJiraIssue under that epic returns 400 from Atlassian. The plan apply step fails for that project's epic but provides no self-healing.",
+      "description": "gateway/jira_policy.py:34-39 already has the epic_link_field hook with allowlisted values. Misconfiguration is detectable at apply time but the surface is a 400 from Atlassian — the operator must inspect logs, identify the misconfig, fix context-filters.yaml, redeploy gateway, re-run apply.",
+      "affected_files": [
+        "config/context-filters.yaml",
+        "gateway/jira_policy.py (allowlist enforcement, error surface)",
+        "gateway/gateway.py (createJiraIssue route's error surface)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Gateway's createJiraIssue route, on 400 from Atlassian with a parent/Epic-Link error code, must log the specific error AND surface it to the orchestrator with a hint: 'project FOO may have epic_link_field misconfigured; tried parent, got 400'. (b) Add a one-shot pre-flight check in the apply step: before creating children, test-create a tiny stub child (or test with dry-run=true if Atlassian supports it; otherwise probe the project's metadata via the project-metadata route if added). (c) Document the config + the failure surface in gateway/README.md so operators know where to look. (d) Future: decision-3 option 4 (per-project config + auto-detect on missing config) is the path forward if misconfigurations get common.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the failure mode is loud and recovery is straightforward."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R15",
+      "title": "statusCategory.key (decisions 13+14) — projects with unusual workflows may mis-classify",
+      "category": "correctness",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "decisions 13 and 14 use Atlassian's statusCategory.key for Done/in-flight/updatable classification. Atlassian guarantees every status maps to one of 'new', 'indeterminate', 'done'. Custom workflows usually map correctly; in edge cases, a 'Code Review' status might be tagged 'new' rather than 'indeterminate' (workflow author's mistake). The reassess sweep then misclassifies a Code-Review child as 'updatable' and the planner may consolidate it away.",
+      "description": "Self-configuring across projects is the upside of statusCategory; the downside is that a poorly-configured project workflow can produce wrong classifications. The fallback is per-project config (decisions 13/14 option 3), which is operator burden but always-right.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (reassess sweep that classifies)",
+        "config/context-filters.yaml (optional per-project override)"
+      ],
+      "mitigation": {
+        "strategy": "(a) The reassess sweep logs unknown / unexpected status names and their statusCategory.key for each child it classifies, so operators can spot bad project workflows. (b) The classification logic respects an optional per-project override in config/context-filters.yaml if the operator wants to pin statuses for a specific project. (c) Plan draft surfaces the classification of each child so the operator can spot-check before approving. (d) Add a regression test with a mocked Jira response containing an unusual status to confirm graceful fall-back behavior.",
+        "effort": "LOW",
+        "residual_risk": "LOW — the issue is rare in well-maintained Jira instances; the in-band logging surfaces it when it happens."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R16",
+      "title": "Won't-Do comments authored by gateway service account — audit-trail attribution",
+      "category": "auditability",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "impact": "When the apply step transitions a child to Won't-Do and posts a comment '(closed by reassess of <EPIC>) Survivor: <NEW-KEY>', the comment is authored by whichever Atlassian user the gateway creds belong to (typically a service-account / bot). The team owning that child sees a 'bot did it' notification with no link back to the operator or pipeline that decided the transition.",
+      "description": "This is a normal pattern for bot-driven Jira automation but worth surfacing in the docs and the comment text. The Atlassian audit log records the user; if it's a service account, the audit trail says 'service account did this at 14:32' but doesn't tie back to the egg pipeline run.",
+      "affected_files": [
+        "applier prompt OR orchestrator's apply hook (comment-body template)",
+        "docs/guides/sdlc-pipeline.md (operator UX docs)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Won't-Do comment template MUST include the pipeline_id and operator (from the original submit_task), e.g. '🤖 Auto-transitioned to Won't Do by egg pipeline `ENG-123-v2` (operator: jdoe). Reason: superseded by ENG-456. See <plan-draft-url>'. (b) Comment template likewise on createJiraIssue and editJiraIssue: '🤖 Created/Edited by egg pipeline `ENG-123-v2`. See <plan-draft-url>'. (c) Document the service-account caveat in docs/guides/sdlc-pipeline.md. (d) If feasible, the gateway includes a `X-Jira-User-Comment-Author` header (or similar) so audit logs at least tag the calling pipeline.",
+        "effort": "LOW",
+        "residual_risk": "LOW — informational only."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R17",
+      "title": "Confluence-link extraction (decision-9) — partial-failure / permission semantics on private pages",
+      "category": "reliability",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "Decision-9 option 2 adds URL-scan of epic description for Confluence URLs AND a new gateway POST /api/v1/jira/ticket/remotelinks route. The refiner fetches the linked Confluence pages. If a linked page is private (restricted by space ACL), the gateway returns 403; if the page was deleted, 404. The refiner must handle gracefully — partial Confluence inputs are common in practice.",
+      "description": "gateway/confluence_client.py has the route; the refiner reads the page via sandbox/scripts/confluence. The risk is the refiner agent doesn't have a clean failure mode for partial input — it may fail the entire refine, or silently ignore the page and produce a refine analysis missing key context.",
+      "affected_files": [
+        "plugins/refine-plan/skills/refine-plan/agents/refiner.md (handling guidance)",
+        "orchestrator's Confluence URL extractor (decision-9 helper)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Refiner prompt explicitly tells the agent: 'If a Confluence page returns 403 or 404, note it in the refine analysis under a Limitations section and continue. Do NOT fail the whole refine.' (b) The URL extractor returns BOTH the URLs AND any fetch errors per URL; the refiner sees the error list. (c) Per Q6, Confluence enrichment is NICE-to-have, so even total Confluence failure should not block the refine.",
+        "effort": "LOW",
+        "residual_risk": "LOW."
+      },
+      "requires_human_review": false
+    },
+    {
+      "id": "R18",
+      "title": "Forest-invariant interaction with epic-decomposition slice DAG (decision-10a sub-question)",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "shared/egg_contracts/plan_parser.py:1284-1350 enforces a forest invariant on slices: every slice has 0 or 1 parents, no cycles. Refine flagged a sub-question (decision-10a) on how the epic-plan's child-ticket dependency graph maps to slice structure: (i) one slice with N tasks, (ii) N slices of 1 task each, (iii) N slices with cross-slice dependencies. Option (iii) is the closest semantic match to 'Blocks' edges in Jira but can hit the forest invariant on fan-in clusters (one ticket blocked by N others).",
+      "description": "Jira issue links naturally form a DAG, not a forest. If the epic-plan's cross-task dependency graph has any fan-in (child C blocked by both A and B), option (iii) will be rejected by the plan-parser. Options (i) and (ii) avoid this but lose dependency information at the slice level.",
+      "affected_files": [
+        "shared/egg_contracts/plan_parser.py",
+        "plugins/refine-plan/skills/refine-plan/agents/task-planner.md (decision on shape)"
+      ],
+      "mitigation": {
+        "strategy": "(a) Recommended: option (ii) N slices of 1 task each — preserves the planner's freedom to express any dependency graph in the cross-task edges (via plan-draft metadata, not slice structure). (b) Cross-task dependencies expressed in plan-draft markdown + a sidecar JSON map that the applier reads to issue createIssueLink calls; NOT encoded as slice dependencies. (c) Document the constraint in task-planner.md: 'epic-plan slice structure does NOT carry cross-task Blocks edges; those are emitted by the applier from the plan-draft mapping.' (d) Plan task-planner must explicitly surface decision-10a in the plan draft.",
+        "effort": "LOW",
+        "residual_risk": "LOW once option (ii) is picked."
+      },
+      "requires_human_review": false
+    }
+  ],
+
+  "runtime_primitive_and_trust_boundary_risks": {
+    "preamble": "Per #2594, the plan-phase risk analysis must explicitly enumerate runtime primitives (classes / fixtures / routes / env vars) the plan depends on and the trust boundaries they cross. Below is the inventory of net-new primitives this plan introduces, with their execution context and the trust-boundary impact of each.",
+    "primitives": [
+      {
+        "id": "P1",
+        "primitive": "Pipeline.is_epic flag",
+        "where_today": "orchestrator/models.py:816 (Pipeline class). Field does NOT exist today — confirmed at HEAD 999b8bc034161c4fa98d470f7c19d69c908f962b.",
+        "execution_context": "orchestrator (Pydantic model, persisted to .egg-state/pipelines/<id>.json)",
+        "decision": "decision-2",
+        "risk": "Schema-migration risk on orchestrator deploy with in-flight pipelines. See R2. Plan must require the field be added as `Optional[bool] = Field(default=False)` and downstream consumers must defend against None."
+      },
+      {
+        "id": "P2",
+        "primitive": "Task.jira_key + Task.jira_action (+ recommended Task.jira_action_status)",
+        "where_today": "shared/egg_contracts/contract.py (Task model). Fields do NOT exist today.",
+        "execution_context": "orchestrator (Pydantic, persisted to .egg-state/contracts/<id>.json) + in-sandbox-agent (applier reads/writes via gateway-proxied contract API)",
+        "decision": "decision-11 (+ R7 mitigation adds jira_action_status)",
+        "risk": "Same schema-migration risk as P1 (R2). The jira_action enum (`create / edit / wontdo / split-of / consolidate-into`) AND the proposed jira_action_status enum (`pending / in_flight / applied / failed`) must be handled by every downstream consumer (plan_parser, inspect-tools, applier, reviewer). Backwards-compat: existing tasks with no jira_key must continue to work."
+      },
+      {
+        "id": "P3",
+        "primitive": "applier agent role + applier.md prompt",
+        "where_today": "plugins/refine-plan/skills/refine-plan/agents/ contains {architect.md, refiner.md, reviewer-agent-design.md, reviewer-plan.md, reviewer-refine.md, risk-analyst.md, task-planner.md}. applier.md does NOT exist.",
+        "execution_context": "in-sandbox-agent (spawned by orchestrator post-HITL-approval)",
+        "decision": "decision-8 option B",
+        "risk": "Net-new agent role. Plan must allocate: applier.md (documenter writes this file), orchestrator-side spawning logic, BRC reviewer wiring (who ACKs the applier?), pipeline state-machine extension (apply step OR extension of plan-phase BRC). See R1. The applier prompt is fundamentally writing-glue-code-as-prompt — risk that the LLM drifts from the deterministic mechanical contract."
+      },
+      {
+        "id": "P4",
+        "primitive": "Post-approval apply hook in pipelines.py",
+        "where_today": "orchestrator/routes/pipelines.py:20070-20160 contains the HITL phase_gate handler. Today it ONLY flips decision status + advances phase — NO mutation hooks fire. Confirmed by grep for `phase_gate` and `_persist_phase_gate_resolution` at lines 18274, 20506, 21181.",
+        "execution_context": "orchestrator",
+        "decision": "decision-8 (regardless of option A or B, an orchestrator-side trigger is needed)",
+        "risk": "Net-new state-machine side effect. Plan must specify exactly which HITL resolution triggers apply (refine phase_gate=approve → epic Description write; plan phase_gate=approve → applier spawn) and ensure non-epic pipelines do NOT trigger. Cross-cuts with R1 (option B applier spawn is new state-machine logic) and R2 (Pipeline.is_epic gate)."
+      },
+      {
+        "id": "P5",
+        "primitive": "POST /api/v1/jira/ticket/transition gateway route (orchestrator-only)",
+        "where_today": "gateway/gateway.py — route does NOT exist. gateway/jira_client.py:133 hard-denies 'transitions' segment in JIRA_WRITE_VERBS_DENIED. Confirmed at HEAD.",
+        "execution_context": "gateway (in-cluster service); callable ONLY by orchestrator (auth gate)",
+        "decision": "decision-15 option 1",
+        "risk": "Trust-boundary primitive. See R3. The route must reject ALL agent-originated callers (no shared-secret leakage into sandbox pod spec), must allowlist transition names {Won't Do, Won't Fix} server-side, must audit-log caller identity + pipeline_id."
+      },
+      {
+        "id": "P6",
+        "primitive": "POST /api/v1/jira/ticket/remotelinks gateway route (read-only)",
+        "where_today": "gateway/gateway.py — route does NOT exist. /rest/api/3/issue/{key}/remotelink not in allowed-path regex.",
+        "execution_context": "gateway",
+        "decision": "decision-9 option 2 + decision-7 option 2",
+        "risk": "Net-new but additive (read-only). Lower risk than P5. R11 notes that without the write companion this route's data is empty for human-authored remote-links unless Atlassian's DVCS connector populates them."
+      },
+      {
+        "id": "P7",
+        "primitive": "Reverse-index from jira_ticket → [pipelines]",
+        "where_today": "orchestrator/models.py:986-988 explicitly says 'jira_ticket is advisory only — the gateway does NOT use this for policy gating; only the project allowlist can authorise a Jira call'. No index exists.",
+        "execution_context": "orchestrator (either sidecar file, in-memory cache, or SQLite per decision-7a)",
+        "decision": "decision-7 + decision-7a",
+        "risk": "Net-new persistent (or rebuildable) state. See R12. Recommended: in-memory cache rebuilt on startup, persisted derivedly on each Pipeline state-write."
+      },
+      {
+        "id": "P8",
+        "primitive": "Description URL-scan helper for Confluence links",
+        "where_today": "No helper exists. ADF / description-text URL parsing is a new utility.",
+        "execution_context": "in-sandbox-agent (refiner — has the description, has Confluence-CLI access via sandbox/scripts/confluence)",
+        "decision": "decision-9 option 2",
+        "risk": "Low — runs in the sandbox. R17 covers partial-failure semantics. Note: refine analysis recommends in-sandbox over orchestrator-side because the refiner already has Confluence access; placing it orchestrator-side would require Confluence creds in the orchestrator."
+      },
+      {
+        "id": "P9",
+        "primitive": "Mode-aware prompt parameterization (refiner.md, task-planner.md + loader)",
+        "where_today": "Prompts are issue-shape-agnostic today. No mode/conditional shape.",
+        "execution_context": "in-sandbox-agent (the prompts) + orchestrator (the loader that injects mode and strips other-mode blocks)",
+        "decision": "decision-16 option 1",
+        "risk": "Compatibility risk (R10). The loader must strip other-mode blocks BEFORE sending the prompt; agents see only their mode's instructions. Regression tests must cover all three modes (epic, ticket, github_issue)."
+      },
+      {
+        "id": "P10",
+        "primitive": "Configurable epic_link_field per project",
+        "where_today": "gateway/jira_policy.py has epic_link_field() hook + config/context-filters.yaml schema. Today values: {parent, customfield_10014}. Already exists; just needs population per project.",
+        "execution_context": "gateway",
+        "decision": "decision-3 option 1",
+        "risk": "Misconfiguration cascades to 400-error apply (R14). The hook exists; the risk is purely operator-config-correctness."
+      },
+      {
+        "id": "P11",
+        "primitive": "statusCategory.key consumer for Done/in-flight classification",
+        "where_today": "gateway/jira_client.py returns Atlassian responses including statusCategory; no orchestrator-side consumer parses it today.",
+        "execution_context": "orchestrator (reassess sweep)",
+        "decision": "decisions 13 + 14 option 1",
+        "risk": "Misclassification on poorly-configured project workflows (R15). Low likelihood; in-band logging surfaces it."
+      },
+      {
+        "id": "P12",
+        "primitive": "submit_task `mode` parameter (`auto | fresh | reassess`)",
+        "where_today": "orchestrator/mcp_tools.py:67-127 submit_task schema has no `mode` param; orchestrator/mcp_tools.py:1272-1381 handler does not accept it.",
+        "execution_context": "host (operator's Claude session calls MCP) + orchestrator (handler)",
+        "decision": "feedback Q5",
+        "risk": "API surface change. MCP clients pinned to the old schema continue to work because optional params don't break old callers, BUT the operator UX docs need updating (docs/guides/sdlc-pipeline.md). New 'auto' mode requires the pre-fetch + children-JQL probe (R4). The mode='auto' fallback on JQL failure (see R4 mitigation) must be specified."
+      },
+      {
+        "id": "P13",
+        "primitive": "submit_task pipeline-ID qualifier (auto-suggestion for reassess)",
+        "where_today": "orchestrator/mcp_tools.py:1301-1307 derives pipeline_id from ticket; qualifier exists per Q2 answer ('v2', 'v3', …).",
+        "execution_context": "orchestrator",
+        "decision": "feedback Q2",
+        "risk": "Operator-UX risk (R13). The 409 error message must include suggested qualifier. Low effort, low residual risk."
+      }
+    ],
+    "trust_boundaries": [
+      {
+        "id": "TB1",
+        "boundary": "agent ↔ gateway",
+        "description": "Today: agents call gateway via sandbox-internal client (no creds in sandbox; gateway holds Atlassian creds + service-mesh-injected sandbox creds). Gateway enforces JIRA_WRITE_VERBS_DENIED and validates project allowlist on every call. With decision-15 + P5, a NEW orchestrator-only route exists; agents on the same K8s network must NOT be able to call it.",
+        "new_risk": "P5 / R3. The new route's auth design (recommended: X-Orchestrator-Auth header validated against a K8s Secret mounted ONLY on the orchestrator pod) must be implementable and testable. The integration test must prove a sandbox pod CANNOT reach the route with or without a forged header."
+      },
+      {
+        "id": "TB2",
+        "boundary": "orchestrator ↔ Atlassian Cloud",
+        "description": "Today: orchestrator does NOT call Atlassian directly. Decision-15 keeps the 'creds only in gateway' invariant — orchestrator calls the new gateway route, which holds the creds. This preserves the invariant.",
+        "new_risk": "Indirect — if the new gateway route is bypassed (e.g., orchestrator directly calls Atlassian), the invariant breaks. Plan must enforce: the orchestrator caller library calls gateway, not Atlassian."
+      },
+      {
+        "id": "TB3",
+        "boundary": "operator (HITL) ↔ orchestrator (apply)",
+        "description": "Today: HITL approval is a state flip + phase advance, no side effects. Decision-8 option B adds applier spawn on approval. The boundary is the moment of approval: BEFORE approval, the plan draft is a proposal; AFTER, the orchestrator is committed to applying.",
+        "new_risk": "P4 / R1. Plan must specify the exact decision-status semantics that trigger applier spawn (decision-status=resolved AND resolution=approve AND decision-type=phase_gate AND phase=plan AND pipeline.is_epic). Mis-triggering on non-epic pipelines must be impossible — Pipeline.is_epic is the guard."
+      },
+      {
+        "id": "TB4",
+        "boundary": "in-sandbox-agent (applier) ↔ orchestrator (contract state)",
+        "description": "Applier reads contract task↔key mapping (decision-11) and writes per-task jira_action_status (R7 recommendation) back to the contract. Contract writes go through the gateway-proxied egg-orch / mcp__contract API.",
+        "new_risk": "Race conditions if multiple applier spawns run concurrently (e.g., a re-spawn after timeout). Plan must enforce: only one applier may be active per pipeline at a time; orchestrator tracks applier liveness via BRC heartbeats."
+      },
+      {
+        "id": "TB5",
+        "boundary": "egg-side data ↔ Atlassian-side data (idempotency)",
+        "description": "Atlassian-side data lives in Jira; egg-side state in .egg-state. Idempotency depends on the contract task↔key mapping being authoritative AND consistent with Jira-side state. Drift (e.g., a child Jira-deleted manually between apply runs) breaks idempotency.",
+        "new_risk": "Operator-error risk (manual Jira edits between apply runs). The applier MUST handle 404 from getJiraIssue on a previously-mapped child: log, mark task.jira_action_status='failed', request operator review. Plan must specify this case."
+      }
+    ]
+  },
+
+  "areas_requiring_human_review": [
+    {
+      "id": "HR1",
+      "topic": "Decision-8 option B (sandbox-side applier) override of refine's recommended option A",
+      "why": "Refine analysis explicitly enumerated the cons of option B and recommended option A. Operator chose B anyway. Plan-phase reviewer_plan should treat this as a phase-gate-worthy callout so the operator can reconfirm with the full task list in view. If the operator switches back to A, the plan size shrinks meaningfully (no applier role, no apply-phase BRC, no new reviewer wiring).",
+      "blocks_plan_approval": false,
+      "related_risks": ["R1", "P3", "P4"]
+    },
+    {
+      "id": "HR2",
+      "topic": "Orchestrator-only gateway transition route auth design (decision-15 implementation detail)",
+      "why": "The 'orchestrator-only' invariant depends on a runtime-secret-distribution mechanism (K8s Secret mounted on orchestrator pod, NOT on sandbox pod). Plan must name the mechanism explicitly so it's not left to implement-phase discretion, and reviewer_plan should verify no sandbox-pod manifest touches the secret.",
+      "blocks_plan_approval": true,
+      "related_risks": ["R3", "P5", "TB1"]
+    },
+    {
+      "id": "HR3",
+      "topic": "decision-7a sub-question — reverse-index storage shape (sidecar vs in-memory vs SQLite)",
+      "why": "Refine flagged this as a plan-phase sub-decision. Without an explicit choice, the implement phase will pick on the fly, and the wrong choice has long-term operational implications. Recommended: in-memory rebuilt on startup, persisted derivedly. Operator should sign off via mcp__sdlc__register_open_question during plan-phase.",
+      "blocks_plan_approval": false,
+      "related_risks": ["R12", "P7"]
+    },
+    {
+      "id": "HR4",
+      "topic": "decision-10a sub-question — epic-plan slice structure (one-slice-N-tasks vs N-slices-of-1-task vs cross-slice-deps)",
+      "why": "The plan-parser forest invariant interacts with the natural DAG shape of Jira cross-task Blocks edges. Recommended: N slices of 1 task each with cross-task deps in plan-draft metadata, NOT slice dependencies. Plan should make this choice explicit.",
+      "blocks_plan_approval": false,
+      "related_risks": ["R18"]
+    },
+    {
+      "id": "HR5",
+      "topic": "PR→Jira remote-link write companion scope (Q3 NICE-to-have)",
+      "why": "Q6 marked the write companion as NICE-to-have. The plan should explicitly decide whether v1 ships it. If deferred, the read route should ALSO be deferred (don't ship dead code) and decision-7 reduces to option 1 in practice. Operator should reconfirm given the read+write coupling.",
+      "blocks_plan_approval": false,
+      "related_risks": ["R11"]
+    },
+    {
+      "id": "HR6",
+      "topic": "Per-ticket HITL gating UX for in-flight children (R6 mitigation choice)",
+      "why": "Plan must decide on the HITL surface shape: bundled single decision with checklist override, or per-ticket individual decisions. Bundled scales better; per-ticket is safer for high-stakes tickets. Recommend bundled with default=skip.",
+      "blocks_plan_approval": false,
+      "related_risks": ["R6"]
+    }
+  ],
+
+  "rollback_strategy": {
+    "v1_rollback": "Each slice ships as its own PR. Rollback = revert the PR. Inside slice-1 (fresh-epic path end-to-end), partial rollback is impossible — submit_task without is_epic detection is fine (defaults to existing ticket pipeline) but the new applier role + apply hook + gateway transition route ship together. Slice-2 (reassess path) extends slice-1's primitives and is fully revertible as long as no production reassess run has occurred against a Jira instance.",
+    "data_durability": "Pipeline.is_epic and Task.jira_key / jira_action fields persist across the revert; orchestrator restarts on the reverted code must tolerate the extra fields (Pydantic v2 ignores unknown fields by default). Plan must add a regression test that confirms forward-compat (new state file on old code) is silent.",
+    "feature_flag": "Recommended: gate the entire epic-pipeline behavior behind a config-level boolean (e.g. `epic_pipeline.enabled: true` in config/context-filters.yaml or orchestrator config). Default OFF in v1; operator turns it ON per-project. This makes rollback as easy as flipping the flag, no PR revert needed."
+  },
+
+  "research_external": {
+    "performed": false,
+    "reason": "No new third-party dependencies are introduced. All Jira and Confluence interaction is via existing gateway routes (atlassian-python-api was researched in #1556 / #1924 / #1931 already). The new gateway transition route (decision-15) uses the same atlassian-python-api client. No external research needed for #1557."
+  }
+}
