@@ -498,6 +498,33 @@ class TestSpawnAgentJob:
                 repos=["owner/repo"],
             )
 
+    def test_spawn_degraded_gateway_public_mode_proceeds(self, spawner, mock_gateway):
+        """Degraded gateway (Squid down) is acceptable for public-mode spawns."""
+        mock_gateway.check_health.return_value = _FakeGatewayHealth(
+            healthy=False, status="degraded"
+        )
+        spawner.spawn_agent_job(
+            pipeline_id="p",
+            agent_role=AgentRole.CODER,
+            mode="public",
+            repos=[],
+        )
+
+    def test_spawn_degraded_gateway_private_mode_raises(self, spawner, mock_gateway):
+        """Degraded gateway raises for private-mode spawns (Squid is required)."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_gateway.check_health.return_value = _FakeGatewayHealth(
+            healthy=False, status="degraded"
+        )
+        with pytest.raises(KubernetesSpawnError, match="Gateway is not healthy"):
+            spawner.spawn_agent_job(
+                pipeline_id="p",
+                agent_role=AgentRole.CODER,
+                mode="private",
+                repos=[],
+            )
+
     def test_spawn_cleans_existing_job(self, spawner, mock_k8s_client):
         """Spawn deletes any existing Job with the same name."""
         mock_k8s_client.delete_job.side_effect = None  # Simulate success

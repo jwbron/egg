@@ -484,9 +484,18 @@ class KubernetesSpawner:
         if wait_for_gateway:
             health = self.gateway.check_health()
             if not health.healthy:
-                raise KubernetesSpawnError(
-                    f"Gateway is not healthy: {health.error or health.status}"
-                )
+                # "degraded" means Squid proxy is down. Squid is only used by
+                # private-mode containers; public-mode containers connect
+                # directly to the internet, so degraded is acceptable there.
+                if health.status == "degraded" and mode == "public":
+                    logger.debug(
+                        "Gateway degraded (Squid down) but mode is public; proceeding",
+                        status=health.status,
+                    )
+                else:
+                    raise KubernetesSpawnError(
+                        f"Gateway is not healthy: {health.error or health.status}"
+                    )
 
         # Labels for the Job — includes app.kubernetes.io/component:agent
         # so that NetworkPolicies (which select on this label) apply correctly.
