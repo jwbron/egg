@@ -52,10 +52,21 @@ logger = get_logger("orchestrator.phases")
 phases_bp = Blueprint("phases", __name__, url_prefix="/api/v1/pipelines")
 
 
-# Valid phase transitions
+# Valid phase transitions.
+#
+# Issue #1557 — Jira-epic SDLC support: ``PLAN`` gains ``APPLY`` as a
+# valid successor, and the new ``APPLY`` phase advances only to
+# ``IMPLEMENT``. The orchestrator-side scheduler in
+# :func:`orchestrator.routes.pipelines._next_phases_for_epic` picks
+# ``APPLY`` only when ``Pipeline.is_epic`` is true; non-epic pipelines
+# continue to advance ``PLAN → IMPLEMENT`` directly (``IMPLEMENT`` is
+# listed before ``APPLY`` so the default ``next_phases[0]`` semantics
+# preserve the pre-#1557 behaviour for callers that don't go through
+# the epic-aware helper).
 PHASE_TRANSITIONS = {
     PipelinePhase.REFINE: [PipelinePhase.PLAN, PipelinePhase.IMPLEMENT],
-    PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
+    PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT, PipelinePhase.APPLY],
+    PipelinePhase.APPLY: [PipelinePhase.IMPLEMENT],
     PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
     PipelinePhase.PR: [],  # Terminal phase
 }
