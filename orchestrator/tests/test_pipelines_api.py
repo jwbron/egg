@@ -1291,6 +1291,65 @@ class TestRuntimeStateLeakageOnBranchReuse:
         assert pipeline_id not in _context_pr_events_emitted
 
 
+class TestNonObjectJsonBodyReturns400:
+    """Fix for #2673: non-object JSON bodies must 400, not 500.
+
+    Mirrors the #2656 fix on the decisions route. Without the guard,
+    ``data.get(...)`` raises ``AttributeError`` for a list/scalar body
+    and the generic handler returns 500.
+    """
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
+    )
+    def test_create_pipeline_non_object_body_returns_400(self, client, raw_body):
+        response = client.post(
+            "/api/v1/pipelines",
+            data=raw_body,
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.data
+        body = response.get_json()
+        assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
+
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
+    )
+    def test_update_pipeline_non_object_body_returns_400(self, client, raw_body):
+        response = client.patch(
+            "/api/v1/pipelines/issue-42",
+            data=raw_body,
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.data
+        body = response.get_json()
+        assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
+
+
 class TestEpicModeNonEpicRejection:
     """Regression tests for issue #1557 review feedback (N5).
 

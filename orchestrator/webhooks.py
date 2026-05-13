@@ -146,6 +146,14 @@ def github_webhook() -> tuple[Response, int]:
             }
         ), 400
 
+    if not isinstance(payload, dict):
+        return jsonify(
+            {
+                "success": False,
+                "message": "Request body must be a JSON object",
+            }
+        ), 400
+
     logger.info(
         "GitHub webhook received",
         event_type=event_type,
@@ -326,11 +334,18 @@ def manual_trigger() -> tuple[Response, int]:
         {"success": true, "message": "Trigger processed"}
     """
     data = request.get_json()
-    if not data:
+    if data is None:
         return jsonify(
             {
                 "success": False,
                 "message": "Missing request body",
+            }
+        ), 400
+    if not isinstance(data, dict):
+        return jsonify(
+            {
+                "success": False,
+                "message": "Request body must be a JSON object",
             }
         ), 400
 

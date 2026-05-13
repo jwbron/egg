@@ -309,8 +309,10 @@ def mutate_contract(identifier: str) -> tuple[Response, int]:
         return validation_error
 
     body = request.get_json()
-    if not body:
+    if body is None:
         return _error("Missing request body")
+    if not isinstance(body, dict):
+        return _error("Request body must be a JSON object")
 
     field_path = body.get("field_path")
     new_value = body.get("new_value", ...)  # sentinel: allow explicit None
@@ -410,8 +412,10 @@ def validate_contract_mutation() -> tuple[Response, int]:
     against field_path/new_value via the shared validator.
     """
     body = request.get_json()
-    if not body:
+    if body is None:
         return _error("Missing request body")
+    if not isinstance(body, dict):
+        return _error("Request body must be a JSON object")
 
     field_path = body.get("field_path")
     new_value = body.get("new_value", ...)

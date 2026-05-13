@@ -1415,8 +1415,10 @@ def create_pipeline() -> tuple[Response, int]:
         }
     """
     data = request.get_json()
-    if not data:
+    if data is None:
         return make_error_response("Missing request body")
+    if not isinstance(data, dict):
+        return make_error_response("Request body must be a JSON object")
 
     network_mode = data.get("network_mode")
     if network_mode is not None and network_mode not in ("public", "private"):
@@ -2262,8 +2264,10 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
         }
     """
     data = request.get_json()
-    if not data:
+    if data is None:
         return make_error_response("Missing request body")
+    if not isinstance(data, dict):
+        return make_error_response("Request body must be a JSON object")
 
     repo_path = get_repo_path()
 

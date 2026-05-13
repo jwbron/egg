@@ -201,6 +201,37 @@ class TestEmitProgress:
         assert event["detail"] == ""
         assert event["blocker"] == ""
 
+    @pytest.mark.parametrize(
+        "raw_body",
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
+    )
+    def test_emit_progress_non_object_body_returns_400(self, client, raw_body):
+        """Fix for #2673: non-object JSON bodies must 400, not 500.
+
+        Mirrors the #2656 fix on the decisions route. Without the guard,
+        ``body.get("agent_role")`` raises ``AttributeError`` for a
+        list/scalar body and the generic handler returns 500.
+        """
+        resp = client.post(
+            "/api/v1/pipelines/issue-100/progress",
+            data=raw_body,
+            content_type="application/json",
+        )
+        assert resp.status_code == 400, resp.data
+        body = resp.get_json()
+        assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
+
 
 # ---------------------------------------------------------------------------
 # GET /api/v1/pipelines/<pipeline_id>/progress
