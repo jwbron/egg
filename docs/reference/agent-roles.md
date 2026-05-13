@@ -137,14 +137,14 @@ The apply phase is **conditional** — it is only inserted between Plan and Impl
 
 ### `applier`
 
-**Purpose**: Drive Jira mutations on operator approval of the refine/plan HITL gates for epic-mode pipelines. For each task in the contract, the applier dispatches the `jira_action` (create, edit, split-of, consolidate-into). Won't-Do transitions are **not** executed by the applier — it instead produces a handoff JSON that the orchestrator drains via the orchestrator-only `/api/v1/jira/ticket/transition` route.
+**Purpose**: Drive Jira mutations on operator approval of the refine/plan HITL gates for epic-mode pipelines. For each task in the contract, the applier dispatches all `jira_action` values *except* `wontdo` (i.e., `create`, `edit`, `split-of`, `consolidate-into`); `wontdo` is handled via the handoff JSON described below — the applier emits the handoff entry, and the orchestrator drains it via the orchestrator-only `/api/v1/jira/ticket/transition` route.
 
 **File access**:
 - Allowed writes: `.egg-state/agent-outputs/`
 - Blocked: all source code, docs, tests, contracts, drafts, `.github/`
 
 **Outputs**:
-- `.egg-state/agent-outputs/{pipeline_id}-apply-report.json` — Per-action apply results (`jira_action_status`: `applied` / `failed`)
+- `.egg-state/agent-outputs/{pipeline_id}-applier-output.json` — Per-action apply results (`jira_action_status`: `applied` / `failed`)
 - `.egg-state/agent-outputs/{pipeline_id}-wontdo.json` — Handoff JSON listing tickets to transition to "Won't Do"; drained by the orchestrator after APPLY consensus
 
 **Prompt context**: `EGG_IS_EPIC`, `EGG_EPIC_MODE` (`epic-fresh` or `epic-reassess`), contract path, plan draft.
