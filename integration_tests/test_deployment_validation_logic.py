@@ -440,6 +440,11 @@ class TestValidateNetworkIsolationLogic:
         data = resp.json()["data"]
         # Probe-launched shape, not the short-circuit shape.
         assert "probe_id" in data, f"expected probe-launched shape with probe_id; got {data!r}"
+        # Probe-timeout shape (``probe_id`` + ``error: probe_timeout``, no
+        # ``result``) is environmental — surface a useful message instead
+        # of letting ``data["result"]`` raise ``KeyError``.
+        if "result" not in data:
+            pytest.fail(f"probe pod did not complete before route timeout: {data!r}")
         result = data["result"]
         assert result.get("gateway_reachable") is True
         assert result.get("internet_blocked") is True
