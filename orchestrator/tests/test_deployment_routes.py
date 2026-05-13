@@ -961,7 +961,12 @@ class TestProbeManifestAndEnv:
         assert labels["egg.agent.role"] == "coder"
 
         spec = manifest["spec"]
-        assert spec["ttlSecondsAfterFinished"] == 0
+        # 30s (not 0): _wait_for_probe_pod polls at 1Hz, and ttl=0
+        # raced the poll cadence — Job/pod could be GC'd before the
+        # terminal-phase observation. 30s keeps the pod observable for
+        # the wait loop and the subsequent _read_probe_log. The route's
+        # try/finally is still the primary cleanup path.
+        assert spec["ttlSecondsAfterFinished"] == 30
         assert spec["activeDeadlineSeconds"] == 30
         assert spec["backoffLimit"] == 0
 
