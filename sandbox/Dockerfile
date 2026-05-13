@@ -28,14 +28,28 @@ ENV GOMODCACHE=/usr/local/pkg/mod
 # pyproject.toml. Without it, uv downloads a managed Python into /root/ which
 # creates broken symlinks when the .venv is persisted and restored for the
 # non-root runtime user.
-RUN apt-get update && apt-get install -y \
-    python3 python3-pip \
-    git curl wget make build-essential pkg-config \
-    # Common build deps needed by repo build_commands
-    jq unzip software-properties-common \
+RUN set -eux \
+    && apt-get update && apt-get install -y \
+        python3 python3-pip \
+        git curl wget make build-essential pkg-config \
+        jq unzip software-properties-common \
     && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y python3.14 python3.14-venv python3.14-dev \
+    # deadsnakes PPA occasionally returns 5xx during apt-get update, leaving
+    # python3.14* packages unlocatable on install (see PR #2694 CI failure).
+    # Retry the post-PPA update+install with backoff; Acquire::Retries handles
+    # short blips inside a single apt invocation, the outer loop handles
+    # longer outages.
+    && for i in 1 2 3 4 5; do \
+        if apt-get update -o Acquire::Retries=3 \
+            && apt-get install -y python3.14 python3.14-venv python3.14-dev; then \
+            break; \
+        fi; \
+        if [ "$i" = 5 ]; then \
+            echo "deadsnakes install failed after 5 attempts" >&2; exit 1; \
+        fi; \
+        echo "deadsnakes install attempt $i failed, sleeping $((i*15))s..." >&2; \
+        sleep $((i*15)); \
+    done \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.14 1 \
     && update-alternatives --set python3 /usr/bin/python3.14 \
     && python3.14 -m ensurepip --upgrade \
@@ -121,17 +135,30 @@ RUN curl -fsSL https://repo.charm.sh/apt/gpg.key | gpg --dearmor -o /usr/share/k
 # to pick up deadsnakes packages.
 # python3-pip from apt targets the system Python (3.10), not 3.14 — so we
 # omit it and bootstrap pip via ensurepip after setting update-alternatives.
-RUN apt-get update && \
-    add-apt-repository -y ppa:deadsnakes/ppa && \
-    apt-get update && \
-    apt-get install -y python3.14 python3.14-venv python3.14-dev && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.14 1 && \
-    update-alternatives --set python3 /usr/bin/python3.14 && \
-    # Ensure 'python' command maps to python3 (many tools expect this)
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.14 1 && \
-    # Bootstrap pip for Python 3.14 (ensurepip installs pip3 to /usr/local/bin)
-    python3.14 -m ensurepip --upgrade && \
-    python3.14 -m pip install --no-cache-dir --upgrade pip
+RUN set -eux \
+    && apt-get update \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    # deadsnakes PPA occasionally returns 5xx during apt-get update, leaving
+    # python3.14* packages unlocatable on install (see PR #2694 CI failure).
+    # Retry the post-PPA update+install with backoff; Acquire::Retries handles
+    # short blips inside a single apt invocation, the outer loop handles
+    # longer outages.
+    && for i in 1 2 3 4 5; do \
+        if apt-get update -o Acquire::Retries=3 \
+            && apt-get install -y python3.14 python3.14-venv python3.14-dev; then \
+            break; \
+        fi; \
+        if [ "$i" = 5 ]; then \
+            echo "deadsnakes install failed after 5 attempts" >&2; exit 1; \
+        fi; \
+        echo "deadsnakes install attempt $i failed, sleeping $((i*15))s..." >&2; \
+        sleep $((i*15)); \
+    done \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.14 1 \
+    && update-alternatives --set python3 /usr/bin/python3.14 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.14 1 \
+    && python3.14 -m ensurepip --upgrade \
+    && python3.14 -m pip install --no-cache-dir --upgrade pip
 
 # Install pyyaml early - required by docker-setup.py for reading config
 RUN pip3 install --no-cache-dir pyyaml
