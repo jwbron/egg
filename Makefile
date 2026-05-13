@@ -473,11 +473,12 @@ build: sync-venv-if-uv
 # Kubernetes (k3s) targets
 # ============================================================================
 
+# k3s-setup INSTALL_K3S_EXEC flags:
+#   --flannel-backend=none: Cilium replaces flannel as the CNI dataplane.
+#   --disable-network-policy: Cilium owns NetworkPolicy enforcement; the
+#     k3s-builtin policy controller would otherwise conflict.
 k3s-setup:  ## Install k3s with Cilium CNI
 	@echo "Setting up k3s cluster..."
-	# --flannel-backend=none: Cilium replaces flannel as the CNI dataplane.
-	# --disable-network-policy: Cilium owns NetworkPolicy enforcement; the
-	#   k3s-builtin policy controller would otherwise conflict.
 	curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
 	export KUBECONFIG=/etc/rancher/k3s/k3s.yaml && \
 	scripts/install-cilium.sh && \

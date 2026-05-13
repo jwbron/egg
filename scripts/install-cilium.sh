@@ -50,7 +50,7 @@ if kubectl get daemonset -n kube-system calico-node &>/dev/null; then
   error "    make k3s-setup"
   exit 1
 fi
-if kubectl get crd 2>/dev/null | grep -q '\.crd\.projectcalico\.org$'; then
+if kubectl get crd -o name 2>/dev/null | grep -q '\.projectcalico\.org$'; then
   error "Calico CRDs are present on this cluster (leftover from a prior install)."
   error "To switch to Cilium, run:"
   error "    make k3s-teardown"
@@ -128,21 +128,24 @@ if [ -d "$CNI_DIR" ]; then
   if ! CNI_FILES=$(ls "$CNI_DIR" 2>/dev/null); then
     CNI_FILES=$(sudo ls "$CNI_DIR" 2>/dev/null || echo "")
   fi
-  if [ -n "$CNI_FILES" ]; then
-    if echo "$CNI_FILES" | grep -qi calico; then
-      error "Stale Calico CNI config still present in ${CNI_DIR}:"
-      echo "$CNI_FILES" | sed 's/^/    /' >&2
-      error "Run 'make k3s-teardown && make k3s-setup' for a clean install."
-      exit 1
-    fi
-    if ! echo "$CNI_FILES" | grep -qi cilium; then
-      error "No Cilium CNI config found in ${CNI_DIR} after install:"
-      echo "$CNI_FILES" | sed 's/^/    /' >&2
-      exit 1
-    fi
+  if [ -z "$CNI_FILES" ]; then
+    error "No CNI configs found in ${CNI_DIR} after install — kubelet has no CNI to use."
+    error "'cilium install' may have returned 0 without the agent dropping its conflist."
+    exit 1
+  fi
+  if echo "$CNI_FILES" | grep -qi calico; then
+    error "Stale Calico CNI config still present in ${CNI_DIR}:"
+    echo "$CNI_FILES" | sed 's/^/    /' >&2
+    error "Run 'make k3s-teardown && make k3s-setup' for a clean install."
+    exit 1
+  fi
+  if ! echo "$CNI_FILES" | grep -qi cilium; then
+    error "No Cilium CNI config found in ${CNI_DIR} after install:"
+    echo "$CNI_FILES" | sed 's/^/    /' >&2
+    exit 1
   fi
 fi
 
 log "Cilium ${CILIUM_VERSION} installed successfully."
 log "Cilium pod status:"
-kubectl get pods -n kube-system -l k8s-app=cilium -o wide
+kubectl get pods -n kube-system -l app.kubernetes.io/name=cilium-agent -o wide
