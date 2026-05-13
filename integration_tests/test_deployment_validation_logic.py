@@ -713,10 +713,10 @@ class TestProbeJobCleanup:
 
         # The route's try/finally _delete_probe_job is the primary
         # cleanup path, so the Job should be gone within milliseconds
-        # of the route returning. The 15s headroom is for the
-        # ttlSecondsAfterFinished=30 backstop in the case where the
-        # route crashed before reaching finally — 15s + the ~10s probe
-        # runtime still sits well under ttl + GC sync.
+        # of the route returning. The 15s deadline is deliberately
+        # below ttlSecondsAfterFinished=30: a finally-path regression
+        # must surface as a test failure here, not get masked by the
+        # TTL controller sweeping the orphan inside the poll window.
         deadline = time.time() + 15
         leftover: list[str] = []
         while time.time() < deadline:
