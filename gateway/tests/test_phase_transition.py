@@ -8,6 +8,7 @@ Tests cover:
 - Audit entry generation
 """
 
+import pytest
 from phase_filter import PipelinePhase
 from phase_transition import (
     VALID_TRANSITIONS,
@@ -96,9 +97,59 @@ class TestValidTransitions:
         assert len(VALID_TRANSITIONS[PipelinePhase.REFINE]) == 1
 
     def test_plan_to_implement(self):
-        """Plan can only transition to implement."""
+        """Plan can transition to implement (and to apply for epic pipelines).
+
+        Issue #1557: ``PLAN`` gained ``APPLY`` as a second valid
+        successor so epic-mode pipelines can route Jira mutations
+        through a dedicated APPLY phase between PLAN and IMPLEMENT.
+        Non-epic pipelines continue to use the IMPLEMENT edge —
+        ``IMPLEMENT`` is listed first so ``get_next_phase`` keeps the
+        pre-#1557 default."""
         assert PipelinePhase.IMPLEMENT in VALID_TRANSITIONS[PipelinePhase.PLAN]
-        assert len(VALID_TRANSITIONS[PipelinePhase.PLAN]) == 1
+        assert PipelinePhase.APPLY in VALID_TRANSITIONS[PipelinePhase.PLAN]
+        assert len(VALID_TRANSITIONS[PipelinePhase.PLAN]) == 2
+        # Default-first ordering invariant: epic-aware schedulers pick
+        # APPLY by name; non-epic flows that take ``next_phases[0]``
+        # must still see IMPLEMENT.
+        assert VALID_TRANSITIONS[PipelinePhase.PLAN][0] == PipelinePhase.IMPLEMENT
+
+    def test_plan_orderings_match_across_modules(self):
+        """``VALID_TRANSITIONS[PLAN]`` ordering is mirrored in the
+        orchestrator-side ``PHASE_TRANSITIONS`` table.
+
+        Correctness of the epic vs non-epic routing relies on the
+        position of ``IMPLEMENT`` in the list — ``get_next_phase`` (and
+        any HITL path that reads ``VALID_TRANSITIONS`` directly) returns
+        ``next_phases[0]``. If a future refactor reorders one table
+        without the other, non-epic pipelines could silently start
+        scheduling APPLY. This test catches the drift before it ships.
+        """
+        try:
+            from orchestrator.routes.phases import (  # type: ignore[import-not-found]
+                PHASE_TRANSITIONS,
+            )
+        except ImportError:  # pragma: no cover - module path varies in the sandbox
+            try:
+                from routes.phases import (
+                    PHASE_TRANSITIONS,  # type: ignore[import-not-found, no-redef]
+                )
+            except ImportError:
+                pytest.skip("orchestrator routes.phases not importable in this env")
+        assert PHASE_TRANSITIONS[PipelinePhase.PLAN] == VALID_TRANSITIONS[PipelinePhase.PLAN]
+        assert PHASE_TRANSITIONS[PipelinePhase.PLAN][0] == PipelinePhase.IMPLEMENT
+
+    def test_apply_to_implement(self):
+        """Apply (Jira-epic phase) advances only to implement.
+
+        Issue #1557: the new ``APPLY`` phase is the second step in the
+        epic-mode pipeline (PLAN → APPLY → IMPLEMENT).  The orchestrator-
+        side scheduler in ``orchestrator.routes.pipelines.
+        _next_phases_for_epic`` picks APPLY only when ``Pipeline.is_epic``
+        is true; this transition is what carries the pipeline back into
+        the standard IMPLEMENT phase once the applier has driven all Jira
+        mutations and BRC consensus has confirmed."""
+        assert PipelinePhase.IMPLEMENT in VALID_TRANSITIONS[PipelinePhase.APPLY]
+        assert len(VALID_TRANSITIONS[PipelinePhase.APPLY]) == 1
 
     def test_implement_to_pr(self):
         """Implement can only transition to PR."""

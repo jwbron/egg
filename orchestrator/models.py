@@ -1010,6 +1010,52 @@ class Pipeline(BaseModel):
         "gating; only the project allowlist in config/context-filters.yaml "
         "can authorise a Jira call (issue #1556 refine decision #9).",
     )
+    # Jira-epic SDLC support (issue #1557). When ``is_epic`` is true the
+    # orchestrator schedules an APPLY phase after every HITL approval so
+    # the APPLIER role can drive Jira mutations (epic-Description writes,
+    # child creates, link creates, ``Won't Do`` transitions). ``pipeline_
+    # mode`` distinguishes fresh-epic (no children yet) from reassess
+    # (existing children to classify). Both default to falsy values so
+    # contracts written before #1557 load with stable shape.
+    is_epic: bool = Field(
+        default=False,
+        description=(
+            "True when ``jira_ticket`` resolves to a Jira issue with "
+            "``issuetype.name == 'Epic'`` (or the operator passed "
+            "``mode='fresh' | 'reassess'`` to ``submit_task``). The "
+            "orchestrator inspects this flag to decide whether to "
+            "insert the APPLY phase between PLAN and IMPLEMENT — "
+            "non-epic pipelines continue to advance PLAN → IMPLEMENT "
+            "directly. Persisted alongside ``jira_ticket`` and round-"
+            "trips through the state-store."
+        ),
+    )
+    pipeline_mode: Literal["fresh", "reassess"] | None = Field(
+        default=None,
+        description=(
+            "Epic-mode sub-classification (issue #1557). ``'fresh'`` "
+            "when the epic has no children yet (the planner produces "
+            "all-net-new ``jira_action='create'`` tasks); ``'reassess'`` "
+            "when the epic already has children to classify "
+            "(Done/In-flight/Updatable) and the planner emits a mix of "
+            "``edit`` / ``create`` / ``wontdo`` / ``split-of`` / "
+            "``consolidate-into`` actions. ``None`` for non-epic "
+            "pipelines and for epic pipelines where the operator "
+            "explicitly disabled APPLY (e.g. dry-run inspections)."
+        ),
+    )
+    pr_url: str | None = Field(
+        default=None,
+        description=(
+            "Full URL of the implement-phase PR opened by this pipeline "
+            "(issue #1557 slice-2 — reverse-index in-flight detection). "
+            "Populated alongside ``pr_number`` when the implement phase "
+            "opens a PR; consumed by the reassess sweep's in-flight "
+            "classifier so existing children with an open PR aren't "
+            "re-mutated without operator confirmation. ``None`` for "
+            "pipelines that haven't reached the PR stage yet."
+        ),
+    )
 
     @field_validator("jira_ticket")
     @classmethod
@@ -1024,6 +1070,27 @@ class Pipeline(BaseModel):
             return None
         if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", trimmed):
             raise ValueError("jira_ticket must match '<PROJECT>-<number>' (e.g. 'ENG-1234')")
+        return trimmed
+
+    @field_validator("pr_url")
+    @classmethod
+    def _validate_pr_url(cls, v: str | None) -> str | None:
+        """Permit either None or a non-empty HTTPS URL string.
+
+        Kept deliberately permissive: the orchestrator stamps whatever
+        the GitHub API returns for the PR's ``html_url``, and we don't
+        want a regex tightening to break older contracts that captured
+        a slightly different shape (e.g. http→https redirect).
+        """
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("pr_url must be a string")
+        trimmed = v.strip()
+        if trimmed == "":
+            return None
+        if not (trimmed.startswith("http://") or trimmed.startswith("https://")):
+            raise ValueError("pr_url must be an http(s) URL")
         return trimmed
 
     def get_phase_execution(self, phase: PipelinePhase) -> PhaseExecution:

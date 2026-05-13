@@ -73,6 +73,10 @@ _IMPLEMENT_CHECKS: list[CheckDefinition] = [
     ),
 ]
 
+# Default checks for the apply phase (empty by default; APPLIER drives Jira
+# mutations via the gateway and convergence is enforced by REVIEWER_CONTRACT)
+_APPLY_CHECKS: list[CheckDefinition] = []
+
 # Default checks for the PR phase (empty by default)
 _PR_CHECKS: list[CheckDefinition] = []
 
@@ -85,6 +89,11 @@ _DEFAULT_PHASE_CONFIGS: dict[PipelinePhase, PhaseConfig] = {
     ),
     PipelinePhase.PLAN: PhaseConfig(
         checks=_PLAN_CHECKS,
+        max_review_cycles=3,
+        human_review_mechanism=HumanReviewMechanism.ISSUE_CHECKBOX,
+    ),
+    PipelinePhase.APPLY: PhaseConfig(
+        checks=_APPLY_CHECKS,
         max_review_cycles=3,
         human_review_mechanism=HumanReviewMechanism.ISSUE_CHECKBOX,
     ),

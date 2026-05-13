@@ -389,6 +389,27 @@ RISK_ANALYST_PATTERNS = AgentFilePattern(
     blocked_patterns=_PLAN_AGENT_BLOCKED,
 )
 
+# Jira-epic SDLC support (issue #1557). The APPLIER role drives Jira
+# mutations on operator approval. Its only filesystem footprint is the
+# handoff JSON it writes to .egg-state/agent-outputs/ (Won't-Do batch,
+# create-result mapping). It must NOT touch source/test/doc files, the
+# contract, or drafts — the orchestrator and tester own those.
+APPLIER_PATTERNS = AgentFilePattern(
+    role=AgentRole.APPLIER,
+    description="agent-outputs only (Jira mutation handoff)",
+    allowed_patterns=[
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        # Plan-agent blocklist plus orchestrator/plugins which the
+        # plan agents don't explicitly call out.
+        *_PLAN_AGENT_BLOCKED,
+        "orchestrator/",
+        "plugins/",
+        ".egg-state/drafts/",
+    ],
+)
+
 # Reviewer agent patterns
 # Reviewers can only write to reviews and agent-outputs directories.
 
@@ -707,6 +728,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
     AgentRole.TESTER: TESTER_PATTERNS,
     AgentRole.DOCUMENTER: DOCUMENTER_PATTERNS,
+    AgentRole.APPLIER: APPLIER_PATTERNS,
     AgentRole.ARCHITECT: ARCHITECT_PATTERNS,
     AgentRole.TASK_PLANNER: TASK_PLANNER_PATTERNS,
     AgentRole.RISK_ANALYST: RISK_ANALYST_PATTERNS,
@@ -809,6 +831,7 @@ def build_agent_patterns(
         AgentRole.CODER: coder,
         AgentRole.TESTER: tester,
         AgentRole.DOCUMENTER: documenter,
+        AgentRole.APPLIER: APPLIER_PATTERNS,
         AgentRole.ARCHITECT: ARCHITECT_PATTERNS,
         AgentRole.TASK_PLANNER: TASK_PLANNER_PATTERNS,
         AgentRole.RISK_ANALYST: RISK_ANALYST_PATTERNS,

@@ -1451,6 +1451,35 @@ def create_pipeline() -> tuple[Response, int]:
                 status_code=400,
             )
 
+    # Issue #1557: Jira-epic SDLC parameters. ``jira_ticket`` is the
+    # Atlassian key; ``epic_mode`` is the operator's override
+    # (``'auto' | 'fresh' | 'reassess'``). The MCP submit_task tool
+    # normalises ``jira_ticket`` to upper-case before forwarding.
+    jira_ticket_arg = data.get("jira_ticket")
+    epic_mode_arg = data.get("epic_mode")
+    if jira_ticket_arg is not None:
+        if not isinstance(jira_ticket_arg, str) or not re.fullmatch(
+            r"[A-Z][A-Z0-9_]*-\d+", jira_ticket_arg
+        ):
+            return make_error_response(
+                f"Invalid jira_ticket: {jira_ticket_arg!r} (expected <PROJECT>-<number>)",
+                status_code=400,
+                details={"reason": "invalid_jira_ticket"},
+            )
+    if epic_mode_arg is not None:
+        if epic_mode_arg not in ("auto", "fresh", "reassess"):
+            return make_error_response(
+                f"Invalid epic_mode: {epic_mode_arg!r} (must be 'auto' / 'fresh' / 'reassess')",
+                status_code=400,
+                details={"reason": "invalid_epic_mode"},
+            )
+        if not jira_ticket_arg:
+            return make_error_response(
+                "epic_mode requires jira_ticket",
+                status_code=400,
+                details={"reason": "epic_mode_without_ticket"},
+            )
+
     # Validate mode
     valid_modes = {m.value for m in PipelineMode}
     if mode not in valid_modes:
@@ -1924,6 +1953,53 @@ def create_pipeline() -> tuple[Response, int]:
             # None and fall back to the executor's default path.
             active_roles_to_persist = None
 
+    # Issue #1557: epic detection. Before persisting, resolve
+    # is_epic + pipeline_mode against the gateway when a jira_ticket
+    # was supplied. Failures are non-fatal (the helper fails open) —
+    # we surface them as warnings in the API response but always
+    # proceed with the pipeline creation.
+    epic_warnings: list[str] = []
+    is_epic_resolved = False
+    pipeline_mode_resolved: str | None = None
+    if jira_ticket_arg:
+        try:
+            from jira_epic import resolve_epic_mode
+        except ImportError:  # pragma: no cover - defensive
+            try:
+                from orchestrator.jira_epic import resolve_epic_mode  # type: ignore[no-redef]
+            except ImportError:
+                resolve_epic_mode = None  # type: ignore[assignment]
+        if resolve_epic_mode is not None:
+            try:
+                is_epic_resolved, pipeline_mode_resolved, epic_warnings = resolve_epic_mode(
+                    ticket=jira_ticket_arg,
+                    epic_mode_arg=epic_mode_arg,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Epic detection raised; treating as non-epic",
+                    pipeline_id=pipeline_id,
+                    ticket=jira_ticket_arg,
+                    error=str(exc),
+                )
+            # Both explicit overrides (``reassess`` and ``fresh``) against
+            # a non-epic ticket are operator errors: the operator
+            # specifically asked for epic-mode treatment but the ticket
+            # doesn't qualify. Surface as HTTP 400 rather than the
+            # silent demotion ``resolve_epic_mode`` returns
+            # (is_epic=False with a warning). ``mode='auto'`` continues
+            # to demote silently to standard ticket mode — that's the
+            # whole point of auto.
+            if epic_mode_arg in {"reassess", "fresh"} and not is_epic_resolved:
+                return make_error_response(
+                    f"epic_mode={epic_mode_arg!r} but Jira ticket {jira_ticket_arg!r} is not an Epic",
+                    status_code=400,
+                    details={
+                        "reason": f"{epic_mode_arg}_not_epic",
+                        "warnings": epic_warnings,
+                    },
+                )
+
     try:
         store = get_state_store(repo_path)
         pipeline = store.create_pipeline(
@@ -1945,6 +2021,9 @@ def create_pipeline() -> tuple[Response, int]:
             pr_head_sha=pr_head_sha,
             active_roles=active_roles_to_persist,
             custom_phase=custom_phase if mode == PipelineMode.CUSTOM else None,
+            jira_ticket=jira_ticket_arg,
+            is_epic=is_epic_resolved,
+            pipeline_mode=pipeline_mode_resolved,
         )
 
         # Contract creation is deferred to _run_pipeline so it writes
@@ -8334,6 +8413,75 @@ def _format_rescue_hint(pipeline) -> str:
     )
 
 
+def _should_skip_pr_phase_auto_pr(
+    worktree_repo_path: Path,
+    pipeline_id: str,
+    *,
+    is_babysit_mode: bool,
+) -> tuple[bool, str | None]:
+    """Decide whether the PR phase should open a ``<pipeline_branch> → main`` PR.
+
+    Returns ``(skip, reason)`` where ``reason`` is a structured string
+    suitable for logging when ``skip`` is True.
+
+    The PR phase auto-PR is the legacy "open one big PR for everything
+    on the pipeline branch" path. It is the right thing for:
+
+      * Pre-slice-DAG (monolithic) pipelines whose only PR is the one
+        the PR phase opens.
+      * Single-slice contracts that still flow through the monolithic
+        implement path (``_use_slice_loop = _slice_count > 1`` at the
+        implement-phase gate).
+
+    It is **not** the right thing for:
+
+      * Babysit-pr mode — the PR already exists; the caller passes
+        ``is_babysit_mode=True`` and we short-circuit unconditionally.
+        (The head-move guard still runs at the call site after this
+        helper returns and may force the skip independently.)
+      * Slice-DAG mode (``len(contract.slices) > 1``) — every slice
+        already opened its own PR via ``create_slice_pr``, stacked on
+        top of the context PR (#2548). Opening another
+        ``egg/<id>/work → main`` PR creates a redundant program-level
+        surface and confuses reviewers (#2685).
+
+    Errors loading the contract fail safe to *not* skipping — the legacy
+    auto-PR path runs and the pipeline still produces a PR rather than
+    silently dropping it. This is the same fail-safe shape as the
+    implement-phase slice-loop gate (``except`` at the call site;
+    callers fall back to the monolithic path).
+    """
+    if is_babysit_mode:
+        return True, "babysit_pr_already_exists"
+
+    try:
+        from egg_contracts.loader import (
+            load_contract as _load_contract_for_pr_gate,
+        )
+    except Exception as imp_err:  # noqa: BLE001
+        logger.debug(
+            "PR-phase skip gate: contract loader import failed (#2685)",
+            pipeline_id=pipeline_id,
+            error=str(imp_err),
+        )
+        return False, None
+
+    try:
+        contract = _load_contract_for_pr_gate(pipeline_id, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        logger.debug(
+            "PR-phase skip gate: contract load failed; running legacy auto-PR (#2685)",
+            pipeline_id=pipeline_id,
+            error=str(load_err),
+        )
+        return False, None
+
+    slice_count = len(getattr(contract, "slices", []) or [])
+    if slice_count > 1:
+        return True, f"slice_dag_mode_slice_count={slice_count}"
+    return False, None
+
+
 def _finalize_pr_phase_failed(
     pipeline,
     worktree_repo_path: Path,
@@ -8396,6 +8544,16 @@ def _finalize_pr_phase_failed(
             phase_execution.artifacts = {"pr_url": pr_url}
             if parsed_pr_number is not None:
                 reloaded.pr_number = parsed_pr_number
+            # Issue #1557 reviewer_contract / reviewer_code_holistic v1
+            # finding #2: persist ``Pipeline.pr_url`` alongside
+            # ``pr_number`` so the reassess sweep's signal-a in-flight
+            # reverse-index (``pipelines_for_ticket_pr_url`` in
+            # ``orchestrator/jira_reassess.py``) can see open PRs from
+            # prior egg runs. Without this, decision-7 signal a never
+            # fires and the in-flight detection collapses to a single
+            # signal (remote-link scan only).
+            if isinstance(pr_url, str) and pr_url:
+                reloaded.pr_url = pr_url
             if head_sha is not None:
                 reloaded.pr_head_sha = head_sha
             store.save_pipeline(reloaded)
@@ -9646,6 +9804,14 @@ _STATIC_CONTEXT_PR_FILE_GLOBS: tuple[str, ...] = (
     ".egg-state/brc-history/{identifier}-plan.json",
     ".egg-state/brc-history/{identifier}-plan.md",
 )
+# Contract JSON path is resolved dynamically via ``get_contract_path`` in
+# ``_gather_context_pr_files`` because the contract loader uses a
+# different filename convention than the draft / BRC artifacts: integer
+# issue identifiers are canonicalised to ``issue-<N>.json`` (with the
+# legacy ``<N>.json`` shape as a fallback), whereas drafts and BRC
+# history use the bare ``{identifier}`` prefix. Adding it here as a
+# static ``{identifier}.json`` glob would miss the canonical file
+# (#2685).
 
 # Per-agent-output suffix patterns appended to ``<identifier>-<role>-``
 # for each role in the refine + plan rosters.  ``-output.{json,md}`` is
@@ -9958,6 +10124,47 @@ def _gather_context_pr_files(
             if p.is_file() and p not in seen:
                 seen.add(p)
                 found.append(p)
+
+    # Resolve the contract JSON path through the loader so we pick up
+    # the canonical ``issue-<N>.json`` shape for issue-mode pipelines
+    # (and ``{identifier}.json`` for CUSTOM / JIRA pipelines whose
+    # identifier is already canonical). Including the contract on the
+    # context PR diff lets reviewers approve the structured slice DAG
+    # alongside the prose drafts that produced it (#2685).
+    try:
+        from egg_contracts.loader import (
+            _legacy_contract_path as _ctx_legacy_contract_path,  # type: ignore[attr-defined]
+        )
+        from egg_contracts.loader import (
+            get_contract_path as _ctx_get_contract_path,
+        )
+    except Exception as imp_err:  # noqa: BLE001
+        logger.debug(
+            "Context PR hook: contract loader import failed; skipping contract file (#2685)",
+            error=str(imp_err),
+        )
+    else:
+        contract_candidates: list[Path] = []
+        try:
+            contract_candidates.append(_ctx_get_contract_path(identifier, work_worktree))
+        except Exception as path_err:  # noqa: BLE001
+            logger.debug(
+                "Context PR hook: get_contract_path raised (#2685)",
+                error=str(path_err),
+            )
+        try:
+            legacy = _ctx_legacy_contract_path(identifier, work_worktree)
+            if legacy is not None:
+                contract_candidates.append(legacy)
+        except Exception:  # noqa: BLE001
+            pass
+        for cp in contract_candidates:
+            if cp.is_symlink():
+                continue
+            if cp.is_file() and cp not in seen:
+                seen.add(cp)
+                found.append(cp)
+
     return sorted(found)
 
 
@@ -18899,6 +19106,318 @@ def _queue_and_await_contract_decisions(
             _save_contract_update(_apply_fb)
 
 
+# ---------------------------------------------------------------------------
+# Jira-epic SDLC scheduling helpers (issue #1557 — task-1-4 / task-2-7)
+# ---------------------------------------------------------------------------
+
+
+def _next_phases_for_epic(
+    pipeline: Pipeline,
+    current_phase: PipelinePhase,
+    default_next_phases: list[PipelinePhase],
+) -> list[PipelinePhase]:
+    """Reroute auto-advance through ``APPLY`` for Jira-epic pipelines.
+
+    Issue #1557: when ``pipeline.is_epic`` is true the orchestrator
+    inserts the new ``APPLY`` phase between ``PLAN`` and ``IMPLEMENT``
+    so the ``APPLIER`` role can drive Jira mutations (epic-Description
+    write, child create / link / Won't-Do) on HITL approval. Non-epic
+    pipelines see ``default_next_phases`` returned unchanged so the
+    pre-#1557 scheduling is preserved bit-for-bit.
+
+    The orchestrator-side scheduler is the authoritative gate per the
+    architecture's "VALID_TRANSITIONS lists APPLY but the scheduler
+    decides whether to actually pick it" design (see the comment on
+    :data:`gateway.phase_transition.VALID_TRANSITIONS`). Returns a
+    single-element list so the call site's ``next_phases[0]`` indexing
+    works without change.
+    """
+    if not getattr(pipeline, "is_epic", False):
+        return default_next_phases
+    if current_phase == PipelinePhase.PLAN:
+        return [PipelinePhase.APPLY]
+    if current_phase == PipelinePhase.APPLY:
+        return [PipelinePhase.IMPLEMENT]
+    return default_next_phases
+
+
+def _drain_wontdo_batch_after_apply(
+    pipeline: Pipeline,
+    worktree_repo_path: Path,
+) -> None:
+    """Run the orchestrator-only Won't-Do drain after ``APPLY`` consensus.
+
+    Trigger chain (issue #1557 task-2-7): the HITL operator approves
+    the plan-gate → ``_persist_phase_gate_resolution`` flips state →
+    the scheduler routes through ``APPLY`` → the applier writes a
+    handoff JSON at ``.egg-state/agent-outputs/<pipeline>-wontdo.json``
+    listing every obsolete child key it could not transition itself
+    (decision-15: agent-facing routes deny Jira transitions) → the
+    APPLIER's CONSENSUS_PROPOSE → REVIEWER_CONTRACT ACK confirms →
+    this hook fires from the auto-advance block, iterates the handoff,
+    and POSTs to ``/api/v1/jira/ticket/transition`` with the launcher-
+    secret bearer token.
+
+    Runs **out of band** from ``_persist_phase_gate_resolution`` so a
+    slow Jira API does not extend the HITL approve POST's latency SLA
+    (task-2-7 acceptance). Fail-open: a missing handoff file means
+    "no Won't-Dos to drain" and returns silently; a per-transition
+    failure surfaces as a logger warning but does not block the
+    pipeline from advancing to ``IMPLEMENT``.
+
+    Naming note (reviewer_code v1 non-blocking): the handoff file
+    this function READS is the applier's *output*
+    (``<pipeline.id>-wontdo.json``), distinct from the applier's
+    *input* handoff (``<pipeline.id>-apply-handoff.json``) written
+    by :func:`_write_apply_phase_handoff` just before APPLY spawns.
+
+    Per-Task lifecycle (reviewer_contract v1 finding #3 / task-2-7):
+    the drain registers an ``on_entry_result`` callback with
+    ``run_wontdo_drain``. After each transition attempt, the callback
+    loads the contract via ``egg_contracts.loader.load_contract``,
+    locates the corresponding Task (by ``task_id`` when the applier
+    included one in the handoff entry, otherwise by ``jira_key``
+    match), and writes ``Task.jira_action_status = 'applied'`` /
+    ``'failed'`` plus the failure reason into ``Task.notes``. The
+    write is best-effort: contract-load / save failures surface as a
+    logger warning so a brittle contract state never breaks the
+    drain — the operator can re-run later with the same handoff JSON
+    (the gateway's idempotency cache absorbs the duplicate transition
+    calls within the 5-minute window).
+    """
+    handoff_path = (
+        Path(worktree_repo_path) / ".egg-state" / "agent-outputs" / f"{pipeline.id}-wontdo.json"
+    )
+    if not handoff_path.exists():
+        logger.debug(
+            "Won't-Do drain skipped — no handoff file produced by applier",
+            pipeline_id=pipeline.id,
+            handoff_path=str(handoff_path),
+        )
+        return
+
+    # Per-entry contract writeback callback (reviewer_contract v1 #3).
+    # Each invocation looks up the task by ``task_id`` (when the
+    # applier set it on the handoff entry) or by ``jira_key`` match
+    # otherwise, flips ``jira_action_status`` to ``'applied'`` /
+    # ``'failed'`` and records the failure reason in ``Task.notes``.
+    def _on_entry_result(entry: Any, ok: bool, reason: str) -> None:
+        try:
+            try:
+                from egg_contracts.loader import load_contract, save_contract
+            except ImportError:  # pragma: no cover - defensive
+                logger.warning(
+                    "Won't-Do drain: egg_contracts loader unavailable; "
+                    "skipping per-Task lifecycle writeback",
+                    pipeline_id=pipeline.id,
+                )
+                return
+            try:
+                contract = load_contract(pipeline.id, worktree_repo_path)
+            except Exception as load_err:  # noqa: BLE001
+                logger.warning(
+                    "Won't-Do drain: contract load failed; skipping per-Task lifecycle writeback",
+                    pipeline_id=pipeline.id,
+                    error=str(load_err),
+                )
+                return
+            target_task = None
+            entry_task_id = getattr(entry, "task_id", None)
+            entry_key = getattr(entry, "jira_key", None)
+            for sl in getattr(contract, "slices", []) or []:
+                for tsk in getattr(sl, "tasks", []) or []:
+                    if entry_task_id and tsk.id == entry_task_id:
+                        target_task = tsk
+                        break
+                    if (
+                        not entry_task_id
+                        and entry_key
+                        and getattr(tsk, "jira_key", None) == entry_key
+                    ):
+                        target_task = tsk
+                        break
+                if target_task is not None:
+                    break
+            if target_task is None:
+                # No matching task — applier-written handoff may have
+                # entries for keys outside the contract's task list
+                # (e.g. consolidate-into "obsolete-only" rows). Log
+                # at DEBUG since this is expected for split / consolidate
+                # patterns.
+                logger.debug(
+                    "Won't-Do drain: no contract task matches handoff entry; "
+                    "skipping lifecycle writeback for this row",
+                    pipeline_id=pipeline.id,
+                    entry_task_id=entry_task_id,
+                    entry_key=entry_key,
+                )
+                return
+            target_task.jira_action_status = "applied" if ok else "failed"
+            if not ok:
+                existing_notes = target_task.notes or ""
+                failure_note = f"wontdo drain failed: {reason}"
+                target_task.notes = existing_notes + ("\n" if existing_notes else "") + failure_note
+            try:
+                save_contract(contract, worktree_repo_path)
+            except Exception as save_err:  # noqa: BLE001
+                logger.warning(
+                    "Won't-Do drain: contract save failed after lifecycle writeback",
+                    pipeline_id=pipeline.id,
+                    error=str(save_err),
+                )
+        except Exception as cb_err:  # noqa: BLE001 - defensive
+            logger.warning(
+                "Won't-Do drain: per-Task callback raised (continuing)",
+                pipeline_id=pipeline.id,
+                error=str(cb_err),
+            )
+
+    # Contract-state idempotency gate. The drain consults this predicate
+    # before posting each transition so a benign re-run (orchestrator
+    # restart, manual re-drain, re-entry of the apply phase) does not
+    # double-POST transitions whose outcomes the gateway's 5-minute
+    # idempotency cache has long since forgotten — and does not flip an
+    # ``'applied'`` Task back to ``'failed'`` when Jira returns 400 for
+    # an already-transitioned ticket.
+    def _entry_already_applied(entry: Any) -> bool:
+        try:
+            try:
+                from egg_contracts.loader import load_contract
+            except ImportError:  # pragma: no cover - defensive
+                logger.warning(
+                    "Won't-Do drain idempotency gate disarmed: egg_contracts.loader not importable",
+                    pipeline_id=pipeline.id,
+                )
+                return False
+            try:
+                contract = load_contract(pipeline.id, worktree_repo_path)
+            except Exception as load_err:  # noqa: BLE001 - defensive
+                # Contract unreadable / corrupted: idempotency gate is
+                # disarmed for this drain run. The drain re-POSTs every
+                # entry, Jira returns 400 for already-transitioned ones,
+                # and ``_on_entry_result`` flips ``'applied'`` →
+                # ``'failed'`` — surface this loudly so the operator can
+                # repair the contract before the next re-run.
+                logger.warning(
+                    "Won't-Do drain idempotency gate disarmed: load_contract failed",
+                    pipeline_id=pipeline.id,
+                    error=str(load_err),
+                )
+                return False
+            entry_task_id = getattr(entry, "task_id", None)
+            entry_key = getattr(entry, "jira_key", None)
+            for sl in getattr(contract, "slices", []) or []:
+                for tsk in getattr(sl, "tasks", []) or []:
+                    matches_task = bool(entry_task_id and tsk.id == entry_task_id)
+                    matches_key = bool(
+                        not entry_task_id
+                        and entry_key
+                        and getattr(tsk, "jira_key", None) == entry_key
+                    )
+                    if matches_task or matches_key:
+                        return getattr(tsk, "jira_action_status", None) == "applied"
+            return False
+        except Exception as predicate_err:  # noqa: BLE001 - defensive
+            logger.warning(
+                "Won't-Do drain idempotency gate raised; treating entry as not-yet-applied",
+                pipeline_id=pipeline.id,
+                error=str(predicate_err),
+            )
+            return False
+
+    try:
+        # Reviewer_code v1 non-blocking note: mirror the dual-import
+        # pattern used elsewhere in this module (e.g. ``from
+        # jira_epic import resolve_epic_mode``) so the helper still
+        # resolves when ``orchestrator/`` is imported as a package
+        # rather than treated as ``sys.path`` root.
+        try:
+            from wontdo_drain import run_wontdo_drain
+        except ImportError:  # pragma: no cover — packaged-import fallback
+            from orchestrator.wontdo_drain import run_wontdo_drain  # type: ignore[no-redef]
+
+        result = run_wontdo_drain(
+            handoff_path=handoff_path,
+            on_entry_result=_on_entry_result,
+            is_already_applied=_entry_already_applied,
+        )
+    except Exception as exc:  # noqa: BLE001 — defensive: drain must not crash auto-advance
+        logger.warning(
+            "Won't-Do drain failed after APPLY phase (continuing)",
+            pipeline_id=pipeline.id,
+            error=str(exc),
+        )
+        return
+    logger.info(
+        "Won't-Do drain complete after APPLY phase",
+        pipeline_id=pipeline.id,
+        succeeded=len(result.succeeded),
+        failed=len(result.failed),
+        skipped=len(result.skipped),
+    )
+
+
+def _write_apply_phase_handoff(
+    pipeline: Pipeline,
+    worktree_repo_path: Path,
+    approved_phase: str,
+) -> None:
+    """Write the applier handoff JSON before the ``APPLY`` phase spawns.
+
+    The applier prompt (``plugins/refine-plan/skills/refine-plan/
+    agents/applier.md``) consumes a one-line JSON identifying which
+    artifact was just approved so it can branch between refine-apply
+    (writing the analysis to the epic Description) and plan-apply
+    (walking ``Task.jira_action`` + driving the Jira CLI per task).
+
+    The handoff lands at
+    ``.egg-state/agent-outputs/<pipeline-id>-apply-handoff.json``
+    inside the per-pipeline worktree so the applier (running in a
+    sandbox container with the same worktree mounted) reads from a
+    deterministic path. Fail-open: I/O errors surface as a logger
+    warning but never abort phase advancement.
+    """
+    handoff_dir = Path(worktree_repo_path) / ".egg-state" / "agent-outputs"
+    try:
+        handoff_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "Failed to create agent-outputs dir for applier handoff (continuing)",
+            pipeline_id=pipeline.id,
+            error=str(exc),
+        )
+        return
+    contract_path = Path(worktree_repo_path) / ".egg-state" / "contracts" / f"{pipeline.id}.json"
+    draft_path = (
+        Path(worktree_repo_path)
+        / ".egg-state"
+        / "brc-history"
+        / f"{pipeline.id}-{approved_phase}.md"
+    )
+    payload = {
+        "approved_phase": approved_phase,
+        "contract_path": str(contract_path),
+        "draft_path": str(draft_path),
+    }
+    handoff_path = handoff_dir / f"{pipeline.id}-apply-handoff.json"
+    try:
+        handoff_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        logger.warning(
+            "Failed to write applier handoff JSON (continuing)",
+            pipeline_id=pipeline.id,
+            handoff_path=str(handoff_path),
+            error=str(exc),
+        )
+        return
+    logger.info(
+        "Applier handoff JSON written for APPLY phase",
+        pipeline_id=pipeline.id,
+        approved_phase=approved_phase,
+        handoff_path=str(handoff_path),
+    )
+
+
 def _persist_phase_gate_resolution(
     repo_path: Path,
     pipeline_id: str,
@@ -20136,18 +20655,183 @@ def _run_pipeline(
             else:
                 sandbox_env["EGG_JIRA_PROJECT"] = ""
 
+            # Jira-epic SDLC support (issue #1557). Export ``EGG_IS_EPIC``
+            # (bool-string) and ``EGG_EPIC_MODE`` (one of
+            # 'epic-fresh', 'epic-reassess', 'ticket', 'github_issue')
+            # so the refiner / task-planner / applier prompts can select
+            # the right mode block. Mapping is derived via
+            # ``prompt_loader.derive_pipeline_mode`` so the orchestrator
+            # and any auxiliary callers agree on the canonical rule.
+            #
+            # Note: ``EGG_PIPELINE_MODE`` is already taken (PipelineMode:
+            # 'issue' / 'babysit' / 'custom' — set above at L19349).
+            # ``EGG_EPIC_MODE`` is the orthogonal Jira-epic dimension.
+            try:
+                from prompt_loader import derive_pipeline_mode
+            except ImportError:  # pragma: no cover - defensive
+                derive_pipeline_mode = None  # type: ignore[assignment]
+            _is_epic_flag = bool(getattr(pipeline, "is_epic", False))
+            _pipeline_mode_attr = getattr(pipeline, "pipeline_mode", None)
+            sandbox_env["EGG_IS_EPIC"] = "true" if _is_epic_flag else "false"
+            if derive_pipeline_mode is not None:
+                sandbox_env["EGG_EPIC_MODE"] = derive_pipeline_mode(
+                    is_epic=_is_epic_flag,
+                    pipeline_mode=_pipeline_mode_attr,
+                    jira_ticket=jira_ticket_value or None,
+                )
+            else:
+                sandbox_env["EGG_EPIC_MODE"] = "github_issue" if not jira_ticket_value else "ticket"
+
+            # Issue #1557 reviewer_code v1 finding #4: run the reassess
+            # sweep before the planner / applier spawn on reassess-mode
+            # epic pipelines so the task-planner prompt's ``[mode: epic-
+            # reassess]`` branch and the applier's in-flight refusal
+            # have the children classification on disk.  The sweep
+            # writes two JSON files under ``.egg-state/agent-outputs/``;
+            # we export both paths into the sandbox env so the prompts
+            # read them by env var rather than re-querying the gateway.
+            # Fail-open: a sweep failure logs a warning but never aborts
+            # the phase — the planner falls back to fresh-mode treatment
+            # of the children (which is safe because every action carries
+            # an explicit ``jira_action`` and the applier's in-flight
+            # refusal hinges on the sweep file's presence).
+            if (
+                _is_epic_flag
+                and _pipeline_mode_attr == "reassess"
+                and current_phase.value in ("plan", "apply")
+                and jira_ticket_value
+            ):
+                try:
+                    from jira_reassess import (
+                        run_reassess_sweep,
+                        serialise_sweep_to_disk,
+                    )
+                except ImportError:  # pragma: no cover - defensive
+                    run_reassess_sweep = None  # type: ignore[assignment]
+                    serialise_sweep_to_disk = None  # type: ignore[assignment]
+                if run_reassess_sweep is not None and serialise_sweep_to_disk is not None:
+                    try:
+                        sweep_result = run_reassess_sweep(
+                            epic_key=jira_ticket_value,
+                            state_store=store,
+                        )
+                        agent_outputs_dir = (
+                            Path(worktree_repo_path) / ".egg-state" / "agent-outputs"
+                        )
+                        sweep_path, done_path = serialise_sweep_to_disk(
+                            result=sweep_result,
+                            agent_outputs_dir=agent_outputs_dir,
+                            pipeline_id=pipeline_id,
+                        )
+                        sandbox_env["EGG_REASSESS_SWEEP_PATH"] = str(sweep_path)
+                        sandbox_env["EGG_DONE_CHILDREN_PATH"] = str(done_path)
+                        logger.info(
+                            "Reassess sweep complete",
+                            pipeline_id=pipeline_id,
+                            epic_key=jira_ticket_value,
+                            child_count=len(sweep_result.children),
+                            done_count=len(sweep_result.done),
+                            warnings=sweep_result.warnings,
+                        )
+                    except Exception as sweep_err:  # noqa: BLE001 — fail-open
+                        logger.warning(
+                            "Reassess sweep failed (continuing without sweep handoff)",
+                            pipeline_id=pipeline_id,
+                            epic_key=jira_ticket_value,
+                            error=str(sweep_err),
+                        )
+
+            # Issue #1557 reviewer_code v1 finding #3 + reviewer_code_holistic
+            # v1 finding #3: strip non-matching ``## [mode: X]`` blocks from
+            # the refiner / task-planner / applier prompt files in the
+            # worktree before the sandbox spawns, so the skill system reads
+            # a single-mode prompt instead of four interleaved mode blocks
+            # (risk_analyst R10 mitigation b — server-side strip).
+            #
+            # The strip runs on a per-phase worktree, never on the source
+            # tree (``worktree_repo_path`` is the per-pipeline checkout),
+            # so the modification is scoped to this pipeline's execution
+            # and disappears with the worktree teardown.  Fail-open: a
+            # strip error logs a warning and the prompts keep their
+            # original four-mode shape (the documenter's self-selection
+            # fallback handles the multi-block case).
+            try:
+                from prompt_loader import prep_mode_aware_prompt
+            except ImportError:  # pragma: no cover - defensive
+                try:
+                    from orchestrator.prompt_loader import (  # type: ignore[no-redef]
+                        prep_mode_aware_prompt,
+                    )
+                except ImportError:
+                    prep_mode_aware_prompt = None  # type: ignore[assignment]
+            _epic_mode_value = sandbox_env.get("EGG_EPIC_MODE")
+            if prep_mode_aware_prompt is not None and _epic_mode_value:
+                _agents_dir = (
+                    Path(worktree_repo_path)
+                    / "plugins"
+                    / "refine-plan"
+                    / "skills"
+                    / "refine-plan"
+                    / "agents"
+                )
+                for _prompt_name in ("refiner.md", "task-planner.md", "applier.md"):
+                    _prompt_path = _agents_dir / _prompt_name
+                    try:
+                        if not _prompt_path.is_file():
+                            continue
+                        _original_text = _prompt_path.read_text(encoding="utf-8")
+                        _stripped_text = prep_mode_aware_prompt(_original_text, _epic_mode_value)
+                        # Skip the write when the helper returned the input
+                        # unchanged (unknown mode / no mode markup) so the
+                        # worktree's git status isn't churned for prompts
+                        # that don't need stripping.
+                        if _stripped_text != _original_text:
+                            _prompt_path.write_text(_stripped_text, encoding="utf-8")
+                            logger.info(
+                                "Stripped non-matching mode blocks from agent prompt",
+                                pipeline_id=pipeline_id,
+                                prompt=_prompt_name,
+                                mode=_epic_mode_value,
+                            )
+                    except Exception as _strip_err:  # noqa: BLE001 — fail-open
+                        logger.warning(
+                            "Mode-block strip failed (continuing with unstripped prompt)",
+                            pipeline_id=pipeline_id,
+                            prompt=_prompt_name,
+                            mode=_epic_mode_value,
+                            error=str(_strip_err),
+                        )
+
             phase_failed = False
             tester_gap_summary: str | None = None
 
             # --- Auto PR creation: skip agent spawn for PR phase ---
             if current_phase.value == "pr":
                 is_babysit_mode = getattr(pipeline, "mode", None) == PipelineMode.BABYSIT
+                # Decide up front whether to skip the legacy auto-PR so
+                # the entry log accurately reflects which path the PR
+                # phase will take (babysit / slice-DAG / monolithic
+                # auto-PR). The same helper is consulted again below to
+                # gate the actual ``_finalize_pr_phase_failed`` call.
+                # ``_should_skip_pr_phase_auto_pr`` fails safe to "run
+                # auto-PR" on any contract-load error, matching the
+                # implement-phase slice-loop gate.
+                _skip_decision, _skip_reason = _should_skip_pr_phase_auto_pr(
+                    worktree_repo_path,
+                    pipeline_id,
+                    is_babysit_mode=is_babysit_mode,
+                )
+                if is_babysit_mode:
+                    _entry_msg = "Finalising babysit-pr cycle (skipping PR creation)"
+                elif _skip_decision:
+                    _entry_msg = "Skipping PR-phase auto-PR (slice-DAG mode: per-slice PRs exist)"
+                else:
+                    _entry_msg = "Auto-creating PR (skipping agent spawn)"
                 logger.info(
-                    "Auto-creating PR (skipping agent spawn)"
-                    if not is_babysit_mode
-                    else "Finalising babysit-pr cycle (skipping PR creation)",
+                    _entry_msg,
                     pipeline_id=pipeline_id,
                     mode=getattr(getattr(pipeline, "mode", None), "value", None),
+                    skip_reason=_skip_reason,
                 )
 
                 # Record phase timing so metrics are accurate even without agent spawn
@@ -20203,6 +20887,17 @@ def _run_pipeline(
                         # push below updates the PR head with the cycle's
                         # consensus output.
                         skip_pr_creation = True
+                elif _skip_decision:
+                    # Slice-DAG mode: per-slice PRs already exist stacked
+                    # on the context PR, so the legacy
+                    # ``<pipeline_branch> → main`` auto-PR would just
+                    # duplicate the program-level surface. Skip PR
+                    # creation but let the housekeeping below (statefile
+                    # commit, BRC history rewrite, gateway push) still
+                    # run — the pipeline branch is the integration point
+                    # for stacked slices and should still receive the
+                    # orchestrator's final housekeeping commits (#2685).
+                    skip_pr_creation = True
 
                 # Ensure contract and statefiles exist before PR creation
                 # (safety net for short-flow pipelines where initial push
@@ -20346,12 +21041,16 @@ def _run_pipeline(
                 # the PR opens against whatever is on origin/<branch>
                 # (the agents' work), dropping orchestrator housekeeping
                 # commits rather than failing the whole pipeline (#1731).
-                # Babysit-pr mode already has a PR — skip PR creation.
+                # Skip PR creation when:
+                #   * babysit-pr mode — the PR already exists.
+                #   * slice-DAG mode — per-slice PRs already exist
+                #     stacked on the context PR (#2685).
                 if skip_pr_creation:
                     logger.info(
-                        "Skipping PR creation (babysit-pr already has a PR)",
+                        "Skipping PR creation",
                         pipeline_id=pipeline_id,
                         pr_number=getattr(pipeline, "pr_number", None),
+                        skip_reason=_skip_reason,
                     )
                 elif _finalize_pr_phase_failed(
                     pipeline,
@@ -21399,8 +22098,18 @@ def _run_pipeline(
                         reason="phase ended",
                     )
 
-            # Determine next phase
-            next_phases = transitions.get(current_phase, [])
+            # Determine next phase.  Issue #1557: epic-mode pipelines
+            # route through the new APPLY phase between PLAN and
+            # IMPLEMENT so the APPLIER role can drive Jira mutations on
+            # HITL approval.  ``_next_phases_for_epic`` returns
+            # ``transitions.get(current_phase, [])`` unchanged for
+            # non-epic pipelines so the pre-#1557 scheduling is
+            # preserved bit-for-bit.
+            next_phases = _next_phases_for_epic(
+                pipeline,
+                current_phase,
+                transitions.get(current_phase, []),
+            )
 
             # CUSTOM-mode pipelines run exactly one phase and then
             # terminate — no auto-advance (#1762 TASK-2-9 / decision-9).
@@ -21439,6 +22148,32 @@ def _run_pipeline(
             # phase from clean local state.  Without this, any exception in
             # the new phase's first iteration takes the whole pipeline down.
             next_phase = next_phases[0]
+
+            # Issue #1557: when the just-completed phase is PLAN and the
+            # pipeline is_epic, we are advancing into APPLY.  Write the
+            # applier handoff JSON now (before respawning the driver
+            # thread) so the APPLIER container can read it on its
+            # first wakeup.  ``approved_phase='plan'`` so the applier
+            # drives plan-apply (Task.jira_action walk → child create /
+            # edit / link, Won't-Do handoff for the orchestrator drain).
+            if (
+                getattr(pipeline, "is_epic", False)
+                and current_phase == PipelinePhase.PLAN
+                and next_phase == PipelinePhase.APPLY
+            ):
+                _write_apply_phase_handoff(
+                    pipeline,
+                    worktree_repo_path,
+                    approved_phase="plan",
+                )
+
+            # Issue #1557 task-2-7: when the just-completed phase is
+            # APPLY (BRC consensus confirmed), drain the Won't-Do
+            # handoff JSON before advancing to IMPLEMENT.  The drain
+            # runs out-of-band from the HITL approve POST so a slow
+            # Jira API never extends that handler's latency.
+            if current_phase == PipelinePhase.APPLY:
+                _drain_wontdo_batch_after_apply(pipeline, worktree_repo_path)
             with get_pipeline_state_lock(pipeline_id):
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.current_phase = next_phase
@@ -22051,7 +22786,14 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
                     transitions = PHASE_TRANSITIONS
                     current_phase = pipeline.current_phase
-                    next_phases = transitions.get(current_phase, [])
+                    # Issue #1557 — route epic pipelines through APPLY
+                    # between PLAN and IMPLEMENT.  Non-epic pipelines
+                    # see the default transition unchanged.
+                    next_phases = _next_phases_for_epic(
+                        pipeline,
+                        current_phase,
+                        transitions.get(current_phase, []),
+                    )
                     # CUSTOM-mode pipelines complete after their single
                     # phase — no auto-advance (#1762 TASK-2-9).
                     _is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
@@ -22179,6 +22921,30 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     # Advance to next phase
                     next_phase = next_phases[0]
                     pipeline.current_phase = next_phase
+
+                    # Issue #1557: PLAN → APPLY transition on epic
+                    # pipelines (mirrors auto-advance path).  Write the
+                    # applier handoff JSON before the next _run_pipeline
+                    # thread is respawned so the APPLIER container's
+                    # first read finds it on disk.
+                    if (
+                        getattr(pipeline, "is_epic", False)
+                        and current_phase == PipelinePhase.PLAN
+                        and next_phase == PipelinePhase.APPLY
+                    ):
+                        _hitl_apply_worktree = _resolve_pipeline_worktree_path(pipeline, repo_path)
+                        _write_apply_phase_handoff(
+                            pipeline,
+                            _hitl_apply_worktree,
+                            approved_phase="plan",
+                        )
+
+                    # Issue #1557 task-2-7: when the resolved phase was
+                    # APPLY (BRC consensus confirmed via HITL recovery
+                    # path), drain the Won't-Do handoff before advancing.
+                    if current_phase == PipelinePhase.APPLY:
+                        _hitl_drain_worktree = _resolve_pipeline_worktree_path(pipeline, repo_path)
+                        _drain_wontdo_batch_after_apply(pipeline, _hitl_drain_worktree)
 
                     # Update health monitor phase threshold before agents spawn
                     try:

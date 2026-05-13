@@ -254,6 +254,88 @@ class TestTaskUpdateNotes:
             with pytest.raises(GatewayError):
                 task.task_update_notes({"task": "task-1-1", "notes": "x"})
 
+    def test_jira_action_status_prefix_projects_to_typed_field(self):
+        """Apply-phase notes-prefix projection (issue #1557).
+
+        When the notes start with ``jira_action_status=<value>``, a
+        second gateway call propagates the typed
+        ``Task.jira_action_status`` field so the apply-phase reviewer
+        and the wontdo drain's idempotency gate see a single coherent
+        surface.
+        """
+        with self._ok() as gr, self._id():
+            task.task_update_notes(
+                {"task": "task-1-1", "notes": "jira_action_status=applied\nall good"}
+            )
+        assert gr.call_count == 2
+        field_paths = [c.kwargs["data"]["field_path"] for c in gr.call_args_list]
+        new_values = [c.kwargs["data"]["new_value"] for c in gr.call_args_list]
+        assert "phases.0.tasks.0.notes" in field_paths
+        assert "phases.0.tasks.0.jira_action_status" in field_paths
+        assert "applied" in new_values
+
+    def test_jira_key_prefix_projects_to_typed_field(self):
+        """Two-line prefix: status + key both projected."""
+        with self._ok() as gr, self._id():
+            task.task_update_notes(
+                {
+                    "task": "task-1-1",
+                    "notes": "jira_action_status=applied\njira_key=ENG-456\nnarrative",
+                }
+            )
+        assert gr.call_count == 3
+        field_paths = {c.kwargs["data"]["field_path"] for c in gr.call_args_list}
+        assert "phases.0.tasks.0.notes" in field_paths
+        assert "phases.0.tasks.0.jira_action_status" in field_paths
+        assert "phases.0.tasks.0.jira_key" in field_paths
+
+    def test_no_prefix_skips_projection(self):
+        """Notes without a structured prefix make only the notes mutation."""
+        with self._ok() as gr, self._id():
+            task.task_update_notes({"task": "task-1-1", "notes": "just regular notes"})
+        assert gr.call_count == 1
+        assert gr.call_args.kwargs["data"]["field_path"] == "phases.0.tasks.0.notes"
+
+    def test_invalid_prefix_value_skips_projection(self):
+        """Unknown ``jira_action_status`` value falls through to notes-only."""
+        with self._ok() as gr, self._id():
+            task.task_update_notes({"task": "task-1-1", "notes": "jira_action_status=bogus\nrest"})
+        assert gr.call_count == 1
+
+
+class TestProjectNotesPrefix:
+    """Direct unit tests for the prefix-parsing projector."""
+
+    def test_no_prefix(self):
+        assert task._project_notes_prefix("plain notes\nrest") == (None, None)
+
+    def test_status_only(self):
+        assert task._project_notes_prefix("jira_action_status=applied\nrest") == (
+            "applied",
+            None,
+        )
+
+    def test_status_plus_key(self):
+        assert task._project_notes_prefix("jira_action_status=applied\njira_key=ENG-456\nrest") == (
+            "applied",
+            "ENG-456",
+        )
+
+    def test_key_only(self):
+        assert task._project_notes_prefix("jira_key=ENG-1\nrest") == (None, "ENG-1")
+
+    def test_invalid_status(self):
+        assert task._project_notes_prefix("jira_action_status=bogus\nrest") == (None, None)
+
+    def test_invalid_key_format(self):
+        assert task._project_notes_prefix("jira_key=lowercase-1\nrest") == (None, None)
+
+    def test_only_first_two_lines_inspected(self):
+        """Prefix lines beyond line 2 are ignored — they're narrative."""
+        assert task._project_notes_prefix(
+            "narrative line 1\nnarrative line 2\njira_action_status=applied\n"
+        ) == (None, None)
+
 
 class TestTaskFieldMutateHelper:
     """Exercise the shared helper directly so its shape is pinned."""

@@ -253,7 +253,25 @@ def advance_phase() -> tuple[Response, int]:
             status_code=500,
         )
 
-    # Get current phase and determine next phase
+    # Get current phase and determine next phase.
+    #
+    # Issue #1557 caveat: ``get_next_phase`` returns
+    # ``VALID_TRANSITIONS[current][0]`` — the first successor in the
+    # transitions list. For ``PLAN`` that is ``IMPLEMENT``, which is the
+    # correct answer for non-epic pipelines. For epic pipelines the
+    # correct answer is ``APPLY``, but the gateway has no view of
+    # ``Pipeline.is_epic`` (that lives orchestrator-side). The
+    # orchestrator therefore drives epic-aware advances through its own
+    # ``orchestrator/routes/phases.py::advance_phase`` (which takes an
+    # explicit ``target_phase`` argument) and the
+    # ``_next_phases_for_epic`` scheduler in ``routes/pipelines.py``;
+    # epic pipelines never call this gateway endpoint.
+    # ``gateway/tests/test_phase_transition.py::test_plan_orderings_match_across_modules``
+    # pins the ``IMPLEMENT``-first ordering across the gateway and
+    # orchestrator transition tables so the non-epic default cannot
+    # silently flip. If a future caller (sandbox CLI, automation) starts
+    # invoking ``/api/v1/phase/advance`` for an epic pipeline, this
+    # branch needs to grow an epic-aware path.
     current_phase = PipelinePhase(contract.current_phase.value)
     next_phase = get_next_phase(current_phase)
 
