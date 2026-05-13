@@ -1041,7 +1041,9 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         }
 
     ``pushed_to_origin`` is the operator's signal for whether agents
-    will see the populated state on respawn. ``False`` means the commit
+    will see the populated state on respawn. ``True`` iff
+    ``push_worktree_branch`` reported success (a no-op fast-forward push
+    counts; a no-op commit alone does not). ``False`` means the commit
     or push failed (or the push was not attempted because
     ``pipeline.branch`` is unset or the worktree resolves to
     ``store.repo_path``) and the operator must commit and push
