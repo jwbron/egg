@@ -49,7 +49,7 @@ k3s Cluster
 │   ├── Job: agent-tester-{pipeline-id}
 │   └── Job: agent-documenter-{pipeline-id}
 │
-└── NetworkPolicies (Calico CNI)
+└── NetworkPolicies (Cilium CNI)
     ├── default-deny-all (egg-agents ingress + egress)
     ├── allow-agent-to-gateway (egress to egg-system/gateway only)
     └── allow-orchestrator-to-agents (ingress from egg-system/orchestrator)
@@ -61,7 +61,7 @@ k3s Cluster
 |---|----------|--------|-----------|
 | 1 | Manifest approach | **Kustomize overlays** | YAML-native, built into kubectl, no Helm templating complexity. `base/` + `overlays/local/` structure |
 | 2 | Network isolation | **Separate namespaces + NetworkPolicies** | `egg-system` for orchestrator+gateway, `egg-agents` for Jobs. Default-deny maps to Docker's `internal: true` |
-| 3 | CNI | **Calico** (replacing Flannel) | Flannel (k3s default) does not support NetworkPolicies. Calico is mature and well-documented for k3s |
+| 3 | CNI | **Cilium** (replacing Flannel) | Flannel (k3s default) does not support NetworkPolicies. Cilium is current; was Calico through [#2703](https://github.com/jwbron/egg/issues/2703), which swapped to Cilium after recurring on-host SA-token expiry wedged pod teardown ([#2580](https://github.com/jwbron/egg/issues/2580)) |
 | 4 | Persistent storage | **hostPath** (k3s local-path) | Standard for single-node k3s. Future GKE work uses PVCs with ReadWriteMany |
 | 5 | Agent primitive | **k8s Jobs** | Agents run to completion; exit codes matter. `backoffLimit: 0` prevents unwanted restarts. `activeDeadlineSeconds` replaces timeout mechanism |
 | 6 | Gateway auth | **Token-only** (IP binding removed) | Pod IPs are ephemeral in k8s. Token auth is simpler and more portable |
@@ -79,7 +79,7 @@ k3s Cluster
 | `DockerClient` | `KubernetesClient` | Wraps `kubernetes` Python client |
 | `ContainerSpawner` | `KubernetesSpawner` | Creates Jobs with env vars, volumes, labels |
 | `ContainerMonitor` | `KubernetesMonitor` | Uses Job watch API / polling |
-| Docker networks (`egg-isolated`, `egg-external`) | Namespaces + Calico NetworkPolicies | See [Network Isolation](#network-isolation) |
+| Docker networks (`egg-isolated`, `egg-external`) | Namespaces + NetworkPolicies (Cilium) | See [Network Isolation](#network-isolation) |
 | Docker `internal: true` | NetworkPolicy default-deny egress | Agents cannot reach internet directly |
 | Container labels | Pod/Job labels + label selectors | Same filtering model |
 | Docker bind mounts | hostPath volumes | Same for single-node; PVCs for multi-node |
@@ -151,7 +151,7 @@ Namespace: egg-system          Namespace: egg-agents
 └──────────────┘
 ```
 
-**NetworkPolicies (enforced by Calico):**
+**NetworkPolicies (enforced by Cilium):**
 
 | Policy | Namespace | Effect |
 |--------|-----------|--------|
@@ -236,7 +236,7 @@ k8s/
 │   ├── orchestrator-service.yaml      # Service on port 9849
 │   ├── gateway-deployment.yaml        # Gateway Deployment + env
 │   ├── gateway-service.yaml           # Service on ports 9848, 3129, 9851
-│   ├── network-policies.yaml          # Calico NetworkPolicies
+│   ├── network-policies.yaml          # NetworkPolicies (Cilium-enforced)
 │   └── rbac.yaml                      # ServiceAccount + RBAC for orchestrator
 
 Agent Jobs are built programmatically by ``KubernetesClient.create_container`` — there is no standalone YAML template.
@@ -293,8 +293,8 @@ egg --public                  # Start sandbox session
 ### After
 
 ```bash
-# Prerequisites: k3s + Calico CNI
-make k3s-setup                # Install k3s with Calico, wait for ready
+# Prerequisites: k3s + Cilium CNI
+make k3s-setup                # Install k3s with Cilium, wait for ready
 make deploy                   # kubectl apply -k k8s/overlays/local/
 egg --public                  # Start sandbox session (creates k8s Job)
 ```
@@ -303,7 +303,7 @@ egg --public                  # Start sandbox session (creates k8s Job)
 
 | Target | Description |
 |--------|-------------|
-| `make k3s-setup` | Install k3s with `--flannel-backend=none --disable-network-policy`, install Calico, wait for cluster ready |
+| `make k3s-setup` | Install k3s with `--flannel-backend=none --disable-network-policy`, install Cilium, wait for cluster ready |
 | `make deploy` | `kubectl apply -k k8s/overlays/local/` — deploy all resources |
 | `make k3s-teardown` | Remove k3s installation |
 | `make build` | Build images and import into k3s via `k3s ctr images import` |
@@ -314,10 +314,10 @@ k3s ships with Flannel which does **not** support NetworkPolicies. k3s must be i
 
 ```bash
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy" sh -
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.5/manifests/calico.yaml
+scripts/install-cilium.sh   # downloads cilium-cli and runs `cilium install`
 ```
 
-This is automated by `make k3s-setup` and `scripts/install-calico.sh`.
+This is automated by `make k3s-setup` and `scripts/install-cilium.sh`.
 
 ## CI/CD Changes
 

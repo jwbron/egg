@@ -106,7 +106,7 @@ Read-only cluster introspection.
   "kubeconfig_context": "default",
   "cluster_info": {"server_version": "v1.30.2+k3s1"},
   "namespace": "egg-system",
-  "cni": "calico",
+  "cni": "cilium",
   "network_policy_enforcement": true,
   "images": {
     "orchestrator": "egg-orchestrator:sha-abc1234",

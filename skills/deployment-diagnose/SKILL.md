@@ -210,7 +210,7 @@ until that happens.
 | `connection refused.*orchestrator.egg-system` | Orchestrator Service unreachable | Check Service endpoints + Pod readiness |
 | `connection refused.*gateway.egg-system` | Gateway Service unreachable | Same; also check NetworkPolicy egress from egg-agents |
 | `EGG_ORCHESTRATOR_URL.*not set` | #1759-era config miss | Ensure the env var is in the orchestrator ConfigMap |
-| `NetworkPolicy.*not enforced` / no Calico felix logs | CNI not enforcing | `kubectl get pods -n kube-system -l k8s-app=calico-node`; fall back to `make k3s-setup` |
+| `NetworkPolicy.*not enforced` / no CNI policy logs | CNI not enforcing | `kubectl get pods -n kube-system -l app.kubernetes.io/name=cilium-agent`; fall back to `make k3s-setup` |
 
 The `#1767 silent-failure scan` from the plan maps onto the
 `connection refused.*` rows plus `FailedMount.*` and

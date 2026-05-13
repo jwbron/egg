@@ -8,7 +8,7 @@ egg supports two deployment methods depending on your use case:
 
 | Method | Best For | Prerequisites |
 |--------|----------|---------------|
-| **Kubernetes (k3s)** via `bin/egg-deploy` | Local development and production deployments | k3s + Calico CNI |
+| **Kubernetes (k3s)** via `bin/egg-deploy` | Local development and production deployments | k3s + Cilium CNI |
 | **GitHub Action** | CI/CD automation | GitHub repository |
 
 > **Removal note:** The legacy `egg` CLI / `bin/egg` interactive mode
@@ -38,7 +38,7 @@ egg runs on Kubernetes using k3s for local development. The orchestrator and gat
 git clone https://github.com/jwbron/egg.git
 cd egg
 
-# Install k3s with Calico CNI
+# Install k3s with Cilium CNI
 make k3s-setup
 
 # Build and import images into k3s
@@ -55,16 +55,18 @@ kubectl get pods -n egg-system
 
 #### k3s Installation
 
-`make k3s-setup` installs k3s with Flannel disabled (required for NetworkPolicy support) and installs Calico CNI:
+`make k3s-setup` installs k3s with Flannel disabled (required for NetworkPolicy support) and installs Cilium CNI:
 
 ```bash
 # What make k3s-setup does:
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy" sh -
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.5/manifests/calico.yaml
+scripts/install-cilium.sh   # downloads cilium-cli and runs `cilium install`
 # Waits for cluster to become ready
 ```
 
-> **Why Calico?** k3s ships with Flannel as default CNI. Flannel does **not** support NetworkPolicies, which are required for agent network isolation. Calico replaces Flannel and enforces the NetworkPolicies that prevent agents from reaching the internet directly.
+> **Why Cilium?** k3s ships with Flannel as default CNI. Flannel does **not** support NetworkPolicies, which are required for agent network isolation. Cilium replaces Flannel and enforces the NetworkPolicies that prevent agents from reaching the internet directly. Calico filled this role until [#2703](https://github.com/jwbron/egg/issues/2703) — see that issue for the swap rationale.
+>
+> **Migrating from a pre-#2703 install:** in-place CNI swap on a live k3s cluster is not supported (host CNI binaries, conflists, CRDs, `tunl0`, and per-pod veth pairs persist after deleting the calico-node DaemonSet). Run `make k3s-teardown && make k3s-setup` for a clean install. `install-cilium.sh` will refuse if it detects leftover Calico state.
 
 #### Image Management
 
@@ -117,7 +119,7 @@ make build
 
 | Command | Description |
 |---------|-------------|
-| `make k3s-setup` | Install k3s + Calico CNI (idempotent) |
+| `make k3s-setup` | Install k3s + Cilium CNI (idempotent) |
 | `make deploy` | Deploy all k8s resources via Kustomize + `envsubst` (see [details below](#make-deploy-details)) |
 | `make build` | Build images and import into k3s |
 | `make k3s-teardown` | Remove k3s installation |
@@ -140,7 +142,7 @@ EGG_HOST_REPO_MAP='{"owner/repo":"/path"}' make deploy
 
 ### Network Topology
 
-Kubernetes uses namespace separation and Calico NetworkPolicies for network isolation:
+Kubernetes uses namespace separation and NetworkPolicies (enforced by Cilium) for network isolation:
 
 ```
 Namespace: egg-system                    Namespace: egg-agents

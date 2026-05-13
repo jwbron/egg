@@ -358,7 +358,7 @@ def test_gateway_source_change_widens_if_gateway_gateway_becomes_seed(path: str)
     [
         "gateway/prompts/foo.txt",
         "shared/data/seed.json",
-        "scripts/install-calico.sh",
+        "scripts/install-cilium.sh",
         "docs/index.md",
         "Dockerfile",
     ],

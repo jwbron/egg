@@ -2596,7 +2596,7 @@ class TestGetDeploymentContextTool:
         payload = {
             "runtime": "kubernetes",
             "namespace": "egg-system",
-            "cni": "calico",
+            "cni": "cilium",
             "network_policy_enforcement": True,
             "is_k3s": True,
         }

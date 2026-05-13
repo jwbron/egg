@@ -34,8 +34,8 @@ the fixes ride this PR:
   ``apps/daemonsets`` and ``nodes`` (ClusterRole
   ``egg-cluster-topology-reader``).** ``_detect_cni`` / ``_detect_k3s``
   now run, so ``validate-network-isolation`` launches the probe
-  against the Calico-equipped integration cluster instead of
-  short-circuiting.
+  against the Cilium-equipped integration cluster instead of
+  short-circuiting. (CNI swapped from Calico to Cilium in #2703.)
 * **#2648 — orchestrator SA gained ``list`` on ``apps/deployments``
   in ``egg-system``.** Tangential to #2641 but observed in the same
   audit: ``_collect_egg_image_tags`` now returns populated image tags
@@ -266,8 +266,8 @@ class TestValidateNetworkIsolationLogic:
 
     With #2646 fixed the orchestrator SA can now list ``kube-system``
     DaemonSets and ``nodes`` cluster-wide, so ``_detect_cni`` resolves
-    to ``("calico", True)`` against the integration cluster (which
-    installs Calico via ``scripts/install-calico.sh``). The probe Job
+    to ``("cilium", True)`` against the integration cluster (which
+    installs Cilium via ``scripts/install-cilium.sh``). The probe Job
     actually launches; the happy-path test below exercises its result
     shape. The earlier short-circuit assertion has been removed.
     """
