@@ -249,10 +249,12 @@ Agent Jobs are built programmatically by ``KubernetesClient.create_container`` â
 
 ## RBAC Model
 
-The orchestrator uses a ServiceAccount (`egg-orchestrator` in `egg-system`) with two levels of permissions:
+The orchestrator uses a ServiceAccount (`egg-orchestrator` in `egg-system`) with four RBAC bindings:
 
-1. **ClusterRole** (`egg-orchestrator`): Broad permissions for cross-namespace operations (Jobs, Pods, ConfigMaps)
+1. **ClusterRole** (`egg-orchestrator`): Broad permissions for cross-namespace operations (Jobs, Pods, ConfigMaps, Deployments)
 2. **Role** (`egg-agent-manager` in `egg-agents`): Fine-grained permissions scoped to the agent namespace
+3. **ClusterRole** (`egg-cluster-topology-reader`): Read-only `nodes` access for `_detect_k3s` / cluster topology probes
+4. **Role** (`egg-kube-system-topology-reader` in `kube-system`): DaemonSet reads for `_detect_cni` (least-privilege scoped to kube-system)
 
 ```yaml
 # Namespace-scoped Role in egg-agents
@@ -276,7 +278,7 @@ rules:
     verbs: ["create"]
 ```
 
-This replaces the Docker socket mount with a principle-of-least-privilege API access model. The orchestrator can manage Jobs and Pods in `egg-agents` but has no access to other namespaces' workloads.
+This replaces the Docker socket mount with a principle-of-least-privilege API access model. The orchestrator can manage Jobs and Pods in `egg-agents`; the topology-reader roles are scoped minimally so `validate_network_isolation` and `get_deployment_context` can detect CNI and k3s state without cluster-wide DaemonSet access.
 
 ## Developer Workflow Changes
 
