@@ -970,6 +970,14 @@ Mechanics:
    - `.egg-state/agent-outputs/<id>-refine-*.{md,json}` and
      `<id>-plan-*.{md,json}` (per-phase agent transcripts — included
      for maximum transparency)
+   - The contract JSON, resolved dynamically via `get_contract_path`
+     so integer issue identifiers map to the canonical
+     `.egg-state/contracts/issue-<N>.json` shape (with the legacy
+     bare `<N>.json` as a fallback). The contract is intentionally
+     omitted from the static glob list — see
+     `_STATIC_CONTEXT_PR_FILE_GLOBS` and
+     `_gather_context_pr_files` in `orchestrator/routes/pipelines.py`
+     (#2685).
 3. It opens the PR against the pipeline base branch using
    `contract.pr.context_title` and `contract.pr.context_description`.
    These are distinct from `contract.pr.title` / `pr.description`,
