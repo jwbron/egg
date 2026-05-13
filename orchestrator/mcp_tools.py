@@ -105,6 +105,22 @@ PIPELINE_TOOLS = [
                     "type": "string",
                     "description": "JIRA ticket ID (e.g. KORE-1234). Used as the pipeline ID and branch name.",
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "fresh", "reassess"],
+                    "description": (
+                        "Epic-mode override (issue #1557). Default 'auto' — the "
+                        "orchestrator fetches the ticket and treats it as an "
+                        "epic when issuetype is 'Epic', then picks "
+                        "'reassess' if the epic already has children else "
+                        "'fresh'. 'fresh' forces the all-net-new path even "
+                        "if children exist (logs a warning). 'reassess' "
+                        "forces the classify-existing-children path; "
+                        "rejected with HTTP 400 when the ticket isn't an "
+                        "epic. Only meaningful with jira_ticket; ignored "
+                        "for GitHub-issue submissions."
+                    ),
+                },
                 "qualifier": {
                     "type": "string",
                     "description": "Optional qualifier suffix for the pipeline/branch (e.g. 'backend'). Enables multiple pipelines per ticket/issue.",
@@ -1308,6 +1324,23 @@ class PipelineToolHandler:
                     "error": f"Invalid JIRA ticket format '{ticket_raw}': expected e.g. KORE-1234"
                 }
 
+        # Issue #1557: validate the new ``mode`` arg up front. Only
+        # 'auto' / 'fresh' / 'reassess' are accepted; missing falls
+        # back to 'auto'. Forwarded to the orchestrator API which
+        # resolves the actual is_epic / pipeline_mode pair against the
+        # ticket fetch.
+        mode_arg = args.get("mode")
+        if mode_arg is not None:
+            if mode_arg not in ("auto", "fresh", "reassess"):
+                return {
+                    "error": (
+                        f"Invalid mode '{mode_arg}': must be one of "
+                        "'auto', 'fresh', 'reassess' (issue #1557)"
+                    )
+                }
+            if not args.get("jira_ticket"):
+                return {"error": ("mode is only meaningful with jira_ticket (issue #1557)")}
+
         if args.get("issue_number"):
             base_id = f"issue-{args['issue_number']}"
             if qualifier:
@@ -1345,6 +1378,16 @@ class PipelineToolHandler:
             data["source_branch"] = args["source_branch"]
         if args.get("source_artifact_prefix"):
             data["source_artifact_prefix"] = args["source_artifact_prefix"]
+        # Issue #1557: forward jira_ticket + epic-mode override so the
+        # orchestrator side can run epic detection and persist
+        # ``is_epic`` / ``pipeline_mode`` on the Pipeline. The wire
+        # field is named ``epic_mode`` to avoid colliding with the
+        # existing ``mode`` field (PipelineMode: 'issue' / 'babysit'
+        # / 'custom').
+        if args.get("jira_ticket"):
+            data["jira_ticket"] = args["jira_ticket"].upper()
+        if mode_arg is not None:
+            data["epic_mode"] = mode_arg
 
         try:
             # The create_pipeline route calls ls_remote_branch via the gateway,

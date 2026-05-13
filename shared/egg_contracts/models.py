@@ -7,7 +7,7 @@ and provide validation and type safety for contract operations.
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
@@ -60,10 +60,20 @@ PhaseStatus = SliceStatus
 
 
 class PipelinePhase(StrEnum):
-    """Current pipeline phase."""
+    """Current pipeline phase.
+
+    ``APPLY`` (added for issue #1557 — Jira-epic SDLC pipeline support) is
+    a conditional intermediate phase inserted between ``PLAN`` and
+    ``IMPLEMENT`` **only when** ``Pipeline.is_epic`` is true. Non-epic
+    pipelines continue to advance directly ``PLAN → IMPLEMENT``; the
+    apply phase spawns the APPLIER role to drive Jira mutations
+    (epic-Description writes, child-ticket creates, issue-link creates)
+    on operator approval of the refine and plan HITL gates.
+    """
 
     REFINE = "refine"
     PLAN = "plan"
+    APPLY = "apply"
     IMPLEMENT = "implement"
     PR = "pr"
 
@@ -235,10 +245,69 @@ class Task(EggContractBaseModel):
         ),
     )
 
+    # Jira-epic SDLC support (issue #1557) — these three optional fields
+    # carry the per-task Jira mapping that the APPLIER role consumes to
+    # drive idempotent Jira mutations on plan-gate / refine-gate approval.
+    # They are absent on tasks that have no Jira footprint (the default).
+    jira_key: str | None = Field(
+        default=None,
+        pattern=r"^[A-Z][A-Z0-9_]*-[0-9]+$",
+        description=(
+            "Atlassian Jira issue key this task corresponds to "
+            "(``<PROJECT>-<number>``, e.g. ``ENG-1234``). Populated by the "
+            "task-planner for ``edit`` / ``wontdo`` / ``split-of`` / "
+            "``consolidate-into`` actions against pre-existing children, "
+            "and by the APPLIER after a successful ``create`` action — "
+            "the applier writes the freshly-allocated key back to the "
+            "contract so idempotent re-runs skip the create. ``None`` "
+            "when the task has no Jira footprint."
+        ),
+    )
+    jira_action: Literal["create", "edit", "wontdo", "split-of", "consolidate-into"] | None = Field(
+        default=None,
+        description=(
+            "Jira mutation the APPLIER should perform for this task on "
+            "plan-gate approval. ``None`` when the task has no Jira "
+            "footprint. ``wontdo`` is **not executed by the applier** — "
+            "it produces a structured handoff JSON that the orchestrator "
+            "drains through the orchestrator-only ``/transition`` route "
+            "(``Won't Do`` transitions stay outside the agent-facing "
+            "Jira surface to preserve the ``creds-only-in-gateway`` "
+            "invariant; see #1557 decision-15)."
+        ),
+    )
+    jira_action_status: Literal["pending", "in_flight", "applied", "failed"] | None = Field(
+        default=None,
+        description=(
+            "Durable apply-lifecycle status (#1557 risk_analyst R7). "
+            "The APPLIER writes ``'in_flight'`` to the contract before "
+            "each gateway call and flips to ``'applied'`` on success or "
+            "``'failed'`` (with the reason recorded in ``notes``) on "
+            "failure. On re-run, the applier skips tasks already at "
+            "``'applied'`` and re-attempts ``{'pending', 'failed', "
+            "None}``. ``None`` is treated as ``'pending'`` and rewrites "
+            "to an explicit value on first apply."
+        ),
+    )
+
     @field_validator("commit", mode="before")
     @classmethod
     def validate_commit(cls, v: Any) -> str | None:
         return _normalize_commit(v)
+
+    @field_validator("jira_key", mode="before")
+    @classmethod
+    def _normalize_jira_key(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            trimmed = v.strip()
+            return trimmed or None
+        # Non-str / non-None inputs fall through to Pydantic's own type
+        # validator which will raise; returning ``None`` here narrows the
+        # declared ``str | None`` return type (mypy ``no-any-return``,
+        # reviewer #1557 tester v1 lint finding).
+        return None
 
 
 class Slice(EggContractBaseModel):

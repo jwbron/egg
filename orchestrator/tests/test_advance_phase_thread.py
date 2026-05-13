@@ -278,7 +278,10 @@ class TestAutoAdvanceRespawnsThread:
         )
         idx = source.index(self._BLOCK_MARKER)
         # Take a generous window so the block including the return is included.
-        return source[idx : idx + 3000]
+        # Widened from 3000 to 5000 in issue #1557 to absorb the epic-mode
+        # applier-handoff write + Won't-Do drain hook the auto-advance
+        # block now performs before respawning the next-phase thread.
+        return source[idx : idx + 5000]
 
     def test_auto_advance_bumps_run_epoch(self):
         block = self._auto_advance_block()

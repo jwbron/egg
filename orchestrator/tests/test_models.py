@@ -810,6 +810,137 @@ class TestPipeline:
         assert restored.decisions[0].questions == []
 
 
+class TestPipelineEpicFields:
+    """Tests for the Jira-epic SDLC fields on ``Pipeline`` (issue #1557).
+
+    Covers:
+    - ``Pipeline.is_epic`` default + roundtrip.
+    - ``Pipeline.pipeline_mode`` default + roundtrip.
+    - ``Pipeline.pr_url`` default, validator (None / empty trim /
+      http / https / non-http rejection), roundtrip.
+
+    Acceptance criteria reference (slice-2 task-2-2):
+    "Pipeline.pr_url round-trips through state_store" — the model layer
+    is exercised here; the state_store layer is exercised in
+    ``test_state_store.py::TestPipelinesForJiraTicket``.
+    """
+
+    def _base_pipeline_kwargs(self) -> dict:
+        return {
+            "id": "issue-1557",
+            "issue_number": 1557,
+            "repo": "owner/repo",
+            "branch": "egg/issue-1557",
+        }
+
+    def test_is_epic_default_false(self):
+        """Default Pipeline.is_epic is False (non-epic pipelines)."""
+        pipeline = Pipeline(**self._base_pipeline_kwargs())
+        assert pipeline.is_epic is False
+
+    def test_pipeline_mode_default_none(self):
+        """Default Pipeline.pipeline_mode is None (only set for epic)."""
+        pipeline = Pipeline(**self._base_pipeline_kwargs())
+        assert pipeline.pipeline_mode is None
+
+    def test_pr_url_default_none(self):
+        """Default Pipeline.pr_url is None until PR is opened."""
+        pipeline = Pipeline(**self._base_pipeline_kwargs())
+        assert pipeline.pr_url is None
+
+    def test_is_epic_true_persists(self):
+        """``is_epic=True`` is persisted on the model."""
+        pipeline = Pipeline(**self._base_pipeline_kwargs(), is_epic=True)
+        assert pipeline.is_epic is True
+
+    def test_pipeline_mode_fresh_persists(self):
+        """``pipeline_mode='fresh'`` round-trips through model_dump."""
+        pipeline = Pipeline(
+            **self._base_pipeline_kwargs(),
+            is_epic=True,
+            pipeline_mode="fresh",
+        )
+        assert pipeline.pipeline_mode == "fresh"
+        roundtrip = Pipeline.model_validate(pipeline.model_dump())
+        assert roundtrip.pipeline_mode == "fresh"
+
+    def test_pipeline_mode_reassess_persists(self):
+        """``pipeline_mode='reassess'`` round-trips through model_dump."""
+        pipeline = Pipeline(
+            **self._base_pipeline_kwargs(),
+            is_epic=True,
+            pipeline_mode="reassess",
+        )
+        assert pipeline.pipeline_mode == "reassess"
+        roundtrip = Pipeline.model_validate(pipeline.model_dump())
+        assert roundtrip.pipeline_mode == "reassess"
+
+    def test_pipeline_mode_invalid_rejected(self):
+        """Non-Literal pipeline_mode raises a pydantic ValidationError."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            Pipeline(
+                **self._base_pipeline_kwargs(),
+                is_epic=True,
+                pipeline_mode="bogus-mode",  # type: ignore[arg-type]
+            )
+
+    def test_pr_url_https_accepted(self):
+        """Valid https:// URL is preserved."""
+        pipeline = Pipeline(
+            **self._base_pipeline_kwargs(),
+            pr_url="https://github.com/owner/repo/pull/123",
+        )
+        assert pipeline.pr_url == "https://github.com/owner/repo/pull/123"
+
+    def test_pr_url_http_accepted(self):
+        """Plain http:// URL accepted (docstring: deliberately permissive)."""
+        pipeline = Pipeline(
+            **self._base_pipeline_kwargs(),
+            pr_url="http://example.com/pull/9",
+        )
+        assert pipeline.pr_url == "http://example.com/pull/9"
+
+    def test_pr_url_empty_string_normalised_to_none(self):
+        """Empty / whitespace-only pr_url normalises to None."""
+        pipeline = Pipeline(**self._base_pipeline_kwargs(), pr_url="   ")
+        assert pipeline.pr_url is None
+
+    def test_pr_url_non_http_rejected(self):
+        """Non-http(s) URL (e.g. ftp://, file://) is rejected."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            Pipeline(
+                **self._base_pipeline_kwargs(),
+                pr_url="ftp://example.com/x",
+            )
+
+    def test_pr_url_non_string_rejected(self):
+        """Non-string pr_url raises a validation error."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            Pipeline(
+                **self._base_pipeline_kwargs(),
+                pr_url=12345,  # type: ignore[arg-type]
+            )
+
+    def test_pipeline_full_epic_roundtrip(self):
+        """Full epic pipeline (is_epic + pipeline_mode + pr_url) roundtrip."""
+        pipeline = Pipeline(
+            **self._base_pipeline_kwargs(),
+            is_epic=True,
+            pipeline_mode="reassess",
+            pr_url="https://github.com/owner/repo/pull/456",
+        )
+        roundtrip = Pipeline.model_validate(pipeline.model_dump())
+        assert roundtrip.is_epic is True
+        assert roundtrip.pipeline_mode == "reassess"
+        assert roundtrip.pr_url == "https://github.com/owner/repo/pull/456"
+
+
 class TestAgentRole:
     """Tests for AgentRole enum."""
 
@@ -819,6 +950,10 @@ class TestAgentRole:
         assert AgentRole.CODER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
+        # Issue #1557 — APPLIER joined the registry for Jira-epic
+        # SDLC support (drives gateway Jira mutations after HITL
+        # approval on epic-mode pipelines).
+        assert AgentRole.APPLIER in roles
         assert AgentRole.ARCHITECT in roles
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
@@ -835,7 +970,10 @@ class TestAgentRole:
         assert AgentRole.OVERSEER in roles
         assert AgentRole.AUTOFIXER in roles
         assert AgentRole.CONFLICT_RESOLVER in roles
-        assert len(roles) == 19
+        # Issue #1557: APPLIER asserted above next to the other execution
+        # roles (CODER / TESTER / DOCUMENTER); count assertion below
+        # pins the registry size including APPLIER.
+        assert len(roles) == 20
 
 
 class TestBackwardCompatibility:
@@ -898,9 +1036,23 @@ class TestPipelinePhase:
     """Tests for PipelinePhase enum."""
 
     def test_phase_order(self):
-        """Test phases are defined in SDLC order."""
+        """Test phases are defined in SDLC order.
+
+        Issue #1557: the APPLY phase is conditional — inserted between
+        PLAN and IMPLEMENT only when ``Pipeline.is_epic`` is True. The
+        enum order reflects the canonical sequence so iteration matches
+        execution order for epic pipelines; non-epic pipelines skip
+        APPLY via the orchestrator scheduler.
+        """
         phases = list(PipelinePhase)
         assert phases[0] == PipelinePhase.REFINE
         assert phases[1] == PipelinePhase.PLAN
-        assert phases[2] == PipelinePhase.IMPLEMENT
-        assert phases[3] == PipelinePhase.PR
+        assert phases[2] == PipelinePhase.APPLY
+        assert phases[3] == PipelinePhase.IMPLEMENT
+        assert phases[4] == PipelinePhase.PR
+
+    def test_apply_phase_exists(self):
+        """Issue #1557: APPLY phase enum is present and round-trips."""
+        assert PipelinePhase.APPLY == "apply"
+        # StrEnum: value-equal to string for serialisation symmetry.
+        assert PipelinePhase("apply") == PipelinePhase.APPLY
