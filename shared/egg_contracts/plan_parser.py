@@ -72,6 +72,114 @@ from .models import Slice, SliceStatus, Task, TaskStatus
 # Used as a sentinel value to filter out non-real criteria during aggregation.
 PLACEHOLDER_ACCEPTANCE_CRITERIA = "Human verification"
 
+# Valid values for the optional ``jira_action`` per-task YAML key
+# (issue #1557 — Jira-epic SDLC support). Mirrors the ``Literal`` in
+# ``Task.jira_action`` so the parser can reject unknown values with a
+# ParseWarning instead of letting them slip through as silent drops.
+JIRA_ACTION_VALUES = frozenset({"create", "edit", "wontdo", "split-of", "consolidate-into"})
+
+# Valid values for the optional ``jira_action_status`` per-task YAML key
+# (issue #1557 — Jira-epic SDLC support). Mirrors the ``Literal`` in
+# ``Task.jira_action_status``. ``None`` (key absent) is also valid and
+# is treated as ``'pending'`` by the APPLIER.
+JIRA_ACTION_STATUS_VALUES = frozenset({"pending", "in_flight", "applied", "failed"})
+
+# Pattern for ``jira_key`` per-task YAML key (issue #1557). Mirrors
+# ``Task.jira_key`` exactly so the parser's warning matches the
+# downstream Pydantic validator. Compiled once at import.
+_JIRA_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*-[0-9]+$")
+
+
+def _extract_jira_task_fields(
+    task_data: dict[str, Any],
+    task_id: str,
+    warnings: list[ParseWarning],
+) -> tuple[str | None, str | None, str | None]:
+    """Extract ``jira_key``, ``jira_action``, and ``jira_action_status``
+    from a parsed-YAML task dict (issue #1557).
+
+    Unknown ``jira_action`` / ``jira_action_status`` values surface as
+    ParseWarnings and resolve to ``None`` rather than being silently
+    dropped — matches the contract task-1-3 acceptance:
+    "Non-literal ``jira_action`` or ``jira_action_status`` produces a
+    warning, not a silent drop."
+
+    A ``jira_key`` whose shape doesn't match the canonical pattern
+    surfaces as a ParseWarning and resolves to ``None`` for the same
+    reason.
+
+    Returns a (jira_key, jira_action, jira_action_status) tuple where
+    each element is either a validated string or ``None``.
+    """
+    raw_key = task_data.get("jira_key")
+    jira_key: str | None = None
+    if raw_key is not None:
+        if isinstance(raw_key, str):
+            trimmed = raw_key.strip()
+            if not trimmed:
+                jira_key = None
+            elif _JIRA_KEY_PATTERN.match(trimmed):
+                jira_key = trimmed
+            else:
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=(
+                            f"Task {task_id} has invalid jira_key "
+                            f"'{trimmed}' (expected <PROJECT>-<number> "
+                            "shape); ignoring"
+                        ),
+                    )
+                )
+        else:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"Task {task_id} jira_key must be a string; "
+                        f"got {type(raw_key).__name__}, ignoring"
+                    ),
+                )
+            )
+
+    raw_action = task_data.get("jira_action")
+    jira_action: str | None = None
+    if raw_action is not None:
+        if isinstance(raw_action, str) and raw_action in JIRA_ACTION_VALUES:
+            jira_action = raw_action
+        else:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"Task {task_id} has invalid jira_action "
+                        f"'{raw_action}' (valid: "
+                        f"{', '.join(sorted(JIRA_ACTION_VALUES))}); "
+                        "ignoring"
+                    ),
+                )
+            )
+
+    raw_status = task_data.get("jira_action_status")
+    jira_action_status: str | None = None
+    if raw_status is not None:
+        if isinstance(raw_status, str) and raw_status in JIRA_ACTION_STATUS_VALUES:
+            jira_action_status = raw_status
+        else:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"Task {task_id} has invalid jira_action_status "
+                        f"'{raw_status}' (valid: "
+                        f"{', '.join(sorted(JIRA_ACTION_STATUS_VALUES))}); "
+                        "ignoring"
+                    ),
+                )
+            )
+
+    return jira_key, jira_action, jira_action_status
+
 
 @dataclass
 class ParsedTask:
@@ -84,6 +192,13 @@ class ParsedTask:
     acceptance_criteria: str
     files_affected: list[str] = field(default_factory=list)
     role: str | None = None
+    # Jira-epic SDLC support (issue #1557). Optional per-task fields the
+    # task-planner emits for epic-mode pipelines so the APPLIER can drive
+    # idempotent Jira mutations on plan-gate approval. Default ``None`` —
+    # ticket / github_issue mode plans never populate these.
+    jira_key: str | None = None
+    jira_action: str | None = None
+    jira_action_status: str | None = None
 
     def to_contract_task(self) -> Task:
         """Convert to a contract Task model."""
@@ -94,6 +209,9 @@ class ParsedTask:
             acceptance_criteria=self.acceptance_criteria,
             files_affected=self.files_affected,
             role=self.role,
+            jira_key=self.jira_key,
+            jira_action=self.jira_action,  # type: ignore[arg-type]
+            jira_action_status=self.jira_action_status,  # type: ignore[arg-type]
         )
 
 
@@ -388,6 +506,12 @@ def parse_tasks_from_yaml(
             elif not isinstance(files, list):
                 files = []
 
+            # Issue #1557: per-task Jira mapping (epic-mode only — fields
+            # are ``None`` on ticket / github_issue mode plans).
+            jira_key, jira_action, jira_action_status = _extract_jira_task_fields(
+                task_data, task_id, warnings
+            )
+
             tasks.append(
                 ParsedTask(
                     id=task_id,
@@ -396,6 +520,9 @@ def parse_tasks_from_yaml(
                     description=task_data.get("description", ""),
                     acceptance_criteria=task_data.get("acceptance", ""),
                     files_affected=files,
+                    jira_key=jira_key,
+                    jira_action=jira_action,
+                    jira_action_status=jira_action_status,
                 )
             )
         else:
@@ -671,6 +798,11 @@ def parse_phases_from_yaml(
                 )
                 role = None
 
+            # Issue #1557: per-task Jira mapping (epic-mode only).
+            jira_key, jira_action, jira_action_status = _extract_jira_task_fields(
+                task_data, task_id, warnings
+            )
+
             parsed_tasks.append(
                 ParsedTask(
                     id=task_id.upper(),
@@ -680,6 +812,9 @@ def parse_phases_from_yaml(
                     acceptance_criteria=acceptance,
                     files_affected=files,
                     role=role,
+                    jira_key=jira_key,
+                    jira_action=jira_action,
+                    jira_action_status=jira_action_status,
                 )
             )
 

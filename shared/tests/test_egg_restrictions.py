@@ -77,14 +77,18 @@ class TestAgentRole:
 
 
 class TestAgentPatterns:
-    def test_registry_has_all_19_roles(self):
-        assert len(AGENT_PATTERNS) == 19
+    def test_registry_has_all_20_roles(self):
+        # Issue #1557 — APPLIER joined the registry (Jira-epic SDLC
+        # support); the count grew from 19 to 20.
+        assert len(AGENT_PATTERNS) == 20
 
     def test_registry_keys_match_role_constants(self):
         expected_roles = {
             AgentRole.CODER,
             AgentRole.TESTER,
             AgentRole.DOCUMENTER,
+            # Issue #1557 — Jira-epic SDLC pipeline support.
+            AgentRole.APPLIER,
             AgentRole.ARCHITECT,
             AgentRole.TASK_PLANNER,
             AgentRole.RISK_ANALYST,

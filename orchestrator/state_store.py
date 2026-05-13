@@ -995,6 +995,9 @@ class StateStore:
         pr_head_sha: str | None = None,
         active_roles: list[str] | None = None,
         custom_phase: str | None = None,
+        jira_ticket: str | None = None,
+        is_epic: bool = False,
+        pipeline_mode: str | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -1079,6 +1082,13 @@ class StateStore:
                 pipeline_kwargs["pr_head_sha"] = pr_head_sha
             if active_roles is not None:
                 pipeline_kwargs["active_roles"] = active_roles
+            # Issue #1557: persist Jira-epic SDLC fields on the Pipeline.
+            if jira_ticket is not None:
+                pipeline_kwargs["jira_ticket"] = jira_ticket
+            if is_epic:
+                pipeline_kwargs["is_epic"] = True
+            if pipeline_mode is not None:
+                pipeline_kwargs["pipeline_mode"] = pipeline_mode
             pipeline = Pipeline(**pipeline_kwargs)
 
             if config:
@@ -1201,6 +1211,53 @@ class StateStore:
                 continue
 
         return pipelines
+
+    def pipelines_for_jira_ticket(self, ticket: str) -> list[Pipeline]:
+        """Reverse-index lookup: pipelines whose ``jira_ticket`` matches.
+
+        Added for issue #1557 slice-2 — the reassess sweep's in-flight
+        classifier checks every existing child Jira key against this
+        index to find prior egg pipelines that already opened a PR for
+        the same child. A non-empty result (with at least one entry
+        whose ``pr_url`` is set) implies "in-flight" and the planner
+        refuses to mutate the ticket without a per-ticket HITL marker.
+
+        The implementation is a straight scan over the on-disk pipeline
+        index. It's intentionally simple — most repos hold a few dozen
+        active pipelines at a time and the sweep runs at most once per
+        epic per reassess pass. If the active-pipeline count grows past
+        a few hundred a per-ticket secondary index can be layered on
+        top without changing this public signature.
+
+        Args:
+            ticket: Atlassian Jira ticket key (e.g. ``"ENG-1234"``).
+                Comparison is case-insensitive — the canonical Pipeline
+                shape uppercases the project segment.
+
+        Returns:
+            List of ``Pipeline`` objects whose ``jira_ticket`` equals
+            ``ticket`` (after case-folding), in undefined order. Empty
+            list when no pipelines reference the ticket.
+        """
+        if not ticket or not isinstance(ticket, str):
+            return []
+        target = ticket.strip().upper()
+        if not target:
+            return []
+
+        result: list[Pipeline] = []
+        for pipeline_id in self.list_pipelines():
+            try:
+                pipeline = self.load_pipeline(pipeline_id)
+            except StateStoreError:
+                # Corrupt index entries are ignored — the sweep is
+                # best-effort and a missing pipeline is equivalent to
+                # the index never having seen it.
+                continue
+            jira = getattr(pipeline, "jira_ticket", None)
+            if jira and isinstance(jira, str) and jira.upper() == target:
+                result.append(pipeline)
+        return result
 
     def update_pipeline(
         self,
