@@ -38,9 +38,11 @@ RUN set -eux \
     # python3.14* packages unlocatable on install (see PR #2694 CI failure).
     # Retry the post-PPA update+install with backoff; Acquire::Retries handles
     # short blips inside a single apt invocation, the outer loop handles
-    # longer outages.
+    # longer outages. APT::Update::Error-Mode=any promotes per-source index
+    # errors to a non-zero exit, so a deadsnakes 5xx trips the retry directly
+    # instead of leaking through as an unlocatable-package install failure.
     && for i in 1 2 3 4 5; do \
-        if apt-get update -o Acquire::Retries=3 \
+        if apt-get update -o Acquire::Retries=3 -o APT::Update::Error-Mode=any \
             && apt-get install -y python3.14 python3.14-venv python3.14-dev; then \
             break; \
         fi; \
@@ -142,9 +144,11 @@ RUN set -eux \
     # python3.14* packages unlocatable on install (see PR #2694 CI failure).
     # Retry the post-PPA update+install with backoff; Acquire::Retries handles
     # short blips inside a single apt invocation, the outer loop handles
-    # longer outages.
+    # longer outages. APT::Update::Error-Mode=any promotes per-source index
+    # errors to a non-zero exit, so a deadsnakes 5xx trips the retry directly
+    # instead of leaking through as an unlocatable-package install failure.
     && for i in 1 2 3 4 5; do \
-        if apt-get update -o Acquire::Retries=3 \
+        if apt-get update -o Acquire::Retries=3 -o APT::Update::Error-Mode=any \
             && apt-get install -y python3.14 python3.14-venv python3.14-dev; then \
             break; \
         fi; \
