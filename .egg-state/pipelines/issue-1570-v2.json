@@ -22,19 +22,47 @@
     "max_concurrent_agents": 6,
     "message_poll_hint_seconds": 30,
     "consensus_timeout_minutes": 30,
+    "consensus_timeout_minutes_refine": null,
+    "consensus_timeout_minutes_plan": null,
+    "consensus_timeout_minutes_implement": null,
+    "post_consensus_iteration_budget_seconds": 3600,
+    "post_consensus_max_total_seconds": 14400,
+    "brc_consensus_progress_gate_seconds": 300,
     "agent_idle_timeout_minutes": 60,
     "overseer_enabled": true,
     "orchestrator_heartbeat_timeout_seconds": 120,
     "orchestrator_implement_heartbeat_timeout_seconds": 600,
     "orchestrator_error_repeat_threshold": 3,
     "orchestrator_message_rate_limit": 20,
+    "orchestrator_activity_quiet_seconds": 120,
     "overseer_poll_interval_seconds": 30,
     "overseer_max_redirects_before_escalation": 2,
     "overseer_decision_maker_model": "sonnet",
+    "overseer_max_turns": 2000,
     "overseer_max_respawns": 3,
     "overseer_rerun_min_work_seconds": 60,
     "overseer_hitl_propagation_timeout_seconds": 300,
-    "start_phase": "plan"
+    "post_proposal_grace_seconds": 300,
+    "auto_repropose_debounce_seconds": 60,
+    "max_auto_repropose": 5,
+    "orchestrator_post_ack_confirmation_timeout_seconds": 180,
+    "orchestrator_plan_post_ack_confirmation_timeout_seconds": 300,
+    "orchestrator_alert_progress_gate_seconds": 300,
+    "active_agent_stall_extension_seconds": 120,
+    "overseer_advisor_model": "opus",
+    "overseer_advisor_recent_log_bytes_cap": 256000,
+    "overseer_auto_file_issues_mode": "shadow",
+    "overseer_owns_host_detection": false,
+    "overseer_stuck_phase_transition_seconds": 180,
+    "overseer_agent_stall_seconds": 180,
+    "overseer_silent_agent_threshold_seconds": 600,
+    "overseer_long_running_phase_seconds": 3600,
+    "overseer_nack_unresolved_seconds": 180,
+    "start_phase": "plan",
+    "spawn_max_retries": 2,
+    "spawn_retry_initial_backoff_seconds": 2.0,
+    "phase_spawn_max_retries": 2,
+    "phase_spawn_retry_initial_backoff_seconds": 30.0
   },
   "phases": {
     "plan": {
@@ -47,12 +75,15 @@
         {
           "container_id": "80bbdd9af65b95d233d916ed2112fedc53e57044cdd1f6f039788b083f2ac76c",
           "container_name": "egg-sandbox-egg-issue-1570-v2-task_planner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-09T13:44:42.952614Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-05-13T21:47:12.338107Z",
+          "exit_code": -1,
           "agent_role": null,
-          "session_token": null
+          "session_token": null,
+          "pod_name": null,
+          "namespace": null,
+          "job_name": null
         },
         {
           "container_id": "60e793718ca43d68936bb2dcad6c40a8a4d12bd2b00460765e8f3132fafd8963",
@@ -62,7 +93,10 @@
           "exited_at": null,
           "exit_code": null,
           "agent_role": null,
-          "session_token": null
+          "session_token": null,
+          "pod_name": null,
+          "namespace": null,
+          "job_name": null
         },
         {
           "container_id": "16bf6030d649ecd64419e8407bc20c4c604fbcf01cc45412e4c2b58ea92d6bf8",
@@ -72,7 +106,10 @@
           "exited_at": null,
           "exit_code": null,
           "agent_role": null,
-          "session_token": null
+          "session_token": null,
+          "pod_name": null,
+          "namespace": null,
+          "job_name": null
         },
         {
           "container_id": "0ff3994ecd3521c935276782a1c765216d930b2b86d2861a1700b19ca5390f5b",
@@ -82,19 +119,24 @@
           "exited_at": "2026-04-09T13:54:10.669322Z",
           "exit_code": 1,
           "agent_role": null,
-          "session_token": null
+          "session_token": null,
+          "pod_name": null,
+          "namespace": null,
+          "job_name": null
         }
       ],
       "agents": [
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "failed",
           "container_id": "80bbdd9af65b95d233d916ed2112fedc53e57044cdd1f6f039788b083f2ac76c",
+          "container_info": null,
+          "slice_id": null,
           "started_at": null,
-          "completed_at": null,
+          "completed_at": "2026-05-13T21:47:12.386848Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pod exited with code unknown — detected by Kubernetes runtime monitor",
           "retry_count": 0,
           "conflicts": []
         },
@@ -102,6 +144,8 @@
           "role": "architect",
           "status": "running",
           "container_id": "60e793718ca43d68936bb2dcad6c40a8a4d12bd2b00460765e8f3132fafd8963",
+          "container_info": null,
+          "slice_id": null,
           "started_at": null,
           "completed_at": null,
           "commit": null,
@@ -114,6 +158,8 @@
           "role": "risk_analyst",
           "status": "running",
           "container_id": "16bf6030d649ecd64419e8407bc20c4c604fbcf01cc45412e4c2b58ea92d6bf8",
+          "container_info": null,
+          "slice_id": null,
           "started_at": null,
           "completed_at": null,
           "commit": null,
@@ -126,6 +172,8 @@
           "role": "reviewer_plan",
           "status": "failed",
           "container_id": "0ff3994ecd3521c935276782a1c765216d930b2b86d2861a1700b19ca5390f5b",
+          "container_info": null,
+          "slice_id": null,
           "started_at": null,
           "completed_at": "2026-04-09T13:54:14.666427Z",
           "commit": null,
@@ -148,7 +196,8 @@
       "artifacts": {},
       "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-09T01:37:24.001653608Z     Status: healthy\n2026-04-09T01:37:24.001655900Z     GitHub token valid: True\n2026-04-09T01:37:24.001658775Z     Auth configured: True\n2026-04-09T01:37:24.001661858Z ✓ Gateway ready! (public mode - direct internet access)\n2026-04-09T01:37:24.001664358Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-04-09T01:37:24.001666858Z   Credentials injected by gateway (not in container)\n2026-04-09T01:37:24.001671441Z Signaled error to orchestrator\n2026-04-09T01:37:24.001673816Z \n2026-04-09T01:37:24.001675941Z Cleaning up on container exit...\n2026-04-09T01:37:24.001680108Z ✓ Cleanup complete",
       "hitl_feedback": null,
-      "phase_start_sha": "f35f6529d829822792299093c0b6ad54c1524b20"
+      "phase_start_sha": "f35f6529d829822792299093c0b6ad54c1524b20",
+      "agent_exits": []
     }
   },
   "decisions": [
@@ -171,13 +220,23 @@
     }
   ],
   "created_at": "2026-04-09T01:16:37.974233Z",
-  "updated_at": "2026-04-09T13:54:14.666970Z",
+  "updated_at": "2026-05-13T21:47:12.387345Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
+  "pr_head_sha": null,
+  "active_roles": null,
+  "has_contract": true,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "analysis": "See the full approved analysis at .egg-state/drafts/1570-analysis.md on branch egg/issue-1570. Key HITL decisions: (1) Custom thin adapter wrapping anthropic + openai SDKs, (2) Both headless and interactive in MVP, (3) Shell out to CLIs for egg-native tools initially, (4) Default claude-sdk with configurable opt-in to egg harness + TOS warning, (5) Include WebFetch/WebSearch, defer NotebookEdit, (6) Keep transcript capture in gateway, (7) Hardcoded per-model cost rates, (8) Basic retries with backoff in harness for transient API failures, (9) Replicate exact CLAUDE.md rule-merging, (10) Support opus[1m] suffix syntax, (11) Compare cost/turns/duration/success for validation, (12) Multi-model routing post-MVP but design provider abstraction to support it.",
   "plan": null,
-  "version": 26
+  "source_branch": null,
+  "source_artifact_prefix": null,
+  "run_epoch": null,
+  "version": 27,
+  "jira_ticket": null,
+  "is_epic": false,
+  "pipeline_mode": null,
+  "pr_url": null
 }
