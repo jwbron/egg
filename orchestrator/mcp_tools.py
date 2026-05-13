@@ -1104,7 +1104,7 @@ PIPELINE_TOOLS = [
             "Spawn a throwaway probe Job in the egg-agents namespace to verify "
             "Calico NetworkPolicy enforcement. Returns a structured "
             "{gateway_reachable, internet_blocked, agent_pods_unreachable, "
-            "orchestrator_direct_blocked} result. The Job self-deletes on exit "
+            "orchestrator_api_reachable} result. The Job self-deletes on exit "
             "(ttlSecondsAfterFinished=0). Only available on the Kubernetes "
             "runtime and on CNIs that enforce NetworkPolicies."
         ),
