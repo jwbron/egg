@@ -73,7 +73,7 @@ def _post(
     *,
     secret: str,
     body: dict,
-    timeout: int = 60,
+    timeout: int = 90,
 ) -> requests.Response:
     return requests.post(
         f"{orchestrator_url}{path}",
