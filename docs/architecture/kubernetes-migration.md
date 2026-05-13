@@ -249,12 +249,12 @@ Agent Jobs are built programmatically by ``KubernetesClient.create_container`` �
 
 ## RBAC Model
 
-The orchestrator uses a ServiceAccount (`egg-orchestrator` in `egg-system`) with four RBAC bindings:
+The orchestrator uses a ServiceAccount (`egg-orchestrator` in `egg-system`) bound to four namespace- or cluster-scoped roles. There is no broad `egg-orchestrator` ClusterRole — every grant is least-privilege.
 
-1. **ClusterRole** (`egg-orchestrator`): Broad permissions for cross-namespace operations (Jobs, Pods, ConfigMaps, Deployments)
-2. **Role** (`egg-agent-manager` in `egg-agents`): Fine-grained permissions scoped to the agent namespace
-3. **ClusterRole** (`egg-cluster-topology-reader`): Read-only `nodes` access for `_detect_k3s` / cluster topology probes
-4. **Role** (`egg-kube-system-topology-reader` in `kube-system`): DaemonSet reads for `_detect_cni` (least-privilege scoped to kube-system)
+1. **Role** (`egg-agent-manager` in `egg-agents`): manage agent Jobs/Pods (`jobs`: create/delete/get/list/watch/patch; `pods`: delete/get/list/watch; `pods/log`: get; `pods/exec`: create). Jobs create their pods on the SA's behalf, so the SA does not need `pods: create`.
+2. **Role** (`egg-service-log-reader` in `egg-system`): read the orchestrator's own Deployments and Pod logs (`deployments`: get/list — `list` added in #2648 for `_collect_egg_image_tags`; `pods`: get/list; `pods/log`: get).
+3. **ClusterRole** (`egg-cluster-topology-reader`): cluster-scoped `nodes: get/list` for `_detect_k3s`'s kubelet-version probe — the only grant that genuinely needs cluster scope.
+4. **Role** (`egg-kube-system-topology-reader` in `kube-system`): `apps/daemonsets: get/list` for `_detect_cni` and `_detect_k3s`'s image-name fallback. Scoped to kube-system to keep cluster-wide DaemonSet reads off the SA (least-privilege per #2658 review).
 
 ```yaml
 # Namespace-scoped Role in egg-agents
@@ -269,7 +269,7 @@ rules:
     verbs: ["create", "delete", "get", "list", "watch", "patch"]
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["create", "delete", "get", "list", "watch"]
+    verbs: ["delete", "get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
