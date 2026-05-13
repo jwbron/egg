@@ -42,21 +42,21 @@ jobs:
 
       - name: Set up k3s
         # Flake guard: k3s occasionally becomes unstable during the
-        # calico-node DaemonSet rollout (API server refuses connections
-        # before the 300s timeout expires).  One restart clears the
-        # transient state; the idempotent install-calico.sh is safe to
-        # re-run after k3s recovers.
+        # CNI DaemonSet rollout (API server refuses connections before
+        # the 300s timeout expires).  One restart clears the transient
+        # state; the idempotent install-cilium.sh is safe to re-run
+        # after k3s recovers.
         run: |
           curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
           echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
-          # Install Calico CNI (retry once if k3s becomes unstable mid-rollout)
-          if ! scripts/install-calico.sh; then
-            echo "Calico install failed — restarting k3s and retrying..."
+          # Install Cilium CNI (retry once if k3s becomes unstable mid-rollout)
+          if ! scripts/install-cilium.sh; then
+            echo "Cilium install failed — restarting k3s and retrying..."
             sudo systemctl restart k3s
             echo "Waiting for k3s API to recover..."
             timeout 60 sh -c 'until kubectl cluster-info 2>/dev/null; do sleep 5; done'
-            scripts/install-calico.sh
+            scripts/install-cilium.sh
           fi
           # Wait for node to be ready
           kubectl wait --for=condition=Ready node --all --timeout=120s

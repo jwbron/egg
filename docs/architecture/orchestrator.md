@@ -596,7 +596,7 @@ EGG_AGENT_ROLE=coder  # or tester, documenter
 
 ### Network Architecture
 
-All components communicate over Kubernetes networking with namespace-based isolation enforced by Calico NetworkPolicies:
+All components communicate over Kubernetes networking with namespace-based isolation enforced by NetworkPolicies (Cilium today):
 
 | Namespace | Purpose | Components |
 |-----------|---------|------------|
@@ -608,7 +608,7 @@ Service endpoints:
 - Orchestrator: `orchestrator.egg-system.svc.cluster.local` (port 9849)
 - Agent pods: Addressed by label selector (`pipeline-id`, `agent-role`)
 
-NetworkPolicies (enforced by Calico CNI):
+NetworkPolicies (enforced by Cilium CNI):
 - Default-deny all ingress in `egg-agents` — agents cannot receive unsolicited traffic
 - Default-deny all egress in `egg-agents` — agents cannot reach internet directly
 - Allow agent egress to gateway Service only — preserves the gateway-as-single-choke-point model

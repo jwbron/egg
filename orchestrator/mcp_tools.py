@@ -1121,7 +1121,7 @@ PIPELINE_TOOLS = [
         "name": "validate_network_isolation",
         "description": (
             "Spawn a throwaway probe Job in the egg-agents namespace to verify "
-            "Calico NetworkPolicy enforcement. Returns a structured "
+            "NetworkPolicy enforcement (Cilium today; CNI-agnostic). Returns a structured "
             "{gateway_reachable, internet_blocked, agent_pods_unreachable, "
             "orchestrator_api_reachable} result. The route deletes the Job "
             "in a try/finally; ttlSecondsAfterFinished=30 is the backstop. "

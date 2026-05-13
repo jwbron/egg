@@ -206,7 +206,7 @@ lands.
 | `BackoffLimitExceeded` | Job retried past backoff limit | The root cause is whatever was logged on the final retry — re-run this skill against the final Pod ID. |
 | `ImagePullBackOff` / `ErrImagePull` on agent Pod | Sandbox image missing in containerd | `make build` + `k3s ctr images import` the sandbox image. |
 | `FailedMount.*secret "<name>"` | Secret missing at Pod admission | Create the referenced Secret, then re-submit the task. |
-| `NetworkPolicy.*deny` (from Calico felix logs in events) | NetworkPolicy blocked the required connection | Check `k8s/base/network-policies.yaml` and the per-role label selectors. |
+| `NetworkPolicy.*deny` (from CNI policy-enforcement logs in events) | NetworkPolicy blocked the required connection | Check `k8s/base/network-policies.yaml` and the per-role label selectors. |
 
 ## Output Contract
 

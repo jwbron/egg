@@ -56,7 +56,7 @@ Specific threats:
 │  │                               │ │                               │         │
 │  └───────────────────────────────┘ └───────────────────────────────┘         │
 │                                                     │                        │
-│  NetworkPolicies (Calico):                          │ All traffic proxied    │
+│  NetworkPolicies (Cilium):                          │ All traffic proxied    │
 │  - Default deny ingress/egress                      ▼                        │
 │  - Allow egress to gateway only         ┌─────────────┐                     │
 │                                         │  Internet   │                     │
@@ -75,7 +75,7 @@ Specific threats:
 | HTTP Proxy | Route all agent traffic through gateway | Squid in gateway pod |
 | REST API | Controlled interface for git/gh operations | Python service in gateway pod |
 | Audit Logger | Log all traffic and operations | Gateway component |
-| NetworkPolicies | Enforce network isolation | Calico CNI in k3s |
+| NetworkPolicies | Enforce network isolation | Cilium CNI in k3s |
 
 ### Key Security Properties
 
@@ -553,11 +553,11 @@ Both options preserve the key principle — credentials never enter the egg cont
 
 ## Kubernetes Network Isolation
 
-> **As of [#1553](https://github.com/jwbron/egg/issues/1553)**, the container runtime has migrated from Docker to Kubernetes (k3s). The network isolation model is preserved using Calico NetworkPolicies instead of Docker networks.
+> **As of [#1553](https://github.com/jwbron/egg/issues/1553)**, the container runtime has migrated from Docker to Kubernetes (k3s). The network isolation model is preserved using Cilium NetworkPolicies instead of Docker networks. (Cilium replaced Calico in [#2703](https://github.com/jwbron/egg/issues/2703); the policies themselves use only standard `networking.k8s.io/v1` features and are CNI-agnostic.)
 
 ### Architecture
 
-The Docker dual-network model (`egg-isolated` + `egg-external`) is replaced by Kubernetes namespace separation with Calico NetworkPolicies:
+The Docker dual-network model (`egg-isolated` + `egg-external`) is replaced by Kubernetes namespace separation with NetworkPolicies (enforced by Cilium):
 
 | Docker Concept | Kubernetes Equivalent |
 |---------------|----------------------|
@@ -655,14 +655,14 @@ spec:
 
 ### CNI Requirement
 
-**Calico is required.** k3s ships with Flannel as default CNI. Flannel does **not** support NetworkPolicies. k3s must be installed with Flannel disabled:
+**A NetworkPolicy-capable CNI is required.** k3s ships with Flannel as the default CNI; Flannel does **not** support NetworkPolicies. egg uses **Cilium** — k3s is installed with Flannel and its built-in policy controller both disabled:
 
 ```bash
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy" sh -
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.5/manifests/calico.yaml
+scripts/install-cilium.sh   # downloads the cilium-cli and runs `cilium install`
 ```
 
-This is handled automatically by `make k3s-setup`.
+This is handled automatically by `make k3s-setup`. The CNI choice is local to the install path — the policies in `k8s/base/network-policies.yaml` are standard `networking.k8s.io/v1` and work on any NetworkPolicy-capable CNI (Calico, Cilium, Antrea, Weave, kube-router).
 
 ### Security Properties Preserved
 
@@ -686,7 +686,7 @@ For full migration details, see [Kubernetes Migration](kubernetes-migration.md).
 
 | Component | Local (k3s) | GCP (GKE) | GCP (Cloud Run) |
 |-----------|-------------|-----------|-----------------|
-| Network isolation | Calico NetworkPolicies | GKE NetworkPolicies (Dataplane V2) | VPC Service Controls |
+| Network isolation | Cilium NetworkPolicies | GKE NetworkPolicies (Dataplane V2) | VPC Service Controls |
 | Gateway sidecar | k8s Deployment + Service | Same | Cloud Run sidecar |
 | Audit logs | File/stdout | Cloud Logging | Cloud Logging |
 | Proxy | Squid in gateway pod | Same or Serverless VPC | Same or Serverless VPC |

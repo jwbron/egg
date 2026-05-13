@@ -74,7 +74,7 @@ help:
 	@echo "  make build              - Build Docker images"
 	@echo ""
 	@echo "Kubernetes (k3s):"
-	@echo "  make k3s-setup          - Install k3s with Calico CNI"
+	@echo "  make k3s-setup          - Install k3s with Cilium CNI"
 	@echo "  make deploy             - Deploy egg to k3s"
 	@echo "  make redeploy           - Rebuild, re-import, and redeploy in one step"
 	@echo "  make k3s-import         - Import built images into k3s"
@@ -473,11 +473,14 @@ build: sync-venv-if-uv
 # Kubernetes (k3s) targets
 # ============================================================================
 
-k3s-setup:  ## Install k3s with Calico CNI
+k3s-setup:  ## Install k3s with Cilium CNI
 	@echo "Setting up k3s cluster..."
+	# --flannel-backend=none: Cilium replaces flannel as the CNI dataplane.
+	# --disable-network-policy: Cilium owns NetworkPolicy enforcement; the
+	#   k3s-builtin policy controller would otherwise conflict.
 	curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
 	export KUBECONFIG=/etc/rancher/k3s/k3s.yaml && \
-	scripts/install-calico.sh && \
+	scripts/install-cilium.sh && \
 	echo "Waiting for k3s node to be ready..." && \
 	kubectl wait --for=condition=Ready node --all --timeout=120s
 	@echo "k3s cluster ready"

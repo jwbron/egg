@@ -191,7 +191,7 @@ k8s/
 │   ├── orchestrator-service.yaml      # Service exposing port 9849
 │   ├── gateway-deployment.yaml        # Gateway Deployment + environment config
 │   ├── gateway-service.yaml           # Service exposing ports 9848, 3129, 9851
-│   ├── network-policies.yaml          # Calico NetworkPolicies for agent isolation
+│   ├── network-policies.yaml          # NetworkPolicies for agent isolation (Cilium-enforced)
 │   └── rbac.yaml                      # ServiceAccount + Role + RoleBinding for orchestrator
 (Agent Job specs are built programmatically by ``KubernetesClient.create_container`` — no standalone YAML template.)
 │

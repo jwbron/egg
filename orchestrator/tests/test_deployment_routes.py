@@ -130,7 +130,7 @@ class TestGetDeploymentContext:
 
         with (
             patch("routes.deployment._detect_k3s", return_value=(True, "v1.30.2+k3s1")),
-            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch("routes.deployment._detect_cni", return_value=("cilium", True)),
             patch(
                 "routes.deployment._collect_egg_image_tags",
                 return_value={"orchestrator": "egg-orchestrator:dev"},
@@ -204,7 +204,7 @@ class TestGetDeploymentContext:
 
         with (
             patch("routes.deployment._detect_k3s", return_value=(True, "v1.30.2+k3s1")),
-            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch("routes.deployment._detect_cni", return_value=("cilium", True)),
             patch("routes.deployment._collect_egg_image_tags", return_value={}),
             patch("kubernetes.client.VersionApi") as mock_version_api_cls,
         ):
@@ -235,7 +235,7 @@ class TestGetDeploymentContext:
 
         with (
             patch("routes.deployment._detect_k3s", return_value=(True, "v1.30.2+k3s1")),
-            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch("routes.deployment._detect_cni", return_value=("cilium", True)),
             patch(
                 "routes.deployment._collect_egg_image_tags",
                 return_value={"orchestrator": "egg-orchestrator:dev"},
@@ -280,7 +280,7 @@ class TestGetDeploymentContext:
             ),
             patch(
                 "routes.deployment._detect_cni",
-                return_value=("calico", True),
+                return_value=("cilium", True),
             ),
             patch(
                 "routes.deployment._collect_egg_image_tags",
@@ -305,7 +305,7 @@ class TestGetDeploymentContext:
         data = response.get_json()["data"]
         assert data["runtime"] == "kubernetes"
         assert data["namespace"] == "egg-test"
-        assert data["cni"] == "calico"
+        assert data["cni"] == "cilium"
         assert data["network_policy_enforcement"] is True
         assert data["is_k3s"] is True
         assert data["k3s_flavor_hint"] == "v1.29.0+k3s1"
@@ -843,7 +843,7 @@ class TestValidateNetworkIsolationRoute:
         )
 
         with (
-            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch("routes.deployment._detect_cni", return_value=("cilium", True)),
             patch("routes.deployment._submit_probe_job") as submit_mock,
             patch(
                 "routes.deployment._wait_for_probe_pod",
@@ -878,7 +878,7 @@ class TestValidateNetworkIsolationRoute:
         monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
 
         with (
-            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch("routes.deployment._detect_cni", return_value=("cilium", True)),
             patch("routes.deployment._submit_probe_job"),
             patch("routes.deployment._wait_for_probe_pod", return_value=None),
             patch("routes.deployment._delete_probe_job") as delete_mock,
@@ -900,7 +900,7 @@ class TestValidateNetworkIsolationRoute:
         monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
 
         with (
-            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch("routes.deployment._detect_cni", return_value=("cilium", True)),
             patch(
                 "routes.deployment._submit_probe_job",
                 side_effect=RuntimeError("api down"),
