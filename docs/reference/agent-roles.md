@@ -8,7 +8,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 
 | Category | Purpose | Roles |
 |----------|---------|-------|
-| **EXECUTION** | Produce artifacts (code, tests, docs) | `coder`, `tester`, `documenter` |
+| **EXECUTION** | Produce artifacts (code, tests, docs, Jira mutations) | `coder`, `tester`, `documenter`, `applier` |
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst` |
 | **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
 | **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
@@ -27,6 +27,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `task_planner` | Analysis | Plan | Yes (with `risk_analyst`) | architect |
 | `risk_analyst` | Analysis | Plan | Yes (with `task_planner`) | architect |
 | `reviewer_plan` | Review | Plan | No | task_planner, risk_analyst |
+| `applier` | Execution | Apply (epic-mode only) | No | — |
 | `coder` | Execution | Implement | No | — |
 | `tester` | Execution | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Execution | Implement | Yes (with `tester`) | coder |
@@ -129,6 +130,24 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-plan-plan-review.json` — Verdict file
+
+## Apply Phase
+
+The apply phase is **conditional** — it is only inserted between Plan and Implement when `Pipeline.is_epic` is true (i.e., the submitted `jira_ticket` resolves to a Jira Epic). Non-epic pipelines advance directly from Plan to Implement.
+
+### `applier`
+
+**Purpose**: Drive Jira mutations on operator approval of the refine/plan HITL gates for epic-mode pipelines. For each task in the contract, the applier dispatches all `jira_action` values *except* `wontdo` (i.e., `create`, `edit`, `split-of`, `consolidate-into`); `wontdo` is handled via the handoff JSON described below — the applier emits the handoff entry, and the orchestrator drains it via the orchestrator-only `/api/v1/jira/ticket/transition` route.
+
+**File access**:
+- Allowed writes: `.egg-state/agent-outputs/`
+- Blocked: all source code, docs, tests, contracts, drafts, `.github/`
+
+**Outputs**:
+- `.egg-state/agent-outputs/{pipeline_id}-applier-output.json` — Per-action apply results (`jira_action_status`: `applied` / `failed`)
+- `.egg-state/agent-outputs/{pipeline_id}-wontdo.json` — Handoff JSON listing tickets to transition to "Won't Do"; drained by the orchestrator after APPLY consensus
+
+**Prompt context**: `EGG_IS_EPIC`, `EGG_EPIC_MODE` (`epic-fresh` or `epic-reassess`), contract path, plan draft.
 
 ## Implement Phase
 
