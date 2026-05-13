@@ -73,7 +73,7 @@ def _post(
     *,
     secret: str,
     body: dict,
-    timeout: int = 60,
+    timeout: int = 90,
 ) -> requests.Response:
     return requests.post(
         f"{orchestrator_url}{path}",
@@ -682,10 +682,11 @@ class TestProbeJobCleanup:
     """Belt-and-braces: no orphan probe Jobs after the route returns.
 
     The route uses a ``try/finally`` to call ``_delete_probe_job`` and
-    sets ``ttlSecondsAfterFinished: 0`` on the Job. With #2646 fixed
-    the probe actually launches, so this assertion catches a cleanup
-    regression where the finally path failed to delete the Job (or the
-    ttl-after-finished GC failed to fire).
+    sets ``ttlSecondsAfterFinished: 30`` on the Job as a backstop. With
+    #2646 fixed the probe actually launches, so this assertion catches
+    a cleanup regression where the finally path failed to delete the
+    Job (or the ttl-after-finished GC failed to fire within the 30s +
+    grace window).
     """
 
     def test_no_orphan_probe_jobs_after_call(
@@ -710,9 +711,12 @@ class TestProbeJobCleanup:
             timeout=90,
         )
 
-        # Allow up to a few seconds for ttlSecondsAfterFinished=0 to
-        # reap any Job that did launch — the API call returned, but
-        # the controller may not have run the GC pass yet.
+        # The route's try/finally _delete_probe_job is the primary
+        # cleanup path, so the Job should be gone within milliseconds
+        # of the route returning. The 15s deadline is deliberately
+        # below ttlSecondsAfterFinished=30: a finally-path regression
+        # must surface as a test failure here, not get masked by the
+        # TTL controller sweeping the orphan inside the poll window.
         deadline = time.time() + 15
         leftover: list[str] = []
         while time.time() < deadline:
@@ -742,5 +746,5 @@ class TestProbeJobCleanup:
             time.sleep(1)
         pytest.fail(
             f"probe Jobs still present after route returned (route should "
-            f"clean up via finally + ttlSecondsAfterFinished=0): {leftover}"
+            f"clean up via finally + ttlSecondsAfterFinished=30): {leftover}"
         )
