@@ -343,8 +343,9 @@ permits the heartbeat path (#2652).
   secret, no session token, no gateway bearer).
 - `automountServiceAccountToken=false` — the probe cannot pivot via the
   default service account.
-- `ttlSecondsAfterFinished=0` — Kubernetes deletes the Job immediately
-  after completion.
+- `ttlSecondsAfterFinished=30` — backstop GC; the route deletes the Job
+  in a `try/finally` block, so the TTL only fires if the route crashes
+  before reaching `finally`.
 - `activeDeadlineSeconds=30` — the probe cannot hang.
 
 **Pre-flight gate**: before spawning, the tool calls
