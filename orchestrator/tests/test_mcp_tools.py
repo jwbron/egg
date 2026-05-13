@@ -2766,7 +2766,7 @@ class TestValidateNetworkIsolationTool:
                 "gateway_reachable": True,
                 "internet_blocked": True,
                 "agent_pods_unreachable": True,
-                "orchestrator_direct_blocked": True,
+                "orchestrator_api_reachable": True,
             },
         }
         with patch.object(

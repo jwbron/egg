@@ -163,7 +163,7 @@ Record the returned map:
 - `gateway_reachable` (expect `true`)
 - `internet_blocked` (expect `true`)
 - `agent_pods_unreachable` (expect `true`)
-- `orchestrator_direct_blocked` (expect `true`)
+- `orchestrator_api_reachable` (expect `true`)
 
 Any deviation is a NetworkPolicy drift — flag it high-severity in the Top
 finding. The probe runs in a throwaway Job with
@@ -226,7 +226,7 @@ identifier-translation or role/auth boundary cluster.>
 - Recent Warning events (<N>): <top 3 summarized>
 - Log tail matches: `<pattern>` → `<redacted snippet>` (line <N>)
 - Env keys present (<N>): <key1>, <key2>, <key3>, ... (all values redacted)
-- Egress probe: gateway_reachable=<bool>, internet_blocked=<bool>, agent_pods_unreachable=<bool>, orchestrator_direct_blocked=<bool>
+- Egress probe: gateway_reachable=<bool>, internet_blocked=<bool>, agent_pods_unreachable=<bool>, orchestrator_api_reachable=<bool>
 - Pattern classifier: <matched class> / `<regex>` → <next step from catalogue>
 
 ### Per-primitive data
