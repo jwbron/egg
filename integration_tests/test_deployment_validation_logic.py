@@ -373,12 +373,18 @@ class TestValidateNetworkIsolationLogic:
         special chars all must NOT reject at the label-validator stage.
         They may then short-circuit at the CNI gate (B2 today) or run
         the probe — but they must not 400.
+
+        Uses ``timeout=90`` to leave headroom over the orchestrator's 75s
+        probe-pod wait (#2699): when the probe actually runs instead of
+        short-circuiting, the default 60s HTTP timeout is too tight and
+        sporadically reads-out before the orchestrator responds.
         """
         resp = _post(
             orchestrator_url,
             "/api/v1/deployment/validate-network-isolation",
             secret=lifecycle_secret,
             body={"pipeline_id": pipeline_id, "role": "coder"},
+            timeout=90,
         )
         assert resp.status_code == 200, (
             f"expected 200 for valid label {pipeline_id!r}, got {resp.status_code}: "
