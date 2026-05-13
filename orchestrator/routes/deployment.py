@@ -1020,7 +1020,18 @@ def _build_probe_job_manifest(
             },
         },
         "spec": {
-            "ttlSecondsAfterFinished": 0,
+            # 0 raced with _wait_for_probe_pod's 1s poll: the Job could
+            # complete and be GC'd by the TTL-after-finished controller
+            # before the next poll observed the pod's terminal phase,
+            # leaving the wait loop scanning an empty list until its 75s
+            # ceiling (seen as the bimodal ~10s-or-75s distribution in
+            # https://github.com/jwbron/egg/actions/runs/25817353877).
+            # 30s guarantees the wait loop sees Succeeded/Failed and
+            # _read_probe_log still has a pod to read from; the route's
+            # try/finally _delete_probe_job remains the primary cleanup
+            # path, so this only extends lifetime when the route crashed
+            # before reaching finally.
+            "ttlSecondsAfterFinished": 30,
             "activeDeadlineSeconds": 30,
             "backoffLimit": 0,
             "template": {

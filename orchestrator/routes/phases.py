@@ -1032,19 +1032,43 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
 
     Reads the plan document from the pipeline's worktree, extracts task
     structure, and writes tasks and acceptance criteria to the contract.
+    On the ``POPULATED`` outcome the route also commits the contract to
+    the orchestrator's local worktree and pushes the work branch to
+    origin so fresh agent spawns (``restart_phase``, ``restart_agent``,
+    post-cancel restart) pull the populated state on respawn (#2629).
 
     URL params:
         pipeline_id: Pipeline ID
 
-    Response:
+    Response (200 — ``POPULATED``):
         {
             "success": true,
             "message": "Contract populated from plan",
             "data": {
                 "phase_count": 2,
-                "task_count": 6
+                "task_count": 6,
+                "pushed_to_origin": true
             }
         }
+
+    ``pushed_to_origin`` is the operator's signal for whether agents
+    will see the populated state on respawn. ``True`` iff
+    ``push_worktree_branch`` reported success (a no-op fast-forward push
+    counts; a no-op commit alone does not). ``False`` means the commit
+    or push failed (or the push was not attempted because
+    ``pipeline.branch`` is unset or the worktree resolves to
+    ``store.repo_path``) and the operator must commit and push
+    themselves before respawning.
+
+    Error responses include a machine-readable ``reason`` code (#1939,
+    #2627):
+
+    - 400 ``invalid_pipeline_id``
+    - 404 ``pipeline_not_found`` / ``draft_missing`` / ``no_draft_path``
+    - 422 ``parse_failed`` / ``empty_result`` / forest violations
+      (structured body)
+    - 500 ``contract_load_failed`` / ``egg_contracts_unavailable`` /
+      ``unexpected_exception`` / ``populate_contract_failed``
     """
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
@@ -1055,7 +1079,14 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
 
         # Import and call the populate function
-        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
+        from routes.pipelines import (
+            PopulateOutcome,
+            _commit_statefiles_to_worktree,
+            _compute_gateway_mode,
+            _get_spawner,
+            _pipeline_identifier,
+            _populate_contract_from_plan,
+        )
 
         _populate_endpoint_result = _populate_contract_from_plan(
             repo_path=worktree_path,
@@ -1071,11 +1102,70 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         # outer ``except`` (HTTP 422 with structured errors).
         _outcome = _populate_endpoint_result.outcome
         if _outcome == PopulateOutcome.POPULATED:
+            # Persist the populated contract back to origin so fresh
+            # agent spawns (restart_phase, restart_agent, post-cancel
+            # restart) pull the populated state on respawn rather than
+            # the empty contract on origin.  Without this, the route
+            # mutates only the orchestrator's local worktree and is
+            # unusable as a recovery primitive — the implement-start
+            # guard would refuse to demote to monolithic and the
+            # pipeline would wedge.  See #2629.
+            #
+            # Failures here are fail-soft: ``pushed_to_origin`` in the
+            # response data tells the caller whether the contract is
+            # visible to agents.  ``False`` means the operator must
+            # commit and push themselves before respawning.
+            pushed_to_origin = False
+            if pipeline.branch and worktree_path != store.repo_path:
+                try:
+                    identifier = _pipeline_identifier(pipeline.issue_number, pipeline_id)
+                    _commit_statefiles_to_worktree(
+                        worktree_path,
+                        f"Populate contract for {identifier} (#2629)",
+                        pipeline_identifier=identifier,
+                        pipeline_id=pipeline_id,
+                    )
+                    # Push unconditionally — a no-op commit does NOT
+                    # imply origin matches local.  The per-pipeline
+                    # worktree is long-lived (see
+                    # ``resolve_worktree_path``) and may carry commits
+                    # ahead of origin from a prior failed push.
+                    # Pushing unconditionally fast-forwards in the safe
+                    # case (origin already matches → no-op push) and
+                    # delivers the un-pushed commit in the dangerous
+                    # one (the exact wedge #2629 was opened against).
+                    # The ``populate_contract`` route is an
+                    # operator-initiated recovery primitive, not a hot
+                    # loop, so the gateway round-trip is cheap relative
+                    # to the correctness benefit.
+                    gateway_mode, _ = _compute_gateway_mode(pipeline)
+                    push_result = _get_spawner().gateway.push_worktree_branch(
+                        pipeline_id=pipeline_id,
+                        repo_path=str(worktree_path),
+                        branch=pipeline.branch,
+                        mode=gateway_mode,
+                        base_branch=pipeline.base_branch,
+                    )
+                    pushed_to_origin = bool(push_result)
+                    if not pushed_to_origin:
+                        logger.warning(
+                            "populate_contract: push failed (continuing)",
+                            pipeline_id=pipeline_id,
+                            detail=push_result.describe(),
+                        )
+                except Exception as persist_err:  # noqa: BLE001
+                    logger.warning(
+                        "populate_contract: persist to origin failed (continuing)",
+                        pipeline_id=pipeline_id,
+                        error=str(persist_err),
+                    )
+
             return make_success_response(
                 "Contract populated from plan",
                 data={
                     "phase_count": _populate_endpoint_result.slice_count,
                     "task_count": _populate_endpoint_result.task_count,
+                    "pushed_to_origin": pushed_to_origin,
                 },
             )
         if _outcome in {PopulateOutcome.DRAFT_MISSING, PopulateOutcome.NO_DRAFT_PATH}:
