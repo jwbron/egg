@@ -203,8 +203,17 @@ class TestEmitProgress:
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
     def test_emit_progress_non_object_body_returns_400(self, client, raw_body):
         """Fix for #2673: non-object JSON bodies must 400, not 500.
@@ -221,6 +230,7 @@ class TestEmitProgress:
         assert resp.status_code == 400, resp.data
         body = resp.get_json()
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
 
 
 # ---------------------------------------------------------------------------

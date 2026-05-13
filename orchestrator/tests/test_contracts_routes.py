@@ -258,8 +258,17 @@ class TestNonObjectJsonBodyReturns400:
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
     def test_mutate_non_object_body_returns_400(self, client, fake_worktree, raw_body):
         pipeline_id, worktree = fake_worktree
@@ -273,11 +282,21 @@ class TestNonObjectJsonBodyReturns400:
         assert response.status_code == 400, response.data
         body = json.loads(response.data)
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
     def test_validate_non_object_body_returns_400(self, client, raw_body):
         response = client.post(
@@ -289,6 +308,7 @@ class TestNonObjectJsonBodyReturns400:
         assert response.status_code == 400, response.data
         body = json.loads(response.data)
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
 
 
 class TestBranchReadFallback:

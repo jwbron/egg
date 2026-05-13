@@ -47,8 +47,17 @@ class TestGitHubWebhookNonObjectBody:
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
     def test_github_webhook_non_object_body_returns_400(self, client, monkeypatch, raw_body):
         monkeypatch.delenv("GITHUB_WEBHOOK_SECRET", raising=False)
@@ -64,6 +73,7 @@ class TestGitHubWebhookNonObjectBody:
         assert response.status_code == 400, response.data
         body = json.loads(response.data)
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
 
 
 class TestManualTriggerNonObjectBody:
@@ -77,8 +87,17 @@ class TestManualTriggerNonObjectBody:
 
     @pytest.mark.parametrize(
         "raw_body",
-        ["[1, 2, 3]", '"a string body"', "42", "true"],
-        ids=["array", "string", "number", "bool"],
+        ["[1, 2, 3]", '"a string body"', "42", "true", "[]", "0", "false", '""'],
+        ids=[
+            "array",
+            "string",
+            "number",
+            "bool",
+            "empty-array",
+            "zero",
+            "false",
+            "empty-string",
+        ],
     )
     def test_manual_trigger_non_object_body_returns_400(self, client, raw_body):
         response = client.post(
@@ -89,3 +108,4 @@ class TestManualTriggerNonObjectBody:
         assert response.status_code == 400, response.data
         body = json.loads(response.data)
         assert body["success"] is False
+        assert "json object" in body["message"].lower(), body
