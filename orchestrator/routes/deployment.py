@@ -1267,7 +1267,10 @@ def validate_network_isolation() -> tuple[Response, int]:
         return jsonify({"success": False, "message": f"probe submit failed: {exc}"}), 500
 
     try:
-        pod = _wait_for_probe_pod(k8s, namespace, probe_id, timeout=30.0)
+        # 30s was too tight: probe-pod scheduling on the k3s integration
+        # cluster intermittently exceeded the deadline. 75s sits under the
+        # require_lifecycle_secret route's 90s HTTP-timeout ceiling.
+        pod = _wait_for_probe_pod(k8s, namespace, probe_id, timeout=75.0)
         if pod is None:
             return (
                 jsonify(
