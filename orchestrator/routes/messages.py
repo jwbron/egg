@@ -155,8 +155,10 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
     questions atomically with the review verdict.
     """
     body = request.get_json()
-    if not body:
+    if body is None:
         return _make_error("Missing request body")
+    if not isinstance(body, dict):
+        return _make_error("Request body must be a JSON object")
 
     from_role = body.get("from_role")
     if not from_role:
@@ -571,7 +573,10 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
           TASK-3-4.  Slice-scoping (#2471) keeps sibling slices that
           share a role from sharing each other's rate budget.
     """
-    body = request.get_json() or {}
+    raw = request.get_json()
+    if raw is not None and not isinstance(raw, dict):
+        return _make_error("Request body must be a JSON object")
+    body = raw if raw is not None else {}
 
     from_role = body.get("from_role")
     if not from_role:

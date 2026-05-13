@@ -430,6 +430,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             try:
                 from routes import resolve_worktree_path
                 from routes.pipelines import (
+                    PopulateOutcome,
                     _commit_statefiles_to_worktree,
                     _pipeline_identifier,
                     _populate_contract_from_plan_safe,
@@ -437,13 +438,22 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
                 worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
                 pipeline_mode = pipeline.mode.value if pipeline.mode else "issue"
-                _populate_contract_from_plan_safe(
+                _force_populate_result = _populate_contract_from_plan_safe(
                     worktree_path,
                     pipeline_id,
                     pipeline_mode,
                     pipeline.issue_number,
                     source="advance_phase_force",
                 )
+                # #1941: force-advance is a recovery hammer — blocking it
+                # on a populate failure defeats the purpose.  Log the
+                # structured outcome but never raise.
+                if _force_populate_result.outcome != PopulateOutcome.POPULATED:
+                    logger.warning(
+                        "Force-advance populate produced non-POPULATED outcome",
+                        pipeline_id=pipeline_id,
+                        outcome=_force_populate_result.outcome.value,
+                    )
                 try:
                     _commit_statefiles_to_worktree(
                         worktree_path,
@@ -1045,32 +1055,48 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
 
         # Import and call the populate function
-        from routes.pipelines import _populate_contract_from_plan
+        from routes.pipelines import PopulateOutcome, _populate_contract_from_plan
 
-        _populate_contract_from_plan(
+        _populate_endpoint_result = _populate_contract_from_plan(
             repo_path=worktree_path,
             pipeline_id=pipeline_id,
             pipeline_mode=pipeline.mode.value if pipeline.mode else "issue",
             issue_number=pipeline.issue_number,
         )
 
-        # Read back the contract to report counts. Contracts are keyed by
-        # pipeline_id; the loader's compat shim covers legacy paths.
-        try:
-            from egg_contracts.loader import load_contract
-
-            contract = load_contract(pipeline_id, worktree_path)
-            task_count = sum(len(s.tasks) for s in contract.slices)
+        # #2627 follow-up: surface non-POPULATED outcomes as 4xx/5xx so
+        # callers don't get a misleading 200 when the populate step
+        # silently produced an empty contract.  Forest-violation is
+        # handled separately by the existing class-name branch in the
+        # outer ``except`` (HTTP 422 with structured errors).
+        _outcome = _populate_endpoint_result.outcome
+        if _outcome == PopulateOutcome.POPULATED:
             return make_success_response(
                 "Contract populated from plan",
                 data={
-                    "phase_count": len(contract.slices),
-                    "task_count": task_count,
+                    "phase_count": _populate_endpoint_result.slice_count,
+                    "task_count": _populate_endpoint_result.task_count,
                 },
             )
-        except Exception:
-            # Populate succeeded but we can't read counts — still success
-            return make_success_response("Contract populated from plan")
+        if _outcome in {PopulateOutcome.DRAFT_MISSING, PopulateOutcome.NO_DRAFT_PATH}:
+            return make_error_response(
+                f"Plan draft not available ({_outcome.value})",
+                status_code=404,
+                reason=_outcome.value,
+            )
+        if _outcome in {PopulateOutcome.PARSE_FAILED, PopulateOutcome.EMPTY_RESULT}:
+            return make_error_response(
+                f"Plan populate produced non-POPULATED outcome ({_outcome.value})",
+                status_code=422,
+                reason=_outcome.value,
+            )
+        # CONTRACT_LOAD_FAILED / EGG_CONTRACTS_UNAVAILABLE /
+        # UNEXPECTED_EXCEPTION — server-side failure.
+        return make_error_response(
+            f"Plan populate failed ({_outcome.value})",
+            status_code=500,
+            reason=_outcome.value,
+        )
 
     except InvalidPipelineIdError:
         return make_error_response(

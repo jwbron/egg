@@ -320,15 +320,19 @@ that performs four probes and returns a structured allow/deny matrix.
   "gateway_reachable": true,
   "internet_blocked": true,
   "agent_pods_unreachable": true,
-  "orchestrator_direct_blocked": true,
+  "orchestrator_api_reachable": true,
   "probe_job": "egg-probe-<uuid>",
   "probe_pod_phase": "Succeeded"
 }
 ```
 
 All four boolean fields should be `true` for a correctly isolated agent
-(the agent can reach the gateway for proxied API calls, nothing else).
-Any `false` indicates a NetworkPolicy regression.
+(the agent can reach the gateway for proxied API calls and heartbeat the
+orchestrator on `:9849`; nothing else). Any `false` indicates a
+NetworkPolicy regression. `orchestrator_api_reachable` was previously
+named `orchestrator_direct_blocked` with inverted polarity, which read
+backwards from intent — `allow-agent-to-orchestrator` deliberately
+permits the heartbeat path (#2652).
 
 **Probe Job design** (RISK-1 mitigation):
 
@@ -370,7 +374,7 @@ result = await mcp.call_tool("validate_network_isolation", {
 assert result["gateway_reachable"] is True
 assert result["internet_blocked"] is True
 assert result["agent_pods_unreachable"] is True
-assert result["orchestrator_direct_blocked"] is True
+assert result["orchestrator_api_reachable"] is True
 ```
 
 The expected allow/deny matrix is documented in

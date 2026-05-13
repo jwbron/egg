@@ -930,7 +930,7 @@ orchestrator_url="${EGG_ORCHESTRATOR_URL:-http://orchestrator.egg-system.svc.clu
 
 probe() {
   local url="$1"
-  curl --silent --show-error --max-time 3 -o /dev/null -w '%{http_code}' "$url" || echo 000
+  curl --silent --max-time 3 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true
 }
 
 gw=$(probe "$gateway_url/api/v1/health")
@@ -944,7 +944,17 @@ print(json.dumps({
     "gateway_reachable": "$gw".startswith("2") or "$gw".startswith("3"),
     "internet_blocked": "$internet" == "000",
     "agent_pods_unreachable": "$peer" == "000",
-    "orchestrator_direct_blocked": "$orch" == "000",
+    # allow-agent-to-orchestrator (k8s/base/network-policies.yaml)
+    # deliberately permits agent->orchestrator:9849 so agents can
+    # heartbeat. So on a correctly-configured cluster this is True;
+    # False is the regression signal (heartbeat path is broken). The
+    # field was previously named orchestrator_direct_blocked with
+    # inverted polarity, which read backwards from intent (#2652).
+    # NOTE: this heredoc is unquoted (<<PY, not <<'PY') so the shell
+    # performs command substitution on backticks. Do not introduce
+    # backticks anywhere in the body — they will execute under sh
+    # before python3 ever sees the source.
+    "orchestrator_api_reachable": "$orch".startswith("2") or "$orch".startswith("3"),
     "raw": {
         "gateway_status": "$gw",
         "internet_status": "$internet",
@@ -1110,12 +1120,34 @@ def _wait_for_probe_pod(k8s: Any, namespace: str, probe_id: str, *, timeout: flo
 
 
 def _read_probe_log(k8s: Any, namespace: str, pod_name: str) -> str:
+    # The probe writes JSON to stdout. The kubernetes-python client's
+    # ApiClient.deserialize() runs json.loads() on every response body
+    # before coercing to the declared response_type, so a JSON-shaped
+    # pod log gets parsed to a dict and then str()'d back, yielding the
+    # Python dict repr (single quotes, ``True``) instead of the
+    # original JSON. _preload_content=False bypasses that path and
+    # returns the urllib3 HTTPResponse so we can decode the raw bytes.
+    #
+    # With ``_preload_content=False`` the actual network read happens at
+    # ``.data`` access (urllib3 reads-to-EOF lazily and caches), so the
+    # ``try/except`` must wrap the ``.data`` access too — otherwise a
+    # mid-stream connection reset or malformed transfer-encoding would
+    # propagate up and 500 the route handler.
     try:
-        raw = k8s.core_api.read_namespaced_pod_log(name=pod_name, namespace=namespace)
+        raw = k8s.core_api.read_namespaced_pod_log(
+            name=pod_name, namespace=namespace, _preload_content=False
+        )
+        if raw is None:
+            return ""
+        data = getattr(raw, "data", raw)
     except Exception as exc:
         logger.warning("probe log read failed", pod=pod_name, error=str(exc))
         return ""
-    return str(raw) if raw is not None else ""
+    if data is None:
+        return ""
+    if isinstance(data, bytes):
+        return data.decode("utf-8", errors="replace")
+    return str(data)
 
 
 def _delete_probe_job(k8s: Any, namespace: str, probe_id: str) -> None:

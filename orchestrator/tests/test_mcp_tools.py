@@ -2500,7 +2500,15 @@ class TestBabysitPr:
 
         tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
         schema = tools_by_name["babysit_pr"]["inputSchema"]
-        assert schema["required"] == ["pr_number", "repo"]
+        # pr_number is intentionally not in required so the handler can return
+        # a structured {"error": "pr_number must be a positive integer"} when
+        # it is omitted rather than Pydantic raising a generic "Field required".
+        # Assert by membership rather than exact list/order so adding another
+        # required field in a later PR doesn't force this test to update.
+        required = set(schema["required"])
+        assert "repo" in required
+        assert "pr_number" not in required
+        assert "pr_number" in schema["properties"]
         assert schema["properties"]["pr_number"]["type"] == "integer"
         assert schema["properties"]["repo"]["type"] == "string"
 
@@ -2758,7 +2766,7 @@ class TestValidateNetworkIsolationTool:
                 "gateway_reachable": True,
                 "internet_blocked": True,
                 "agent_pods_unreachable": True,
-                "orchestrator_direct_blocked": True,
+                "orchestrator_api_reachable": True,
             },
         }
         with patch.object(
