@@ -285,6 +285,8 @@ The PR phase no longer spawns an agent. Instead, the orchestrator auto-creates t
 4. Creates the PR via the gateway using a temporary session with `phase="pr"` permissions and the pipeline's resolved network mode; in `private` mode the PR is created as a draft
 5. Applies `egg` and `agent:orchestrator` labels to the newly created PR
 
+In slice-DAG mode (`len(contract.slices) > 1`) the auto-PR is **suppressed** — per-slice PRs already exist stacked on the [Context PR](#context-pr-slice-aware-mode-2548), so a program-level `<pipeline_branch> → main` PR would be redundant and confusing to reviewers. The skip gate is `_should_skip_pr_phase_auto_pr` in `orchestrator/routes/pipelines.py`; babysit-pr mode short-circuits the same gate because the PR already exists. Contract-load failures fail safe to running the legacy path (#2685).
+
 The gateway also injects an `<!-- egg-pipeline-context ... -->` HTML comment into the PR body containing machine-parseable pipeline metadata (`pipeline_id`, `agent_role`, `issue`). Labels are applied best-effort — failures are logged but non-fatal.
 
 This eliminates the need for agent interaction during PR creation and ensures consistent PR formatting across all pipelines.
@@ -313,6 +315,7 @@ After the plan phase completes and the plan_gate is approved, the orchestrator o
    - `.egg-state/brc-history/<id>-refine.{md,json}` (refine BRC consensus record)
    - `.egg-state/brc-history/<id>-plan.{md,json}` (plan BRC consensus record)
    - `.egg-state/agent-outputs/<id>-refine-*.{md,json}` and `<id>-plan-*.{md,json}` (per-phase agent transcripts — included for transparency, HITL Q3)
+   - The contract JSON, resolved dynamically via `get_contract_path` so integer issue identifiers map to the canonical `.egg-state/contracts/issue-<N>.json` shape (with the legacy bare `<N>.json` as a fallback). Static glob omission is intentional — see `_STATIC_CONTEXT_PR_FILE_GLOBS` and `_gather_context_pr_files` in `orchestrator/routes/pipelines.py` (#2685).
 3. It opens the PR against the configured base branch using `contract.pr.context_title` and `contract.pr.context_description` (distinct from `pr.title` / `pr.description`, which are per-slice).
 4. The PR is **doc-only auto-open** (HITL decision-3): the orchestrator opens it, humans review on the PR, and the pipeline does **not** block on its merge before slicing begins.
 5. Slice-1's `parent_branch` resolves to `egg/<id>/context` (rather than `egg/<id>/work`); slice-N>1 stacks on its predecessor as before. The [stacked-PR rebase reconciler](slice-dag.md#stacked-pr-rebase-reconciler) prefers the context branch over `pipeline_branch` as a last-resort fallback when retargeting orphaned children.

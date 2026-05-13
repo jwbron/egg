@@ -132,8 +132,9 @@ The contract is a JSON document tracking the complete state of an issue through 
 > **The context-PR mechanism is fully wired as of #2593 (gap from #2548 closed).** After
 > plan-gate approval the orchestrator creates `egg/<pipeline_id>/context`
 > from the pipeline's base branch, copies the refine + plan artifacts
-> (analysis.md, plan.md, BRC history JSON/MD, and per-role agent
-> transcripts) onto a temp worktree committed to that branch, opens a
+> (analysis.md, plan.md, BRC history JSON/MD, per-role agent
+> transcripts, and the contract JSON — see the #2685 paragraph below)
+> onto a temp worktree committed to that branch, opens a
 > doc-only PR via `gh pr create`, and persists `context_branch` /
 > `context_pr_number` into the contract. Slice-1 stacks on the context
 > branch rather than the pipeline work branch, so the strategic narrative
@@ -144,6 +145,15 @@ The contract is a JSON document tracking the complete state of an issue through 
 > path to all plan→implement transition paths: `advance_phase` REST/MCP,
 > HITL-approval recovery in `start_pipeline`, and the implement-entry
 > backstop.)
+>
+> **#2685 added two follow-on behaviors:** the contract JSON is now
+> included in the context PR diff (resolved via the contract loader so
+> integer issue identifiers map to the canonical `issue-<N>.json` path
+> rather than a bare `{identifier}.json` glob), and the legacy
+> `<pipeline_branch> → main` auto-PR in the PR phase is suppressed for
+> slice-DAG pipelines (`len(contract.slices) > 1`) — per-slice PRs
+> already exist stacked on the context PR, so the program-level
+> auto-PR would be redundant and confusing to reviewers.
 
 ## HITL (Human-in-the-Loop) Mechanism
 
