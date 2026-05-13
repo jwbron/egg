@@ -839,7 +839,7 @@ class TestValidateNetworkIsolationRoute:
         fake_pod.metadata.name = "egg-probe-abc123"
         fake_log = (
             '{"gateway_reachable": true, "internet_blocked": true, '
-            '"agent_pods_unreachable": true, "orchestrator_direct_blocked": true}'
+            '"agent_pods_unreachable": true, "orchestrator_api_reachable": true}'
         )
 
         with (
@@ -1474,7 +1474,7 @@ class TestProbeCommandTemplate:
             "gateway_reachable",
             "internet_blocked",
             "agent_pods_unreachable",
-            "orchestrator_direct_blocked",
+            "orchestrator_api_reachable",
         ):
             assert key in PROBE_COMMAND_TEMPLATE
 
@@ -1483,6 +1483,172 @@ class TestProbeCommandTemplate:
 
         assert "EGG_LIFECYCLE_SECRET" not in PROBE_COMMAND_TEMPLATE
         assert "EGG_SESSION_TOKEN" not in PROBE_COMMAND_TEMPLATE
+
+    def test_template_contains_no_backticks(self):
+        """Backticks in the unquoted ``<<PY`` heredoc body would be
+        evaluated by ``/bin/sh`` as command substitution before
+        ``python3`` ever sees the source — at best emitting
+        ``sh: ...: not found`` to the pod log, at worst substituting
+        non-empty command output into the Python literal itself.
+        Guard against the regression here so a future edit (e.g.
+        adding ``\\`hostname\\``` somewhere) can't sneak in silently.
+        """
+        from routes.deployment import PROBE_COMMAND_TEMPLATE
+
+        assert "`" not in PROBE_COMMAND_TEMPLATE, (
+            "PROBE_COMMAND_TEMPLATE contains a backtick — under /bin/sh "
+            "this is command substitution, not a markdown formatting hint"
+        )
+
+    def test_template_is_shell_syntax_valid(self):
+        """``/bin/sh -n`` parses the template without error.
+
+        Catches stray quoting / heredoc-delimiter mistakes that would
+        otherwise only surface when a probe Job runs in-cluster.
+        """
+        import shutil
+        import subprocess
+
+        from routes.deployment import PROBE_COMMAND_TEMPLATE
+
+        sh = shutil.which("sh") or "/bin/sh"
+        result = subprocess.run(
+            [sh, "-n"],
+            input=PROBE_COMMAND_TEMPLATE,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == 0, (
+            f"sh -n rejected PROBE_COMMAND_TEMPLATE: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+class TestReadProbeLog:
+    """Unit coverage of ``_read_probe_log``.
+
+    The function passes ``_preload_content=False`` to bypass the
+    kubernetes-python ``ApiClient.deserialize()`` JSON-coercion path,
+    so the returned object is a raw ``urllib3.HTTPResponse`` whose
+    ``.data`` attribute contains bytes. The integration suite covers
+    the end-to-end happy path against a real cluster, but the
+    bytes/str branching and the body-read exception envelope need
+    direct unit coverage.
+    """
+
+    def test_decodes_bytes_payload(self):
+        """The ``.data`` bytes path round-trips through utf-8 decode."""
+        from routes.deployment import _read_probe_log
+
+        raw = MagicMock()
+        raw.data = b'{"gateway_reachable": true}'
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = raw
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == '{"gateway_reachable": true}'
+        k8s.core_api.read_namespaced_pod_log.assert_called_once_with(
+            name="egg-probe-abc", namespace="egg-agents", _preload_content=False
+        )
+
+    def test_replaces_undecodable_bytes(self):
+        """Invalid utf-8 sequences are replaced rather than raising."""
+        from routes.deployment import _read_probe_log
+
+        raw = MagicMock()
+        raw.data = b"hello \xff\xfe world"
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = raw
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert "hello" in result
+        assert "world" in result
+
+    def test_str_fallback_for_object_without_data(self):
+        """If the response has no ``.data`` attribute, ``str()`` it.
+
+        Defensive-only branch — not reachable in production with the
+        current kubernetes-python client, which always returns a
+        ``urllib3.HTTPResponse`` (always has ``.data``) under
+        ``_preload_content=False``. The fallback exists so a future
+        client upgrade or mock that returns a plain string degrades
+        cleanly rather than crashing.
+        """
+        from routes.deployment import _read_probe_log
+
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = "plain string log"
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == "plain string log"
+
+    def test_returns_empty_string_on_none(self):
+        """A ``None`` response yields an empty string, not a crash."""
+        from routes.deployment import _read_probe_log
+
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = None
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == ""
+
+    def test_returns_empty_string_on_none_data(self):
+        """A response whose ``.data`` is ``None`` yields ``''``, not ``'None'``.
+
+        Closes a gap where ``getattr(raw, "data", raw)`` returns ``None``
+        for ``raw.data is None``, then ``isinstance(None, bytes)`` is
+        ``False`` and ``str(None)`` yields the literal ``'None'`` —
+        which would then flow into ``_parse_probe_output`` as probe log
+        content.
+        """
+        from routes.deployment import _read_probe_log
+
+        raw = MagicMock()
+        raw.data = None
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = raw
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == ""
+
+    def test_swallows_exception_from_request(self):
+        """Errors during the kubernetes-python call return ``''``."""
+        from routes.deployment import _read_probe_log
+
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.side_effect = RuntimeError("boom")
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == ""
+
+    def test_swallows_exception_from_data_access(self):
+        """Body-read failures via ``.data`` are caught, not propagated.
+
+        ``_preload_content=False`` defers the actual network read to
+        ``.data`` access. A mid-stream connection reset or malformed
+        transfer-encoding raises there; the route handler relies on
+        ``_read_probe_log`` returning ``''`` rather than 500'ing.
+        """
+        from routes.deployment import _read_probe_log
+
+        raw = MagicMock()
+        type(raw).data = property(
+            lambda self: (_ for _ in ()).throw(ConnectionResetError("stream reset"))
+        )
+        k8s = MagicMock()
+        k8s.core_api.read_namespaced_pod_log.return_value = raw
+
+        result = _read_probe_log(k8s, "egg-agents", "egg-probe-abc")
+
+        assert result == ""
 
 
 # ---------------------------------------------------------------------------

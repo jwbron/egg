@@ -185,7 +185,17 @@ def get_state_store_for_pipeline(pipeline_id: str) -> tuple["StateStore", "Pipel
         PipelineNotFoundError,
         discover_repo_paths,
         get_state_store,
+        validate_pipeline_id,
     )
+
+    # Validate format before any repo lookup so InvalidPipelineIdError is
+    # always raised for malformed IDs even when no repos are discovered
+    # (e.g. in k8s where EGG_REPO_PATH may point to an empty directory).
+    # This is intentionally redundant with the validation inside
+    # ``_get_pipeline_path``: the downstream check still runs once we
+    # find a repo, but the empty-repo-set path would otherwise raise
+    # ``PipelineNotFoundError`` and mask the real cause.
+    validate_pipeline_id(pipeline_id)
 
     base_path = get_repo_path()
 

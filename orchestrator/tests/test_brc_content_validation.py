@@ -617,6 +617,7 @@ class TestAckContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {"reason": ""},
                 },
                 Path("/tmp/repo"),
@@ -636,6 +637,7 @@ class TestAckContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {},
                 },
                 Path("/tmp/repo"),
@@ -654,6 +656,7 @@ class TestAckContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {"reason": "LGTM"},
                 },
                 Path("/tmp/repo"),
@@ -672,6 +675,7 @@ class TestAckContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {"reason": "Looks fine to me"},
                 },
                 Path("/tmp/repo"),
@@ -708,6 +712,7 @@ class TestAckContentValidation:
                     {
                         "agent_role": "reviewer_code",
                         "producer_role": "coder",
+                        "ack_version": 1,
                         "payload": {"reason": _SUBSTANTIVE_REASON},
                     },
                     Path("/tmp/repo"),
@@ -730,6 +735,7 @@ class TestAckContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "ack_version": 1,
                     "payload": {"reason": "ok"},
                 },
                 Path("/tmp/repo"),
@@ -785,6 +791,7 @@ class TestAckPreMergeConditionValidation:
                     {
                         "agent_role": "reviewer_code",
                         "producer_role": "coder",
+                        "ack_version": 1,
                         "payload": payload,
                     },
                     Path("/tmp/repo"),
@@ -923,6 +930,7 @@ class TestNackContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {"reason": ""},
                 },
                 Path("/tmp/repo"),
@@ -941,6 +949,7 @@ class TestNackContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {"reason": "Missing tests"},
                 },
                 Path("/tmp/repo"),
@@ -959,6 +968,7 @@ class TestNackContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {"reason": "No issues"},
                 },
                 Path("/tmp/repo"),
@@ -994,6 +1004,7 @@ class TestNackContentValidation:
                     {
                         "agent_role": "reviewer_code",
                         "producer_role": "coder",
+                        "nack_version": 1,
                         "payload": {
                             "reason": (
                                 "SQL injection vulnerability in auth.py line 42: "
@@ -1022,6 +1033,7 @@ class TestNackContentValidation:
                 {
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
+                    "nack_version": 1,
                     "payload": {"reason": "bad"},
                 },
                 Path("/tmp/repo"),

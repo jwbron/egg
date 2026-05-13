@@ -504,7 +504,7 @@ class TestSuccessShape:
         handler must still return a task_id so the caller can retry."""
         from urllib.error import HTTPError
 
-        def _side(path, method=None, data=None):
+        def _side(path, method=None, data=None, timeout=None):
             if "/start" in path:
                 raise HTTPError(path, 500, "Internal Error", {}, MagicMock())
             return {"data": {"pipeline": {"id": "custom-11223344"}}}

@@ -136,7 +136,7 @@ class TestEmptyBodyDoesNotCrashLifecycleRoutes:
     @patch("routes.resolve_worktree_path")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_populate_contract_empty_body(
-        self, mock_get_store, mock_resolve_wt, _mock_populate, client
+        self, mock_get_store, mock_resolve_wt, mock_populate, client
     ):
         """populate_contract takes no body — empty body must not 400.
 
@@ -144,17 +144,19 @@ class TestEmptyBodyDoesNotCrashLifecycleRoutes:
         the #1787 bug directly. This is a structural smoke test confirming
         that sending an empty body doesn't cause unexpected failures.
         """
+        from routes.pipelines import PopulateOutcome, PopulateResult
+
         pipeline = _make_pipeline()
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")
         mock_get_store.return_value = (mock_store, pipeline)
         mock_resolve_wt.return_value = Path("/tmp/wt")
+        mock_populate.return_value = PopulateResult(PopulateOutcome.POPULATED)
 
-        with patch("egg_contracts.loader.load_contract", side_effect=Exception("skip")):
-            resp = client.post(
-                "/api/v1/pipelines/issue-42/phase/populate-contract",
-                data=b"",
-                content_type="application/json",
-            )
+        resp = client.post(
+            "/api/v1/pipelines/issue-42/phase/populate-contract",
+            data=b"",
+            content_type="application/json",
+        )
 
         assert resp.status_code == 200

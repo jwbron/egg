@@ -246,7 +246,14 @@ PIPELINE_TOOLS = [
             "properties": {
                 "pr_number": {
                     "type": "integer",
-                    "description": "GitHub PR number to babysit (must be open, non-fork, non-empty).",
+                    "description": (
+                        "Required. GitHub PR number to babysit (must be open, non-fork, "
+                        "non-empty). Intentionally omitted from the schema's `required` "
+                        "list so the handler can return a structured "
+                        '`{"error": "pr_number must be a positive integer"}` envelope '
+                        "when it is missing or non-positive, rather than Pydantic "
+                        'raising a generic "Field required" — see #2665.'
+                    ),
                 },
                 "repo": {
                     "type": "string",
@@ -271,7 +278,7 @@ PIPELINE_TOOLS = [
                     "description": 'Optional pipeline configuration overrides (e.g. {"hitl_gates": false}).',
                 },
             },
-            "required": ["pr_number", "repo"],
+            "required": ["repo"],
         },
     },
     {
@@ -1001,8 +1008,18 @@ PIPELINE_TOOLS = [
             "Note: reason codes are only visible to direct HTTP callers; the "
             "MCP handler layer does not yet surface them.\n"
             "- `invalid_pipeline_id` (400), `pipeline_not_found` (404)\n"
-            "- `populate_contract_failed` (500) — internal error during "
-            "contract population"
+            "- `draft_missing` (404), `no_draft_path` (404) — plan draft "
+            "missing or worktree has no draft path configured\n"
+            "- `parse_failed` (422), `empty_result` (422) — draft parse "
+            "produced an error or zero tasks\n"
+            "- `contract_load_failed` (500), `egg_contracts_unavailable` "
+            "(500), `unexpected_exception` (500) — structured failures "
+            "from inside the populate call\n"
+            "- `populate_contract_failed` (500) — endpoint-level fallback "
+            "for exceptions raised outside the structured populate call\n"
+            'Also emits a 422 with `{error: "forest_violation", errors: '
+            "[...]}` (#2137) when contract population violates task-forest "
+            "invariants; this response uses `error` rather than `reason`."
         ),
         "inputSchema": {
             "type": "object",
@@ -1078,7 +1095,7 @@ PIPELINE_TOOLS = [
             "Spawn a throwaway probe Job in the egg-agents namespace to verify "
             "Calico NetworkPolicy enforcement. Returns a structured "
             "{gateway_reachable, internet_blocked, agent_pods_unreachable, "
-            "orchestrator_direct_blocked} result. The Job self-deletes on exit "
+            "orchestrator_api_reachable} result. The Job self-deletes on exit "
             "(ttlSecondsAfterFinished=0). Only available on the Kubernetes "
             "runtime and on CNIs that enforce NetworkPolicies."
         ),
@@ -1330,7 +1347,13 @@ class PipelineToolHandler:
             data["source_artifact_prefix"] = args["source_artifact_prefix"]
 
         try:
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+            # The create_pipeline route calls ls_remote_branch via the gateway,
+            # which itself bounds at 30s.  We cap our request at 25s so the
+            # MCP client (~30s streamable-HTTP deadline, see GET_STATUS_MAX_WAIT
+            # in mcp_server.py) always sees a definite response or our own
+            # timeout error within its budget, instead of the client giving
+            # up first and the caller having to retry into a 409.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=25)
         except HTTPError as e:
             # Read the response body once upfront to avoid stream-exhaustion
             # issues if multiple branches need to inspect it.
@@ -1482,7 +1505,10 @@ class PipelineToolHandler:
             data["config"] = config
 
         try:
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+            # Same 25s rationale as _handle_submit_task: stay inside the
+            # MCP client's ~30s streamable-HTTP deadline so the caller
+            # always sees a definite response or our own timeout error.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=25)
         except HTTPError as e:
             try:
                 raw_body = e.read()
@@ -1597,7 +1623,8 @@ class PipelineToolHandler:
             data["config"] = config
 
         try:
-            result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+            # Same 25s rationale as _handle_submit_task.
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data, timeout=25)
         except HTTPError as e:
             try:
                 raw_body = e.read()
