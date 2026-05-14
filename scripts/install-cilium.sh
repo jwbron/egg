@@ -110,8 +110,20 @@ tar -xzf "$TARBALL" -C "$TMPDIR"
 CILIUM_BIN="$TMPDIR/cilium"
 chmod +x "$CILIUM_BIN"
 
-log "Running 'cilium install --version ${CILIUM_VERSION}'..."
-"$CILIUM_BIN" install --version "$CILIUM_VERSION"
+# Conservative datapath config. kube-proxy replacement, BPF masquerade,
+# and BPF host routing each attach eBPF programs to physical devices; on
+# hosts where the primary NIC is unusual (e.g. a wireless interface) that
+# can blackhole host connectivity entirely. The legacy/iptables datapath
+# keeps Cilium's eBPF on cilium_* interfaces and pod veths only, and still
+# provides full L3/L4 NetworkPolicy enforcement.
+CILIUM_INSTALL_ARGS=(
+  --version "$CILIUM_VERSION"
+  --set kubeProxyReplacement=false
+  --set bpf.masquerade=false
+  --set bpf.hostLegacyRouting=true
+)
+log "Running 'cilium install ${CILIUM_INSTALL_ARGS[*]}'..."
+"$CILIUM_BIN" install "${CILIUM_INSTALL_ARGS[@]}"
 
 log "Waiting for Cilium to be ready (timeout: 300s)..."
 "$CILIUM_BIN" status --wait --wait-duration=5m

@@ -500,6 +500,7 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 	@echo "==> Creating gateway-secrets in egg-system namespace..."
 	@echo "   (all files under ~/.config/egg/ become keys in the secret)"
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
+	kubectl apply -f k8s/base/namespaces.yaml && \
 	kubectl -n egg-system create secret generic gateway-secrets \
 		--from-file=$$HOME/.config/egg/ \
 		--dry-run=client -o yaml | kubectl apply -f -
