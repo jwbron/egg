@@ -128,6 +128,36 @@ log "Running 'cilium install ${CILIUM_INSTALL_ARGS[*]}'..."
 log "Waiting for Cilium to be ready (timeout: 300s)..."
 "$CILIUM_BIN" status --wait --wait-duration=5m
 
+# Post-install verification: confirm cilium-config matches the conservative
+# datapath flags we passed. cilium-cli's auto-detection prints info messages
+# like "Cilium will fully replace all functionalities of kube-proxy" even
+# when --set kubeProxyReplacement=false is passed (k3s embeds kube-proxy in
+# k3s-agent, so cilium-cli sees no kube-proxy DaemonSet and announces it
+# will replace it). The --set flag overrides the helm value during chart
+# rendering, but the info-message-vs-real-config mismatch is a property we
+# should not rely on silently — assert the deployed values match.
+log "Verifying cilium-config matches expected conservative datapath..."
+CFG=$(kubectl -n kube-system get cm cilium-config -o json)
+verify_failed=0
+for kv in \
+    'kube-proxy-replacement:false' \
+    'enable-bpf-masquerade:false' \
+    'enable-host-legacy-routing:true'; do
+  key="${kv%%:*}"
+  want="${kv##*:}"
+  got=$(echo "$CFG" | jq -r ".data[\"$key\"] // empty")
+  if [ "$got" != "$want" ]; then
+    error "cilium-config[$key] = '$got', expected '$want'"
+    verify_failed=1
+  fi
+done
+if [ "$verify_failed" -ne 0 ]; then
+  error "The cilium-cli may have silently overridden a --set flag during install."
+  error "Run 'kubectl -n kube-system get cm cilium-config -o yaml' to inspect."
+  exit 1
+fi
+log "cilium-config matches expected datapath."
+
 # Post-install verification: the host CNI config directory should now
 # contain Cilium's conflist and nothing from a previous CNI. This catches
 # the silent-failure mode where kubelet keeps using a leftover Calico
