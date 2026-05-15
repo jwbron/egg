@@ -528,8 +528,7 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" | \
 		kubectl apply -f - && \
-	kubectl -n egg-system wait --for=condition=Available deployment/orchestrator --timeout=120s && \
-	kubectl -n egg-system wait --for=condition=Available deployment/gateway --timeout=120s
+	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
 	@echo "Deployment complete"
 
 redeploy: build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
