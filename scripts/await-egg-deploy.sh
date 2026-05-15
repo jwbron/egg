@@ -23,6 +23,15 @@ TAG="$1"
 TIMEOUT="${2:-180}"
 DEPLOYMENTS=(orchestrator gateway)
 
+# Keep kubectl stderr off of stdout so the success-path jsonpath value in
+# $out is strictly equal to the queried field. If a future cluster ever
+# emits a stderr warning on a successful call (admission webhook
+# deprecation, API-version advisory, token-near-expiry), merging it into
+# $out would silently fail the [ "$out" = "True" ] equality and poll
+# until timeout.
+err_file=$(mktemp)
+trap 'rm -f "$err_file"' EXIT
+
 deadline=$(( $(date +%s) + TIMEOUT ))
 
 while :; do
@@ -31,13 +40,14 @@ while :; do
   for d in "${DEPLOYMENTS[@]}"; do
     rc=0
     out=$(kubectl -n "$NS" get deployment "$d" \
-      -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>&1) || rc=$?
-    if [ "$rc" -ne 0 ] && ! grep -q 'NotFound' <<<"$out"; then
+      -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>"$err_file") || rc=$?
+    err=$(<"$err_file")
+    if [ "$rc" -ne 0 ] && ! grep -q 'NotFound' <<<"$err"; then
       # Real kubectl error (auth, connection, RBAC) — surface
       # immediately rather than polling silently for the full timeout.
       # NotFound is the expected "not yet observed" state during early
       # rollout and falls through to the not-Available branch below.
-      echo "ERROR: kubectl get deployment $d failed: $out" >&2
+      echo "ERROR: kubectl get deployment $d failed: $err" >&2
       exit 1
     fi
     [ "$out" = "True" ] || all_available=0
