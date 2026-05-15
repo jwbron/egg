@@ -18,7 +18,8 @@
 set -euo pipefail
 
 NS="egg-system"
-TAG="${1:-unknown}"
+: "${1:?usage: $0 <egg-image-tag> [timeout-seconds]}"
+TAG="$1"
 TIMEOUT="${2:-180}"
 DEPLOYMENTS=(orchestrator gateway)
 
@@ -28,9 +29,18 @@ while :; do
   # Success: every deployment reports Available=True.
   all_available=1
   for d in "${DEPLOYMENTS[@]}"; do
-    avail=$(kubectl -n "$NS" get deployment "$d" \
-      -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null || echo "")
-    [ "$avail" = "True" ] || all_available=0
+    rc=0
+    out=$(kubectl -n "$NS" get deployment "$d" \
+      -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>&1) || rc=$?
+    if [ "$rc" -ne 0 ] && ! grep -q 'NotFound' <<<"$out"; then
+      # Real kubectl error (auth, connection, RBAC) — surface
+      # immediately rather than polling silently for the full timeout.
+      # NotFound is the expected "not yet observed" state during early
+      # rollout and falls through to the not-Available branch below.
+      echo "ERROR: kubectl get deployment $d failed: $out" >&2
+      exit 1
+    fi
+    [ "$out" = "True" ] || all_available=0
   done
   if [ "$all_available" -eq 1 ]; then
     echo "All egg-system deployments are Available."
