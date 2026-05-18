@@ -250,10 +250,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Agent-spawner interface shape: what method signature should AgentSpawner expose so both KubernetesSpawner and ClaudeCodeSpawner can satisfy it?",
+      "context": "Open contract question cq-4, registered by an agent during the refine phase.",
+      "options": [
+        "Synchronous spawn(role, prompt, env, worktree) -> AgentResult: caller blocks until agent completes; spawner handles internal concurrency. Maps cleanly to the Agent tool's call-and-wait model; k8s implementation polls internally",
+        "Async dispatch + poll: spawn(...) -> AgentHandle; poll(handle) -> AgentStatus; matches today's KubernetesSpawner+monitor split, but requires the Claude Code spawner to fake handles (no underlying job ID) and complicates the in-process model",
+        "Stream-shaped: spawn(...) yields events (start, tool-call, output, completion); the orchestrator drives the agent via the event stream; mirrors how egg_harness exposes the agent loop. Most powerful, biggest refactor",
+        "Agent-tool-direct (Claude Code only): the abstraction is 'request a subagent run' and the k8s implementation translates by spawning a process running egg_harness — the interface is shaped around Claude Code's call shape, k8s adapts",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-18T23:27:52.865035Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-18T23:27:52.840075Z",
+  "updated_at": "2026-05-18T23:27:52.870013Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -267,7 +287,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
