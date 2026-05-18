@@ -123,11 +123,20 @@ if [ "$SKIP_INSTALL" -eq 0 ]; then
   # can blackhole host connectivity entirely. The legacy/iptables datapath
   # keeps Cilium's eBPF on cilium_* interfaces and pod veths only, and still
   # provides full L3/L4 NetworkPolicy enforcement.
+  #
+  # cni.chainingMode=portmap chains the standard portmap CNI plugin after
+  # Cilium. With kubeProxyReplacement=false Cilium does not implement
+  # Kubernetes hostPort itself, and without portmap chaining hostPort
+  # mappings (e.g. orchestrator's 9849/9850 in the local overlay) are
+  # silently dropped — pods serve fine inside the cluster but the mapped
+  # ports never bind on the node, so Claude Code's MCP client at
+  # http://localhost:9850/mcp gets connection-refused.
   CILIUM_INSTALL_ARGS=(
     --version "$CILIUM_VERSION"
     --set kubeProxyReplacement=false
     --set bpf.masquerade=false
     --set bpf.hostLegacyRouting=true
+    --set cni.chainingMode=portmap
   )
   log "Running 'cilium install ${CILIUM_INSTALL_ARGS[*]}'..."
   "$CILIUM_BIN" install "${CILIUM_INSTALL_ARGS[@]}"
@@ -151,7 +160,8 @@ verify_failed=0
 for kv in \
     'kube-proxy-replacement:false' \
     'enable-bpf-masquerade:false' \
-    'enable-host-legacy-routing:true'; do
+    'enable-host-legacy-routing:true' \
+    'cni-chaining-mode:portmap'; do
   key="${kv%%:*}"
   want="${kv##*:}"
   # kubectl jsonpath returns the value directly (empty string if the key
