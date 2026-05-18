@@ -276,6 +276,49 @@ if [ -d "$CNI_DIR" ]; then
   fi
 fi
 
+# Post-install: install the pod-egress MASQUERADE rule that cilium-agent
+# does NOT install when running in chained-CNI mode.
+#
+# cni.chainingMode=portmap (which we set above to give us hostPort under
+# kubeProxyReplacement=false) puts cilium-agent into a "chained" mode
+# where it treats itself as a secondary plugin behind a notional primary
+# CNI and defers iptables masquerade to that primary. But here Cilium IS
+# the primary (it owns IPAM and the datapath); there is no other primary
+# to install the rule. So agent's CILIUM_POST_nat chain stays empty even
+# though cilium-config has enable-ipv4-masquerade=true, pod traffic
+# leaves the host with its pod-CIDR source IP intact, the internet
+# routes responses to an unrouteable address, and any pod that needs
+# external egress (gateway -> api.github.com, sandbox agents -> the
+# Anthropic API, etc.) silently fails.
+#
+# Install the equivalent rule directly in POSTROUTING (not
+# CILIUM_POST_nat, which the agent flushes on every config sync) so it
+# survives agent restarts. The match is what cilium-agent would install
+# in non-chained mode. Idempotent — re-running the script is a no-op
+# if the rule is already present.
+log "Installing pod-egress MASQUERADE rule (compensates for chained-CNI mode)..."
+POD_POOL_CIDR=$(kubectl -n kube-system get cm cilium-config -o "jsonpath={.data.cluster-pool-ipv4-cidr}" 2>/dev/null \
+  | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}' | head -1)
+if [ -z "$POD_POOL_CIDR" ]; then
+  error "Could not read cluster-pool-ipv4-cidr from cilium-config — cannot install pod-egress MASQUERADE rule."
+  error "Pod-to-external traffic (gateway -> GitHub, sandbox agents -> APIs) will fail without it."
+  exit 1
+fi
+MASQ_COMMENT="egg: cilium pod egress (chained-mode masquerade compensation)"
+if sudo iptables -t nat -C POSTROUTING -s "$POD_POOL_CIDR" ! -d "$POD_POOL_CIDR" -m comment --comment "$MASQ_COMMENT" -j MASQUERADE 2>/dev/null; then
+  log "  MASQUERADE rule already present for ${POD_POOL_CIDR}; nothing to do."
+else
+  sudo iptables -t nat -A POSTROUTING -s "$POD_POOL_CIDR" ! -d "$POD_POOL_CIDR" -m comment --comment "$MASQ_COMMENT" -j MASQUERADE
+  log "  Installed MASQUERADE rule for ${POD_POOL_CIDR}."
+fi
+# Verify — same -C check, just sanity, fail loud if iptables silently rejected the add.
+if ! sudo iptables -t nat -C POSTROUTING -s "$POD_POOL_CIDR" ! -d "$POD_POOL_CIDR" -m comment --comment "$MASQ_COMMENT" -j MASQUERADE 2>/dev/null; then
+  error "Pod-egress MASQUERADE rule failed to install in POSTROUTING."
+  error "Pod-to-external traffic (gateway -> GitHub, sandbox agents -> APIs) will fail."
+  exit 1
+fi
+log "Pod-egress MASQUERADE verified."
+
 if [ "$SKIP_INSTALL" -eq 1 ]; then
   log "Cilium verification passed (install skipped, cluster was already ready)."
 else
