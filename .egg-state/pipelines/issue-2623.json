@@ -411,10 +411,55 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Definition of 'conformance passes on ≥5 representative issues': should the ≥5 measurement issues be a fixed curated set (and if so, which? — please name them or describe selection criteria), or sampled per-CI-run from open issues, or some other rule?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Are there latency or throughput budgets the Claude Code substrate should meet relative to the k3s substrate? (E.g. 'refine phase ≤ 2x k3s latency'.) If so, what are they? If none, is performance acceptable as 'whatever Claude Code gives us so long as it terminates'?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Are there constraints on third-party dependencies the substrate is allowed to introduce — e.g. any specific Python packages forbidden, any size cap on the marketplace plugin install footprint, any restriction on requiring a developer-mode Claude Code feature flag?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Should the in-process orchestrator support being driven by NON-Claude-Code callers too (e.g. a CLI 'egg-orch local-run --issue 1234' that uses the in-process orchestrator with a non-Claude-Code agent harness)? Or is the Claude Code substrate intentionally Claude-Code-only?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Is there appetite to use this issue to also fix structural-cause #5 from #2622 (no tool-use budget signaling) and #6 (no minimum-breadth targets in role files) — given they require role-file edits that touch shared/prompts/ regardless of substrate — or should those stay scoped to #2622?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Any concerns about telemetry / privacy regression when the orchestrator runs in the user's session vs. a k3s pod (e.g. checkpoints written to local filesystem may contain sensitive prompts/contexts that previously stayed in cluster-storage)?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-18T23:27:53.171260Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-18T23:27:53.143548Z",
+  "updated_at": "2026-05-18T23:27:53.177786Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -428,7 +473,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23,
+  "version": 24,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
