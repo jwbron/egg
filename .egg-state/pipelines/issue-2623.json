@@ -230,10 +230,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Conformance-suite scoping: where does the substrate-portable behavioral test set live?",
+      "context": "Open contract question cq-3, registered by an agent during the refine phase.",
+      "options": [
+        "Extend integration_tests/regression/ with a substrate parameter (CI matrix): each existing test runs under both k3s and claude-code substrates; tests that are inherently k3s-specific (e.g. live-pod-guard) skip on the claude-code dimension",
+        "New shared conformance package (e.g. integration_tests/conformance/): factor substrate-portable invariants out of integration_tests/regression/; the regression suite keeps the k3s-specific stuff and the new package is what both substrates run",
+        "Per-substrate test suites: integration_tests/regression/ stays k3s; integration_tests/claude_code/ is the new substrate's suite; cross-substrate conformance becomes a documented set of invariants verified by inspection, not by a single CI matrix",
+        "Skill-internal cycle harness: the Claude Code substrate gets its own end-to-end smoke test that re-runs the refine-plan skill's existing local repro against ≥5 representative issues; no cross-substrate matrix",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-18T23:27:52.833227Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-18T23:27:52.777917Z",
+  "updated_at": "2026-05-18T23:27:52.840075Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -247,7 +267,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
