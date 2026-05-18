@@ -190,10 +190,30 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Substrate coexistence strategy: how should the Claude Code substrate relate to the existing k3s substrate?",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "Parallel substrates, env-var-selected: AgentSpawner/MessageBus/PolicyEnforcer interfaces in egg_orchestrator with two implementations; EGG_SUBSTRATE=claude-code|k3s; both run the same conformance suite (Option A)",
+        "Full cut-over to Claude Code substrate: delete k3s/Redis/Docker/gateway code; orchestrator only runs in-process to a Claude Code session (Option B)",
+        "Skill-only: do not refactor the orchestrator; ship a beefier refine-plan/sdlc skill that imports egg_orchestrator Python for non-protocol code (Option C — contradicts the issue's substrate-swap framing, listed for completeness)",
+        "In-process binding without interfaces: monkey-patch / DI the new spawner+bus at boot path; no named abstraction layer (Option D)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-18T23:27:52.670977Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-18T23:27:23.279727Z",
+  "updated_at": "2026-05-18T23:27:52.681476Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -207,7 +227,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
