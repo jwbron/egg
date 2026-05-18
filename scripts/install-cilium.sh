@@ -293,15 +293,52 @@ fi
 #
 # Install the equivalent rule directly in POSTROUTING (not
 # CILIUM_POST_nat, which the agent flushes on every config sync) so it
-# survives agent restarts. The match is what cilium-agent would install
-# in non-chained mode. Idempotent — re-running the script is a no-op
-# if the rule is already present.
+# survives agent restarts and config reloads. NOTE: this is a runtime
+# iptables rule — it is NOT persisted across host reboots. Re-run this
+# script (or `make k3s-setup`) after a reboot, or wire the rule into
+# `netfilter-persistent`/`iptables-restore` at the system level.
+#
+# Idempotent — re-running the script is a no-op if the rule is already
+# present.
+#
+# Footgun: Cilium's default cluster-pool is 10.0.0.0/8 (very broad
+# RFC1918) since we don't pass --set ipam.operator.clusterPoolIPv4PodCIDRList.
+# On hosts whose own primary IP is in 10.0.0.0/8 (corporate VPNs,
+# AWS/GCP VPCs with 10.x subnets), the rule "-s 10.0.0.0/8
+# ! -d 10.0.0.0/8 -j MASQUERADE" also matches host-originated traffic
+# from that IP; MASQUERADE rewrites source to the outbound iface IP
+# (usually the same address) so it's functionally a no-op, but a
+# narrower pool (e.g. 10.244.0.0/16) would scope the rule strictly to
+# pod traffic if exotic routing topologies become a concern.
+#
+# IPv6 / dual-stack TODO: only cluster-pool-ipv4-cidr is read. If
+# dual-stack is enabled in the future (cilium-config gets
+# cluster-pool-ipv6-cidr), an equivalent
+# `ip6tables -t nat -A POSTROUTING -s <v6-pool> ! -d <v6-pool> -j MASQUERADE`
+# is required or v6 pod egress will silently fail the same way v4 did.
+#
+# iptables backend skew: this rule lands in whichever backend
+# /usr/sbin/iptables points to. Modern Ubuntu and stock k3s both default
+# to iptables-nft, so this matches what cilium-agent (and k3s-agent's
+# embedded kube-proxy) use. Surface the active backend in the log so a
+# rare iptables-legacy host shows up at install time, not as silent
+# packet loss later.
 log "Installing pod-egress MASQUERADE rule (compensates for chained-CNI mode)..."
-POD_POOL_CIDR=$(kubectl -n kube-system get cm cilium-config -o "jsonpath={.data.cluster-pool-ipv4-cidr}" 2>/dev/null \
-  | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}' | head -1)
+update-alternatives --display iptables 2>/dev/null | head -3 | sed 's/^/  iptables-alt: /' || true
+# Bracket-notation jsonpath for the hyphenated key — older kubectl
+# parsed dotted hyphens as subtraction. `|| true` keeps the assignment
+# alive when the key is absent (renamed by a future Cilium release, or
+# operator on a non-cluster-pool IPAM mode like ipam.mode=kubernetes/eni);
+# without it, `set -euo pipefail` + grep's exit 1 would short-circuit
+# the script and the explicit empty-check below would never fire.
+POD_POOL_CIDR=$(kubectl -n kube-system get cm cilium-config -o "jsonpath={.data['cluster-pool-ipv4-cidr']}" 2>/dev/null \
+  | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}' | head -1 || true)
 if [ -z "$POD_POOL_CIDR" ]; then
   error "Could not read cluster-pool-ipv4-cidr from cilium-config — cannot install pod-egress MASQUERADE rule."
-  error "Pod-to-external traffic (gateway -> GitHub, sandbox agents -> APIs) will fail without it."
+  error "Likely causes: non-cluster-pool IPAM mode (ipam.mode=kubernetes/eni), or the key was"
+  error "renamed in a newer Cilium release. Inspect with:"
+  error "  kubectl -n kube-system get cm cilium-config -o yaml | grep -i cidr"
+  error "Pod-to-external traffic (gateway -> GitHub, sandbox agents -> APIs) will fail without the rule."
   exit 1
 fi
 MASQ_COMMENT="egg: cilium pod egress (chained-mode masquerade compensation)"
