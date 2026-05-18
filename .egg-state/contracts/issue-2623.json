@@ -42,10 +42,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Parallel substrates, env-var-selected: AgentSpawner/MessageBus/PolicyEnforcer interfaces in egg_orchestrator with two implementations; EGG_SUBSTRATE=claude-code|k3s; both run the same conformance suite (Option A)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:34:20.757853Z",
       "debounce_until": null
     },
     {
@@ -80,10 +80,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"All phases (refine + plan + implement + pr): full SDLC inside Claude Code; matches the issue body's North Star verbatim\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:34:50.687612Z",
       "debounce_until": null
     },
     {
@@ -118,10 +118,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Extend integration_tests/regression/ with a substrate parameter (CI matrix): each existing test runs under both k3s and claude-code substrates; tests that are inherently k3s-specific (e.g. live-pod-guard) skip on the claude-code dimension\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:46:45.575594Z",
       "debounce_until": null
     },
     {
@@ -156,10 +156,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Synchronous spawn(role, prompt, env, worktree) -> AgentResult: caller blocks until agent completes; spawner handles internal concurrency. Maps cleanly to the Agent tool's call-and-wait model; k8s implementation polls internally\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:48:08.845497Z",
       "debounce_until": null
     },
     {
@@ -194,10 +194,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Port egg's WORKTREE_BASE_DIR model: agents run inside .egg-state/<pipeline_id>/ subdirectories on the user's filesystem; the spawner manages worktree creation/teardown explicitly. Preserves egg's checkout-sharing; doesn't use Claude Code's native worktree mechanism\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:48:08.861461Z",
       "debounce_until": null
     },
     {
@@ -232,10 +232,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"PreToolUse hooks in .claude/settings.json: skill-installed hook intercepts Write/Edit/Bash/etc. and calls into shared/egg_restrictions/patterns.py; structural enforcement at the tool boundary\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:48:08.875069Z",
       "debounce_until": null
     },
     {
@@ -270,10 +270,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Heredoc-style synchronous: the orchestrator surface is a generator that yields HITLDecision objects; the skill's outer loop renders them with AskUserQuestion and feeds answers back. Hybrid of 1 and 3\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:52:06.893277Z",
       "debounce_until": null
     },
     {
@@ -308,10 +308,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Plugin metadata declares pip dependencies: user runs 'pip install egg' (or equivalent) once; plugin.json documents the requirement; smallest plugin but pre-flight check needed before the skill works\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:52:06.910707Z",
       "debounce_until": null
     },
     {
@@ -346,10 +346,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Leave k3s indefinitely as a co-equal substrate: both substrates are supported; CI matrix tests both; k3s is the answer for headless / server deployments, Claude Code substrate is the answer for solo developers. (default, lowest-risk)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:52:06.923611Z",
       "debounce_until": null
     },
     {
@@ -384,10 +384,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: checkpoint for cross-turn recovery, fork for sub-task delegation; the system prompt teaches when to use which\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:52:38.111737Z",
       "debounce_until": null
     },
     {
@@ -427,10 +427,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Spike then plan: a single 'walking skeleton' slice that gets one role (refiner) running through one substrate (claude-code) end-to-end, then re-plan the rollout based on what the spike learns; 1 PR for the spike + follow-up issue\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-18T23:52:38.274810Z",
       "debounce_until": null
     }
   ],
@@ -1033,37 +1033,37 @@
       {
         "id": "Q1",
         "question": "Definition of 'conformance passes on \u22655 representative issues': should the \u22655 measurement issues be a fixed curated set (and if so, which? \u2014 please name them or describe selection criteria), or sampled per-CI-run from open issues, or some other rule?",
-        "answer": null
+        "answer": "Fixed curated set covering SDLC hot paths: one bug fix, one feature add, one refactor, one infra/script change, one doc change. Specific issue numbers picked during the spike or follow-up. Rationale: random sampling would let CI vary without insight; fixed set gives a stable benchmark you can A/B against substrate changes."
       },
       {
         "id": "Q2",
         "question": "Are there latency or throughput budgets the Claude Code substrate should meet relative to the k3s substrate? (E.g. 'refine phase \u2264 2x k3s latency'.) If so, what are they? If none, is performance acceptable as 'whatever Claude Code gives us so long as it terminates'?",
-        "answer": null
+        "answer": "No explicit budget; re-evaluate after the spike with real numbers. The Claude Code substrate is inherently slower per-agent-call (subagent dispatch overhead) and ratios depend on empirical data we don't have yet. Locking 'X*k3s latency' before the spike risks setting an arbitrary line. Set a budget once data exists."
       },
       {
         "id": "Q3",
         "question": "Are there constraints on third-party dependencies the substrate is allowed to introduce \u2014 e.g. any specific Python packages forbidden, any size cap on the marketplace plugin install footprint, any restriction on requiring a developer-mode Claude Code feature flag?",
-        "answer": null
+        "answer": "No hard constraints. Soft preferences only: (a) avoid huge transitive dep trees \u2014 prefer existing egg deps where reasonable; (b) no dependency on developer-mode Claude Code feature flags \u2014 substrate must work on stable CC; (c) no strict plugin-size cap, but flag if marketplace install exceeds ~100 MB."
       },
       {
         "id": "Q4",
         "question": "Should the in-process orchestrator support being driven by NON-Claude-Code callers too (e.g. a CLI 'egg-orch local-run --issue 1234' that uses the in-process orchestrator with a non-Claude-Code agent harness)? Or is the Claude Code substrate intentionally Claude-Code-only?",
-        "answer": null
+        "answer": "Yes, support non-Claude-Code callers as a secondary goal. If the AgentSpawner interface is right (cq-4 \u2192 synchronous), a third EggHarnessSpawner (subprocess running egg_harness) gives headless / CLI mode (egg-orch local-run --issue 1234) nearly for free, battle-tests the abstraction with three implementations, and unlocks CI usage of the in-process orchestrator without needing Claude Code. Primary use case stays the skill."
       },
       {
         "id": "Q5",
         "question": "Is there appetite to use this issue to also fix structural-cause #5 from #2622 (no tool-use budget signaling) and #6 (no minimum-breadth targets in role files) \u2014 given they require role-file edits that touch shared/prompts/ regardless of substrate \u2014 or should those stay scoped to #2622?",
-        "answer": null
+        "answer": "Scope to #2622, not this issue. Both #5 (tool-use budget signaling) and #6 (minimum-breadth targets) are pure prompt edits to shared/prompts/*.md that improve depth on both substrates regardless of the swap \u2014 orthogonal to substrate work. This issue is already large (abstraction layer + two implementations + conformance matrix + ADR, even with spike-first sequencing). Letting #2622 stay the home keeps both issues cohesive."
       },
       {
         "id": "Q6",
         "question": "Any concerns about telemetry / privacy regression when the orchestrator runs in the user's session vs. a k3s pod (e.g. checkpoints written to local filesystem may contain sensitive prompts/contexts that previously stayed in cluster-storage)?",
-        "answer": null
+        "answer": "Flag, don't block. Document checkpoint location in install docs (~/.egg-state/<pipeline_id>/). Add a local cleanup verb (egg-state prune or similar) for the Claude Code substrate. No telemetry sent (local-only). Not a strict regression vs k3s (which also wrote checkpoints to local PV / emptyDir); the difference is just persistence horizon and the user is the one who can prune."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-18T23:54:33.877799Z",
     "comment_id": null,
     "debounce_until": null
   },
