@@ -180,6 +180,36 @@ if [ "$verify_failed" -ne 0 ]; then
 fi
 log "cilium-config matches expected datapath."
 
+# Post-install verification: cni.chainingMode=portmap writes a CNI
+# conflist that references the upstream portmap plugin binary, but
+# Cilium only installs cilium-cni — not portmap — into its binPath
+# (default /opt/cni/bin). When kubelet sets up a pod sandbox it walks
+# the chain and exec's each plugin from CNI_PATH; if portmap is missing
+# it fails with "failed to find plugin 'portmap' in path [/opt/cni/bin]"
+# and every pod with a hostPort: (orchestrator's 9849/9850 in the local
+# overlay) sits in ContainerCreating forever. k3s ships portmap in its
+# own bundled CNI bin dir; copy it into Cilium's binPath when missing so
+# the fix works on fresh CI runners and fresh local installs alike,
+# without adding a network dependency to this script.
+log "Verifying portmap CNI plugin binary is available..."
+CNI_BIN_DIR="/opt/cni/bin"
+if [ ! -x "$CNI_BIN_DIR/portmap" ]; then
+  K3S_CNI_BIN_DIR="/var/lib/rancher/k3s/data/current/bin"
+  if [ -x "$K3S_CNI_BIN_DIR/portmap" ]; then
+    log "  portmap missing from ${CNI_BIN_DIR}; copying from ${K3S_CNI_BIN_DIR}..."
+    sudo mkdir -p "$CNI_BIN_DIR"
+    sudo cp "$K3S_CNI_BIN_DIR/portmap" "$CNI_BIN_DIR/portmap"
+  else
+    error "portmap CNI plugin binary not found at ${CNI_BIN_DIR}/portmap or ${K3S_CNI_BIN_DIR}/portmap."
+    error "cni.chainingMode=portmap needs portmap at ${CNI_BIN_DIR}/ to handle hostPort —"
+    error "without it, pods with hostPort: stay in ContainerCreating indefinitely."
+    error "Install the standard CNI plugins (e.g. 'apt-get install -y containernetworking-plugins'"
+    error "and copy /usr/lib/cni/portmap to ${CNI_BIN_DIR}/portmap)."
+    exit 1
+  fi
+fi
+log "portmap CNI plugin binary OK at ${CNI_BIN_DIR}/portmap."
+
 # Post-install verification: the host CNI config directory should now
 # contain Cilium's conflist and nothing from a previous CNI. This catches
 # the silent-failure mode where kubelet keeps using a leftover Calico
