@@ -106,6 +106,11 @@ if ! sudo test -x "$CNI_BIN_DIR/portmap"; then
     error "portmap exists at ${K3S_CNI_BIN_DIR}/portmap but is not executable."
     error "Check filesystem and SELinux permissions on the k3s data dir."
     exit 1
+  elif sudo test -e "$CNI_BIN_DIR/portmap"; then
+    error "portmap exists at ${CNI_BIN_DIR}/portmap but is not executable,"
+    error "and no fallback binary was found at ${K3S_CNI_BIN_DIR}/portmap."
+    error "Check file mode (expected 0755) on ${CNI_BIN_DIR}/portmap."
+    exit 1
   else
     error "portmap CNI plugin binary not found at ${CNI_BIN_DIR}/portmap or ${K3S_CNI_BIN_DIR}/portmap."
     error "cni.chainingMode=portmap needs portmap at ${CNI_BIN_DIR}/ to handle hostPort —"
@@ -116,10 +121,13 @@ if ! sudo test -x "$CNI_BIN_DIR/portmap"; then
   fi
 fi
 # Smoke-test the binary so wrong-arch or truncated copies fail here
-# instead of as cryptic CNI ADD errors at first pod schedule. portmap
-# with no CNI_* env vars writes a CNI-spec error to stderr (e.g.
-# "CNI ... missing"); a broken binary fails with ENOEXEC/segfault and
-# produces no "CNI" token.
+# instead of as cryptic CNI ADD errors at first pod schedule. Modern
+# portmap (e.g. v1.5.1 shipped by k3s and containernetworking-plugins)
+# exits 0 with a "CNI portmap plugin vX.Y.Z" banner on stdout when
+# invoked with no CNI_* env vars; older versions print a CNI-spec
+# error to stderr. The 2>&1 merge means either path matches. A broken
+# binary (wrong arch, truncated) fails with ENOEXEC/segfault and
+# produces no "CNI" token on either stream.
 if ! sudo "$CNI_BIN_DIR/portmap" </dev/null 2>&1 | grep -q CNI; then
   error "portmap binary at ${CNI_BIN_DIR}/portmap failed smoke test."
   error "Likely wrong architecture or a corrupted copy — remove it and re-run."
@@ -205,6 +213,7 @@ fi
 # live cluster's config without re-installing.
 log "Verifying cilium-config matches expected conservative datapath..."
 verify_failed=0
+chaining_mode_failed=0
 for kv in \
     'kube-proxy-replacement:false' \
     'enable-bpf-masquerade:false' \
@@ -219,15 +228,20 @@ for kv in \
   if [ "$got" != "$want" ]; then
     error "cilium-config[$key] = '$got', expected '$want'"
     verify_failed=1
+    if [ "$key" = "cni-chaining-mode" ]; then
+      chaining_mode_failed=1
+    fi
   fi
 done
 if [ "$verify_failed" -ne 0 ]; then
   error "The cilium-cli may have silently overridden a --set flag during install."
-  error "If this is a Cilium install from before #2713 (no cni-chaining-mode key),"
-  error "the supported remediation is 'make k3s-teardown && make k3s-setup' — the"
-  error "chainingMode value cannot be changed by editing cilium-config on a live"
-  error "cluster, as the agent only reads it at startup."
-  error "Otherwise, run 'kubectl -n kube-system get cm cilium-config -o yaml' to inspect."
+  if [ "$chaining_mode_failed" -eq 1 ]; then
+    error "cni-chaining-mode mismatch suggests this is a Cilium install from before"
+    error "#2713. The supported remediation is 'make k3s-teardown && make k3s-setup'"
+    error "— the chainingMode value cannot be changed by editing cilium-config on a"
+    error "live cluster, as the agent only reads it at startup."
+  fi
+  error "Run 'kubectl -n kube-system get cm cilium-config -o yaml' to inspect."
   exit 1
 fi
 log "cilium-config matches expected datapath."
