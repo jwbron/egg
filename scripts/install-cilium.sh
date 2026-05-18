@@ -79,6 +79,54 @@ if kubectl get daemonset -n kube-system cilium &>/dev/null; then
   fi
 fi
 
+# Ensure the portmap CNI plugin binary is available BEFORE running
+# 'cilium install'. cni.chainingMode=portmap makes cilium-agent drop a
+# conflist that references portmap as soon as the agent pod is up; if
+# portmap is missing from /opt/cni/bin at that moment, kubelet retries
+# every pending pod (coredns, traefik, local-path-provisioner — none
+# use hostPort but all traverse the CNI chain on every ADD) against
+# the missing plugin and they fall into sandbox-creation backoff
+# (capped at 5 min). Cilium only installs cilium-cni into its binPath
+# (default /opt/cni/bin) — not portmap — so we copy it from k3s's
+# bundled CNI bin dir, which is already populated by the time this
+# script runs. No new network dependency.
+#
+# sudo test -x (not [ -x ... ]) so a hardened parent-dir mode that
+# blocks the invoking user's traverse surfaces as a real permissions
+# error instead of a misleading "not found".
+log "Verifying portmap CNI plugin binary is available..."
+CNI_BIN_DIR="/opt/cni/bin"
+if ! sudo test -x "$CNI_BIN_DIR/portmap"; then
+  K3S_CNI_BIN_DIR="/var/lib/rancher/k3s/data/current/bin"
+  if sudo test -x "$K3S_CNI_BIN_DIR/portmap"; then
+    log "  portmap missing from ${CNI_BIN_DIR}; copying from ${K3S_CNI_BIN_DIR}..."
+    sudo mkdir -p "$CNI_BIN_DIR"
+    sudo cp "$K3S_CNI_BIN_DIR/portmap" "$CNI_BIN_DIR/portmap"
+  elif sudo test -e "$K3S_CNI_BIN_DIR/portmap"; then
+    error "portmap exists at ${K3S_CNI_BIN_DIR}/portmap but is not executable."
+    error "Check filesystem and SELinux permissions on the k3s data dir."
+    exit 1
+  else
+    error "portmap CNI plugin binary not found at ${CNI_BIN_DIR}/portmap or ${K3S_CNI_BIN_DIR}/portmap."
+    error "cni.chainingMode=portmap needs portmap at ${CNI_BIN_DIR}/ to handle hostPort —"
+    error "without it, pods with hostPort: stay in ContainerCreating indefinitely."
+    error "Install the standard CNI plugins (e.g. 'apt-get install -y containernetworking-plugins'"
+    error "and copy /usr/lib/cni/portmap to ${CNI_BIN_DIR}/portmap)."
+    exit 1
+  fi
+fi
+# Smoke-test the binary so wrong-arch or truncated copies fail here
+# instead of as cryptic CNI ADD errors at first pod schedule. portmap
+# with no CNI_* env vars writes a CNI-spec error to stderr (e.g.
+# "CNI ... missing"); a broken binary fails with ENOEXEC/segfault and
+# produces no "CNI" token.
+if ! sudo "$CNI_BIN_DIR/portmap" </dev/null 2>&1 | grep -q CNI; then
+  error "portmap binary at ${CNI_BIN_DIR}/portmap failed smoke test."
+  error "Likely wrong architecture or a corrupted copy — remove it and re-run."
+  exit 1
+fi
+log "portmap CNI plugin binary OK at ${CNI_BIN_DIR}/portmap."
+
 if [ "$SKIP_INSTALL" -eq 0 ]; then
   # Detect arch
   ARCH=$(uname -m)
@@ -175,40 +223,14 @@ for kv in \
 done
 if [ "$verify_failed" -ne 0 ]; then
   error "The cilium-cli may have silently overridden a --set flag during install."
-  error "Run 'kubectl -n kube-system get cm cilium-config -o yaml' to inspect."
+  error "If this is a Cilium install from before #2713 (no cni-chaining-mode key),"
+  error "the supported remediation is 'make k3s-teardown && make k3s-setup' — the"
+  error "chainingMode value cannot be changed by editing cilium-config on a live"
+  error "cluster, as the agent only reads it at startup."
+  error "Otherwise, run 'kubectl -n kube-system get cm cilium-config -o yaml' to inspect."
   exit 1
 fi
 log "cilium-config matches expected datapath."
-
-# Post-install verification: cni.chainingMode=portmap writes a CNI
-# conflist that references the upstream portmap plugin binary, but
-# Cilium only installs cilium-cni — not portmap — into its binPath
-# (default /opt/cni/bin). When kubelet sets up a pod sandbox it walks
-# the chain and exec's each plugin from CNI_PATH; if portmap is missing
-# it fails with "failed to find plugin 'portmap' in path [/opt/cni/bin]"
-# and every pod with a hostPort: (orchestrator's 9849/9850 in the local
-# overlay) sits in ContainerCreating forever. k3s ships portmap in its
-# own bundled CNI bin dir; copy it into Cilium's binPath when missing so
-# the fix works on fresh CI runners and fresh local installs alike,
-# without adding a network dependency to this script.
-log "Verifying portmap CNI plugin binary is available..."
-CNI_BIN_DIR="/opt/cni/bin"
-if [ ! -x "$CNI_BIN_DIR/portmap" ]; then
-  K3S_CNI_BIN_DIR="/var/lib/rancher/k3s/data/current/bin"
-  if [ -x "$K3S_CNI_BIN_DIR/portmap" ]; then
-    log "  portmap missing from ${CNI_BIN_DIR}; copying from ${K3S_CNI_BIN_DIR}..."
-    sudo mkdir -p "$CNI_BIN_DIR"
-    sudo cp "$K3S_CNI_BIN_DIR/portmap" "$CNI_BIN_DIR/portmap"
-  else
-    error "portmap CNI plugin binary not found at ${CNI_BIN_DIR}/portmap or ${K3S_CNI_BIN_DIR}/portmap."
-    error "cni.chainingMode=portmap needs portmap at ${CNI_BIN_DIR}/ to handle hostPort —"
-    error "without it, pods with hostPort: stay in ContainerCreating indefinitely."
-    error "Install the standard CNI plugins (e.g. 'apt-get install -y containernetworking-plugins'"
-    error "and copy /usr/lib/cni/portmap to ${CNI_BIN_DIR}/portmap)."
-    exit 1
-  fi
-fi
-log "portmap CNI plugin binary OK at ${CNI_BIN_DIR}/portmap."
 
 # Post-install verification: the host CNI config directory should now
 # contain Cilium's conflist and nothing from a previous CNI. This catches
