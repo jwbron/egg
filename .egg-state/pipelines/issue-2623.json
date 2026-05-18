@@ -390,10 +390,31 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Slice-DAG decomposition shape: how should this substrate-swap work be sliced for shippable PRs? (slice count = PR count; siblings in a wave run in parallel)",
+      "context": "Open contract question cq-11, registered by an agent during the refine phase.",
+      "options": [
+        "Single slice — entire substrate swap as one PR family (interfaces + ClaudeCodeSpawner + InProcessMessageBus + PreToolUseHookPolicy + conformance matrix + skill entry point + ADR); 1 PR. Largest blast radius, simplest integration",
+        "Two-wave parallel: [substrate-interfaces + ADR] -> [ClaudeCodeSpawner || InProcessMessageBus || PolicyEnforcer || WorktreeManager (4 parallel implementations)] -> [conformance matrix + skill entry point]; 7 PRs across 3 waves",
+        "Three-wave parallel: [interfaces only] -> [each implementation in parallel] -> [k3s side of the interface adapter || conformance matrix || skill entry point || ADR (all parallel)]; ~9 PRs, very parallel",
+        "Linear chain: interfaces -> message bus -> spawner -> policy -> worktree -> conformance -> skill -> ADR; 8 sequential PRs. Lowest review burden per PR; slowest end-to-end",
+        "Spike then plan: a single 'walking skeleton' slice that gets one role (refiner) running through one substrate (claude-code) end-to-end, then re-plan the rollout based on what the spike learns; 1 PR for the spike + follow-up issue",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-18T23:27:53.137348Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-18T23:27:53.112467Z",
+  "updated_at": "2026-05-18T23:27:53.143548Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -407,7 +428,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
