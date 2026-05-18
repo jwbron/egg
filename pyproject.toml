@@ -27,7 +27,7 @@ dev = [
     "yamllint>=1.32.0",
     "pre-commit>=3.6.0",
     "pytest-timeout>=2.2.0",
-    "hypothesis>=6.100.0",
+    "hypothesis>=6.152.7",
     "kubernetes>=31.0.0,<33.0.0",
     # MCP SDK for orchestrator MCP server tests
     "mcp[cli]>=1.20.0,<2.0.0",
