@@ -47,7 +47,11 @@ jobs:
         # state; the idempotent install-cilium.sh is safe to re-run
         # after k3s recovers.
         run: |
-          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
+          # --disable=metrics-server: egg doesn't use it, and under Cilium it
+          # never becomes Ready (its pod can't reach the kubelet on the node
+          # IP). The dead v1beta1.metrics.k8s.io APIService then wedges all
+          # namespace deletion, hanging test teardown and CI cleanup.
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=metrics-server --write-kubeconfig-mode=644" sh -
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
           echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
           # Install Cilium CNI (retry once if k3s becomes unstable mid-rollout)
@@ -139,15 +143,11 @@ jobs:
       - name: Deploy egg to k3s
         # `make deploy` handles secret creation, image-tag rewrite, host-
         # path envsubst, and waits on both `gateway` and `orchestrator`
-        # deployments. Matches the local-dev invocation exactly.
-        #
-        # `make k3s-secrets` (a prerequisite of `make deploy`) creates the
-        # Secret in the `egg-system` namespace, but the namespace itself
-        # is only created later by `kubectl apply -k k8s/...`. Pre-create
-        # it here so the secret-create step succeeds.
-        run: |
-          kubectl create namespace egg-system --dry-run=client -o yaml | kubectl apply -f -
-          make deploy
+        # deployments. Matches the local-dev invocation exactly. The
+        # `k3s-secrets` prerequisite of `make deploy` applies
+        # `k8s/base/namespaces.yaml` before creating the Secret, so no
+        # namespace pre-create is needed in the workflow.
+        run: make deploy
 
       - name: Run integration and security tests
         env:

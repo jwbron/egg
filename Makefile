@@ -477,9 +477,14 @@ build: sync-venv-if-uv
 #   --flannel-backend=none: Cilium replaces flannel as the CNI dataplane.
 #   --disable-network-policy: Cilium owns NetworkPolicy enforcement; the
 #     k3s-builtin policy controller would otherwise conflict.
+#   --disable=metrics-server: egg does not use metrics-server. Under Cilium
+#     its pod cannot reach the kubelet on the node IP, so it never becomes
+#     Ready; the resulting perpetually-unavailable v1beta1.metrics.k8s.io
+#     APIService makes the namespace controller's discovery step fail,
+#     which wedges *all* namespace deletion (stuck Terminating forever).
 k3s-setup:  ## Install k3s with Cilium CNI
 	@echo "Setting up k3s cluster..."
-	curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --write-kubeconfig-mode=644" sh -
+	curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=none --disable-network-policy --disable=metrics-server --write-kubeconfig-mode=644" sh -
 	export KUBECONFIG=/etc/rancher/k3s/k3s.yaml && \
 	scripts/install-cilium.sh && \
 	echo "Waiting for k3s node to be ready..." && \
@@ -500,6 +505,7 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 	@echo "==> Creating gateway-secrets in egg-system namespace..."
 	@echo "   (all files under ~/.config/egg/ become keys in the secret)"
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
+	kubectl apply -f k8s/base/namespaces.yaml && \
 	kubectl -n egg-system create secret generic gateway-secrets \
 		--from-file=$$HOME/.config/egg/ \
 		--dry-run=client -o yaml | kubectl apply -f -
@@ -522,8 +528,7 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" | \
 		kubectl apply -f - && \
-	kubectl -n egg-system wait --for=condition=Available deployment/orchestrator --timeout=120s && \
-	kubectl -n egg-system wait --for=condition=Available deployment/gateway --timeout=120s
+	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
 	@echo "Deployment complete"
 
 redeploy: build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step

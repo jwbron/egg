@@ -587,6 +587,17 @@ class TestValidationRouteSelfConsistency:
                 body={"pipeline_id": "leak test"},
             ),
         ]
+        # The windowed substring check below needs a secret long enough
+        # to slice into meaningful windows. The Makefile generates 64
+        # hex chars (`openssl rand -hex 32`); a short/non-standard
+        # lifecycle-secret would otherwise produce empty windows, and
+        # `"" not in resp.text` is always False — a phantom "leak"
+        # report for a response that contains no secret at all.
+        assert len(lifecycle_secret) >= 32, (
+            f"lifecycle-secret is only {len(lifecycle_secret)} chars; "
+            f"expected 64 hex chars. Regenerate it: "
+            f"openssl rand -hex 32 > ~/.config/egg/lifecycle-secret"
+        )
         for resp in responses:
             # Full-secret check: 64 hex chars is more than enough
             # entropy that a false positive is impossible. Catches
@@ -597,10 +608,17 @@ class TestValidationRouteSelfConsistency:
                 f"{resp.request.url}: {resp.text[:500]}"
             )
             # Also guard against substring leaks (e.g. a bug that
-            # printed the last 16 hex chars). Use a couple of
-            # non-overlapping windows.
-            for start in (0, 16, 32, 48):
+            # printed the last 16 hex chars). Walk non-overlapping
+            # 16-char windows across the *actual* secret length — the
+            # old hardcoded (0, 16, 32, 48) offsets produced empty
+            # windows for any secret shorter than 64 chars.
+            for start in range(0, len(lifecycle_secret), 16):
                 window = lifecycle_secret[start : start + 16]
+                if len(window) < 8:
+                    # Trailing short window — too few chars to be a
+                    # meaningful leak signal (and risks false
+                    # positives); the full-secret check above covers it.
+                    continue
                 assert window not in resp.text, (
                     f"response body contained a 16-char window of the "
                     f"bearer secret starting at offset {start} — "
