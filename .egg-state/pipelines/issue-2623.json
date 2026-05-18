@@ -270,10 +270,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Worktree-management ownership in the Claude Code substrate: who creates and tears down the per-agent worktree?",
+      "context": "Open contract question cq-5, registered by an agent during the refine phase.",
+      "options": [
+        "Claude Code's EnterWorktree / ExitWorktree tools: the substrate uses the harness-provided worktree primitive; egg's WORKTREE_BASE_DIR layout is replaced by ~/.claude/worktrees/<pipeline_id>. Native, but loses egg's per-repo-per-pipeline shared-checkout optimization",
+        "Port egg's WORKTREE_BASE_DIR model: agents run inside .egg-state/<pipeline_id>/ subdirectories on the user's filesystem; the spawner manages worktree creation/teardown explicitly. Preserves egg's checkout-sharing; doesn't use Claude Code's native worktree mechanism",
+        "Hybrid: parent session creates the pipeline-level shared checkout under .egg-state/<pipeline_id>/; each subagent call passes through EnterWorktree to get an isolated branch; teardown is filesystem-level by the orchestrator at phase end",
+        "Single-worktree mode: no per-agent worktree; agents run sequentially against the parent session's repo and the BRC bus serializes their writes. Loses concurrency but maximally simple",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-18T23:27:52.897227Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-18T23:27:52.870013Z",
+  "updated_at": "2026-05-18T23:27:52.903675Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -287,7 +307,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
