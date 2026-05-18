@@ -350,10 +350,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "k3s deprecation timing: what is the disposition of the k3s substrate after the Claude Code substrate ships green?",
+      "context": "Open contract question cq-9, registered by an agent during the refine phase.",
+      "options": [
+        "Deprecate k3s on substrate-swap merge: remove kubernetes_spawner.py / kubernetes_monitor.py / RedisMessageStore / gateway sidecar in the same PR family; Claude Code substrate becomes the only substrate",
+        "Leave k3s indefinitely as a co-equal substrate: both substrates are supported; CI matrix tests both; k3s is the answer for headless / server deployments, Claude Code substrate is the answer for solo developers. (default, lowest-risk)",
+        "Mark k3s 'CI-only': k3s stops being a deployment target for end users (no docs guidance, no images shipped); only remains as a CI environment that runs the conformance suite as a second data point. Removal scheduled for a future cleanup issue",
+        "Defer the decision: ship substrate-swap, let user feedback drive a follow-up issue that decides k3s's fate after ≥3 months of real-world use of the Claude Code substrate",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-18T23:27:53.074934Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-18T23:27:53.048953Z",
+  "updated_at": "2026-05-18T23:27:53.081961Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -367,7 +387,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
