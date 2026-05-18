@@ -210,10 +210,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Initial pipeline-phase scope for the substrate swap: which phases must work on the Claude Code substrate before this parent issue closes?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Refine + plan only: prove the substrate on the existing refine-plan skill's footprint; defer implement+pr to a follow-up",
+        "All phases (refine + plan + implement + pr): full SDLC inside Claude Code; matches the issue body's North Star verbatim",
+        "Explore-first: ship the abstraction interfaces + a single-role 'spawn one agent against an issue' smoke path; defer multi-role + BRC to follow-up issues once the spawner shape is settled",
+        "Refine + plan + implement (no pr): prove BRC mechanics on producer roles; let pr-phase keep using k3s for now since PR creation is an external-API operation, not a coordination test",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-18T23:27:52.749371Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-18T23:27:52.681476Z",
+  "updated_at": "2026-05-18T23:27:52.777917Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -227,7 +247,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
