@@ -251,7 +251,7 @@ def test_generator_unlinks_sentinel_on_preflight_abort(
     next(gen)
     try:
         gen.send("abort")
-    except StopIteration, in_process_mod._PreflightAborted:
+    except (StopIteration, in_process_mod._PreflightAborted):  # fmt: skip
         pass
     sentinel = fake_home / ".claude" / "egg-active-role.json"
     assert not sentinel.exists(), "Preflight abort must unlink the sentinel via the finally block"
@@ -296,7 +296,7 @@ def test_preflight_abort_answer_short_circuits_spawn(
         runner._spawn_refiner = spawn_mock
         try:
             gen.send(answer)
-        except StopIteration, in_process_mod._PreflightAborted:
+        except (StopIteration, in_process_mod._PreflightAborted):  # fmt: skip
             pass
     finally:
         gen.close()
