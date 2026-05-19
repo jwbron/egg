@@ -55,6 +55,62 @@ from kubernetes_client import (
     get_kubernetes_client,
 )
 from models import AgentRole, ContainerInfo
+from review_graph import get_review_graph_for_phase
+
+# #2725: senders we always include in EGG_WAIT_PRODUCER_ALLOWLIST so
+# system-emitted bus messages keep waking slice-scoped waiters. The
+# overseer emits OVERSEER_ALERT and the orchestrator emits
+# CONSENSUS_RE_REVIEW + the "ready to confirm" STATUS nudge; both
+# carry these literal ``from_role`` values, so excluding them would
+# turn the filter into a deadlock surface.
+_WAIT_ALLOWLIST_SYSTEM_SENDERS: tuple[str, ...] = ("overseer", "orchestrator")
+
+
+def _resolve_wait_producer_allowlist(phase: str | None, role: str, repo: str | None) -> str | None:
+    """Build the ``EGG_WAIT_PRODUCER_ALLOWLIST`` value for a spawn (#2725).
+
+    Looks the role up in the BRC review graph for the supplied phase and
+    returns a comma-separated allowlist of:
+
+    - the role's graph neighbors — reviewers get the producers they
+      review; producers get their reviewers so they wake on ACK/NACK
+      and (for dual-role) any producers they also review.
+    - the system senders ``overseer`` and ``orchestrator`` so
+      ``OVERSEER_ALERT`` and ``CONSENSUS_RE_REVIEW`` keep waking the
+      agent regardless of the producer set.
+
+    Returns ``None`` when the role has no graph neighbors in the
+    requested phase. This omits the env var entirely so the spawn
+    preserves legacy wake-on-anything behavior — the wake-storm fix
+    is opt-in via graph membership, not a default ratchet.
+    """
+    if not phase:
+        return None
+    try:
+        graph = get_review_graph_for_phase(phase, repo)
+    except Exception:
+        # Defensive: a missing / malformed graph must not block spawning.
+        # Falling through leaves EGG_WAIT_PRODUCER_ALLOWLIST unset and
+        # the agent keeps the pre-#2725 behavior.
+        logger.exception(
+            "Failed to load review graph for #2725 allowlist; skipping env var",
+            phase=phase,
+            role=role,
+        )
+        return None
+
+    neighbors: set[str] = set()
+    if graph.is_reviewer(role):
+        neighbors.update(graph.producers_for(role))
+    if graph.is_producer(role):
+        neighbors.update(graph.reviewers_for(role))
+    if not neighbors:
+        # Role not in the graph (pipeline-level helpers, ad-hoc roles)
+        # — no allowlist, no filter, no behavior change.
+        return None
+    allowlist = sorted(neighbors | set(_WAIT_ALLOWLIST_SYSTEM_SENDERS))
+    return ",".join(allowlist)
+
 
 if TYPE_CHECKING:
     from egg_container import MountSpec
@@ -104,6 +160,13 @@ _PROTECTED_ENV_KEYS: frozenset[str] = frozenset(
         # without this, the agent's signals could land on a different
         # slice than its Job/worktree, with no warning.
         "EGG_SLICE_ID",
+        # Wait-loop producer allowlist (#2725). Spawner derives this
+        # from the BRC review graph for the (phase, role) being spawned
+        # — protecting it prevents an upstream ``extra_env`` from
+        # silently substituting a stale or wrong allowlist, which would
+        # cause the agent to sleep through legitimate ACK/NACK/PROPOSE
+        # events without surfacing the misconfiguration.
+        "EGG_WAIT_PRODUCER_ALLOWLIST",
         # Same single-source-of-truth shape (#2428). The agent's
         # ``egg-orch push`` retargets the refspec to ``HEAD:$EGG_BRANCH``
         # (sandbox/egg_lib/cli_push.py); the gateway's session-scoped
@@ -803,6 +866,19 @@ class KubernetesSpawner:
             # are also derived from this same ``slice_id`` parameter.
             if slice_id is not None:
                 environment["EGG_SLICE_ID"] = slice_id
+
+            # #2725: pre-resolve the producer allowlist for this role +
+            # phase so the wait-loop CLI auto-applies it. The allowlist
+            # lives in env so the agent rubric stays graph-agnostic; a
+            # change to the BRC review graph propagates on the next
+            # spawn without prompt edits. Skipped for pipeline-level
+            # spawns (no phase or no graph neighbors) so legacy
+            # behavior is preserved unchanged.
+            wait_allowlist = _resolve_wait_producer_allowlist(
+                phase=phase, role=agent_role.value, repo=pipeline_repo
+            )
+            if wait_allowlist:
+                environment["EGG_WAIT_PRODUCER_ALLOWLIST"] = wait_allowlist
 
             # Caller's extra_env overrides defaults, except protected keys
             if extra_env:

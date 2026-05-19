@@ -1362,6 +1362,8 @@ def _wait_cursor_path(
     role: str | None,
     for_types: list[str],
     from_role: str | None = None,
+    from_roles: list[str] | None = None,
+    slice_id: str | None = None,
 ) -> str | None:
     """Derive the cursor file path for a wait call (issue #2323).
 
@@ -1409,7 +1411,16 @@ def _wait_cursor_path(
 
     base = os.environ.get("EGG_WAIT_CURSOR_DIR", "/tmp")
     types_key = ",".join(sorted(for_types))
-    hash_input = f"{types_key}|from={from_role or ''}"
+    # #2725: include the new filter axes in the hash so a scoped wait
+    # never shares a cursor with an unscoped sibling. Two waits whose
+    # filters could diverge on which messages they keep MUST have
+    # different cursor files — otherwise a wait that advanced its
+    # cursor past a message its filter dropped would cause the sibling
+    # to silently miss that message.
+    from_roles_key = ",".join(sorted(from_roles)) if from_roles else ""
+    hash_input = (
+        f"{types_key}|from={from_role or ''}|from_set={from_roles_key}|slice={slice_id or ''}"
+    )
     digest = hashlib.md5(hash_input.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
     pid_segment = pipeline_id or "no-pipeline"
     return os.path.join(base, f"egg-wait-cursor-{pid_segment}-{role}-{digest}")
@@ -1556,12 +1567,30 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     role = args.role or get_agent_role_from_env()
     for_types_list = list(args.for_ or [])
     from_role = getattr(args, "from_", None)
+    # #2725: slice scope + producer allowlist with env-var defaults.
+    # Spawner sets EGG_SLICE_ID + EGG_WAIT_PRODUCER_ALLOWLIST so the
+    # canonical wait idiom auto-scopes without rubric changes. Explicit
+    # CLI args take precedence over env defaults.
+    slice_id_arg = getattr(args, "slice_id", None) or os.environ.get("EGG_SLICE_ID") or None
+    from_producer_arg = list(getattr(args, "from_producer", None) or [])
+    if not from_producer_arg:
+        env_allowlist = os.environ.get("EGG_WAIT_PRODUCER_ALLOWLIST", "")
+        from_producer_arg = [r.strip() for r in env_allowlist.split(",") if r.strip()]
     # Cursor file is auto-derived per (pipeline_id, role, for_types,
-    # from_role) so every wait re-entry threads its cursor without
-    # callers having to opt in (issue #2323). Explicit --since still
-    # wins, for callers that want to resume from a specific anchor;
-    # ``role`` unset (debug shells) skips cursor handling entirely.
-    cursor_file = _wait_cursor_path(pid, role, for_types_list, from_role)
+    # from_role, from_roles, slice_id) so every wait re-entry threads
+    # its cursor without callers having to opt in (issue #2323). The
+    # extra axes (#2725) keep a scoped wait from sharing a cursor with
+    # an unscoped sibling. Explicit --since still wins, for callers
+    # that want to resume from a specific anchor; ``role`` unset
+    # (debug shells) skips cursor handling entirely.
+    cursor_file = _wait_cursor_path(
+        pid,
+        role,
+        for_types_list,
+        from_role,
+        from_roles=from_producer_arg or None,
+        slice_id=slice_id_arg,
+    )
     effective_since = args.since or _read_cursor_file(cursor_file)
     req: dict[str, Any] = {
         "pipeline_id": pid,
@@ -1571,6 +1600,10 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     }
     if from_role:
         req["from_role"] = from_role
+    elif from_producer_arg:
+        req["from_roles"] = from_producer_arg
+    if slice_id_arg:
+        req["slice_id"] = slice_id_arg
     if effective_since:
         req["since"] = effective_since
     if args.limit:
@@ -1677,10 +1710,25 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
     role = args.role or get_agent_role_from_env()
     for_types_list = list(args.for_ or [])
     from_role = getattr(args, "from_", None)
+    # #2725: slice scope + producer allowlist with env-var defaults —
+    # mirrors cmd_message_wait. The auto-apply makes the wake-storm fix
+    # transparent: spawner-set env vars suffice; rubrics don't change.
+    slice_id_arg = getattr(args, "slice_id", None) or os.environ.get("EGG_SLICE_ID") or None
+    from_producer_arg = list(getattr(args, "from_producer", None) or [])
+    if not from_producer_arg:
+        env_allowlist = os.environ.get("EGG_WAIT_PRODUCER_ALLOWLIST", "")
+        from_producer_arg = [r.strip() for r in env_allowlist.split(",") if r.strip()]
     # Cursor file is auto-derived per (pipeline_id, role, for_types,
-    # from_role) — see cmd_message_wait for the rationale (issue
-    # #2323).
-    cursor_file = _wait_cursor_path(pid, role, for_types_list, from_role)
+    # from_role, from_roles, slice_id) — see cmd_message_wait for the
+    # rationale (issues #2323 + #2725).
+    cursor_file = _wait_cursor_path(
+        pid,
+        role,
+        for_types_list,
+        from_role,
+        from_roles=from_producer_arg or None,
+        slice_id=slice_id_arg,
+    )
     effective_since = args.since or _read_cursor_file(cursor_file)
     req: dict[str, Any] = {
         "pipeline_id": pid,
@@ -1690,6 +1738,10 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
     }
     if from_role:
         req["from_role"] = from_role
+    elif from_producer_arg:
+        req["from_roles"] = from_producer_arg
+    if slice_id_arg:
+        req["slice_id"] = slice_id_arg
     if effective_since:
         req["since"] = effective_since
     if args.limit:
@@ -3232,6 +3284,29 @@ def create_parser() -> argparse.ArgumentParser:
     )
     msg_wait.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
     msg_wait.add_argument("--from", dest="from_", help="Filter by sender role")
+    msg_wait.add_argument(
+        "--from-producer",
+        dest="from_producer",
+        action="append",
+        help=(
+            "Sender allowlist (repeatable, #2725). Only messages whose "
+            "from_role is in this set wake the wait. Defaults to the "
+            "comma-separated list in $EGG_WAIT_PRODUCER_ALLOWLIST when set "
+            "by the spawner. Explicit --from-producer args replace the "
+            "env-derived list."
+        ),
+    )
+    msg_wait.add_argument(
+        "--slice",
+        dest="slice_id",
+        help=(
+            "Slice scope (#2725). Only match messages whose "
+            "metadata.slice_id equals this value OR is null "
+            "(pipeline-level passthrough — OVERSEER_ALERT and global "
+            "phase signals continue to wake every waiter). Defaults to "
+            "$EGG_SLICE_ID when set."
+        ),
+    )
     msg_wait.add_argument("--since", help="Return messages after this ID")
     msg_wait.add_argument("--limit", type=int, help="Max messages")
     msg_wait.add_argument(
@@ -3265,6 +3340,29 @@ def create_parser() -> argparse.ArgumentParser:
     )
     msg_wait_loop.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
     msg_wait_loop.add_argument("--from", dest="from_", help="Filter by sender role")
+    msg_wait_loop.add_argument(
+        "--from-producer",
+        dest="from_producer",
+        action="append",
+        help=(
+            "Sender allowlist (repeatable, #2725). Only messages whose "
+            "from_role is in this set wake the wait. Defaults to the "
+            "comma-separated list in $EGG_WAIT_PRODUCER_ALLOWLIST when set "
+            "by the spawner. Explicit --from-producer args replace the "
+            "env-derived list."
+        ),
+    )
+    msg_wait_loop.add_argument(
+        "--slice",
+        dest="slice_id",
+        help=(
+            "Slice scope (#2725). Only match messages whose "
+            "metadata.slice_id equals this value OR is null "
+            "(pipeline-level passthrough — OVERSEER_ALERT and global "
+            "phase signals continue to wake every waiter). Defaults to "
+            "$EGG_SLICE_ID when set."
+        ),
+    )
     msg_wait_loop.add_argument("--since", help="Return messages after this ID")
     msg_wait_loop.add_argument("--limit", type=int, help="Max messages")
     msg_wait_loop.add_argument(

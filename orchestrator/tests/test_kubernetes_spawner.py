@@ -401,6 +401,97 @@ class TestSpawnAgentJob:
         create_kwargs = mock_k8s_client.create_container.call_args.kwargs
         assert "EGG_SLICE_ID" not in create_kwargs["environment"]
 
+    def test_spawn_sets_egg_wait_producer_allowlist_for_reviewer(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """#2725: spawner pre-resolves the producer allowlist from the
+        BRC review graph for a reviewer role.
+
+        ``reviewer_code`` reviews ``coder`` and ``tester`` in the implement
+        graph; the env var must list both producers plus the system
+        senders so the wait-loop CLI auto-scopes without rubric changes.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.REVIEWER_CODE,
+            repos=["jwbron/egg"],
+            phase="implement",
+            slice_id="slice-1",
+        )
+        allowlist = result.environment.get("EGG_WAIT_PRODUCER_ALLOWLIST")
+        assert allowlist is not None
+        roles = set(allowlist.split(","))
+        # Graph neighbors: producers reviewer_code reviews.
+        assert "coder" in roles
+        assert "tester" in roles
+        # System senders always included so OVERSEER_ALERT /
+        # CONSENSUS_RE_REVIEW keep waking the reviewer.
+        assert "overseer" in roles
+        assert "orchestrator" in roles
+
+    def test_spawn_sets_egg_wait_producer_allowlist_for_producer(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """#2725: producers get their reviewers in the allowlist so they
+        wake on ACK/NACK from the right callers."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["jwbron/egg"],
+            phase="implement",
+            slice_id="slice-1",
+        )
+        allowlist = result.environment.get("EGG_WAIT_PRODUCER_ALLOWLIST")
+        assert allowlist is not None
+        roles = set(allowlist.split(","))
+        # coder is reviewed by reviewer_code, reviewer_code_holistic,
+        # reviewer_contract, tester, reviewer_security,
+        # reviewer_concurrency — all must be present.
+        for r in (
+            "reviewer_code",
+            "reviewer_code_holistic",
+            "reviewer_contract",
+            "tester",
+            "reviewer_security",
+            "reviewer_concurrency",
+        ):
+            assert r in roles, f"expected {r} in coder's allowlist: {roles}"
+        assert {"overseer", "orchestrator"}.issubset(roles)
+
+    def test_spawn_skips_allowlist_without_phase(self, spawner, mock_k8s_client, mock_gateway):
+        """#2725: pipeline-level spawns (no phase) skip the env var so
+        legacy wake-on-anything behavior is preserved unchanged."""
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            repos=["jwbron/egg"],
+        )
+        assert "EGG_WAIT_PRODUCER_ALLOWLIST" not in result.environment
+
+    def test_extra_env_cannot_override_egg_wait_producer_allowlist(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """#2725: spawner is the single source of truth for the
+        allowlist. ``extra_env`` cannot smuggle a stale or wrong list
+        in — silent acceptance would sleep the agent through
+        legitimate events its rubric expects to handle.
+        """
+        result = spawner.spawn_agent_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.REVIEWER_CODE,
+            repos=["jwbron/egg"],
+            phase="implement",
+            slice_id="slice-1",
+            extra_env={"EGG_WAIT_PRODUCER_ALLOWLIST": "evil_role"},
+        )
+        allowlist = result.environment.get("EGG_WAIT_PRODUCER_ALLOWLIST")
+        assert allowlist is not None
+        # extra_env's "evil_role" did not win — the spawner-derived
+        # graph allowlist did.
+        assert "evil_role" not in allowlist
+        assert "coder" in allowlist
+        assert "tester" in allowlist
+
     def test_extra_env_cannot_override_egg_branch(self, spawner, mock_k8s_client, mock_gateway):
         """``extra_env`` cannot override ``EGG_BRANCH`` — protected key (#2428).
 

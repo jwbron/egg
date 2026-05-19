@@ -1806,6 +1806,222 @@ class TestWaitEndpoint:
                 assert resp.status_code == 200
                 assert elapsed < 5  # would be 999s without clamp
 
+    def test_wait_slice_filter_drops_other_slice(self, client, app):
+        """``slice`` query param drops wrong-slice events (#2725).
+
+        A reviewer in slice-1 must not be woken by a slice-2 CONSENSUS_PROPOSE.
+        """
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            # Wrong-slice event — must not match the slice-1 wait.
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_PROPOSE,
+                    subject="slice-2 propose",
+                    metadata={"slice_id": "slice-2"},
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_PROPOSE&slice=slice-1&timeout=1"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["matched"] is False
+
+    def test_wait_slice_filter_wakes_on_null_slice(self, client, app):
+        """Null-slice message (pipeline-level) wakes a slice-filtered wait.
+
+        Implements the passthrough invariant — OVERSEER_ALERT and global
+        phase signals carry no slice scope and must keep fanning out.
+        """
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="overseer",
+                    to_role="all",
+                    message_type=MessageType.OVERSEER_ALERT,
+                    subject="alert",
+                    metadata={},
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=OVERSEER_ALERT&slice=slice-1&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["matched"] is True
+
+    def test_wait_invalid_slice_returns_400(self, client, app):
+        """Malformed slice ids are rejected with 400."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_PROPOSE&slice=not-canonical&timeout=1"
+                )
+                assert resp.status_code == 400
+
+    def test_wait_from_producer_filter_drops_other_sender(self, client, app):
+        """Repeatable ``from_producer`` drops wrong-sender events (#2725)."""
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="documenter",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_PROPOSE,
+                    subject="not-my-producer",
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_PROPOSE&from_producer=coder&from_producer=tester&timeout=1"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["matched"] is False
+
+    def test_wait_from_producer_filter_wakes_on_allowed_sender(self, client, app):
+        """Allowed sender in ``from_producer`` set unblocks the wait."""
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_PROPOSE,
+                    subject="my producer",
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_PROPOSE&from_producer=coder&from_producer=tester&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["matched"] is True
+
+    def test_wait_empty_from_producer_returns_400(self, client, app):
+        """Explicit empty ``from_producer`` is rejected — silent acceptance
+        would sleep the caller through every event, which is worse than the
+        wake-storm we're trying to fix."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_PROPOSE&from_producer=&timeout=1"
+                )
+                assert resp.status_code == 400
+
 
 class TestProducerPendingConfirmGuard:
     """Reject ``wait --for CONSENSUS_CONFIRMED`` from producers in

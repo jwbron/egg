@@ -470,6 +470,27 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
 
     role = request.args.get("role")
     from_role = request.args.get("from")
+    # #2725: ``from_producer`` is the repeatable set form of ``from``.
+    # ``from`` (singular) wins when both are provided so legacy callers
+    # see no behaviour change. An explicit-but-empty list (e.g.
+    # ``?from_producer=&from_producer=``) is rejected here rather than
+    # silently dropped — silent acceptance would sleep the caller
+    # through every event, which is worse than the wake-storm.
+    raw_from_producers = request.args.getlist("from_producer")
+    from_producers = [r for r in raw_from_producers if r]
+    if raw_from_producers and not from_producers:
+        return _make_error(
+            "Invalid 'from_producer' parameter: must list at least one non-empty role"
+        )
+    # #2725: optional slice scope. Null-on-message is a passthrough so
+    # OVERSEER_ALERT and global phase signals still wake slice-scoped
+    # waiters.
+    slice_id_arg = request.args.get("slice")
+    if slice_id_arg is not None:
+        try:
+            slice_id_arg = _extract_slice_id({"slice_id": slice_id_arg})
+        except ValueError as exc:
+            return _make_error(f"Invalid slice: {exc}")
     since_id = request.args.get("since_id")
     try:
         limit = int(request.args.get("limit", "100"))
@@ -513,6 +534,8 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
             wait=timeout,
             wait_for_types=wait_for_types,
             from_role=from_role,
+            from_roles=from_producers or None,
+            slice_id=slice_id_arg,
             from_tip=since_id is None,
         )
     finally:
