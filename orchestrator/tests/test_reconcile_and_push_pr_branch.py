@@ -123,7 +123,11 @@ class TestPushWorktreeBranchReconcile:
         client = _make_client([False, True])
         with patch(
             "gateway_client.subprocess.run",
-            side_effect=[_run_result(), _run_result()],
+            side_effect=[
+                _run_result(),  # fetch
+                _run_result(),  # rebase (returncode 0)
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
+            ],
         ) as mock_run:
             ok = client.push_worktree_branch(
                 pipeline_id="issue-42",
@@ -133,7 +137,7 @@ class TestPushWorktreeBranchReconcile:
 
         assert ok.ok is True
         assert client._do_push.call_count == 2
-        assert mock_run.call_count == 2
+        assert mock_run.call_count == 3
         fetch_cmd = mock_run.call_args_list[0].args[0]
         rebase_cmd = mock_run.call_args_list[1].args[0]
         assert "fetch" in fetch_cmd and "origin" in fetch_cmd and "egg/feature" in fetch_cmd
@@ -198,6 +202,7 @@ class TestPushWorktreeBranchReconcile:
                 _run_result(),  # add
                 _run_result(returncode=1),  # diff --cached --quiet → has staged changes
                 _run_result(),  # rebase --continue (success)
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
             ],
         ) as mock_run:
             ok = client.push_worktree_branch(
@@ -228,6 +233,7 @@ class TestPushWorktreeBranchReconcile:
                 _run_result(),  # add
                 _run_result(returncode=0),  # diff --cached --quiet → empty index
                 _run_result(),  # rebase --skip (success)
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
             ],
         ) as mock_run:
             ok = client.push_worktree_branch(
@@ -299,7 +305,11 @@ class TestPushWorktreeBranchReconcile:
         client = _make_client([False, False])
         with patch(
             "gateway_client.subprocess.run",
-            side_effect=[_run_result(), _run_result()],  # fetch, rebase
+            side_effect=[
+                _run_result(),  # fetch
+                _run_result(),  # rebase
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
+            ],
         ):
             ok = client.push_worktree_branch(
                 pipeline_id="issue-42",
@@ -339,7 +349,11 @@ class TestPushWorktreeBranchReconcile:
         client = _make_client([False, True])
         with patch(
             "gateway_client.subprocess.run",
-            side_effect=[_run_result(), _run_result()],
+            side_effect=[
+                _run_result(),  # fetch
+                _run_result(),  # rebase
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
+            ],
         ) as mock_run:
             ok = client.push_worktree_branch(
                 pipeline_id="issue-42",
@@ -348,12 +362,16 @@ class TestPushWorktreeBranchReconcile:
             )
 
         assert ok.ok is True
-        # Order: fetch, rebase (no --onto, no base-branch fetch/verify).
-        assert mock_run.call_count == 2
+        # Order: fetch, rebase (no --onto, no base-branch fetch/verify),
+        # autostash pop-conflict check.
+        assert mock_run.call_count == 3
         rebase_cmd = mock_run.call_args_list[1].args[0]
         assert "rebase" in rebase_cmd
         assert "--onto" not in rebase_cmd
         assert "origin/egg/feature" in rebase_cmd
+        # ``--autostash`` is set on the plain form too (#2714) so the
+        # rebase tolerates the orchestrator's continuously-dirty worktree.
+        assert "--autostash" in rebase_cmd
 
     def test_rebase_with_base_branch_uses_onto_form(self, tmp_path):
         """With ``base_branch`` and ``origin/{base_branch}`` resolvable,
@@ -369,6 +387,7 @@ class TestPushWorktreeBranchReconcile:
                 _run_result(),  # fetch origin {base_branch}
                 _run_result(),  # rev-parse --verify origin/{base_branch}
                 _run_result(),  # rebase --onto ...
+                _run_result(),  # diff --diff-filter=U (autostash pop conflict check)
             ],
         ) as mock_run:
             ok = client.push_worktree_branch(
@@ -379,12 +398,16 @@ class TestPushWorktreeBranchReconcile:
             )
 
         assert ok.ok is True
-        assert mock_run.call_count == 4
+        assert mock_run.call_count == 5
         base_fetch_cmd = mock_run.call_args_list[1].args[0]
         assert "fetch" in base_fetch_cmd and "main" in base_fetch_cmd
         rebase_cmd = mock_run.call_args_list[3].args[0]
-        assert rebase_cmd[-4:] == [
+        # ``--autostash`` (#2714) precedes ``--onto`` so the rebase can run
+        # against a dirty worktree; statefile / agent-output writes are
+        # routinely uncommitted at sync time.
+        assert rebase_cmd[-5:] == [
             "rebase",
+            "--autostash",
             "--onto",
             "origin/egg/issue-42",
             "origin/main",
@@ -665,3 +688,219 @@ class TestPushWorktreeBranchReconcile:
         )
         # And the retry push was never attempted.
         assert client._do_push.call_count == 1
+
+    def test_rebase_succeeds_against_dirty_worktree(self, tmp_path):
+        """End-to-end regression for #2714.
+
+        Reproduces the production shape: divergent remote, local worktree
+        with a *modified tracked* statefile.  Before ``--autostash`` was
+        added to ``_build_rebase_cmd`` the rebase refused with ``cannot
+        rebase: You have unstaged changes`` and the sync helper returned
+        without bringing origin's commits into local — the populator then
+        tripped ``PlanDraftMissingOnLocalError`` and the pipeline halted
+        at ``plan_complete``.
+
+        Why a modified tracked file (not an untracked one): ``git rebase``
+        only refuses for unstaged changes to *tracked* paths.  Untracked
+        files under ``.egg-state/`` do not block a rebase, so a test that
+        only creates untracked junk does not exercise the bug at all — it
+        passes whether or not ``--autostash`` is present.
+
+        Exercises both forms returned by ``_build_rebase_cmd``: the plain
+        ``git rebase origin/{branch}`` form (no ``base_branch``) and the
+        ``--onto`` form used when the pipeline's base branch is threaded
+        through.  Both must succeed against a dirty worktree.
+        """
+        for case_label, base_branch_arg in [
+            ("plain_form", None),
+            ("onto_form", "main"),
+        ]:
+            case_root = tmp_path / case_label
+            case_root.mkdir()
+
+            origin = case_root / "origin.git"
+            subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+            seed = case_root / "seed"
+            seed.mkdir()
+            _git_init(seed, str(origin))
+            (seed / "README.md").write_text("initial\n")
+            # Seed a tracked statefile under .egg-state/ so the work tree
+            # can *modify* it (not just add a new untracked file) and
+            # actually reproduce the rebase-refuses-dirty-tracked-file
+            # precondition.
+            (seed / ".egg-state").mkdir()
+            (seed / ".egg-state" / "contract.json").write_text('{"v": 1}\n')
+            _git(seed, "add", "README.md", ".egg-state/contract.json")
+            _git(seed, "commit", "-m", "initial main commit")
+            _git(seed, "push", "origin", "main")
+
+            # Pipeline branch with a remote commit the local worktree
+            # doesn't have yet — the "remote ahead" half of divergence.
+            _git(seed, "checkout", "-b", "egg/issue-2714")
+            (seed / "remote_draft.md").write_text("plan draft from agent\n")
+            _git(seed, "add", "remote_draft.md")
+            _git(seed, "commit", "-m", "plan: agent wrote draft (remote-only)")
+            _git(seed, "push", "origin", "egg/issue-2714")
+
+            # Local worktree: cut from origin/{branch}, then add a local
+            # commit (the "local ahead" half) and leave an *uncommitted
+            # modification of the tracked statefile* in the working tree
+            # — the precondition that used to abort the rebase.
+            work = case_root / "work"
+            work.mkdir()
+            _git_init(work, str(origin))
+            _git(work, "fetch", "origin")
+            _git(work, "checkout", "-b", "egg/issue-2714-work", "origin/egg/issue-2714~1")
+            (work / "local_commit.md").write_text("orchestrator bookkeeping commit\n")
+            _git(work, "add", "local_commit.md")
+            _git(work, "commit", "-m", "state: orchestrator commit (local-only)")
+            head_local_only = _git(work, "rev-parse", "HEAD").stdout.strip()
+
+            # Fetch the divergent remote tip so origin/{branch} has a
+            # commit the local branch doesn't, then dirty the worktree
+            # with an *unstaged modification of a tracked statefile* —
+            # exactly the shape the orchestrator continuously produces,
+            # and exactly the shape that makes git rebase refuse.
+            _git(work, "fetch", "origin", "egg/issue-2714")
+            statefile_path = work / ".egg-state" / "contract.json"
+            statefile_path.write_text('{"v": 2}\n')
+
+            # Sanity: the precondition that broke the pre-fix rebase is
+            # specifically an *unstaged* modification to a tracked path
+            # (porcelain code `` M``).  Staged-only (``M ``) would trip
+            # a different error (``Your index contains uncommitted
+            # changes``) and would not exercise the ``--autostash`` code
+            # path; untracked (``??``) would not refuse the rebase at
+            # all.  Pin to `` M`` so a future setup drift cannot silently
+            # regress this test back to not exercising the bug.
+            status = subprocess.run(
+                ["git", "-C", str(work), "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            assert any(line.startswith(" M") for line in status.stdout.splitlines()), (
+                f"[{case_label}] precondition failed: worktree should have an "
+                f"unstaged modification to a tracked file, got: {status.stdout!r}"
+            )
+
+            git_base = [
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                f"safe.directory={work}",
+                "-C",
+                str(work),
+            ]
+            result = _rebase_with_agent_output_autoresolve(
+                git_base=git_base,
+                pipeline_id="issue-2714",
+                branch="egg/issue-2714",
+                base_branch=base_branch_arg,
+            )
+            assert result.ok, (
+                f"[{case_label}] rebase failed against dirty worktree: "
+                f"{result.category} {result.detail}"
+            )
+
+            # The remote-only commit must now be reachable from HEAD (the
+            # whole point of the sync) and the local-only commit must
+            # still be present on top of it.
+            log_shas = _git(work, "log", "--format=%H", "HEAD").stdout.strip().splitlines()
+            remote_sha = _git(work, "rev-parse", "origin/egg/issue-2714").stdout.strip()
+            assert remote_sha in log_shas, (
+                f"[{case_label}] remote commit missing from local after rebase"
+            )
+            assert head_local_only not in log_shas, (
+                f"[{case_label}] local commit should have been rewritten by rebase"
+            )
+
+            # The uncommitted statefile modification must be restored to
+            # the working tree by the autostash pop — without it, the
+            # orchestrator would lose pending state on every sync.
+            assert statefile_path.read_text() == '{"v": 2}\n', (
+                f"[{case_label}] autostash did not restore the modified "
+                "tracked statefile (or restored contents were corrupted)"
+            )
+
+    def test_rebase_autostash_pop_conflict_is_surfaced(self, tmp_path):
+        """Regression for the autostash-pop-conflict gap (#2714 review).
+
+        ``git rebase --autostash`` exits 0 even when the final stash pop
+        conflicts: the rebase itself succeeded, but the pop leaves
+        ``UU`` entries in the worktree and the original autostash entry
+        stays in ``git stash list``.  Before this guard a half-merged
+        worktree would be consumed as a successful sync; the helper now
+        surfaces ``reconcile_autostash_pop_conflict``.
+        """
+        case_root = tmp_path
+        origin = case_root / "origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+        # Seed: tracked ``shared.txt`` that both the remote-only commit
+        # and the uncommitted worktree change will touch with conflicting
+        # content, so the autostash pop hits a merge conflict.
+        seed = case_root / "seed"
+        seed.mkdir()
+        _git_init(seed, str(origin))
+        (seed / "README.md").write_text("initial\n")
+        (seed / "shared.txt").write_text("A\n")
+        _git(seed, "add", "README.md", "shared.txt")
+        _git(seed, "commit", "-m", "initial main commit")
+        _git(seed, "push", "origin", "main")
+
+        # Remote tip rewrites ``shared.txt`` to "C\n" — diverges from the
+        # uncommitted "D\n" the worktree will hold.
+        _git(seed, "checkout", "-b", "egg/issue-2714")
+        (seed / "shared.txt").write_text("C\n")
+        _git(seed, "add", "shared.txt")
+        _git(seed, "commit", "-m", "remote: shared.txt -> C")
+        _git(seed, "push", "origin", "egg/issue-2714")
+
+        # Local worktree cut from origin/egg/issue-2714~1.  Adds a local
+        # commit on an *unrelated* path so the rebase replay itself does
+        # not conflict, then modifies ``shared.txt`` to "D\n" without
+        # committing — the autostash will capture that delta.
+        work = case_root / "work"
+        work.mkdir()
+        _git_init(work, str(origin))
+        _git(work, "fetch", "origin")
+        _git(work, "checkout", "-b", "egg/issue-2714-work", "origin/egg/issue-2714~1")
+        (work / "local_only.md").write_text("orchestrator bookkeeping\n")
+        _git(work, "add", "local_only.md")
+        _git(work, "commit", "-m", "state: orchestrator commit (local-only)")
+        _git(work, "fetch", "origin", "egg/issue-2714")
+        (work / "shared.txt").write_text("D\n")
+
+        git_base = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            f"safe.directory={work}",
+            "-C",
+            str(work),
+        ]
+        result = _rebase_with_agent_output_autoresolve(
+            git_base=git_base,
+            pipeline_id="issue-2714",
+            branch="egg/issue-2714",
+            base_branch=None,
+        )
+        assert not result.ok, "expected reconcile_autostash_pop_conflict failure, got success"
+        assert result.category == "reconcile_autostash_pop_conflict", (
+            f"unexpected failure category: {result.category} ({result.detail})"
+        )
+        # Detail should call out the conflicting path so the operator
+        # has a starting point for recovery.
+        assert "shared.txt" in (result.detail or ""), (
+            f"failure detail should name the conflicting path, got: {result.detail!r}"
+        )
+
+        # The autostash entry must still be in `git stash list` for
+        # manual recovery — losing it would mean losing the uncommitted
+        # statefile delta the orchestrator was holding.
+        stash_list = _git(work, "stash", "list").stdout
+        assert "autostash" in stash_list, f"autostash entry missing from stash list: {stash_list!r}"

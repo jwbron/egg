@@ -2789,6 +2789,20 @@ def _rebase_with_agent_output_autoresolve(
     continued; conflicts anywhere else cause the rebase to be aborted
     and a failure ``PushResult`` returned.
 
+    The rebase runs with ``--autostash`` so it can proceed against a
+    dirty worktree (#2714).  The orchestrator continuously writes
+    statefile / agent-output deltas without committing them eagerly, so
+    every divergence-reconcile attempt hits a working tree with unstaged
+    changes; without autostash, ``git rebase`` aborts immediately and the
+    sync helper returns without bringing origin's commits into local.
+    ``git rebase --autostash`` can also exit 0 with a half-applied
+    autostash pop (rebase succeeded, but the pop hit a conflict because
+    the rebased HEAD touches the same paths as the stashed delta) — that
+    leaves ``UU`` entries in the worktree and the autostash sitting in
+    ``git stash list``.  We detect this post-rebase via
+    ``_list_unmerged_paths`` and surface ``reconcile_autostash_pop_conflict``
+    so callers do not treat a half-merged worktree as a successful sync.
+
     The auto-resolve loop is bounded by ``max_autoresolve_iterations``
     to defend against pathological cases where every replayed commit
     re-introduces an agent-outputs conflict — three iterations is
@@ -2845,6 +2859,9 @@ def _rebase_with_agent_output_autoresolve(
         )
 
     if rebase_result.returncode == 0:
+        pop_conflict = _autostash_pop_conflict_result(git_base, pipeline_id, branch)
+        if pop_conflict is not None:
+            return pop_conflict
         return PushResult(ok=True)
 
     for iteration in range(max_autoresolve_iterations):
@@ -2961,6 +2978,9 @@ def _rebase_with_agent_output_autoresolve(
             )
 
         if rebase_result.returncode == 0:
+            pop_conflict = _autostash_pop_conflict_result(git_base, pipeline_id, branch)
+            if pop_conflict is not None:
+                return pop_conflict
             return PushResult(ok=True)
 
     logger.error(
@@ -2974,6 +2994,43 @@ def _rebase_with_agent_output_autoresolve(
         ok=False,
         category="reconcile_rebase_failed",
         detail=(f"agent-outputs auto-resolve exceeded {max_autoresolve_iterations} iterations"),
+    )
+
+
+def _autostash_pop_conflict_result(
+    git_base: list[str],
+    pipeline_id: str,
+    branch: str,
+) -> PushResult | None:
+    """Detect a successful-rebase-with-conflicted-autostash-pop and
+    return a failure ``PushResult`` for it; return ``None`` if the
+    worktree is clean.
+
+    ``git rebase --autostash`` exits 0 even when its final ``git stash
+    pop`` of the autostash hits a conflict: the rebase itself succeeded,
+    but the pop leaves ``UU`` entries in the worktree and the original
+    autostash entry stays in ``git stash list``.  Without this check a
+    half-merged worktree would be consumed as a successful sync by
+    downstream code (#2714 review fallout).
+    """
+    unmerged = _list_unmerged_paths(git_base)
+    if not unmerged:
+        return None
+    logger.error(
+        "Push reconcile: rebase succeeded but autostash pop produced conflicts",
+        pipeline_id=pipeline_id,
+        branch=branch,
+        conflicting_paths=unmerged,
+    )
+    return PushResult(
+        ok=False,
+        category="reconcile_autostash_pop_conflict",
+        detail=(
+            "git rebase --autostash succeeded but the autostash pop "
+            f"left unmerged paths in the worktree: {', '.join(unmerged)}; "
+            "the autostash entry is preserved in `git stash list` for "
+            "manual recovery"
+        ),
     )
 
 
@@ -3026,9 +3083,26 @@ def _build_rebase_cmd(
       upstream main commits that landed since the stale snapshot) on top
       of the stale tip, producing a PR full of duplicate-by-content
       commits with rewritten SHAs.
+
+    ``--autostash`` is set on every returned form (#2714): the orchestrator
+    writes statefile / agent-output deltas continuously and does not commit
+    them eagerly, so the worktree is routinely dirty at sync time.  Without
+    autostash, ``git rebase`` refuses with ``cannot rebase: You have
+    unstaged changes`` and the divergence-reconcile path that #2352 added
+    fails 100% of the time on the plan-complete sync.  With autostash, git
+    stashes the unstaged delta before the rebase and pops it on success
+    (or on abort: ``git rebase --abort`` automatically reapplies the
+    autostash to the working tree, and only preserves the stash entry in
+    ``git stash list`` as a fallback if that reapply itself conflicts).
+    The successful-pop path is itself not conflict-free — when the pop
+    collides with the rebased state, git rebase still exits 0 but leaves
+    ``UU`` entries in the worktree.  The caller
+    (``_rebase_with_agent_output_autoresolve``) detects that case and
+    surfaces ``reconcile_autostash_pop_conflict`` so a half-merged
+    worktree is never consumed as a successful sync.
     """
     if base_branch is None:
-        return [*git_base, "rebase", f"origin/{branch}"]
+        return [*git_base, "rebase", "--autostash", f"origin/{branch}"]
 
     base_ref = f"origin/{base_branch}"
     try:
@@ -3042,7 +3116,7 @@ def _build_rebase_cmd(
     except subprocess.TimeoutExpired:
         verify = None
     if verify and verify.returncode == 0:
-        return [*git_base, "rebase", "--onto", f"origin/{branch}", base_ref]
+        return [*git_base, "rebase", "--autostash", "--onto", f"origin/{branch}", base_ref]
     return None
 
 
