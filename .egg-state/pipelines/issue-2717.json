@@ -209,10 +209,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should this rollout work be decomposed into slices (slice count = PR count; siblings in a wave run in parallel)? Items in scope: bridge gap closure, plan/implement/pr phase rollout (+role rubrics), 5-issue conformance matrix, EggHarnessSpawner, fork-based delegation, cost cap, R15 subagent-type migration, R2 hook validation, k3s adapter promotion.",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Linear chain — [bridge gap] -> [plan-phase substrate + rubrics + reviewer wiring] -> [implement-phase substrate + rubrics + reviewer wiring] -> [pr-phase substrate] -> [5-issue conformance matrix] -> [EggHarnessSpawner] -> [hardening pass: R2 validation + R15 migration + cost cap + k3s adapter] (~7 sequential PRs, low review burden, slowest end-to-end)",
+        "Bridge-first then parallel rollout — [bridge gap] -> [plan substrate || implement substrate || pr substrate || conformance fixtures] -> [EggHarnessSpawner || cost cap || R15 migration || R2 validation || k3s adapter] (3 waves; bridge is the hard dep then parallelism unlocks; ~10 PRs)",
+        "Bridge-first then phase-sequential rollout — [bridge gap] -> [plan substrate (3 producers + 1 reviewer)] -> [implement substrate (3 producers + 5 reviewers)] -> [pr-phase substrate + conformance matrix] -> [hardening pass: EggHarnessSpawner + cost cap + R15 + R2 + k3s adapter, all parallel] (~5 PRs; phase ordering surfaces BRC issues earlier with smaller blast radius)",
+        "Defer hardening to a tertiary issue — in this issue: bridge gap + plan + implement + pr + conformance + EggHarnessSpawner. Spin out R15 migration, cost cap, R2 hook validation, k3s adapter promotion, and fork-based delegation into a separate hardening follow-up. Slices: [bridge] -> [plan] -> [implement] -> [pr + conformance + EggHarnessSpawner] (~4 PRs in this issue)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-19T17:33:05.767181Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-19T17:08:57.439434Z",
-  "updated_at": "2026-05-19T17:33:05.733031Z",
+  "updated_at": "2026-05-19T17:33:05.778181Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -226,7 +246,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
