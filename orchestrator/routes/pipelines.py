@@ -7571,15 +7571,22 @@ def _restore_missing_state_files_from_head(
     field was ``git checkout HEAD -- .egg-state/drafts/
     .egg-state/agent-outputs/``).
 
-    ``git ls-files --deleted -- .egg-state/`` lists tracked files that
-    are missing on disk.  Must be called AFTER :func:`_read_tree_head`
-    so the index reflects HEAD; otherwise a stale index can leave the
-    delete-list incomplete.  ``git checkout HEAD -- <paths>`` then
-    restores each missing path in both the index and the working tree
-    (the index reset is a no-op because read-tree HEAD already aligned
-    it).  Confined to ``.egg-state/`` so the restoration cannot
-    resurrect a sibling-pipeline file the orchestrator deliberately
-    removed elsewhere in the tree.
+    ``git ls-files -z --deleted -- .egg-state/`` lists tracked files
+    that are missing on disk.  ``-z`` switches the output to
+    NUL-separated raw bytes so paths with non-ASCII chars, newlines, or
+    quote chars survive parsing intact (with the default
+    ``core.quotePath=true`` the non-``-z`` form C-quote-encodes those
+    paths and ``splitlines()`` would misparse them).  Must be called
+    AFTER :func:`_read_tree_head` so the index reflects HEAD; otherwise
+    a stale index can leave the delete-list incomplete.  ``git checkout
+    HEAD --pathspec-from-file=- --pathspec-file-nul`` then restores each
+    missing path in both the index and the working tree (the index
+    reset is a no-op because read-tree HEAD already aligned it); piping
+    the NUL-separated list via stdin sidesteps any ARG_MAX limit on the
+    argv path even for pathological ``.egg-state/`` populations.
+    Confined to ``.egg-state/`` so the restoration cannot resurrect a
+    sibling-pipeline file the orchestrator deliberately removed
+    elsewhere in the tree.
 
     Fail-open: any subprocess error logs and returns silently — the
     downstream populator still has its own missing-draft guard, so a
@@ -7587,9 +7594,8 @@ def _restore_missing_state_files_from_head(
     """
     try:
         deleted = subprocess.run(
-            [*git_base, "ls-files", "--deleted", "--", ".egg-state/"],
+            [*git_base, "ls-files", "-z", "--deleted", "--", ".egg-state/"],
             capture_output=True,
-            text=True,
             check=False,
             timeout=30,
         )
@@ -7607,17 +7613,24 @@ def _restore_missing_state_files_from_head(
             worktree_path=str(worktree_path),
             pipeline_id=pipeline_id,
             returncode=deleted.returncode,
-            stderr=deleted.stderr.strip()[:200],
+            stderr=deleted.stderr.decode("utf-8", errors="replace").strip()[:200],
         )
         return
-    missing_paths = [line for line in deleted.stdout.splitlines() if line.strip()]
+    missing_paths = [p for p in deleted.stdout.split(b"\0") if p]
     if not missing_paths:
         return
+    pathspec_stdin = b"\0".join(missing_paths) + b"\0"
     try:
         restore = subprocess.run(
-            [*git_base, "checkout", "HEAD", "--", *missing_paths],
+            [
+                *git_base,
+                "checkout",
+                "HEAD",
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+            ],
+            input=pathspec_stdin,
             capture_output=True,
-            text=True,
             check=False,
             timeout=30,
         )
@@ -7637,7 +7650,7 @@ def _restore_missing_state_files_from_head(
             pipeline_id=pipeline_id,
             missing_count=len(missing_paths),
             returncode=restore.returncode,
-            stderr=restore.stderr.strip()[:200],
+            stderr=restore.stderr.decode("utf-8", errors="replace").strip()[:200],
         )
         return
     logger.info(
@@ -7645,7 +7658,7 @@ def _restore_missing_state_files_from_head(
         worktree_path=str(worktree_path),
         pipeline_id=pipeline_id,
         restored_count=len(missing_paths),
-        restored_sample=missing_paths[:5],
+        restored_sample=[p.decode("utf-8", errors="replace") for p in missing_paths[:5]],
     )
 
 
@@ -7756,6 +7769,11 @@ def _commit_statefiles_to_worktree(
 
         rel_paths = [str(Path(f).relative_to(worktree_path)) for f in matched]
         _read_tree_head(git_base)
+        # Restore scope is intentionally broader than the staging glob:
+        # the helper operates over all of ``.egg-state/`` to maintain
+        # HEAD↔disk parity (so other readers — e.g. peer-artifact loads —
+        # see what HEAD says).  Each pipeline has its own worktree, so
+        # broader scope cannot resurrect a sibling-pipeline file.
         _restore_missing_state_files_from_head(git_base, worktree_path, pipeline_id)
         subprocess.run(
             [*git_base, "add", "--force", "--"] + rel_paths,
@@ -7766,6 +7784,8 @@ def _commit_statefiles_to_worktree(
         )
     else:
         _read_tree_head(git_base)
+        # Restore scope matches the staging scope here — both span all of
+        # ``.egg-state/`` — so the broader restore is trivially safe.
         _restore_missing_state_files_from_head(git_base, worktree_path, pipeline_id)
         subprocess.run(
             [*git_base, "add", "--force", ".egg-state/"],
