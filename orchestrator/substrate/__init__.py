@@ -51,6 +51,7 @@ spawning, retry policy) instead of the minimal
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -192,7 +193,7 @@ def select_substrate(
 
         return SubstrateBundle(
             name="claude-code",
-            spawner=ClaudeCodeSpawner(),
+            spawner=ClaudeCodeSpawner(role_rubric_loader=_load_egg_sdlc_role_rubric),
             bus=InProcessMessageBus(),
             policy=PreToolUseHookPolicy(),
             worktrees=LocalWorktreeManager(),
@@ -228,6 +229,53 @@ def _build_k3s_spawner(legacy_spawn_fn: Any | None) -> AgentSpawner:
     return _LazyK3sSpawner()
 
 
+def _load_egg_sdlc_role_rubric(role: Any) -> str:
+    """Load the role rubric markdown from ``plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md``.
+
+    Reviewer v1 blocker #5: without an injected loader, the default
+    fallback was a one-line "you are <role>" string and the 119-line
+    refiner rubric file was dead. The production wiring of the
+    claude-code substrate must point ``ClaudeCodeSpawner`` at the
+    plugin's per-role markdown so ``build_system_prompt(sources)``
+    actually receives the rubric (the structural depth fix from
+    #2622).
+
+    Walking-skeleton scope: only the refiner role ships rubric
+    markdown. Other roles (out of scope per cq-11) raise ``ValueError``
+    with a pointer to the follow-up issue rather than silently
+    returning the trivial fallback.
+
+    Args:
+        role: ``AgentRole`` (or a string-equivalent) identifying the
+            role to load.
+
+    Returns:
+        Markdown body of the rubric file (frontmatter retained — the
+        frontmatter is informational only per ``refiner.md``).
+
+    Raises:
+        ValueError: when the rubric file does not exist; the caller
+            will see this as a spawner-side failure rather than a
+            silently degraded prompt.
+    """
+    from pathlib import Path as _Path
+
+    role_name = role.value if hasattr(role, "value") else str(role)
+    here = _Path(__file__).resolve()
+    # orchestrator/substrate/__init__.py  →  repo root
+    repo_root = here.parent.parent.parent
+    rubric_path = (
+        repo_root / "plugins" / "egg-sdlc" / "skills" / "egg-sdlc" / "agents" / f"{role_name}.md"
+    )
+    if not rubric_path.is_file():
+        raise ValueError(
+            f"egg-sdlc role rubric missing at {rubric_path} for role={role_name!r}. "
+            "Walking-skeleton spike (#2623) only ships the refiner rubric; "
+            "other roles are deferred to the follow-up issue per cq-11."
+        )
+    return rubric_path.read_text(encoding="utf-8")
+
+
 class _LazyK3sSpawner:
     """``AgentSpawner`` that lazily constructs the real k3s factory.
 
@@ -253,7 +301,7 @@ class _LazyK3sSpawner:
 
     def __init__(self) -> None:
         self._adapter: K3sSpawnerAdapter | None = None
-        self._lock = __import__("threading").RLock()
+        self._lock = threading.RLock()
 
     def _build_adapter(self, env: Mapping[str, str]) -> K3sSpawnerAdapter:
         try:

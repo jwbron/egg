@@ -512,17 +512,20 @@ class ConcurrentPhaseExecutor:
         Works with both ContainerSpawner.create_concurrent_spawn_fn() and
         KubernetesSpawner.create_concurrent_spawn_fn().
 
-        Substrate-swap seam (#2623): when ``EGG_SUBSTRATE`` is set to a
-        recognised substrate (``"k3s"`` or ``"claude-code"``), this
-        method routes through
+        Substrate-swap seam (#2623): when ``EGG_SUBSTRATE=claude-code``
+        is set, this method routes through
         ``orchestrator.substrate.select_substrate(...).spawner.spawn(...)``
-        instead of calling ``self.spawn_fn`` directly. The default
-        (unset ``EGG_SUBSTRATE``) preserves the legacy path verbatim
-        so existing k3s production deployments are unaffected. Under
-        ``EGG_SUBSTRATE=k3s`` the bundle returns a
-        ``K3sSpawnerAdapter`` shim wrapping ``self.spawn_fn``; under
-        ``EGG_SUBSTRATE=claude-code`` the bundle returns the new
-        ``ClaudeCodeSpawner``.
+        instead of calling ``self.spawn_fn`` directly. All other values
+        (unset, ``"k3s"``, anything else) preserve the legacy path
+        verbatim so existing k3s production deployments are unaffected.
+
+        Why this is claude-code-only (reviewer v1 blocker #1): the
+        ``K3sSpawnerAdapter`` shim does NOT yet preserve slice-aware
+        branch selection or the BRC consensus wrapper command, so any
+        operator who set ``EGG_SUBSTRATE=k3s`` to be explicit would
+        silently lose those. The follow-up issue extends the adapter
+        to forward both, at which point the seam can also be gated on
+        ``"k3s"``. Until then, the legacy path is the only k3s path.
         """
         import os
 
@@ -534,7 +537,7 @@ class ConcurrentPhaseExecutor:
             command = build_consensus_wrapped_command(prompt_text)
 
         substrate_name = (os.environ.get("EGG_SUBSTRATE") or "").lower()
-        if substrate_name in ("k3s", "claude-code"):
+        if substrate_name == "claude-code":
             return self._spawn_agent_via_substrate(
                 role=role,
                 branch=branch,
@@ -627,14 +630,12 @@ class ConcurrentPhaseExecutor:
         try:
             result = bundle.spawner.spawn(role, prompt_text, env, worktree_path)
         except Exception as exc:  # noqa: BLE001
-            # reviewer_concurrency v1 blocker #3: tear down the
-            # worktree on failure so a single bad spawn does not
-            # accumulate leaks across phases.
+            # reviewer v1 blocker #3: scope teardown to just this
+            # role's worktree. ``tear_down(pipeline_id)`` is pipeline-
+            # scoped and would wipe peer worktrees mid-spawn under
+            # concurrent dispatch.
             if worktree_created:
-                try:
-                    bundle.worktrees.tear_down(self.pipeline.id)
-                except Exception:  # noqa: BLE001 — defensive
-                    pass
+                self._teardown_role_worktree(bundle, role)
             logger.exception("substrate spawn failed", role=str(role), error=str(exc))
             return AgentExecution(
                 role=role,
@@ -659,11 +660,10 @@ class ConcurrentPhaseExecutor:
             else AgentExecutionStatus.FAILED
         )
         if status == AgentExecutionStatus.FAILED and worktree_created:
-            # On a non-zero spawn, tear down the worktree immediately.
-            try:
-                bundle.worktrees.tear_down(self.pipeline.id)
-            except Exception:  # noqa: BLE001 — defensive
-                pass
+            # On a non-zero spawn, tear down just this role's worktree
+            # (reviewer v1 blocker #3 — pipeline-scoped teardown would
+            # wipe peer worktrees mid-spawn).
+            self._teardown_role_worktree(bundle, role)
 
         return AgentExecution(
             role=role,
@@ -672,6 +672,28 @@ class ConcurrentPhaseExecutor:
             started_at=datetime.now(UTC),
             slice_id=self._slice_id,
         )
+
+    def _teardown_role_worktree(self, bundle: Any, role: AgentRole) -> None:
+        """Tear down a single (pipeline, role) worktree on the substrate bundle.
+
+        Reviewer v1 blocker #3: use the worktree manager's per-role
+        ``remove(pipeline_id, role)`` API when available so the
+        failure path for one role's spawn does not wipe peer
+        worktrees. Falls back to the pipeline-scoped ``tear_down``
+        only for managers that don't expose the per-role variant
+        (e.g., legacy stubs).
+        """
+        worktrees = getattr(bundle, "worktrees", None)
+        if worktrees is None:
+            return
+        remove_one = getattr(worktrees, "remove", None)
+        try:
+            if callable(remove_one):
+                remove_one(self.pipeline.id, role)
+            else:
+                worktrees.tear_down(self.pipeline.id)
+        except Exception:  # noqa: BLE001 — defensive
+            pass
 
     def handle_agent_failure(self, role: str, error: str) -> dict[str, Any]:
         """Handle an agent failure during concurrent execution.

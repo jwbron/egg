@@ -238,9 +238,11 @@ def test_generator_unlinks_sentinel_on_preflight_abort(
 ) -> None:
     """Operator's preflight abort still tears down the sentinel.
 
-    The abort path raises ``_PreflightAborted`` which the caller is
-    expected to translate into a clean stop. Either way, the
-    generator's ``finally`` block runs and unlinks the sentinel.
+    The abort path is translated to a clean ``StopIteration`` by the
+    generator (reviewer v1 blocker #7 — the docstring's contract is
+    "clean StopIteration with a diagnostic message"). The generator's
+    ``finally`` block runs as part of the normal-completion path and
+    unlinks the sentinel.
     """
     run = in_process_mod.run_pipeline_in_process
     gen = run(
@@ -249,10 +251,11 @@ def test_generator_unlinks_sentinel_on_preflight_abort(
         state_dir=tmp_path / ".egg-state",
     )
     next(gen)
-    try:
+    with pytest.raises(StopIteration) as exc_info:
         gen.send("abort")
-    except (StopIteration, in_process_mod._PreflightAborted):  # fmt: skip
-        pass
+    assert "aborted" in str(exc_info.value.value).lower(), (
+        "StopIteration.value should carry the abort diagnostic message"
+    )
     sentinel = fake_home / ".claude" / "egg-active-role.json"
     assert not sentinel.exists(), "Preflight abort must unlink the sentinel via the finally block"
 
@@ -274,11 +277,10 @@ def test_preflight_abort_answer_short_circuits_spawn(
 ) -> None:
     """Operator's abort answer (bare or dict shape) skips the refiner spawn.
 
-    The abort path raises ``_PreflightAborted`` (a ``RuntimeError``
-    subclass) — either it propagates to the caller or the caller
-    catches it. The contract this test pins is "the refiner spawn
-    does NOT run". ``_PreflightAborted`` and ``StopIteration`` are
-    both acceptable signals.
+    The abort path is translated to a clean ``StopIteration`` by the
+    generator (reviewer v1 blocker #7). The contract this test pins:
+    "the refiner spawn does NOT run" AND the generator surfaces the
+    abort as a normal StopIteration carrying a diagnostic message.
     """
     spawn_mock = MagicMock()
     run = in_process_mod.run_pipeline_in_process
@@ -294,10 +296,9 @@ def test_preflight_abort_answer_short_circuits_spawn(
         runner = frame.f_locals.get("self") if frame else None
         assert runner is not None
         runner._spawn_refiner = spawn_mock
-        try:
+        with pytest.raises(StopIteration) as exc_info:
             gen.send(answer)
-        except (StopIteration, in_process_mod._PreflightAborted):  # fmt: skip
-            pass
+        assert "aborted" in str(exc_info.value.value).lower()
     finally:
         gen.close()
     assert not spawn_mock.called, (

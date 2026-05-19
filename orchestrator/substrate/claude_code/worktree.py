@@ -28,11 +28,25 @@ from pathlib import Path
 
 from egg_contracts.agent_roles import AgentRole
 
-#: Default base directory — matches
-#: ``gateway/worktree_manager.py:49 WORKTREE_BASE_DIR`` shape so
-#: operators don't need to learn two layouts. Override with the
-#: ``EGG_WORKTREE_BASE`` env var.
-DEFAULT_BASE = Path(os.environ.get("HOME", "/home/egg")) / ".egg-worktrees"
+#: Path **fragment** appended to ``$HOME`` to form the default base
+#: directory. Resolved at ``LocalWorktreeManager.__init__`` time
+#: (not at module import) so ``monkeypatch.setenv("HOME", ...)`` in
+#: tests is honored. Matches ``gateway/worktree_manager.py:49
+#: WORKTREE_BASE_DIR`` shape so operators don't need to learn two
+#: layouts. Override the full path with the ``EGG_WORKTREE_BASE``
+#: env var.
+_DEFAULT_BASE_NAME = ".egg-worktrees"
+
+
+def _default_base() -> Path:
+    """Return the default base directory, computed from the *current* ``$HOME``."""
+    return Path(os.environ.get("HOME", "/home/egg")) / _DEFAULT_BASE_NAME
+
+
+# Back-compat alias for any test that imported ``DEFAULT_BASE``
+# directly — kept as a property-like callable so the resolution
+# stays late-binding even through the legacy attribute name.
+DEFAULT_BASE = _default_base()  # noqa: N816 — module-level constant per legacy callers
 
 # Conservative regex for pipeline / role names; matches the gateway's
 # validate_identifier behavior.
@@ -58,7 +72,8 @@ class LocalWorktreeManager:
         elif env_override:
             self._base = Path(env_override)
         else:
-            self._base = DEFAULT_BASE
+            # Compute lazily so monkeypatching $HOME in tests works.
+            self._base = _default_base()
         # Map pipeline_id → list of (worktree_path, branch) we created.
         self._tracked: dict[str, list[tuple[Path, str]]] = {}
         self._lock = threading.RLock()
@@ -112,6 +127,50 @@ class LocalWorktreeManager:
             self._tracked.setdefault(pipeline_id, []).append((target, branch))
         return target
 
+    def remove(self, pipeline_id: str, role: AgentRole) -> None:
+        """Remove a single (pipeline, role) worktree.
+
+        Reviewer v1 blocker #3: ``tear_down(pipeline_id)`` is
+        pipeline-scoped and removes every per-role worktree it tracked,
+        which is the wrong granularity for the failure path of one
+        concurrent spawn (it would wipe peer worktrees mid-spawn). This
+        per-role variant is what ``_spawn_agent_via_substrate`` calls
+        when a single role's spawn fails.
+
+        Args:
+            pipeline_id: Pipeline identifier (validated against the same
+                pattern as ``create``).
+            role: The role whose worktree should be removed.
+        """
+        _validate_identifier(pipeline_id, "pipeline_id")
+        role_name = role.value if hasattr(role, "value") else str(role)
+        _validate_identifier(role_name, "role")
+        target = (self._base / pipeline_id / role_name).resolve()
+
+        with self._lock:
+            entries = self._tracked.get(pipeline_id, [])
+            remaining: list[tuple[Path, str]] = []
+            to_remove: list[tuple[Path, str]] = []
+            for path, branch in entries:
+                try:
+                    if path.resolve() == target:
+                        to_remove.append((path, branch))
+                        continue
+                except OSError:
+                    pass
+                remaining.append((path, branch))
+            if remaining:
+                self._tracked[pipeline_id] = remaining
+            else:
+                self._tracked.pop(pipeline_id, None)
+
+        # If the in-memory tracker missed it (e.g. process restart),
+        # still attempt the on-disk teardown if the path is within base.
+        if not to_remove:
+            to_remove = [(target, f"egg/{pipeline_id}/{role_name}")]
+
+        self._remove_entries(to_remove)
+
     def tear_down(self, pipeline_id: str) -> None:
         """Remove all worktrees for the named pipeline.
 
@@ -119,6 +178,10 @@ class LocalWorktreeManager:
         reject any path that resolves outside the configured base —
         the same defense pattern as
         ``gateway/worktree_manager.py:1711``.
+
+        See ``remove(pipeline_id, role)`` for the per-role variant
+        that should be used from concurrent-spawn failure paths
+        (reviewer v1 blocker #3).
         """
         _validate_identifier(pipeline_id, "pipeline_id")
         base_resolved = self._base.resolve()
@@ -129,6 +192,20 @@ class LocalWorktreeManager:
         # Always try to remove the pipeline-level directory, even if
         # the in-memory list was lost (e.g., process restart).
         pipeline_dir = (self._base / pipeline_id).resolve()
+        self._remove_entries(entries)
+
+        # Tear down the pipeline-level dir if it's empty and lives
+        # under the base.
+        try:
+            if pipeline_dir.is_relative_to(base_resolved) and pipeline_dir.exists():
+                shutil.rmtree(pipeline_dir, ignore_errors=True)
+        except (AttributeError, OSError):  # fmt: skip
+            if pipeline_dir.exists() and str(pipeline_dir).startswith(str(base_resolved) + os.sep):
+                shutil.rmtree(pipeline_dir, ignore_errors=True)
+
+    def _remove_entries(self, entries: list[tuple[Path, str]]) -> None:
+        """Best-effort removal of (path, branch) tuples with path-escape guard."""
+        base_resolved = self._base.resolve()
         for path, branch in entries:
             try:
                 resolved = path.resolve()
@@ -174,15 +251,6 @@ class LocalWorktreeManager:
                 )
             except (subprocess.SubprocessError, OSError):  # fmt: skip
                 pass
-
-        # Tear down the pipeline-level dir if it's empty and lives
-        # under the base.
-        try:
-            if pipeline_dir.is_relative_to(base_resolved) and pipeline_dir.exists():
-                shutil.rmtree(pipeline_dir, ignore_errors=True)
-        except (AttributeError, OSError):  # fmt: skip
-            if pipeline_dir.exists() and str(pipeline_dir).startswith(str(base_resolved) + os.sep):
-                shutil.rmtree(pipeline_dir, ignore_errors=True)
 
     def _assert_within_base(self, target: Path) -> None:
         """Raise ``ValueError`` if ``target`` resolves outside the base."""

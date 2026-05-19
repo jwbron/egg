@@ -167,15 +167,22 @@ def _re_propose(tracker, label: str) -> dict:
     )
 
 
-def test_inv3_stale_ack_rejected_when_bus_used_as_transport(tracker) -> None:
+def test_inv3_stale_ack_rejected_by_tracker_alongside_bus(tracker) -> None:
     """A reviewer ACK at a stale version is rejected (INV-3).
+
+    Reviewer v1 blocker #9 — the earlier name
+    ("when_bus_used_as_transport") oversold the test. INV-3 lives in
+    ``PeerConsensusTracker``, not in the bus; the bus only ferries
+    messages. The test fixture constructs a fresh tracker (which
+    happens to share its in-memory ``MessageStore`` lineage with
+    ``InProcessMessageBus``), but a regression in
+    ``InProcessMessageBus.add_message`` / ``get_messages`` would
+    not break this test. The pin's value is that the tracker the
+    in-process substrate relies on still enforces the invariant.
 
     Oracle:
     ``test_brc_open_nacks_barrier::TestStaleVersionRejection::
     test_ack_against_stale_version_raises``.
-    The bus does not directly enforce the invariant; the tracker
-    does. We pin that the bus-using path still raises by re-running
-    the oracle scenario.
     """
     _propose(tracker, "v1")
     _nack(tracker, "reviewer_code", "blocker on a.py:42")
@@ -200,6 +207,12 @@ def test_inv3_stale_ack_rejected_when_bus_used_as_transport(tracker) -> None:
 
 def test_inv5_multi_reviewer_open_nack_barrier_preserved(tracker) -> None:
     """Re-propose with ≥2 unresolved NACKs is rejected ``open_nacks_blocked``.
+
+    Reviewer v1 blocker #9 — naming honesty: like the INV-3 test
+    above, the invariant lives in ``PeerConsensusTracker``, not in
+    ``InProcessMessageBus``. The test pins the tracker behavior the
+    substrate relies on; it does not exercise the bus's transport
+    surface.
 
     Oracle:
     ``test_brc_open_nacks_barrier::TestOpenNacksBarrier::

@@ -186,29 +186,42 @@ class _InProcessOrchestrator:
         """The actual generator. See ``run_pipeline_in_process``."""
         self._start_background_threads()
         try:
-            # Stage 1: pre-flight HITL — confirm repo + issue.
-            preflight_answer = yield self._build_preflight_decision()
-            if _answer_is_abort(preflight_answer):
-                raise _PreflightAborted("Operator aborted at preflight HITL — refiner did not run.")
+            try:
+                # Stage 1: pre-flight HITL — confirm repo + issue.
+                preflight_answer = yield self._build_preflight_decision()
+                if _answer_is_abort(preflight_answer):
+                    raise _PreflightAborted(
+                        "Operator aborted at preflight HITL — refiner did not run."
+                    )
 
-            # Stage 2: spawn the refiner via the substrate bundle. The
-            # returned ``AgentResult`` is bound to ``self._spawn_result``
-            # so reviewer_code_holistic v1 finding #10 (discarded
-            # ``AgentResult``) is addressed: the refine HITL gate
-            # surfaces exit code + commit SHA + diagnostics rather
-            # than silently masking spawner failures.
-            artifact_path, spawn_result = self._spawn_refiner()
-            self._spawn_result = spawn_result
+                # Stage 2: spawn the refiner via the substrate bundle. The
+                # returned ``AgentResult`` is bound to ``self._spawn_result``
+                # so reviewer_code_holistic v1 finding #10 (discarded
+                # ``AgentResult``) is addressed: the refine HITL gate
+                # surfaces exit code + commit SHA + diagnostics rather
+                # than silently masking spawner failures.
+                artifact_path, spawn_result = self._spawn_refiner()
+                self._spawn_result = spawn_result
 
-            # Stage 3: refine HITL gate — does the operator approve?
-            answer = yield self._build_refine_gate_decision(artifact_path, spawn_result)
+                # Stage 3: refine HITL gate — does the operator approve?
+                answer = yield self._build_refine_gate_decision(artifact_path, spawn_result)
 
-            # Walking-skeleton fence: if the operator chose "approve
-            # and continue to plan", we currently stop here.
-            # plan/implement/pr phases are deferred to the follow-up.
-            self._maybe_fence(answer)
+                # Walking-skeleton fence: if the operator chose "approve
+                # and continue to plan", we currently stop here.
+                # plan/implement/pr phases are deferred to the follow-up.
+                self._maybe_fence(answer)
 
-            return str(artifact_path)
+                return str(artifact_path)
+            except _PreflightAborted as aborted:
+                # Reviewer v1 blocker #7: translate operator-abort
+                # into a clean StopIteration so the docstring's
+                # contract ("clean StopIteration with a diagnostic
+                # message rather than a NotImplementedError or a
+                # silent return") matches the actual behavior. The
+                # generator's StopIteration carries the diagnostic
+                # message as ``.value`` (the caller's
+                # ``stop.value`` is conventional for run_pipeline_in_process).
+                return str(aborted)
         finally:
             self._shutdown_background_threads()
             # reviewer_concurrency v1 blocker #2: tear down worktrees
@@ -391,17 +404,36 @@ class _InProcessOrchestrator:
             pass
 
     def _get_bus(self) -> Any | None:
-        """Lazy bus accessor — used by background loops."""
+        """Lazy bus accessor — used by background loops.
+
+        Returns ``None`` if the substrate bundle's bus is a placeholder
+        (e.g., ``_K3sPlaceholder`` for the k3s leg without injected
+        overrides). Reviewer v1 non-blocking: without this check the
+        background ticks' bare ``except Exception`` swallowed the
+        placeholder's ``NotImplementedError`` on every iteration,
+        making the "loops exercise the invariant-validation code path"
+        claim quietly false.
+        """
         bundle = getattr(self, "_bundle", None)
         if bundle is None:
             try:
-                from . import select_substrate
+                from . import _K3sPlaceholder, select_substrate
 
                 self._bundle = select_substrate(self.env)
                 bundle = self._bundle
             except Exception:  # noqa: BLE001 — defensive
                 return None
-        return getattr(bundle, "bus", None)
+        else:
+            try:
+                from . import _K3sPlaceholder
+            except Exception:  # noqa: BLE001 — defensive
+                _K3sPlaceholder = None  # type: ignore[assignment]
+        bus = getattr(bundle, "bus", None)
+        if bus is None:
+            return None
+        if _K3sPlaceholder is not None and isinstance(bus, _K3sPlaceholder):
+            return None
+        return bus
 
     # ------------------------------------------------------------------
     # Contract-state synchronization
@@ -705,6 +737,15 @@ class _InProcessOrchestrator:
         not per-pipeline — only one refiner runs at a time in the
         spike). The hook reads it as a fallback when
         ``EGG_AGENT_ROLE`` is unset.
+
+        Future-multi-role caveat (reviewer v1 non-blocking): this
+        single-valued, per-user file cannot disambiguate two
+        concurrent sub-agents in different roles. The R2 deferral's
+        multi-role rollout cannot use this sentinel for role-routing
+        without a breaking change to the sentinel shape (e.g.,
+        per-PID or per-thread keys). The follow-up issue's "Validate
+        PreToolUse hook role-routing (R2)" bullet captures the
+        cleanup.
 
         Reviewer_code v2 blocker #1: the sentinel is stamped with
         the orchestrator's PID so a stale sentinel from a crashed

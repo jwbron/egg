@@ -34,38 +34,70 @@ stdout. To deny the call, emit::
 
 To allow it, emit ``{}`` (or any object without ``decision``).
 
-Threat model — the load-bearing enforcement layer
---------------------------------------------------
+Threat model — first-tier enforcement only
+-------------------------------------------
 
 In the claude-code substrate the gateway sidecar is gone by
-construction (cq-6). This hook IS the load-bearing enforcement
-layer; there is no second-tier denial path. All failure modes that
-would have been "fail-open" under the k3s threat model (where the
-gateway re-validates the same constraints server-side) are
-**fail-closed** here.
+construction (cq-6). This hook is the **first-tier** enforcement
+layer for substrate-managed write prefixes (``.egg-state/``,
+``.claude/``, ``.github/``, ``shared/egg_restrictions/``). Per the
+ADR's R2 deferral, the design's full enforcement story rides on a
+**second-tier MCP-validator** path that re-checks role / phase /
+prefix at the MCP-tool boundary. This hook intentionally does NOT
+attempt to be the only enforcement layer — Bash is a quoting-
+unbounded surface, and pretending the regex-and-shlex parser
+herein is a complete sandbox would be a security claim the
+implementation cannot back. Treat this hook as a coarse, cheap
+filter that catches the common explicit-write shapes; the MCP
+validator (or the role-confined harness that ships the second
+substrate role) catches the cases this hook necessarily misses.
 
-Specifically:
+What this hook DOES catch (reviewer v1 blocker #4 — broadened set):
 
-1. ``Bash`` is in the matcher (security finding #1, reviewer_security
-   v1 NACK). The hook parses Bash commands for write targets via
-   redirection, ``tee``, ``cp``/``mv``, ``dd of=``, ``sed -i``,
-   ``ln -s``, and ``python3 -c "open(...).write(...)"`` heuristics.
-   When parsing is ambiguous, the hook fails closed by denying the
-   Bash call.
-2. Path resolution uses ``Path(p).resolve()`` (security finding #2)
-   so symlink targets are evaluated, not the symlink name.
-3. ``JSONDecodeError`` fails closed (security finding #3).
-4. Missing ``EGG_AGENT_ROLE`` fails closed when the write target
-   lands inside a substrate-managed prefix (``.egg-state/``,
-   ``.claude/``, ``.github/``, the worktree-root tree) so a nested
-   subagent that dropped the role env cannot silently bypass the
-   policy (security finding #4). Writes outside those prefixes keep
-   fail-open so the user's plain Claude Code session is unaffected
-   by hook installation.
+1. ``Bash`` write-shaped verbs the parser explicitly handles:
+   - Redirection (``>``, ``>>``, ``&>``, ``2>``, ``2>>``, etc.) —
+     fail-closed on ``$(...)`` / backtick destinations.
+   - File-mover / file-mutator verbs: ``cp``, ``mv``, ``install``,
+     ``rsync``, ``tee``, ``dd of=``, ``sed -i``, ``ln``/``link``,
+     ``rm``, ``chmod``, ``chown``, ``truncate``, ``awk -i inplace``,
+     ``perl -i``.
+   - Network-fetch-to-disk verbs: ``wget -O``, ``curl -o``,
+     ``curl --output``, ``curl --output-dir``.
+   - Git mutation verbs that write working-tree paths:
+     ``git mv``, ``git rm``, ``git apply``, ``git checkout -- <p>``,
+     ``git restore <p>``.
+   - Archive-extraction verbs: ``tar -x``, ``unzip``.
+   - Shell-of-shell forms: ``bash -c '...'``, ``sh -c '...'``,
+     ``zsh -c '...'`` recursively parse the inner command.
+   - ``python``/``python3 -c`` containing common write signatures.
 
-The hook delegates allow/deny decisions to
-``shared/egg_restrictions/checker.py::check_agent_file_access`` —
-the same symbol ``gateway/phase_filter.py:1061
+2. Ambiguous shape → fail-closed: ``$(...)`` / backtick in a
+   destination, malformed ``shlex`` input, unknown verb whose
+   tokens include a ``>`` / ``>>`` redirect inside quotes the
+   ``_REDIRECT_RE`` already flagged.
+
+3. ``Path(p).resolve()`` symlink-aware comparison (security finding
+   #2), ``JSONDecodeError`` fail-closed (security finding #3),
+   role-missing fail-closed inside substrate-managed prefixes
+   (security finding #4).
+
+What this hook does NOT catch (deliberate, with mitigation):
+
+- Process substitution (``cat >(tee /restricted)``), heredoc
+  redirects (``cat <<EOF > /restricted``), and fd-duplication
+  tricks (``exec 3>/restricted``). These require a Bash-grammar
+  parser; the MCP validator's role-confined tool surface is the
+  intended catch.
+- Arbitrary ``python -c`` bodies that write without using the
+  obvious ``open(...)`` / ``Path(...)`` markers. The MCP
+  validator's role-confined tool surface is again the intended
+  catch; this hook's Python-string heuristic is a coarse filter.
+- Allowing ``python3 -m orchestrator.substrate.*`` broadly. The
+  follow-up issue tightens this to a per-entrypoint allowlist.
+
+The hook delegates allow/deny decisions for paths it DOES extract
+to ``shared/egg_restrictions/checker.py::check_agent_file_access``
+— the same symbol ``gateway/phase_filter.py:1061
 check_agent_restrictions`` uses. There is no parallel restriction
 logic.
 """
@@ -205,6 +237,152 @@ def _bash_write_paths(command: str) -> tuple[list[str], bool]:
                 else:
                     paths.append(link_path)
             break
+        # Reviewer v1 blocker #4: ``rm``, ``chmod``, ``chown``,
+        # ``truncate``, ``awk -i inplace``, ``perl -i``. Each
+        # mutates the listed paths in place; surface them all to
+        # the policy checker.
+        if base in {"rm", "chmod", "chown", "truncate"}:
+            for arg in tokens[i + 1 :]:
+                if arg.startswith("-"):
+                    continue
+                if "$" in arg or "`" in arg:
+                    ambiguous = True
+                else:
+                    paths.append(arg)
+            break
+        if base == "awk":
+            rest = tokens[i + 1 :]
+            in_place = any(
+                t == "-i" or (t.startswith("-i") and "inplace" in t.lower()) or "inplace" in t
+                for t in rest
+            )
+            if in_place:
+                # Last token is conventionally the file in `awk -i
+                # inplace 'script' file`.
+                non_flags = [t for t in rest if not t.startswith("-")]
+                if non_flags:
+                    candidate = non_flags[-1]
+                    if "$" in candidate or "`" in candidate:
+                        ambiguous = True
+                    else:
+                        paths.append(candidate)
+            break
+        if base == "perl":
+            rest = tokens[i + 1 :]
+            in_place = any(t == "-i" or t.startswith("-i") for t in rest)
+            if in_place:
+                non_flags = [t for t in rest if not t.startswith("-")]
+                # `perl -i.bak -pe '<expr>' file` — the script is
+                # one of the non-flag args; we conservatively
+                # surface every non-flag candidate to the policy
+                # checker. Spurious hits land on the script string
+                # ("'<expr>'"), which the policy checker treats as
+                # an unknown path and ignores per its own resolve
+                # logic.
+                for cand in non_flags:
+                    if "$" in cand or "`" in cand:
+                        ambiguous = True
+                    else:
+                        paths.append(cand)
+            break
+        # Network-fetch-to-disk verbs.
+        if base in {"wget", "curl"}:
+            rest = tokens[i + 1 :]
+            j = 0
+            while j < len(rest):
+                arg = rest[j]
+                if arg in {"-O", "-o", "--output"} and j + 1 < len(rest):
+                    dest = rest[j + 1]
+                    if "$" in dest or "`" in dest:
+                        ambiguous = True
+                    else:
+                        paths.append(dest)
+                    j += 2
+                    continue
+                if arg.startswith("--output-dir") or arg == "--output-document":
+                    if "=" in arg:
+                        dest = arg.split("=", 1)[1]
+                    elif j + 1 < len(rest):
+                        dest = rest[j + 1]
+                        j += 1
+                    else:
+                        dest = ""
+                    if dest:
+                        if "$" in dest or "`" in dest:
+                            ambiguous = True
+                        else:
+                            paths.append(dest)
+                j += 1
+            break
+        # Archive-extraction verbs. Both can land arbitrary paths
+        # in the working tree; flag the explicit -C target when
+        # present, otherwise mark the whole command ambiguous so
+        # the policy checker engages against an obviously-unsafe
+        # shape.
+        if base == "tar":
+            rest = tokens[i + 1 :]
+            extracts = any(
+                t in {"-x", "--extract", "-xf", "-xzf", "-xjf"}
+                or (t.startswith("-x") and not t.startswith("--exclude"))
+                for t in rest
+            )
+            if extracts:
+                target_dir: str | None = None
+                for k, t in enumerate(rest):
+                    if t == "-C" and k + 1 < len(rest):
+                        target_dir = rest[k + 1]
+                if target_dir is None:
+                    ambiguous = True
+                else:
+                    if "$" in target_dir or "`" in target_dir:
+                        ambiguous = True
+                    else:
+                        paths.append(target_dir)
+            break
+        if base == "unzip":
+            rest = tokens[i + 1 :]
+            target_dir = None
+            for k, t in enumerate(rest):
+                if t == "-d" and k + 1 < len(rest):
+                    target_dir = rest[k + 1]
+            if target_dir is None:
+                ambiguous = True
+            else:
+                if "$" in target_dir or "`" in target_dir:
+                    ambiguous = True
+                else:
+                    paths.append(target_dir)
+            break
+        # ``git`` write subcommands. The leaf paths are the trailing
+        # non-flag args; we surface them all.
+        if base == "git" and i + 1 < len(tokens):
+            sub = tokens[i + 1]
+            if sub in {"mv", "rm", "apply", "checkout", "restore"}:
+                rest = tokens[i + 2 :]
+                for arg in rest:
+                    if arg.startswith("-"):
+                        continue
+                    if arg == "--":
+                        continue
+                    if "$" in arg or "`" in arg:
+                        ambiguous = True
+                    else:
+                        paths.append(arg)
+                break
+        # Shell-of-shell forms: recurse into the inner command so
+        # ``bash -c 'echo x > /restricted'`` is parsed, not silently
+        # allowed (reviewer v1 blocker #4).
+        if base in {"bash", "sh", "zsh", "dash", "ksh"}:
+            rest = tokens[i + 1 :]
+            if "-c" in rest:
+                idx = rest.index("-c")
+                if idx + 1 < len(rest):
+                    inner = rest[idx + 1]
+                    inner_paths, inner_ambiguous = _bash_write_paths(inner)
+                    paths.extend(inner_paths)
+                    if inner_ambiguous:
+                        ambiguous = True
+            break
         if base == "python3" or base == "python":
             # python -c "..." is arbitrary Python — flag as ambiguous
             # unless the command obviously doesn't write
@@ -225,13 +403,15 @@ def _bash_write_paths(command: str) -> tuple[list[str], bool]:
                         )
                     ):
                         ambiguous = True
-            # python -m orchestrator.substrate.* is the trusted
-            # entry — allow.
+            # Tightened allow-list (reviewer v1 non-blocking): only
+            # the named substrate entrypoints get a free pass, not
+            # any module under ``orchestrator.substrate.*``.
             if "-m" in rest:
                 idx = rest.index("-m")
                 if idx + 1 < len(rest):
                     mod = rest[idx + 1]
-                    if mod.startswith("orchestrator.substrate."):
+                    _ALLOWED_PY_M_MODS = ("orchestrator.substrate.claude_code.hook_entry",)
+                    if mod in _ALLOWED_PY_M_MODS:
                         i += 1
                         continue
             break

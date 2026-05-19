@@ -18,7 +18,8 @@
     "in-process-orchestrator"
   ],
   "egg": {
-    "python_dependency": "TODO(cq-12): canonical pip name + registry is unresolved. The refine-phase HITL deferred this decision; the follow-up issue listed in docs/architecture/claude-code-substrate.md will settle it. The skill's pre-flight helper at plugins/egg-sdlc/skills/egg-sdlc/bin/preflight.py probes `orchestrator.substrate.in_process.run_pipeline_in_process` and emits this same TODO marker when the import fails.",
+    "install_source": "from-source",
+    "install_instructions": "Clone the egg repo and add it to PYTHONPATH (no PyPI package is published yet). Example: `git clone https://github.com/jwbron/egg.git && cd egg && pip install -r requirements.txt && export PYTHONPATH=\"$PWD:$PWD/shared:$PYTHONPATH\"`. The follow-up issue listed in docs/architecture/claude-code-substrate.md tracks publishing a `pip install`-able package (cq-12 deferral).",
     "substrate_scope": "refiner-only",
     "substrate_selector_env_var": "EGG_SUBSTRATE",
     "substrate_selector_value": "claude-code",

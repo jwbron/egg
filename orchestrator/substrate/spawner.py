@@ -43,14 +43,21 @@ class AgentResult:
             typically reads artifacts out of this directory after the
             spawn returns.
         commit_sha: SHA of the worktree's HEAD commit **after** the
-            agent ran. This is captured by the spawner via
-            ``git -C <worktree> rev-parse HEAD`` immediately before the
-            ``AgentResult`` is returned. ``None`` when the worktree
-            does not contain a git checkout. Required to satisfy
-            invariant INV-6 (``ack_commit_sha`` consistency) in
-            ``orchestrator/action_guards.py:631`` (body at line 757):
-            reviewers attach commit-bound ACKs to the producer's
-            recorded ``commit_sha``, so the spawner must return it.
+            agent ran, when the substrate can capture it
+            synchronously. The claude-code substrate's
+            ``ClaudeCodeSpawner`` captures this via
+            ``git -C <worktree> rev-parse HEAD`` immediately before
+            the ``AgentResult`` is returned. ``None`` is also a
+            valid value: the k3s ``K3sSpawnerAdapter`` always returns
+            ``None`` because the legacy fire-and-monitor factory
+            races the producer commit — the SHA is supplied through
+            the gateway-side attestation channel that already feeds
+            INV-6 (``orchestrator/action_guards.py:631``, body at
+            line 757) for the k3s leg. Consumers that need a
+            populated SHA on every substrate should fall back to the
+            substrate-native attestation channel when this field is
+            ``None``. Wiring the gateway attestation through to this
+            field is tracked in the substrate ADR follow-up.
         artifacts: Optional list of artifact paths the agent produced.
             Substrate-implementation-defined; empty by default.
     """
@@ -97,8 +104,12 @@ class AgentSpawner(Protocol):
 
         Returns:
             An ``AgentResult`` with the spawn's outputs. The
-            ``commit_sha`` field is REQUIRED to be populated when the
-            agent produced a commit; reviewers attach commit-bound
-            ACKs to it (INV-6).
+            ``commit_sha`` field SHOULD be populated when the
+            substrate can capture the producer's HEAD SHA
+            synchronously. ``None`` is allowed for substrates whose
+            spawn factory cannot do so without racing the producer
+            commit (e.g. k3s's fire-and-monitor adapter); those
+            substrates supply INV-6's ``ack_commit_sha`` through
+            their native attestation channel instead.
         """
         ...

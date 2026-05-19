@@ -22,17 +22,16 @@ This skill is the **claude-code-substrate** entry point for the real `egg_orches
 
 ## Install
 
-The skill depends on the egg Python packages. **You install those once via pip**, then this skill imports them. Per cq-8 the plugin metadata declares the pip dependency name — the canonical string is in `plugins/egg-sdlc/.claude-plugin/plugin.json`.
-
-> **TODO: pip name pending cq-12 resolution.** Until cq-12 settles the canonical pip name and registry (the operator's choice between PyPI `egg-shared`, `git+https://github.com/jwbron/egg.git#subdirectory=shared`, or a deferred-to-follow-up TODO placeholder), the exact command below carries a placeholder. Read the literal string from `plugins/egg-sdlc/.claude-plugin/plugin.json` before running it; do **not** copy-paste the placeholder as-is.
+The skill depends on the egg Python packages. **Until cq-12 resolves and publishes a pip-installable package, the install is from source.** The plugin metadata's `egg.install_instructions` field carries the same from-source command the preflight prints on import failure — both surfaces stay in sync via the same source of truth.
 
 ```bash
-# Replace <pip-name-from-plugin.json> with the literal string declared in
-# plugins/egg-sdlc/.claude-plugin/plugin.json (TODO: cq-12 resolution).
-pip install <pip-name-from-plugin.json>
+git clone https://github.com/jwbron/egg.git
+cd egg
+pip install -r requirements.txt
+export PYTHONPATH="$PWD:$PWD/shared:$PYTHONPATH"
 ```
 
-The skill's pre-flight check imports `egg_orchestrator`; if that import fails, the skill emits a clear install instruction with the exact pip command and exits — it does NOT try to recover silently. **The install-error message in the pre-flight helper must match the install instruction in this SKILL.md** (TASK-1-7 acceptance). Note: until cq-12 lands, the contract holds string equality on a placeholder; it becomes meaningful only after the placeholder is replaced with the real pip name.
+The skill's pre-flight check imports `orchestrator.substrate.in_process.run_pipeline_in_process`; if that import fails, the skill emits the same from-source instructions and exits — it does NOT try to recover silently. **The install-error message in the pre-flight helper reads from the same `plugin.json` field this section documents** so the two surfaces remain consistent (TASK-1-7 acceptance). The follow-up issue (see the substrate ADR) tracks publishing a `pip install`-able package; until then, the from-source path is the only supported install.
 
 **Python version.** Egg targets Python 3.11+. If your Claude Code session resolves to an older Python, the import will fail with a version error — re-run the install command in a 3.11+ venv.
 
@@ -68,11 +67,11 @@ See the ADR's [Trust-context shift (R1)](../../../../docs/architecture/claude-co
 
 ### The heredoc-HITL loop (user-facing contract)
 
-This is the load-bearing piece of cq-7. The orchestrator pauses at each HITL boundary by **yielding** an `HITLDecision`; the parent session decides how to surface the decision and feeds the answer back. The loop shape is:
+This is the load-bearing piece of cq-7. The orchestrator's `run_pipeline_in_process(...)` is a Python generator that pauses at each HITL boundary by **yielding** an `HITLDecision`; the parent Claude Code session decides how to surface the decision and feeds the answer back via `generator.send(...)`. The generator shape is:
 
 ```python
-# Pseudocode of what the skill does internally. The actual call lives behind
-# this skill's outer-loop logic — you do not write this yourself.
+# Pseudocode of what a Python *driver* of this generator looks like.
+# In a long-lived Python process this loop runs verbatim.
 from orchestrator.substrate.in_process import run_pipeline_in_process
 
 generator = run_pipeline_in_process(
@@ -89,11 +88,18 @@ while True:
     except StopIteration as stop:
         analysis_path = stop.value
         break
-    # decision is an HITLDecision; the skill renders it via AskUserQuestion.
-    answer = ask_user_question_with(decision)
+    # decision is an HITLDecision; render and feed back the answer.
+    answer = render_decision_and_collect_answer(decision)
 ```
 
-While the generator is paused at a yield boundary, the orchestrator's background threads (heartbeat poll, BRC re-review, message-bus tick) keep running so a long-paused HITL does NOT cause stuck-phase-transition alerts. Dropping the generator mid-cycle (`del generator` or session exit) joins the background threads cleanly via `GeneratorExit` — no leaked threads.
+> **Walking-skeleton bridge gap — read this before relying on the loop.**
+> A Claude Code skill cannot drive a long-lived Python generator across multiple `AskUserQuestion` round-trips today: `AskUserQuestion` is a *tool the LLM calls*, not a function callable from inside a `python3` subprocess, and every `python3` invocation from a Bash skill step is a fresh process whose generator state, background threads, and `gi_frame` die at exit. This spike ships the generator and the in-process orchestrator engineered for resumption-across-yields, but the bridge from "Python generator yields `HITLDecision`" to "skill renders via `AskUserQuestion` and resumes the generator" is **not** in this PR.
+>
+> What you actually get from the skill today: a single-pass invocation of `run_pipeline_in_process(...)` that surfaces the *first* HITL via stdout and **takes the operator's answer from a `--preflight-answer` CLI flag** (or env var) rather than via `AskUserQuestion`. The generator's heartbeat-thread / GeneratorExit / contract-state synchronization machinery still runs correctly within that single-pass invocation; what is not yet wired is the multi-yield round-tripping into `AskUserQuestion`.
+>
+> Closing the gap is a follow-up. Two design options the follow-up will pick between: (a) a long-lived Python REPL/daemon the skill talks to via a JSON-RPC envelope (so the generator state survives between `AskUserQuestion` calls); (b) flatten the generator into a hand-shaped sequence of `python3 <stage>.py` invocations the skill orchestrates, each of which serialises decisions and answers through the contract file. The ADR's R2 follow-up item tracks this; the in-process generator surface is correct *for option (a)* and salvageable *for option (b)*.
+
+While the generator is paused at a yield boundary inside a single-pass invocation, the orchestrator's background threads (heartbeat poll, BRC re-review, message-bus tick) keep running so a long-paused HITL does NOT cause stuck-phase-transition alerts within that invocation. Dropping the generator (`del generator` or process exit) joins the background threads cleanly via `GeneratorExit` — no leaked threads.
 
 ### Worktree layout
 

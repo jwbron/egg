@@ -23,14 +23,13 @@ from pathlib import Path
 INSTALL_ERROR_MARKER = "egg-sdlc: required Python packages not importable"
 
 
-def _load_python_dep_string() -> str:
-    """Read the pip dependency string from plugin.json (cq-12).
+def _load_install_instructions() -> str:
+    """Read the install-instructions string from plugin.json.
 
-    Returns the literal value the operator selects via cq-12. When
-    the decision is unresolved, the plugin metadata carries a TODO
-    placeholder pointing at the follow-up issue; the pre-flight
-    helper surfaces the same TODO so the user has actionable
-    information.
+    Reviewer v1 blocker #8: cq-12 (canonical pip name) is unresolved.
+    Until the follow-up resolves it, ship actionable from-source
+    install instructions rather than a TODO placeholder that
+    ``pip install`` cannot consume.
     """
     plugin_json_path = (
         Path(__file__).resolve().parent.parent.parent.parent / ".claude-plugin" / "plugin.json"
@@ -40,7 +39,7 @@ def _load_python_dep_string() -> str:
     except (OSError, json.JSONDecodeError):  # fmt: skip
         return ""
     egg = data.get("egg") or {}
-    return str(egg.get("python_dependency") or "")
+    return str(egg.get("install_instructions") or "")
 
 
 def main() -> int:
@@ -64,28 +63,28 @@ def main() -> int:
         missing = f"orchestrator.substrate.in_process.run_pipeline_in_process: {exc}"
 
     if missing is not None:
-        dep = _load_python_dep_string()
+        instructions = _load_install_instructions()
         print(INSTALL_ERROR_MARKER, file=sys.stderr)
         print(
             "  ImportError: orchestrator.substrate.in_process is not\n"
             "  importable. The skill needs the egg orchestrator code on\n"
-            "  PYTHONPATH (or installed as a package).\n"
+            "  PYTHONPATH.\n"
             "\n"
-            "  Install the egg Python packages, then retry:\n",
+            "  Install (from-source until cq-12 publishes a pip package):\n",
             file=sys.stderr,
         )
-        if dep:
-            # Match the SKILL.md install snippet structure verbatim.
-            print(f"    pip install {dep}\n", file=sys.stderr)
+        if instructions:
+            print(f"    {instructions}\n", file=sys.stderr)
         else:
             print(
-                "    pip install <pip-name-from-plugin.json>  # see "
-                "plugins/egg-sdlc/.claude-plugin/plugin.json\n",
+                "    git clone https://github.com/jwbron/egg.git && cd egg && "
+                'pip install -r requirements.txt && export PYTHONPATH="$PWD:$PWD/shared:$PYTHONPATH"\n',
                 file=sys.stderr,
             )
         print(
             "  See plugins/egg-sdlc/skills/egg-sdlc/SKILL.md for the\n"
-            "  full install instructions (cq-12).\n"
+            "  full install instructions (cq-12 follow-up will publish\n"
+            "  a pip-installable package).\n"
             "\n"
             f"  Underlying import error: {missing}\n",
             file=sys.stderr,

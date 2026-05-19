@@ -128,19 +128,19 @@ def test_spawner_spawn_returns_agent_result(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("dim", ["k3s", "claude-code"])
-def test_bus_add_get_messages_round_trip(dim: str) -> None:
-    """``bus.add_message`` then ``bus.get_messages`` returns the same payload."""
-    if dim == "claude-code" and os.environ.get("EGG_AGENT_ROLE"):
+def test_bus_add_get_messages_round_trip_claude_code() -> None:
+    """``bus.add_message`` then ``bus.get_messages`` returns the same payload.
+
+    Reviewer v1 blocker #9: the earlier parametrized form unconditionally
+    skipped the ``k3s`` dimension (the k3s bus is gateway-side Redis
+    Streams, exercised by ``integration_tests/`` against a live
+    cluster), so the parametrize-with-skip pattern was theater. The
+    test is renamed to make the actual coverage explicit: it pins the
+    claude-code in-process bus round-trip only.
+    """
+    if os.environ.get("EGG_AGENT_ROLE"):
         pytest.skip("claude-code substrate skipped inside egg sandbox-agent context")
-    if dim == "k3s":
-        pytest.skip(
-            "k3s bus is gateway-side (Redis Streams) — the in-process "
-            "smoke covers the claude-code dimension only; the k3s "
-            "bus is exercised by integration_tests/ against a live "
-            "cluster."
-        )
-    bundle = _build_substrate(dim)
+    bundle = _build_substrate("claude-code")
     from orchestrator.message_store import Message
 
     pipeline_id = "pipeline-substrate-smoke"
@@ -163,23 +163,28 @@ def test_bus_add_get_messages_round_trip(dim: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_bus_preserves_inv3_stale_version_rejection() -> None:
-    """A stale-version ACK is rejected even when routed through the bus.
+def test_peer_consensus_tracker_preserves_inv3_stale_version_rejection() -> None:
+    """A stale-version ACK is rejected by ``PeerConsensusTracker``.
 
-    The claude-code substrate's ``InProcessMessageBus`` subclasses
-    ``MessageStore`` — the production tracker uses the store to
-    enforce stale-version semantics. We verify the invariant holds
-    by wiring a ``PeerConsensusTracker`` over the substrate bundle
-    and re-running the
+    Reviewer v1 blocker #9 — naming honesty: the previous name
+    ("bus_preserves_inv3") oversold the test. INV-3 (stale-version
+    rejection) lives in ``PeerConsensusTracker``
+    (``orchestrator/peer_consensus.py``), not in
+    ``InProcessMessageBus`` — the bus only ferries messages. This
+    test pins the tracker's invariant *under the claude-code
+    substrate import path*: a regression in the tracker would break
+    the substrate's BRC compatibility just as it would break the
+    k3s substrate, but the test does NOT exercise the bus's
+    message-shape itself. The bus's round-trip is covered by
+    ``test_bus_add_get_messages_round_trip_claude_code``.
+
+    Re-runs the
     ``test_brc_open_nacks_barrier::TestStaleVersionRejection::
-    test_ack_against_stale_version_raises`` scenario.
+    test_ack_against_stale_version_raises`` scenario as a regression
+    pin in the substrate test surface.
     """
     if os.environ.get("EGG_AGENT_ROLE"):
         pytest.skip("claude-code substrate skipped inside egg sandbox-agent context")
-    # Construct the bundle for its side effect of wiring up the bus —
-    # the tracker uses the in-process MessageStore subclass under the
-    # hood, so the invariant we exercise is structurally the same.
-    _build_substrate("claude-code")
     from orchestrator.peer_consensus import PeerConsensusTracker
     from orchestrator.review_graph import (
         ReviewCriticality,
