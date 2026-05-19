@@ -2,57 +2,71 @@
 
 Acceptance criteria covered:
 
-* ``LocalWorktreeManager`` conforms to the ``WorktreeManager`` Protocol
-  (``create_worktree`` / ``remove_worktree`` / path-resolution surface).
-* Path-escape inputs (``..``, absolute paths, embedded ``..`` segments,
-  null bytes) are rejected — oracle is
+* ``LocalWorktreeManager`` exposes ``create(pipeline_id, role)`` and
+  ``tear_down(pipeline_id)``.
+* Path-escape inputs (``..``, ``/absolute``, embedded ``..`` segments,
+  null bytes, empty strings) are rejected.  Oracle:
   ``gateway/worktree_manager.py:88 validate_identifier`` and
-  ``:110 validate_branch_ref``.
-* Worktrees are rooted under ``.egg-state/<pipeline_id>/`` per cq-5.
-
-These tests live in ``shared/tests/`` and operate against a tmp_path
-so they don't pollute the real ``.egg-state/``.
+  ``:1711`` ``is_relative_to`` guard.
+* Worktrees are rooted under ``<base>/<pipeline_id>/<role>/``;
+  ``EGG_WORKTREE_BASE`` overrides the default.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 substrate_pkg = pytest.importorskip(
-    "substrate",
-    reason="orchestrator/substrate/ package not present yet (task-1-1 pending)",
-)
-claude_code_pkg = pytest.importorskip(
-    "substrate.claude_code",
-    reason=(
-        "orchestrator/substrate/claude_code/ package not present yet "
-        "(task-1-5 pending)"
-    ),
+    "orchestrator.substrate",
+    reason="orchestrator/substrate/ package not present yet",
 )
 worktree_mod = pytest.importorskip(
-    "substrate.claude_code.worktree",
-    reason="substrate.claude_code.worktree module not present yet (task-1-5)",
+    "orchestrator.substrate.claude_code.worktree",
+    reason="orchestrator/substrate/claude_code/worktree.py not present yet",
 )
 
 
-# ---------------------------------------------------------------------------
-# Protocol conformance
-# ---------------------------------------------------------------------------
+@pytest.fixture
+def fake_role() -> Any:
+    class _Role:
+        value = "refiner"
 
+        def __str__(self) -> str:  # pragma: no cover
+            return self.value
 
-def test_local_worktree_manager_class_exported() -> None:
-    """``LocalWorktreeManager`` is reachable and has the worktree surface."""
-    cls = getattr(worktree_mod, "LocalWorktreeManager", None)
-    assert cls is not None, (
-        "substrate.claude_code.worktree.LocalWorktreeManager missing — "
-        "task-1-5 AC"
-    )
+    return _Role()
 
 
 # ---------------------------------------------------------------------------
-# Path-escape rejection (oracle: gateway/worktree_manager.py:88/110)
+# Construction + base resolution
+# ---------------------------------------------------------------------------
+
+
+def test_constructor_explicit_base_overrides_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The constructor's explicit ``base`` argument wins over ``EGG_WORKTREE_BASE``."""
+    monkeypatch.setenv("EGG_WORKTREE_BASE", "/tmp/some-env-override")
+    LocalWorktreeManager = worktree_mod.LocalWorktreeManager
+    mgr = LocalWorktreeManager(base=tmp_path)
+    assert mgr.base == tmp_path
+
+
+def test_constructor_uses_env_when_no_explicit_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``EGG_WORKTREE_BASE`` is honored when no explicit base is passed."""
+    monkeypatch.setenv("EGG_WORKTREE_BASE", str(tmp_path))
+    LocalWorktreeManager = worktree_mod.LocalWorktreeManager
+    mgr = LocalWorktreeManager()
+    assert mgr.base == tmp_path
+
+
+# ---------------------------------------------------------------------------
+# Path-escape rejection
 # ---------------------------------------------------------------------------
 
 
@@ -60,61 +74,122 @@ def test_local_worktree_manager_class_exported() -> None:
     "bad_identifier,why",
     [
         ("..", "naked dotdot"),
-        ("../escape", "embedded dotdot"),
-        ("foo/../bar", "embedded segment"),
+        ("../escape", "leading dotdot"),
+        ("foo/../bar", "embedded dotdot"),
         ("/absolute", "absolute path"),
         ("with\x00null", "null byte"),
         ("", "empty"),
         (".starts-with-dot", "leading dot"),
+        ("with space", "contains space"),
+        ("with$dollar", "contains dollar"),
     ],
 )
-def test_path_escape_inputs_rejected(
+def test_create_rejects_path_escape_pipeline_id(
     bad_identifier: str,
     why: str,
     tmp_path: Path,
+    fake_role: Any,
 ) -> None:
-    """Path-escape inputs raise ``ValueError`` before any filesystem op.
+    """Path-escape pipeline_ids raise ``ValueError`` before any filesystem op."""
+    LocalWorktreeManager = worktree_mod.LocalWorktreeManager
+    mgr = LocalWorktreeManager(base=tmp_path)
+    with pytest.raises(ValueError) as excinfo:
+        mgr.create(bad_identifier, fake_role)
+    # Must mention pipeline_id in the error message — the gateway's
+    # validate_identifier shape.
+    assert "pipeline_id" in str(excinfo.value) or "Invalid" in str(excinfo.value), (
+        f"{why}: error message should reference pipeline_id; got {excinfo.value!r}"
+    )
 
-    Oracle is ``gateway/worktree_manager.py:88 validate_identifier``;
-    the local manager must enforce equivalent rules so the in-process
-    substrate doesn't accidentally permit traversal that the gateway
-    layer would catch on the k3s side.
+
+# ---------------------------------------------------------------------------
+# Worktree rooted under base/<pipeline_id>/<role>/
+# ---------------------------------------------------------------------------
+
+
+def test_create_places_worktree_under_base_pipeline_role(tmp_path: Path, fake_role: Any) -> None:
+    """Created worktree is at ``<base>/<pipeline_id>/<role>/`` per cq-5."""
+    LocalWorktreeManager = worktree_mod.LocalWorktreeManager
+    mgr = LocalWorktreeManager(base=tmp_path)
+    out = mgr.create("pipeline-2623", fake_role)
+    expected = (tmp_path / "pipeline-2623" / "refiner").resolve()
+    assert out == expected, f"worktree at unexpected path: {out!r} vs {expected!r}"
+    assert out.exists()
+    assert out.is_dir()
+
+
+def test_create_pipeline_isolates_roles(
+    tmp_path: Path,
+    fake_role: Any,
+) -> None:
+    """Two roles in the same pipeline land in distinct subdirs."""
+    LocalWorktreeManager = worktree_mod.LocalWorktreeManager
+    mgr = LocalWorktreeManager(base=tmp_path)
+    refiner_path = mgr.create("pipeline-x", fake_role)
+
+    class _OtherRole:
+        value = "coder"
+
+        def __str__(self) -> str:  # pragma: no cover
+            return self.value
+
+    coder_path = mgr.create("pipeline-x", _OtherRole())
+    assert refiner_path != coder_path
+    assert refiner_path.parent == coder_path.parent  # both under <base>/pipeline-x/
+
+
+# ---------------------------------------------------------------------------
+# Tear-down only deletes paths under the base
+# ---------------------------------------------------------------------------
+
+
+def test_tear_down_does_not_remove_paths_outside_base(
+    tmp_path: Path, fake_role: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``tear_down`` refuses to remove any path that resolves outside ``base``.
+
+    Mirrors ``gateway/worktree_manager.py:1711`` is_relative_to guard.
     """
-    cls = getattr(worktree_mod, "LocalWorktreeManager")
-    pytest.skip(
-        f"LocalWorktreeManager constructor / create_worktree signature "
-        f"pending — fill in once task-1-5 lands ({why})"
+    LocalWorktreeManager = worktree_mod.LocalWorktreeManager
+    mgr = LocalWorktreeManager(base=tmp_path)
+    # Plant a guardrail target *outside* the base. The manager tracks
+    # only paths it creates, so the tear-down's path-escape guard only
+    # triggers when an entry escapes after tracking — simulate that.
+    outside = tmp_path.parent / "outside-canary"
+    outside.mkdir(exist_ok=True)
+    canary = outside / "do-not-delete"
+    canary.write_text("canary")
+    # Inject a tracked entry that resolves outside base.
+    mgr._tracked["pipeline-evil"] = [(outside, "egg/pipeline-evil/refiner")]  # type: ignore[attr-defined]
+    mgr.tear_down("pipeline-evil")
+    assert canary.exists(), (
+        "tear_down must NOT remove paths outside the configured base "
+        "(gateway/worktree_manager.py:1711 is_relative_to guard)"
     )
 
 
-# ---------------------------------------------------------------------------
-# Worktrees rooted under .egg-state/<pipeline_id>/ (cq-5)
-# ---------------------------------------------------------------------------
-
-
-def test_worktree_rooted_under_egg_state(tmp_path: Path) -> None:
-    """Created worktrees live under ``.egg-state/<pipeline_id>/`` per cq-5.
-
-    The base directory is configurable but defaults to
-    ``.egg-state/<pipeline_id>/`` per the architect output and cq-5.
-    The test pins the path discipline once construction stabilizes.
-    """
-    cls = getattr(worktree_mod, "LocalWorktreeManager")
-    pytest.skip(
-        "LocalWorktreeManager constructor signature pending — fill in once "
-        "task-1-5 lands"
-    )
+def test_tear_down_removes_created_worktree(
+    tmp_path: Path,
+    fake_role: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``tear_down`` removes a previously-created worktree under the base."""
+    LocalWorktreeManager = worktree_mod.LocalWorktreeManager
+    mgr = LocalWorktreeManager(base=tmp_path)
+    path = mgr.create("pipeline-clean", fake_role)
+    assert path.exists()
+    mgr.tear_down("pipeline-clean")
+    assert not path.exists(), "tear_down must remove the created worktree dir"
 
 
 # ---------------------------------------------------------------------------
-# Identifier validation matches gateway oracle
+# Tear-down validates pipeline_id input
 # ---------------------------------------------------------------------------
 
 
-def test_valid_identifier_accepted() -> None:
-    """Conforming identifiers (alnum + dot/underscore/dash) are accepted."""
-    cls = getattr(worktree_mod, "LocalWorktreeManager")
-    pytest.skip(
-        "LocalWorktreeManager validation surface pending — fill in once "
-        "task-1-5 lands"
-    )
+def test_tear_down_rejects_path_escape_pipeline_id(tmp_path: Path) -> None:
+    """``tear_down`` rejects path-escape pipeline_ids the same way ``create`` does."""
+    LocalWorktreeManager = worktree_mod.LocalWorktreeManager
+    mgr = LocalWorktreeManager(base=tmp_path)
+    with pytest.raises(ValueError):
+        mgr.tear_down("..")

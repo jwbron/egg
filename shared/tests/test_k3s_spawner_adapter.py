@@ -3,54 +3,59 @@
 Acceptance criteria covered:
 
 * ``K3sSpawnerAdapter`` conforms to the ``AgentSpawner`` Protocol.
-* The adapter delegates to
+* The adapter delegates to a callable shaped like
   ``orchestrator/kubernetes_spawner.py:1564 create_concurrent_spawn_fn``
-  (the closure shape ``(role, branch, extra_env, command) ->
-  SpawnedContainer``).
+  (signature ``(role, branch, extra_env, command) -> SpawnedContainer``).
 * ``spawn`` captures ``commit_sha`` via ``git -C <worktree> rev-parse
   HEAD`` after the wrapped closure returns and returns it on the
   ``AgentResult`` (INV-6).
-
-These tests live in ``shared/tests/`` per the plan; they mock the
-underlying ``create_concurrent_spawn_fn`` so they remain pure-Python
-and do not require a live k3s cluster.
 """
 
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 substrate_pkg = pytest.importorskip(
-    "substrate",
-    reason="orchestrator/substrate/ package not present yet (task-1-1 pending)",
+    "orchestrator.substrate",
+    reason="orchestrator/substrate/ package not present yet",
 )
-k3s_adapter_mod = pytest.importorskip(
-    "substrate.k3s_adapter",
-    reason=(
-        "orchestrator/substrate/k3s_adapter.py not present yet "
-        "(task-1-1 pending)"
-    ),
+adapter_mod = pytest.importorskip(
+    "orchestrator.substrate.k3s_adapter",
+    reason="orchestrator/substrate/k3s_adapter.py not present yet",
 )
 
 
-def _init_git_repo(path: Path) -> str:
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=path,
-        check=True,
-    )
-    subprocess.run(["git", "config", "user.name", "test"], cwd=path, check=True)
-    (path / "x").write_text("seed\n")
-    subprocess.run(["git", "add", "."], cwd=path, check=True)
+def _init_git_repo_or_skip(path: Path) -> str | None:
+    try:
+        proc = subprocess.run(
+            ["git", "init", "-q", "-b", "main"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except OSError as exc:
+        pytest.skip(f"git unavailable: {exc}")
+    if proc.returncode != 0:
+        pytest.skip(f"git init blocked in this container: {proc.stderr.strip() or proc.stdout!r}")
+    for args in (
+        ["config", "user.email", "test@example.com"],
+        ["config", "user.name", "test"],
+    ):
+        subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
+    (path / "README.md").write_text("seed\n")
+    subprocess.run(["git", "add", "."], cwd=path, check=True, capture_output=True)
     subprocess.run(
         ["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"],
         cwd=path,
         check=True,
+        capture_output=True,
     )
     return subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -62,11 +67,14 @@ def _init_git_repo(path: Path) -> str:
 
 
 @pytest.fixture
-def worktree(tmp_path: Path) -> Path:
-    repo = tmp_path / "wt"
-    repo.mkdir()
-    _init_git_repo(repo)
-    return repo
+def fake_role() -> Any:
+    class _Role:
+        value = "coder"
+
+        def __str__(self) -> str:  # pragma: no cover
+            return self.value
+
+    return _Role()
 
 
 # ---------------------------------------------------------------------------
@@ -74,69 +82,83 @@ def worktree(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_k3s_spawner_adapter_has_spawn_member() -> None:
-    """``K3sSpawnerAdapter`` exposes the ``AgentSpawner.spawn`` member."""
-    adapter_cls = getattr(k3s_adapter_mod, "K3sSpawnerAdapter", None)
-    assert adapter_cls is not None, (
-        "substrate.k3s_adapter.K3sSpawnerAdapter missing — task-1-1 AC"
-    )
-    assert hasattr(adapter_cls, "spawn"), (
-        "K3sSpawnerAdapter.spawn member required by AgentSpawner protocol"
+def test_k3s_spawner_adapter_satisfies_protocol() -> None:
+    """``isinstance(adapter, AgentSpawner)`` succeeds."""
+    AgentSpawner = substrate_pkg.AgentSpawner
+    K3sSpawnerAdapter = adapter_mod.K3sSpawnerAdapter
+    adapter = K3sSpawnerAdapter(MagicMock())
+    assert isinstance(adapter, AgentSpawner), (
+        "K3sSpawnerAdapter must satisfy AgentSpawner Protocol (cq-4 / task-1-1 AC)"
     )
 
 
 # ---------------------------------------------------------------------------
-# Adapter wraps create_concurrent_spawn_fn
+# Delegates to create_concurrent_spawn_fn-shaped closure
 # ---------------------------------------------------------------------------
 
 
-def test_k3s_adapter_wraps_create_concurrent_spawn_fn(
-    worktree: Path,
+def test_adapter_invokes_wrapped_closure_with_role_and_env(
+    tmp_path: Path,
+    fake_role: Any,
 ) -> None:
-    """Adapter dispatches through the closure from ``kubernetes_spawner``.
+    """The adapter routes ``role`` + ``env`` into the wrapped closure."""
+    K3sSpawnerAdapter = adapter_mod.K3sSpawnerAdapter
+    spawned = MagicMock(stdout="ok", exit_code=0)
+    closure = MagicMock(return_value=spawned)
+    adapter = K3sSpawnerAdapter(closure)
+    adapter.spawn(fake_role, "task body", {"EGG_PIPELINE_ID": "pipeline-test"}, tmp_path)
+    assert closure.called
+    call_kwargs = closure.call_args.kwargs
+    assert call_kwargs.get("role") is fake_role
+    extra_env = call_kwargs.get("extra_env") or {}
+    assert extra_env.get("EGG_PIPELINE_ID") == "pipeline-test"
 
-    The adapter constructor either takes a ``KubernetesSpawner`` (and
-    asks it for ``create_concurrent_spawn_fn``) or a pre-built
-    spawn-fn directly. We accept either shape — the assertion is that
-    the wrapped closure is invoked with the request's role/env when
-    the adapter's ``spawn`` is called.
-    """
-    fake_container = MagicMock()
-    fake_container.exit_code = 0
-    fake_container.stdout = "ok"
-    fake_container.stderr = ""
-    fake_container.duration_seconds = 0.01
-    closure = MagicMock(return_value=fake_container)
 
-    adapter_cls = getattr(k3s_adapter_mod, "K3sSpawnerAdapter")
-    # TODO(tester): tighten construction once coder pins the
-    # adapter signature. Three plausible shapes:
-    #   K3sSpawnerAdapter(spawn_fn=closure)
-    #   K3sSpawnerAdapter(kubernetes_spawner=<mock with create_concurrent_spawn_fn>)
-    #   K3sSpawnerAdapter(closure)
-    pytest.skip(
-        "K3sSpawnerAdapter constructor signature pending — fill in once "
-        "task-1-1 lands"
-    )
+def test_adapter_returns_agent_result_with_legacy_fields(
+    tmp_path: Path,
+    fake_role: Any,
+) -> None:
+    """``spawn`` returns an ``AgentResult`` populated from the legacy container."""
+    AgentResult = substrate_pkg.AgentResult
+    K3sSpawnerAdapter = adapter_mod.K3sSpawnerAdapter
+    spawned = MagicMock(stdout="container stdout", exit_code=0)
+    closure = MagicMock(return_value=spawned)
+    adapter = K3sSpawnerAdapter(closure)
+    result = adapter.spawn(fake_role, "task", {}, tmp_path)
+    assert isinstance(result, AgentResult)
+    assert result.stdout == "container stdout"
+    assert result.exit_code == 0
+    assert result.duration_seconds >= 0.0
 
 
 # ---------------------------------------------------------------------------
-# Adapter captures commit_sha after spawn (INV-6)
+# commit_sha captured from worktree (INV-6)
 # ---------------------------------------------------------------------------
 
 
-def test_k3s_adapter_captures_commit_sha(worktree: Path) -> None:
-    """Adapter runs ``git rev-parse HEAD`` after closure returns (INV-6)."""
-    fake_container = MagicMock()
-    fake_container.exit_code = 0
-    fake_container.stdout = "ok"
-    fake_container.stderr = ""
-    fake_container.duration_seconds = 0.01
-    closure = MagicMock(return_value=fake_container)
+def test_adapter_captures_commit_sha_from_worktree(
+    tmp_path: Path,
+    fake_role: Any,
+) -> None:
+    """Adapter runs ``git rev-parse HEAD`` after the closure returns (INV-6)."""
+    sha = _init_git_repo_or_skip(tmp_path)
+    if sha is None:
+        pytest.skip("git init blocked")
+    K3sSpawnerAdapter = adapter_mod.K3sSpawnerAdapter
+    closure = MagicMock(return_value=MagicMock(stdout="", exit_code=0))
+    adapter = K3sSpawnerAdapter(closure)
+    result = adapter.spawn(fake_role, "x", {}, tmp_path)
+    assert result.commit_sha == sha
 
-    # TODO(tester): construct, call .spawn(...), then assert
-    # ``result.commit_sha`` is a 40-char hex SHA matching the
-    # worktree's HEAD. Skip until task-1-1 lands.
-    pytest.skip(
-        "K3sSpawnerAdapter.spawn signature pending — fill in once task-1-1 lands"
-    )
+
+def test_adapter_commit_sha_none_when_worktree_missing(
+    tmp_path: Path,
+    fake_role: Any,
+) -> None:
+    """``commit_sha`` is None when the worktree path doesn't exist."""
+    K3sSpawnerAdapter = adapter_mod.K3sSpawnerAdapter
+    closure = MagicMock(return_value=MagicMock(stdout="", exit_code=0))
+    adapter = K3sSpawnerAdapter(closure)
+    nonexistent = tmp_path / "nope"
+    result = adapter.spawn(fake_role, "x", {}, nonexistent)
+    assert result.commit_sha is None

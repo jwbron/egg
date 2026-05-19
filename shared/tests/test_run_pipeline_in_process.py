@@ -2,69 +2,60 @@
 
 Acceptance criteria covered (TASK-1-6 R4 acceptance bullets):
 
-* Raises ``NotImplementedError`` for ``EGG_SUBSTRATE=k3s`` — the
-  in-process entry point is claude-code-only; the k3s leg keeps using
-  the existing pipeline runner.
-* Heartbeat thread liveness is preserved across HITL yields (the
-  generator yields control back to the parent skill for HITL prompts,
-  but the orchestrator's internal heartbeat thread keeps ticking so
-  overseer-side stall detection still works).
-* Background threads are dropped cleanly on ``GeneratorExit`` (caller
-  closes the generator; no zombie threads survive).
-
-The entry point shape is documented by the architect output as a
-generator: the parent skill iterates it, ``HITLDecision`` objects
-yielded by the generator surface to the skill (which renders them via
-``AskUserQuestion``), and ``.send(answer)`` resumes the orchestrator.
+* Raises ``NotImplementedError`` for ``EGG_SUBSTRATE=k3s``.
+* Heartbeat thread keeps ticking across HITL yields — background
+  thread liveness during HITL pauses.
+* Background threads are dropped cleanly on ``GeneratorExit`` (the
+  caller's ``.close()`` joins every thread).
 """
 
 from __future__ import annotations
 
-import threading
 import time
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 substrate_pkg = pytest.importorskip(
-    "substrate",
-    reason="orchestrator/substrate/ package not present yet (task-1-1 pending)",
+    "orchestrator.substrate",
+    reason="orchestrator/substrate/ package not present yet",
 )
 in_process_mod = pytest.importorskip(
-    "substrate.in_process",
-    reason=(
-        "orchestrator/substrate/in_process.py not present yet "
-        "(task-1-6 pending)"
-    ),
+    "orchestrator.substrate.in_process",
+    reason="orchestrator/substrate/in_process.py not present yet",
 )
 
 
 # ---------------------------------------------------------------------------
-# AC (a): NotImplementedError for k3s
+# AC (a): NotImplementedError for EGG_SUBSTRATE=k3s
 # ---------------------------------------------------------------------------
 
 
 def test_run_pipeline_in_process_rejects_k3s_substrate(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``run_pipeline_in_process`` refuses ``EGG_SUBSTRATE=k3s``.
 
-    The in-process entry point is the claude-code substrate's
-    orchestrator. ``EGG_SUBSTRATE=k3s`` must keep using the existing
-    pipeline runner via the regular k8s spawner — the in-process
-    entry point must not silently fall back.
+    The in-process entry point is claude-code-only for the spike.
+    ``EGG_SUBSTRATE=k3s`` keeps using the existing pipeline runner via
+    ``orchestrator.cli.cmd_serve``; the in-process entry must not
+    silently fall back.
     """
-    run = getattr(in_process_mod, "run_pipeline_in_process", None)
-    assert run is not None, (
-        "substrate.in_process.run_pipeline_in_process missing — task-1-6 AC"
+    run = in_process_mod.run_pipeline_in_process
+    with pytest.raises(NotImplementedError) as excinfo:
+        run(
+            "pipeline-test",
+            env={"EGG_SUBSTRATE": "k3s"},
+            state_dir=tmp_path / ".egg-state",
+        )
+    # The error message should reference the substrate / follow-up
+    # issue so operators can route the request correctly.
+    msg = str(excinfo.value).lower()
+    assert "k3s" in msg or "claude-code" in msg or "substrate" in msg, (
+        f"NotImplementedError should reference the substrate boundary; got: {excinfo.value!r}"
     )
-    monkeypatch.setenv("EGG_SUBSTRATE", "k3s")
-    with pytest.raises(NotImplementedError):
-        # Generator-style or function-style — both must raise on first use.
-        result = run()
-        # If the entry is a generator, advance it to trigger the raise.
-        if hasattr(result, "__next__"):
-            next(result)
 
 
 # ---------------------------------------------------------------------------
@@ -73,20 +64,51 @@ def test_run_pipeline_in_process_rejects_k3s_substrate(
 
 
 def test_heartbeat_thread_remains_alive_across_hitl_yield(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Heartbeat thread keeps ticking while a HITL decision is pending.
 
     Drives the generator until it yields a ``HITLDecision``, pauses
-    (simulating the parent skill rendering the question to the user),
-    waits long enough for ≥2 heartbeat intervals to elapse, and asserts
-    the orchestrator's heartbeat counter advanced — i.e. the background
-    thread didn't sleep on the same generator-level yield.
+    (simulating the parent skill rendering the question), waits long
+    enough for ≥2 heartbeat intervals, and asserts the heartbeat
+    counter advanced — i.e. the background thread didn't stop while
+    the generator body was paused at a yield.
     """
-    pytest.skip(
-        "Heartbeat introspection surface pending — fill in once task-1-6 "
-        "exposes a counter or test hook for the heartbeat thread"
+    # Shrink the heartbeat interval so the test runs in seconds, not
+    # the production 5s tick.
+    monkeypatch.setattr(in_process_mod, "_HEARTBEAT_INTERVAL", 0.05)
+    monkeypatch.setattr(in_process_mod, "_BRC_REVIEW_INTERVAL", 0.05)
+    monkeypatch.setattr(in_process_mod, "_BUS_TICK_INTERVAL", 0.05)
+
+    run = in_process_mod.run_pipeline_in_process
+    gen = run(
+        "pipeline-hb-test",
+        env={"EGG_SUBSTRATE": "claude-code"},
+        state_dir=tmp_path / ".egg-state",
     )
+    try:
+        # Advance to the first HITL yield.
+        first = next(gen)
+        # First yield must be a HITLDecision-shaped object.
+        assert first is not None, "first yield should be a HITLDecision"
+        # Grab the orchestrator instance via the generator's frame to
+        # observe the heartbeat counter. The runner is the
+        # ``_InProcessOrchestrator``'s ``run()`` method; the instance
+        # is in ``gi_frame.f_locals["self"]``.
+        frame = gen.gi_frame
+        assert frame is not None, "generator must have a live frame after yield"
+        runner = frame.f_locals.get("self")
+        assert runner is not None
+        baseline = runner._heartbeat_ticks
+        # Sleep through several heartbeat intervals.
+        time.sleep(0.25)  # ≥4 intervals of 0.05s
+        assert runner._heartbeat_ticks > baseline, (
+            f"Heartbeat thread must keep ticking across HITL yields; "
+            f"baseline={baseline} current={runner._heartbeat_ticks}"
+        )
+    finally:
+        gen.close()
 
 
 # ---------------------------------------------------------------------------
@@ -95,30 +117,89 @@ def test_heartbeat_thread_remains_alive_across_hitl_yield(
 
 
 def test_background_threads_dropped_on_generator_close(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Closing the generator joins / stops all orchestrator-side threads.
+    """Closing the generator joins background threads cleanly.
 
     Snapshots ``threading.enumerate()`` before / after the generator
-    lifecycle and asserts no new threads survive the ``.close()``.
+    lifecycle and asserts every egg-inproc thread the orchestrator
+    started has terminated within the bounded join window.
     """
-    monkeypatch.setenv("EGG_SUBSTRATE", "claude-code")
-    run = getattr(in_process_mod, "run_pipeline_in_process", None)
-    if run is None:
-        pytest.skip("run_pipeline_in_process missing — task-1-6 pending")
+    monkeypatch.setattr(in_process_mod, "_HEARTBEAT_INTERVAL", 0.05)
+    monkeypatch.setattr(in_process_mod, "_BRC_REVIEW_INTERVAL", 0.05)
+    monkeypatch.setattr(in_process_mod, "_BUS_TICK_INTERVAL", 0.05)
 
-    before = {t.ident for t in threading.enumerate()}
-    pytest.skip(
-        "Generator construction signature pending — fill in once task-1-6 "
-        "lands (need pipeline_id / mode / etc. params)"
+    run = in_process_mod.run_pipeline_in_process
+    gen = run(
+        "pipeline-thread-test",
+        env={"EGG_SUBSTRATE": "claude-code"},
+        state_dir=tmp_path / ".egg-state",
     )
-    # The shape we want once task-1-6 ships:
-    # gen = run(pipeline_id="pipeline-test", mode="issue", issue=2623)
-    # next(gen)        # advance past first yield
-    # gen.close()      # caller asks to clean up
-    # # Give threads a moment to wind down.
-    # time.sleep(0.5)
-    # after = {t.ident for t in threading.enumerate()}
-    # assert after.issubset(before | {threading.main_thread().ident}), (
-    #     "No new threads must survive generator close"
-    # )
+    # Advance to the first yield to ensure the background threads
+    # have started.
+    next(gen)
+    frame = gen.gi_frame
+    runner = frame.f_locals.get("self") if frame else None
+    assert runner is not None
+    started_threads = list(runner._threads)
+    assert started_threads, "background threads should have been started"
+    # Close the generator — the finally block must join the threads.
+    gen.close()
+    # Give the threads a moment to wind down.
+    time.sleep(0.3)
+    leaked = [t for t in started_threads if t.is_alive()]
+    assert leaked == [], (
+        f"GeneratorExit must drop background threads; leaked: {[t.name for t in leaked]}"
+    )
+
+
+def test_run_pipeline_in_process_returns_artifact_path_on_normal_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the operator picks a terminal answer, the generator returns the artifact path.
+
+    The walking-skeleton scope-fences anything past refine, but if
+    the operator answers the refine-gate with anything other than
+    ``approve_continue``, the generator terminates and returns the
+    artifact path string.
+    """
+    monkeypatch.setattr(in_process_mod, "_HEARTBEAT_INTERVAL", 0.05)
+    monkeypatch.setattr(in_process_mod, "_BRC_REVIEW_INTERVAL", 0.05)
+    monkeypatch.setattr(in_process_mod, "_BUS_TICK_INTERVAL", 0.05)
+
+    # Stub out the spawner so we don't fan into the real harness.
+    fake_bundle = MagicMock()
+    fake_bundle.spawner.spawn = MagicMock()
+    fake_bundle.worktrees.create = MagicMock(return_value=tmp_path / "wt")
+    with patch.object(
+        in_process_mod, "_InProcessOrchestrator", wraps=in_process_mod._InProcessOrchestrator
+    ):
+        run = in_process_mod.run_pipeline_in_process
+        gen = run(
+            "pipeline-end2end",
+            env={"EGG_SUBSTRATE": "claude-code"},
+            state_dir=tmp_path / ".egg-state",
+        )
+        # Advance to first HITL.
+        next(gen)
+        try:
+            # Send "approve" through; this is a non-fence answer.
+            with patch(
+                "orchestrator.substrate.select_substrate",
+                return_value=fake_bundle,
+            ):
+                second = gen.send("approve")
+            # The generator must yield the refine-gate decision next.
+            assert second is not None
+            # Send "stop" through the refine gate — non-fence terminal.
+            try:
+                gen.send("stop")
+                pytest.fail("Expected StopIteration on terminal answer")
+            except StopIteration as stop:
+                # The return value is the artifact path string.
+                assert isinstance(stop.value, str)
+                assert stop.value.endswith("-analysis.md")
+        finally:
+            gen.close()
