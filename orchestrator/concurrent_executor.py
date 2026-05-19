@@ -511,13 +511,37 @@ class ConcurrentPhaseExecutor:
 
         Works with both ContainerSpawner.create_concurrent_spawn_fn() and
         KubernetesSpawner.create_concurrent_spawn_fn().
+
+        Substrate-swap seam (#2623): when ``EGG_SUBSTRATE`` is set to a
+        recognised substrate (``"k3s"`` or ``"claude-code"``), this
+        method routes through
+        ``orchestrator.substrate.select_substrate(...).spawner.spawn(...)``
+        instead of calling ``self.spawn_fn`` directly. The default
+        (unset ``EGG_SUBSTRATE``) preserves the legacy path verbatim
+        so existing k3s production deployments are unaffected. Under
+        ``EGG_SUBSTRATE=k3s`` the bundle returns a
+        ``K3sSpawnerAdapter`` shim wrapping ``self.spawn_fn``; under
+        ``EGG_SUBSTRATE=claude-code`` the bundle returns the new
+        ``ClaudeCodeSpawner``.
         """
+        import os
+
         branch = self.get_worktree_branch(role, slice_id=self._slice_id)
         env = self.get_agent_env(role)
 
         command: list[str] | None = None
         if prompt_text:
             command = build_consensus_wrapped_command(prompt_text)
+
+        substrate_name = (os.environ.get("EGG_SUBSTRATE") or "").lower()
+        if substrate_name in ("k3s", "claude-code"):
+            return self._spawn_agent_via_substrate(
+                role=role,
+                branch=branch,
+                env=env,
+                command=command,
+                prompt_text=prompt_text,
+            )
 
         result = self.spawn_fn(
             role=role,
@@ -535,6 +559,71 @@ class ConcurrentPhaseExecutor:
             status=AgentExecutionStatus.RUNNING,
             container_id=container_id,
             container_info=result.container_info,
+            started_at=datetime.now(UTC),
+            slice_id=self._slice_id,
+        )
+
+    def _spawn_agent_via_substrate(
+        self,
+        *,
+        role: AgentRole,
+        branch: str | None,
+        env: dict[str, str],
+        command: list[str] | None,
+        prompt_text: str,
+    ) -> AgentExecution:
+        """Dispatch a spawn through the ``EGG_SUBSTRATE`` bundle.
+
+        Walking-skeleton seam for issue #2623. The substrate bundle's
+        ``spawner.spawn(role, prompt, env, worktree)`` returns an
+        ``AgentResult`` (not a ``SpawnedContainer``); we synthesise
+        an ``AgentExecution`` from it.
+
+        Under ``EGG_SUBSTRATE=k3s`` the bundle returns the
+        ``K3sSpawnerAdapter`` shim wrapping ``self.spawn_fn``, so the
+        legacy spawn path still runs — this method is the rewire.
+        Under ``EGG_SUBSTRATE=claude-code`` the bundle returns the
+        ``ClaudeCodeSpawner`` and the legacy ``spawn_fn`` is bypassed.
+        """
+        import os
+
+        from substrate import SubstrateBundle, select_substrate
+
+        bundle: SubstrateBundle = select_substrate(
+            os.environ,
+            k3s_legacy_spawn_fn=self.spawn_fn,
+        )
+
+        # The substrate path uses an in-process worktree handle; the
+        # legacy k3s path manages the gateway-side worktree itself.
+        # When the bundle's worktree manager is the in-process
+        # LocalWorktreeManager (claude-code), allocate the worktree
+        # before spawning. Otherwise pass a placeholder path — the
+        # K3sSpawnerAdapter doesn't read it for spawn dispatch.
+        worktree_path: Path
+        try:
+            worktree_path = bundle.worktrees.create(
+                self.pipeline.id,
+                role,
+            )
+        except NotImplementedError, AttributeError:
+            worktree_path = Path(env.get("EGG_WORKTREE_ROOT", "."))
+
+        result = bundle.spawner.spawn(role, prompt_text, env, worktree_path)
+
+        # Synthesise an AgentExecution. The substrate path runs
+        # synchronously, so the spawn returns AFTER the agent
+        # finishes — we mark it COMPLETE.
+        status = (
+            AgentExecutionStatus.COMPLETE
+            if (getattr(result, "exit_code", 0) == 0)
+            else AgentExecutionStatus.FAILED
+        )
+
+        return AgentExecution(
+            role=role,
+            status=status,
+            container_id=f"substrate-{bundle.name}-{role.value if hasattr(role, 'value') else role}",
             started_at=datetime.now(UTC),
             slice_id=self._slice_id,
         )
