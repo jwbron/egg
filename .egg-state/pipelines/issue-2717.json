@@ -508,10 +508,28 @@
       "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Accept the refiner's suggested 5: #2714 (bug — sync regression on dirty worktree), #2474 (feature / regression suite — k3s integration coverage), #2261 (refactor — decomposing 15 oversize source files), #2705 (infra — Cilium datapath / k3s setup), #2718 (doc — claude-code substrate docs). Each represents a distinct SDLC shape; current state (open/closed/merged) is not relevant for using them as conformance fixtures. Note: #2714 was closed since this issue was filed (presumably part of the operator's recent redeploy).\", \"Q2\": \"No hard budget; pytest.mark.slow as soft inclusion gate; 3-hour-per-phase ceiling as safety fallback that fails the CI job if any single phase exceeds it. Per-phase cost/latency budgets remain deferred until we have empirical rollout data from the 5x2 matrix; reassess in a follow-up issue once the matrix has run end-to-end at least once. The 3-hour ceiling is calibrated against this issue's predecessor (#2623) which had an 80-minute implement phase on k3s; claude-code substrate is expected to be slower per-call (subagent dispatch overhead), so 3 hours leaves headroom for legitimate multi-cycle BRC without inviting runaway loops.\", \"Q3\": \"Option A — Full local-run end-to-end. DoD #5 in the issue body says 'EggHarnessSpawner ships and can drive a pipeline headlessly (egg-orch local-run --issue 1234)' which Option B (spawner-only, defer CLI) does not satisfy. Option A also gives the third spawner implementation needed to battle-test the AgentSpawner protocol contract with >2 implementations (per cq-7's stability rationale).\", \"Q4\": \"No additional mitigations for v1. R1's acceptance was scoped to 'trusted-repo SDLC on operator's own machine' — that scales to multi-subagent because the trust model is unchanged (same operator's session credentials, same operator's repo, same operator's machine). The 11-15 subagents per pipeline expand the credential-exposure surface but not the credential-trust model. Revisit only if multi-tenant operator use cases or CI-runner-managed substrate use cases emerge. An opt-in EGG_REQUIRE_CREDENTIAL_PROXY flag was considered but adds operator friction with no concrete threat-model justification for v1; can be added later if real use cases warrant it.\", \"Q5\": \"No new reviewer roles. The existing roster (reviewer_code, reviewer_concurrency, reviewer_security, reviewer_agent_design) already covers the substrate dimensions: substrate concurrency falls under reviewer_concurrency; substrate code under reviewer_code; substrate hooks / policy / credential boundaries under reviewer_security; substrate architecture / design choices under reviewer_agent_design. Adding reviewer_substrate or reviewer_concurrency_substrate bloats dispatch fan-out (already 8 reviewers in implement phase) without clear coverage value. If a specific gap surfaces during the rollout — e.g. a reviewer dimension that isn't being caught by any existing reviewer — file it as a follow-up issue with a concrete coverage gap.\", \"Q6\": \"Remove the scope-fence entirely once plan/implement/pr land. Today's NotImplementedError fence was a spike-scope guard; once all phases work, chaining phases freely is the expected behavior. The 'single-phase' use case is already structurally covered by the start_phase + hitl_gates: false config flags (used today by the short flow). A per-phase fence each operator must explicitly clear adds friction with no benefit. A --single-phase flag is redundant with start_phase. Fence removal should land as part of the pr-phase + conformance slice.\"}}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Pipeline blocked at plan_complete: contract.slices is empty and the plan draft is missing, unparseable, or yielded no tasks (reason=plan_draft_missing_on_local). The populate-from-plan step silently failed earlier (#2337 / #2627), so pipeline state and the contract have diverged. Plain restart_phase implement will respawn into the same broken state. How to proceed?\n- 'Repopulate contract from plan draft and retry' — run POST /pipelines/issue-2717/phase/populate-contract, then restart_phase implement.\n- 'Restart plan phase' — restart_phase plan to regenerate the draft from scratch.\n- 'Abort pipeline' — cancel_task.",
+      "context": "",
+      "options": [
+        "Repopulate contract from plan draft and retry",
+        "Restart plan phase",
+        "Abort pipeline"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-19T18:40:50.831221Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-19T17:08:57.439434Z",
-  "updated_at": "2026-05-19T18:40:50.805314Z",
+  "updated_at": "2026-05-19T18:40:50.831384Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -525,7 +543,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-19T18:05:21.623588Z",
-  "version": 36,
+  "version": 37,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
