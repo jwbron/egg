@@ -914,11 +914,13 @@ class _InProcessOrchestrator:
 
     def _read_plan_reviewer_verdicts(
         self,
+        *,
+        plan_producers: list[Any] | None = None,
     ) -> tuple[Path | None, dict[str, dict[str, Any]]]:
         """See _plan_phase.read_plan_reviewer_verdicts."""
         from . import _plan_phase
 
-        return _plan_phase.read_plan_reviewer_verdicts(self)
+        return _plan_phase.read_plan_reviewer_verdicts(self, plan_producers=plan_producers)
 
     def _write_active_role_sentinel(self, role: str) -> None:
         """Write the active agent role to a known location.

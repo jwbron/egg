@@ -167,7 +167,7 @@ def _run_plan_phase_inner(
     producer_results[plan_reviewer] = reviewer_result
     producer_artifacts[plan_reviewer] = reviewer_artifact
 
-    verdict_path, verdicts = read_plan_reviewer_verdicts(runner)
+    verdict_path, verdicts = read_plan_reviewer_verdicts(runner, plan_producers=plan_producers)
     runner._verdict_diagnostics = {
         "verdict_path": str(verdict_path) if verdict_path else None,
         "verdicts": verdicts,
@@ -250,13 +250,38 @@ def _record_producer_propose(
 
 def read_plan_reviewer_verdicts(
     runner: _InProcessOrchestrator,
+    *,
+    plan_producers: list[Any] | None = None,
 ) -> tuple[Path | None, dict[str, dict[str, Any]]]:
     """Parse the reviewer_plan verdict JSON if present.
 
-    Returns ``(verdict_path, verdicts)``. ``verdicts`` is empty when
-    the file is missing or unparseable; the orchestrator's fail-closed
-    heuristic in ``_apply_reviewer_verdicts`` treats that as NACK only
-    when the reviewer's spawn itself failed.
+    Two schemas are accepted to align with the rubric the documenter
+    shipped (``plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_plan.md``)
+    AND a more granular extension shape:
+
+    1. **Rubric-default (single-verdict, broadcast).** The rubric
+       documents the JSON object as a single top-level verdict
+       (``verdict`` ∈ {"ACK", "NACK"}, ``analysis`` carrying the
+       eight criteria, ``feedback`` blob, ``artifact_references``).
+       When this is the shape on disk, the verdict is broadcast to
+       every plan producer edge — ACK acks all three, NACK nacks
+       all three with ``feedback`` as the per-edge reason. This is
+       the "Option (c)" resolution from reviewer_code_holistic v3
+       NACK blocker H3.
+    2. **Per-producer extension (per-edge).** When the verdict JSON
+       carries a ``per_producer`` mapping of
+       ``{role_name: {"verdict": "ACK"|"NACK", "reason": str, ...}}``
+       entries, per-edge semantics override the broadcast: each
+       edge's verdict is taken from the matching entry. A reviewer
+       that wants edge granularity (e.g. ACK architect + NACK
+       task_planner) writes the wrapper; the rubric's default
+       single-verdict shape stays broadcast-compatible.
+
+    Returns ``(verdict_path, verdicts)``. ``verdicts`` is empty
+    when the file is missing or the JSON is unparseable; the
+    orchestrator's fail-closed heuristic in
+    ``_apply_reviewer_verdicts`` treats that as NACK only when
+    the reviewer's spawn itself failed.
     """
     outputs_dir = runner.state_root / "agent-outputs"
     artifact_id = runner.issue_number or runner.pipeline_id
@@ -267,23 +292,65 @@ def read_plan_reviewer_verdicts(
         blob = json.loads(verdict_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):  # fmt: skip
         return verdict_path, {}
-    per_producer = blob.get("per_producer") or {}
-    if not isinstance(per_producer, dict):
+    if not isinstance(blob, dict):
         return verdict_path, {}
-    normalised: dict[str, dict[str, Any]] = {}
-    for role_name, entry in per_producer.items():
-        if not isinstance(entry, dict):
-            continue
-        verdict = str(entry.get("verdict", "")).strip().upper()
-        if verdict not in {"ACK", "NACK"}:
-            continue
-        normalised[str(role_name)] = {
-            "verdict": verdict,
-            "reason": str(entry.get("reason", "")),
-            "artifact_references": list(entry.get("artifact_references") or []),
-            "pre_merge_condition": str(entry.get("pre_merge_condition", "")),
+
+    # Schema 2: per-producer extension wrapper takes precedence if
+    # it's a well-formed dict. Reviewers that want per-edge
+    # granularity opt into it explicitly.
+    per_producer = blob.get("per_producer")
+    if isinstance(per_producer, dict) and per_producer:
+        normalised: dict[str, dict[str, Any]] = {}
+        for role_name, entry in per_producer.items():
+            if not isinstance(entry, dict):
+                continue
+            verdict = str(entry.get("verdict", "")).strip().upper()
+            if verdict not in {"ACK", "NACK"}:
+                continue
+            normalised[str(role_name)] = {
+                "verdict": verdict,
+                "reason": str(entry.get("reason", "")),
+                "artifact_references": list(entry.get("artifact_references") or []),
+                "pre_merge_condition": str(entry.get("pre_merge_condition", "")),
+            }
+        if normalised:
+            return verdict_path, normalised
+
+    # Schema 1: rubric-default single-verdict broadcast. The rubric
+    # specifies ``verdict``, ``analysis``, ``feedback``,
+    # ``artifact_references`` at the top level. NACK propagates the
+    # ``feedback`` blob into every producer's per-edge reason so
+    # the operator sees the same revision instructions on each
+    # tracker edge.
+    top_verdict = str(blob.get("verdict", "")).strip().upper()
+    if top_verdict in {"ACK", "NACK"}:
+        # When the caller hasn't told us which producers to
+        # broadcast across (legacy callers), the broadcast is
+        # impossible — return empty and let the orchestrator's
+        # fail-closed / optimistic-ACK heuristic apply.
+        if not plan_producers:
+            return verdict_path, {}
+        feedback = str(blob.get("feedback", "")).strip()
+        # NACK with an empty feedback blob would hit
+        # ReviewPayload.validate_nack_has_reason. Synthesise a
+        # placeholder so the tracker records the NACK rather than
+        # silently losing it (reviewer_code v3 non-blocking #1).
+        broadcast_reason = (
+            feedback
+            or f"reviewer_plan broadcast {top_verdict}: top-level verdict "
+            "without a per-edge feedback blob — see verdict JSON for the "
+            "criteria-keyed analysis."
+        )
+        broadcast_refs = list(blob.get("artifact_references") or [])
+        broadcast = {
+            "verdict": top_verdict,
+            "reason": broadcast_reason,
+            "artifact_references": broadcast_refs,
+            "pre_merge_condition": str(blob.get("pre_merge_condition", "")),
         }
-    return verdict_path, normalised
+        return verdict_path, {role.value: broadcast for role in plan_producers}
+
+    return verdict_path, {}
 
 
 def _apply_reviewer_verdicts(
