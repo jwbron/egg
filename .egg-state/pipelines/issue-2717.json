@@ -329,10 +329,55 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Curated 5-issue conformance set (feedback Q1 in #2623 settled the rule, not the specific issues): name the 5 GitHub issue numbers covering the SDLC hot paths: one bug fix, one feature add, one refactor, one infra/script change, one doc change. The conformance matrix will run all 5 under both `EGG_SUBSTRATE=k3s` and `EGG_SUBSTRATE=claude-code` in CI. Suggested candidates the analysis can pre-select: #2714 (bug), #2474 (feature/regression suite), #2261 (refactor), #2705 (infra), #2718 (doc) — are these acceptable, or would you prefer different ones?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Latency / cost budget for the conformance matrix (feedback Q2 deferred to this issue): now that we'll run refine + plan + implement + pr against 5 issues under both substrates, do you want a budget per phase (e.g., 'refine ≤ 2x k3s wall-clock', 'cost per issue ≤ $5 of Anthropic spend'), or a global per-issue budget, or no budget at all (just `pytest.mark.slow` if any test exceeds N minutes)?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "EggHarnessSpawner scope (feedback Q4 named it a secondary goal; DoD #5 promotes it to required for parent-close): how much of the EggHarnessSpawner ships in this issue? A) a working `egg-orch local-run --issue 1234` end-to-end against a curated issue; B) just the spawner class + protocol satisfaction + unit tests (CLI in a follow-up); C) full local-run including HITL flow via stdin/stdout JSON prompts; D) defer entirely — we promised in DoD but it can be a tertiary issue.",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Operator-acceptance for trust-context shift (R1) at multi-role scale: the spike's R1 acceptance is scoped to 'one refiner subagent running against a trusted repo'. Plan / implement phases dispatch 3+8 = 11 subagents per pipeline, each with access to the parent session's API credential context. Do you want any additional mitigations beyond what the spike documents (e.g. an opt-in `EGG_REQUIRE_CREDENTIAL_PROXY=true` flag that forces operators to acknowledge multi-subagent credential exposure, or a per-role allowlist of which subagents may run on the claude-code substrate)?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Reviewer-roster expansion: are any new reviewer roles needed for the substrate-rollout work itself? For example, `reviewer_substrate` or `reviewer_concurrency_substrate` to give bridge / message bus / hook work a dedicated reviewer beyond the existing `reviewer_code`, `reviewer_concurrency`, `reviewer_security`, `reviewer_agent_design`? Or are the existing reviewers adequate?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Walking-skeleton scope-fence behavior post-rollout: today `run_pipeline_in_process` raises NotImplementedError if the operator chooses 'continue to plan'. After plan / implement / pr land, should the fence be removed entirely (operator can chain phases freely), kept as an opt-in `--single-phase` flag for short runs, or moved to a per-phase fence each operator must explicitly clear?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-05-19T17:33:06.045505Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-19T17:08:57.439434Z",
-  "updated_at": "2026-05-19T17:33:06.001596Z",
+  "updated_at": "2026-05-19T17:33:06.052682Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -346,7 +391,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
