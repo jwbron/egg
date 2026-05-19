@@ -64,7 +64,6 @@ import os
 import subprocess
 import sys
 import textwrap
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -226,32 +225,81 @@ def _read_contract(state_dir: Path, pipeline_id: str) -> dict:
     return json.loads(contract_path.read_text())
 
 
+_WRITE_ANSWER_HELPER = Path("plugins/egg-sdlc/skills/egg-sdlc/bin/write_answer.py")
+
+
 def _write_answer(state_dir: Path, pipeline_id: str, answer: str) -> None:
-    """Write the operator's answer + ``status=answered`` to ``pending_hitl``.
+    """Write the operator's answer + ``status=answered`` via ``write_answer.py``.
 
-    The driver's protocol per ``run_pipeline.py`` (task-1-1 schema):
-
-    * Skill body writes ``answer = <text>`` and ``status = "answered"``.
-    * On the next invocation the driver promotes ``answer`` into
-      ``answer_log`` and clears ``answer`` back to ``None``.
-
-    A test that only writes ``answer`` without flipping ``status`` to
-    ``answered`` would NOT cause the driver to promote it — that is
-    by design (the skill must affirm the answer is final before the
-    driver consumes it). Pin both fields here to mirror the
-    skill-body contract.
+    The skill loop documented in ``SKILL.md`` ferries the operator's
+    selection from ``AskUserQuestion`` into ``pending_hitl.answer`` by
+    invoking ``bin/write_answer.py --answer-string "${ANSWER}"``. To
+    cover the *end-to-end* bridge contract — driver writes envelope,
+    helper writes answer, driver consumes answer on the next call —
+    this test exercises the helper through the same subprocess shape
+    the skill body uses. A regression in ``write_answer.py``
+    (timestamp drift, atomic-write breakage, status-flip omission)
+    would otherwise slip past this integration test because the
+    helper's unit tests live in ``shared/tests/test_write_answer.py``
+    while the bridge test could fabricate the envelope by hand.
     """
+    repo_root = _repo_root()
+    helper_path = (repo_root / _WRITE_ANSWER_HELPER).resolve()
+    env = {
+        **os.environ,
+        # Same PYTHONPATH shape as the driver subprocess — the helper
+        # is dependency-free today, but keeping the paths consistent
+        # means a future helper that imports egg modules won't fail
+        # only in this test path.
+        "PYTHONPATH": os.pathsep.join(
+            [
+                str(repo_root / "shared"),
+                str(repo_root),
+                str(repo_root / "orchestrator"),
+                str(repo_root / "gateway"),
+                os.environ.get("PYTHONPATH", ""),
+            ]
+        ).rstrip(os.pathsep),
+    }
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(helper_path),
+            "--pipeline-id",
+            pipeline_id,
+            "--state-root",
+            str(state_dir / ".egg-state"),
+            "--answer-string",
+            answer,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(state_dir),
+        env=env,
+        timeout=10,
+    )
+    assert proc.returncode == 0, (
+        f"write_answer.py must exit 0 when ferrying a valid answer; "
+        f"stdout={proc.stdout[-500:]!r} stderr={proc.stderr[-500:]!r}"
+    )
+    # Sanity-check the helper's invariants from the integration vantage
+    # point: status flipped, answer round-tripped, timestamp matches the
+    # driver's format (no trailing ``Z``).
     contract_file = state_dir / ".egg-state" / "contracts" / f"{pipeline_id}.json"
     blob = json.loads(contract_file.read_text())
     pending = blob.get("pending_hitl") or {}
-    pending["answer"] = answer
-    pending["status"] = "answered"
-    # Mirror the driver's ISO-8601 UTC timestamp format
-    # (run_pipeline.py:101-103) so a test fixture and the driver's
-    # source of truth never drift.
-    pending["timestamp"] = datetime.now(UTC).isoformat()
-    blob["pending_hitl"] = pending
-    contract_file.write_text(json.dumps(blob, indent=2))
+    assert pending.get("status") == "answered", (
+        f"write_answer.py must set pending_hitl.status='answered'; got {pending.get('status')!r}"
+    )
+    assert pending.get("answer") == answer, (
+        f"write_answer.py must JSON-encode the raw answer and round-trip "
+        f"it cleanly; got {pending.get('answer')!r}"
+    )
+    timestamp = pending.get("timestamp", "")
+    assert isinstance(timestamp, str) and timestamp.endswith("+00:00"), (
+        f"write_answer.py timestamp must match the driver's _now_iso "
+        f"(ends with '+00:00', no trailing 'Z'); got {timestamp!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

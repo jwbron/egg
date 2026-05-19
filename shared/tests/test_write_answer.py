@@ -113,6 +113,46 @@ def test_stdin_json_answer_round_trips(
     assert data["pending_hitl"]["status"] == "answered"
 
 
+def test_answer_string_flag_round_trips(
+    helper: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--answer-string`` passes the raw selection; helper JSON-encodes internally.
+
+    Pins the loop-body contract: the skill body calls
+    ``write_answer.py --answer-string "${ANSWER}"`` directly. The
+    helper takes the raw selection (no separate ``json.dumps``
+    subcommand needed) and writes the literal string into
+    ``pending_hitl.answer``. This is the path that lets the skill's
+    ``allowed-tools`` fence ``python3`` to ``bin/*`` without leaving a
+    ``Bash(python3 -c …)`` hole for the json.dumps step.
+    """
+    contract_path = _seed_contract(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    rc = helper.main(["--pipeline-id", "issue-test", "--answer-string", "approve"])
+    assert rc == 0
+    data = json.loads(contract_path.read_text())
+    assert data["pending_hitl"]["answer"] == "approve"
+    assert data["pending_hitl"]["status"] == "answered"
+
+
+def test_answer_string_special_characters(
+    helper: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--answer-string`` survives shell-special characters in the answer.
+
+    Pins the shell-quoting invariant: the helper does NOT re-parse the
+    string as Python source, so ``"approve & continue"`` or
+    ``'"abort"'`` lands as the literal string in ``pending_hitl.answer``.
+    """
+    contract_path = _seed_contract(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    tricky = 'approve & "continue" $now'
+    rc = helper.main(["--pipeline-id", "issue-test", "--answer-string", tricky])
+    assert rc == 0
+    data = json.loads(contract_path.read_text())
+    assert data["pending_hitl"]["answer"] == tricky
+
+
 def test_answer_json_flag_round_trips(
     helper: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
