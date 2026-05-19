@@ -274,12 +274,18 @@ _ROLE_RUBRIC_SLICES: dict[str, str] = {
     "reviewer_concurrency": "slice-3",
 }
 
-#: Slice this loader file ships as part of. Roles whose
-#: ``_ROLE_RUBRIC_SLICES`` entry references a later slice (or whose
-#: rubric file hasn't been added to ``plugins/egg-sdlc/skills/egg-sdlc/
-#: agents/`` yet) raise ``ValueError`` with a structured pointer to
-#: the slice that lands their rubric.
-_CURRENT_LOADER_SLICE: str = "slice-1"
+#: Slices whose rubric set has landed on this loader. Roles whose
+#: ``_ROLE_RUBRIC_SLICES`` entry references a slice NOT in this
+#: frozenset (or whose rubric file hasn't been added to
+#: ``plugins/egg-sdlc/skills/egg-sdlc/agents/`` yet) raise
+#: ``ValueError`` with a structured pointer to the slice that lands
+#: their rubric.
+#:
+#: Each subsequent slice EXTENDS this set (slice-2 → ``{"slice-1",
+#: "slice-2"}``, slice-3 → ``{"slice-1", "slice-2", "slice-3"}``)
+#: rather than replacing it — otherwise slice-2's loader would fence
+#: off slice-1's already-landed roles, regressing earlier slices.
+_LANDED_SLICES: frozenset[str] = frozenset({"slice-1"})
 
 
 def _load_egg_sdlc_role_rubric(role: Any) -> str:
@@ -357,15 +363,15 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
     # rubric file — but the loader should still fence it off until
     # the slice that wires up the role lands, so the rollout-DAG
     # contract is observable structurally.)
-    if slice_hint != _CURRENT_LOADER_SLICE:
+    if slice_hint not in _LANDED_SLICES:
         raise ValueError(
             f"egg-sdlc role rubric for role={role_name!r} is deferred to "
             f"follow-up {slice_hint} of issue #2717's rollout. "
             "See docs/architecture/claude-code-substrate.md for the slice DAG."
         )
 
-    # Same-slice role: the file MUST exist on disk. If it doesn't,
-    # the documenter's task within this slice is still in flight and
+    # Landed-slice role: the file MUST exist on disk. If it doesn't,
+    # the documenter's task within that slice is still in flight and
     # the loader cannot yet be exercised. Surface as a clear "rubric
     # missing on disk in <slice>" error so the reviewer / operator
     # knows which task is still pending.
@@ -373,9 +379,9 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
         raise ValueError(
             f"egg-sdlc role rubric missing on disk at {rubric_path} for "
             f"role={role_name!r}. The role is scheduled for "
-            f"{slice_hint} (this loader's slice) but the markdown file "
-            "has not been added to plugins/egg-sdlc/skills/egg-sdlc/"
-            "agents/ yet — sequence the documenter's rubric task "
+            f"{slice_hint} (already landed per _LANDED_SLICES) but the "
+            "markdown file has not been added to plugins/egg-sdlc/skills/"
+            "egg-sdlc/agents/ yet — sequence the documenter's rubric task "
             "(e.g. TASK-1-4 for slice-1's refine reviewers) before the "
             "loader update (TASK-1-6) within the same slice."
         )

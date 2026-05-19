@@ -8,8 +8,19 @@ to the ``bin/*`` directory (so a prompt-injected issue body cannot
 coerce the skill into running arbitrary Python) and makes the load-
 bearing answer-write read-reviewable next to ``run_pipeline.py``.
 
-The helper reads the operator's answer as a JSON-encoded string from
-stdin (default) or from ``--answer-json``, then:
+The helper reads the operator's answer in one of three shapes:
+
+* ``--answer-stdin`` — reads a JSON-encoded payload from stdin.
+* ``--answer-json`` — JSON-encoded literal on the CLI.
+* ``--answer-string`` — raw (un-encoded) string from the CLI, which the
+  helper itself JSON-encodes before assigning. Use this when the skill
+  body passes the operator's selection straight from ``AskUserQuestion``;
+  it removes the need for a separate ``python3 -c '…json.dumps…'``
+  subcommand in the loop (so the skill's ``allowed-tools`` can fence
+  ``python3`` to ``bin/*`` and stay consistent with the documented
+  loop body).
+
+Then the helper:
 
 1. Loads ``.egg-state/contracts/<pipeline-id>.json`` (raising loudly
    on parse errors rather than silently overwriting with a default
@@ -81,21 +92,39 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="JSON-encoded answer literal (e.g. '\"approve\"' or 'null').",
     )
+    src.add_argument(
+        "--answer-string",
+        default=None,
+        help=(
+            "Raw (un-encoded) answer string; the helper JSON-encodes it "
+            "internally. Use this when the skill body passes the operator's "
+            "AskUserQuestion selection directly — no separate "
+            "json.dumps subcommand needed."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def _load_answer(args: argparse.Namespace) -> Any:
+    if args.answer_string is not None:
+        # The skill passes the raw operator selection; the helper does
+        # the JSON-encoding itself so no separate ``python3 -c
+        # 'json.dumps(...)'`` subcommand is needed in the loop.
+        return args.answer_string
     raw = sys.stdin.read() if args.answer_stdin else args.answer_json
     if raw is None or raw == "":
-        raise ValueError("answer payload is empty; pass JSON via stdin or --answer-json")
+        raise ValueError(
+            "answer payload is empty; pass JSON via stdin or --answer-json, "
+            "or the raw selection via --answer-string"
+        )
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ValueError(
-            f"answer payload is not valid JSON: {exc}. The skill body must "
-            "JSON-encode the operator's selection before invoking this "
-            "helper (e.g. via `python3 -c 'import json,sys; "
-            "sys.stdout.write(json.dumps(sys.stdin.read()))'`)."
+            f"answer payload is not valid JSON: {exc}. Use --answer-string "
+            "to pass the raw operator selection (the helper will JSON-encode "
+            "it internally), or supply a JSON-encoded payload to "
+            "--answer-stdin / --answer-json."
         ) from exc
 
 

@@ -60,7 +60,7 @@ See the ADR's [Trust-context shift (R1)](../../../../docs/architecture/claude-co
 1. **Pre-flight check**. Imports `egg_orchestrator`. If the import fails, prints the install instruction (verbatim from the section above) and exits. _(`bin/preflight.py`.)_
 2. **Resolve repo + issue**. Picks up the repo from `--repo`, falls back to `git -C "$EGG_REPO_PATH" remote get-url origin`, falls back to cwd. Fetches the issue body once with `gh issue view <N>`.
 3. **Boot the in-process orchestrator** by invoking the flattened stage driver `bin/run_pipeline.py` for the first time with the pipeline id as a positional arg plus `--repo` / `--issue-number` flags. The driver imports `run_pipeline_in_process(...)` from `orchestrator/substrate/in_process.py`, advances a fresh generator to its first `HITLDecision` yield, serialises the decision into `.egg-state/contracts/<id>.json#pending_hitl`, and exits 0.
-4. **Render the decision**. The skill reads `pending_hitl.decision` and `pending_hitl.status` from the contract; when `status == "pending"` it surfaces the decision via `AskUserQuestion`. The operator's selected option is written back to `pending_hitl.answer` (and `status` is set to `answered`) via an inline `python3 -c "..."` invocation — see "How the flattened bridge works" below.
+4. **Render the decision**. The skill reads `pending_hitl.decision` and `pending_hitl.status` from the contract (the status branch goes through `bin/read_status.py --field status`; the decision itself is read with the `Read` tool against the contract path); when `status == "pending"` it surfaces the decision via `AskUserQuestion`. The operator's selected option is written back to `pending_hitl.answer` (and `status` is set to `answered`) by `bin/write_answer.py --answer-string "${ANSWER}"`, which JSON-encodes the operator's selection internally so shell quoting cannot mis-encode it — see "How the flattened bridge works" below.
 5. **Resume the orchestrator**. The skill re-invokes `bin/run_pipeline.py` with the same args. The driver promotes `pending_hitl.answer` into `answer_log`, replays the full `answer_log` into a fresh generator (deterministic replay — see "Generator state across invocations" below), advances to the next yield (or to `StopIteration`), serialises the next decision, and exits. The skill loops back to step 4 until `pending_hitl.status ∈ {completed, aborted, error}`.
 6. **Refine subagents run inside step 3 / 5.** The `ClaudeCodeSpawner` dispatches the three refine-team roles via the `Agent` tool with `subagent_type: "general-purpose"`. Each subagent runs inside a worktree under `<EGG_WORKTREE_BASE>/<pipeline_id>/<role>/` (default base `~/.egg-worktrees/`), the refiner writes its analysis to `.egg-state/drafts/<issue>-analysis.md`, each reviewer writes its verdict to `.egg-state/agent-outputs/<issue>-<reviewer>-output.json`. The orchestrator coordinates ACK / NACK / re-propose cycles via the in-process message bus before pausing at the refine HITL gate.
 7. **Refine HITL gate**. The skill surfaces a refine-gate `HITLDecision` (approve / request changes / change approach / stop) alongside the refiner's recommended option, the top open questions, and each reviewer's ACK or NACK summary.
@@ -138,28 +138,35 @@ python3 plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py \
     --repo "${REPO}" \
     --issue-number "${ISSUE}"
 
-# Read status + decision out of the contract.
-STATUS=$(python3 -c "import json,sys; e=json.load(open('${CONTRACT_PATH}'))['pending_hitl']; print(e['status'])")
+# Read status out of the contract via the read_status helper. Each
+# subcommand in the loop is a single `python3 plugins/.../bin/<helper>.py`
+# invocation, so the skill's `allowed-tools` pattern
+# `Bash(python3 plugins/egg-sdlc/skills/egg-sdlc/bin/*:*)` fences the
+# whole loop without needing a separate `Bash(python3 -c *)` rule (and
+# without leaving a prompt-injection door open).
+STATUS=$(python3 plugins/egg-sdlc/skills/egg-sdlc/bin/read_status.py \
+    --pipeline-id "${PIPELINE_ID}" \
+    --state-root "$(dirname "$(dirname "${CONTRACT_PATH}")")" \
+    --field status)
 
 case "${STATUS}" in
   pending)
-    # Read pending_hitl.decision and render via AskUserQuestion (an
-    # LLM-side tool — outside Bash). The skill body collects the
-    # operator's selection into shell variable ${ANSWER}.
-    # Then write the answer back to the envelope via the helper script.
-    # The helper reads the JSON-encoded answer from stdin (so shell
-    # quoting cannot mis-encode it), uses datetime.now(UTC) — matching
-    # the driver's own _now_iso() at run_pipeline.py:103 — and writes
-    # the contract atomically via tmp + os.replace (matching
-    # _write_contract at run_pipeline.py:139-147). Failure to ferry
-    # the answer exits non-zero so the skill loop notices.
-    printf '%s' "${ANSWER}" | python3 -c '
-import json, sys
-sys.stdout.write(json.dumps(sys.stdin.read()))
-' | python3 plugins/egg-sdlc/skills/egg-sdlc/bin/write_answer.py \
-    --pipeline-id "${PIPELINE_ID}" \
-    --state-root "$(dirname "$(dirname "${CONTRACT_PATH}")")" \
-    --answer-stdin
+    # Read pending_hitl.decision via the Read tool against
+    # ${CONTRACT_PATH} and render via AskUserQuestion (an LLM-side
+    # tool — outside Bash). The skill body collects the operator's
+    # selection into shell variable ${ANSWER}.
+    # Then write the answer back to the envelope via write_answer.py.
+    # `--answer-string` takes the raw selection; the helper JSON-encodes
+    # it internally (so shell quoting cannot mis-encode `approve` into
+    # a Python NameError), uses datetime.now(UTC) — matching the
+    # driver's _now_iso() at run_pipeline.py:103 — and writes the
+    # contract atomically via tmp + os.replace (matching
+    # _write_contract at run_pipeline.py:154-162). Failure to ferry the
+    # answer exits non-zero so the skill loop notices.
+    python3 plugins/egg-sdlc/skills/egg-sdlc/bin/write_answer.py \
+        --pipeline-id "${PIPELINE_ID}" \
+        --state-root "$(dirname "$(dirname "${CONTRACT_PATH}")")" \
+        --answer-string "${ANSWER}"
     # Loop: re-invoke run_pipeline.py with the same args. The driver
     # promotes pending_hitl.answer → answer_log, clears answer to null,
     # replays the full answer_log into a fresh generator, and writes
@@ -167,15 +174,19 @@ sys.stdout.write(json.dumps(sys.stdin.read()))
     ;;
   completed|aborted)
     # Read pending_hitl.result for the artifact path (completed) or the
-    # abort diagnostic (aborted). Skill exits cleanly.
+    # abort diagnostic (aborted) via
+    # `python3 plugins/.../bin/read_status.py --field result`. Skill
+    # exits cleanly.
     ;;
   error)
-    # Read pending_hitl.error for the diagnostic. Driver exited 1.
+    # Read pending_hitl.error for the diagnostic via
+    # `python3 plugins/.../bin/read_status.py --field error`. Driver
+    # exited 1.
     ;;
 esac
 ```
 
-The skill body's `allowed-tools` frontmatter scopes `python3` to `plugins/egg-sdlc/skills/egg-sdlc/bin/*` so the skill cannot be coerced (via a prompt-injected issue body, say) into running arbitrary `python3 -c "..."` snippets. The two helpers under `bin/` (`run_pipeline.py` and `write_answer.py`) are the entire Python surface the skill can invoke; both ship in this PR and are read-reviewable next to `SKILL.md`. No separate `Write` permission is needed — `write_answer.py` is the only path that writes `pending_hitl.answer`, and it consumes the operator's selection from stdin so shell quoting cannot mis-encode it.
+The skill body's `allowed-tools` frontmatter scopes `python3` to `plugins/egg-sdlc/skills/egg-sdlc/bin/*` so the skill cannot be coerced (via a prompt-injected issue body, say) into running arbitrary `python3 -c "..."` snippets. The four helpers under `bin/` — `preflight.py`, `run_pipeline.py`, `read_status.py`, `write_answer.py` — are the entire Python surface the skill can invoke; all four ship in this PR and are read-reviewable next to `SKILL.md`. Every subcommand in the documented loop body is a single `python3 plugins/.../bin/<helper>.py` invocation (no `python3 -c` snippets, no `printf` pipes), so each subcommand matches the allowed-tools pattern independently per [Claude Code's compound-command permission rules](https://code.claude.com/docs/en/permissions#compound-commands). No separate `Write` permission is needed — `write_answer.py` is the only path that writes `pending_hitl.answer`, and `--answer-string` JSON-encodes the operator's selection internally so shell quoting cannot mis-encode it.
 
 While the generator is paused at a yield boundary inside a single `bin/run_pipeline.py` invocation, the orchestrator's background threads (heartbeat poll, BRC re-review, message-bus tick) keep running so a long-paused HITL does not cause stuck-phase-transition alerts within that invocation. Dropping the generator (process exit) joins the background threads cleanly via `GeneratorExit` — no leaked threads across the skill→Python boundary.
 
