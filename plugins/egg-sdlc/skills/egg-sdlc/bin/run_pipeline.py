@@ -116,8 +116,15 @@ def _contract_path(state_root: Path, pipeline_id: str) -> Path:
 
 
 def _read_contract(contract_path: Path, pipeline_id: str) -> dict[str, Any]:
-    """Read the contract file, returning a sensible default skeleton when
-    absent or unparsable."""
+    """Read the contract file, returning a default skeleton ONLY when absent.
+
+    A missing file is a routine first-invocation state (no decisions
+    persisted yet) and is handled silently. A *present-but-unparseable*
+    file is NOT silently overwritten: an OSError / JSONDecodeError /
+    non-object payload re-raises so the caller can persist an ``error``
+    envelope rather than discarding ``answer_log`` and re-prompting the
+    operator from scratch.
+    """
     default: dict[str, Any] = {
         "schemaVersion": "1.1",
         "pipeline_id": pipeline_id,
@@ -128,10 +135,18 @@ def _read_contract(contract_path: Path, pipeline_id: str) -> dict[str, Any]:
         return default
     try:
         data = json.loads(contract_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):  # fmt: skip
-        return default
+    except (OSError, json.JSONDecodeError) as exc:  # fmt: skip
+        raise RuntimeError(
+            f"contract file at {contract_path} is unparseable: {exc}. "
+            "Refusing to overwrite — the operator's accumulated "
+            "answer_log would be silently dropped. Inspect / repair "
+            "the contract file by hand, or delete it to start fresh."
+        ) from exc
     if not isinstance(data, dict):
-        return default
+        raise RuntimeError(
+            f"contract file at {contract_path} is not a JSON object "
+            f"(got {type(data).__name__}); refusing to overwrite."
+        )
     data.setdefault("pipeline_id", pipeline_id)
     return data
 
@@ -152,7 +167,13 @@ def _serialise_decision(decision: Any) -> dict[str, Any] | None:
 
     Accepts pydantic ``HITLDecision`` (via ``.model_dump``), dataclass-
     like objects (via ``__dict__``), bare dicts, or anything else (the
-    str fallback ensures the shape is at least observable).
+    ``repr`` fallback ensures the shape is at least observable).
+
+    The ``HITLDecision`` pydantic shape is the only expected input; if
+    its ``model_dump(mode="json")`` raises we log loudly to stderr (the
+    operator wants to know — a malformed envelope leaves
+    ``AskUserQuestion`` with no ``question`` / ``options`` to render
+    and the skill loop wedges silently otherwise).
     """
     if decision is None:
         return None
@@ -164,12 +185,29 @@ def _serialise_decision(decision: Any) -> dict[str, Any] | None:
             dumped = model_dump(mode="json")
             if isinstance(dumped, dict):
                 return dumped
-        except (TypeError, ValueError):  # fmt: skip
-            pass
+            print(
+                "run_pipeline.py: _serialise_decision: model_dump returned "
+                f"{type(dumped).__name__} (expected dict); falling back to __dict__.",
+                file=sys.stderr,
+            )
+        except (TypeError, ValueError) as exc:  # fmt: skip
+            print(
+                "run_pipeline.py: _serialise_decision: model_dump(mode='json') "
+                f"raised {type(exc).__name__}: {exc}; falling back to __dict__. "
+                "The pending_hitl envelope may not render correctly via "
+                "AskUserQuestion — investigate the HITLDecision shape.",
+                file=sys.stderr,
+            )
     # Fall back to __dict__ for dataclasses / simple objects.
     raw = getattr(decision, "__dict__", None)
     if isinstance(raw, dict):
         return {k: v for k, v in raw.items() if not k.startswith("_")}
+    print(
+        "run_pipeline.py: _serialise_decision: no model_dump / __dict__ "
+        f"available on {type(decision).__name__}; persisting repr only. "
+        "The skill body will not be able to render this decision.",
+        file=sys.stderr,
+    )
     return {"repr": repr(decision)}
 
 
@@ -321,10 +359,23 @@ def _advance_generator(
     finally:
         # Always close cleanly — GeneratorExit joins the background
         # threads inside _InProcessOrchestrator's ``finally`` block.
+        # If teardown itself raises (e.g. _teardown_worktrees hits an
+        # OSError), the orchestrator's own ``finally`` already
+        # suppresses; we add a single stderr line here so the failure
+        # is at least observable to an operator running the driver
+        # with ``2>>driver.log``. The driver still returns success
+        # because the generator's primary work (advancing to the next
+        # yield) already succeeded.
         try:
             generator.close()
-        except Exception:  # noqa: BLE001 — defensive
-            pass
+        except Exception as close_exc:  # noqa: BLE001 — defensive
+            print(
+                "run_pipeline.py: generator.close() raised "
+                f"{type(close_exc).__name__}: {close_exc}; worktree may be "
+                "leaked. Inspect ~/.egg-worktrees/ or EGG_WORKTREE_BASE for "
+                "orphaned per-role checkouts.",
+                file=sys.stderr,
+            )
 
 
 def _stopiter_value(stop: StopIteration) -> str | None:
@@ -344,12 +395,30 @@ def _is_aborted_status(answer: Any) -> bool:
     """Match the orchestrator's abort-detection logic for the answer
     field. We re-check here so the envelope's ``status`` is informative
     (``aborted`` vs ``completed``) when the generator stops on
-    operator-abort."""
+    operator-abort.
+
+    The abort vocabulary lives at
+    ``orchestrator.substrate.in_process.ABORT_ANSWERS`` (single source
+    of truth shared with ``_answer_is_abort`` in the orchestrator and
+    the slice-3 daemon variant). We import lazily so the driver's
+    import-time error path still hits the structured "preflight failed"
+    message rather than a cascading ImportError.
+    """
     if answer is None:
         return False
     if isinstance(answer, dict):
         answer = answer.get("selected") or answer.get("value")
-    return isinstance(answer, str) and answer.lower() in {"abort", "stop", "cancel"}
+    if not isinstance(answer, str):
+        return False
+    try:
+        from orchestrator.substrate.in_process import ABORT_ANSWERS
+    except ImportError:
+        # Fall back to the literal set — only reached when the
+        # orchestrator package is not importable, in which case the
+        # driver's main() has already failed and we're computing this
+        # for an envelope that won't be observed anyway.
+        return answer.lower() in {"abort", "stop", "cancel"}
+    return answer.lower() in ABORT_ANSWERS
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -417,7 +486,16 @@ def main(argv: list[str] | None = None) -> int:
 
     state_root = Path(args.state_root) if args.state_root else Path.cwd() / ".egg-state"
     contract_path = _contract_path(state_root, pipeline_id)
-    contract = _read_contract(contract_path, pipeline_id)
+    try:
+        contract = _read_contract(contract_path, pipeline_id)
+    except RuntimeError as exc:
+        # Contract present but unparseable. Surface loudly rather than
+        # silently overwriting with a fresh skeleton — the operator's
+        # accumulated answer_log would otherwise be dropped, the skill
+        # would re-prompt from preflight, and there would be no signal
+        # of the corruption.
+        print(f"run_pipeline.py: {exc}", file=sys.stderr)
+        return 1
 
     # Coerce any pre-existing envelope; if absent, create an empty one.
     try:

@@ -13,23 +13,30 @@ INTERFACE STABILITY: v0.x unstable.
 Multi-exception ``except`` discipline (must read before editing)
 ----------------------------------------------------------------
 
-This package targets Python 3.14 (pyproject.toml's
-``requires-python = ">=3.14"``) but the SKILL.md / packaging
-documentation states "Python 3.11+". To keep both surfaces working,
-EVERY ``except`` clause that catches multiple exception types MUST
-use the parenthesised tuple form AND carry a ``# fmt: skip``
-trailing comment, e.g.::
+This package — and the whole repo (pyproject.toml's
+``requires-python = ">=3.14"``) — targets Python 3.14+. Python 3.14
+introduces the parenthesless ``except A, B:`` syntax (PEP 758, 2025);
+under ruff's ``target-version = "py314"`` formatter, the redundant
+parens in ``except (A, B):`` are stripped to that 3.14-only shape.
+On any older interpreter (3.13 and below) the stripped form is a
+SyntaxError.
+
+We deliberately keep the parenthesised form in source for two reasons:
+(1) it parses on every interpreter from 3.0 onward, so contributors
+copying snippets into a 3.13 venv (or the ADR's "Python 3.14+" claim
+in SKILL.md isn't honored) get a clearer error path; (2) the
+parenthesised form is unambiguous to read — ``except A, B:`` shares
+its grammar with a Python-2-era binding form some readers still see
+in muscle memory. To preserve the parens against ``ruff format``,
+multi-exception ``except`` clauses carry a trailing
+``# fmt: skip``::
 
     except (subprocess.SubprocessError, OSError):  # fmt: skip
 
-Without ``# fmt: skip`` ruff format (with
-``target-version = "py314"``) silently strips the redundant parens
-back to ``except A, B:`` which is a SyntaxError on Python
-3.10/3.11/3.12/3.13 — re-introducing the v1 NACK blocker every
-contributor would otherwise step on. The cheapest defense is to
-``grep -nE 'except [A-Za-z.]+ *, *[A-Za-z.]+ *:' orchestrator/
-plugins/`` before every commit; a CI lint rule that catches this
-shape is tracked in the follow-up issue.
+The cheapest preflight is to grep for the bare form
+(``grep -nE 'except [A-Za-z.]+ *, *[A-Za-z.]+ *:' orchestrator/
+plugins/``) before every commit; a CI lint rule that catches this
+shape is tracked in the follow-up issue beyond #2717.
 
 The protocols and ``SubstrateBundle`` shape are part of a walking-
 skeleton spike (cq-11). The follow-up rollout issue may reshape them
@@ -235,6 +242,11 @@ def _build_k3s_spawner(legacy_spawn_fn: Any | None) -> AgentSpawner:
 #: "deferred indefinitely" (overseer / inspector / autofixer /
 #: conflict_resolver — intentionally unhandled per task-3-6).
 #:
+#: Source of truth for "is this role part of the rollout?". Whether
+#: the rubric *file* has actually landed on disk is checked by the
+#: loader via ``Path.is_file()`` — no parallel "landed roles" registry
+#: that could drift from the filesystem state.
+#:
 #: The slice numbers match issue #2717's plan:
 #:   slice-1: refiner (already shipped in #2715) + 2 refine reviewers
 #:            (task-1-4 documenter).
@@ -262,19 +274,12 @@ _ROLE_RUBRIC_SLICES: dict[str, str] = {
     "reviewer_concurrency": "slice-3",
 }
 
-#: Roles whose rubric markdown has been landed by a documenter in this
-#: slice. The set grows as each slice's documenter task completes;
-#: today (#2717 slice-1) it contains the refiner (shipped in #2715) and
-#: the two refine-team reviewers (task-1-4 documenter, lands in
-#: parallel with this loader update — TASK-1-4 → TASK-1-6 sequencing
-#: within the slice).
-_RUBRIC_LANDED_ROLES: frozenset[str] = frozenset(
-    {
-        "refiner",
-        "reviewer_refine",
-        "reviewer_agent_design",
-    }
-)
+#: Slice this loader file ships as part of. Roles whose
+#: ``_ROLE_RUBRIC_SLICES`` entry references a later slice (or whose
+#: rubric file hasn't been added to ``plugins/egg-sdlc/skills/egg-sdlc/
+#: agents/`` yet) raise ``ValueError`` with a structured pointer to
+#: the slice that lands their rubric.
+_CURRENT_LOADER_SLICE: str = "slice-1"
 
 
 def _load_egg_sdlc_role_rubric(role: Any) -> str:
@@ -331,34 +336,46 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
         repo_root / "plugins" / "egg-sdlc" / "skills" / "egg-sdlc" / "agents" / f"{role_name}.md"
     )
 
-    # Fence: roles outside the rubric-landed set for this slice raise
-    # with a structured pointer to the rollout slice that ships them.
-    # Roles not in _ROLE_RUBRIC_SLICES at all are "indefinitely
-    # deferred" (overseer / inspector / autofixer / conflict_resolver).
-    if role_name not in _RUBRIC_LANDED_ROLES:
-        slice_hint = _ROLE_RUBRIC_SLICES.get(role_name)
-        if slice_hint is None:
-            raise ValueError(
-                f"egg-sdlc role rubric missing for role={role_name!r}. "
-                f"This role is not part of the #2717 rollout's rubric "
-                "set; if your pipeline needs it, file a follow-up issue."
-            )
+    # Fence: roles not in _ROLE_RUBRIC_SLICES are "indefinitely
+    # deferred" (overseer / inspector / autofixer / conflict_resolver
+    # per task-3-6). Path-traversal role names (e.g. "../../../etc/
+    # passwd") also land here because their normalised form is not
+    # a registered role — we raise BEFORE any filesystem touch so the
+    # loader cannot be used as an existence oracle on attacker-
+    # controlled paths.
+    slice_hint = _ROLE_RUBRIC_SLICES.get(role_name)
+    if slice_hint is None:
+        raise ValueError(
+            f"egg-sdlc role rubric missing for role={role_name!r}. "
+            "This role is not part of the #2717 rollout's rubric "
+            "set; if your pipeline needs it, file a follow-up issue."
+        )
+
+    # Roles whose rubric is scheduled for a later slice raise without
+    # filesystem touch. (A future-slice rubric *might* exist on disk
+    # ahead of its scheduled load — e.g. a reviewer pre-landing a
+    # rubric file — but the loader should still fence it off until
+    # the slice that wires up the role lands, so the rollout-DAG
+    # contract is observable structurally.)
+    if slice_hint != _CURRENT_LOADER_SLICE:
         raise ValueError(
             f"egg-sdlc role rubric for role={role_name!r} is deferred to "
             f"follow-up {slice_hint} of issue #2717's rollout. "
             "See docs/architecture/claude-code-substrate.md for the slice DAG."
         )
 
+    # Same-slice role: the file MUST exist on disk. If it doesn't,
+    # the documenter's task within this slice is still in flight and
+    # the loader cannot yet be exercised. Surface as a clear "rubric
+    # missing on disk in <slice>" error so the reviewer / operator
+    # knows which task is still pending.
     if not rubric_path.is_file():
-        # Supported role, but the documenter's .md file hasn't landed
-        # in this slice yet. Surface as a clear "rubric missing in
-        # slice-1" error so the reviewer / operator knows the
-        # documenter task is still in flight.
         raise ValueError(
             f"egg-sdlc role rubric missing on disk at {rubric_path} for "
-            f"role={role_name!r}. The role is in this slice's "
-            "rubric-supported set but the markdown file has not been "
-            "landed yet — sequence the documenter's rubric task "
+            f"role={role_name!r}. The role is scheduled for "
+            f"{slice_hint} (this loader's slice) but the markdown file "
+            "has not been added to plugins/egg-sdlc/skills/egg-sdlc/"
+            "agents/ yet — sequence the documenter's rubric task "
             "(e.g. TASK-1-4 for slice-1's refine reviewers) before the "
             "loader update (TASK-1-6) within the same slice."
         )
