@@ -62,7 +62,7 @@ See the ADR's [Trust-context shift (R1)](../../../../docs/architecture/claude-co
 2. **Resolve repo + issue**. Picks up the repo from `--repo`, falls back to `git -C "$EGG_REPO_PATH" remote get-url origin`, falls back to cwd. Fetches the issue body once with `gh issue view <N>`.
 3. **Boot the in-process orchestrator** by calling `run_pipeline_in_process(...)` (from `orchestrator/substrate/in_process.py`) with `EGG_SUBSTRATE=claude-code`. The function is a Python generator.
 4. **Drive the generator**. Each value yielded is an `HITLDecision` object (`orchestrator/models.py:300`). The skill renders each via `AskUserQuestion`, sends the user's answer back via `generator.send(...)`, and the orchestrator resumes.
-5. **Refiner runs**. The `ClaudeCodeSpawner` dispatches the refiner role via the `Agent` tool with `subagent_type: "general-purpose"`. The refiner runs inside a worktree under `.egg-state/<pipeline_id>/<repo>/`, writes its analysis to `.egg-state/drafts/<issue>-analysis.md`, and returns.
+5. **Refiner runs**. The `ClaudeCodeSpawner` dispatches the refiner role via the `Agent` tool with `subagent_type: "general-purpose"`. The refiner runs inside a worktree under `<EGG_WORKTREE_BASE>/<pipeline_id>/<role>/` (default base `~/.egg-worktrees/`), writes its analysis to `.egg-state/drafts/<issue>-analysis.md`, and returns.
 6. **Refine artifact lands**. The generator returns the analysis path; the skill prints a summary (recommended option, top open questions) and asks the refine HITL gate (approve / request changes / change approach / stop).
 7. **Walking-skeleton fence**. If the operator chooses "approve and continue to plan", the skill currently raises `NotImplementedError` with a pointer to the follow-up issue — plan / implement / pr phases are out of scope for this spike.
 
@@ -99,13 +99,13 @@ While the generator is paused at a yield boundary, the orchestrator's background
 
 Per cq-5 the substrate ports egg's `WORKTREE_BASE_DIR` model. There are two filesystem trees: **worktrees** (per-agent git checkouts) and **state** (drafts, contracts, agent-outputs, checkpoints). They live under separate roots by default.
 
-**Worktrees** default to `~/.egg-worktrees/<pipeline_id>/<repo>/` (matching the shape at `gateway/worktree_manager.py:49`, which hardcodes `/home/egg/.egg-worktrees` for the gateway container — the substrate's `LocalWorktreeManager` expands `~` against the calling user's `$HOME`). `EGG_WORKTREE_BASE` overrides the root; the typical override is to point it at `./.egg-state/` so worktrees and state live in one tree.
+**Worktrees** default to `~/.egg-worktrees/<pipeline_id>/<role>/` (matching the shape at `gateway/worktree_manager.py:49`, which hardcodes `/home/egg/.egg-worktrees` for the gateway container — the substrate's `LocalWorktreeManager` expands `~` against the calling user's `$HOME`). Each per-role worktree gets its own `git worktree` checked out on `egg/<pipeline_id>/<role>`. `EGG_WORKTREE_BASE` overrides the root; the typical override is to point it at `./.egg-state/` so worktrees and state live in one tree.
 
 ```
 # Default layout (no EGG_WORKTREE_BASE override)
 ~/.egg-worktrees/
   <pipeline_id>/
-    <repo>/          # per-pipeline shared checkout (per-agent worktrees branch off)
+    <role>/          # per-role worktree on branch egg/<pipeline_id>/<role>
 
 .egg-state/           # state files (relative to the in-process orchestrator's CWD)
   drafts/
@@ -125,7 +125,7 @@ Per cq-5 the substrate ports egg's `WORKTREE_BASE_DIR` model. There are two file
 # Typical override: EGG_WORKTREE_BASE=./.egg-state/
 .egg-state/
   <pipeline_id>/
-    <repo>/          # worktrees moved alongside state
+    <role>/          # per-role worktrees moved alongside state
   drafts/
   contracts/
   agent-outputs/
