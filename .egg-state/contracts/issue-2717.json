@@ -37,10 +37,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option C \u2014 Hybrid: ship Option B first as MVP for refine/plan; design Option A for implement (multi-producer concurrency makes a daemon cheaper than N separate stage scripts)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:46:12.119676Z",
       "debounce_until": null
     },
     {
@@ -75,10 +75,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Bridge-first then phase-sequential rollout \u2014 [bridge gap] -> [plan substrate (3 producers + 1 reviewer)] -> [implement substrate (3 producers + 5 reviewers)] -> [pr-phase substrate + conformance matrix] -> [hardening pass: EggHarnessSpawner + cost cap + R15 + R2 + k3s adapter, all parallel] (~5 PRs; phase ordering surfaces BRC issues earlier with smaller blast radius)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:46:12.132257Z",
       "debounce_until": null
     },
     {
@@ -113,10 +113,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Decide empirically at implement-phase \u2014 ship plan + implement rollout on harness re-host; measure concurrency / cost / latency / context usage; decide R15 migration timing once we have data\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:47:02.422102Z",
       "debounce_until": null
     },
     {
@@ -151,10 +151,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Make the choice contingent on R2's empirical result \u2014 if PreToolUse hooks reliably resolve calling role for nested subagents, stay on model (a) indefinitely; if not, migrate to model (b) as a fallback. Treat the R2 spike (item from issue body's 'Out of scope' list) as the gating decision\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:47:02.493075Z",
       "debounce_until": null
     },
     {
@@ -189,10 +189,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Early-spike before phase rollout begins \u2014 ship a 2-subagent worked example as the first slice (uses two roles, one parent + one child Agent dispatch; hook records EGG_AGENT_ROLE for each). If hooks fail this test, switch to MCP-validator-side enforcement before any further role rollout. Pros: catches the architectural problem before doing N role rollouts; Cons: pushes the timeline of substantive rollout by one slice\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:50:26.145491Z",
       "debounce_until": null
     },
     {
@@ -227,10 +227,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Moderate: 200 \u2014 enough for a 3-slice slice-DAG with concurrent producers/reviewers + a couple of NACK cycles before tripping; balances cost safety vs. legitimate large pipelines\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:50:52.314176Z",
       "debounce_until": null
     },
     {
@@ -265,10 +265,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer entirely AND drop the v0.x unstable marker after \u22653 roles exercise the claude-code side \u2014 i.e. accept the interfaces are stable on the claude-code leg even if the k3s leg hasn't promoted yet. Documents the actual stability boundary precisely\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:53:37.552281Z",
       "debounce_until": null
     }
   ],
@@ -669,37 +669,37 @@
       {
         "id": "Q1",
         "question": "Curated 5-issue conformance set (feedback Q1 in #2623 settled the rule, not the specific issues): name the 5 GitHub issue numbers covering the SDLC hot paths: one bug fix, one feature add, one refactor, one infra/script change, one doc change. The conformance matrix will run all 5 under both `EGG_SUBSTRATE=k3s` and `EGG_SUBSTRATE=claude-code` in CI. Suggested candidates the analysis can pre-select: #2714 (bug), #2474 (feature/regression suite), #2261 (refactor), #2705 (infra), #2718 (doc) \u2014 are these acceptable, or would you prefer different ones?",
-        "answer": null
+        "answer": "Accept the refiner's suggested 5: #2714 (bug \u2014 sync regression on dirty worktree), #2474 (feature / regression suite \u2014 k3s integration coverage), #2261 (refactor \u2014 decomposing 15 oversize source files), #2705 (infra \u2014 Cilium datapath / k3s setup), #2718 (doc \u2014 claude-code substrate docs). Each represents a distinct SDLC shape; current state (open/closed/merged) is not relevant for using them as conformance fixtures. Note: #2714 was closed since this issue was filed (presumably part of the operator's recent redeploy)."
       },
       {
         "id": "Q2",
         "question": "Latency / cost budget for the conformance matrix (feedback Q2 deferred to this issue): now that we'll run refine + plan + implement + pr against 5 issues under both substrates, do you want a budget per phase (e.g., 'refine \u2264 2x k3s wall-clock', 'cost per issue \u2264 $5 of Anthropic spend'), or a global per-issue budget, or no budget at all (just `pytest.mark.slow` if any test exceeds N minutes)?",
-        "answer": null
+        "answer": "No hard budget; pytest.mark.slow as soft inclusion gate; 3-hour-per-phase ceiling as safety fallback that fails the CI job if any single phase exceeds it. Per-phase cost/latency budgets remain deferred until we have empirical rollout data from the 5x2 matrix; reassess in a follow-up issue once the matrix has run end-to-end at least once. The 3-hour ceiling is calibrated against this issue's predecessor (#2623) which had an 80-minute implement phase on k3s; claude-code substrate is expected to be slower per-call (subagent dispatch overhead), so 3 hours leaves headroom for legitimate multi-cycle BRC without inviting runaway loops."
       },
       {
         "id": "Q3",
         "question": "EggHarnessSpawner scope (feedback Q4 named it a secondary goal; DoD #5 promotes it to required for parent-close): how much of the EggHarnessSpawner ships in this issue? A) a working `egg-orch local-run --issue 1234` end-to-end against a curated issue; B) just the spawner class + protocol satisfaction + unit tests (CLI in a follow-up); C) full local-run including HITL flow via stdin/stdout JSON prompts; D) defer entirely \u2014 we promised in DoD but it can be a tertiary issue.",
-        "answer": null
+        "answer": "Option A \u2014 Full local-run end-to-end. DoD #5 in the issue body says 'EggHarnessSpawner ships and can drive a pipeline headlessly (egg-orch local-run --issue 1234)' which Option B (spawner-only, defer CLI) does not satisfy. Option A also gives the third spawner implementation needed to battle-test the AgentSpawner protocol contract with >2 implementations (per cq-7's stability rationale)."
       },
       {
         "id": "Q4",
         "question": "Operator-acceptance for trust-context shift (R1) at multi-role scale: the spike's R1 acceptance is scoped to 'one refiner subagent running against a trusted repo'. Plan / implement phases dispatch 3+8 = 11 subagents per pipeline, each with access to the parent session's API credential context. Do you want any additional mitigations beyond what the spike documents (e.g. an opt-in `EGG_REQUIRE_CREDENTIAL_PROXY=true` flag that forces operators to acknowledge multi-subagent credential exposure, or a per-role allowlist of which subagents may run on the claude-code substrate)?",
-        "answer": null
+        "answer": "No additional mitigations for v1. R1's acceptance was scoped to 'trusted-repo SDLC on operator's own machine' \u2014 that scales to multi-subagent because the trust model is unchanged (same operator's session credentials, same operator's repo, same operator's machine). The 11-15 subagents per pipeline expand the credential-exposure surface but not the credential-trust model. Revisit only if multi-tenant operator use cases or CI-runner-managed substrate use cases emerge. An opt-in EGG_REQUIRE_CREDENTIAL_PROXY flag was considered but adds operator friction with no concrete threat-model justification for v1; can be added later if real use cases warrant it."
       },
       {
         "id": "Q5",
         "question": "Reviewer-roster expansion: are any new reviewer roles needed for the substrate-rollout work itself? For example, `reviewer_substrate` or `reviewer_concurrency_substrate` to give bridge / message bus / hook work a dedicated reviewer beyond the existing `reviewer_code`, `reviewer_concurrency`, `reviewer_security`, `reviewer_agent_design`? Or are the existing reviewers adequate?",
-        "answer": null
+        "answer": "No new reviewer roles. The existing roster (reviewer_code, reviewer_concurrency, reviewer_security, reviewer_agent_design) already covers the substrate dimensions: substrate concurrency falls under reviewer_concurrency; substrate code under reviewer_code; substrate hooks / policy / credential boundaries under reviewer_security; substrate architecture / design choices under reviewer_agent_design. Adding reviewer_substrate or reviewer_concurrency_substrate bloats dispatch fan-out (already 8 reviewers in implement phase) without clear coverage value. If a specific gap surfaces during the rollout \u2014 e.g. a reviewer dimension that isn't being caught by any existing reviewer \u2014 file it as a follow-up issue with a concrete coverage gap."
       },
       {
         "id": "Q6",
         "question": "Walking-skeleton scope-fence behavior post-rollout: today `run_pipeline_in_process` raises NotImplementedError if the operator chooses 'continue to plan'. After plan / implement / pr land, should the fence be removed entirely (operator can chain phases freely), kept as an opt-in `--single-phase` flag for short runs, or moved to a per-phase fence each operator must explicitly clear?",
-        "answer": null
+        "answer": "Remove the scope-fence entirely once plan/implement/pr land. Today's NotImplementedError fence was a spike-scope guard; once all phases work, chaining phases freely is the expected behavior. The 'single-phase' use case is already structurally covered by the start_phase + hitl_gates: false config flags (used today by the short flow). A per-phase fence each operator must explicitly clear adds friction with no benefit. A --single-phase flag is redundant with start_phase. Fence removal should land as part of the pr-phase + conformance slice."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-19T18:05:18.325428Z",
     "comment_id": null,
     "debounce_until": null
   },
