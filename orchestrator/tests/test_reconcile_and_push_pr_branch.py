@@ -354,6 +354,9 @@ class TestPushWorktreeBranchReconcile:
         assert "rebase" in rebase_cmd
         assert "--onto" not in rebase_cmd
         assert "origin/egg/feature" in rebase_cmd
+        # ``--autostash`` is set on the plain form too (#2714) so the
+        # rebase tolerates the orchestrator's continuously-dirty worktree.
+        assert "--autostash" in rebase_cmd
 
     def test_rebase_with_base_branch_uses_onto_form(self, tmp_path):
         """With ``base_branch`` and ``origin/{base_branch}`` resolvable,
@@ -383,8 +386,12 @@ class TestPushWorktreeBranchReconcile:
         base_fetch_cmd = mock_run.call_args_list[1].args[0]
         assert "fetch" in base_fetch_cmd and "main" in base_fetch_cmd
         rebase_cmd = mock_run.call_args_list[3].args[0]
-        assert rebase_cmd[-4:] == [
+        # ``--autostash`` (#2714) precedes ``--onto`` so the rebase can run
+        # against a dirty worktree; statefile / agent-output writes are
+        # routinely uncommitted at sync time.
+        assert rebase_cmd[-5:] == [
             "rebase",
+            "--autostash",
             "--onto",
             "origin/egg/issue-42",
             "origin/main",
@@ -665,3 +672,122 @@ class TestPushWorktreeBranchReconcile:
         )
         # And the retry push was never attempted.
         assert client._do_push.call_count == 1
+
+    def test_rebase_succeeds_against_dirty_worktree(self, tmp_path):
+        """End-to-end regression for #2714.
+
+        Reproduces the production shape: divergent remote, local worktree
+        with uncommitted statefile / agent-output writes.  Before
+        ``--autostash`` was added to ``_build_rebase_cmd`` the rebase
+        refused with ``cannot rebase: You have unstaged changes`` and the
+        sync helper returned without bringing origin's commits into local
+        — the populator then tripped ``PlanDraftMissingOnLocalError`` and
+        the pipeline halted at ``plan_complete``.
+
+        Exercises both forms returned by ``_build_rebase_cmd``: the plain
+        ``git rebase origin/{branch}`` form (no ``base_branch``) and the
+        ``--onto`` form used when the pipeline's base branch is threaded
+        through.  Both must succeed against a dirty worktree.
+        """
+        for case_label, base_branch_arg in [
+            ("plain_form", None),
+            ("onto_form", "main"),
+        ]:
+            case_root = tmp_path / case_label
+            case_root.mkdir()
+
+            origin = case_root / "origin.git"
+            subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+            seed = case_root / "seed"
+            seed.mkdir()
+            _git_init(seed, str(origin))
+            (seed / "README.md").write_text("initial\n")
+            _git(seed, "add", "README.md")
+            _git(seed, "commit", "-m", "initial main commit")
+            _git(seed, "push", "origin", "main")
+
+            # Pipeline branch with a remote commit the local worktree
+            # doesn't have yet — the "remote ahead" half of divergence.
+            _git(seed, "checkout", "-b", "egg/issue-2714")
+            (seed / "remote_draft.md").write_text("plan draft from agent\n")
+            _git(seed, "add", "remote_draft.md")
+            _git(seed, "commit", "-m", "plan: agent wrote draft (remote-only)")
+            _git(seed, "push", "origin", "egg/issue-2714")
+
+            # Local worktree: cut from origin/{branch}, then add a local
+            # commit (the "local ahead" half) and leave an *uncommitted*
+            # statefile write in the working tree — the precondition that
+            # used to abort the rebase.
+            work = case_root / "work"
+            work.mkdir()
+            _git_init(work, str(origin))
+            _git(work, "fetch", "origin")
+            _git(work, "checkout", "-b", "egg/issue-2714-work", "origin/egg/issue-2714~1")
+            (work / "local_commit.md").write_text("orchestrator bookkeeping commit\n")
+            _git(work, "add", "local_commit.md")
+            _git(work, "commit", "-m", "state: orchestrator commit (local-only)")
+            head_local_only = _git(work, "rev-parse", "HEAD").stdout.strip()
+
+            # Fetch the divergent remote tip so origin/{branch} has a
+            # commit the local branch doesn't, then dirty the worktree
+            # with an unstaged statefile write — exactly the shape the
+            # orchestrator continuously produces.
+            _git(work, "fetch", "origin", "egg/issue-2714")
+            statefile_dir = work / ".egg-state"
+            statefile_dir.mkdir()
+            statefile_path = statefile_dir / "junk.txt"
+            statefile_path.write_text("uncommitted statefile write\n")
+
+            # Sanity: the precondition that broke the pre-fix rebase.
+            status = subprocess.run(
+                ["git", "-C", str(work), "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            assert status.stdout.strip(), (
+                f"[{case_label}] precondition failed: worktree should be dirty"
+            )
+
+            git_base = [
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                f"safe.directory={work}",
+                "-C",
+                str(work),
+            ]
+            result = _rebase_with_agent_output_autoresolve(
+                git_base=git_base,
+                pipeline_id="issue-2714",
+                branch="egg/issue-2714",
+                base_branch=base_branch_arg,
+            )
+            assert result.ok, (
+                f"[{case_label}] rebase failed against dirty worktree: "
+                f"{result.category} {result.detail}"
+            )
+
+            # The remote-only commit must now be reachable from HEAD (the
+            # whole point of the sync) and the local-only commit must
+            # still be present on top of it.
+            log_shas = _git(work, "log", "--format=%H", "HEAD").stdout.strip().splitlines()
+            remote_sha = _git(work, "rev-parse", "origin/egg/issue-2714").stdout.strip()
+            assert remote_sha in log_shas, (
+                f"[{case_label}] remote commit missing from local after rebase"
+            )
+            assert head_local_only not in log_shas, (
+                f"[{case_label}] local commit should have been rewritten by rebase"
+            )
+
+            # The uncommitted statefile write must be restored to the
+            # working tree by the autostash pop — without it, the orchestrator
+            # would lose pending state on every sync.
+            assert statefile_path.exists(), (
+                f"[{case_label}] autostash did not restore unstaged statefile write"
+            )
+            assert statefile_path.read_text() == "uncommitted statefile write\n", (
+                f"[{case_label}] restored statefile contents were corrupted"
+            )

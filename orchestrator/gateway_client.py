@@ -2789,6 +2789,13 @@ def _rebase_with_agent_output_autoresolve(
     continued; conflicts anywhere else cause the rebase to be aborted
     and a failure ``PushResult`` returned.
 
+    The rebase runs with ``--autostash`` so it can proceed against a
+    dirty worktree (#2714).  The orchestrator continuously writes
+    statefile / agent-output deltas without committing them eagerly, so
+    every divergence-reconcile attempt hits a working tree with unstaged
+    changes; without autostash, ``git rebase`` aborts immediately and the
+    sync helper returns without bringing origin's commits into local.
+
     The auto-resolve loop is bounded by ``max_autoresolve_iterations``
     to defend against pathological cases where every replayed commit
     re-introduces an agent-outputs conflict — three iterations is
@@ -3026,9 +3033,18 @@ def _build_rebase_cmd(
       upstream main commits that landed since the stale snapshot) on top
       of the stale tip, producing a PR full of duplicate-by-content
       commits with rewritten SHAs.
+
+    ``--autostash`` is set on every returned form (#2714): the orchestrator
+    writes statefile / agent-output deltas continuously and does not commit
+    them eagerly, so the worktree is routinely dirty at sync time.  Without
+    autostash, ``git rebase`` refuses with ``cannot rebase: You have
+    unstaged changes`` and the divergence-reconcile path that #2352 added
+    fails 100% of the time on the plan-complete sync.  With autostash, git
+    stashes the unstaged delta before the rebase and pops it on success;
+    on abort the stash entry is preserved in the stash list for recovery.
     """
     if base_branch is None:
-        return [*git_base, "rebase", f"origin/{branch}"]
+        return [*git_base, "rebase", "--autostash", f"origin/{branch}"]
 
     base_ref = f"origin/{base_branch}"
     try:
@@ -3042,7 +3058,7 @@ def _build_rebase_cmd(
     except subprocess.TimeoutExpired:
         verify = None
     if verify and verify.returncode == 0:
-        return [*git_base, "rebase", "--onto", f"origin/{branch}", base_ref]
+        return [*git_base, "rebase", "--autostash", "--onto", f"origin/{branch}", base_ref]
     return None
 
 
