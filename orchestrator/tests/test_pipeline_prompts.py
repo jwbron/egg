@@ -4599,9 +4599,12 @@ class TestAdversarialReReviewPriming:
         legitimate adversarial review, not goalpost-moving — symmetric
         to the reviewer's "NACK without hesitance" directive.
 
-        Without this the producer's prompt frames a new-NACK as
-        "reviewer changed the deal" and the producer argues / negotiates
-        instead of fixing — defeating the reviewer's adversarial reframe.
+        But the framing must NOT tell producers to stop arguing. A
+        producer is a peer in BRC consensus, not subordinate to a
+        reviewer's verdict — an incorrect NACK should be contested on
+        its merits, not silently worked around. The framing draws the
+        line at: scope ("you didn't raise this before") is not a valid
+        objection; merit ("this finding is factually wrong") is.
         """
         preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
         respond_start = preamble.index("**RESPOND TO REVIEWS**")
@@ -4610,9 +4613,17 @@ class TestAdversarialReReviewPriming:
         # step-5 list header to slice the complete step-4 block.
         respond_end = preamble.index("5. **CONFIRM**", respond_start)
         respond_block = preamble[respond_start:respond_end]
+        # New-findings NACKs are legitimate; scope is not a valid objection.
         assert "legitimate" in respond_block.lower()
         assert "goalpost" in respond_block.lower()
-        assert "do not argue" in respond_block.lower() or "don't argue" in respond_block.lower()
+        assert "not a valid objection" in respond_block.lower()
+        # Producers are empowered to contest a NACK on its merits.
+        assert "push back" in respond_block.lower()
+        assert "merits" in respond_block.lower()
+        assert "negotiation between peers" in respond_block.lower()
+        # The framing must not have regressed to a blanket "don't argue".
+        assert "do not argue" not in respond_block.lower()
+        assert "do not negotiate" not in respond_block.lower()
 
 
 class TestInitialReviewOperatorCopyPasteFraming:
