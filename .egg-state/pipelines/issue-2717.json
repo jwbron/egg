@@ -229,10 +229,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should the rollout migrate ClaudeCodeSpawner from \"re-host the existing egg_harness loop in the parent Claude Code session\" (today's spike implementation per `orchestrator/substrate/claude_code/spawner.py:14-26`) to a `ClaudeCodeAgentToolSpawner` that emits an actual `Agent`-tool envelope to the parent session's outer loop? This is the difference between \"harness re-host\" and a real substrate swap to Claude Code primitives.",
+      "context": "Open contract question cq-3, registered by an agent during the refine phase.",
+      "options": [
+        "Stay on harness re-host — keep ClaudeCodeSpawner running egg_harness in-process for all roles in this rollout; defer Agent-tool dispatcher to a future issue. Pros: zero re-architecture; matches the spike's tested seam. Cons: parent session still drives the harness for every subagent; not a true substrate-swap; concurrency uses ThreadPoolExecutor instead of native Agent fan-out",
+        "Migrate to Agent-tool dispatcher in this rollout — build ClaudeCodeAgentToolSpawner that yields an `Agent` tool envelope; the parent session's outer loop executes the Agent tool and feeds results back via the message bus. Pros: real substrate swap; uses Claude Code's native subagent isolation. Cons: requires bridge-gap design to also carry agent-output flow, not just HITL",
+        "Hybrid — reviewers stay on harness re-host (they're more research-heavy, harness depth helps), producers migrate to Agent-tool dispatch (typically larger context budget, more parallelism)",
+        "Decide empirically at implement-phase — ship plan + implement rollout on harness re-host; measure concurrency / cost / latency / context usage; decide R15 migration timing once we have data",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-19T17:33:05.810333Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-19T17:08:57.439434Z",
-  "updated_at": "2026-05-19T17:33:05.778181Z",
+  "updated_at": "2026-05-19T17:33:05.818025Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -246,7 +266,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
