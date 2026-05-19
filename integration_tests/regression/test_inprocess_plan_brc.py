@@ -158,24 +158,44 @@ def isolated_pipeline_state(monkeypatch: pytest.MonkeyPatch) -> None:
             registry.clear()
 
 
-def _make_fake_bundle(tmp_path: Path) -> MagicMock:
+def _make_fake_bundle(tmp_path: Path, *, write_producer_outputs: bool = True) -> MagicMock:
     """Build a substrate bundle that records every spawn invocation.
 
     The fake spawner returns a synthetic ``AgentResult`` (``exit_code=0``,
     40-zero commit, ``stdout="ok"``) for every role. The fake's
     ``spawner.spawn`` is a ``MagicMock`` so the test can inspect
     ``.call_args_list`` to verify which roles were dispatched.
+
+    When ``write_producer_outputs=True`` (default), the fake spawner
+    also creates each producer's ``EGG_PRODUCER_OUTPUT_PATH`` JSON
+    file before returning so the N9 architect-handoff guard in
+    ``_run_plan_phase`` (reviewer_code v3 non-blocking NB1) sees a
+    well-formed handoff and the happy-path BRC mechanics converge.
+    Tests that want to exercise the N9 fail-fast path pass
+    ``write_producer_outputs=False`` to leave the architect output
+    missing.
     """
     bundle = MagicMock()
-    bundle.spawner.spawn = MagicMock(
-        return_value=MagicMock(
+
+    def _spawn(role: Any, _prompt: str, env: dict[str, str], _worktree: Any) -> MagicMock:
+        if write_producer_outputs:
+            output_path = env.get("EGG_PRODUCER_OUTPUT_PATH")
+            if output_path:
+                target = Path(output_path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(
+                    '{"role": "' + getattr(role, "value", str(role)) + '", "summary": "ok"}',
+                    encoding="utf-8",
+                )
+        return MagicMock(
             exit_code=0,
             commit_sha="0" * 40,
             stdout="ok",
             worktree=tmp_path / "wt",
             artifacts=[],
         )
-    )
+
+    bundle.spawner.spawn = MagicMock(side_effect=_spawn)
     bundle.worktrees.create = MagicMock(return_value=tmp_path / "wt")
     bundle.worktrees.tear_down = MagicMock()
     bundle.name = "claude-code"
@@ -881,4 +901,99 @@ def test_plan_gate_decision_persists_with_phase_plan(
         f"contract's current_phase must equal the yielded plan-gate "
         f"phase; current_phase={contract.get('current_phase')!r} vs "
         f"yielded={yielded_phase_str!r}. Reviewer_code v1 blocker B1."
+    )
+
+
+@pytest.mark.skipif(
+    not _has_plan_stage(),
+    reason=(
+        "task-2-1 (coder) has not landed a plan-stage method on ``_InProcessOrchestrator`` yet."
+    ),
+)
+def test_plan_stage_fails_fast_when_architect_handoff_missing(
+    tmp_path: Path,
+    fake_home: Path,
+    short_intervals: None,
+    isolated_pipeline_state: None,
+) -> None:
+    """N9 fail-fast: missing architect output skips fan-out + reviewer; gate is_complete=False.
+
+    Reviewer_code v3 non-blocking NB1 + NB3 (#2717 slice-2): when the
+    architect spawn returns exit_code=0 but never writes its
+    ``EGG_PRODUCER_OUTPUT_PATH`` JSON, the orchestrator must
+    (a) record a NACK on the ``reviewer_plan → architect`` edge that
+    survives to the plan-HITL gate (no optimistic-ACK clobber), and
+    (b) skip the downstream fan-out + reviewer spawn entirely (no
+    wasted subagents on a dangling handoff). The plan-gate decision
+    must surface ``is_complete=False`` with the architect in the
+    blocking set and offer the ``retry`` / ``abort`` options.
+
+    Without this invariant, the v2 N9 NACK silently sank under the
+    reviewer's optimistic-ACK path and the gate appeared converged.
+    """
+    # write_producer_outputs=False leaves the architect output missing
+    # — exactly the broken-handoff case N9 is designed to catch.
+    bundle = _make_fake_bundle(tmp_path, write_producer_outputs=False)
+
+    pipeline_id = "pipeline-plan-brc-n9-fail-fast"
+    run = in_process_mod.run_pipeline_in_process
+
+    plan_hitl: Any = None
+    runner = None
+    with patch(
+        "orchestrator.substrate.select_substrate",
+        return_value=bundle,
+    ):
+        gen = run(
+            pipeline_id,
+            env={"EGG_SUBSTRATE": "claude-code"},
+            state_dir=tmp_path / ".egg-state",
+        )
+        try:
+            plan_hitl = _drive_past_refine_gate(gen)
+            runner = _runner_from_gen(gen)
+        finally:
+            gen.close()
+            time.sleep(0.2)
+
+    # NB3: downstream producers and reviewer must NOT spawn when N9 fires.
+    spawned = _spawned_roles(bundle)
+    forbidden_after_n9 = {
+        AgentRole.TASK_PLANNER,
+        AgentRole.RISK_ANALYST,
+        AgentRole.REVIEWER_PLAN,
+    }
+    leaked = spawned & forbidden_after_n9
+    assert not leaked, (
+        f"N9 fail-fast must skip downstream fan-out + reviewer spawn "
+        f"when the architect output file is missing; saw spawns for "
+        f"{sorted(r.value for r in leaked)}. NB3 (#2717 slice-2)."
+    )
+
+    # NB1: the plan-gate decision must surface the failure to the operator,
+    # not silently complete via the reviewer's optimistic-ACK fallback.
+    assert plan_hitl is not None, (
+        "plan stage must yield a HITLDecision even on the N9 fail-fast path; got None."
+    )
+    options = list(getattr(plan_hitl, "options", None) or [])
+    assert "retry" in options and "abort" in options, (
+        f"plan-gate must offer retry / abort on the N9 fail-fast path; "
+        f"got options={options!r}. NB1 (#2717 slice-2): the v2 NACK "
+        f"was previously clobbered by optimistic-ACK and the gate "
+        f"surfaced the success-path approve_continue options instead."
+    )
+
+    # And the tracker's evaluate() must report is_complete=False with
+    # the architect in the blocking set.
+    tracker = getattr(runner, "_plan_tracker", None)
+    assert tracker is not None, "runner must register a plan tracker"
+    eval_snapshot = tracker.evaluate()
+    assert eval_snapshot.get("is_complete") is False, (
+        f"plan-phase BRC must NOT converge when the architect "
+        f"handoff is broken; eval={eval_snapshot!r}."
+    )
+    blocking = set(eval_snapshot.get("blocking_agents") or [])
+    assert "architect" in blocking, (
+        f"architect must appear in blocking_agents on the N9 path; "
+        f"blocking_agents={sorted(blocking)!r}."
     )

@@ -524,11 +524,16 @@ class _InProcessOrchestrator:
         - Writes through a sibling temp file followed by
           ``os.replace()`` so concurrent readers never observe a
           half-written file.
-        - The lock file is unlinked best-effort after the critical
-          section so a long-lived ``.egg-state/`` directory (e.g. CI
-          reused across thousands of pipelines) does not accumulate
-          empty ``<contract>.lock`` artefacts (reviewer_code v2
-          non-blocking N7).
+        - The lock file is **intentionally not unlinked** after the
+          critical section. The ``flock + unlink`` pattern races
+          (reviewer_code v3 non-blocking NB2 / #2717 slice-2): an
+          unlink between two writers can leave them holding locks on
+          different inodes for the same path, defeating mutual
+          exclusion. Each lock file is a 0-byte sidecar — the
+          accumulated cruft is bounded by the number of distinct
+          pipeline ids the ``.egg-state/`` directory has ever seen,
+          and the cost of one inode per pipeline is far smaller than
+          the cost of double-writing decisions.
         """
         import fcntl
 
@@ -580,13 +585,6 @@ class _InProcessOrchestrator:
                 os.replace(tmp_path, contract_path)
             finally:
                 fcntl.flock(lock_fp.fileno(), fcntl.LOCK_UN)
-        # Best-effort lock-file cleanup; another writer may race in
-        # between LOCK_UN and unlink, which is harmless — the next
-        # writer just recreates the file under their own ``open("w")``.
-        try:
-            lock_path.unlink()
-        except (FileNotFoundError, OSError):  # fmt: skip
-            pass
         return contract_path
 
     # Reviewer_code v2 non-blocking N8: bound the flock wait so a
@@ -603,6 +601,13 @@ class _InProcessOrchestrator:
         ``LOCK_EX | LOCK_NB`` every ``_FLOCK_RETRY_INTERVAL_SECONDS``
         so an orderly contended writer wins the lock quickly while a
         crashed lock-holder eventually surfaces as a timeout.
+
+        The deadline is checked before sleeping AND the sleep itself
+        is clamped to the remaining budget so the documented
+        ``_FLOCK_TIMEOUT_SECONDS`` ceiling is the true upper bound
+        (reviewer_code v3 non-blocking NB4 / #2717 slice-2). Without
+        the clamp the worst-case wait is
+        ``_FLOCK_TIMEOUT_SECONDS + _FLOCK_RETRY_INTERVAL_SECONDS``.
         """
         import fcntl
 
@@ -612,9 +617,10 @@ class _InProcessOrchestrator:
                 fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 return
             except BlockingIOError:
-                if time.monotonic() >= deadline:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     raise
-                time.sleep(self._FLOCK_RETRY_INTERVAL_SECONDS)
+                time.sleep(min(self._FLOCK_RETRY_INTERVAL_SECONDS, remaining))
 
     # ------------------------------------------------------------------
     # HITL decisions

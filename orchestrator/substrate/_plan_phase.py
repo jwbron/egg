@@ -151,11 +151,16 @@ def _run_plan_phase_inner(
     # ``bundle.spawner.spawn`` returned exit_code 0 but BEFORE writing
     # the JSON, the fan-out below would dispatch with a dangling
     # pointer. Surface the broken handoff up-front by NACKing the
-    # architect edge so the operator sees the partial state at the
-    # plan-HITL gate rather than diagnosing a chain of confused
-    # downstream errors.
+    # architect edge AND skipping both the downstream fan-out and the
+    # reviewer spawn so the NACK is the dominant signal at the plan-
+    # HITL gate (reviewer_code v3 non-blocking NB1 + NB3 / #2717
+    # slice-2). Without the early-return the fan-out would still
+    # dispatch two subagents with a dangling handoff env-var, and the
+    # subsequent reviewer's optimistic-ACK fallback would silently
+    # clobber this NACK before the operator ever saw it.
     architect_exit = int(getattr(architect_result, "exit_code", 0) or 0)
-    if architect_exit == 0 and not architect_output_path.is_file():
+    architect_handoff_broken = architect_exit == 0 and not architect_output_path.is_file()
+    if architect_handoff_broken:
         try:
             tracker.handle_nack(
                 plan_reviewer.value,
@@ -178,58 +183,69 @@ def _run_plan_phase_inner(
                 exc,
                 runner.pipeline_id,
             )
-
-    # Stage 4b: task_planner + risk_analyst fan out concurrently.
-    with executor_factory(max_workers=len(downstream_producers)) as pool:
-        future_map = {
-            pool.submit(
-                spawn_plan_producer,
-                runner,
-                role,
-                bundle,
-                refine_artifact_path,
-                plan_artifact_path,
-                architect_output_path,
-            ): role
-            for role in downstream_producers
+        runner._verdict_diagnostics = {
+            "verdict_path": None,
+            "verdicts": {},
+            "reviewer_exit_code": "<not-spawned: architect handoff broken>",
+            "architect_handoff_broken": True,
         }
-        for fut in as_completed_fn(future_map):
-            role = future_map[fut]
-            try:
-                artifact_path, spawn_result = fut.result()
-            except Exception as exc:  # noqa: BLE001 — defensive
-                producer_results[role] = exc
-                producer_artifacts[role] = plan_artifact_path
-                continue
-            producer_results[role] = spawn_result
-            producer_artifacts[role] = artifact_path
-            _record_producer_propose(runner, tracker, role, artifact_path, spawn_result)
+    else:
+        # Stage 4b: task_planner + risk_analyst fan out concurrently.
+        with executor_factory(max_workers=len(downstream_producers)) as pool:
+            future_map = {
+                pool.submit(
+                    spawn_plan_producer,
+                    runner,
+                    role,
+                    bundle,
+                    refine_artifact_path,
+                    plan_artifact_path,
+                    architect_output_path,
+                ): role
+                for role in downstream_producers
+            }
+            for fut in as_completed_fn(future_map):
+                role = future_map[fut]
+                try:
+                    artifact_path, spawn_result = fut.result()
+                except Exception as exc:  # noqa: BLE001 — defensive
+                    producer_results[role] = exc
+                    producer_artifacts[role] = plan_artifact_path
+                    continue
+                producer_results[role] = spawn_result
+                producer_artifacts[role] = artifact_path
+                _record_producer_propose(runner, tracker, role, artifact_path, spawn_result)
 
-    # Stage 4c: reviewer_plan + verdict-JSON parsing.
-    reviewer_artifact, reviewer_result = spawn_plan_reviewer(
-        runner, bundle, producer_artifacts, plan_artifact_path
-    )
-    producer_results[plan_reviewer] = reviewer_result
-    producer_artifacts[plan_reviewer] = reviewer_artifact
+        # Stage 4c: reviewer_plan + verdict-JSON parsing.
+        reviewer_artifact, reviewer_result = spawn_plan_reviewer(
+            runner, bundle, producer_artifacts, plan_artifact_path
+        )
+        producer_results[plan_reviewer] = reviewer_result
+        producer_artifacts[plan_reviewer] = reviewer_artifact
 
-    verdict_path, verdicts = read_plan_reviewer_verdicts(runner, plan_producers=plan_producers)
-    runner._verdict_diagnostics = {
-        "verdict_path": str(verdict_path) if verdict_path else None,
-        "verdicts": verdicts,
-        "reviewer_exit_code": int(getattr(reviewer_result, "exit_code", 0) or 0),
-    }
-    _apply_reviewer_verdicts(
-        runner,
-        tracker,
-        plan_reviewer,
-        plan_producers,
-        producer_artifacts,
-        producer_results,
-        reviewer_result,
-        verdicts,
-    )
+        verdict_path, verdicts = read_plan_reviewer_verdicts(runner, plan_producers=plan_producers)
+        runner._verdict_diagnostics = {
+            "verdict_path": str(verdict_path) if verdict_path else None,
+            "verdicts": verdicts,
+            "reviewer_exit_code": int(getattr(reviewer_result, "exit_code", 0) or 0),
+        }
+        _apply_reviewer_verdicts(
+            runner,
+            tracker,
+            plan_reviewer,
+            plan_producers,
+            producer_artifacts,
+            producer_results,
+            reviewer_result,
+            verdicts,
+        )
 
-    # Stage 4d: drive CONSENSUS_CONFIRMED on each agent.
+    # Stage 4d: drive CONSENSUS_CONFIRMED on each agent. On the N9
+    # fail-fast path the architect edge is NACKED and the downstream
+    # producers + reviewer never proposed, so ``handle_confirmed``
+    # raises for each role; ``evaluate()`` then reports
+    # ``is_complete=False`` and the plan-HITL gate surfaces the
+    # retry / abort options to the operator.
     for role in (*plan_producers, plan_reviewer):
         try:
             tracker.handle_confirmed(role.value)
