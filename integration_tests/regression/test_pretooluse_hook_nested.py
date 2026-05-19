@@ -171,6 +171,40 @@ def test_pretooluse_hook_denies_nested_child_write(fake: object, isolated_state_
         write_target="orchestrator/foo.py",
     )
 
+    # Derive the verdict from the dispatch outcome — slice-5's
+    # contingent R15 migration task reads ``r2-verdict.json`` to
+    # decide whether to proceed, so the file must reflect the
+    # empirical answer, not an optimistic constant. Write the
+    # verdict *before* the assertions so a regression that fails
+    # one of the structured checks below still produces an
+    # accurate ``{"r2_verdict": "fail", "reason": ...}`` record
+    # for the downstream consumer (reviewer_code finding #5
+    # non-blocking).
+    verdict = getattr(result, "decision", None) or {}
+    reason = str(verdict.get("reason") or "")
+    if (
+        getattr(result, "denied", None) is True
+        and isinstance(verdict, dict)
+        and verdict.get("decision") == "block"
+        and "tester" in reason.lower()
+    ):
+        verdict_payload: dict[str, object] = {"r2_verdict": "pass"}
+    else:
+        verdict_payload = {
+            "r2_verdict": "fail",
+            "reason": (
+                f"DispatchResult denied={getattr(result, 'denied', None)!r}; "
+                f"raw_decision={verdict!r}; reason={reason!r}"
+            ),
+        }
+    verdict_path = _write_r2_verdict(isolated_state_dir, pipeline_id, verdict_payload)
+    assert verdict_path.exists()
+    written = json.loads(verdict_path.read_text())
+    # Always-asserted shape — the field is mandatory either way.
+    assert "r2_verdict" in written, (
+        f"r2-verdict.json must encode an 'r2_verdict' field per AC; got {written!r}"
+    )
+
     # AC: hook returns ``{"decision": "block", "reason": ...}`` for
     # the child's denied write. The fake wraps this in a
     # ``DispatchResult``; pin both the structured ``denied`` bool and
@@ -181,10 +215,9 @@ def test_pretooluse_hook_denies_nested_child_write(fake: object, isolated_state_
         f"the hook resolved the role from the parent rather than the "
         f"child — slice-5's R15 migration cannot ship until this is fixed."
     )
-    verdict = getattr(result, "decision", None)
-    assert isinstance(verdict, dict), (
-        f"DispatchResult.decision must be a dict (the raw hook verdict); "
-        f"got {type(verdict).__name__} ({verdict!r})"
+    assert isinstance(verdict, dict) and verdict, (
+        f"DispatchResult.decision must be a non-empty dict (the raw hook "
+        f"verdict); got {type(verdict).__name__} ({verdict!r})"
     )
     assert verdict.get("decision") == "block", (
         f"raw hook verdict must carry ``decision='block'`` on a denied dispatch; got {verdict!r}"
@@ -193,25 +226,15 @@ def test_pretooluse_hook_denies_nested_child_write(fake: object, isolated_state_
         f"``block`` verdict must carry a non-empty ``reason`` — "
         f"reviewer_security finding pattern. Got {verdict!r}"
     )
-    reason = str(verdict.get("reason") or "")
     # Reason should name the tester role — operator reading the
     # Claude Code UI denial needs the resolved role to act on it.
     assert "tester" in reason.lower(), (
         f"denial reason must name the resolved (child) role so the "
         f"operator can act on it; got {reason!r}"
     )
-
-    # Record verdict to ``.egg-state/<pipeline_id>/r2-verdict.json`` per AC.
-    verdict_path = _write_r2_verdict(
-        isolated_state_dir,
-        pipeline_id,
-        {"r2_verdict": "pass"},
-    )
-    assert verdict_path.exists()
-    written = json.loads(verdict_path.read_text())
-    assert written == {"r2_verdict": "pass"}, (
-        f'AC: r2-verdict.json must encode ``{{"r2_verdict": "pass"}}`` '
-        f"on the pass path; got {written!r}"
+    # And the verdict file we wrote reflects the pass path.
+    assert written.get("r2_verdict") == "pass", (
+        f"on a passing run the verdict file must record 'pass'; got {written!r}"
     )
 
 

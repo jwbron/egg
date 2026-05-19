@@ -148,8 +148,17 @@ def test_load_architect_raises_value_error_with_slice2_hint() -> None:
 @pytest.mark.parametrize(
     "role_input",
     [
+        # Slice-1 regression role.
         pytest.param(AgentRole.REFINER, id="enum-refiner"),
         pytest.param("refiner", id="str-refiner"),
+        # Slice-1 newly-supported roles (REVIEWER_REFINE,
+        # REVIEWER_AGENT_DESIGN) — pin string-input contract here so a
+        # future loader change that breaks the str→enum normalisation
+        # for the *new* roles (not just the regression role) is caught.
+        pytest.param(AgentRole.REVIEWER_REFINE, id="enum-reviewer_refine"),
+        pytest.param("reviewer_refine", id="str-reviewer_refine"),
+        pytest.param(AgentRole.REVIEWER_AGENT_DESIGN, id="enum-reviewer_agent_design"),
+        pytest.param("reviewer_agent_design", id="str-reviewer_agent_design"),
     ],
 )
 def test_loader_accepts_enum_and_string_role(role_input: object) -> None:
@@ -200,12 +209,15 @@ def test_loader_rejects_path_traversal_role_name() -> None:
     where a string role value reaches this loader (config injection,
     deserialised contract field) must not yield arbitrary file read.
 
-    The loader builds ``rubric_path = repo_root / "plugins" / ... /
-    f"{role_name}.md"`` — when ``role_name`` contains ``..`` or a
-    slash, the resulting path either escapes the agents directory or
-    does not match any shipped rubric. ``rubric_path.is_file()``
-    returns False for the non-existent path, and ``ValueError`` is
-    raised. The test pins this safe-by-default behaviour.
+    The loader's structural defence is the ``_ROLE_RUBRIC_SLICES``
+    allowlist (orchestrator/substrate/__init__.py): roles outside the
+    allowlist take the slice-fence branch and raise ``ValueError``
+    before any ``Path.is_file()`` check happens against the
+    user-controlled path. The test pins both that the error fires AND
+    that the diagnostic identifies the role as "not part of the
+    rollout's rubric set" rather than "missing on disk" — the former
+    means the allowlist caught it, the latter would mean the loader
+    walked the filesystem with attacker-controlled segments.
     """
     with pytest.raises(ValueError) as excinfo:
         _load("../../../etc/passwd")
@@ -214,4 +226,15 @@ def test_loader_rejects_path_traversal_role_name() -> None:
     # the wrong file or yield an empty string.
     assert "missing" in msg.lower() or "rubric" in msg.lower(), (
         f"path-traversal role must surface as missing-rubric ValueError; got: {msg!r}"
+    )
+    # Adversarial assertion: the diagnostic must identify the role as
+    # not-in-rollout-set rather than as missing-on-disk. The former
+    # means the ``_ROLE_RUBRIC_SLICES`` allowlist intercepted before
+    # any filesystem walk; the latter would mean the loader reached
+    # ``Path(...).is_file()`` with attacker-controlled path segments
+    # — an information-leak vector (existence oracle on /etc/*.md).
+    lowered = msg.lower()
+    assert "not part of" in lowered or "rollout" in lowered or "rubric set" in lowered, (
+        "path-traversal role must hit the allowlist's slice-fence "
+        f"branch (not the file-missing-on-disk branch); got: {msg!r}"
     )

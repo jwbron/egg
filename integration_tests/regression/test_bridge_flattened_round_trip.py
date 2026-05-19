@@ -49,11 +49,12 @@ to ``run_pipeline.py`` itself.
 
 Driver invocation contract probed
 ---------------------------------
-This test assumes the driver respects either ``EGG_PIPELINE_ID`` from the
-env or a positional ``argv[1]`` pipeline id (whichever the coder picks
-in task-1-1). The shim sets both so the test does not over-constrain
-the coder's interface choice. The driver's CWD is set to ``tmp_path``
-so the ``.egg-state/contracts/<id>.json`` path resolves cleanly.
+The coder's driver (task-1-1) accepts the pipeline id as a positional
+``argv[1]``; the shim passes it that way. ``EGG_PIPELINE_ID`` is also
+set so that any downstream tool reading the env (e.g. the orchestrator
+heartbeat machinery) sees the same id. The driver's CWD is set to
+``tmp_path`` so the ``.egg-state/contracts/<id>.json`` path resolves
+cleanly.
 """
 
 from __future__ import annotations
@@ -63,7 +64,7 @@ import os
 import subprocess
 import sys
 import textwrap
-import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -165,20 +166,30 @@ def _invoke_driver(
         "EGG_STATE_DIR": str(state_dir),
         "EGG_SUBSTRATE": "claude-code",
         "EGG_TEST_DRIVER_PATH": str(driver_path),
-        # Subprocess PYTHONPATH must let ``import orchestrator.substrate``
-        # resolve cleanly:
-        #   * ``<repo>/shared`` so ``egg_contracts`` (imported transitively
-        #     by ``orchestrator.substrate.k3s_adapter``) resolves.
-        #   * ``<repo>`` so the ``orchestrator`` package itself resolves
-        #     (the package has ``orchestrator/__init__.py``).
-        # The Makefile's ``PYTHONPATH := shared:gateway:orchestrator`` uses
-        # cwd-relative paths that only work when pytest runs at the repo
-        # root. We resolve absolute paths here because the subprocess's
-        # CWD is the per-test tmp dir.
+        # Subprocess PYTHONPATH must let every transitive import the
+        # driver triggers resolve. The Makefile's
+        # ``PYTHONPATH := shared:gateway:orchestrator`` (test target,
+        # cwd-relative) is the source of truth; we mirror it with
+        # absolute paths because the subprocess's CWD is the per-test
+        # tmp dir. Each entry covers a distinct import shape:
+        #   * ``<repo>/shared`` — ``egg_contracts`` etc. (imported
+        #     transitively by ``orchestrator.substrate.k3s_adapter``).
+        #   * ``<repo>`` — the ``orchestrator`` package itself
+        #     (``orchestrator/__init__.py`` makes it a real package).
+        #   * ``<repo>/orchestrator`` — bare-name top-level imports
+        #     internal to the ``orchestrator/`` tree, e.g.
+        #     ``orchestrator/models.py:16`` does
+        #     ``from slice_id_validation import SLICE_ID_PATTERN`` and
+        #     ``in_process.py:531-534`` has a bare ``from models import
+        #     HITLDecision`` fallback. Without ``<repo>/orchestrator``
+        #     on PYTHONPATH these crash the subprocess before the
+        #     bridge driver yields its first HITL decision.
+        #   * ``<repo>/gateway`` — matches the Makefile shape.
         "PYTHONPATH": os.pathsep.join(
             [
                 str(repo_root / "shared"),
                 str(repo_root),
+                str(repo_root / "orchestrator"),
                 str(repo_root / "gateway"),
                 os.environ.get("PYTHONPATH", ""),
             ]
@@ -235,7 +246,10 @@ def _write_answer(state_dir: Path, pipeline_id: str, answer: str) -> None:
     pending = blob.get("pending_hitl") or {}
     pending["answer"] = answer
     pending["status"] = "answered"
-    pending["timestamp"] = str(time.time())
+    # Mirror the driver's ISO-8601 UTC timestamp format
+    # (run_pipeline.py:101-103) so a test fixture and the driver's
+    # source of truth never drift.
+    pending["timestamp"] = datetime.now(UTC).isoformat()
     blob["pending_hitl"] = pending
     contract_file.write_text(json.dumps(blob, indent=2))
 
