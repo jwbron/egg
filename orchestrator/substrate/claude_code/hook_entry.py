@@ -166,10 +166,25 @@ def _bash_write_paths(command: str) -> tuple[list[str], bool]:
         return paths, False
 
     # 1. Redirection writes (>, >>, &>, 2>, etc.)
+    #
+    # Reviewer v3 non-blocking: the raw-command first-pass can catch
+    # tokens that sit inside a quoted region of an outer shell-of-shell
+    # form (e.g. ``bash -c 'echo x > /restricted/file'`` captures
+    # ``/restricted/file'`` — note the trailing quote). The recursive
+    # handler at the ``bash -c`` branch below re-extracts the inner
+    # command cleanly, so the phantom-with-quote token would land
+    # alongside the clean path and produce noisy duplicate paths.
+    # Filter out any candidate that contains an unmatched ``'`` or
+    # ``"`` before handing it to the policy checker.
     for m in _REDIRECT_RE.finditer(command):
         target = m.group(1)
         if "$" in target or "`" in target:
             ambiguous = True
+        elif target.count("'") % 2 != 0 or target.count('"') % 2 != 0:
+            # Phantom path artefact from the regex catching a token
+            # inside a quoted region of a longer command; the recursive
+            # bash handler below picks up the clean path.
+            continue
         else:
             paths.append(target)
 

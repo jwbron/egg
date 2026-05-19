@@ -1,6 +1,6 @@
 ---
 name: egg-sdlc
-description: "Run the full egg SDLC stack natively in Claude Code (substrate-swap walking-skeleton for #2623). Boots the real `egg_orchestrator` in-process, dispatches the refiner role via Claude Code's Agent tool, enforces role file-write restrictions via a PreToolUse hook, and renders HITL decisions through `AskUserQuestion`. Walking-skeleton scope: refiner role only — plan / implement / pr roles are deferred to the follow-up issue."
+description: "Run the full egg SDLC stack natively in Claude Code (substrate-swap walking-skeleton for #2623). Target shape: boot the real `egg_orchestrator` in-process, dispatch the refiner role via Claude Code's Agent tool, enforce role file-write restrictions via a PreToolUse hook, and render HITL decisions through `AskUserQuestion`. Walking-skeleton scope: refiner role only (plan / implement / pr roles deferred); the orchestrator-boot driver and the multi-yield `AskUserQuestion` bridge are also deferred to the follow-up issue — see the bridge-gap callout in the skill body."
 disable-model-invocation: true
 argument-hint: "[issue# | issue-url] [--repo owner/name]"
 allowed-tools: Agent Read AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git -C * remote:*) Bash(git remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(find:*) Bash(python3 *:*) Bash(cat:*) Bash(cp:*)

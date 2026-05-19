@@ -431,6 +431,34 @@ def test_install_accepts_empty_existing_settings(
         ("tee orchestrator/concurrent_executor.py", "tee target"),
         ("sed -i s/a/b/ orchestrator/concurrent_executor.py", "sed -i"),
         ("dd if=/dev/zero of=orchestrator/concurrent_executor.py", "dd of="),
+        # Reviewer v3 non-blocking: short-flag-cluster bash recursion.
+        # ``bash -lc`` / ``-xc`` / ``-ic`` carry the ``-c`` mode along
+        # with other single-char options. The hook must still recurse
+        # into the inner command so the inner write is surfaced.
+        (
+            "bash -lc 'echo x > orchestrator/concurrent_executor.py'",
+            "bash -lc cluster",
+        ),
+        (
+            "bash -xc 'echo x > orchestrator/concurrent_executor.py'",
+            "bash -xc cluster",
+        ),
+        (
+            "sh -ic 'echo x > orchestrator/concurrent_executor.py'",
+            "sh -ic cluster",
+        ),
+        # Reviewer v3 non-blocking: tar long-form ``--extract`` must
+        # surface the ``-C`` target.
+        (
+            "tar --extract -f archive.tar -C orchestrator/",
+            "tar --extract -C",
+        ),
+        # Reviewer v3 non-blocking: tar short-flag cluster ``-xzf``
+        # surfaces the ``-C`` target.
+        (
+            "tar -xzf archive.tar.gz -C orchestrator/",
+            "tar -xzf -C",
+        ),
     ],
 )
 def test_bash_write_extraction_blocks_out_of_role(
@@ -445,6 +473,12 @@ def test_bash_write_extraction_blocks_out_of_role(
     + write-shaped tokens (cp / mv / tee / sed -i / dd of= / ln -s /
     python -c "open(...).write(...)").  Each write-shape gets a
     dedicated test so a future parser regression localizes quickly.
+
+    Reviewer v3 non-blocking widened the parametrize set to cover the
+    tar long-form / short-flag-cluster extract detection and the
+    ``bash -lc`` / ``-xc`` / ``-ic`` combined-short-flag recursion;
+    those code paths were added in commit ``8ce6b28`` and previously
+    had no regression test.
     """
     monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
     monkeypatch.setenv("EGG_REPO_ROOT", "/home/egg/repos/egg")
@@ -453,6 +487,81 @@ def test_bash_write_extraction_blocks_out_of_role(
     assert result.get("decision") == "block", (
         f"{note}: Bash write to source must be denied for tester; command={command!r} → {result!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "command,note",
+    [
+        # Reviewer v3 non-blocking: tar long-form ``--xattrs`` /
+        # ``--xz`` / ``--exclude=*`` are NOT extracts and must not
+        # trip the extract-mode false-positive that v3's
+        # ``_is_tar_extract`` helper closed. The commands all create
+        # rather than extract, so a tester running them outside an
+        # ``-x`` mode should not surface a phantom write target.
+        ("tar --xattrs -cf /tmp/out.tar /tmp/src", "tar --xattrs"),
+        ("tar -cf /tmp/out.tar.xz --xz /tmp/src", "tar --xz"),
+        ("tar --exclude=foo -cf /tmp/out.tar /tmp/src", "tar --exclude="),
+    ],
+)
+def test_bash_tar_long_form_flags_do_not_false_fire(
+    command: str,
+    note: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Long-form tar flags (``--xattrs``, ``--xz``, ``--exclude=*``) are NOT extracts.
+
+    Reviewer v3 non-blocking regression: the previous greedy
+    ``startswith("-x")`` heuristic treated ``--xattrs`` and ``--xz``
+    as extract modes and produced fail-closed false-positives. The
+    v3 ``_is_tar_extract`` helper now requires a single-dash cluster
+    (with ``x`` in the cluster) or the long form ``--extract``.
+
+    Targets under ``/tmp/`` are outside any role's allow-list, but
+    the hook should not surface them as paths at all when the tar
+    invocation is in create mode — so ``decide()`` returns no
+    decision (allow-through, since the path list is empty).
+    """
+    monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+    monkeypatch.setenv("EGG_REPO_ROOT", "/home/egg/repos/egg")
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+    result = hook_entry_mod.decide(payload)
+    assert result == {} or "decision" not in result, (
+        f"{note}: long-form tar flag must not trip extract-mode false-positive; "
+        f"command={command!r} → {result!r}"
+    )
+
+
+def test_bash_redirect_inside_outer_quote_does_not_emit_phantom_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reviewer v3 non-blocking: stray-quote artifacts don't leak.
+
+    For ``bash -c 'echo x > /restricted/file'`` the ``_REDIRECT_RE``
+    first-pass on the raw outer command captures ``/restricted/file'``
+    (with the trailing single-quote) while the recursive ``bash -c``
+    handler captures ``/restricted/file`` cleanly. Without the
+    unmatched-quote filter the policy checker would see both paths and
+    could fail-closed defensively on the phantom. The v3 filter drops
+    candidates with an unmatched ``'`` / ``"`` from the regex pass; the
+    recursive handler still surfaces the clean path.
+    """
+    monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+    monkeypatch.setenv("EGG_REPO_ROOT", "/home/egg/repos/egg")
+    command = "bash -c 'echo x > /home/egg/repos/egg/orchestrator/concurrent_executor.py'"
+    paths, ambiguous = hook_entry_mod._bash_write_paths(command)
+    # The recursive handler must surface the inner path exactly once
+    # — no phantom-with-trailing-quote duplicate.
+    clean = "/home/egg/repos/egg/orchestrator/concurrent_executor.py"
+    assert paths.count(clean) == 1, (
+        f"clean inner path must appear exactly once; got paths={paths!r}"
+    )
+    assert not any(p.endswith("'") or p.endswith('"') for p in paths), (
+        f"no path may carry a stray quote artefact; got paths={paths!r}"
+    )
+    # The clean inner path is the only one we expect.
+    assert paths == [clean], f"expected exactly [{clean!r}]; got {paths!r}"
+    assert ambiguous is False
 
 
 @pytest.mark.parametrize(
