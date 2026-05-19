@@ -5,7 +5,7 @@
   "branch": "egg/issue-2717/work",
   "base_branch": null,
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -308,10 +308,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-05-19T18:43:15.011781Z",
       "work_started_at": "2026-05-19T18:43:45.635562Z",
-      "completed_at": null,
+      "completed_at": "2026-05-19T20:44:13.312740Z",
       "containers": [
         {
           "container_id": "a4e000eb-7df7-4dd9-b158-847ede322325",
@@ -970,12 +970,12 @@
         {
           "cycle": 0,
           "started_at": "2026-05-19T18:43:45.635562Z",
-          "completed_at": null,
+          "completed_at": "2026-05-19T20:44:13.312721Z",
           "commit_sha": "b0bb7dcbf8ce2d7ff6076eb09f9bfaf0124a50c5"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_code (exit=-1) ---\n\n--- reviewer_contract (exit=-1) ---\n\n--- reviewer_security (exit=-1) ---\n\n--- reviewer_concurrency (exit=-1) ---\n\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=reviewer_contract, tester, reviewer_code_holistic, coder, reviewer_code, documenter, reviewer_concurrency, reviewer_security",
       "hitl_feedback": null,
       "phase_start_sha": null,
       "agent_exits": [
@@ -1278,7 +1278,7 @@
     }
   ],
   "created_at": "2026-05-19T17:08:57.439434Z",
-  "updated_at": "2026-05-19T20:43:13.266129Z",
+  "updated_at": "2026-05-19T20:44:13.312803Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -1286,13 +1286,13 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": "plan draft .egg-state/drafts/2717-plan.md missing on local but present on origin/egg/issue-2717/work — refusing to advance plan phase",
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_code (exit=-1) ---\n\n--- reviewer_contract (exit=-1) ---\n\n--- reviewer_security (exit=-1) ---\n\n--- reviewer_concurrency (exit=-1) ---\n\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=reviewer_contract, tester, reviewer_code_holistic, coder, reviewer_code, documenter, reviewer_concurrency, reviewer_security",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-19T18:43:15.011783Z",
-  "version": 56,
+  "version": 57,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
