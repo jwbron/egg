@@ -12333,7 +12333,15 @@ def _build_brc_preamble(
                 "every NACK in the rejection, fix them all, and re-propose again "
                 "— the retry succeeds once you've been informed of the full set. "
                 "Don't re-propose addressing only one reviewer's NACK; the "
-                "orchestrator will kick you back with the rest.",
+                "orchestrator will kick you back with the rest.\n\n"
+                "   **NACKs naming new findings on your re-propose are "
+                "legitimate, not goalpost-moving.** Reviewers are explicitly "
+                "primed to re-review the v2+ delta adversarially — they will "
+                "surface new issues introduced by your fix even if those issues "
+                "lie outside the scope of their prior NACK. Fix and re-propose; "
+                "do not argue, do not try to confine the review to the original "
+                "blockers, do not negotiate. Re-reviews are cheap by design and "
+                "this is the protocol working as intended.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Block on the next BRC event with "
                 "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
@@ -12532,11 +12540,25 @@ def _build_brc_preamble(
                 "call entering are still delivered, and the send→wait "
                 "race is closed without manual `--since` anchoring.  "
                 "See docs/reference/agent-wait-patterns.md.",
-                "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
-                "while staying alive, you MUST act on it — failure to do so will stall "
-                "the entire pipeline. Re-review the re-proposing producer's new proposal "
-                "and ACK/NACK it, then re-confirm via `egg-orch consensus confirmed`. "
-                "Do NOT ignore these messages.\n",
+                "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` "
+                "message (or a `CONSENSUS_PROPOSE` for a re-propose — version > 1, "
+                "after you NACKed a prior version) while staying alive, you MUST "
+                "act on it — failure to do so will stall the entire pipeline. "
+                "Re-review the re-proposing producer's new proposal and ACK/NACK "
+                "it, then re-confirm via `egg-orch consensus confirmed`. Do NOT "
+                "ignore these messages.\n\n"
+                "   **This is adversarial re-review, not blocker-verification.** "
+                "Read the message body — the orchestrator appends an adversarial "
+                "re-prime to every re-review trigger. Your spawn-time mandate "
+                "stands: find ALL issues, last line of defense before production. "
+                "New issues outside the scope of your prior NACK are blocking. "
+                "Re-reviews are cheap by design — read the delta, apply your "
+                "rubric, decide. Minutes, not hours. **NACK without hesitance**; "
+                "the orchestrator absorbs cycles. Two NACKs on the same producer "
+                "where the second names new findings is the correct trajectory, "
+                "not goalpost-moving. The downstream GitHub reviewer should find "
+                "nothing in your re-reviewed deltas — anything it catches is a "
+                "miss attributable to this cycle.\n",
             ]
         )
 
@@ -12920,6 +12942,59 @@ def _build_reviewer_preparation(
         "(`egg-contract show`), explore the codebase for context, "
         "and prepare your review criteria. "
         "Do NOT inspect producer artifacts before proposals arrive."
+    )
+
+
+def _re_review_priming_block() -> str:
+    """Adversarial re-prime injected at the moment of every re-review.
+
+    Counter-anchors the persistent reviewer against the "verify named
+    blockers got fixed" framing that long-lived context naturally
+    biases toward (see #2724 post-mortem: slice-1 v2 was ACK'd despite
+    the v2 delta introducing a non-executable inline `python3 -c`
+    snippet that a downstream GitHub-bot reviewer caught immediately).
+
+    Two design choices worth flagging:
+
+    - **Delta-scoped, not exploration-forcing.** The block tells the
+      reviewer to re-read the delta adversarially, not to re-traverse
+      the codebase. The amortized exploration from cycle-1 is the
+      feature; re-Reading every referenced file on every cycle would
+      throw away BRC's cost advantage.
+    - **Economic framing is explicit.** "Re-reviews are cheap / NACK
+      without hesitance" is load-bearing — without it, persistent
+      reviewers naturally optimize for convergence (ACK to end the
+      cycle) over rigor. The orchestrator absorbs the cost of extra
+      cycles; the reviewer should not be carrying it.
+
+    The block is appended to ``CONSENSUS_RE_REVIEW`` message bodies
+    (signals.py, both withdrawal/re-propose and push-after-propose
+    paths) and to ``CONSENSUS_PROPOSE`` bodies when the producer is
+    re-proposing (version > 1, ``changed_artifacts`` set). Reviewers
+    who NACK'd v1 receive ``CONSENSUS_PROPOSE`` rather than
+    ``CONSENSUS_RE_REVIEW`` on a re-propose, so both surfaces need
+    the re-prime to reach every reviewer.
+    """
+    return (
+        "\n\n**Adversarial re-review**\n\n"
+        "Your spawn-time mandate stands: find ALL issues, last line of "
+        "defense before production. This is not a verification that named "
+        "blockers got fixed.\n\n"
+        "- Read the delta as adversarially as you would a first-pass "
+        "review. Apply every rubric pass to the new hunks.\n"
+        "- Read each new hunk as an operator who's about to copy-paste / "
+        "run / integrate it. Would this code execute as written? Would "
+        "these docs send a copy-paster down a working path?\n"
+        "- New issues outside the scope of your prior NACK are blocking. "
+        "Surface them — your prior NACK does not bound this re-review.\n"
+        "- Re-reviews are cheap by design. Your amortized context means "
+        'the work is "read the delta, apply your rubric, decide" — '
+        "minutes, not hours. NACK without hesitance; the orchestrator "
+        "absorbs cycles. Two NACKs on the same producer where the "
+        "second names new findings is the correct trajectory.\n"
+        "- The downstream GitHub reviewer should find nothing in this "
+        "delta. Anything it catches that lives in this cycle's diff is "
+        "a miss attributable to this re-review."
     )
 
 

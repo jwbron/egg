@@ -332,6 +332,128 @@ class TestProposePhasePropagation:
         assert re_review_msg.phase == "implement"
         assert re_review_msg.message_type == MessageType.CONSENSUS_RE_REVIEW
 
+    @patch("routes.signals._resolve_pipeline_phase", return_value="implement")
+    @patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp/wt"))
+    @patch("routes.signals.get_state_store")
+    def test_re_propose_messages_carry_adversarial_re_prime(
+        self,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_resolve_phase,
+        app,
+        mock_pipeline,
+    ):
+        """Both CONSENSUS_PROPOSE (re-propose case) and CONSENSUS_RE_REVIEW
+        message bodies must carry the adversarial re-prime (#2724).
+
+        Two paths must reach the reviewer with the priming:
+
+        - Reviewers who NACK'd v1 receive CONSENSUS_PROPOSE for v2 (not
+          CONSENSUS_RE_REVIEW — that's only for ACK'd-prior reviewers).
+        - Reviewers who ACK'd v1 receive CONSENSUS_RE_REVIEW for v2.
+
+        The priming injection covers both surfaces. Without this dual
+        coverage the NACKing reviewer (the most-likely-to-find-new-issues
+        path) would never see the re-prime.
+        """
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_re_propose.return_value = {
+            "version": 2,
+            "stale_reviewers": ["reviewer_code"],
+        }
+
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_propose_signal
+
+            response, status_code = handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "payload": {
+                        "summary": "Re-propose v2 addressing reviewer_code NACK on token expiry handling"
+                    },
+                    "changed_artifacts": ["auth.py"],
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200
+        assert mock_msg_store.add_message.call_count == 2
+
+        # CONSENSUS_PROPOSE carries the re-prime because this is a
+        # re-propose (changed_artifacts is set).
+        propose_msg = mock_msg_store.add_message.call_args_list[0][0][0]
+        assert propose_msg.message_type == MessageType.CONSENSUS_PROPOSE
+        assert "Adversarial re-review" in propose_msg.body
+        assert "NACK without hesitance" in propose_msg.body
+        # Producer summary still present (we append, not replace).
+        assert "token expiry" in propose_msg.body
+
+        # CONSENSUS_RE_REVIEW also carries the re-prime.
+        re_review_msg = mock_msg_store.add_message.call_args_list[1][0][0]
+        assert re_review_msg.message_type == MessageType.CONSENSUS_RE_REVIEW
+        assert "Adversarial re-review" in re_review_msg.body
+        assert "NACK without hesitance" in re_review_msg.body
+
+    @patch("routes.signals._resolve_pipeline_phase", return_value="implement")
+    @patch("routes.signals.resolve_worktree_path", return_value=Path("/tmp/wt"))
+    @patch("routes.signals.get_state_store")
+    def test_initial_propose_does_not_carry_re_prime(
+        self,
+        mock_get_store,
+        mock_resolve_wt,
+        mock_resolve_phase,
+        app,
+        mock_pipeline,
+    ):
+        """The re-prime is gated on ``changed_artifacts`` (re-propose).
+        Initial proposes should not carry it — reviewers handling a
+        first proposal already have the full thoroughness mandate from
+        their spawn-time system prompt; the re-prime is specifically
+        for re-anchoring after a prior cycle.
+        """
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_propose.return_value = {"version": 1, "stale_reviewers": []}
+
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_propose_signal
+
+            handle_consensus_propose_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "payload": {
+                        "summary": "Initial proposal: implement JWT-based authentication module from scratch"
+                    },
+                    # No changed_artifacts → initial propose.
+                },
+                Path("/tmp/repo"),
+            )
+
+        propose_msg = mock_msg_store.add_message.call_args_list[0][0][0]
+        assert propose_msg.message_type == MessageType.CONSENSUS_PROPOSE
+        assert "Adversarial re-review" not in propose_msg.body
+
 
 class TestAckPhasePropagation:
     """handle_consensus_ack_signal sets phase on all Messages."""

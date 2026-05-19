@@ -4489,6 +4489,112 @@ class TestReviewerWaitLoopMentionsAutoCursor:
         assert "#2323" in sa_block
 
 
+class TestAdversarialReReviewPriming:
+    """Tests for the adversarial re-review priming block (#2724 post-mortem).
+
+    Background: PR #2724 (slice-1 of #2717) shipped through BRC consensus
+    with the in-pipeline ``reviewer_code`` ACK'ing the v2 fix, then the
+    GitHub-side ``egg-reviewer[bot]`` immediately found four blocking
+    issues two of which lived in the v2 cycle delta (a non-executable
+    inline ``python3 -c`` snippet; a silent exception fallback). The
+    persistent BRC reviewer's context was anchored on "did the named
+    v1 blockers get fixed?" — yes — ACK, while the fresh GitHub bot
+    asked "would this code execute as written?" — no — NACK.
+
+    The fix injects an adversarial re-prime at the moment of every
+    re-review trigger: into both ``CONSENSUS_RE_REVIEW`` and
+    ``CONSENSUS_PROPOSE`` (when re-proposing) message bodies, and into
+    the reviewer lifecycle step 8 ``HANDLE RE-REVIEW`` text. The
+    economic framing ("re-reviews are cheap, NACK without hesitance")
+    is load-bearing — without it, persistent reviewers optimize for
+    convergence (ACK to end the cycle) over rigor.
+    """
+
+    def test_priming_block_helper_returns_load_bearing_phrases(self):
+        """``_re_review_priming_block`` returns the directives the design
+        depends on. Phrasing can evolve; the load-bearing semantics
+        cannot disappear without violating the #2724 design intent.
+        """
+        from routes.pipelines import _re_review_priming_block
+
+        block = _re_review_priming_block()
+        # Mandate re-prime (counter to "verify named blockers got fixed").
+        assert "find ALL issues" in block
+        assert "not a verification" in block.lower()
+        assert "named blockers" in block.lower()
+        # Operator-copy-paste framing — the question that catches
+        # non-executable doc snippets like #2724's `${ANSWER}` Python.
+        assert "copy-paste" in block.lower() or "execute as written" in block.lower()
+        # New-NACK-findings counter-anchor.
+        assert (
+            "new issues" in block.lower() and "prior NACK" in block and "blocking" in block.lower()
+        )
+        # Cheapness / no-hesitance economics.
+        assert "cheap" in block.lower()
+        assert "NACK without hesitance" in block
+        # GitHub-as-no-op standard.
+        assert "GitHub" in block
+
+    @pytest.mark.parametrize(
+        "role",
+        [
+            "reviewer_code",
+            "reviewer_code_holistic",
+            "reviewer_security",
+            "reviewer_concurrency",
+            "reviewer_contract",
+        ],
+    )
+    def test_reviewer_lifecycle_step8_carries_adversarial_framing(self, role):
+        """Step 8 HANDLE RE-REVIEW carries the adversarial reframe in
+        the spawn-time prompt so a reviewer reading the lifecycle text
+        sees the directive even before any re-review message arrives.
+
+        This is the in-prompt counterpart to the message-body injection;
+        both surfaces matter because the reviewer may scroll back to
+        the lifecycle text while drafting their verdict.
+        """
+        preamble = _build_brc_preamble(role, "implement", branch="egg/issue-123")
+        # Locate the step 8 block.
+        s8_start = preamble.index("8. **HANDLE RE-REVIEW**")
+        # Step 8 is the last reviewer-lifecycle step; slice to the end
+        # of the lifecycle section.
+        s8_block = preamble[s8_start : s8_start + 3000]
+        # Adversarial framing (not goalpost-moving, find all issues).
+        assert "adversarial re-review" in s8_block.lower()
+        assert "find ALL issues" in s8_block
+        assert "not blocker-verification" in s8_block.lower()
+        # Cheapness / no-hesitance economics — the main behavioral lever.
+        assert "cheap" in s8_block.lower()
+        assert "NACK without hesitance" in s8_block
+        # GitHub-as-audit-only standard.
+        assert "GitHub" in s8_block
+        # The "two NACKs is correct" counter-anchor against the social
+        # pressure to converge by ACKing the named-blocker fix.
+        assert "Two NACKs" in s8_block or "two NACKs" in s8_block
+
+    @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
+    def test_producer_respond_to_reviews_legitimizes_new_findings(self, role, phase):
+        """Producer step 4 must frame new-NACK-findings on re-propose as
+        legitimate adversarial review, not goalpost-moving — symmetric
+        to the reviewer's "NACK without hesitance" directive.
+
+        Without this the producer's prompt frames a new-NACK as
+        "reviewer changed the deal" and the producer argues / negotiates
+        instead of fixing — defeating the reviewer's adversarial reframe.
+        """
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        # ``"**CONFIRM**"`` alone matches an in-step-4 reference
+        # ("...go straight to step 5 **CONFIRM**;"). Anchor on the
+        # step-5 list header to slice the complete step-4 block.
+        respond_end = preamble.index("5. **CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        assert "legitimate" in respond_block.lower()
+        assert "goalpost" in respond_block.lower()
+        assert "do not argue" in respond_block.lower() or "don't argue" in respond_block.lower()
+
+
 class TestProducerOrientationSyncNote:
     """Tests for sync note in _build_producer_orientation (issue #1565)."""
 

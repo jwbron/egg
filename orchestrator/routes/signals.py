@@ -1349,6 +1349,25 @@ def handle_consensus_propose_signal(
 
         store = get_message_store()
         phase = _resolve_pipeline_phase(pipeline_id, repo_path)
+
+        # When this is a re-propose (changed_artifacts set), append the
+        # adversarial re-prime to the CONSENSUS_PROPOSE body. Reviewers
+        # who NACK'd the prior version receive CONSENSUS_PROPOSE (not
+        # CONSENSUS_RE_REVIEW — that's only for ACK'd-prior reviewers
+        # whose state needs invalidation), so without this both paths
+        # don't reach every reviewer. See #2724 post-mortem.
+        propose_body = payload.get("summary", "")
+        if changed_artifacts:
+            try:
+                from routes.pipelines import _re_review_priming_block
+            except ImportError:
+                try:
+                    from .pipelines import _re_review_priming_block  # type: ignore[no-redef]
+                except ImportError:
+                    _re_review_priming_block = None  # type: ignore[assignment]
+            if _re_review_priming_block is not None:
+                propose_body = propose_body + _re_review_priming_block()
+
         store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1356,7 +1375,7 @@ def handle_consensus_propose_signal(
                 to_role="all",
                 message_type=MessageType.CONSENSUS_PROPOSE,
                 subject=f"Proposal from {agent_role}",
-                body=payload.get("summary", ""),
+                body=propose_body,
                 phase=phase,
                 metadata={
                     "payload": payload,
@@ -1371,6 +1390,22 @@ def handle_consensus_propose_signal(
         # both reviewers who confirmed on a prior version and reviewers
         # whose pre-proposal ACKs (version 0) were invalidated.
         for stale_reviewer in result.get("stale_reviewers", []):
+            re_review_body = (
+                f"Producer {agent_role} has submitted a new proposal "
+                f"(version {result.get('version')}) after withdrawal. "
+                f"Your previous confirmation was on an earlier version. "
+                f"Please re-review and ACK/NACK the new proposal."
+            )
+            try:
+                from routes.pipelines import _re_review_priming_block
+            except ImportError:
+                try:
+                    from .pipelines import _re_review_priming_block  # type: ignore[no-redef]
+                except ImportError:
+                    _re_review_priming_block = None  # type: ignore[assignment]
+            if _re_review_priming_block is not None:
+                re_review_body = re_review_body + _re_review_priming_block()
+
             store.add_message(
                 Message(
                     pipeline_id=pipeline_id,
@@ -1378,12 +1413,7 @@ def handle_consensus_propose_signal(
                     to_role=stale_reviewer,
                     message_type=MessageType.CONSENSUS_RE_REVIEW,
                     subject=f"Re-review required: {agent_role} submitted new proposal v{result.get('version')}",
-                    body=(
-                        f"Producer {agent_role} has submitted a new proposal "
-                        f"(version {result.get('version')}) after withdrawal. "
-                        f"Your previous confirmation was on an earlier version. "
-                        f"Please re-review and ACK/NACK the new proposal."
-                    ),
+                    body=re_review_body,
                     phase=phase,
                     metadata={
                         "producer_role": agent_role,
@@ -2370,7 +2400,21 @@ def handle_consensus_producer_push_signal(
             notified_reviewers = set(
                 result.get("stale_reviewers", []) + result.get("invalidated_reviewers", [])
             )
+            try:
+                from routes.pipelines import _re_review_priming_block
+            except ImportError:
+                try:
+                    from .pipelines import _re_review_priming_block  # type: ignore[no-redef]
+                except ImportError:
+                    _re_review_priming_block = None  # type: ignore[assignment]
             for reviewer in notified_reviewers:
+                re_review_body = (
+                    f"Producer {agent_role} has pushed new commits after "
+                    f"proposing. Your previous review is invalidated. "
+                    f"Please re-review and ACK/NACK the updated work."
+                )
+                if _re_review_priming_block is not None:
+                    re_review_body = re_review_body + _re_review_priming_block()
                 store.add_message(
                     Message(
                         pipeline_id=pipeline_id,
@@ -2381,11 +2425,7 @@ def handle_consensus_producer_push_signal(
                             f"Re-review required: {agent_role} pushed new changes "
                             f"(v{result.get('version')})"
                         ),
-                        body=(
-                            f"Producer {agent_role} has pushed new commits after "
-                            f"proposing. Your previous review is invalidated. "
-                            f"Please re-review and ACK/NACK the updated work."
-                        ),
+                        body=re_review_body,
                         phase=phase,
                         metadata={
                             "producer_role": agent_role,
