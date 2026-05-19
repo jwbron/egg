@@ -590,10 +590,28 @@
       "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Fixed curated set covering SDLC hot paths: one bug fix, one feature add, one refactor, one infra/script change, one doc change. Specific issue numbers picked during the spike or follow-up. Rationale: random sampling would let CI vary without insight; fixed set gives a stable benchmark you can A/B against substrate changes.\", \"Q2\": \"No explicit budget; re-evaluate after the spike with real numbers. The Claude Code substrate is inherently slower per-agent-call (subagent dispatch overhead) and ratios depend on empirical data we don't have yet. Locking 'X*k3s latency' before the spike risks setting an arbitrary line. Set a budget once data exists.\", \"Q3\": \"No hard constraints. Soft preferences only: (a) avoid huge transitive dep trees — prefer existing egg deps where reasonable; (b) no dependency on developer-mode Claude Code feature flags — substrate must work on stable CC; (c) no strict plugin-size cap, but flag if marketplace install exceeds ~100 MB.\", \"Q4\": \"Yes, support non-Claude-Code callers as a secondary goal. If the AgentSpawner interface is right (cq-4 → synchronous), a third EggHarnessSpawner (subprocess running egg_harness) gives headless / CLI mode (egg-orch local-run --issue 1234) nearly for free, battle-tests the abstraction with three implementations, and unlocks CI usage of the in-process orchestrator without needing Claude Code. Primary use case stays the skill.\", \"Q5\": \"Scope to #2622, not this issue. Both #5 (tool-use budget signaling) and #6 (minimum-breadth targets) are pure prompt edits to shared/prompts/*.md that improve depth on both substrates regardless of the swap — orthogonal to substrate work. This issue is already large (abstraction layer + two implementations + conformance matrix + ADR, even with spike-first sequencing). Letting #2622 stay the home keeps both issues cohesive.\", \"Q6\": \"Flag, don't block. Document checkpoint location in install docs (~/.egg-state/<pipeline_id>/). Add a local cleanup verb (egg-state prune or similar) for the Claude Code substrate. No telemetry sent (local-only). Not a strict regression vs k3s (which also wrote checkpoints to local PV / emptyDir); the difference is just persistence horizon and the user is the one who can prune.\"}}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Pipeline blocked at plan_complete: contract.slices is empty and the plan draft is missing, unparseable, or yielded no tasks (reason=plan_draft_missing_on_local). The populate-from-plan step silently failed earlier (#2337 / #2627), so pipeline state and the contract have diverged. Plain restart_phase implement will respawn into the same broken state. How to proceed?\n- 'Repopulate contract from plan draft and retry' — run POST /pipelines/issue-2623/phase/populate-contract, then restart_phase implement.\n- 'Restart plan phase' — restart_phase plan to regenerate the draft from scratch.\n- 'Abort pipeline' — cancel_task.",
+      "context": "",
+      "options": [
+        "Repopulate contract from plan draft and retry",
+        "Restart plan phase",
+        "Abort pipeline"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-19T00:26:36.524379Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-19T00:26:36.499609Z",
+  "updated_at": "2026-05-19T00:26:36.524557Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -607,7 +625,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-18T23:54:36.322759Z",
-  "version": 44,
+  "version": 45,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
