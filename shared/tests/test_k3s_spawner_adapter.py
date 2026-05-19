@@ -136,19 +136,41 @@ def test_adapter_returns_agent_result_with_legacy_fields(
 # ---------------------------------------------------------------------------
 
 
-def test_adapter_captures_commit_sha_from_worktree(
+def test_adapter_returns_none_commit_sha_because_legacy_factory_is_fire_and_monitor(
     tmp_path: Path,
     fake_role: Any,
 ) -> None:
-    """Adapter runs ``git rev-parse HEAD`` after the closure returns (INV-6)."""
-    sha = _init_git_repo_or_skip(tmp_path)
-    if sha is None:
-        pytest.skip("git init blocked")
+    """v3 ``K3sSpawnerAdapter`` returns ``commit_sha=None`` by contract.
+
+    Pinned per reviewer_concurrency v1 (coder) blocker #4: the legacy
+    ``create_concurrent_spawn_fn`` is fire-and-monitor — it returns
+    before the pod commits — so capturing the orchestrator-host HEAD
+    at spawn time attached BRC commit-bound ACKs to the wrong SHA.
+    v3 deliberately removed the racy capture; the adapter now returns
+    ``commit_sha=None`` and points callers at the gateway-side
+    attestation channel referenced in the substrate ADR's follow-up
+    appendix.  This test pins the deliberate-None contract so a
+    future re-introduction of the racy capture turns the test red.
+
+    Companion: ``test_adapter_commit_sha_none_when_worktree_missing``
+    covers the same value on a different code path (no worktree dir).
+    """
+    # _init_git_repo_or_skip would normally seed a checkout, but the
+    # adapter's contract is "commit_sha=None regardless of worktree
+    # contents" so we use it only to confirm git is available; the
+    # assertion holds independently.
+    _ = _init_git_repo_or_skip(tmp_path)
     K3sSpawnerAdapter = adapter_mod.K3sSpawnerAdapter
     closure = MagicMock(return_value=MagicMock(stdout="", exit_code=0))
     adapter = K3sSpawnerAdapter(closure)
     result = adapter.spawn(fake_role, "x", {}, tmp_path)
-    assert result.commit_sha == sha
+    assert result.commit_sha is None, (
+        "K3sSpawnerAdapter must return commit_sha=None — the legacy "
+        "factory is fire-and-monitor, so the pre-spawn HEAD does not "
+        "match the post-spawn commit. INV-6 SHAs for the k3s leg are "
+        "delivered via the out-of-band gateway attestation channel "
+        "(reviewer_concurrency v1 (coder) blocker #4)."
+    )
 
 
 def test_adapter_commit_sha_none_when_worktree_missing(

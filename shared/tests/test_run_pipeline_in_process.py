@@ -171,26 +171,33 @@ def test_run_pipeline_in_process_returns_artifact_path_on_normal_completion(
 
     # Stub out the spawner so we don't fan into the real harness.
     fake_bundle = MagicMock()
-    fake_bundle.spawner.spawn = MagicMock()
+    fake_bundle.spawner.spawn = MagicMock(
+        return_value=MagicMock(
+            exit_code=0,
+            commit_sha="0" * 40,
+            stdout="ok",
+            worktree=tmp_path / "wt",
+            artifacts=[],
+        )
+    )
     fake_bundle.worktrees.create = MagicMock(return_value=tmp_path / "wt")
-    with patch.object(
-        in_process_mod, "_InProcessOrchestrator", wraps=in_process_mod._InProcessOrchestrator
-    ):
+    fake_bundle.worktrees.tear_down = MagicMock()
+    # reviewer_code non-blocking: wrap the select_substrate patch around
+    # both yields so the bundle is observed before _spawn_refiner runs.
+    # The previous outer ``patch.object`` was a no-op (wraps without
+    # substitution) and is gone.
+    with patch("orchestrator.substrate.select_substrate", return_value=fake_bundle):
         run = in_process_mod.run_pipeline_in_process
         gen = run(
             "pipeline-end2end",
             env={"EGG_SUBSTRATE": "claude-code"},
             state_dir=tmp_path / ".egg-state",
         )
-        # Advance to first HITL.
+        # Advance to first HITL (preflight).
         next(gen)
         try:
-            # Send "approve" through; this is a non-fence answer.
-            with patch(
-                "orchestrator.substrate.select_substrate",
-                return_value=fake_bundle,
-            ):
-                second = gen.send("approve")
+            # Send "approve" through preflight — non-abort answer.
+            second = gen.send("approve")
             # The generator must yield the refine-gate decision next.
             assert second is not None
             # Send "stop" through the refine gate — non-fence terminal.

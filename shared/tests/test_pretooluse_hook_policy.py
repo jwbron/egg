@@ -186,8 +186,15 @@ def test_decide_fails_closed_when_role_not_set_inside_substrate(
     )
 
 
-def test_decide_ignores_read_only_tools(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Read-only tools (``Read``, ``Bash``) get no decision (allow)."""
+def test_decide_ignores_pure_read_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pure-read tools (``Read``) get no decision (allow).
+
+    Note: ``Bash`` is NOT a read-only tool in this hook's model — the
+    hook inspects Bash commands for write-shaped tokens (redirection,
+    cp/mv/tee/sed -i/dd of=) and may block on the parsed write target.
+    See ``test_bash_write_extraction_blocks_out_of_role`` for the
+    Bash-side coverage.
+    """
     monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
     payload = {
         "tool_name": "Read",
@@ -356,6 +363,60 @@ def test_install_rejects_target_outside_home(
 
 
 # ---------------------------------------------------------------------------
+# v3 install fail-loud on malformed existing settings.json (reviewer_code v2)
+# ---------------------------------------------------------------------------
+
+
+def test_install_raises_on_malformed_existing_settings_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed JSON in the existing ``.claude/settings.json`` raises loud.
+
+    v3 fix: instead of silently overwriting the user's prior hooks /
+    statusline / plugin enablement, ``install`` raises ``ValueError``
+    pointing the operator at the bad file with line + column from
+    ``json.JSONDecodeError``.
+    """
+    PreToolUseHookPolicy = policy_mod.PreToolUseHookPolicy
+    policy = PreToolUseHookPolicy()
+    target = _install_target(tmp_path, monkeypatch)
+    settings = target / ".claude"
+    settings.mkdir()
+    (settings / "settings.json").write_text("this is not json")
+    with pytest.raises(ValueError, match=r"not valid\s+JSON"):
+        policy.install(target)
+
+
+def test_install_raises_on_non_dict_top_level(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A JSON array at the top level is rejected (must be a JSON object)."""
+    PreToolUseHookPolicy = policy_mod.PreToolUseHookPolicy
+    policy = PreToolUseHookPolicy()
+    target = _install_target(tmp_path, monkeypatch)
+    settings = target / ".claude"
+    settings.mkdir()
+    (settings / "settings.json").write_text("[]")
+    with pytest.raises(ValueError, match=r"not a JSON\s+object"):
+        policy.install(target)
+
+
+def test_install_accepts_empty_existing_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty / whitespace-only existing settings.json is treated as ``{}``."""
+    PreToolUseHookPolicy = policy_mod.PreToolUseHookPolicy
+    policy = PreToolUseHookPolicy()
+    target = _install_target(tmp_path, monkeypatch)
+    settings = target / ".claude"
+    settings.mkdir()
+    (settings / "settings.json").write_text("   \n  ")
+    out = policy.install(target)  # must not raise
+    contents = json.loads(out.read_text())
+    assert "hooks" in contents
+
+
+# ---------------------------------------------------------------------------
 # v2 security NACK #1: Bash command write-target parsing
 # ---------------------------------------------------------------------------
 
@@ -390,8 +451,7 @@ def test_bash_write_extraction_blocks_out_of_role(
     payload = {"tool_name": "Bash", "tool_input": {"command": command}}
     result = hook_entry_mod.decide(payload)
     assert result.get("decision") == "block", (
-        f"{note}: Bash write to source must be denied for tester; "
-        f"command={command!r} → {result!r}"
+        f"{note}: Bash write to source must be denied for tester; command={command!r} → {result!r}"
     )
 
 
@@ -413,8 +473,7 @@ def test_bash_ambiguous_command_fails_closed(
     payload = {"tool_name": "Bash", "tool_input": {"command": command}}
     result = hook_entry_mod.decide(payload)
     assert result.get("decision") == "block", (
-        f"{note}: ambiguous Bash command must fail closed; "
-        f"command={command!r} → {result!r}"
+        f"{note}: ambiguous Bash command must fail closed; command={command!r} → {result!r}"
     )
 
 
@@ -428,9 +487,7 @@ def test_bash_read_only_command_allows_through(
         "tool_input": {"command": "ls -la && cat README.md | grep egg"},
     }
     result = hook_entry_mod.decide(payload)
-    assert result == {} or "decision" not in result, (
-        f"Read-only Bash must pass: {result!r}"
-    )
+    assert result == {} or "decision" not in result, f"Read-only Bash must pass: {result!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -442,9 +499,7 @@ def test_hook_entry_script_fails_closed_on_malformed_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Malformed JSON on stdin returns ``decision=block``."""
-    hook_entry = Path(
-        "/home/egg/repos/egg/orchestrator/substrate/claude_code/hook_entry.py"
-    )
+    hook_entry = Path("/home/egg/repos/egg/orchestrator/substrate/claude_code/hook_entry.py")
     if not hook_entry.exists():
         pytest.skip(f"{hook_entry} not present")
 
@@ -471,6 +526,5 @@ def test_hook_entry_script_fails_closed_on_malformed_json(
     )
     out = json.loads(proc.stdout)
     assert out.get("decision") == "block", (
-        f"Malformed JSON stdin must fail CLOSED (security NACK #3); "
-        f"got stdout={proc.stdout!r}"
+        f"Malformed JSON stdin must fail CLOSED (security NACK #3); got stdout={proc.stdout!r}"
     )
