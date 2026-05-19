@@ -4489,6 +4489,265 @@ class TestReviewerWaitLoopMentionsAutoCursor:
         assert "#2323" in sa_block
 
 
+class TestAdversarialReReviewPriming:
+    """Tests for the adversarial re-review priming block (#2724 post-mortem).
+
+    Background: PR #2724 (slice-1 of #2717) shipped through BRC consensus
+    with the in-pipeline ``reviewer_code`` ACK'ing the v2 fix, then the
+    GitHub-side ``egg-reviewer[bot]`` immediately found four blocking
+    issues two of which lived in the v2 cycle delta (a non-executable
+    inline ``python3 -c`` snippet; a silent exception fallback). The
+    persistent BRC reviewer's context was anchored on "did the named
+    v1 blockers get fixed?" — yes — ACK, while the fresh GitHub bot
+    asked "would this code execute as written?" — no — NACK.
+
+    The fix injects an adversarial re-prime at the moment of every
+    re-review trigger: into both ``CONSENSUS_RE_REVIEW`` and
+    ``CONSENSUS_PROPOSE`` (when re-proposing) message bodies, and into
+    the reviewer lifecycle step 8 ``HANDLE RE-REVIEW`` text. The
+    economic framing ("re-reviews are cheap, NACK without hesitance")
+    is load-bearing — without it, persistent reviewers optimize for
+    convergence (ACK to end the cycle) over rigor.
+    """
+
+    def test_priming_block_helper_returns_load_bearing_phrases(self):
+        """``_re_review_priming_block`` returns the directives the design
+        depends on. Phrasing can evolve; the load-bearing semantics
+        cannot disappear without violating the #2724 design intent.
+
+        The block is structured around explicit dual-mandate
+        decomposition (verify v1 blockers / audit v2 delta as fresh
+        reviewer). Vague-adversarial language alone leaves the
+        named-blockers anchor in place; naming the bias and giving the
+        reviewer two checkable mandates is the load-bearing piece.
+        """
+        from routes.pipelines import _re_review_priming_block
+
+        block = _re_review_priming_block()
+        # Dual-mandate decomposition — the structural anchor.
+        assert "TWO equal-weight mandates" in block
+        assert "named v1 blockers" in block
+        assert "Audit the v2 delta as a fresh reviewer" in block
+        assert "equal weight" in block.lower()
+        assert "ACK requires both pass" in block
+        # Explicit bias-naming — the trap the priming counters.
+        assert "named-blockers anchor" in block
+        assert "known trap" in block.lower()
+        # PR #2724 citation makes the failure mode concrete.
+        assert "#2724" in block
+        # Operator-copy-paste framing — the question that catches
+        # non-executable doc snippets like #2724's `${ANSWER}` Python.
+        assert "copy-paste" in block.lower() or "execute as written" in block.lower()
+        # Fresh-reviewer simulation reinforcement.
+        assert "Fresh-reviewer simulation" in block
+        assert "no NACK history" in block
+        # External-bot anchor by name (concrete external standard).
+        assert "egg-reviewer[bot]" in block
+        # Enumerate-what-you-checked — forces mandate 2 into the
+        # verdict surface so it doesn't silently disappear.
+        assert "enumerate both halves" in block
+        assert "audited-and-did-not-find" in block
+        # New-NACK-findings counter-anchor (kept from original block).
+        assert "prior NACK" in block and "blocking" in block.lower()
+        # Cheapness / no-hesitance economics.
+        assert "cheap" in block.lower()
+        assert "NACK without hesitance" in block
+        # GitHub-as-no-op standard.
+        assert "GitHub" in block
+
+    @pytest.mark.parametrize(
+        ("role", "phase"),
+        [
+            # Aligned with the recognized reviewer set across all
+            # phases so every role that emits step 8 is exercised — a
+            # regression that drops step 8 from any of these surfaces
+            # here. Each tuple uses the phase in which the role
+            # actually acts as a reviewer per ``review_graph``.
+            ("reviewer_code", "implement"),
+            ("reviewer_code_holistic", "implement"),
+            ("reviewer_security", "implement"),
+            ("reviewer_concurrency", "implement"),
+            ("reviewer_contract", "implement"),
+            ("tester", "implement"),
+            ("reviewer_refine", "refine"),
+            ("reviewer_agent_design", "refine"),
+            ("reviewer_plan", "plan"),
+        ],
+    )
+    def test_reviewer_lifecycle_step8_carries_adversarial_framing(self, role, phase):
+        """Step 8 HANDLE RE-REVIEW carries the adversarial reframe in
+        the spawn-time prompt so a reviewer reading the lifecycle text
+        sees the directive even before any re-review message arrives.
+
+        This is the in-prompt counterpart to the message-body injection;
+        both surfaces matter because the reviewer may scroll back to
+        the lifecycle text while drafting their verdict.
+        """
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
+        # Locate the step 8 block.
+        s8_start = preamble.index("8. **HANDLE RE-REVIEW**")
+        # Step 8 is the last reviewer-lifecycle step; slice to the end
+        # of the lifecycle section.
+        s8_block = preamble[s8_start : s8_start + 3000]
+        # Adversarial framing (not goalpost-moving, find all issues).
+        assert "adversarial re-review" in s8_block.lower()
+        assert "find ALL issues" in s8_block
+        assert "not blocker-verification" in s8_block.lower()
+        # Dual-mandate decomposition: the lifecycle-side surface must
+        # carry the "TWO equal-weight mandates" pointer so a reviewer
+        # who scrolls back during verdict drafting sees the dual-mandate
+        # framing inline (the priming block in the message body is the
+        # authoritative full version; this is the inline pointer).
+        assert "TWO equal-weight mandates" in s8_block
+        assert "message body is authoritative" in s8_block
+        # Cheapness / no-hesitance economics — the main behavioral lever.
+        assert "cheap" in s8_block.lower()
+        assert "NACK without hesitance" in s8_block
+        # GitHub-as-audit-only standard.
+        assert "GitHub" in s8_block
+        # The "two NACKs is correct" counter-anchor against the social
+        # pressure to converge by ACKing the named-blocker fix.
+        assert "Two NACKs" in s8_block or "two NACKs" in s8_block
+
+    @pytest.mark.parametrize(("role", "phase"), _PRODUCER_ROLES_BY_PHASE)
+    def test_producer_respond_to_reviews_legitimizes_new_findings(self, role, phase):
+        """Producer step 4 must frame new-NACK-findings on re-propose as
+        legitimate adversarial review, not goalpost-moving — symmetric
+        to the reviewer's "NACK without hesitance" directive.
+
+        But the framing must NOT tell producers to stop arguing. A
+        producer is a peer in BRC consensus, not subordinate to a
+        reviewer's verdict — an incorrect NACK should be contested on
+        its merits, not silently worked around. The framing draws the
+        line at: scope ("you didn't raise this before") is not a valid
+        objection; merit ("this finding is factually wrong") is.
+        """
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        # ``"**CONFIRM**"`` alone matches an in-step-4 reference
+        # ("...go straight to step 5 **CONFIRM**;"). Anchor on the
+        # step-5 list header to slice the complete step-4 block.
+        respond_end = preamble.index("5. **CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        # New-findings NACKs are legitimate; scope is not a valid objection.
+        assert "legitimate" in respond_block.lower()
+        assert "goalpost" in respond_block.lower()
+        assert "not a valid objection" in respond_block.lower()
+        # Producers are empowered to contest a NACK on its merits.
+        assert "push back" in respond_block.lower()
+        assert "merits" in respond_block.lower()
+        assert "negotiation between peers" in respond_block.lower()
+        # The framing must not have regressed to a blanket "don't argue".
+        assert "do not argue" not in respond_block.lower()
+        assert "do not negotiate" not in respond_block.lower()
+
+
+class TestInitialReviewOperatorCopyPasteFraming:
+    """The operator-copy-paste framing and the pre-existing-broken-behavior
+    procedural step must fire on **initial** reviews, not just re-reviews.
+
+    Background: #2724's findings #1 (``pip install -r requirements.txt``
+    against a non-existent file) and #2 (Python 3.11+ claim vs. ``pyproject.toml``
+    ``>=3.14``) were both introduced in the walking-skeleton spike's cycle
+    (#2623) and surfaced as *unchanged context* in slice-1's diff. The
+    reviewer at introduction time should have caught them — the rubric's
+    "Documented YAML / JSON / shell snippets — paste them into the schema or
+    the validator mentally and confirm they parse" clause covers it, and so
+    does the "Pre-existing broken or inconsistent behavior in code the PR
+    modifies" clause (criteria.md:71). Both clauses were buried in the
+    rubric *body* (consulted reference text) rather than surfaced as
+    procedural steps (read-before-reviewing text), and the relevant reviews
+    skimmed past them.
+
+    Fix: promote both clauses to numbered procedural steps in the
+    initial-review prompt so the reviewer reads them before starting,
+    not while consulting reference text mid-review.
+
+    Note the asymmetry vs. re-reviews: the dual-mandate decomposition
+    (verify-v1-blockers / audit-v2-delta-as-fresh) is re-review-specific
+    because initial reviews have no v1 NACK to anchor against. The
+    operator-copy-paste framing applies symmetrically to both.
+    """
+
+    @pytest.fixture
+    def code_review_prompt(self):
+        """The initial-review prompt for ``reviewer_code`` on implement."""
+        from routes.pipelines import _build_review_prompt
+
+        return _build_review_prompt(
+            phase="implement",
+            pipeline_id="issue-123",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=123,
+            concurrent=True,
+        )
+
+    @pytest.fixture
+    def code_holistic_review_prompt(self):
+        """The initial-review prompt for ``reviewer_code_holistic``."""
+        from routes.pipelines import _build_review_prompt
+
+        return _build_review_prompt(
+            phase="implement",
+            pipeline_id="issue-123",
+            pipeline_mode="issue",
+            reviewer_type="code-holistic",
+            issue_number=123,
+            concurrent=True,
+        )
+
+    def test_initial_code_review_surfaces_operator_copy_paste_framing(self, code_review_prompt):
+        """``reviewer_code``'s step 5 must include the operator-copy-paste
+        framing. This is the question that catches #2724's findings #1
+        (``requirements.txt`` doesn't exist), #2 (Python-version
+        mismatch), and #3 (broken inline snippet) — all of which
+        ``reviewer_code`` is in lens-scope to find.
+        """
+        prompt = code_review_prompt
+        assert "operator about to copy-paste" in prompt
+        # Concrete verification ladder: file existence, command
+        # executability, library/API signature match.
+        assert (
+            "Does the documented file exist" in prompt
+            or "would the command execute as written" in prompt
+        )
+        # PR #2724 citation makes the failure mode concrete to a reviewer
+        # who's never seen the post-mortem.
+        assert "#2724" in prompt
+
+    def test_initial_code_review_surfaces_pre_existing_broken_clause(self, code_review_prompt):
+        """The pre-existing-broken-behavior clause must be a procedural
+        step in the initial review, not just buried in
+        ``code-review-criteria.md:71``.
+
+        The clause is load-bearing for catching #2724's #1 and #2 —
+        both lived in unchanged context lines the PR reflowed, and a
+        reviewer scoped to "only review ``+`` lines" misses them. The
+        procedural step explicitly extends scope to "any unchanged
+        line the PR reflows, surrounds, or otherwise modifies its
+        area of."
+        """
+        prompt = code_review_prompt
+        assert "Pre-existing broken behavior" in prompt
+        # The "whole section, not just `+` lines" extension of scope.
+        assert "reflows" in prompt or "reflow" in prompt
+        # The "not a regression" anti-pattern is named so reviewers
+        # don't dismiss findings under that label.
+        assert "not a regression" in prompt
+
+    def test_initial_holistic_review_also_carries_framing(self, code_holistic_review_prompt):
+        """``reviewer_code_holistic`` shares the same procedural-step
+        block; both lenses should be primed by the operator-copy-paste
+        framing. The holistic lens explicitly owns the "Doc ↔ code
+        symmetry" pass, so missing the framing here would be a
+        coverage gap.
+        """
+        prompt = code_holistic_review_prompt
+        assert "operator about to copy-paste" in prompt
+        assert "Pre-existing broken behavior" in prompt
+
+
 class TestProducerOrientationSyncNote:
     """Tests for sync note in _build_producer_orientation (issue #1565)."""
 
