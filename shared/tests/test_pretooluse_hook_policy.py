@@ -127,19 +127,62 @@ def test_decide_allows_in_role_write(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_decide_fail_open_when_role_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without ``EGG_AGENT_ROLE``, the hook fail-opens (no enforcement)."""
+def test_decide_fail_open_when_role_not_set_outside_substrate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without ``EGG_AGENT_ROLE`` AND outside substrate prefixes, fail-open.
+
+    v2 security NACK changed the semantics: when the role is unresolved
+    and the write target is outside the substrate-managed prefixes
+    (``.egg-state/``, ``.claude/``, ``.github/``,
+    ``shared/egg_restrictions/``), the hook still fail-opens so a plain
+    Claude Code session isn't affected.  Inside a substrate prefix the
+    hook now fails closed — covered by
+    :func:`test_decide_fails_closed_when_role_not_set_inside_substrate`.
+    """
     monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+    # The role resolver also reads a $HOME/.claude/egg-active-role.json
+    # sentinel; point HOME at a clean tmp_path so the sentinel isn't
+    # present.
+    clean_home = tmp_path / "clean-home"
+    clean_home.mkdir()
+    monkeypatch.setenv("HOME", str(clean_home))
     payload = {
         "tool_name": "Write",
         "tool_input": {
-            "file_path": "/home/egg/repos/egg/orchestrator/concurrent_executor.py",
+            "file_path": "/tmp/some-non-substrate-file.txt",
             "content": "...",
         },
     }
     result = hook_entry_mod.decide(payload)
     assert result == {} or "decision" not in result, (
-        "Without EGG_AGENT_ROLE the hook must fail-open"
+        f"Without EGG_AGENT_ROLE and outside substrate prefixes the hook "
+        f"must fail-open; got {result!r}"
+    )
+
+
+def test_decide_fails_closed_when_role_not_set_inside_substrate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """v2 security NACK: hook fails CLOSED inside substrate-managed prefixes."""
+    monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+    clean_home = tmp_path / "clean-home"
+    clean_home.mkdir()
+    monkeypatch.setenv("HOME", str(clean_home))
+    monkeypatch.setenv("EGG_REPO_ROOT", str(tmp_path))
+    (tmp_path / ".egg-state").mkdir()
+    target = tmp_path / ".egg-state" / "drafts" / "analysis.md"
+    payload = {
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": str(target),
+            "content": "...",
+        },
+    }
+    result = hook_entry_mod.decide(payload)
+    assert result.get("decision") == "block", (
+        f"Without EGG_AGENT_ROLE the hook must fail-closed inside "
+        f"substrate-managed prefixes (.egg-state/); got {result!r}"
     )
 
 
@@ -259,22 +302,175 @@ def test_hook_entry_script_allows_in_role_write(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_install_writes_settings_json(tmp_path: Path) -> None:
+def _install_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Build an ``install``-acceptable target dir under a faked ``$HOME``.
+
+    The v2 ``install`` adds a path-escape guard that refuses any target
+    outside ``$HOME``. Point ``$HOME`` at a tmp_path subdir so the test
+    exercises the happy path without polluting the real ``$HOME``.
+    """
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    target = fake_home / "repo"
+    target.mkdir()
+    return target
+
+
+def test_install_writes_settings_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``install`` writes ``.claude/settings.json`` containing the hook."""
     PreToolUseHookPolicy = policy_mod.PreToolUseHookPolicy
     policy = PreToolUseHookPolicy()
-    out = policy.install(tmp_path)
+    target = _install_target(tmp_path, monkeypatch)
+    out = policy.install(target)
     assert out.exists()
     settings = json.loads(out.read_text())
     assert "hooks" in settings, "settings.json must include a 'hooks' block"
 
 
-def test_install_is_idempotent(tmp_path: Path) -> None:
+def test_install_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Re-running ``install`` does not duplicate the egg hook."""
     PreToolUseHookPolicy = policy_mod.PreToolUseHookPolicy
     policy = PreToolUseHookPolicy()
-    out1 = policy.install(tmp_path)
+    target = _install_target(tmp_path, monkeypatch)
+    out1 = policy.install(target)
     first = json.loads(out1.read_text())
-    policy.install(tmp_path)  # second run
+    policy.install(target)  # second run
     second = json.loads(out1.read_text())
     assert first == second, "Repeated install() calls must produce byte-identical settings.json"
+
+
+def test_install_rejects_target_outside_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """v2 security guard: ``install`` refuses target_dir outside ``$HOME``."""
+    PreToolUseHookPolicy = policy_mod.PreToolUseHookPolicy
+    policy = PreToolUseHookPolicy()
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    with pytest.raises(ValueError, match=r"not under \$HOME"):
+        policy.install(outside)
+
+
+# ---------------------------------------------------------------------------
+# v2 security NACK #1: Bash command write-target parsing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command,note",
+    [
+        ("echo hi > orchestrator/concurrent_executor.py", "redirect >"),
+        ("echo hi >> orchestrator/concurrent_executor.py", "append >>"),
+        ("cp data.txt orchestrator/concurrent_executor.py", "cp dest"),
+        ("mv old.py orchestrator/concurrent_executor.py", "mv dest"),
+        ("tee orchestrator/concurrent_executor.py", "tee target"),
+        ("sed -i s/a/b/ orchestrator/concurrent_executor.py", "sed -i"),
+        ("dd if=/dev/zero of=orchestrator/concurrent_executor.py", "dd of="),
+    ],
+)
+def test_bash_write_extraction_blocks_out_of_role(
+    command: str,
+    note: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bash commands writing to source code are denied for tester role.
+
+    Mirrors v2 security NACK #1: the hook parses Bash for redirection
+    + write-shaped tokens (cp / mv / tee / sed -i / dd of= / ln -s /
+    python -c "open(...).write(...)").  Each write-shape gets a
+    dedicated test so a future parser regression localizes quickly.
+    """
+    monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+    monkeypatch.setenv("EGG_REPO_ROOT", "/home/egg/repos/egg")
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+    result = hook_entry_mod.decide(payload)
+    assert result.get("decision") == "block", (
+        f"{note}: Bash write to source must be denied for tester; "
+        f"command={command!r} → {result!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "command,note",
+    [
+        ("cp x.txt $DEST", "shell var dest"),
+        ("echo hi > `pwd`/file.py", "backtick dest"),
+        ('python3 -c "open(\\"x.py\\", \\"w\\").write(\\"hi\\")"', "python -c"),
+    ],
+)
+def test_bash_ambiguous_command_fails_closed(
+    command: str,
+    note: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ambiguous Bash commands (shell expansion, python -c) fail closed."""
+    monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+    result = hook_entry_mod.decide(payload)
+    assert result.get("decision") == "block", (
+        f"{note}: ambiguous Bash command must fail closed; "
+        f"command={command!r} → {result!r}"
+    )
+
+
+def test_bash_read_only_command_allows_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bash read-only commands (ls, cat, grep) pass the hook."""
+    monkeypatch.setenv("EGG_AGENT_ROLE", "tester")
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls -la && cat README.md | grep egg"},
+    }
+    result = hook_entry_mod.decide(payload)
+    assert result == {} or "decision" not in result, (
+        f"Read-only Bash must pass: {result!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# v2 security NACK #3: malformed JSON stdin fails CLOSED
+# ---------------------------------------------------------------------------
+
+
+def test_hook_entry_script_fails_closed_on_malformed_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed JSON on stdin returns ``decision=block``."""
+    hook_entry = Path(
+        "/home/egg/repos/egg/orchestrator/substrate/claude_code/hook_entry.py"
+    )
+    if not hook_entry.exists():
+        pytest.skip(f"{hook_entry} not present")
+
+    env = dict(os.environ)
+    env["EGG_AGENT_ROLE"] = "tester"
+    env["EGG_REPO_ROOT"] = "/home/egg/repos/egg"
+    env["PYTHONPATH"] = (
+        "/home/egg/repos/egg/shared"
+        + os.pathsep
+        + "/home/egg/repos/egg/orchestrator"
+        + os.pathsep
+        + "/home/egg/repos/egg"
+        + os.pathsep
+        + env.get("PYTHONPATH", "")
+    )
+    proc = subprocess.run(
+        [sys.executable, str(hook_entry)],
+        input="{this is not json",
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+        env=env,
+    )
+    out = json.loads(proc.stdout)
+    assert out.get("decision") == "block", (
+        f"Malformed JSON stdin must fail CLOSED (security NACK #3); "
+        f"got stdout={proc.stdout!r}"
+    )
