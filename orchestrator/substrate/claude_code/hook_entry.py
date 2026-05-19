@@ -494,15 +494,24 @@ def _resolve_active_role() -> str:
             if isinstance(sentinel_pid, int) and sentinel_pid > 0:
                 try:
                     os.kill(sentinel_pid, 0)
-                except ProcessLookupError, PermissionError:
-                    # Process is gone (ProcessLookupError) OR we
-                    # cannot signal it (different user / permission
-                    # denied — treat as not-alive to fail safe).
+                except (ProcessLookupError, PermissionError):  # fmt: skip
+                    # ProcessLookupError: PID is gone entirely.
+                    # PermissionError: PID is alive but owned by a
+                    # different user — the orchestrator's spawner
+                    # must own the process for role-routing to make
+                    # sense, so we still treat the sentinel as stale
+                    # in this case (fail-safe default for the user's
+                    # plain Claude Code session).
                     return ""
                 except OSError:
-                    # Unknown errno — fall through and trust the
-                    # sentinel; we don't want kernel quirks to
-                    # lock the user out.
+                    # Unknown errno — we cannot classify, so we
+                    # fall through and trust the sentinel here
+                    # (rather than denying writes) to avoid kernel
+                    # quirks locking the user out of their own
+                    # session. The blast radius is bounded: the
+                    # operator can manually delete
+                    # ``$HOME/.claude/egg-active-role.json`` if
+                    # this branch ever misfires.
                     pass
             # Either no PID stamp (legacy sentinel) or PID is alive.
             return sentinel_role.strip()
