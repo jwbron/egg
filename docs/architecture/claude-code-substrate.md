@@ -35,7 +35,7 @@ The refine-phase HITL settled eleven decisions and six feedback items. Each one 
 | **cq-2** parent-close phase scope | All phases (refine + plan + implement + pr) | **Spike scope is refine-only** per cq-11. The follow-up extends to plan / implement / pr |
 | **cq-3** conformance scoping | Extend `integration_tests/regression/` with a `substrate` parameter (CI matrix) | One regression test parametrized via the new fixture in this spike; full matrix factor-out deferred |
 | **cq-4** spawner shape | Synchronous `spawn(role, prompt, env, worktree) → AgentResult` | `AgentSpawner` protocol pinned at this signature |
-| **cq-5** worktree ownership | Port `WORKTREE_BASE_DIR` model | `LocalWorktreeManager` mirrors `gateway/worktree_manager.py:49` shape under `.egg-state/<pipeline_id>/<repo>/` |
+| **cq-5** worktree ownership | Port `WORKTREE_BASE_DIR` model | `LocalWorktreeManager` mirrors `gateway/worktree_manager.py:49` shape; default base is `~/.egg-worktrees/<pipeline_id>/<repo>/`, `EGG_WORKTREE_BASE` overrides (typical override: `./.egg-state/`) |
 | **cq-6** policy seam | PreToolUse hooks | `PreToolUseHookPolicy` ships a hook entry script + `settings.template.json`; calls the existing `shared/egg_restrictions/patterns.py:768 build_agent_patterns` |
 | **cq-7** HITL surface | Heredoc-style synchronous generator | `run_pipeline_in_process(...)` is a generator yielding `HITLDecision` objects; the skill renders each via `AskUserQuestion` and resumes via `.send(...)` |
 | **cq-8** packaging | Plugin metadata declares pip dependencies | `plugins/egg-sdlc/.claude-plugin/plugin.json` declares the pip dep selected by cq-12 |
@@ -51,7 +51,7 @@ The refine-phase HITL settled eleven decisions and six feedback items. Each one 
 - **Q3** (deps): spike pins to existing egg pip deps; no new third-party dependencies; no developer-mode Claude Code feature flag required; marketplace footprint stays well under the soft ~100 MB cap.
 - **Q4** (non-Claude-Code callers): secondary goal. Interfaces are designed to admit an `EggHarnessSpawner` later (subprocess-driven `egg_harness` for headless CLI). The spike does not build it.
 - **Q5** (#2622 structural causes #5/#6): out of scope for this issue; stays with #2622.
-- **Q6** (telemetry/privacy): checkpoints are local-filesystem-only (`.egg-state/<pipeline_id>/checkpoints/`); no telemetry sent. Spike does not ship a prune verb — reserved for the follow-up.
+- **Q6** (telemetry/privacy): checkpoints are local-filesystem-only (`.egg-state/checkpoints/<pipeline_id>/`); no telemetry sent. Spike does not ship a prune verb — reserved for the follow-up.
 
 ## The four interfaces
 
@@ -87,7 +87,7 @@ cq-5: port the existing `WORKTREE_BASE_DIR` model rather than use Claude Code's 
 The default base is **`~/.egg-worktrees/`** — matching the shape of `gateway/worktree_manager.py:49 WORKTREE_BASE_DIR` (which hardcodes `/home/egg/.egg-worktrees` for the gateway container; the Claude-Code-substrate implementation expands `~` against the calling user's `$HOME` instead). `EGG_WORKTREE_BASE` overrides the base — typical override is `./.egg-state/` so worktrees live alongside the contract / drafts / agent-outputs files in the same `.egg-state/<pipeline_id>/` tree, per cq-5's literal text. Full path on disk by default: `~/.egg-worktrees/<pipeline_id>/<repo>/`; under the typical override: `.egg-state/<pipeline_id>/<repo>/`.
 
 - **k3s implementation**: the existing `gateway/worktree_manager.py` already implements this shape (default base at `gateway/worktree_manager.py:49`, hardcoded to `/home/egg/.egg-worktrees`). The k3s adapter is not implemented in this spike — left as a TODO in the protocol module.
-- **Claude Code implementation**: `LocalWorktreeManager` (in `orchestrator/substrate/claude_code/worktree.py`) defaults to the same `~/.egg-worktrees/` base shape but respects an `EGG_WORKTREE_BASE` override. Path-escape safety mirrors the `is_relative_to` defense at `gateway/worktree_manager.py:1711` (call site within `_remove_worktree`; matching `base.resolve()` is at `:1700`).
+- **Claude Code implementation**: `LocalWorktreeManager` (in `orchestrator/substrate/claude_code/worktree.py`) defaults to the same `~/.egg-worktrees/` base shape but respects an `EGG_WORKTREE_BASE` override. Path-escape safety mirrors the `is_relative_to` + `resolve()` defense at `gateway/worktree_manager.py:1700-1711` (call site within `list_orphan_worktree_dirs`, defined at `:1687`). The bug class is identical to worktree teardown — symlink-traversal attempts must be rejected before any filesystem mutation.
 
 ## `EGG_SUBSTRATE` and `select_substrate(env)`
 
@@ -150,7 +150,7 @@ Existing primitives the spike reuses or wraps, and new primitives the spike crea
 | `def build_system_prompt`, `PromptSource` | `shared/egg_harness/prompt.py` — the structural depth fix #2622 relies on; `ClaudeCodeSpawner` MUST keep it in the path |
 | `def set_permission_callback` | `shared/egg_harness/tools/registry.py` |
 | `class AgentFilePattern`, `def build_agent_patterns`, `def check_agent_restrictions` | `shared/egg_restrictions/patterns.py`, `gateway/phase_filter.py:1061` — single source of truth shared between gateway and PreToolUse hook |
-| `WORKTREE_BASE_DIR`, `is_relative_to` defense | `gateway/worktree_manager.py:49`, `:1711` |
+| `WORKTREE_BASE_DIR`, `is_relative_to` + `resolve()` defense | `gateway/worktree_manager.py:49`, `:1700-1711` (within `list_orphan_worktree_dirs` at `:1687`) |
 | Regression-suite fixtures | `integration_tests/regression/conftest.py` |
 | `plugins/refine-plan/skills/refine-plan/SKILL.md`, `agents/refiner.md` | reference shape for the new `egg-sdlc` plugin |
 

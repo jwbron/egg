@@ -107,15 +107,18 @@ Per cq-5 the substrate ports egg's `WORKTREE_BASE_DIR` model. There are two file
   <pipeline_id>/
     <repo>/          # per-pipeline shared checkout (per-agent worktrees branch off)
 
-.egg-state/           # state files (relative to the repo)
+.egg-state/           # state files (relative to the in-process orchestrator's CWD)
   drafts/
     <issue>-analysis.md
   contracts/
     <pipeline_id>.json
   agent-outputs/
     <issue>-<role>-output.json
+  brc-history/
+    <id>-<phase>.{md,json}
   checkpoints/
-    ...
+    <pipeline_id>/   # per-pipeline checkpoint shard
+      ...
 ```
 
 ```
@@ -125,10 +128,13 @@ Per cq-5 the substrate ports egg's `WORKTREE_BASE_DIR` model. There are two file
     <repo>/          # worktrees moved alongside state
   drafts/
   contracts/
-  ...
+  agent-outputs/
+  brc-history/
+  checkpoints/
+    <pipeline_id>/
 ```
 
-Path-escape safety mirrors the existing `is_relative_to` defense in the gateway (`gateway/worktree_manager.py:1711`) so a malicious pipeline ID can't escape the base.
+Path-escape safety mirrors the existing `is_relative_to` + `resolve()` defense in the gateway (`gateway/worktree_manager.py:1700-1711`, within `list_orphan_worktree_dirs`) so a malicious pipeline ID can't escape the base.
 
 ### PreToolUse hook (file-write restrictions)
 
