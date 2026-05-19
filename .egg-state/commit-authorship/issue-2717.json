@@ -175,6 +175,20 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "task_planner"
     },
+    "9da9fa9c2af03fc3857adf01241ff4dd99ca0e6c": {
+      "branch": "egg/issue-2717/slice-1",
+      "pipeline_id": "issue-2717",
+      "registered_at": "2026-05-19T18:56:33.476335+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
+    "a82230aa7160a2b781d021c624f32761d547b184": {
+      "branch": "egg/issue-2717/slice-1",
+      "pipeline_id": "issue-2717",
+      "registered_at": "2026-05-19T18:56:33.480796+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "b0bb7dcbf8ce2d7ff6076eb09f9bfaf0124a50c5": {
       "branch": "egg/issue-2717/slice-1",
       "pipeline_id": "issue-2717",
