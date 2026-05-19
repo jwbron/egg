@@ -559,7 +559,9 @@
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [],
-      "artifacts": {},
+      "artifacts": {
+        "pr_url": "https://github.com/jwbron/egg/pull/2715"
+      },
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "e8e876a5c95a2e23e36eb30e1f8c6e757f7d7734",
@@ -870,11 +872,11 @@
     }
   ],
   "created_at": "2026-05-18T22:25:27.891971Z",
-  "updated_at": "2026-05-19T02:13:57.341419Z",
+  "updated_at": "2026-05-19T02:15:06.487481Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
-  "pr_number": null,
+  "pr_number": 2715,
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
@@ -884,9 +886,9 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-05-19T02:13:29.137095Z",
-  "version": 54,
+  "version": 55,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
-  "pr_url": null
+  "pr_url": "https://github.com/jwbron/egg/pull/2715"
 }
