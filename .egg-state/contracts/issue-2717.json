@@ -9,15 +9,700 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "How should the HITL bridge gap (reviewer v1 blocker #6) be closed \u2014 i.e. how does the skill drive a long-lived `run_pipeline_in_process(...)` generator across multiple `AskUserQuestion` round-trips?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A \u2014 Long-lived Python REPL/daemon the skill talks to via JSON-RPC envelopes; generator state survives between AskUserQuestion calls (closest match to engineered surface, requires daemon lifecycle management)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B \u2014 Flatten generator into a hand-shaped sequence of single-yield `python3 <stage>.py` invocations; decisions/answers thread through .egg-state/contracts/<id>.json (no daemon, but loses generator's heartbeat-during-HITL property; demands restructuring of in-process generator)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C \u2014 Hybrid: ship Option B first as MVP for refine/plan; design Option A for implement (multi-producer concurrency makes a daemon cheaper than N separate stage scripts)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "How should this rollout work be decomposed into slices (slice count = PR count; siblings in a wave run in parallel)? Items in scope: bridge gap closure, plan/implement/pr phase rollout (+role rubrics), 5-issue conformance matrix, EggHarnessSpawner, fork-based delegation, cost cap, R15 subagent-type migration, R2 hook validation, k3s adapter promotion.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Linear chain \u2014 [bridge gap] -> [plan-phase substrate + rubrics + reviewer wiring] -> [implement-phase substrate + rubrics + reviewer wiring] -> [pr-phase substrate] -> [5-issue conformance matrix] -> [EggHarnessSpawner] -> [hardening pass: R2 validation + R15 migration + cost cap + k3s adapter] (~7 sequential PRs, low review burden, slowest end-to-end)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Bridge-first then parallel rollout \u2014 [bridge gap] -> [plan substrate || implement substrate || pr substrate || conformance fixtures] -> [EggHarnessSpawner || cost cap || R15 migration || R2 validation || k3s adapter] (3 waves; bridge is the hard dep then parallelism unlocks; ~10 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Bridge-first then phase-sequential rollout \u2014 [bridge gap] -> [plan substrate (3 producers + 1 reviewer)] -> [implement substrate (3 producers + 5 reviewers)] -> [pr-phase substrate + conformance matrix] -> [hardening pass: EggHarnessSpawner + cost cap + R15 + R2 + k3s adapter, all parallel] (~5 PRs; phase ordering surfaces BRC issues earlier with smaller blast radius)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer hardening to a tertiary issue \u2014 in this issue: bridge gap + plan + implement + pr + conformance + EggHarnessSpawner. Spin out R15 migration, cost cap, R2 hook validation, k3s adapter promotion, and fork-based delegation into a separate hardening follow-up. Slices: [bridge] -> [plan] -> [implement] -> [pr + conformance + EggHarnessSpawner] (~4 PRs in this issue)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Should the rollout migrate ClaudeCodeSpawner from \"re-host the existing egg_harness loop in the parent Claude Code session\" (today's spike implementation per `orchestrator/substrate/claude_code/spawner.py:14-26`) to a `ClaudeCodeAgentToolSpawner` that emits an actual `Agent`-tool envelope to the parent session's outer loop? This is the difference between \"harness re-host\" and a real substrate swap to Claude Code primitives.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Stay on harness re-host \u2014 keep ClaudeCodeSpawner running egg_harness in-process for all roles in this rollout; defer Agent-tool dispatcher to a future issue. Pros: zero re-architecture; matches the spike's tested seam. Cons: parent session still drives the harness for every subagent; not a true substrate-swap; concurrency uses ThreadPoolExecutor instead of native Agent fan-out",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Migrate to Agent-tool dispatcher in this rollout \u2014 build ClaudeCodeAgentToolSpawner that yields an `Agent` tool envelope; the parent session's outer loop executes the Agent tool and feeds results back via the message bus. Pros: real substrate swap; uses Claude Code's native subagent isolation. Cons: requires bridge-gap design to also carry agent-output flow, not just HITL",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 reviewers stay on harness re-host (they're more research-heavy, harness depth helps), producers migrate to Agent-tool dispatch (typically larger context budget, more parallelism)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Decide empirically at implement-phase \u2014 ship plan + implement rollout on harness re-host; measure concurrency / cost / latency / context usage; decide R15 migration timing once we have data",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "When (if at all) should the rollout migrate from R15 model (a) \u2014 `subagent_type=\"general-purpose\"` + ad-hoc prompt \u2014 to model (b) \u2014 per-role `.claude/agents/<role>.md` definition files with structural tool restrictions in frontmatter? Model (a) puts all enforcement on PreToolUse hooks (R2). Model (b) gives structural tool-restrictions per role.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "In this rollout, alongside each phase's roles \u2014 every new rubric file (architect.md, coder.md, etc.) ships as a real `.claude/agents/<role>.md` definition; the existing refiner.md migrates with the plan-phase wave. Highest correctness on day one; biggest review surface",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Defer entirely to a later hardening issue \u2014 ship every role in this rollout as ad-hoc prompts under `plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md` (matching spike). Promote to model (b) only after R2 PreToolUse hook empirical validation closes (which it might not, in which case the model (b) migration becomes mandatory)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Migrate as part of this issue's hardening pass \u2014 ship all rollout phases on model (a) first, then a single dedicated slice in this same issue converts all roles to model (b) at once. Pros: single conversion event, easier to review consistency; Cons: every role's rubric has to be re-validated as part of the conversion",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Make the choice contingent on R2's empirical result \u2014 if PreToolUse hooks reliably resolve calling role for nested subagents, stay on model (a) indefinitely; if not, migrate to model (b) as a fallback. Treat the R2 spike (item from issue body's 'Out of scope' list) as the gating decision",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-5",
+      "question": "When should the R2 empirical question be answered \u2014 does Claude Code's PreToolUse hook reliably resolve \"which subagent / role is calling Write()\" under nested / multi-subagent dispatch (today's spike validated this only for the single-role refiner case)? The fallback if hooks can't is cq-6 option 2: MCP-validator-side enforcement.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Early-spike before phase rollout begins \u2014 ship a 2-subagent worked example as the first slice (uses two roles, one parent + one child Agent dispatch; hook records EGG_AGENT_ROLE for each). If hooks fail this test, switch to MCP-validator-side enforcement before any further role rollout. Pros: catches the architectural problem before doing N role rollouts; Cons: pushes the timeline of substantive rollout by one slice",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Validate inline during plan-phase rollout \u2014 plan phase has 3 producers running concurrently; their dispatch naturally exercises multi-subagent hooks. Fold the R2 validation into the plan-phase acceptance criteria. Pros: no extra slice; Cons: risks rolling back plan-phase work if hooks fail late",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Validate inline during implement-phase rollout \u2014 implement has the most concurrent roles (3 producers + 5 reviewers); deferring R2 validation here gives maximum dispatch diversity but maximum rollback risk if hooks fail. Pros: most thorough; Cons: latest possible feedback",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Validate at hardening pass after all phases ship \u2014 treat R2 as a release-blocker check. If hooks fail this point, ship the rollout but require operators to opt into MCP-validator-side enforcement until a fix lands. Lowest impact on rollout schedule; highest risk of having to re-platform later",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-6",
+      "question": "What default value should `EGG_PIPELINE_MAX_AGENT_INVOCATIONS` (REC5 cost cap) ship with? The ADR suggests \"e.g. 50\" as a conservative default; the cap protects against runaway-cost scenarios (R9) for users on direct-billing Anthropic accounts.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Conservative: 50 (ADR's suggested value) \u2014 enough for a typical issue with refine + plan + implement + pr on small-to-medium slices; trips early on large slice-DAGs and forces operator to opt up",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Moderate: 200 \u2014 enough for a 3-slice slice-DAG with concurrent producers/reviewers + a couple of NACK cycles before tripping; balances cost safety vs. legitimate large pipelines",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Generous: 500 \u2014 only catches genuine infinite loops or runaway NACK ping-pong; most pipelines never trip",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Opt-in only: no default cap (unset means unlimited); operator must set the env var explicitly to enable. Documented as 'recommended for direct-billing users'",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "cq-7",
+      "question": "Should the full k3s interface adapter (MessageBus, PolicyEnforcer, WorktreeManager protocols backed by Redis / gateway / gateway-worktree-manager) ship in this rollout, or stay deferred? The DoD doesn't require k3s-side adapter parity \u2014 the cq-1 \"parallel substrates\" promise is mostly about claude-code working alongside k3s; the protocol contract on the k3s side today is only `K3sSpawnerAdapter` (a working shim) plus direct use of `RedisMessageStore` / `gateway` for the rest.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Defer entirely (recommended) \u2014 k3s side keeps using RedisMessageStore / gateway directly; only AgentSpawner is unified. The protocols stay v0.x unstable on the k3s leg until a future issue promotes them. Pros: smallest blast radius for this rollout; Cons: leaves cq-1's full 'parallel substrates' promise incomplete",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship inside this issue as a hardening slice \u2014 add K3sMessageBus / K3sPolicyEnforcer / K3sWorktreeManager adapters as one slice in the hardening pass. Pros: closes cq-1 fully; Cons: adds review burden; risks regressions in production k3s users while the substrate-portable code paths are still bedding in",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ship only the K3sMessageBus adapter (promote RedisMessageStore onto the protocol) \u2014 the MessageBus protocol is the smallest seam and the one most likely to surface BRC differences. Policy/worktree adapters can wait. Pros: pragmatic; Cons: partial-promotion is awkward",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer entirely AND drop the v0.x unstable marker after \u22653 roles exercise the claude-code side \u2014 i.e. accept the interfaces are stable on the claude-code leg even if the k3s leg hasn't promoted yet. Documents the actual stability boundary precisely",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-05-19T17:14:09.298852Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "How should the HITL bridge gap (reviewer v1 blocker #6) be closed \u2014 i.e. how does the skill drive a long-lived `run_pipeline_in_process(...)` generator across multiple `AskUserQuestion` round-trips?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A \u2014 Long-lived Python REPL/daemon the skill talks to via JSON-RPC envelopes; generator state survives between AskUserQuestion calls (closest match to engineered surface, requires daemon lifecycle management)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B \u2014 Flatten generator into a hand-shaped sequence of single-yield `python3 <stage>.py` invocations; decisions/answers thread through .egg-state/contracts/<id>.json (no daemon, but loses generator's heartbeat-during-HITL property; demands restructuring of in-process generator)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C \u2014 Hybrid: ship Option B first as MVP for refine/plan; design Option A for implement (multi-producer concurrency makes a daemon cheaper than N separate stage scripts)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the HITL bridge gap (reviewer v1 blocke...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:14:22.339312Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "How should this rollout work be decomposed into slices (slice count = PR count; siblings in a wave run in parallel)? Items in scope: bridge gap closure, plan/implement/pr phase rollout (+role rubrics), 5-issue conformance matrix, EggHarnessSpawner, fork-based delegation, cost cap, R15 subagent-type migration, R2 hook validation, k3s adapter promotion.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Linear chain \u2014 [bridge gap] -> [plan-phase substrate + rubrics + reviewer wiring] -> [implement-phase substrate + rubrics + reviewer wiring] -> [pr-phase substrate] -> [5-issue conformance matrix] -> [EggHarnessSpawner] -> [hardening pass: R2 validation + R15 migration + cost cap + k3s adapter] (~7 sequential PRs, low review burden, slowest end-to-end)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Bridge-first then parallel rollout \u2014 [bridge gap] -> [plan substrate || implement substrate || pr substrate || conformance fixtures] -> [EggHarnessSpawner || cost cap || R15 migration || R2 validation || k3s adapter] (3 waves; bridge is the hard dep then parallelism unlocks; ~10 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Bridge-first then phase-sequential rollout \u2014 [bridge gap] -> [plan substrate (3 producers + 1 reviewer)] -> [implement substrate (3 producers + 5 reviewers)] -> [pr-phase substrate + conformance matrix] -> [hardening pass: EggHarnessSpawner + cost cap + R15 + R2 + k3s adapter, all parallel] (~5 PRs; phase ordering surfaces BRC issues earlier with smaller blast radius)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer hardening to a tertiary issue \u2014 in this issue: bridge gap + plan + implement + pr + conformance + EggHarnessSpawner. Spin out R15 migration, cost cap, R2 hook validation, k3s adapter promotion, and fork-based delegation into a separate hardening follow-up. Slices: [bridge] -> [plan] -> [implement] -> [pr + conformance + EggHarnessSpawner] (~4 PRs in this issue)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should this rollout work be decomposed into sl...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:14:36.564465Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Should the rollout migrate ClaudeCodeSpawner from \"re-host the existing egg_harness loop in the parent Claude Code session\" (today's spike implementation per `orchestrator/substrate/claude_code/spawner.py:14-26`) to a `ClaudeCodeAgentToolSpawner` that emits an actual `Agent`-tool envelope to the parent session's outer loop? This is the difference between \"harness re-host\" and a real substrate swap to Claude Code primitives.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Stay on harness re-host \u2014 keep ClaudeCodeSpawner running egg_harness in-process for all roles in this rollout; defer Agent-tool dispatcher to a future issue. Pros: zero re-architecture; matches the spike's tested seam. Cons: parent session still drives the harness for every subagent; not a true substrate-swap; concurrency uses ThreadPoolExecutor instead of native Agent fan-out",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Migrate to Agent-tool dispatcher in this rollout \u2014 build ClaudeCodeAgentToolSpawner that yields an `Agent` tool envelope; the parent session's outer loop executes the Agent tool and feeds results back via the message bus. Pros: real substrate swap; uses Claude Code's native subagent isolation. Cons: requires bridge-gap design to also carry agent-output flow, not just HITL",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid \u2014 reviewers stay on harness re-host (they're more research-heavy, harness depth helps), producers migrate to Agent-tool dispatch (typically larger context budget, more parallelism)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Decide empirically at implement-phase \u2014 ship plan + implement rollout on harness re-host; measure concurrency / cost / latency / context usage; decide R15 migration timing once we have data",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the rollout migrate ClaudeCodeSpawner from ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:14:50.507124Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "When (if at all) should the rollout migrate from R15 model (a) \u2014 `subagent_type=\"general-purpose\"` + ad-hoc prompt \u2014 to model (b) \u2014 per-role `.claude/agents/<role>.md` definition files with structural tool restrictions in frontmatter? Model (a) puts all enforcement on PreToolUse hooks (R2). Model (b) gives structural tool-restrictions per role.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "In this rollout, alongside each phase's roles \u2014 every new rubric file (architect.md, coder.md, etc.) ships as a real `.claude/agents/<role>.md` definition; the existing refiner.md migrates with the plan-phase wave. Highest correctness on day one; biggest review surface",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Defer entirely to a later hardening issue \u2014 ship every role in this rollout as ad-hoc prompts under `plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md` (matching spike). Promote to model (b) only after R2 PreToolUse hook empirical validation closes (which it might not, in which case the model (b) migration becomes mandatory)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Migrate as part of this issue's hardening pass \u2014 ship all rollout phases on model (a) first, then a single dedicated slice in this same issue converts all roles to model (b) at once. Pros: single conversion event, easier to review consistency; Cons: every role's rubric has to be re-validated as part of the conversion",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Make the choice contingent on R2's empirical result \u2014 if PreToolUse hooks reliably resolve calling role for nested subagents, stay on model (a) indefinitely; if not, migrate to model (b) as a fallback. Treat the R2 spike (item from issue body's 'Out of scope' list) as the gating decision",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When (if at all) should the rollout migrate from R...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:15:04.939921Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-5",
+        "question": "When should the R2 empirical question be answered \u2014 does Claude Code's PreToolUse hook reliably resolve \"which subagent / role is calling Write()\" under nested / multi-subagent dispatch (today's spike validated this only for the single-role refiner case)? The fallback if hooks can't is cq-6 option 2: MCP-validator-side enforcement.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Early-spike before phase rollout begins \u2014 ship a 2-subagent worked example as the first slice (uses two roles, one parent + one child Agent dispatch; hook records EGG_AGENT_ROLE for each). If hooks fail this test, switch to MCP-validator-side enforcement before any further role rollout. Pros: catches the architectural problem before doing N role rollouts; Cons: pushes the timeline of substantive rollout by one slice",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Validate inline during plan-phase rollout \u2014 plan phase has 3 producers running concurrently; their dispatch naturally exercises multi-subagent hooks. Fold the R2 validation into the plan-phase acceptance criteria. Pros: no extra slice; Cons: risks rolling back plan-phase work if hooks fail late",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Validate inline during implement-phase rollout \u2014 implement has the most concurrent roles (3 producers + 5 reviewers); deferring R2 validation here gives maximum dispatch diversity but maximum rollback risk if hooks fail. Pros: most thorough; Cons: latest possible feedback",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Validate at hardening pass after all phases ship \u2014 treat R2 as a release-blocker check. If hooks fail this point, ship the rollout but require operators to opt into MCP-validator-side enforcement until a fix lands. Lowest impact on rollout schedule; highest risk of having to re-platform later",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When should the R2 empirical question be answered ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:15:15.142183Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-6",
+        "question": "What default value should `EGG_PIPELINE_MAX_AGENT_INVOCATIONS` (REC5 cost cap) ship with? The ADR suggests \"e.g. 50\" as a conservative default; the cap protects against runaway-cost scenarios (R9) for users on direct-billing Anthropic accounts.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Conservative: 50 (ADR's suggested value) \u2014 enough for a typical issue with refine + plan + implement + pr on small-to-medium slices; trips early on large slice-DAGs and forces operator to opt up",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Moderate: 200 \u2014 enough for a 3-slice slice-DAG with concurrent producers/reviewers + a couple of NACK cycles before tripping; balances cost safety vs. legitimate large pipelines",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Generous: 500 \u2014 only catches genuine infinite loops or runaway NACK ping-pong; most pipelines never trip",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Opt-in only: no default cap (unset means unlimited); operator must set the env var explicitly to enable. Documented as 'recommended for direct-billing users'",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What default value should `EGG_PIPELINE_MAX_AGENT_...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:15:29.342794Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-7",
+        "question": "Should the full k3s interface adapter (MessageBus, PolicyEnforcer, WorktreeManager protocols backed by Redis / gateway / gateway-worktree-manager) ship in this rollout, or stay deferred? The DoD doesn't require k3s-side adapter parity \u2014 the cq-1 \"parallel substrates\" promise is mostly about claude-code working alongside k3s; the protocol contract on the k3s side today is only `K3sSpawnerAdapter` (a working shim) plus direct use of `RedisMessageStore` / `gateway` for the rest.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Defer entirely (recommended) \u2014 k3s side keeps using RedisMessageStore / gateway directly; only AgentSpawner is unified. The protocols stay v0.x unstable on the k3s leg until a future issue promotes them. Pros: smallest blast radius for this rollout; Cons: leaves cq-1's full 'parallel substrates' promise incomplete",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship inside this issue as a hardening slice \u2014 add K3sMessageBus / K3sPolicyEnforcer / K3sWorktreeManager adapters as one slice in the hardening pass. Pros: closes cq-1 fully; Cons: adds review burden; risks regressions in production k3s users while the substrate-portable code paths are still bedding in",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Ship only the K3sMessageBus adapter (promote RedisMessageStore onto the protocol) \u2014 the MessageBus protocol is the smallest seam and the one most likely to surface BRC differences. Policy/worktree adapters can wait. Pros: pragmatic; Cons: partial-promotion is awkward",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer entirely AND drop the v0.x unstable marker after \u22653 roles exercise the claude-code side \u2014 i.e. accept the interfaces are stable on the claude-code leg even if the k3s leg hasn't promoted yet. Documents the actual stability boundary precisely",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the full k3s interface adapter (MessageBus,...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:15:56.741142Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Curated 5-issue conformance set (feedback Q1 in #2623 settled the rule, not the specific issues): name the 5 GitHub issue numbers covering the SDLC hot paths: one bug fix, one feature add, one refactor, one infra/script change, one doc change. The conformance matrix will run all 5 under both `EGG_SUBSTRATE=k3s` and `EGG_SUBSTRATE=claude-code` in CI. Suggested candidates the analysis can pre-select: #2714 (bug), #2474 (feature/regression suite), #2261 (refactor), #2705 (infra), #2718 (doc) \u2014 are these acceptable, or would you prefer different ones?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Latency / cost budget for the conformance matrix (feedback Q2 deferred to this issue): now that we'll run refine + plan + implement + pr against 5 issues under both substrates, do you want a budget per phase (e.g., 'refine \u2264 2x k3s wall-clock', 'cost per issue \u2264 $5 of Anthropic spend'), or a global per-issue budget, or no budget at all (just `pytest.mark.slow` if any test exceeds N minutes)?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "EggHarnessSpawner scope (feedback Q4 named it a secondary goal; DoD #5 promotes it to required for parent-close): how much of the EggHarnessSpawner ships in this issue? A) a working `egg-orch local-run --issue 1234` end-to-end against a curated issue; B) just the spawner class + protocol satisfaction + unit tests (CLI in a follow-up); C) full local-run including HITL flow via stdin/stdout JSON prompts; D) defer entirely \u2014 we promised in DoD but it can be a tertiary issue.",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Operator-acceptance for trust-context shift (R1) at multi-role scale: the spike's R1 acceptance is scoped to 'one refiner subagent running against a trusted repo'. Plan / implement phases dispatch 3+8 = 11 subagents per pipeline, each with access to the parent session's API credential context. Do you want any additional mitigations beyond what the spike documents (e.g. an opt-in `EGG_REQUIRE_CREDENTIAL_PROXY=true` flag that forces operators to acknowledge multi-subagent credential exposure, or a per-role allowlist of which subagents may run on the claude-code substrate)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Reviewer-roster expansion: are any new reviewer roles needed for the substrate-rollout work itself? For example, `reviewer_substrate` or `reviewer_concurrency_substrate` to give bridge / message bus / hook work a dedicated reviewer beyond the existing `reviewer_code`, `reviewer_concurrency`, `reviewer_security`, `reviewer_agent_design`? Or are the existing reviewers adequate?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Walking-skeleton scope-fence behavior post-rollout: today `run_pipeline_in_process` raises NotImplementedError if the operator chooses 'continue to plan'. After plan / implement / pr land, should the fence be removed entirely (operator can chain phases freely), kept as an opt-in `--single-phase` flag for short runs, or moved to a per-phase fence each operator must explicitly clear?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 6 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Curated 5-issue conformance set (feedback Q1 in #2623 settled the rule, not the specific issues): name the 5 GitHub issue numbers covering the SDLC hot paths: one bug fix, one feature add, one refactor, one infra/script change, one doc change. The conformance matrix will run all 5 under both `EGG_SUBSTRATE=k3s` and `EGG_SUBSTRATE=claude-code` in CI. Suggested candidates the analysis can pre-select: #2714 (bug), #2474 (feature/regression suite), #2261 (refactor), #2705 (infra), #2718 (doc) \u2014 are these acceptable, or would you prefer different ones?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Latency / cost budget for the conformance matrix (feedback Q2 deferred to this issue): now that we'll run refine + plan + implement + pr against 5 issues under both substrates, do you want a budget per phase (e.g., 'refine \u2264 2x k3s wall-clock', 'cost per issue \u2264 $5 of Anthropic spend'), or a global per-issue budget, or no budget at all (just `pytest.mark.slow` if any test exceeds N minutes)?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "EggHarnessSpawner scope (feedback Q4 named it a secondary goal; DoD #5 promotes it to required for parent-close): how much of the EggHarnessSpawner ships in this issue? A) a working `egg-orch local-run --issue 1234` end-to-end against a curated issue; B) just the spawner class + protocol satisfaction + unit tests (CLI in a follow-up); C) full local-run including HITL flow via stdin/stdout JSON prompts; D) defer entirely \u2014 we promised in DoD but it can be a tertiary issue.",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Operator-acceptance for trust-context shift (R1) at multi-role scale: the spike's R1 acceptance is scoped to 'one refiner subagent running against a trusted repo'. Plan / implement phases dispatch 3+8 = 11 subagents per pipeline, each with access to the parent session's API credential context. Do you want any additional mitigations beyond what the spike documents (e.g. an opt-in `EGG_REQUIRE_CREDENTIAL_PROXY=true` flag that forces operators to acknowledge multi-subagent credential exposure, or a per-role allowlist of which subagents may run on the claude-code substrate)?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Reviewer-roster expansion: are any new reviewer roles needed for the substrate-rollout work itself? For example, `reviewer_substrate` or `reviewer_concurrency_substrate` to give bridge / message bus / hook work a dedicated reviewer beyond the existing `reviewer_code`, `reviewer_concurrency`, `reviewer_security`, `reviewer_agent_design`? Or are the existing reviewers adequate?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Walking-skeleton scope-fence behavior post-rollout: today `run_pipeline_in_process` raises NotImplementedError if the operator chooses 'continue to plan'. After plan / implement / pr land, should the fence be removed entirely (operator can chain phases freely), kept as an opt-in `--single-phase` flag for short runs, or moved to a per-phase fence each operator must explicitly clear?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
