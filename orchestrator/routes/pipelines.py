@@ -6201,7 +6201,18 @@ def _build_review_prompt(
         lines.append(
             "5. Verify end-to-end functionality — for new features, trace the complete "
             "execution path in the real deployment environment. Check that config files, "
-            "environment variables, and dependencies are actually available where the code runs"
+            "environment variables, and dependencies are actually available where the code runs. "
+            "**Read every documented snippet, install command, and code example "
+            "as an operator about to copy-paste it — would the command execute as "
+            "written? Does the documented file exist (`ls` or `find` it)? Does the "
+            "library/API the snippet calls match the actual signature (use WebSearch "
+            "for deprecations and version-dependent behavior)?** The four "
+            "blocking findings on PR #2724 (escaped to the GitHub bot) were all "
+            "of this shape — `pip install -r requirements.txt` against a "
+            "non-existent file, `${ANSWER}` shell-interpolated as a bare Python "
+            "identifier, `datetime.utcnow()` deprecated since Python 3.12, "
+            "non-atomic file write — and would all have been caught by reading the "
+            "snippet as a copy-paster instead of as a documentation reader."
         )
         lines.append(
             "6. Research when uncertain — use WebSearch and WebFetch (when available) "
@@ -6217,6 +6228,26 @@ def _build_review_prompt(
             )
         else:
             lines.append("8. Evaluate against the criteria below")
+        # Procedural surfacing of the pre-existing-broken-behavior clause
+        # from code-review-criteria.md:71. Buried in the rubric body it's
+        # easy to skim past — the #2724 misses on `pip install -r
+        # requirements.txt` and the Python-version mismatch both lived
+        # in lines the PR reflowed but did not author, and the reviewer
+        # treated them as out-of-scope context. Promoting it to a
+        # numbered step (read before reviewing, not consulted mid-review)
+        # makes it fire on lines the PR touches by reflowing, not only
+        # on lines it authors fresh.
+        lines.append(
+            "**(Pre-existing broken behavior in modified code is blocking.)** "
+            "Any unchanged line the PR reflows, surrounds, or otherwise "
+            "modifies its area of belongs to this review's scope. If the "
+            "PR's hunks reflow an install section, a documented snippet, or "
+            "a config example, verify the *whole section* works as advertised "
+            "— not just the lines marked `+`. The code is already being "
+            "changed in that area; this is the natural place to fix it. "
+            "Pre-existing bugs in modified code are NACK-blocking — do not "
+            'dismiss as "not a regression."'
+        )
         if concurrent:
             lines.append(
                 "9. Deliver your full review via ACK/NACK (see BRC protocol below). "
@@ -12977,24 +13008,57 @@ def _re_review_priming_block() -> str:
     """
     return (
         "\n\n**Adversarial re-review**\n\n"
-        "Your spawn-time mandate stands: find ALL issues, last line of "
-        "defense before production. This is not a verification that named "
-        "blockers got fixed.\n\n"
-        "- Read the delta as adversarially as you would a first-pass "
-        "review. Apply every rubric pass to the new hunks.\n"
+        "**Your v2 review has TWO equal-weight mandates:**\n\n"
+        "1. **Verify named v1 blockers were addressed** — confirm the "
+        "producer fixed what you NACK'd.\n"
+        "2. **Audit the v2 delta as a fresh reviewer** — ignore your v1 "
+        "NACK history. Read the v2 diff as if you'd never seen v1. Apply "
+        "your lens (security threat-model, concurrency races, contract "
+        "AC, line-by-line bugs, silent-fallback shapes — whichever your "
+        "role owns) to the v2 delta itself, not to whether your previous "
+        "concerns were satisfied.\n\n"
+        "Both mandates have equal weight. If (1) passes but (2) finds new "
+        "issues, you NACK. ACK requires both pass.\n\n"
+        "**The named-blockers anchor is a known trap.** The four issues "
+        "that escaped PR #2724 to the GitHub bot were all in "
+        "`reviewer_code`'s mandate-2 territory: `reviewer_code` correctly "
+        'answered mandate 1 ("did v1 line-by-line bugs get fixed? yes") '
+        'and skipped mandate 2 ("does v2 introduce new line-by-line '
+        "bugs? actually yes — `${ANSWER}` as bare Python, deprecated "
+        '`datetime.utcnow()`, non-atomic write, bare `except: pass`"). '
+        "Watching the producer deliver a targeted fix pulls strongly "
+        'toward "verify my fix-request landed → ACK." Recognize the '
+        "pull and do mandate 2 anyway.\n\n"
+        "**How to execute mandate 2:**\n\n"
         "- Read each new hunk as an operator who's about to copy-paste / "
         "run / integrate it. Would this code execute as written? Would "
         "these docs send a copy-paster down a working path?\n"
-        "- New issues outside the scope of your prior NACK are blocking. "
-        "Surface them — your prior NACK does not bound this re-review.\n"
-        "- Re-reviews are cheap by design. Your amortized context means "
+        "- Apply every rubric pass to the new hunks. New issues outside "
+        "the scope of your prior NACK are blocking; your prior NACK does "
+        "not bound this re-review.\n"
+        "- **Fresh-reviewer simulation.** Before issuing your v2 verdict, "
+        "ask: would a reviewer who has only seen the v2 diff with no NACK "
+        "history ACK this? If you can't argue yes from the v2 diff alone, "
+        "NACK.\n"
+        "- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only "
+        "your v2 diff with no NACK context. What would it flag? Anything "
+        "it'd flag, you should NACK first.\n\n"
+        "**Your v2 verdict must enumerate both halves** so mandate 2 "
+        "doesn't silently disappear from the record:\n\n"
+        "- (a) Which v1 blockers you verified-fixed (mandate 1).\n"
+        "- (b) What new issues you audited-and-did-not-find (mandate 2). "
+        'Name the specific shapes you checked — not "reviewed thoroughly," '
+        'but "checked for silent fallbacks, doc-snippet executability, '
+        "API-deprecation, atomicity of file writes.\" If you can't "
+        "enumerate (b), you haven't done mandate 2.\n\n"
+        "**Re-reviews are cheap by design.** Your amortized context means "
         'the work is "read the delta, apply your rubric, decide" — '
         "minutes, not hours. NACK without hesitance; the orchestrator "
-        "absorbs cycles. Two NACKs on the same producer where the "
-        "second names new findings is the correct trajectory.\n"
-        "- The downstream GitHub reviewer should find nothing in this "
-        "delta. Anything it catches that lives in this cycle's diff is "
-        "a miss attributable to this re-review."
+        "absorbs cycles. Two NACKs on the same producer where the second "
+        "names new findings is the correct trajectory, not "
+        "goalpost-moving. The downstream GitHub reviewer should find "
+        "nothing in this delta. Anything it catches that lives in this "
+        "cycle's diff is a miss attributable to this re-review."
     )
 
 
