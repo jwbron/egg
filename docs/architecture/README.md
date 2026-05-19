@@ -191,6 +191,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 - [Credential Injection](credential-injection.md) - Zero-credential sandbox with API key proxy
 - [Network Isolation](network-isolation.md) - Public/private network modes
 - [SDLC Pipeline](sdlc-pipeline.md) - Structurally enforced agent checkpoints
+- [Claude Code Substrate](claude-code-substrate.md) - Substrate-swap walking skeleton (#2623): four `Protocol`s (`AgentSpawner` / `MessageBus` / `PolicyEnforcer` / `WorktreeManager`) under `orchestrator/substrate/`, env-var-selected via `EGG_SUBSTRATE`, with a working `K3sSpawnerAdapter` shim and Claude-Code-native implementations (`ClaudeCodeSpawner`, `InProcessMessageBus`, `PreToolUseHookPolicy`, `LocalWorktreeManager`); ships an in-process orchestrator generator (`run_pipeline_in_process`) yielding `HITLDecision` objects (cq-7 heredoc-HITL); records the trust-context shift (R1), PreToolUse-hook fallback (R2), subagent-budget regression (R7), and cost-cap recommendation (REC5); interfaces are `# v0.x — unstable until ≥3 roles exercise`; "Follow-up issue draft" appendix captures the deferred rollout
 - [Declarative Setup](declarative-setup.md) - Python-based setup
 - [Logging](logging.md) - Structured JSON logging
 - [Integration-Test Trust Boundary](integration-test-trust-boundary.md) - Test execution contexts (in-sandbox-agent / trusted-CI-runner / human-operator), fixture tier table, and hard-NACK rules for plan-phase Primitive-Existence (§9) and Trust-Boundary (§10) audits
