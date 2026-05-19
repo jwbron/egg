@@ -309,10 +309,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Should the full k3s interface adapter (MessageBus, PolicyEnforcer, WorktreeManager protocols backed by Redis / gateway / gateway-worktree-manager) ship in this rollout, or stay deferred? The DoD doesn't require k3s-side adapter parity — the cq-1 \"parallel substrates\" promise is mostly about claude-code working alongside k3s; the protocol contract on the k3s side today is only `K3sSpawnerAdapter` (a working shim) plus direct use of `RedisMessageStore` / `gateway` for the rest.",
+      "context": "Open contract question cq-7, registered by an agent during the refine phase.",
+      "options": [
+        "Defer entirely (recommended) — k3s side keeps using RedisMessageStore / gateway directly; only AgentSpawner is unified. The protocols stay v0.x unstable on the k3s leg until a future issue promotes them. Pros: smallest blast radius for this rollout; Cons: leaves cq-1's full 'parallel substrates' promise incomplete",
+        "Ship inside this issue as a hardening slice — add K3sMessageBus / K3sPolicyEnforcer / K3sWorktreeManager adapters as one slice in the hardening pass. Pros: closes cq-1 fully; Cons: adds review burden; risks regressions in production k3s users while the substrate-portable code paths are still bedding in",
+        "Ship only the K3sMessageBus adapter (promote RedisMessageStore onto the protocol) — the MessageBus protocol is the smallest seam and the one most likely to surface BRC differences. Policy/worktree adapters can wait. Pros: pragmatic; Cons: partial-promotion is awkward",
+        "Defer entirely AND drop the v0.x unstable marker after ≥3 roles exercise the claude-code side — i.e. accept the interfaces are stable on the claude-code leg even if the k3s leg hasn't promoted yet. Documents the actual stability boundary precisely",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-19T17:33:05.993557Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-19T17:08:57.439434Z",
-  "updated_at": "2026-05-19T17:33:05.949971Z",
+  "updated_at": "2026-05-19T17:33:06.001596Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -326,7 +346,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18,
+  "version": 19,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
