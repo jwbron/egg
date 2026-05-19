@@ -238,3 +238,36 @@ def test_loader_rejects_path_traversal_role_name() -> None:
         "path-traversal role must hit the allowlist's slice-fence "
         f"branch (not the file-missing-on-disk branch); got: {msg!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Rollout-DAG invariants — pin the "extend, don't replace" contract on
+# ``_LANDED_SLICES`` so slice-2's author cannot accidentally regress
+# slice-1 by writing ``frozenset({"slice-2"})`` instead of
+# ``frozenset({"slice-1", "slice-2"})``.
+# ---------------------------------------------------------------------------
+
+
+def test_landed_slices_contains_slice1() -> None:
+    """``_LANDED_SLICES`` must include ``"slice-1"`` in every future slice.
+
+    The rollout DAG (issue #2717) ships slice-1 first; later slices
+    EXTEND ``_LANDED_SLICES`` rather than replacing it. A regression
+    where slice-2's coder wrote ``frozenset({"slice-2"})`` would fence
+    off slice-1's already-landed refiner / reviewer_refine /
+    reviewer_agent_design rubrics — a silent break of the loader for
+    the entire refine team. The constant's docstring at
+    ``orchestrator/substrate/__init__.py:284-287`` calls this invariant
+    out in prose; this test pins it mechanically so a future-slice edit
+    cannot regress slice-1 without tripping a test.
+    """
+    landed = substrate_pkg._LANDED_SLICES
+    assert isinstance(landed, frozenset), (
+        f"_LANDED_SLICES must remain a frozenset (immutable, hashable); got {type(landed).__name__}"
+    )
+    assert "slice-1" in landed, (
+        f"_LANDED_SLICES must include 'slice-1' on every slice; "
+        f"got {sorted(landed)!r}. The 'extend, don't replace' invariant "
+        "is documented at orchestrator/substrate/__init__.py:284-287; "
+        "future slices add to this set, they do not replace it."
+    )

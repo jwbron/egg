@@ -12,13 +12,18 @@ The helper reads the operator's answer in one of three shapes:
 
 * ``--answer-stdin`` — reads a JSON-encoded payload from stdin.
 * ``--answer-json`` — JSON-encoded literal on the CLI.
-* ``--answer-string`` — raw (un-encoded) string from the CLI, which the
-  helper itself JSON-encodes before assigning. Use this when the skill
-  body passes the operator's selection straight from ``AskUserQuestion``;
-  it removes the need for a separate ``python3 -c '…json.dumps…'``
-  subcommand in the loop (so the skill's ``allowed-tools`` can fence
-  ``python3`` to ``bin/*`` and stay consistent with the documented
-  loop body).
+* ``--answer-string`` — raw (un-encoded) string from the CLI. The
+  helper assigns it to ``pending_hitl.answer`` as-is and ``json.dumps``
+  encodes it when the contract dict is serialised in
+  ``_write_contract_atomically`` (so there is no separate
+  ``json.dumps(answer)`` step — the round-trip through the contract
+  serializer is what proves the special-characters case in
+  ``test_answer_string_special_characters``). Use this when the skill
+  body passes the operator's selection straight from
+  ``AskUserQuestion``; it removes the need for a separate
+  ``python3 -c '…json.dumps…'`` subcommand in the loop (so the
+  skill's ``allowed-tools`` can fence ``python3`` to ``bin/*`` and
+  stay consistent with the documented loop body).
 
 Then the helper:
 
@@ -107,9 +112,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 def _load_answer(args: argparse.Namespace) -> Any:
     if args.answer_string is not None:
-        # The skill passes the raw operator selection; the helper does
-        # the JSON-encoding itself so no separate ``python3 -c
-        # 'json.dumps(...)'`` subcommand is needed in the loop.
+        # The skill passes the raw operator selection as a Python str;
+        # ``json.dumps(contract, …)`` at write time encodes it into the
+        # contract file, so no separate ``python3 -c 'json.dumps(...)'``
+        # subcommand is needed in the loop. The shell-special-characters
+        # test (``test_answer_string_special_characters``) is what pins
+        # this round-trip end-to-end.
         return args.answer_string
     raw = sys.stdin.read() if args.answer_stdin else args.answer_json
     if raw is None or raw == "":

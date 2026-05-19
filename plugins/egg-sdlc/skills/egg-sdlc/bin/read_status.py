@@ -26,9 +26,13 @@ Fields accepted: ``status``, ``result``, ``error``. The helper prints
 the field's value to stdout (without quoting, so the skill body can
 capture it with ``STATUS=$(python3 … --field status)`` and use it in a
 shell ``case`` statement). A missing field prints an empty string and
-exits ``0`` so the skill body's ``case`` falls through cleanly. A
-missing or unparseable contract file exits ``1`` with a diagnostic on
-stderr — same convention as ``write_answer.py``.
+exits ``0``. The skill body's ``case`` has no ``*)`` default arm by
+design — an empty ``${STATUS}`` falls through cleanly and the skill's
+outer iteration re-invokes ``run_pipeline.py``, which is the recover
+path that re-materialises the ``pending_hitl`` envelope. (Don't change
+the empty-status return to a non-zero exit; the fall-through is the
+contract.) A missing or unparseable contract file exits ``1`` with a
+diagnostic on stderr — same convention as ``write_answer.py``.
 
 Exit codes:
 

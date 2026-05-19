@@ -149,6 +149,14 @@ STATUS=$(python3 plugins/egg-sdlc/skills/egg-sdlc/bin/read_status.py \
     --state-root "$(dirname "$(dirname "${CONTRACT_PATH}")")" \
     --field status)
 
+# Note: the `case` has no `*)` default arm by design. `read_status.py`
+# prints an empty string + exits 0 when the contract has no
+# `pending_hitl` envelope yet (i.e. the driver hasn't been run yet, or
+# the envelope was hand-cleared); ``${STATUS}`` is then empty, no arm
+# matches, the `case` exits 0, and the skill's outer iteration loops
+# back to the next `python3 .../run_pipeline.py` invocation — which
+# is the recover path (re-materialise the envelope). Don't add a `*)`
+# arm that exits non-zero; the fall-through is intentional.
 case "${STATUS}" in
   pending)
     # Read pending_hitl.decision via the Read tool against
