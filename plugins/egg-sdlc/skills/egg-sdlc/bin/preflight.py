@@ -37,7 +37,7 @@ def _load_python_dep_string() -> str:
     )
     try:
         data = json.loads(plugin_json_path.read_text())
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):  # fmt: skip
         return ""
     egg = data.get("egg") or {}
     return str(egg.get("python_dependency") or "")

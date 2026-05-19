@@ -225,7 +225,7 @@ def _capture_head_sha(worktree: Path) -> str | None:
                 "GIT_TERMINAL_PROMPT": "0",
             },
         )
-    except subprocess.SubprocessError, OSError:
+    except (subprocess.SubprocessError, OSError):  # fmt: skip
         return None
     if proc.returncode != 0:
         return None

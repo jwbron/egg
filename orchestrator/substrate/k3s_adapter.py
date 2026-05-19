@@ -25,7 +25,6 @@ remains untouched until TASK-1-2.
 
 from __future__ import annotations
 
-import subprocess
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -124,49 +123,41 @@ class K3sSpawnerAdapter:
         )
         duration = time.monotonic() - start
 
-        # Resolve commit SHA from the on-disk worktree for INV-6.
-        commit_sha: str | None = None
+        # reviewer_concurrency v1 blocker #4: do NOT capture
+        # ``commit_sha`` here. The legacy spawn factory is
+        # fire-and-monitor (see the docstring above); this method
+        # returns BEFORE the pod has produced its commit, so a
+        # ``git rev-parse HEAD`` against the orchestrator-host
+        # worktree would capture the pre-spawn HEAD and BRC reviewers
+        # would attach commit-bound ACKs to the wrong SHA.
+        #
+        # The k3s leg's INV-6 ``ack_commit_sha`` is populated by the
+        # existing gateway-side attestation channel: the
+        # orchestrator's monitor loop reads the legitimate SHA off
+        # ``SpawnedContainer.container_info`` once the pod
+        # terminates. The follow-up issue covers wiring that channel
+        # into ``AgentResult.commit_sha`` directly so the new
+        # protocol contract is also satisfied end-to-end on k3s.
         target_worktree = worktree
         if self._resolve_worktree is not None:
             resolved = self._resolve_worktree(role, None)
             if resolved is not None:
                 target_worktree = resolved
-        if target_worktree is not None and target_worktree.exists():
-            try:
-                proc = subprocess.run(
-                    ["git", "-C", str(target_worktree), "rev-parse", "HEAD"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=10,
-                )
-                if proc.returncode == 0:
-                    commit_sha = proc.stdout.strip() or None
-            except subprocess.SubprocessError, OSError:
-                # Fall through with commit_sha=None — the gateway-side
-                # k3s path may not have a worktree at this exact path
-                # yet. The legacy attestation flow remains the source
-                # of truth for k3s commit SHAs.
-                commit_sha = None
 
-        # Reviewer_code_holistic v1 finding #12: surface a structured
-        # warning when commit_sha is None so INV-6 attach-time failures
-        # are correlated with the silent capture failure here rather
-        # than showing up first at review-time.
-        if commit_sha is None:
-            import sys
+        commit_sha: str | None = None
+        # Structured note for downstream observability — the gap is
+        # documented; INV-6 mismatches will correlate with this
+        # log line rather than showing up first at review-time.
+        import sys
 
-            print(
-                "[K3sSpawnerAdapter] WARNING: commit_sha not captured "
-                f"for role={getattr(role, 'value', role)} worktree="
-                f"{target_worktree}. INV-6 reviewers will not have a "
-                "commit-bound ACK target from this AgentResult. "
-                "The legacy gateway-side attestation flow may still "
-                "carry the SHA out-of-band; the follow-up issue "
-                "covers wiring that into AgentResult.commit_sha "
-                "directly.",
-                file=sys.stderr,
-            )
+        print(
+            "[K3sSpawnerAdapter] NOTE: commit_sha intentionally None "
+            f"for role={getattr(role, 'value', role)} — fire-and-monitor "
+            "factory returns before producer commit. The legacy "
+            "gateway-side attestation channel populates the SHA "
+            "out-of-band; see the substrate ADR follow-up appendix.",
+            file=sys.stderr,
+        )
 
         # The legacy ``SpawnedContainer`` carries no stdout/exit_code
         # directly — that data lands on ``container_info`` and is

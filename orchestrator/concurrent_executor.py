@@ -609,24 +609,61 @@ class ConcurrentPhaseExecutor:
         # before spawning. Otherwise pass a placeholder path — the
         # K3sSpawnerAdapter doesn't read it for spawn dispatch.
         worktree_path: Path
+        worktree_created = False
         try:
             worktree_path = bundle.worktrees.create(
                 self.pipeline.id,
                 role,
             )
-        except NotImplementedError, AttributeError:
+            worktree_created = True
+        except (NotImplementedError, AttributeError):  # fmt: skip
             worktree_path = Path(env.get("EGG_WORKTREE_ROOT", "."))
 
-        result = bundle.spawner.spawn(role, prompt_text, env, worktree_path)
+        # reviewer_concurrency v1 blocker #5: wrap the spawn so an
+        # exception (kubectl unreachable, harness import failure,
+        # etc.) lands in handle_agent_failure-equivalent territory
+        # rather than propagating up and bypassing the executor's
+        # recovery path.
+        try:
+            result = bundle.spawner.spawn(role, prompt_text, env, worktree_path)
+        except Exception as exc:  # noqa: BLE001
+            # reviewer_concurrency v1 blocker #3: tear down the
+            # worktree on failure so a single bad spawn does not
+            # accumulate leaks across phases.
+            if worktree_created:
+                try:
+                    bundle.worktrees.tear_down(self.pipeline.id)
+                except Exception:  # noqa: BLE001 — defensive
+                    pass
+            logger.exception("substrate spawn failed", role=str(role), error=str(exc))
+            return AgentExecution(
+                role=role,
+                status=AgentExecutionStatus.FAILED,
+                container_id=f"substrate-{bundle.name}-{role.value if hasattr(role, 'value') else role}",
+                started_at=datetime.now(UTC),
+                error=f"substrate spawn raised: {exc!r}",
+                slice_id=self._slice_id,
+            )
 
         # Synthesise an AgentExecution. The substrate path runs
         # synchronously, so the spawn returns AFTER the agent
-        # finishes — we mark it COMPLETE.
+        # finishes — we mark it COMPLETE on success / FAILED on
+        # non-zero exit. The caller's monitor loop then sees
+        # AgentExecutionStatus.COMPLETE immediately and the worktree
+        # can be torn down at phase teardown
+        # (reviewer_concurrency v1 blocker #3 — the worktree's
+        # lifecycle is bound to the phase, NOT the spawn function).
         status = (
             AgentExecutionStatus.COMPLETE
             if (getattr(result, "exit_code", 0) == 0)
             else AgentExecutionStatus.FAILED
         )
+        if status == AgentExecutionStatus.FAILED and worktree_created:
+            # On a non-zero spawn, tear down the worktree immediately.
+            try:
+                bundle.worktrees.tear_down(self.pipeline.id)
+            except Exception:  # noqa: BLE001 — defensive
+                pass
 
         return AgentExecution(
             role=role,

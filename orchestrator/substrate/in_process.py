@@ -211,6 +211,12 @@ class _InProcessOrchestrator:
             return str(artifact_path)
         finally:
             self._shutdown_background_threads()
+            # reviewer_concurrency v1 blocker #2: tear down worktrees
+            # so generator drop / NotImplementedError fence / normal
+            # completion all release the per-pipeline worktree
+            # directory + branch. Bound exceptions so teardown
+            # failures don't mask the original exit reason.
+            self._teardown_worktrees()
 
     # ------------------------------------------------------------------
     # Background-thread lifecycle
@@ -248,6 +254,26 @@ class _InProcessOrchestrator:
             # Bounded join — threads are daemon so the worst case
             # is process exit, not a leaked OS thread.
             t.join(timeout=2.0)
+
+    def _teardown_worktrees(self) -> None:
+        """Release the per-pipeline worktree directory + branch.
+
+        Reviewer_concurrency v1 blocker #2: the generator allocates
+        a worktree via ``bundle.worktrees.create(...)`` in
+        ``_spawn_refiner``. Without an explicit teardown the
+        directory + branch survive every exit path (normal
+        completion, NotImplementedError fence, GeneratorExit).
+        Wrapped in a broad except so teardown failures don't mask
+        the original generator-exit reason.
+        """
+        bundle = getattr(self, "_bundle", None)
+        if bundle is None:
+            return
+        try:
+            bundle.worktrees.tear_down(self.pipeline_id)
+        except Exception:  # noqa: BLE001 — defensive
+            # The original generator-exit reason wins.
+            pass
 
     def _heartbeat_loop(self) -> None:
         """Publish HEARTBEAT messages to the substrate's message bus.
@@ -396,41 +422,63 @@ class _InProcessOrchestrator:
         The shape mirrors what the HTTP daemon writes (``decisions``
         list with ``status="pending"``) so the skill's outer loop
         and any external observer see a consistent view.
+
+        Concurrency (reviewer_concurrency v1 blocker #1):
+        - Acquires an exclusive ``fcntl.flock`` on a sidecar
+          ``<contract>.lock`` file for the duration of the
+          read-modify-write so concurrent writers (HTTP daemon +
+          generator, or two generator instances) cannot lose
+          updates.
+        - Writes through a sibling temp file followed by
+          ``os.replace()`` so concurrent readers never observe a
+          half-written file.
         """
+        import fcntl
+
         _, contracts_dir, _ = self._ensure_state_dirs()
         contract_path = contracts_dir / f"{self.pipeline_id}.json"
+        lock_path = contract_path.with_suffix(".lock")
+        tmp_path = contract_path.with_suffix(".json.tmp")
 
-        try:
-            if contract_path.exists():
-                contract = json.loads(contract_path.read_text())
-            else:
-                contract = {
-                    "schemaVersion": "1.1",
-                    "pipeline_id": self.pipeline_id,
-                    "current_phase": "refine",
-                    "decisions": [],
-                }
-        except json.JSONDecodeError, OSError:
-            contract = {
-                "schemaVersion": "1.1",
-                "pipeline_id": self.pipeline_id,
-                "current_phase": "refine",
-                "decisions": [],
-            }
+        with open(lock_path, "w") as lock_fp:
+            fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX)
+            try:
+                try:
+                    if contract_path.exists():
+                        contract = json.loads(contract_path.read_text())
+                    else:
+                        contract = {
+                            "schemaVersion": "1.1",
+                            "pipeline_id": self.pipeline_id,
+                            "current_phase": "refine",
+                            "decisions": [],
+                        }
+                except (json.JSONDecodeError, OSError):  # fmt: skip
+                    contract = {
+                        "schemaVersion": "1.1",
+                        "pipeline_id": self.pipeline_id,
+                        "current_phase": "refine",
+                        "decisions": [],
+                    }
 
-        decisions = list(contract.get("decisions") or [])
-        # Idempotent: skip if already present.
-        if not any(d.get("id") == decision_id for d in decisions):
-            decisions.append(
-                {
-                    "id": decision_id,
-                    "question": question,
-                    "status": "pending",
-                    "phase": "refine",
-                }
-            )
-        contract["decisions"] = decisions
-        contract_path.write_text(json.dumps(contract, indent=2))
+                decisions = list(contract.get("decisions") or [])
+                # Idempotent: skip if already present.
+                if not any(d.get("id") == decision_id for d in decisions):
+                    decisions.append(
+                        {
+                            "id": decision_id,
+                            "question": question,
+                            "status": "pending",
+                            "phase": "refine",
+                        }
+                    )
+                contract["decisions"] = decisions
+
+                # Atomic publish via temp + replace.
+                tmp_path.write_text(json.dumps(contract, indent=2))
+                os.replace(tmp_path, contract_path)
+            finally:
+                fcntl.flock(lock_fp.fileno(), fcntl.LOCK_UN)
         return contract_path
 
     # ------------------------------------------------------------------

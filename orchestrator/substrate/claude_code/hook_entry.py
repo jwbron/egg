@@ -475,7 +475,7 @@ def _resolve_active_role() -> str:
             sentinel_role = blob.get("role")
             if isinstance(sentinel_role, str) and sentinel_role.strip():
                 return sentinel_role.strip()
-    except json.JSONDecodeError, OSError:
+    except (json.JSONDecodeError, OSError):  # fmt: skip
         pass
     return ""
 

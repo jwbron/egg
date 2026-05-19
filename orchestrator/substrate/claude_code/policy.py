@@ -119,7 +119,7 @@ class PreToolUseHookPolicy:
         if out_path.exists():
             try:
                 existing = json.loads(out_path.read_text())
-            except json.JSONDecodeError, OSError:
+            except (json.JSONDecodeError, OSError):  # fmt: skip
                 existing = {}
         else:
             existing = {}
