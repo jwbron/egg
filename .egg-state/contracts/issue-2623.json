@@ -432,6 +432,44 @@
       "resolved_by": "human",
       "resolved_at": "2026-05-18T23:52:38.274810Z",
       "debounce_until": null
+    },
+    {
+      "id": "cq-12",
+      "question": "Canonical pip package name + registry for the egg Python deps the egg-sdlc skill imports. Per refine cq-8 the operator chose 'Plugin metadata declares pip dependencies', but the actual PyPI/git+https reference is not yet set. The plan and the skill's plugin.json need a definitive string to ship to users.",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "egg-shared on PyPI (publish a new wheel from shared/pyproject.toml under that name)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "git+https://github.com/jwbron/egg.git#subdirectory=shared (no PyPI publish required; users pip-install directly from the repo)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer to follow-up: plugin.json ships with a TODO placeholder + clear install error pointing at the docs; the spike does not commit to a name yet",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (specify in reply)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -1018,6 +1056,54 @@
         "debounce_until": null
       },
       "reason": "Created feedback request with 6 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T00:14:45.222763Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-12",
+        "question": "Canonical pip package name + registry for the egg Python deps the egg-sdlc skill imports. Per refine cq-8 the operator chose 'Plugin metadata declares pip dependencies', but the actual PyPI/git+https reference is not yet set. The plan and the skill's plugin.json need a definitive string to ship to users.",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "egg-shared on PyPI (publish a new wheel from shared/pyproject.toml under that name)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "git+https://github.com/jwbron/egg.git#subdirectory=shared (no PyPI publish required; users pip-install directly from the repo)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer to follow-up: plugin.json ships with a TODO placeholder + clear install error pointing at the docs; the spike does not commit to a name yet",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (specify in reply)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Canonical pip package name + registry for the egg ...",
       "checkpoint_id": null
     }
   ],
