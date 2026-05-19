@@ -517,8 +517,15 @@ class TestIntegrationBrcHistory:
                 result.returncode = 1
             else:
                 result.returncode = 0
-            result.stdout = ""
-            result.stderr = ""
+            # subprocess.run returns bytes unless text=True is passed; the
+            # ls-files probe in _restore_missing_state_files_from_head omits
+            # text= and splits stdout on b"\0", so the mock must match.
+            if kwargs.get("text"):
+                result.stdout = ""
+                result.stderr = ""
+            else:
+                result.stdout = b""
+                result.stderr = b""
             return result
 
         monkeypatch.setattr(mod.subprocess, "run", fake_run)
