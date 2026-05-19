@@ -1,0 +1,1742 @@
+[
+  {
+    "id": "36495853-a746-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan reviewer ready; analysis read; waiting for first producer proposal.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-05-19T18:07:08.331368+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6a6f3fe6-bc9b-4d",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:07:11.546878+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "61cd5a31-369c-4f",
+    "pipeline_id": "issue-2717",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 1 complete. Pipeline healthy: plan phase active, 4 agents running (architect, reviewer_plan, risk_analyst, task_planner), all started ~56s ago. Orchestrator /status endpoint unreachable (transient timeout) but BRC state confirms pipeline is running. No corrective actions needed this cycle.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:07:33.663452+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c3c66686-3d59-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:08:30.228171+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8a0d744a-b496-4e",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:09:26.601992+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2bf0f365-5775-42",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:10:26.646247+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8ba95dda-2b0b-48",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:11:26.723574+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4674bbc2-8ccd-48",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:12:26.819730+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "24d6cc65-d265-43",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:13:26.874836+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dd516713-6692-4c",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:14:26.930375+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3434654a-5b2e-44",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:15:26.982364+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "be9fcb5f-f1b2-42",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:07:11.523831+00:00"
+    },
+    "timestamp": "2026-05-19T18:16:50.828433+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "16ece202-49b5-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architect analysis for #2717 substrate-swap follow-up rollout. Maps refine-phase HITL decisions (cq-1 through cq-7 + feedback Q1-Q6) onto concrete component changes across 5 slices: (1) Bridge gap closure via Option B flatten-stage-script MVP plus R2 hook role-resolution spike (2-subagent worked example) as the first deliverable; (2) Plan-phase substrate wiring (architect/task_planner/risk_analyst + reviewer_plan rubrics + run_pipeline_in_process plan branch); (3) Implement-phase substrate wiring (coder/tester/documenter + 5 reviewer rubrics + implement branch; cq-3 empirical data collected here, daemon-mode bridge transition lands here); (4) PR-phase substrate + 5-issue \u00d7 2-substrate conformance matrix (#2714, #2474, #2261, #2705, #2718) + scope-fence removal at orchestrator/substrate/in_process.py:820-826; (5) Parallel hardening pass with EggHarnessSpawner + `egg-orch local-run --issue N` CLI (DoD #5 feedback Q3 option A), cost cap EGG_PIPELINE_MAX_AGENT_INVOCATIONS=200 (cq-6 option 2), drop v0.x markers on claude-code-side modules only (cq-7 option 4), and ADR refresh (DoD #6). Includes runtime-primitive surfacing per issue #2594: every cited primitive has file:line evidence and is tagged with purpose (deployed-pod vs test-only) and execution context (in-sandbox-agent vs trusted-CI-runner). The analysis identifies 6 anticipated risks (R2 hook multi-subagent, R7 context budget, BRC concurrency on new substrate, cost runaway, decomposition conflict with #2261 slice-15, scope-fence removal blast radius) with mitigations, and 6 open questions for task_planner and risk_analyst to consume.",
+    "metadata": {
+      "payload": {
+        "summary": "Architect analysis for #2717 substrate-swap follow-up rollout. Maps refine-phase HITL decisions (cq-1 through cq-7 + feedback Q1-Q6) onto concrete component changes across 5 slices: (1) Bridge gap closure via Option B flatten-stage-script MVP plus R2 hook role-resolution spike (2-subagent worked example) as the first deliverable; (2) Plan-phase substrate wiring (architect/task_planner/risk_analyst + reviewer_plan rubrics + run_pipeline_in_process plan branch); (3) Implement-phase substrate wiring (coder/tester/documenter + 5 reviewer rubrics + implement branch; cq-3 empirical data collected here, daemon-mode bridge transition lands here); (4) PR-phase substrate + 5-issue \u00d7 2-substrate conformance matrix (#2714, #2474, #2261, #2705, #2718) + scope-fence removal at orchestrator/substrate/in_process.py:820-826; (5) Parallel hardening pass with EggHarnessSpawner + `egg-orch local-run --issue N` CLI (DoD #5 feedback Q3 option A), cost cap EGG_PIPELINE_MAX_AGENT_INVOCATIONS=200 (cq-6 option 2), drop v0.x markers on claude-code-side modules only (cq-7 option 4), and ADR refresh (DoD #6). Includes runtime-primitive surfacing per issue #2594: every cited primitive has file:line evidence and is tagged with purpose (deployed-pod vs test-only) and execution context (in-sandbox-agent vs trusted-CI-runner). The analysis identifies 6 anticipated risks (R2 hook multi-subagent, R7 context budget, BRC concurrency on new substrate, cost runaway, decomposition conflict with #2261 slice-15, scope-fence removal blast radius) with mitigations, and 6 open questions for task_planner and risk_analyst to consume.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2717-architect-output.json"
+        ],
+        "risk_considered": "Six risks documented: R2 hook role-resolution under nested dispatch (mitigation: slice-1 ships the 2-subagent spike + MCP-validator fallback BEFORE phase rollout); R7 subagent context budget at deeper-research roles (mitigation: slice-3 metrics collection drives a follow-up issue if regression > 50%); BRC concurrency on new substrate at multi-role scale (mitigation: slice-2 plan-phase tests cover INV-3/INV-5/INV-6 before slice-3's 8-role surface); cost runaway from 15-subagent NACK loops (mitigation: cq-6 option 2 cap at 200); #2261 slice-15 decomposition collision (mitigation: run_pipeline_in_process reuses ConcurrentPhaseExecutor + PeerConsensusTracker rather than touching orchestrator/routes/pipelines.py); scope-fence removal blast radius (mitigation: fence removed in slice-4 only after slices 2 and 3 have proven each phase independently).",
+        "commit_sha": "c4f4e0ccdb29d4ddfaac28ef833e64b002da44bd",
+        "files_changed": [
+          ".egg-state/agent-outputs/2717-architect-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "c4f4e0ccdb29d4ddfaac28ef833e64b002da44bd"
+    },
+    "timestamp": "2026-05-19T18:17:25.432921+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7c027e5f-5038-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:17:25.488650+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4bd23c45-a132-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:17:55.125844+00:00"
+    },
+    "timestamp": "2026-05-19T18:18:20.944823+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "45a45b8f-d482-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:17:55.125844+00:00"
+    },
+    "timestamp": "2026-05-19T18:19:10.210198+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d59fbbc7-8ffc-47",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:17:55.125844+00:00"
+    },
+    "timestamp": "2026-05-19T18:20:10.277865+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c11dc755-4d86-4e",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for #2717 substrate-swap follow-up rollout. Enumerates 18 net-new risks (R17\u2013R34) covering: HITL bridge dual-architecture (R17, cq-1 Option C-hybrid), 15-rubric authorship + structural depth-gap closure (R18, #2622), parent-session strain under 8-way harness re-host (R19/R29, cq-3 deferred), reviewer-roster coverage gap (R20, feedback Q5 declined new roles), 5-issue conformance reproducibility (R21, feedback Q1 fixed set), #2261 slice-15 coordination (R22), cost-cap visibility at 200 invocations (R23, cq-6), hardening-wave 5-slice fan-out (R24), scope-fence partial-rollout fragility (R25, feedback Q6), EggHarnessSpawner as 3rd protocol implementation (R26, feedback Q3 Option A), MCP-validator fallback structural enforcement gap (R27, cq-6 option 2 fallback path), phase-sequential late-discovery rework (R28), Option (b) bridge concurrent-HITL aggregation (R30), 15-subagent trust-context scaling (R31, feedback Q4 declined extras), interface-stability marker timing (R32, cq-7), apply-phase DoD ambiguity (R33), and bridge-driver file-boundary risk (R34, #2474-class). Includes 10 runtime-primitive verifications, 6 trust-boundary shifts, 11 prioritized recommendations (REC1-REC11), 5 open questions for implement-phase HITL, and DoD-criterion-by-criterion risk mapping. Recommendation: PROCEED_WITH_MITIGATIONS \u2014 slice-0 R2 validation is the load-bearing gate for downstream slice gating.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for #2717 substrate-swap follow-up rollout. Enumerates 18 net-new risks (R17\u2013R34) covering: HITL bridge dual-architecture (R17, cq-1 Option C-hybrid), 15-rubric authorship + structural depth-gap closure (R18, #2622), parent-session strain under 8-way harness re-host (R19/R29, cq-3 deferred), reviewer-roster coverage gap (R20, feedback Q5 declined new roles), 5-issue conformance reproducibility (R21, feedback Q1 fixed set), #2261 slice-15 coordination (R22), cost-cap visibility at 200 invocations (R23, cq-6), hardening-wave 5-slice fan-out (R24), scope-fence partial-rollout fragility (R25, feedback Q6), EggHarnessSpawner as 3rd protocol implementation (R26, feedback Q3 Option A), MCP-validator fallback structural enforcement gap (R27, cq-6 option 2 fallback path), phase-sequential late-discovery rework (R28), Option (b) bridge concurrent-HITL aggregation (R30), 15-subagent trust-context scaling (R31, feedback Q4 declined extras), interface-stability marker timing (R32, cq-7), apply-phase DoD ambiguity (R33), and bridge-driver file-boundary risk (R34, #2474-class). Includes 10 runtime-primitive verifications, 6 trust-boundary shifts, 11 prioritized recommendations (REC1-REC11), 5 open questions for implement-phase HITL, and DoD-criterion-by-criterion risk mapping. Recommendation: PROCEED_WITH_MITIGATIONS \u2014 slice-0 R2 validation is the load-bearing gate for downstream slice gating.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2717-risk_analyst-output.json"
+        ],
+        "risk_considered": "18 distinct risks across security, performance, design, and compatibility dimensions; 8 flagged for human review (R17 bridge dual-architecture, R18 rubric depth closure, R19 parent-session strain, R21 conformance reproducibility, R27 MCP-validator fallback structural gap, R29 implement-phase context budget, R31 15-subagent trust scaling, R33 apply-phase DoD scope). Each risk includes mitigation strategy, effort, residual-risk level, and (where flagged) suggested reviewer and review reason.",
+        "commit_sha": "7a5cec59d3ec5170922b1688703d24b072d7f50a",
+        "files_changed": [
+          ".egg-state/agent-outputs/2717-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "7a5cec59d3ec5170922b1688703d24b072d7f50a"
+    },
+    "timestamp": "2026-05-19T18:21:02.812699+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1f356f95-c13e-4d",
+    "pipeline_id": "issue-2717",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [low]",
+    "body": "Orchestrator REST API experiencing recurring ~5-7 min intermittent outages on issue-2717\n\nDetail:\nThe orchestrator HTTP API at orchestrator.egg-system.svc.cluster.local:9849 has timed out 4 times during this overseer session (at ~18:06, ~18:15, ~18:19, ~18:20 UTC), each lasting 12-20 seconds. This causes spurious overseer heartbeat_timeout and progress_stall alerts (4 stale alerts now visible in monitor output), and prevents the overseer from registering its own health signals during outage windows. The BRC protocol channel is unaffected \u2014 pipeline agents are communicating normally and pipeline progression continues. The architect has proposed at 18:17:25 and reviewer_plan is actively reviewing. No pipeline agents have been impacted by the API outages.\n\nRecommended action:\nInvestigate orchestrator pod health and any pod restarts or GC pauses around 18:06, 18:15, 18:19 UTC. Consider increasing the heartbeat threshold for the overseer role from 120s to 180s to absorb these transient gaps without generating false alerts.",
+    "metadata": {},
+    "timestamp": "2026-05-19T18:21:31.662300+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "63c3a966-38bd-42",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:17:55.125844+00:00"
+    },
+    "timestamp": "2026-05-19T18:21:31.789447+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3cb8c405-d404-48",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:17.729796+00:00"
+    },
+    "timestamp": "2026-05-19T18:21:31.790299+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2546d6c5-0be8-4c",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:21:32.464467+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cafe3b14-4276-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:22:02.319472+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d22dbf8a-a9e2-4f",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan for #2717 substrate-swap follow-up rollout. Decomposes the work into a strictly linear 5-slice DAG (each slice has one DAG parent) per cq-2 = Option 3 (Bridge-first then phase-sequential rollout): slice-1 closes the heredoc-HITL bridge gap via flattened stage scripts and ships the cq-5 R2 hook-validation early spike alongside the two refine-team reviewer rubrics; slice-2 wires the plan-phase substrate (architect + task_planner + risk_analyst + reviewer_plan) as the first multi-role BRC stress test; slice-3 wires the implement-phase substrate (3 producers + 5 reviewers) and switches the HITL bridge to a long-lived Python daemon over a UNIX socket (cq-1 Option C, implement half); slice-4 wires the pr-phase, removes the walking-skeleton scope fence (feedback Q6), and ships the 5-issue conformance matrix (#2714, #2474, #2261, #2705, #2718 \u2014 feedback Q1) with pytest.mark.slow gating + 3-hour per-phase ceiling (feedback Q2); slice-5 hardens with the EGG_PIPELINE_MAX_AGENT_INVOCATIONS cost cap default 200 (cq-6), EggHarnessSpawner + egg-orch local-run headless CLI (DoD #5 / feedback Q3), fork-based delegation (cq-10 deferred half from #2623), contingent R15 model-(b) migration based on slice-1's R2 verdict (cq-4), drops the v0.x unstable marker on the four protocols (cq-7), and refreshes the ADR. 42 contract tasks total. Primitives audit per #2594 cites every named symbol with file:line evidence; NEW primitives are tagged (NEW \u2014 TASK-X-Y). Trust-boundary scope: conformance tests live under integration_tests/regression/ (substrate-portable, the substrate fixture at conftest.py:623 skips claude-code dimension in in-sandbox-agent context), not under integration_tests/local_pipeline/ (kubectl-gated). Role assignments: coder for orchestrator/substrate/* Python and orchestrator/cli.py, tester for tests/, documenter for plugins/egg-sdlc/skills/egg-sdlc/agents/*.md role rubrics + SKILL.md + ADR.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan for #2717 substrate-swap follow-up rollout. Decomposes the work into a strictly linear 5-slice DAG (each slice has one DAG parent) per cq-2 = Option 3 (Bridge-first then phase-sequential rollout): slice-1 closes the heredoc-HITL bridge gap via flattened stage scripts and ships the cq-5 R2 hook-validation early spike alongside the two refine-team reviewer rubrics; slice-2 wires the plan-phase substrate (architect + task_planner + risk_analyst + reviewer_plan) as the first multi-role BRC stress test; slice-3 wires the implement-phase substrate (3 producers + 5 reviewers) and switches the HITL bridge to a long-lived Python daemon over a UNIX socket (cq-1 Option C, implement half); slice-4 wires the pr-phase, removes the walking-skeleton scope fence (feedback Q6), and ships the 5-issue conformance matrix (#2714, #2474, #2261, #2705, #2718 \u2014 feedback Q1) with pytest.mark.slow gating + 3-hour per-phase ceiling (feedback Q2); slice-5 hardens with the EGG_PIPELINE_MAX_AGENT_INVOCATIONS cost cap default 200 (cq-6), EggHarnessSpawner + egg-orch local-run headless CLI (DoD #5 / feedback Q3), fork-based delegation (cq-10 deferred half from #2623), contingent R15 model-(b) migration based on slice-1's R2 verdict (cq-4), drops the v0.x unstable marker on the four protocols (cq-7), and refreshes the ADR. 42 contract tasks total. Primitives audit per #2594 cites every named symbol with file:line evidence; NEW primitives are tagged (NEW \u2014 TASK-X-Y). Trust-boundary scope: conformance tests live under integration_tests/regression/ (substrate-portable, the substrate fixture at conftest.py:623 skips claude-code dimension in in-sandbox-agent context), not under integration_tests/local_pipeline/ (kubectl-gated). Role assignments: coder for orchestrator/substrate/* Python and orchestrator/cli.py, tester for tests/, documenter for plugins/egg-sdlc/skills/egg-sdlc/agents/*.md role rubrics + SKILL.md + ADR.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2717-plan.md"
+        ],
+        "risk_considered": "Slice-3 is the largest (~10 tasks covering 8 role rubrics + multi-cycle BRC + daemon bridge); plan reviewer may flag it as advisory only per the size guidance (>1000 LOC potential). The R2 contingency in TASK-2-5/TASK-2-7 and TASK-5-7 creates a fork in the plan based on slice-1 outcome \u2014 chose to encode the contingency in task descriptions rather than splitting into two separate plans because the fork is small (model-(a) stays vs. model-(b) migration + MCP-validator-side enforcement). Linear chain has no fan-out and no serialized_chain_order, so the forest constraint is satisfied trivially. Soft size guidance only; no DAG-shape risk.",
+        "commit_sha": "00ef3ff05",
+        "files_changed": [
+          ".egg-state/drafts/2717-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-1-5",
+          "TASK-1-6",
+          "TASK-1-7",
+          "TASK-1-8",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-2-6",
+          "TASK-2-7",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-3-4",
+          "TASK-3-5",
+          "TASK-3-6",
+          "TASK-3-7",
+          "TASK-3-8",
+          "TASK-3-9",
+          "TASK-3-10",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-4-3",
+          "TASK-4-4",
+          "TASK-4-5",
+          "TASK-4-6",
+          "TASK-4-7",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-5-4",
+          "TASK-5-5",
+          "TASK-5-6",
+          "TASK-5-7",
+          "TASK-5-8",
+          "TASK-5-9",
+          "TASK-5-10"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "00ef3ff05"
+    },
+    "timestamp": "2026-05-19T18:22:02.946162+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f1c6f6d2-44cc-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-19T18:22:02.946201+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5962933b-24ea-43",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:22:02.985166+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1aacc57b-fc67-43",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-19T18:22:33.010709+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d9b0ea07-a953-4c",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:22:33.022789+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "74910704-1586-41",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:23:02.601365+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a2dfc76c-7278-4b",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:23:02.644475+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e83ace58-d0f4-41",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:23:34.746790+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f72e1946-13b3-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:23:53.471901+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "95b557a3-2ef4-47",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:24:02.688697+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8a56f99d-e0d3-44",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:24:34.794360+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "294334f7-398d-44",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:24:53.562708+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "105318fe-f664-4c",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:25:02.742080+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3692c59-24be-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:25:34.845114+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b98a716d-cf60-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:25:53.606166+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8eb8cc80-6a09-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:26:02.792772+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8ab99be4-ba1a-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:26:34.892512+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "37bc1ec7-6594-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:26:53.696732+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e0d82584-ebbe-43",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:27:02.909643+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "37cdc7fc-5dad-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:27:34.954533+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "81f7bdbd-f639-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:27:53.743412+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5bf3bfb8-5f4e-43",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:28:02.965768+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dcded3f4-15ae-42",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:28:35.012843+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a7da5452-f816-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:28:53.829532+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "00d50ad1-2772-41",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:29:03.062956+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d683a567-34df-43",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:29:35.272716+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "265f3444-e165-48",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:29:53.889972+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5dcd3770-6620-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:30:03.225644+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bb66bc0a-e351-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:30.428015+00:00"
+    },
+    "timestamp": "2026-05-19T18:30:35.328182+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "745e0e48-101a-44",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:22:38.425238+00:00"
+    },
+    "timestamp": "2026-05-19T18:30:54.017586+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "99a94500-45fb-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:21:44.108650+00:00"
+    },
+    "timestamp": "2026-05-19T18:31:03.316175+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4d2526d6-39a3-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "\nReviewed `.egg-state/agent-outputs/2717-architect-output.json` (389 lines) against the refine analysis at `.egg-state/drafts/2717-analysis.md` and the seven settled HITL decisions (cq-1 \u2026 cq-7) plus six feedback answers.\n\n### What's solid\n- **Slice decomposition matches cq-2 Option 3 exactly**: bridge \u2192 plan \u2192 implement \u2192 pr+conformance \u2192 hardening, with the operator's chosen \"phase-sequential then parallel hardening\" shape preserved across all five slices.\n- **Every primitive cited has file:line evidence**, and the citations I verified (run_pipeline_in_process at `in_process.py:84` \u2713, ClaudeCodeSpawner at `spawner.py:64` \u2713, _load_egg_sdlc_role_rubric at `__init__.py:232` \u2713, build_agent_patterns at `patterns.py:768` \u2713, _PHASE_ROLES at `agent_roles.py:1172` \u2713, _PHASE_REVIEWERS at `:1183` \u2713, ConcurrentPhaseExecutor at `concurrent_executor.py:114` \u2713, PeerConsensusTracker at `peer_consensus.py:69` \u2713, validate_invariants at `action_guards.py:631` \u2713, substrate fixture at `conftest.py:622\u2013642` \u2713) all line up with the actual code.\n- **NEW primitives are flagged**: `EGG_PIPELINE_MAX_AGENT_INVOCATIONS`, `egg-orch local-run`, the conformance matrix, the bridge driver are correctly marked as new, and I verified the negative-grep claims (`grep -rn EGG_PIPELINE_MAX_AGENT_INVOCATIONS orchestrator/ shared/` returns zero \u2713; `cmd_local_run` is absent from `orchestrator/cli.py` per `grep -n \"add_parser.*local-run\"` \u2713).\n- **All six feedback Q answers absorbed verbatim** (curated 5 issues #2714/#2474/#2261/#2705/#2718, pytest.mark.slow + 3-hr ceiling, full-local-run Option A, no extra mitigations, no new reviewer roles, fence removal).\n- **Risks well-anticipated**: R2-hook-multi-subagent, R7-context-budget, BRC-concurrency-on-new-substrate, cost-runaway, decomposition-conflict-with-2261, scope-fence-removal-blast-radius all map to concrete mitigations referencing the slice they live in.\n- **`open_questions_for_task_planner_and_risk_analyst` is a genuinely useful handoff** \u2014 the granularity question, the R2 spike scope question, the rollback-flag question are all things the downstream producers should answer rather than the architect prematurely fixing.\n\n### Non-blocking\n- **R2 spike framing implicitly requires partial Agent-tool dispatch in slice-1 that contradicts cq-3.** `slice_1_bridge_plus_r2_spike.deliverables[2]` says \"spawns one role (parent) and has it dispatch a second role (child) via Claude Code's Agent tool (subagent_type='general-purpose')\". I verified that PreToolUseHookPolicy / hook_entry is NOT invoked by the harness path \u2014 `grep -rn \"PreToolUseHookPolicy\\|hook_entry\" shared/egg_harness/` returns zero hits \u2014 so Agent-tool dispatch is the only mechanism that actually triggers the hook. cq-3 selected \"stay on harness re-host\"; the R2 spike therefore needs a minimal Agent-tool dispatch path that the production spawner doesn't use. Either acknowledge this as a slice-1 deliverable (\"ship a minimal Agent-tool dispatch path for the spike only, distinct from the production ClaudeCodeSpawner\") or pivot to a hook-logic unit test (call `hook_entry.decide()` directly with controlled `EGG_AGENT_ROLE` env vars \u2014 that's not literally \"nested dispatch\" but it does answer the load-bearing question \"does the hook resolve EGG_AGENT_ROLE correctly\"). As-is the analysis is internally consistent, but the task_planner has already diverged from this framing (their TASK-1-5 says \"via the harness\", which doesn't fire the hook at all \u2014 I'm NACKing them on this separately).\n- **Citation accuracy nits** \u2014 these are off by a few lines:\n  - `AgentSpawner Protocol` at `spawner.py:73` \u2192 actual `:74`\n  - `MessageBus Protocol` at `message_bus.py:27` \u2192 actual `:28`\n  - `PolicyEnforcer Protocol` at `policy.py:25` \u2192 actual `:26`\n  - `WorktreeManager Protocol` at `worktree.py:24` \u2192 actual `:25`\n  - `SubstrateBundle` at `__init__.py:77` \u2192 actual `:78`\n  - `_maybe_fence at :820-826` \u2192 the def lives at `:807`; `:821` is the `raise` inside it; `:212` is the call site.\n  None of these change the semantics \u2014 but if a downstream slice grep-pins on the cited line it will miss by one.\n- **slice_3 cq-3 empirical data path naming is good** \u2014 `.egg-state/conformance-metrics/<issue>-<substrate>.json` is the right shape, but the task_planner picked a sibling path `.egg-state/<pipeline_id>/substrate-metrics.json` in TASK-3-9. Worth aligning the two so slice-5's cost-cap consumer reads from one canonical location.\n- **`policy_single_source_of_truth` framing mislabels gateway as \"trusted-CI-runner\"**. `gateway/phase_filter.py:1061` is a deployed-pod git-push validator running in the gateway container, not a pytest-context check. The trust-boundary categorisation in `docs/architecture/integration-test-trust-boundary.md` doesn't have a \"gateway-mediated agent operations\" tier today; calling it \"trusted-CI-runner\" muddles the categories. Not load-bearing for the plan, but the ADR refresh in TASK-5-9 should fix this.\n- **`#2261 slice-15` rollout-dependency framing is right** (\"decoupled at the file level\") \u2014 but slice-4's TASK-4-1 says `_run_pr` \"Reuses the post-#2685 context-PR + PR-phase plumbing in `orchestrator/routes/pipelines.py`\". If that plumbing moves into `orchestrator/routes/pipelines/_run_loop/_run_pr.py` mid-rollout, slice-4's import path will need to follow the decomposition. Worth flagging as a coordination point with #2261 owners.\n\nArchitectural design is sound, alignment with the analysis is complete, and the slice DAG is a strictly-linear chain (no forest violation possible). Approving so the task_planner re-proposal cycle can proceed.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2717-architect-output.json",
+          ".egg-state/drafts/2717-analysis.md"
+        ],
+        "reason": "\nReviewed `.egg-state/agent-outputs/2717-architect-output.json` (389 lines) against the refine analysis at `.egg-state/drafts/2717-analysis.md` and the seven settled HITL decisions (cq-1 \u2026 cq-7) plus six feedback answers.\n\n### What's solid\n- **Slice decomposition matches cq-2 Option 3 exactly**: bridge \u2192 plan \u2192 implement \u2192 pr+conformance \u2192 hardening, with the operator's chosen \"phase-sequential then parallel hardening\" shape preserved across all five slices.\n- **Every primitive cited has file:line evidence**, and the citations I verified (run_pipeline_in_process at `in_process.py:84` \u2713, ClaudeCodeSpawner at `spawner.py:64` \u2713, _load_egg_sdlc_role_rubric at `__init__.py:232` \u2713, build_agent_patterns at `patterns.py:768` \u2713, _PHASE_ROLES at `agent_roles.py:1172` \u2713, _PHASE_REVIEWERS at `:1183` \u2713, ConcurrentPhaseExecutor at `concurrent_executor.py:114` \u2713, PeerConsensusTracker at `peer_consensus.py:69` \u2713, validate_invariants at `action_guards.py:631` \u2713, substrate fixture at `conftest.py:622\u2013642` \u2713) all line up with the actual code.\n- **NEW primitives are flagged**: `EGG_PIPELINE_MAX_AGENT_INVOCATIONS`, `egg-orch local-run`, the conformance matrix, the bridge driver are correctly marked as new, and I verified the negative-grep claims (`grep -rn EGG_PIPELINE_MAX_AGENT_INVOCATIONS orchestrator/ shared/` returns zero \u2713; `cmd_local_run` is absent from `orchestrator/cli.py` per `grep -n \"add_parser.*local-run\"` \u2713).\n- **All six feedback Q answers absorbed verbatim** (curated 5 issues #2714/#2474/#2261/#2705/#2718, pytest.mark.slow + 3-hr ceiling, full-local-run Option A, no extra mitigations, no new reviewer roles, fence removal).\n- **Risks well-anticipated**: R2-hook-multi-subagent, R7-context-budget, BRC-concurrency-on-new-substrate, cost-runaway, decomposition-conflict-with-2261, scope-fence-removal-blast-radius all map to concrete mitigations referencing the slice they live in.\n- **`open_questions_for_task_planner_and_risk_analyst` is a genuinely useful handoff** \u2014 the granularity question, the R2 spike scope question, the rollback-flag question are all things the downstream producers should answer rather than the architect prematurely fixing.\n\n### Non-blocking\n- **R2 spike framing implicitly requires partial Agent-tool dispatch in slice-1 that contradicts cq-3.** `slice_1_bridge_plus_r2_spike.deliverables[2]` says \"spawns one role (parent) and has it dispatch a second role (child) via Claude Code's Agent tool (subagent_type='general-purpose')\". I verified that PreToolUseHookPolicy / hook_entry is NOT invoked by the harness path \u2014 `grep -rn \"PreToolUseHookPolicy\\|hook_entry\" shared/egg_harness/` returns zero hits \u2014 so Agent-tool dispatch is the only mechanism that actually triggers the hook. cq-3 selected \"stay on harness re-host\"; the R2 spike therefore needs a minimal Agent-tool dispatch path that the production spawner doesn't use. Either acknowledge this as a slice-1 deliverable (\"ship a minimal Agent-tool dispatch path for the spike only, distinct from the production ClaudeCodeSpawner\") or pivot to a hook-logic unit test (call `hook_entry.decide()` directly with controlled `EGG_AGENT_ROLE` env vars \u2014 that's not literally \"nested dispatch\" but it does answer the load-bearing question \"does the hook resolve EGG_AGENT_ROLE correctly\"). As-is the analysis is internally consistent, but the task_planner has already diverged from this framing (their TASK-1-5 says \"via the harness\", which doesn't fire the hook at all \u2014 I'm NACKing them on this separately).\n- **Citation accuracy nits** \u2014 these are off by a few lines:\n  - `AgentSpawner Protocol` at `spawner.py:73` \u2192 actual `:74`\n  - `MessageBus Protocol` at `message_bus.py:27` \u2192 actual `:28`\n  - `PolicyEnforcer Protocol` at `policy.py:25` \u2192 actual `:26`\n  - `WorktreeManager Protocol` at `worktree.py:24` \u2192 actual `:25`\n  - `SubstrateBundle` at `__init__.py:77` \u2192 actual `:78`\n  - `_maybe_fence at :820-826` \u2192 the def lives at `:807`; `:821` is the `raise` inside it; `:212` is the call site.\n  None of these change the semantics \u2014 but if a downstream slice grep-pins on the cited line it will miss by one.\n- **slice_3 cq-3 empirical data path naming is good** \u2014 `.egg-state/conformance-metrics/<issue>-<substrate>.json` is the right shape, but the task_planner picked a sibling path `.egg-state/<pipeline_id>/substrate-metrics.json` in TASK-3-9. Worth aligning the two so slice-5's cost-cap consumer reads from one canonical location.\n- **`policy_single_source_of_truth` framing mislabels gateway as \"trusted-CI-runner\"**. `gateway/phase_filter.py:1061` is a deployed-pod git-push validator running in the gateway container, not a pytest-context check. The trust-boundary categorisation in `docs/architecture/integration-test-trust-boundary.md` doesn't have a \"gateway-mediated agent operations\" tier today; calling it \"trusted-CI-runner\" muddles the categories. Not load-bearing for the plan, but the ADR refresh in TASK-5-9 should fix this.\n- **`#2261 slice-15` rollout-dependency framing is right** (\"decoupled at the file level\") \u2014 but slice-4's TASK-4-1 says `_run_pr` \"Reuses the post-#2685 context-PR + PR-phase plumbing in `orchestrator/routes/pipelines.py`\". If that plumbing moves into `orchestrator/routes/pipelines/_run_loop/_run_pr.py` mid-rollout, slice-4's import path will need to follow the decomposition. Worth flagging as a coordination point with #2261 owners.\n\nArchitectural design is sound, alignment with the analysis is complete, and the slice DAG is a strictly-linear chain (no forest violation possible). Approving so the task_planner re-proposal cycle can proceed.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-19T18:31:22.447343+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5494de46-183c-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-19T18:31:22.447409+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "573f79a9-099e-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:31:22.512008+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e8f370af-a993-4b",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "\nReviewed `.egg-state/drafts/2717-plan.md` (1394 lines, 5 slices, 42 tasks) and cross-checked against the architect's design, the refine analysis, and the actual codebase. The slice shape is right (matches cq-2 Option 3), the role\u2194files alignment is clean (I ran the per-file/per-role check across all 42 tasks; every task's `files:` is writable by its `role:` per `shared/egg_restrictions/patterns.py` \u2014 no orchestrator-side `403 restricted_path_modified` predicted), and the primitives table is unusually thorough. But three blocking issues will produce false signals or unimplementable tasks if shipped as-is.\n\n### Blocking\n\n1. **TASK-1-5 R2 spike mechanism is structurally broken \u2014 the test will not exercise the PreToolUse hook at all.** The task says \"Test dispatches a parent subagent (role=architect) and a child subagent (role=tester) via the harness; asserts the PreToolUse hook denies a write to `orchestrator/foo.py` when invoked from the child\". I verified that `shared/egg_harness/client.py:60-150` registers its own `ToolRegistry` with Python-native Bash/Read/Write/Edit/Glob/Grep handlers and routes permission checks through `registry.set_permission_callback(callback)` \u2014 `grep -rn \"PreToolUseHookPolicy\\|hook_entry\" shared/egg_harness/` returns **zero hits**. The PreToolUse hook is invoked exclusively by Claude Code's native tool registry (see `orchestrator/substrate/claude_code/hook_entry.py:17` `\"command\": \"python3 -m orchestrator.substrate.claude_code.hook_entry\"` \u2014 that's Claude Code's PreToolUse settings.json wiring). Therefore: a harness-dispatched child never triggers `hook_entry.decide()`, and the assertion \"the PreToolUse hook denies a write\" cannot fail (the hook isn't in the loop) and cannot pass (the hook isn't in the loop) \u2014 the test will either green on a no-op or assert against a manually-invoked `hook_entry.decide(...)` that has nothing to do with \"nested dispatch\". This is the load-bearing test for the rollout: cq-4 (R15 migration timing) and cq-6 fallback (MCP-validator enforcement, TASK-2-5 and TASK-5-7) both branch on its verdict. **Fix**: pick one of (a) call `hook_entry.decide()` directly with controlled `EGG_AGENT_ROLE` env vars and rename the task to make clear it's a hook-logic unit test, not a nested-dispatch test (cheap, doesn't answer the architect's question about Agent-tool nested dispatch, but is honest about scope); (b) ship a minimal Claude Code Agent-tool dispatch path *just for the spike* (precursor of ClaudeCodeAgentToolSpawner, distinct from the production `ClaudeCodeSpawner` harness re-host) and run the parent/child dispatch through it \u2014 that does exercise the hook but adds a slice-1 deliverable the plan currently doesn't enumerate. The architect's text picked option (b) implicitly; you picked option (a)'s file location but kept option (b)'s framing. Pick one and update the task description, acceptance criteria, and dependent contingency tasks (TASK-2-5, TASK-5-7) to match.\n\n2. **TASK-4-4 references \"recorded transcripts\" that no task records.** The acceptance text says \"via harness fakes that replay a recorded transcript of that issue's refine + plan + implement + pr phases\". I searched the codebase: there is no existing transcript-replay infrastructure (the existing `integration_tests/regression/test_substrate_smoke.py:56` uses `MagicMock` with hardcoded `stdout=\"ok\"`, not a recorded-transcript replay). No task in slices 1\u20134 records transcripts for the five curated issues; no task in slice 5 either. As specified, TASK-4-4 cannot be implemented \u2014 its `files:` says `test_conformance_matrix.py` but the test body needs 4 phases \u00d7 5 issues = 20 transcripts that don't exist and aren't produced anywhere in the plan. **Fix**: either (a) add a sub-task that records transcripts during slice-3's first real implement-phase run on each curated issue (the natural place \u2014 slice-3 already produces `.egg-state/<pipeline_id>/substrate-metrics.json` per TASK-3-9, so transcript capture co-locates well); (b) change the mechanism to per-subagent `MagicMock` matching `test_substrate_smoke.py`'s pattern (cheaper, but you lose phase-level realism); or (c) acknowledge the matrix runs subagents live in CI and adjust the 3-hour-per-phase ceiling story accordingly. Whichever path, the plan needs an explicit task that produces the inputs TASK-4-4 consumes.\n\n3. **TASK-4-2 fence-removal task cites the wrong line.** The task description says \"Remove the walking-skeleton scope fence at `orchestrator/substrate/in_process.py:212`\". I checked: `:212` is the *call site* (`self._maybe_fence(answer)` inside `_run`). The `_maybe_fence` static-method *definition* is at `:807-826`. Both need to be removed to actually delete the fence \u2014 and the docstring at `:92-125` that promises `NotImplementedError` for plan/implement/pr (which the acceptance already says to update). The current acceptance text says \"delete `_maybe_fence`\" which is right, but the cited line points the coder at the call site only; a coder following the cite literally would leave the def around as dead code. **Fix**: cite both `:212` (call site, delete the call) and `:807-826` (def, delete the method) explicitly in the description so the coder doesn't have to grep.\n\n### Non-blocking\n\n- **TASK-5-5 fork primitive contradicts cq-3.** Description: \"fork spawns a child Claude Code subagent (via the Agent tool with `subagent_type='general-purpose'`)\". cq-3 resolved to \"decide empirically at implement-phase\" \u2014 i.e. *stay on harness re-host* for the rollout, decide later. Shipping a fork primitive that uses Agent-tool dispatch is a structural commitment to Agent-tool capability, which contradicts the operator's deferral. Either (a) acknowledge in TASK-5-5's description that this is a partial Agent-tool migration the operator should re-confirm before slice 5 ships, or (b) implement fork via `subprocess.Popen` of a fresh `egg_harness.run_agent` so it stays on the harness re-host model. Risk_analyst's R29 mitigation also expects fork to land structurally \u2014 flag the cq-3 tension in the slice-5 ADR refresh (TASK-5-9).\n\n- **TASK-2-5 enforcement target may be the wrong file.** Description says enforcement lands in `orchestrator/mcp_tools.py`. The MCP file-restriction tool today is `mcp__sdlc__check_file_restriction`, whose handler implementation lives at `sandbox/egg_agent_tools/handlers/restrictions.py:6-70` (`check_file_restriction(req)` \u2014 verified by `grep -rn \"check_file_restriction\" --include=\"*.py\" orchestrator/ sandbox/`). `orchestrator/mcp_tools.py` exists but its tool surface is different (it's the orchestrator-side MCP server, registering `mcp__progress__*`, `mcp__sdlc__*`, etc. tools \u2014 not the in-sandbox agent's tool boundary). The validator-side fallback (cq-6 option 2) is about agent-side tool calls denying cross-role writes; that surface is `sandbox/egg_agent_tools/handlers/restrictions.py`, not `orchestrator/mcp_tools.py`. **Fix**: confirm which surface you want and update `files:` accordingly; if both surfaces need wiring, split into two tasks.\n\n- **TASK-3-9 metrics path conflicts with the architect's path.** Architect picked `.egg-state/conformance-metrics/<issue>-<substrate>.json`; you picked `.egg-state/<pipeline_id>/substrate-metrics.json`. TASK-5-1's cost-cap and TASK-4-5's phase-ceiling hook both read from your path; the architect's path goes unread. Align \u2014 pick one canonical path and use it in all four references (TASK-3-9, TASK-4-5, TASK-5-1, ADR in TASK-5-9).\n\n- **TASK-3-2 daemon lifecycle is underspecified.** Acceptance says \"Daemon starts on first `python3 bin/run_pipeline.py --daemon` invocation; binds to `.egg-state/<pipeline_id>/sock`\". But each `python3 bin/run_pipeline.py --daemon` call is a child process of the skill's `Bash(python3 ...)` step. If the daemon doesn't detach (via `subprocess.Popen(start_new_session=True)` or equivalent), the daemon dies when the calling Bash exits \u2014 defeating the \"long-lived\" property. The plan should state explicitly how the daemon detaches and survives across multiple skill-Bash invocations. Cite `os.setsid` / `start_new_session=True` or whatever mechanism you choose.\n\n- **TASK-1-7 / TASK-1-6 ordering**: TASK-1-6 modifies `_load_egg_sdlc_role_rubric` to load `reviewer_refine` and `reviewer_agent_design`, but TASK-1-4 (which produces those .md files) is listed before it. If a coder picks up TASK-1-6 before TASK-1-4 is merged, the loader returns text from a missing file. Worth making the dependency explicit in TASK-1-6's description (\"depends on TASK-1-4 having landed the rubric files first\").\n\n- **Slice-2 task numbering**: TASK-2-6 (\"Update SKILL.md\") appears AFTER TASK-2-7 (\"Add tests for MCP-validator policy\") in the file. Cosmetic \u2014 renumber so the numeric order matches the file order.\n\n- **`LocalWorktreeManager` primitive citation**: the table says \"line ~30\"; the actual class def is at `claude_code/worktree.py:59`. Update.\n\n- **Conformance issue states**: feedback Q1 confirmed the 5-issue set is fixed regardless of current state. #2714 has since been *closed* (merged as #2719). The plan doesn't note this, but it's also not a blocker \u2014 the conformance matrix is about replaying the issue's SDLC shape, not its open/closed state. Worth a one-line acknowledgement in TASK-4-4 so future readers don't get confused.\n\n- **Slice-sizing advisories (per #2137 \u2014 advisory only, never NACK per HITL decision-6 opt-2)**:\n  - Slice 3: 10 tasks, ~17 file paths affected (8 .md rubrics + 3 .py code + 4 test files + 1 SKILL.md + 1 in_process.py edit). Heuristic LOC \u2248 1,500. **Consider splitting** \u2014 the daemon bridge (TASK-3-2/TASK-3-3/TASK-3-8) could plausibly be its own sub-slice that lands before the implement phase wiring, especially given R17's \"two bridge architectures\" concern.\n  - Slice 4: 7 tasks, ~22 file paths affected (TASK-4-3 alone applies the substrate fixture to 14 existing regression tests). Heuristic LOC \u2248 2,200. **Strongly consider splitting** \u2014 fence removal + PR-phase wiring is one concern; substrate-fixture sprawl across 14 existing tests is another; conformance matrix is a third. The phase-ceiling hook (TASK-4-5) could co-locate with the matrix.\n  - Slice 5: 10 tasks, ~25 file paths affected (TASK-5-7 alone touches 15 rubric .md files if R2 fails). Heuristic LOC \u2248 2,500. **Strongly consider splitting** \u2014 the contingent R15 migration (TASK-5-7) is conditional and large; if R2 fails, slice-5 doubles in size. Worth pre-splitting R15 migration into its own sub-slice (or a sibling slice that's a no-op on R2 pass).\n  None of these are NACK reasons \u2014 the operator/refiner retains size-override authority \u2014 but the implementer should know the soft-target story.\n\n- **R17 dual-bridge concern from risk_analyst**: their mitigation says \"Option (a)'s daemon design influences Option (b)'s state-serialization contract\". Your plan ships Option (b) in slice-1 (TASK-1-1) and Option (a) in slice-3 (TASK-3-2). If slice-1 commits to a state-serialization contract that slice-3 then has to renegotiate, the bridges diverge. Not a NACK reason \u2014 the operator's cq-1 Option C explicitly chose this hybrid sequencing \u2014 but the slice-1 acceptance for TASK-1-1 should require the `.egg-state/contracts/<id>.json#pending_hitl` envelope shape to be a shared contract between (b) and (a), not a slice-1-only invention.\n\nRe-propose with the three blocking issues addressed and the metrics-path/cq-3-fork alignments. The slice DAG itself is fine \u2014 strictly linear chain, no forest violation; #2137 trivially satisfied.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\nReviewed `.egg-state/drafts/2717-plan.md` (1394 lines, 5 slices, 42 tasks) and cross-checked against the architect's design, the refine analysis, and the actual codebase. The slice shape is right (matches cq-2 Option 3), the role\u2194files alignment is clean (I ran the per-file/per-role check across all 42 tasks; every task's `files:` is writable by its `role:` per `shared/egg_restrictions/patterns.py` \u2014 no orchestrator-side `403 restricted_path_modified` predicted), and the primitives table is unusually thorough. But three blocking issues will produce false signals or unimplementable tasks if shipped as-is.\n\n### Blocking\n\n1. **TASK-1-5 R2 spike mechanism is structurally broken \u2014 the test will not exercise the PreToolUse hook at all.** The task says \"Test dispatches a parent subagent (role=architect) and a child subagent (role=tester) via the harness; asserts the PreToolUse hook denies a write to `orchestrator/foo.py` when invoked from the child\". I verified that `shared/egg_harness/client.py:60-150` registers its own `ToolRegistry` with Python-native Bash/Read/Write/Edit/Glob/Grep handlers and routes permission checks through `registry.set_permission_callback(callback)` \u2014 `grep -rn \"PreToolUseHookPolicy\\|hook_entry\" shared/egg_harness/` returns **zero hits**. The PreToolUse hook is invoked exclusively by Claude Code's native tool registry (see `orchestrator/substrate/claude_code/hook_entry.py:17` `\"command\": \"python3 -m orchestrator.substrate.claude_code.hook_entry\"` \u2014 that's Claude Code's PreToolUse settings.json wiring). Therefore: a harness-dispatched child never triggers `hook_entry.decide()`, and the assertion \"the PreToolUse hook denies a write\" cannot fail (the hook isn't in the loop) and cannot pass (the hook isn't in the loop) \u2014 the test will either green on a no-op or assert against a manually-invoked `hook_entry.decide(...)` that has nothing to do with \"nested dispatch\". This is the load-bearing test for the rollout: cq-4 (R15 migration timing) and cq-6 fallback (MCP-validator enforcement, TASK-2-5 and TASK-5-7) both branch on its verdict. **Fix**: pick one of (a) call `hook_entry.decide()` directly with controlled `EGG_AGENT_ROLE` env vars and rename the task to make clear it's a hook-logic unit test, not a nested-dispatch test (cheap, doesn't answer the architect's question about Agent-tool nested dispatch, but is honest about scope); (b) ship a minimal Claude Code Agent-tool dispatch path *just for the spike* (precursor of ClaudeCodeAgentToolSpawner, distinct from the production `ClaudeCodeSpawner` harness re-host) and run the parent/child dispatch through it \u2014 that does exercise the hook but adds a slice-1 deliverable the plan currently doesn't enumerate. The architect's text picked option (b) implicitly; you picked option (a)'s file location but kept option (b)'s framing. Pick one and update the task description, acceptance criteria, and dependent contingency tasks (TASK-2-5, TASK-5-7) to match.\n\n2. **TASK-4-4 references \"recorded transcripts\" that no task records.** The acceptance text says \"via harness fakes that replay a recorded transcript of that issue's refine + plan + implement + pr phases\". I searched the codebase: there is no existing transcript-replay infrastructure (the existing `integration_tests/regression/test_substrate_smoke.py:56` uses `MagicMock` with hardcoded `stdout=\"ok\"`, not a recorded-transcript replay). No task in slices 1\u20134 records transcripts for the five curated issues; no task in slice 5 either. As specified, TASK-4-4 cannot be implemented \u2014 its `files:` says `test_conformance_matrix.py` but the test body needs 4 phases \u00d7 5 issues = 20 transcripts that don't exist and aren't produced anywhere in the plan. **Fix**: either (a) add a sub-task that records transcripts during slice-3's first real implement-phase run on each curated issue (the natural place \u2014 slice-3 already produces `.egg-state/<pipeline_id>/substrate-metrics.json` per TASK-3-9, so transcript capture co-locates well); (b) change the mechanism to per-subagent `MagicMock` matching `test_substrate_smoke.py`'s pattern (cheaper, but you lose phase-level realism); or (c) acknowledge the matrix runs subagents live in CI and adjust the 3-hour-per-phase ceiling story accordingly. Whichever path, the plan needs an explicit task that produces the inputs TASK-4-4 consumes.\n\n3. **TASK-4-2 fence-removal task cites the wrong line.** The task description says \"Remove the walking-skeleton scope fence at `orchestrator/substrate/in_process.py:212`\". I checked: `:212` is the *call site* (`self._maybe_fence(answer)` inside `_run`). The `_maybe_fence` static-method *definition* is at `:807-826`. Both need to be removed to actually delete the fence \u2014 and the docstring at `:92-125` that promises `NotImplementedError` for plan/implement/pr (which the acceptance already says to update). The current acceptance text says \"delete `_maybe_fence`\" which is right, but the cited line points the coder at the call site only; a coder following the cite literally would leave the def around as dead code. **Fix**: cite both `:212` (call site, delete the call) and `:807-826` (def, delete the method) explicitly in the description so the coder doesn't have to grep.\n\n### Non-blocking\n\n- **TASK-5-5 fork primitive contradicts cq-3.** Description: \"fork spawns a child Claude Code subagent (via the Agent tool with `subagent_type='general-purpose'`)\". cq-3 resolved to \"decide empirically at implement-phase\" \u2014 i.e. *stay on harness re-host* for the rollout, decide later. Shipping a fork primitive that uses Agent-tool dispatch is a structural commitment to Agent-tool capability, which contradicts the operator's deferral. Either (a) acknowledge in TASK-5-5's description that this is a partial Agent-tool migration the operator should re-confirm before slice 5 ships, or (b) implement fork via `subprocess.Popen` of a fresh `egg_harness.run_agent` so it stays on the harness re-host model. Risk_analyst's R29 mitigation also expects fork to land structurally \u2014 flag the cq-3 tension in the slice-5 ADR refresh (TASK-5-9).\n\n- **TASK-2-5 enforcement target may be the wrong file.** Description says enforcement lands in `orchestrator/mcp_tools.py`. The MCP file-restriction tool today is `mcp__sdlc__check_file_restriction`, whose handler implementation lives at `sandbox/egg_agent_tools/handlers/restrictions.py:6-70` (`check_file_restriction(req)` \u2014 verified by `grep -rn \"check_file_restriction\" --include=\"*.py\" orchestrator/ sandbox/`). `orchestrator/mcp_tools.py` exists but its tool surface is different (it's the orchestrator-side MCP server, registering `mcp__progress__*`, `mcp__sdlc__*`, etc. tools \u2014 not the in-sandbox agent's tool boundary). The validator-side fallback (cq-6 option 2) is about agent-side tool calls denying cross-role writes; that surface is `sandbox/egg_agent_tools/handlers/restrictions.py`, not `orchestrator/mcp_tools.py`. **Fix**: confirm which surface you want and update `files:` accordingly; if both surfaces need wiring, split into two tasks.\n\n- **TASK-3-9 metrics path conflicts with the architect's path.** Architect picked `.egg-state/conformance-metrics/<issue>-<substrate>.json`; you picked `.egg-state/<pipeline_id>/substrate-metrics.json`. TASK-5-1's cost-cap and TASK-4-5's phase-ceiling hook both read from your path; the architect's path goes unread. Align \u2014 pick one canonical path and use it in all four references (TASK-3-9, TASK-4-5, TASK-5-1, ADR in TASK-5-9).\n\n- **TASK-3-2 daemon lifecycle is underspecified.** Acceptance says \"Daemon starts on first `python3 bin/run_pipeline.py --daemon` invocation; binds to `.egg-state/<pipeline_id>/sock`\". But each `python3 bin/run_pipeline.py --daemon` call is a child process of the skill's `Bash(python3 ...)` step. If the daemon doesn't detach (via `subprocess.Popen(start_new_session=True)` or equivalent), the daemon dies when the calling Bash exits \u2014 defeating the \"long-lived\" property. The plan should state explicitly how the daemon detaches and survives across multiple skill-Bash invocations. Cite `os.setsid` / `start_new_session=True` or whatever mechanism you choose.\n\n- **TASK-1-7 / TASK-1-6 ordering**: TASK-1-6 modifies `_load_egg_sdlc_role_rubric` to load `reviewer_refine` and `reviewer_agent_design`, but TASK-1-4 (which produces those .md files) is listed before it. If a coder picks up TASK-1-6 before TASK-1-4 is merged, the loader returns text from a missing file. Worth making the dependency explicit in TASK-1-6's description (\"depends on TASK-1-4 having landed the rubric files first\").\n\n- **Slice-2 task numbering**: TASK-2-6 (\"Update SKILL.md\") appears AFTER TASK-2-7 (\"Add tests for MCP-validator policy\") in the file. Cosmetic \u2014 renumber so the numeric order matches the file order.\n\n- **`LocalWorktreeManager` primitive citation**: the table says \"line ~30\"; the actual class def is at `claude_code/worktree.py:59`. Update.\n\n- **Conformance issue states**: feedback Q1 confirmed the 5-issue set is fixed regardless of current state. #2714 has since been *closed* (merged as #2719). The plan doesn't note this, but it's also not a blocker \u2014 the conformance matrix is about replaying the issue's SDLC shape, not its open/closed state. Worth a one-line acknowledgement in TASK-4-4 so future readers don't get confused.\n\n- **Slice-sizing advisories (per #2137 \u2014 advisory only, never NACK per HITL decision-6 opt-2)**:\n  - Slice 3: 10 tasks, ~17 file paths affected (8 .md rubrics + 3 .py code + 4 test files + 1 SKILL.md + 1 in_process.py edit). Heuristic LOC \u2248 1,500. **Consider splitting** \u2014 the daemon bridge (TASK-3-2/TASK-3-3/TASK-3-8) could plausibly be its own sub-slice that lands before the implement phase wiring, especially given R17's \"two bridge architectures\" concern.\n  - Slice 4: 7 tasks, ~22 file paths affected (TASK-4-3 alone applies the substrate fixture to 14 existing regression tests). Heuristic LOC \u2248 2,200. **Strongly consider splitting** \u2014 fence removal + PR-phase wiring is one concern; substrate-fixture sprawl across 14 existing tests is another; conformance matrix is a third. The phase-ceiling hook (TASK-4-5) could co-locate with the matrix.\n  - Slice 5: 10 tasks, ~25 file paths affected (TASK-5-7 alone touches 15 rubric .md files if R2 fails). Heuristic LOC \u2248 2,500. **Strongly consider splitting** \u2014 the contingent R15 migration (TASK-5-7) is conditional and large; if R2 fails, slice-5 doubles in size. Worth pre-splitting R15 migration into its own sub-slice (or a sibling slice that's a no-op on R2 pass).\n  None of these are NACK reasons \u2014 the operator/refiner retains size-override authority \u2014 but the implementer should know the soft-target story.\n\n- **R17 dual-bridge concern from risk_analyst**: their mitigation says \"Option (a)'s daemon design influences Option (b)'s state-serialization contract\". Your plan ships Option (b) in slice-1 (TASK-1-1) and Option (a) in slice-3 (TASK-3-2). If slice-1 commits to a state-serialization contract that slice-3 then has to renegotiate, the bridges diverge. Not a NACK reason \u2014 the operator's cq-1 Option C explicitly chose this hybrid sequencing \u2014 but the slice-1 acceptance for TASK-1-1 should require the `.egg-state/contracts/<id>.json#pending_hitl` envelope shape to be a shared contract between (b) and (a), not a slice-1-only invention.\n\nRe-propose with the three blocking issues addressed and the metrics-path/cq-3-fork alignments. The slice DAG itself is fine \u2014 strictly linear chain, no forest violation; #2137 trivially satisfied.\n",
+        "artifact_references": [
+          ".egg-state/drafts/2717-plan.md",
+          ".egg-state/drafts/2717-analysis.md",
+          ".egg-state/agent-outputs/2717-architect-output.json"
+        ],
+        "nack_version": 1
+      },
+      "reason": "\nReviewed `.egg-state/drafts/2717-plan.md` (1394 lines, 5 slices, 42 tasks) and cross-checked against the architect's design, the refine analysis, and the actual codebase. The slice shape is right (matches cq-2 Option 3), the role\u2194files alignment is clean (I ran the per-file/per-role check across all 42 tasks; every task's `files:` is writable by its `role:` per `shared/egg_restrictions/patterns.py` \u2014 no orchestrator-side `403 restricted_path_modified` predicted), and the primitives table is unusually thorough. But three blocking issues will produce false signals or unimplementable tasks if shipped as-is.\n\n### Blocking\n\n1. **TASK-1-5 R2 spike mechanism is structurally broken \u2014 the test will not exercise the PreToolUse hook at all.** The task says \"Test dispatches a parent subagent (role=architect) and a child subagent (role=tester) via the harness; asserts the PreToolUse hook denies a write to `orchestrator/foo.py` when invoked from the child\". I verified that `shared/egg_harness/client.py:60-150` registers its own `ToolRegistry` with Python-native Bash/Read/Write/Edit/Glob/Grep handlers and routes permission checks through `registry.set_permission_callback(callback)` \u2014 `grep -rn \"PreToolUseHookPolicy\\|hook_entry\" shared/egg_harness/` returns **zero hits**. The PreToolUse hook is invoked exclusively by Claude Code's native tool registry (see `orchestrator/substrate/claude_code/hook_entry.py:17` `\"command\": \"python3 -m orchestrator.substrate.claude_code.hook_entry\"` \u2014 that's Claude Code's PreToolUse settings.json wiring). Therefore: a harness-dispatched child never triggers `hook_entry.decide()`, and the assertion \"the PreToolUse hook denies a write\" cannot fail (the hook isn't in the loop) and cannot pass (the hook isn't in the loop) \u2014 the test will either green on a no-op or assert against a manually-invoked `hook_entry.decide(...)` that has nothing to do with \"nested dispatch\". This is the load-bearing test for the rollout: cq-4 (R15 migration timing) and cq-6 fallback (MCP-validator enforcement, TASK-2-5 and TASK-5-7) both branch on its verdict. **Fix**: pick one of (a) call `hook_entry.decide()` directly with controlled `EGG_AGENT_ROLE` env vars and rename the task to make clear it's a hook-logic unit test, not a nested-dispatch test (cheap, doesn't answer the architect's question about Agent-tool nested dispatch, but is honest about scope); (b) ship a minimal Claude Code Agent-tool dispatch path *just for the spike* (precursor of ClaudeCodeAgentToolSpawner, distinct from the production `ClaudeCodeSpawner` harness re-host) and run the parent/child dispatch through it \u2014 that does exercise the hook but adds a slice-1 deliverable the plan currently doesn't enumerate. The architect's text picked option (b) implicitly; you picked option (a)'s file location but kept option (b)'s framing. Pick one and update the task description, acceptance criteria, and dependent contingency tasks (TASK-2-5, TASK-5-7) to match.\n\n2. **TASK-4-4 references \"recorded transcripts\" that no task records.** The acceptance text says \"via harness fakes that replay a recorded transcript of that issue's refine + plan + implement + pr phases\". I searched the codebase: there is no existing transcript-replay infrastructure (the existing `integration_tests/regression/test_substrate_smoke.py:56` uses `MagicMock` with hardcoded `stdout=\"ok\"`, not a recorded-transcript replay). No task in slices 1\u20134 records transcripts for the five curated issues; no task in slice 5 either. As specified, TASK-4-4 cannot be implemented \u2014 its `files:` says `test_conformance_matrix.py` but the test body needs 4 phases \u00d7 5 issues = 20 transcripts that don't exist and aren't produced anywhere in the plan. **Fix**: either (a) add a sub-task that records transcripts during slice-3's first real implement-phase run on each curated issue (the natural place \u2014 slice-3 already produces `.egg-state/<pipeline_id>/substrate-metrics.json` per TASK-3-9, so transcript capture co-locates well); (b) change the mechanism to per-subagent `MagicMock` matching `test_substrate_smoke.py`'s pattern (cheaper, but you lose phase-level realism); or (c) acknowledge the matrix runs subagents live in CI and adjust the 3-hour-per-phase ceiling story accordingly. Whichever path, the plan needs an explicit task that produces the inputs TASK-4-4 consumes.\n\n3. **TASK-4-2 fence-removal task cites the wrong line.** The task description says \"Remove the walking-skeleton scope fence at `orchestrator/substrate/in_process.py:212`\". I checked: `:212` is the *call site* (`self._maybe_fence(answer)` inside `_run`). The `_maybe_fence` static-method *definition* is at `:807-826`. Both need to be removed to actually delete the fence \u2014 and the docstring at `:92-125` that promises `NotImplementedError` for plan/implement/pr (which the acceptance already says to update). The current acceptance text says \"delete `_maybe_fence`\" which is right, but the cited line points the coder at the call site only; a coder following the cite literally would leave the def around as dead code. **Fix**: cite both `:212` (call site, delete the call) and `:807-826` (def, delete the method) explicitly in the description so the coder doesn't have to grep.\n\n### Non-blocking\n\n- **TASK-5-5 fork primitive contradicts cq-3.** Description: \"fork spawns a child Claude Code subagent (via the Agent tool with `subagent_type='general-purpose'`)\". cq-3 resolved to \"decide empirically at implement-phase\" \u2014 i.e. *stay on harness re-host* for the rollout, decide later. Shipping a fork primitive that uses Agent-tool dispatch is a structural commitment to Agent-tool capability, which contradicts the operator's deferral. Either (a) acknowledge in TASK-5-5's description that this is a partial Agent-tool migration the operator should re-confirm before slice 5 ships, or (b) implement fork via `subprocess.Popen` of a fresh `egg_harness.run_agent` so it stays on the harness re-host model. Risk_analyst's R29 mitigation also expects fork to land structurally \u2014 flag the cq-3 tension in the slice-5 ADR refresh (TASK-5-9).\n\n- **TASK-2-5 enforcement target may be the wrong file.** Description says enforcement lands in `orchestrator/mcp_tools.py`. The MCP file-restriction tool today is `mcp__sdlc__check_file_restriction`, whose handler implementation lives at `sandbox/egg_agent_tools/handlers/restrictions.py:6-70` (`check_file_restriction(req)` \u2014 verified by `grep -rn \"check_file_restriction\" --include=\"*.py\" orchestrator/ sandbox/`). `orchestrator/mcp_tools.py` exists but its tool surface is different (it's the orchestrator-side MCP server, registering `mcp__progress__*`, `mcp__sdlc__*`, etc. tools \u2014 not the in-sandbox agent's tool boundary). The validator-side fallback (cq-6 option 2) is about agent-side tool calls denying cross-role writes; that surface is `sandbox/egg_agent_tools/handlers/restrictions.py`, not `orchestrator/mcp_tools.py`. **Fix**: confirm which surface you want and update `files:` accordingly; if both surfaces need wiring, split into two tasks.\n\n- **TASK-3-9 metrics path conflicts with the architect's path.** Architect picked `.egg-state/conformance-metrics/<issue>-<substrate>.json`; you picked `.egg-state/<pipeline_id>/substrate-metrics.json`. TASK-5-1's cost-cap and TASK-4-5's phase-ceiling hook both read from your path; the architect's path goes unread. Align \u2014 pick one canonical path and use it in all four references (TASK-3-9, TASK-4-5, TASK-5-1, ADR in TASK-5-9).\n\n- **TASK-3-2 daemon lifecycle is underspecified.** Acceptance says \"Daemon starts on first `python3 bin/run_pipeline.py --daemon` invocation; binds to `.egg-state/<pipeline_id>/sock`\". But each `python3 bin/run_pipeline.py --daemon` call is a child process of the skill's `Bash(python3 ...)` step. If the daemon doesn't detach (via `subprocess.Popen(start_new_session=True)` or equivalent), the daemon dies when the calling Bash exits \u2014 defeating the \"long-lived\" property. The plan should state explicitly how the daemon detaches and survives across multiple skill-Bash invocations. Cite `os.setsid` / `start_new_session=True` or whatever mechanism you choose.\n\n- **TASK-1-7 / TASK-1-6 ordering**: TASK-1-6 modifies `_load_egg_sdlc_role_rubric` to load `reviewer_refine` and `reviewer_agent_design`, but TASK-1-4 (which produces those .md files) is listed before it. If a coder picks up TASK-1-6 before TASK-1-4 is merged, the loader returns text from a missing file. Worth making the dependency explicit in TASK-1-6's description (\"depends on TASK-1-4 having landed the rubric files first\").\n\n- **Slice-2 task numbering**: TASK-2-6 (\"Update SKILL.md\") appears AFTER TASK-2-7 (\"Add tests for MCP-validator policy\") in the file. Cosmetic \u2014 renumber so the numeric order matches the file order.\n\n- **`LocalWorktreeManager` primitive citation**: the table says \"line ~30\"; the actual class def is at `claude_code/worktree.py:59`. Update.\n\n- **Conformance issue states**: feedback Q1 confirmed the 5-issue set is fixed regardless of current state. #2714 has since been *closed* (merged as #2719). The plan doesn't note this, but it's also not a blocker \u2014 the conformance matrix is about replaying the issue's SDLC shape, not its open/closed state. Worth a one-line acknowledgement in TASK-4-4 so future readers don't get confused.\n\n- **Slice-sizing advisories (per #2137 \u2014 advisory only, never NACK per HITL decision-6 opt-2)**:\n  - Slice 3: 10 tasks, ~17 file paths affected (8 .md rubrics + 3 .py code + 4 test files + 1 SKILL.md + 1 in_process.py edit). Heuristic LOC \u2248 1,500. **Consider splitting** \u2014 the daemon bridge (TASK-3-2/TASK-3-3/TASK-3-8) could plausibly be its own sub-slice that lands before the implement phase wiring, especially given R17's \"two bridge architectures\" concern.\n  - Slice 4: 7 tasks, ~22 file paths affected (TASK-4-3 alone applies the substrate fixture to 14 existing regression tests). Heuristic LOC \u2248 2,200. **Strongly consider splitting** \u2014 fence removal + PR-phase wiring is one concern; substrate-fixture sprawl across 14 existing tests is another; conformance matrix is a third. The phase-ceiling hook (TASK-4-5) could co-locate with the matrix.\n  - Slice 5: 10 tasks, ~25 file paths affected (TASK-5-7 alone touches 15 rubric .md files if R2 fails). Heuristic LOC \u2248 2,500. **Strongly consider splitting** \u2014 the contingent R15 migration (TASK-5-7) is conditional and large; if R2 fails, slice-5 doubles in size. Worth pre-splitting R15 migration into its own sub-slice (or a sibling slice that's a no-op on R2 pass).\n  None of these are NACK reasons \u2014 the operator/refiner retains size-override authority \u2014 but the implementer should know the soft-target story.\n\n- **R17 dual-bridge concern from risk_analyst**: their mitigation says \"Option (a)'s daemon design influences Option (b)'s state-serialization contract\". Your plan ships Option (b) in slice-1 (TASK-1-1) and Option (a) in slice-3 (TASK-3-2). If slice-1 commits to a state-serialization contract that slice-3 then has to renegotiate, the bridges diverge. Not a NACK reason \u2014 the operator's cq-1 Option C explicitly chose this hybrid sequencing \u2014 but the slice-1 acceptance for TASK-1-1 should require the `.egg-state/contracts/<id>.json#pending_hitl` envelope shape to be a shared contract between (b) and (a), not a slice-1-only invention.\n\nRe-propose with the three blocking issues addressed and the metrics-path/cq-3-fork alignments. The slice DAG itself is fine \u2014 strictly linear chain, no forest violation; #2137 trivially satisfied.\n",
+      "revision_count": 1
+    },
+    "timestamp": "2026-05-19T18:31:22.541520+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "78bb475a-98b2-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:31:22.687115+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9efdfbc6-6b72-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "\nReviewed `.egg-state/agent-outputs/2717-risk_analyst-output.json` \u2014 18 risks (5 HIGH, ~10 MEDIUM, 3 LOW), structured assessment across performance / security / compatibility / DoD-alignment, with concrete mitigations per risk.\n\n### What's solid\n- **HIGH-severity risks are correctly identified and architecturally substantive**:\n  - **R17 (dual-bridge architecture)** \u2014 I cross-checked: cq-1 Option C does ship two structurally different bridges (stage-script vs daemon), and the task_planner has TASK-1-1 (Option b) in slice-1 and TASK-3-2 (Option a) in slice-3 \u2014 the divergence risk you flag is real, and the recommendation to make the `.egg-state/contracts/<id>.json#pending_hitl` envelope a shared contract between the two bridges is the right structural mitigation. I'm carrying this through to the task_planner NACK as a non-blocking item.\n  - **R18 (15 rubric authoring + #2622 depth gap)** \u2014 verified `orchestrator/substrate/__init__.py:280-284` still raises the \"Walking-skeleton spike (#2623) only ships the refiner rubric; other roles are deferred to the follow-up issue per cq-11\" `ValueError`. Your point that `build_system_prompt(sources)` depth-threading needs per-role structural verification is exactly right \u2014 the spike validated this for *one* role only. The mitigation to add a structural test (assert every role enumerated in `_PHASE_ROLES` has a rubric AND that `build_system_prompt` includes its content) is the right shape; the task_planner's TASK-2-3/3-4/3-5 don't currently include such a structural test, so this risk stays open even after their NACK is addressed.\n  - **R19 (8-subagent harness re-host concurrency strain)** \u2014 I checked `shared/egg_harness/client.py:60-150`: each `run_agent` invocation builds its own `ToolRegistry`, `EventBus`, `AnthropicProvider`, and `AgentLoop` in the parent's Python process. Stacking 8 of these is exactly the load you describe. The mitigation to require explicit measurement during plan-phase (4 loops) before approving implement-phase (8 loops) is the right gate; reviewer_plan should hold the implement-phase slice on the plan-phase numbers.\n  - **R27 (MCP-validator structural enforcement gap)** \u2014 I checked `sandbox/egg_agent_tools/handlers/restrictions.py:6-15`: \"The agent should call `check_file_restriction` *before* burning a turn\" \u2014 this is voluntary, not enforced. Your point that MCP-validator fallback loses structural enforcement is exactly right. The \"PreToolUse hook STILL fires for Bash and global-deny rules + post-tool-call validator\" defense-in-depth recommendation is concrete and actionable. The task_planner's TASK-2-5 targets `orchestrator/mcp_tools.py` which I'm separately flagging as wrong-surface \u2014 your risk gives the right re-direction.\n  - **R29 (subagent context budget under harness re-host)** \u2014 verified each harness loop's `AgentLoop.run(...)` accumulates conversation history in-process; 8 concurrent loops \u00d7 ~50K tokens is a real budget concern. The mitigation to move fork-based delegation up if context pressure manifests during plan-phase is the right contingency \u2014 the task_planner currently defers fork to slice-5 (TASK-5-5) which is the wrong end of the timeline if R29 manifests early.\n\n- **Trust-boundary risks are correctly framed**: R31 (15-subagent credential exposure) and the security_assessment's \"explicit_non_goals_inherited_from_2623\" section correctly inherit R1's qualitative acceptance without re-litigating, while flagging that the 15x multiplier wasn't quantified in cq-1.\n\n- **DoD criterion alignment table** maps each of the 6 DoD bullets to specific risks/mitigations \u2014 DoD #5 (`EggHarnessSpawner` + local-run) lines up with R26; DoD #6 (ADR refresh) lines up with R32 (interface stability marker timing). No DoD bullet is silently dropped.\n\n- **`open_questions_for_implement_phase` list (5 items)** is useful forward-handoff \u2014 context-budget gate, fork-trigger, MCP-validator structural strength, cost-cap soft-warning threshold, runaway-NACK detection \u2014 these all surface decisions implement-phase will need to make and that should land in the task_planner's slice-3 acceptance criteria.\n\n### Non-blocking\n- **R20 (no substrate-specific reviewer) MEDIUM rating** \u2014 feedback Q5 declined the expansion. Worth noting in the risk text that this is operator-accepted rather than \"MEDIUM unresolved\"; the residual risk is unchanged but the framing matters for the merge story.\n- **R21 (#2714 closed since refine)** \u2014 confirmed via `git log --oneline | grep 2714` that #2719 (the close fix) is already merged. Worth either acknowledging the close or escalating to a feedback question if this changes the conformance-matrix shape (e.g., do we replay the issue's pre-fix state or post-fix state?).\n- **R33 (apply phase unreferenced in DoD)** LOW \u2014 agreed; the issue body's DoD doesn't list epic-only apply-phase coverage, so this isn't a NACK reason. The task_planner's TASK-5-7 lists `applier.md` in the conditional R15 migration but no slice ships an unconditional applier rubric. If the operator expects epic-pipeline parity, that should be a feedback question; if not, R33 stays at LOW.\n- **R23 cost cap \"200 leaves room for $1000+ runaway\"** \u2014 the arithmetic is sound, but cq-6 already resolved this; suggest reframing as \"operator accepted; consider soft-warning at 100 invocations\" rather than \"MEDIUM unresolved\". The task_planner's TASK-5-1 implements the cap mechanically; a soft warning would be a non-blocking addition.\n\nOverall: thorough, accurate, and the HIGH-severity risks are the right ones to surface to the operator. Approving so the planner can incorporate the structural mitigations (R17 envelope contract, R18 depth-gap structural test, R19 plan-phase measurement gate, R27 defense-in-depth, R29 fork-trigger contingency) into the re-propose.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2717-risk_analyst-output.json",
+          ".egg-state/drafts/2717-analysis.md"
+        ],
+        "reason": "\nReviewed `.egg-state/agent-outputs/2717-risk_analyst-output.json` \u2014 18 risks (5 HIGH, ~10 MEDIUM, 3 LOW), structured assessment across performance / security / compatibility / DoD-alignment, with concrete mitigations per risk.\n\n### What's solid\n- **HIGH-severity risks are correctly identified and architecturally substantive**:\n  - **R17 (dual-bridge architecture)** \u2014 I cross-checked: cq-1 Option C does ship two structurally different bridges (stage-script vs daemon), and the task_planner has TASK-1-1 (Option b) in slice-1 and TASK-3-2 (Option a) in slice-3 \u2014 the divergence risk you flag is real, and the recommendation to make the `.egg-state/contracts/<id>.json#pending_hitl` envelope a shared contract between the two bridges is the right structural mitigation. I'm carrying this through to the task_planner NACK as a non-blocking item.\n  - **R18 (15 rubric authoring + #2622 depth gap)** \u2014 verified `orchestrator/substrate/__init__.py:280-284` still raises the \"Walking-skeleton spike (#2623) only ships the refiner rubric; other roles are deferred to the follow-up issue per cq-11\" `ValueError`. Your point that `build_system_prompt(sources)` depth-threading needs per-role structural verification is exactly right \u2014 the spike validated this for *one* role only. The mitigation to add a structural test (assert every role enumerated in `_PHASE_ROLES` has a rubric AND that `build_system_prompt` includes its content) is the right shape; the task_planner's TASK-2-3/3-4/3-5 don't currently include such a structural test, so this risk stays open even after their NACK is addressed.\n  - **R19 (8-subagent harness re-host concurrency strain)** \u2014 I checked `shared/egg_harness/client.py:60-150`: each `run_agent` invocation builds its own `ToolRegistry`, `EventBus`, `AnthropicProvider`, and `AgentLoop` in the parent's Python process. Stacking 8 of these is exactly the load you describe. The mitigation to require explicit measurement during plan-phase (4 loops) before approving implement-phase (8 loops) is the right gate; reviewer_plan should hold the implement-phase slice on the plan-phase numbers.\n  - **R27 (MCP-validator structural enforcement gap)** \u2014 I checked `sandbox/egg_agent_tools/handlers/restrictions.py:6-15`: \"The agent should call `check_file_restriction` *before* burning a turn\" \u2014 this is voluntary, not enforced. Your point that MCP-validator fallback loses structural enforcement is exactly right. The \"PreToolUse hook STILL fires for Bash and global-deny rules + post-tool-call validator\" defense-in-depth recommendation is concrete and actionable. The task_planner's TASK-2-5 targets `orchestrator/mcp_tools.py` which I'm separately flagging as wrong-surface \u2014 your risk gives the right re-direction.\n  - **R29 (subagent context budget under harness re-host)** \u2014 verified each harness loop's `AgentLoop.run(...)` accumulates conversation history in-process; 8 concurrent loops \u00d7 ~50K tokens is a real budget concern. The mitigation to move fork-based delegation up if context pressure manifests during plan-phase is the right contingency \u2014 the task_planner currently defers fork to slice-5 (TASK-5-5) which is the wrong end of the timeline if R29 manifests early.\n\n- **Trust-boundary risks are correctly framed**: R31 (15-subagent credential exposure) and the security_assessment's \"explicit_non_goals_inherited_from_2623\" section correctly inherit R1's qualitative acceptance without re-litigating, while flagging that the 15x multiplier wasn't quantified in cq-1.\n\n- **DoD criterion alignment table** maps each of the 6 DoD bullets to specific risks/mitigations \u2014 DoD #5 (`EggHarnessSpawner` + local-run) lines up with R26; DoD #6 (ADR refresh) lines up with R32 (interface stability marker timing). No DoD bullet is silently dropped.\n\n- **`open_questions_for_implement_phase` list (5 items)** is useful forward-handoff \u2014 context-budget gate, fork-trigger, MCP-validator structural strength, cost-cap soft-warning threshold, runaway-NACK detection \u2014 these all surface decisions implement-phase will need to make and that should land in the task_planner's slice-3 acceptance criteria.\n\n### Non-blocking\n- **R20 (no substrate-specific reviewer) MEDIUM rating** \u2014 feedback Q5 declined the expansion. Worth noting in the risk text that this is operator-accepted rather than \"MEDIUM unresolved\"; the residual risk is unchanged but the framing matters for the merge story.\n- **R21 (#2714 closed since refine)** \u2014 confirmed via `git log --oneline | grep 2714` that #2719 (the close fix) is already merged. Worth either acknowledging the close or escalating to a feedback question if this changes the conformance-matrix shape (e.g., do we replay the issue's pre-fix state or post-fix state?).\n- **R33 (apply phase unreferenced in DoD)** LOW \u2014 agreed; the issue body's DoD doesn't list epic-only apply-phase coverage, so this isn't a NACK reason. The task_planner's TASK-5-7 lists `applier.md` in the conditional R15 migration but no slice ships an unconditional applier rubric. If the operator expects epic-pipeline parity, that should be a feedback question; if not, R33 stays at LOW.\n- **R23 cost cap \"200 leaves room for $1000+ runaway\"** \u2014 the arithmetic is sound, but cq-6 already resolved this; suggest reframing as \"operator accepted; consider soft-warning at 100 invocations\" rather than \"MEDIUM unresolved\". The task_planner's TASK-5-1 implements the cap mechanically; a soft warning would be a non-blocking addition.\n\nOverall: thorough, accurate, and the HIGH-severity risks are the right ones to surface to the operator. Approving so the planner can incorporate the structural mitigations (R17 envelope contract, R18 depth-gap structural test, R19 plan-phase measurement gate, R27 defense-in-depth, R29 fork-trigger contingency) into the re-propose.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-19T18:31:22.706865+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6c7b3b25-fc10-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-19T18:31:27.062878+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "10890017-5be8-45",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:31:27.279401+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "73c583aa-58d4-47",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:31:34.996506+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a014d96d-3338-4c",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:35.568258+00:00"
+    },
+    "timestamp": "2026-05-19T18:31:35.621660+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fde614d0-0603-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:31:38.068043+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5d0f412c-4d1d-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:32:35.124111+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5a800bae-3c23-42",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:35.568258+00:00"
+    },
+    "timestamp": "2026-05-19T18:32:35.681945+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "98a9c72e-a036-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:32:38.136564+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cad4eba4-b740-44",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:33:35.230075+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a9cc5b5e-55e4-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:35.568258+00:00"
+    },
+    "timestamp": "2026-05-19T18:33:35.793955+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9c9830ee-bd22-41",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:33:38.232153+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "df0de9e3-9e6a-44",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:34:35.350670+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "06332960-f802-4b",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:35.568258+00:00"
+    },
+    "timestamp": "2026-05-19T18:34:35.879050+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "47b88498-afc5-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:34:38.312184+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "80c11375-1379-4c",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:35:35.412148+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5ff0e961-03a0-4d",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:35.568258+00:00"
+    },
+    "timestamp": "2026-05-19T18:35:35.931628+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4e7b4528-78ad-43",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:35:38.366666+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "731f7c34-26fd-47",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:36:56.374159+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a7576492-226d-4e",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:35.568258+00:00"
+    },
+    "timestamp": "2026-05-19T18:36:56.404213+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0c058cdd-110f-44",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:36:56.406854+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "53a97e86-4374-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:37:50.498881+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0d990a0a-2f3b-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:35.568258+00:00"
+    },
+    "timestamp": "2026-05-19T18:37:51.013296+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5e2e4891-e130-4b",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:37:53.450901+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ce33505c-b8e2-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan v2 addresses reviewer_plan v1 NACK. Blocking issues fixed: (1) TASK-1-5 R2 spike reworked \u2014 the harness re-host model bypasses PreToolUse hook entirely (shared/egg_harness/client.py uses its own ToolRegistry.set_permission_callback per the reviewer's audit), so added TASK-1-9 (a test-only nested-Agent-tool dispatch fake under integration_tests/regression/_agent_tool_fake.py, coder-owned per MCP check) and reframed TASK-1-5 to use it; the test docstring documents the empirical-vs-test-fake limitation and production stays on ClaudeCodeSpawner harness re-host per cq-3. (2) TASK-4-4 conformance matrix mechanism changed from \"recorded transcripts that no task produces\" to MagicMock-style stubs mirroring test_substrate_smoke.py:56. (3) TASK-4-2 fence-removal task now cites BOTH :212 (call site) and :807-826 (method def) so the coder doesn't leave dead code. Non-blocking fixes also applied: TASK-2-5 enforcement target moved from orchestrator/mcp_tools.py to sandbox/egg_agent_tools/handlers/restrictions.py (the correct in-sandbox surface per the reviewer); TASK-2-6/TASK-2-7 renumbered to match file order; TASK-1-6 dependency on TASK-1-4 made explicit; TASK-3-2 daemon detach via start_new_session=True; TASK-1-1 pending_hitl envelope marked as the shared state-serialization contract for risk_analyst R17 mitigation; TASK-5-5 fork primitive switched from Agent-tool dispatch to subprocess+egg_harness.run_agent so it aligns with cq-3's deferral; LocalWorktreeManager line corrected to :59; _maybe_fence dual-location citation added to the primitives table. The slice DAG remains a strictly linear 5-slice chain (forest constraint trivially satisfied); 43 tasks total across the five slices (added TASK-1-9). All 87 file references pass the per-role allow/block check via shared/egg_restrictions/patterns.py.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan v2 addresses reviewer_plan v1 NACK. Blocking issues fixed: (1) TASK-1-5 R2 spike reworked \u2014 the harness re-host model bypasses PreToolUse hook entirely (shared/egg_harness/client.py uses its own ToolRegistry.set_permission_callback per the reviewer's audit), so added TASK-1-9 (a test-only nested-Agent-tool dispatch fake under integration_tests/regression/_agent_tool_fake.py, coder-owned per MCP check) and reframed TASK-1-5 to use it; the test docstring documents the empirical-vs-test-fake limitation and production stays on ClaudeCodeSpawner harness re-host per cq-3. (2) TASK-4-4 conformance matrix mechanism changed from \"recorded transcripts that no task produces\" to MagicMock-style stubs mirroring test_substrate_smoke.py:56. (3) TASK-4-2 fence-removal task now cites BOTH :212 (call site) and :807-826 (method def) so the coder doesn't leave dead code. Non-blocking fixes also applied: TASK-2-5 enforcement target moved from orchestrator/mcp_tools.py to sandbox/egg_agent_tools/handlers/restrictions.py (the correct in-sandbox surface per the reviewer); TASK-2-6/TASK-2-7 renumbered to match file order; TASK-1-6 dependency on TASK-1-4 made explicit; TASK-3-2 daemon detach via start_new_session=True; TASK-1-1 pending_hitl envelope marked as the shared state-serialization contract for risk_analyst R17 mitigation; TASK-5-5 fork primitive switched from Agent-tool dispatch to subprocess+egg_harness.run_agent so it aligns with cq-3's deferral; LocalWorktreeManager line corrected to :59; _maybe_fence dual-location citation added to the primitives table. The slice DAG remains a strictly linear 5-slice chain (forest constraint trivially satisfied); 43 tasks total across the five slices (added TASK-1-9). All 87 file references pass the per-role allow/block check via shared/egg_restrictions/patterns.py.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2717-plan.md"
+        ],
+        "risk_considered": "The R2-spike reframing acknowledges that nested-dispatch hook resolution is structurally not testable in-sandbox without a real Claude Code session; the new TASK-1-9 fake validates hook *logic* given accurate EGG_AGENT_ROLE propagation, and the empirical question becomes the production answer when cq-3 flips to Agent-tool dispatch in a future issue. This means R2 = pass is the most likely verdict (hook logic is straightforward, EGG_AGENT_ROLE-driven) and the cq-4 contingent migration path will likely close as a no-op. Documented this in TASK-5-7's acceptance criteria. The conformance matrix's MagicMock-style stubs trade fidelity for in-sandbox runnability; the trade-off is documented in the test docstring and acknowledged in the slice-4 prose.",
+        "commit_sha": "cdcaebe6153cb3286ad1aa3fea2ba5f43eeed481",
+        "files_changed": [
+          ".egg-state/drafts/2717-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-1-5",
+          "TASK-1-6",
+          "TASK-1-7",
+          "TASK-1-8",
+          "TASK-1-9",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-2-6",
+          "TASK-2-7",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-3-4",
+          "TASK-3-5",
+          "TASK-3-6",
+          "TASK-3-7",
+          "TASK-3-8",
+          "TASK-3-9",
+          "TASK-3-10",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-4-3",
+          "TASK-4-4",
+          "TASK-4-5",
+          "TASK-4-6",
+          "TASK-4-7",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-5-4",
+          "TASK-5-5",
+          "TASK-5-6",
+          "TASK-5-7",
+          "TASK-5-8",
+          "TASK-5-9",
+          "TASK-5-10"
+        ]
+      },
+      "version": 2,
+      "commit_sha": "cdcaebe6153cb3286ad1aa3fea2ba5f43eeed481"
+    },
+    "timestamp": "2026-05-19T18:38:36.761718+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "40851050-796c-4d",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:38:36.835948+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b28d8cfa-cbbb-4b",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:38:49.397500+00:00"
+    },
+    "timestamp": "2026-05-19T18:39:04.310795+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "acc949d2-52a4-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:39:04.316498+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b69c1c04-0093-42",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:39:04.319961+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d485fa69-ec8e-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:38.031399+00:00"
+    },
+    "timestamp": "2026-05-19T18:40:04.436760+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c9402567-719c-47",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:31:34.949499+00:00"
+    },
+    "timestamp": "2026-05-19T18:40:04.442002+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "096dfb32-2132-48",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:38:49.397500+00:00"
+    },
+    "timestamp": "2026-05-19T18:40:04.485635+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ac360879-d9c9-40",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "\nReviewed `.egg-state/drafts/2717-plan.md` v2 (now 43 tasks across 5 slices). All three v1 blockers are fixed correctly; non-blocking items also addressed.\n\n### Blocker fixes verified\n\n1. **TASK-1-5 R2 spike \u2014 fixed.** The task description now opens with the structural acknowledgement I asked for (\"the harness re-host model bypasses the PreToolUse hook entirely because `shared/egg_harness/client.py:60-150` uses its own `ToolRegistry.set_permission_callback(...)` and `grep -rn \"PreToolUseHookPolicy|hook_entry\" shared/egg_harness/` returns zero hits\"). The new TASK-1-9 ships `integration_tests/regression/_agent_tool_fake.py` as test-only infrastructure with an explicit `if not __name__.startswith(\"integration_tests\")` import guard preventing silent production import. The role\u2194files check confirms `_agent_tool_fake.py` is coder-writable (underscored helper-style name escapes the `**/test_*.py` blocked-glob \u2014 verified via the same per-file restriction lookup I ran on v1; `integration_tests/regression/` is NOT matched by `**/tests/` because the directory is `integration_tests`, not `tests`). The acceptance criteria honestly documents the test-fake limitation in the docstring (\"the test confirms hook *logic* is correct given accurate `EGG_AGENT_ROLE` propagation; whether Claude Code itself propagates `EGG_AGENT_ROLE` correctly under real nested Agent-tool dispatch is verifiable only by running real Claude Code \u2026 when cq-3 flips to Agent-tool dispatch in a future issue, the production path becomes the empirical answer to that remaining half of R2\"). That framing \u2014 \"hook-logic test now, real-dispatch verification deferred to cq-3 follow-up\" \u2014 is the right scoping; the cq-4 / cq-6 contingencies branch on a meaningful signal (hook logic IS correct vs hook logic IS broken) rather than a phantom one.\n\n2. **TASK-4-4 conformance matrix \u2014 fixed.** Mechanism switched to \"per-subagent MagicMock stubs in the same style as `integration_tests/regression/test_substrate_smoke.py:56` (hardcoded `stdout=\"ok\"`, no recorded transcripts)\". This is option (b) from my v1 NACK \u2014 the cheapest path that keeps the matrix in-sandbox-runnable. The acceptance text documents the trade-off (\"MagicMock-vs-real-transcript trade-off\") so future readers know the matrix tests the SDLC *shape* not verbatim text. #2714's closed state is also acknowledged with the right framing (\"irrelevant per feedback Q1's rationale\"). The chicken-and-egg problem of v1 is gone.\n\n3. **TASK-4-2 fence-removal \u2014 fixed.** Now cites both `:212` (call site) and `:807-826` (method def) explicitly in the description (\"Two locations must be touched \u2026 Removing only the call site leaves dead code; both must be deleted\"). Acceptance criteria echoes both locations. A coder following the cite literally will now delete both.\n\n### Non-blocking items also resolved\n\n- **TASK-5-5 fork primitive \u2014 now aligned with cq-3.** Implementation switched from \"Agent tool with `subagent_type='general-purpose'`\" to \"`subprocess.Popen` running a fresh `egg_harness.run_agent` invocation in a clean Python process (NOT via Claude Code's Agent tool \u2014 that would commit to Agent-tool dispatch ahead of the cq-3 empirical verdict)\". The acceptance text also handles the future migration cleanly (\"If cq-3's empirical verdict in slice-5's ADR refresh recommends migrating to Agent-tool dispatch, the fork primitive's implementation will change accordingly in a follow-up \u2014 not in this slice\"). Good \u2014 cq-3 deferral preserved.\n\n- **TASK-2-5 enforcement target \u2014 corrected.** Surface moved from `orchestrator/mcp_tools.py` to `sandbox/egg_agent_tools/handlers/restrictions.py` (where `check_file_restriction(req)` lives per `grep -rn \"check_file_restriction\" --include=\"*.py\" orchestrator/ sandbox/`). The description explicitly cites the audit (\"the correct surface per the plan reviewer's audit is the in-sandbox tool handler, NOT `orchestrator/mcp_tools.py` (which is the orchestrator-side MCP server, a different surface)\"). The dependent test (TASK-2-6) moved to `tests/sandbox/egg_agent_tools/test_restrictions_validator.py` \u2014 confirmed tester-writable.\n\n- **TASK-3-2 daemon lifecycle \u2014 pinned down.** Description now mandates `subprocess.Popen(start_new_session=True)` (or `os.setsid()` after fork) and the acceptance criteria asserts the property in TASK-3-8's test (\"the long-lived-across-Bash-exits property is asserted in TASK-3-8's test\"). The \"daemon dies when calling Bash exits\" failure mode is no longer latent.\n\n- **TASK-1-1 pending_hitl envelope \u2014 marked as shared contract for R17.** TASK-1-9 also calls out that the daemon (TASK-3-2) inherits the same envelope schema (\"closes risk_analyst R17 dual-bridge concern\"). Slice-1 commits to a state-serialization contract slice-3 picks up rather than reinventing.\n\n- **TASK-1-6 dependency on TASK-1-4 \u2014 made explicit.** Description now says \"Depends on TASK-1-4 having landed the two new rubric .md files first \u2026 The implementer should sequence TASK-1-4 \u2192 TASK-1-6 within the slice\".\n\n- **TASK-2-6 / TASK-2-7 renumbered** so file order matches numeric order.\n\n- **`LocalWorktreeManager` line citation corrected to :59**; **`_maybe_fence` dual-location** (`:212` call + `:807-826` def) added to the primitives table.\n\n### Remaining non-blocking observations\n\nThese are observations the planner doesn't need to address before consensus \u2014 surfacing for the implement-phase team:\n\n- **Slice-sizing advisories from v1 still apply** (#2137 \u2014 advisory only, never NACK per HITL decision-6 opt-2): slice-3 ~1,500 LOC (\"consider splitting\"), slice-4 ~2,200 LOC (\"strongly consider splitting\"), slice-5 ~2,500 LOC (\"strongly consider splitting\"). The operator retains override authority; the implementer should know if the slice expands further during implement-phase.\n\n- **R2 verdict semantics narrowed.** TASK-1-5's acceptance now tests hook *logic* given correct env propagation. That answers \"is `hook_entry.decide()` correct?\" not \"does Claude Code propagate `EGG_AGENT_ROLE` correctly under real Agent-tool dispatch?\". The latter question can only be answered when cq-3 flips to real Agent-tool dispatch in a future issue. The plan's framing (\"the production path becomes the empirical answer to that remaining half of R2\") is honest about this \u2014 but the cq-4 / cq-6 contingencies trigger on the *narrower* R2 signal. If the narrower R2 passes but the deferred real-dispatch R2 later fails, cq-4 / cq-6 may need to re-fire mid-future-issue. Worth flagging in the slice-1 ADR update (TASK-1-8) so the operator knows the contingency surface is split.\n\n- **R19 / R29 mitigation gates from risk_analyst** (plan-phase concurrency measurement before implement-phase ships; context-budget contingency on fork-trigger): the plan doesn't add explicit acceptance criteria gates for these on slice-2 (the plan-phase slice that produces the measurement). Risk_analyst's mitigations require reviewer_plan to hold slice-3 on slice-2's numbers; that's a review-cycle obligation, not a code task \u2014 but the slice-2 acceptance for TASK-2-4 (`test_inprocess_plan_brc.py`) could include \"records the per-loop wall-clock and parent-context delta to `.egg-state/<pipeline_id>/substrate-metrics.json`\" so the slice-3 review has data to gate on. Worth considering at implement-time; not a NACK reason now.\n\n- **TASK-4-3 substrate-fixture sprawl across 14 existing regression tests** is itself a sizeable change set. If any of those 14 tests aren't substrate-portable in practice (transitively depend on `egg_stack` or `gateway_url` through a helper), the task will need to add `@pytest.mark.skip(reason=...)` markers \u2014 the acceptance criteria allows for this, but worth budgeting review attention for those 14 individual touches when slice-4 lands.\n\nPlan is ready for ingestion. Slice DAG is strictly linear (slice-1 \u2192 2 \u2192 3 \u2192 4 \u2192 5) so #2137 forest constraint is trivially satisfied. All 43 tasks have role assignments writable per `shared/egg_restrictions/patterns.py` (verified via per-file lookup across the full task list).\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2717-plan.md"
+        ],
+        "reason": "\nReviewed `.egg-state/drafts/2717-plan.md` v2 (now 43 tasks across 5 slices). All three v1 blockers are fixed correctly; non-blocking items also addressed.\n\n### Blocker fixes verified\n\n1. **TASK-1-5 R2 spike \u2014 fixed.** The task description now opens with the structural acknowledgement I asked for (\"the harness re-host model bypasses the PreToolUse hook entirely because `shared/egg_harness/client.py:60-150` uses its own `ToolRegistry.set_permission_callback(...)` and `grep -rn \"PreToolUseHookPolicy|hook_entry\" shared/egg_harness/` returns zero hits\"). The new TASK-1-9 ships `integration_tests/regression/_agent_tool_fake.py` as test-only infrastructure with an explicit `if not __name__.startswith(\"integration_tests\")` import guard preventing silent production import. The role\u2194files check confirms `_agent_tool_fake.py` is coder-writable (underscored helper-style name escapes the `**/test_*.py` blocked-glob \u2014 verified via the same per-file restriction lookup I ran on v1; `integration_tests/regression/` is NOT matched by `**/tests/` because the directory is `integration_tests`, not `tests`). The acceptance criteria honestly documents the test-fake limitation in the docstring (\"the test confirms hook *logic* is correct given accurate `EGG_AGENT_ROLE` propagation; whether Claude Code itself propagates `EGG_AGENT_ROLE` correctly under real nested Agent-tool dispatch is verifiable only by running real Claude Code \u2026 when cq-3 flips to Agent-tool dispatch in a future issue, the production path becomes the empirical answer to that remaining half of R2\"). That framing \u2014 \"hook-logic test now, real-dispatch verification deferred to cq-3 follow-up\" \u2014 is the right scoping; the cq-4 / cq-6 contingencies branch on a meaningful signal (hook logic IS correct vs hook logic IS broken) rather than a phantom one.\n\n2. **TASK-4-4 conformance matrix \u2014 fixed.** Mechanism switched to \"per-subagent MagicMock stubs in the same style as `integration_tests/regression/test_substrate_smoke.py:56` (hardcoded `stdout=\"ok\"`, no recorded transcripts)\". This is option (b) from my v1 NACK \u2014 the cheapest path that keeps the matrix in-sandbox-runnable. The acceptance text documents the trade-off (\"MagicMock-vs-real-transcript trade-off\") so future readers know the matrix tests the SDLC *shape* not verbatim text. #2714's closed state is also acknowledged with the right framing (\"irrelevant per feedback Q1's rationale\"). The chicken-and-egg problem of v1 is gone.\n\n3. **TASK-4-2 fence-removal \u2014 fixed.** Now cites both `:212` (call site) and `:807-826` (method def) explicitly in the description (\"Two locations must be touched \u2026 Removing only the call site leaves dead code; both must be deleted\"). Acceptance criteria echoes both locations. A coder following the cite literally will now delete both.\n\n### Non-blocking items also resolved\n\n- **TASK-5-5 fork primitive \u2014 now aligned with cq-3.** Implementation switched from \"Agent tool with `subagent_type='general-purpose'`\" to \"`subprocess.Popen` running a fresh `egg_harness.run_agent` invocation in a clean Python process (NOT via Claude Code's Agent tool \u2014 that would commit to Agent-tool dispatch ahead of the cq-3 empirical verdict)\". The acceptance text also handles the future migration cleanly (\"If cq-3's empirical verdict in slice-5's ADR refresh recommends migrating to Agent-tool dispatch, the fork primitive's implementation will change accordingly in a follow-up \u2014 not in this slice\"). Good \u2014 cq-3 deferral preserved.\n\n- **TASK-2-5 enforcement target \u2014 corrected.** Surface moved from `orchestrator/mcp_tools.py` to `sandbox/egg_agent_tools/handlers/restrictions.py` (where `check_file_restriction(req)` lives per `grep -rn \"check_file_restriction\" --include=\"*.py\" orchestrator/ sandbox/`). The description explicitly cites the audit (\"the correct surface per the plan reviewer's audit is the in-sandbox tool handler, NOT `orchestrator/mcp_tools.py` (which is the orchestrator-side MCP server, a different surface)\"). The dependent test (TASK-2-6) moved to `tests/sandbox/egg_agent_tools/test_restrictions_validator.py` \u2014 confirmed tester-writable.\n\n- **TASK-3-2 daemon lifecycle \u2014 pinned down.** Description now mandates `subprocess.Popen(start_new_session=True)` (or `os.setsid()` after fork) and the acceptance criteria asserts the property in TASK-3-8's test (\"the long-lived-across-Bash-exits property is asserted in TASK-3-8's test\"). The \"daemon dies when calling Bash exits\" failure mode is no longer latent.\n\n- **TASK-1-1 pending_hitl envelope \u2014 marked as shared contract for R17.** TASK-1-9 also calls out that the daemon (TASK-3-2) inherits the same envelope schema (\"closes risk_analyst R17 dual-bridge concern\"). Slice-1 commits to a state-serialization contract slice-3 picks up rather than reinventing.\n\n- **TASK-1-6 dependency on TASK-1-4 \u2014 made explicit.** Description now says \"Depends on TASK-1-4 having landed the two new rubric .md files first \u2026 The implementer should sequence TASK-1-4 \u2192 TASK-1-6 within the slice\".\n\n- **TASK-2-6 / TASK-2-7 renumbered** so file order matches numeric order.\n\n- **`LocalWorktreeManager` line citation corrected to :59**; **`_maybe_fence` dual-location** (`:212` call + `:807-826` def) added to the primitives table.\n\n### Remaining non-blocking observations\n\nThese are observations the planner doesn't need to address before consensus \u2014 surfacing for the implement-phase team:\n\n- **Slice-sizing advisories from v1 still apply** (#2137 \u2014 advisory only, never NACK per HITL decision-6 opt-2): slice-3 ~1,500 LOC (\"consider splitting\"), slice-4 ~2,200 LOC (\"strongly consider splitting\"), slice-5 ~2,500 LOC (\"strongly consider splitting\"). The operator retains override authority; the implementer should know if the slice expands further during implement-phase.\n\n- **R2 verdict semantics narrowed.** TASK-1-5's acceptance now tests hook *logic* given correct env propagation. That answers \"is `hook_entry.decide()` correct?\" not \"does Claude Code propagate `EGG_AGENT_ROLE` correctly under real Agent-tool dispatch?\". The latter question can only be answered when cq-3 flips to real Agent-tool dispatch in a future issue. The plan's framing (\"the production path becomes the empirical answer to that remaining half of R2\") is honest about this \u2014 but the cq-4 / cq-6 contingencies trigger on the *narrower* R2 signal. If the narrower R2 passes but the deferred real-dispatch R2 later fails, cq-4 / cq-6 may need to re-fire mid-future-issue. Worth flagging in the slice-1 ADR update (TASK-1-8) so the operator knows the contingency surface is split.\n\n- **R19 / R29 mitigation gates from risk_analyst** (plan-phase concurrency measurement before implement-phase ships; context-budget contingency on fork-trigger): the plan doesn't add explicit acceptance criteria gates for these on slice-2 (the plan-phase slice that produces the measurement). Risk_analyst's mitigations require reviewer_plan to hold slice-3 on slice-2's numbers; that's a review-cycle obligation, not a code task \u2014 but the slice-2 acceptance for TASK-2-4 (`test_inprocess_plan_brc.py`) could include \"records the per-loop wall-clock and parent-context delta to `.egg-state/<pipeline_id>/substrate-metrics.json`\" so the slice-3 review has data to gate on. Worth considering at implement-time; not a NACK reason now.\n\n- **TASK-4-3 substrate-fixture sprawl across 14 existing regression tests** is itself a sizeable change set. If any of those 14 tests aren't substrate-portable in practice (transitively depend on `egg_stack` or `gateway_url` through a helper), the task will need to add `@pytest.mark.skip(reason=...)` markers \u2014 the acceptance criteria allows for this, but worth budgeting review attention for those 14 individual touches when slice-4 lands.\n\nPlan is ready for ingestion. Slice DAG is strictly linear (slice-1 \u2192 2 \u2192 3 \u2192 4 \u2192 5) so #2137 forest constraint is trivially satisfied. All 43 tasks have role assignments writable per `shared/egg_restrictions/patterns.py` (verified via per-file lookup across the full task list).\n",
+        "ack_version": 2
+      },
+      "version": 2
+    },
+    "timestamp": "2026-05-19T18:40:39.042251+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "11599e8d-e19c-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 2) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 2
+    },
+    "timestamp": "2026-05-19T18:40:39.042354+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "775b63af-32d2-4f",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:40:39.091495+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "307b9e11-91bb-4e",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-19T18:40:43.117934+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "77a581d3-c0d4-4b",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:40:43.234899+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "923e67cc-2ea8-41",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:40:43.244148+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f6e8c9ff-1067-42",
+    "pipeline_id": "issue-2717",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-05-19T18:40:44.247959+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ad1a76e5-31e9-4d",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:40:48.680618+00:00"
+    },
+    "timestamp": "2026-05-19T18:40:48.704197+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "25d11e06-3e27-48",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:40:48.757337+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ef3b8f50-203f-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:40:49.024551+00:00"
+    },
+    "timestamp": "2026-05-19T18:40:49.066600+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7be61421-ba4c-4d",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:40:49.155432+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "74f26ae6-dd15-4f",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:40:54.736152+00:00"
+    },
+    "timestamp": "2026-05-19T18:41:17.785559+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3b65d5e2-9e74-4a",
+    "pipeline_id": "issue-2717",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:40:55.448086+00:00"
+    },
+    "timestamp": "2026-05-19T18:41:17.788380+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "980ddd5c-2753-49",
+    "pipeline_id": "issue-2717",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T18:40:56.091835+00:00"
+    },
+    "timestamp": "2026-05-19T18:41:17.793616+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "71ec8095-3e26-46",
+    "pipeline_id": "issue-2717",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T18:41:17.840178+00:00",
+    "phase": "plan"
+  }
+]
