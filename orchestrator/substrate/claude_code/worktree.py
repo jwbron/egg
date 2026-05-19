@@ -39,14 +39,17 @@ _DEFAULT_BASE_NAME = ".egg-worktrees"
 
 
 def _default_base() -> Path:
-    """Return the default base directory, computed from the *current* ``$HOME``."""
+    """Return the default base directory, computed from the *current* ``$HOME``.
+
+    No module-level constant alias exists by design (reviewer v2
+    non-blocking): an alias evaluated at import time would freeze
+    ``$HOME`` and silently diverge from what ``LocalWorktreeManager``
+    itself sees when ``monkeypatch.setenv("HOME", ...)`` is in
+    effect. Call this helper directly if you need the current
+    default base outside the manager.
+    """
     return Path(os.environ.get("HOME", "/home/egg")) / _DEFAULT_BASE_NAME
 
-
-# Back-compat alias for any test that imported ``DEFAULT_BASE``
-# directly — kept as a property-like callable so the resolution
-# stays late-binding even through the legacy attribute name.
-DEFAULT_BASE = _default_base()  # noqa: N816 — module-level constant per legacy callers
 
 # Conservative regex for pipeline / role names; matches the gateway's
 # validate_identifier behavior.

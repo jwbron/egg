@@ -262,7 +262,16 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
 
     role_name = role.value if hasattr(role, "value") else str(role)
     here = _Path(__file__).resolve()
-    # orchestrator/substrate/__init__.py  →  repo root
+    # orchestrator/substrate/__init__.py  →  repo root.
+    # TODO(cq-12 follow-up): once the egg Python packages publish to
+    # pip and the egg-sdlc plugin no longer relies on the from-source
+    # install, this `parent.parent.parent / plugins / …` walk breaks
+    # — site-packages does not co-locate the plugins directory. The
+    # follow-up should swap to a packaging-aware resolution (e.g.
+    # ``importlib.resources.files("egg_sdlc_plugin").joinpath(...)``
+    # behind a published namespace), with a from-source fallback for
+    # the walking-skeleton install path. See SKILL.md's install
+    # section and the bridge-gap callout.
     repo_root = here.parent.parent.parent
     rubric_path = (
         repo_root / "plugins" / "egg-sdlc" / "skills" / "egg-sdlc" / "agents" / f"{role_name}.md"

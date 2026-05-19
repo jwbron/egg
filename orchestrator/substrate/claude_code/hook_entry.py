@@ -321,11 +321,26 @@ def _bash_write_paths(command: str) -> tuple[list[str], bool]:
         # shape.
         if base == "tar":
             rest = tokens[i + 1 :]
-            extracts = any(
-                t in {"-x", "--extract", "-xf", "-xzf", "-xjf"}
-                or (t.startswith("-x") and not t.startswith("--exclude"))
-                for t in rest
-            )
+
+            # Reviewer v2 non-blocking: narrow the extract-mode
+            # detection to the actual tar extract flags. Previously
+            # any token starting with ``-x`` (e.g. ``--xattrs``,
+            # ``--xz``) was treated as an extract, producing
+            # fail-closed false-positives. Match the named extract
+            # forms exactly (long ``--extract`` + short modes that
+            # encode ``x``: ``-x`` alone or short-flag clusters like
+            # ``-xf``, ``-xzf``, ``-xjf``, ``-xJf``, ``-xvf``).
+            def _is_tar_extract(tok: str) -> bool:
+                if tok == "--extract":
+                    return True
+                if not tok.startswith("-") or tok.startswith("--"):
+                    return False
+                # Single-dash cluster: each char after the leading
+                # dash is a short flag; ``x`` anywhere in the cluster
+                # means extract.
+                return "x" in tok[1:]
+
+            extracts = any(_is_tar_extract(t) for t in rest)
             if extracts:
                 target_dir: str | None = None
                 for k, t in enumerate(rest):
@@ -371,17 +386,29 @@ def _bash_write_paths(command: str) -> tuple[list[str], bool]:
                 break
         # Shell-of-shell forms: recurse into the inner command so
         # ``bash -c 'echo x > /restricted'`` is parsed, not silently
-        # allowed (reviewer v1 blocker #4).
+        # allowed (reviewer v1 blocker #4). Reviewer v2 non-blocking:
+        # also handle combined short-flag clusters like ``bash -lc
+        # '...'`` or ``bash -xc '...'`` where the ``c`` rides along
+        # with other single-char options.
         if base in {"bash", "sh", "zsh", "dash", "ksh"}:
             rest = tokens[i + 1 :]
-            if "-c" in rest:
-                idx = rest.index("-c")
-                if idx + 1 < len(rest):
-                    inner = rest[idx + 1]
-                    inner_paths, inner_ambiguous = _bash_write_paths(inner)
-                    paths.extend(inner_paths)
-                    if inner_ambiguous:
-                        ambiguous = True
+            c_index: int | None = None
+            for k, tok in enumerate(rest):
+                if tok == "-c":
+                    c_index = k
+                    break
+                # Combined short cluster: starts with single dash, no
+                # second dash, and includes ``c`` somewhere in the
+                # cluster. Matches ``-lc``, ``-xc``, ``-cx``, etc.
+                if tok.startswith("-") and not tok.startswith("--") and "c" in tok[1:]:
+                    c_index = k
+                    break
+            if c_index is not None and c_index + 1 < len(rest):
+                inner = rest[c_index + 1]
+                inner_paths, inner_ambiguous = _bash_write_paths(inner)
+                paths.extend(inner_paths)
+                if inner_ambiguous:
+                    ambiguous = True
             break
         if base == "python3" or base == "python":
             # python -c "..." is arbitrary Python — flag as ambiguous
@@ -706,11 +733,14 @@ def main() -> int:
         raw = sys.stdin.read()
         blob = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
-        # Security finding #3: fail CLOSED. In the claude-code
-        # substrate the gateway is gone by construction; the hook IS
-        # the load-bearing enforcement layer. A fail-open on a
-        # malformed stdin is a complete-bypass primitive an attacker
-        # who can shape any tool input can trigger.
+        # Security finding #3: fail CLOSED. Even as a first-tier
+        # filter (per the module-top "first-tier enforcement only"
+        # threat-model rewrite), a fail-open on a malformed stdin is
+        # a complete-bypass primitive an attacker who can shape any
+        # tool input can trigger — every write would slip past this
+        # tier with no signal handed to the second-tier MCP
+        # validator. Failing closed keeps the filter cheap and
+        # honest about its scope.
         print(
             json.dumps(
                 {
