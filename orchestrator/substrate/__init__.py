@@ -229,6 +229,54 @@ def _build_k3s_spawner(legacy_spawn_fn: Any | None) -> AgentSpawner:
     return _LazyK3sSpawner()
 
 
+#: Per-role mapping naming which #2717 rollout slice ships the rubric
+#: markdown for that role. Updated as each slice lands its
+#: documenter-owned rubric files. Roles absent from this map are
+#: "deferred indefinitely" (overseer / inspector / autofixer /
+#: conflict_resolver — intentionally unhandled per task-3-6).
+#:
+#: The slice numbers match issue #2717's plan:
+#:   slice-1: refiner (already shipped in #2715) + 2 refine reviewers
+#:            (task-1-4 documenter).
+#:   slice-2: 3 plan producers + reviewer_plan (task-2-3 documenter).
+#:   slice-3: 3 implement producers + 5 implement reviewers
+#:            (task-3-4 / task-3-5 documenter).
+_ROLE_RUBRIC_SLICES: dict[str, str] = {
+    # Slice-1 (refine team).
+    "refiner": "slice-1",
+    "reviewer_refine": "slice-1",
+    "reviewer_agent_design": "slice-1",
+    # Slice-2 (plan team).
+    "architect": "slice-2",
+    "task_planner": "slice-2",
+    "risk_analyst": "slice-2",
+    "reviewer_plan": "slice-2",
+    # Slice-3 (implement team).
+    "coder": "slice-3",
+    "tester": "slice-3",
+    "documenter": "slice-3",
+    "reviewer_code": "slice-3",
+    "reviewer_code_holistic": "slice-3",
+    "reviewer_contract": "slice-3",
+    "reviewer_security": "slice-3",
+    "reviewer_concurrency": "slice-3",
+}
+
+#: Roles whose rubric markdown has been landed by a documenter in this
+#: slice. The set grows as each slice's documenter task completes;
+#: today (#2717 slice-1) it contains the refiner (shipped in #2715) and
+#: the two refine-team reviewers (task-1-4 documenter, lands in
+#: parallel with this loader update — TASK-1-4 → TASK-1-6 sequencing
+#: within the slice).
+_RUBRIC_LANDED_ROLES: frozenset[str] = frozenset(
+    {
+        "refiner",
+        "reviewer_refine",
+        "reviewer_agent_design",
+    }
+)
+
+
 def _load_egg_sdlc_role_rubric(role: Any) -> str:
     """Load the role rubric markdown from ``plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md``.
 
@@ -240,10 +288,14 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
     actually receives the rubric (the structural depth fix from
     #2622).
 
-    Walking-skeleton scope: only the refiner role ships rubric
-    markdown. Other roles (out of scope per cq-11) raise ``ValueError``
-    with a pointer to the follow-up issue rather than silently
-    returning the trivial fallback.
+    Issue #2717 rollout scope: slice-1 expands the rubric-supported
+    set to the refine team (refiner + reviewer_refine +
+    reviewer_agent_design). Plan-team and implement-team roles
+    continue to raise ``ValueError`` with a pointer to the slice that
+    ships their rubric, so the structured-error contract for missing
+    rubrics stays consistent across the rollout. The mapping lives
+    in ``_ROLE_RUBRIC_SLICES`` so future slices can extend it without
+    touching this loader's body.
 
     Args:
         role: ``AgentRole`` (or a string-equivalent) identifying the
@@ -254,9 +306,11 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
         frontmatter is informational only per ``refiner.md``).
 
     Raises:
-        ValueError: when the rubric file does not exist; the caller
-            will see this as a spawner-side failure rather than a
-            silently degraded prompt.
+        ValueError: when the role is not yet in the rubric-supported
+            set for this slice, OR when the supported-role's rubric
+            file does not exist on disk (typically because the
+            documenter hasn't landed it yet within the same slice;
+            sequence TASK-1-4 → TASK-1-6 within slice-1).
     """
     from pathlib import Path as _Path
 
@@ -276,11 +330,37 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
     rubric_path = (
         repo_root / "plugins" / "egg-sdlc" / "skills" / "egg-sdlc" / "agents" / f"{role_name}.md"
     )
-    if not rubric_path.is_file():
+
+    # Fence: roles outside the rubric-landed set for this slice raise
+    # with a structured pointer to the rollout slice that ships them.
+    # Roles not in _ROLE_RUBRIC_SLICES at all are "indefinitely
+    # deferred" (overseer / inspector / autofixer / conflict_resolver).
+    if role_name not in _RUBRIC_LANDED_ROLES:
+        slice_hint = _ROLE_RUBRIC_SLICES.get(role_name)
+        if slice_hint is None:
+            raise ValueError(
+                f"egg-sdlc role rubric missing for role={role_name!r}. "
+                f"This role is not part of the #2717 rollout's rubric "
+                "set; if your pipeline needs it, file a follow-up issue."
+            )
         raise ValueError(
-            f"egg-sdlc role rubric missing at {rubric_path} for role={role_name!r}. "
-            "Walking-skeleton spike (#2623) only ships the refiner rubric; "
-            "other roles are deferred to the follow-up issue per cq-11."
+            f"egg-sdlc role rubric for role={role_name!r} is deferred to "
+            f"follow-up {slice_hint} of issue #2717's rollout. "
+            "See docs/architecture/claude-code-substrate.md for the slice DAG."
+        )
+
+    if not rubric_path.is_file():
+        # Supported role, but the documenter's .md file hasn't landed
+        # in this slice yet. Surface as a clear "rubric missing in
+        # slice-1" error so the reviewer / operator knows the
+        # documenter task is still in flight.
+        raise ValueError(
+            f"egg-sdlc role rubric missing on disk at {rubric_path} for "
+            f"role={role_name!r}. The role is in this slice's "
+            "rubric-supported set but the markdown file has not been "
+            "landed yet — sequence the documenter's rubric task "
+            "(e.g. TASK-1-4 for slice-1's refine reviewers) before the "
+            "loader update (TASK-1-6) within the same slice."
         )
     return rubric_path.read_text(encoding="utf-8")
 
