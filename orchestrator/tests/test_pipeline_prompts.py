@@ -4536,16 +4536,25 @@ class TestAdversarialReReviewPriming:
         assert "GitHub" in block
 
     @pytest.mark.parametrize(
-        "role",
+        ("role", "phase"),
         [
-            "reviewer_code",
-            "reviewer_code_holistic",
-            "reviewer_security",
-            "reviewer_concurrency",
-            "reviewer_contract",
+            # Aligned with the recognized reviewer set across all
+            # phases so every role that emits step 8 is exercised — a
+            # regression that drops step 8 from any of these surfaces
+            # here. Each tuple uses the phase in which the role
+            # actually acts as a reviewer per ``review_graph``.
+            ("reviewer_code", "implement"),
+            ("reviewer_code_holistic", "implement"),
+            ("reviewer_security", "implement"),
+            ("reviewer_concurrency", "implement"),
+            ("reviewer_contract", "implement"),
+            ("tester", "implement"),
+            ("reviewer_refine", "refine"),
+            ("reviewer_agent_design", "refine"),
+            ("reviewer_plan", "plan"),
         ],
     )
-    def test_reviewer_lifecycle_step8_carries_adversarial_framing(self, role):
+    def test_reviewer_lifecycle_step8_carries_adversarial_framing(self, role, phase):
         """Step 8 HANDLE RE-REVIEW carries the adversarial reframe in
         the spawn-time prompt so a reviewer reading the lifecycle text
         sees the directive even before any re-review message arrives.
@@ -4554,7 +4563,7 @@ class TestAdversarialReReviewPriming:
         both surfaces matter because the reviewer may scroll back to
         the lifecycle text while drafting their verdict.
         """
-        preamble = _build_brc_preamble(role, "implement", branch="egg/issue-123")
+        preamble = _build_brc_preamble(role, phase, branch="egg/issue-123")
         # Locate the step 8 block.
         s8_start = preamble.index("8. **HANDLE RE-REVIEW**")
         # Step 8 is the last reviewer-lifecycle step; slice to the end

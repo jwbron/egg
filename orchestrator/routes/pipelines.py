@@ -12334,14 +12334,14 @@ def _build_brc_preamble(
                 "— the retry succeeds once you've been informed of the full set. "
                 "Don't re-propose addressing only one reviewer's NACK; the "
                 "orchestrator will kick you back with the rest.\n\n"
-                "   **NACKs naming new findings on your re-propose are "
-                "legitimate, not goalpost-moving.** Reviewers are explicitly "
-                "primed to re-review the v2+ delta adversarially — they will "
-                "surface new issues introduced by your fix even if those issues "
-                "lie outside the scope of their prior NACK. Fix and re-propose; "
-                "do not argue, do not try to confine the review to the original "
-                "blockers, do not negotiate. Re-reviews are cheap by design and "
-                "this is the protocol working as intended.",
+                "   **On re-propose:** NACKs naming new findings outside the "
+                "scope of your prior NACK are legitimate, not goalpost-moving. "
+                "Reviewers are explicitly primed to re-review the v2+ delta "
+                "adversarially — they will surface new issues introduced by "
+                "your fix. Fix and re-propose; do not argue, do not try to "
+                "confine the review to the original blockers, do not negotiate. "
+                "Re-reviews are cheap by design and this is the protocol "
+                "working as intended.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Block on the next BRC event with "
                 "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
@@ -12363,7 +12363,9 @@ def _build_brc_preamble(
                 "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. If you are a reviewer of the re-proposing producer, "
-                "re-review and ACK/NACK the new proposal. Otherwise, re-confirm via "
+                "re-review and ACK/NACK the new proposal (dual-role agents: see "
+                "Reviewer Lifecycle step 8 below for the adversarial re-review framing "
+                "that applies to this case). Otherwise, re-confirm via "
                 "`egg-orch consensus confirmed`. Do NOT ignore these messages.",
                 "8. **RESOLVE OBLIGATIONS YOU SATISFY (#2338)**: If you "
                 "land a commit that satisfies a *different* producer's "

@@ -454,6 +454,87 @@ class TestProposePhasePropagation:
         assert propose_msg.message_type == MessageType.CONSENSUS_PROPOSE
         assert "Adversarial re-review" not in propose_msg.body
 
+    @patch("routes.signals._resolve_pipeline_phase", return_value="implement")
+    @patch("routes.signals.get_state_store")
+    def test_auto_push_re_propose_messages_carry_adversarial_re_prime(
+        self,
+        mock_get_store,
+        mock_resolve_phase,
+        app,
+        mock_pipeline,
+    ):
+        """``handle_consensus_producer_push_signal`` is the second
+        re-propose entry point — when a producer pushes new commits
+        after already proposing, the orchestrator auto-bumps the
+        proposal version and notifies reviewers.
+
+        Both surfaces must carry the adversarial re-prime, for the
+        same reasons as the explicit ``handle_consensus_propose_signal``
+        re-propose path (see #2724 post-mortem):
+
+        - NACKing reviewers from the prior version receive the
+          broadcast ``CONSENSUS_PROPOSE`` (not per-reviewer
+          ``CONSENSUS_RE_REVIEW``), so the propose body must carry the
+          priming or the most-likely-to-find-new-issues reviewer
+          never sees it.
+        - ACK'd / stale reviewers receive ``CONSENSUS_RE_REVIEW``,
+          which must also carry the priming.
+
+        A regression that drops either surface (e.g. an import-path
+        break that silently fails to inject the priming text) would
+        otherwise re-open the #2724 gap.
+        """
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+
+        mock_tracker = MagicMock()
+        mock_tracker.handle_producer_push.return_value = {
+            "auto_re_propose": True,
+            "version": 2,
+            "stale_reviewers": ["reviewer_code"],
+            "invalidated_reviewers": [],
+            "newly_ready": [],
+        }
+
+        mock_msg_store = MagicMock()
+
+        with (
+            app.app_context(),
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker),
+            patch("message_store.get_message_store", return_value=mock_msg_store),
+        ):
+            from routes.signals import handle_consensus_producer_push_signal
+
+            response, status_code = handle_consensus_producer_push_signal(
+                "issue-42",
+                {
+                    "agent_role": "coder",
+                    "commit_sha": "abc123def",
+                    "changed_files": ["src/auth.py"],
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 200
+        # Expect at least 2 messages: PROPOSE + RE_REVIEW (1 reviewer).
+        assert mock_msg_store.add_message.call_count >= 2
+
+        # The broadcast CONSENSUS_PROPOSE (auto re-propose) carries the
+        # re-prime so NACKing reviewers from the prior version see it.
+        propose_msg = mock_msg_store.add_message.call_args_list[0][0][0]
+        assert propose_msg.message_type == MessageType.CONSENSUS_PROPOSE
+        assert "Adversarial re-review" in propose_msg.body
+        assert "NACK without hesitance" in propose_msg.body
+        # The auto-push system-generated preamble is still present.
+        assert "abc123def" in propose_msg.body
+
+        # CONSENSUS_RE_REVIEW to the stale reviewer also carries it.
+        re_review_msg = mock_msg_store.add_message.call_args_list[1][0][0]
+        assert re_review_msg.message_type == MessageType.CONSENSUS_RE_REVIEW
+        assert "Adversarial re-review" in re_review_msg.body
+        assert "NACK without hesitance" in re_review_msg.body
+
 
 class TestAckPhasePropagation:
     """handle_consensus_ack_signal sets phase on all Messages."""
