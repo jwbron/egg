@@ -8,12 +8,15 @@ Acceptance criteria covered (per contract task-1-7):
   added by task-1-4 (documenter-owned ``reviewer_refine.md``).
 * ``_load_egg_sdlc_role_rubric(REVIEWER_AGENT_DESIGN)`` returns the rubric
   markdown added by task-1-4 (documenter-owned ``reviewer_agent_design.md``).
-* ``_load_egg_sdlc_role_rubric(ARCHITECT)`` still raises ``ValueError`` with
-  the diagnostic hint updated from "follow-up issue per cq-11" to
-  "follow-up slice 2" (task-1-6 acceptance criterion).
+* ``_load_egg_sdlc_role_rubric(ARCHITECT)`` returns the rubric markdown —
+  slice-2 (task-2-2 / task-2-3) extends the loader's rubric-landed set
+  to the plan team and ships ``architect.md``. (Slice-1 originally
+  expected this role to still raise with a "follow-up slice 2" hint;
+  the merge of slice-2's loader expansion onto slice-1 flips it to
+  loadable.)
 
 The four required cases (refiner regression / reviewer_refine /
-reviewer_agent_design / architect-raises) are implemented as discrete
+reviewer_agent_design / architect-loads) are implemented as discrete
 parametrized tests so a single failure points cleanly at one role's
 loader behavior.
 
@@ -30,9 +33,10 @@ Adversarial probing layered on top of the contract's required cases:
   f"{role_name}.md"``; an attacker who can supply role values cannot
   escape the agents directory because ``role_name`` is appended as a
   filename component.)
-* Plan-phase / implement-phase roles (e.g. ``REVIEWER_PLAN``,
-  ``REVIEWER_CODE``) still raise ``ValueError`` — slice 2/3 deliver
-  those rubrics, not slice 1.
+* Implement-phase roles (e.g. ``REVIEWER_CODE``) still raise
+  ``ValueError`` — slice 3 delivers those rubrics. Plan-phase roles
+  (``REVIEWER_PLAN``, ``TASK_PLANNER``, etc.) became loadable in
+  slice-2 and no longer belong in the still-deferred set.
 """
 
 from __future__ import annotations
@@ -107,36 +111,19 @@ def test_load_reviewer_agent_design_rubric() -> None:
     )
 
 
-def test_load_architect_raises_value_error_with_slice2_hint() -> None:
-    """``ARCHITECT`` still raises ``ValueError`` — the loader fence remains in place.
+def test_load_architect_rubric() -> None:
+    """``ARCHITECT`` rubric loads from ``architect.md`` in slice-2.
 
-    Task-1-6 acceptance criterion: the diagnostic hint flips from the
-    spike's "follow-up issue per cq-11" to "follow-up slice 2". The
-    test pins the wording so a regression that silently drops the
-    diagnostic (or reverts to the pre-rollout text) is caught.
+    Slice-1 originally pinned this role as raising ``ValueError`` with a
+    "follow-up slice 2" hint (task-1-6). Slice-2 (task-2-2 / task-2-3)
+    extends the loader to the plan team — architect is now in the
+    rubric-landed set and ``architect.md`` exists on disk.
     """
-    with pytest.raises(ValueError) as excinfo:
-        _load(AgentRole.ARCHITECT)
-    msg = str(excinfo.value)
-    # Cover both the role identification and the updated diagnostic
-    # pointer. The previous "follow-up issue per cq-11" wording must
-    # not survive into the rollout.
-    assert "architect" in msg.lower(), f"ValueError must name the role under failure; got: {msg!r}"
-    # AC: hint references "follow-up slice 2" — accept either the
-    # hyphenated or spaced form ("slice-2" / "slice 2") since the
-    # intent ("the rubric is deferred to the second rollout slice")
-    # is identical.
-    lowered = msg.lower()
-    assert (
-        "follow-up slice 2" in lowered
-        or "follow-up slice-2" in lowered
-        or "slice 2" in lowered
-        or "slice-2" in lowered
-    ), f"task-1-6 AC requires the diagnostic hint to reference 'follow-up slice 2'; got: {msg!r}"
-    # Adversarial: ensure the old cq-11 hint is gone — silently
-    # leaving it in place would defeat the AC.
-    assert "cq-11" not in lowered, (
-        f"task-1-6 AC: 'follow-up issue per cq-11' wording must be replaced; got: {msg!r}"
+    body = _load(AgentRole.ARCHITECT)
+    assert isinstance(body, str)
+    assert body.strip(), "architect rubric body must not be empty"
+    assert "architect" in body.lower(), (
+        "architect rubric must reference its own role name in the body"
     )
 
 
@@ -177,14 +164,17 @@ def test_loader_accepts_enum_and_string_role(role_input: object) -> None:
 
 
 @pytest.mark.parametrize(
-    "plan_phase_role",
+    "implement_phase_role",
     [
-        pytest.param(AgentRole.REVIEWER_PLAN, id="reviewer_plan"),
+        # Implement-team roles still deferred to slice 3 of the #2717
+        # rollout — REVIEWER_PLAN and TASK_PLANNER shipped in slice-2
+        # (task-2-2 / task-2-3) and were removed from this parameter
+        # list when the loader's `_RUBRIC_LANDED_ROLES` set grew to
+        # include the plan team.
         pytest.param(AgentRole.REVIEWER_CODE, id="reviewer_code"),
-        pytest.param(AgentRole.TASK_PLANNER, id="task_planner"),
     ],
 )
-def test_loader_still_rejects_unshipped_roles(plan_phase_role: object) -> None:
+def test_loader_still_rejects_unshipped_roles(implement_phase_role: object) -> None:
     """Roles whose rubrics are not yet shipped continue to raise.
 
     Task-1-6 description: "The loader continues to raise ``ValueError``
@@ -197,7 +187,7 @@ def test_loader_still_rejects_unshipped_roles(plan_phase_role: object) -> None:
     diagnostic.
     """
     with pytest.raises(ValueError):
-        _load(plan_phase_role)
+        _load(implement_phase_role)
 
 
 def test_loader_rejects_path_traversal_role_name() -> None:
