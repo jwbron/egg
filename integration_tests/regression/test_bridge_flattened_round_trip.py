@@ -165,13 +165,20 @@ def _invoke_driver(
         "EGG_STATE_DIR": str(state_dir),
         "EGG_SUBSTRATE": "claude-code",
         "EGG_TEST_DRIVER_PATH": str(driver_path),
-        # Keep PYTHONPATH consistent with the in-process unit tests so
-        # the subprocess imports the repo's ``orchestrator``/``shared``
-        # packages, not a system-installed copy.
+        # Subprocess PYTHONPATH must let ``import orchestrator.substrate``
+        # resolve cleanly:
+        #   * ``<repo>/shared`` so ``egg_contracts`` (imported transitively
+        #     by ``orchestrator.substrate.k3s_adapter``) resolves.
+        #   * ``<repo>`` so the ``orchestrator`` package itself resolves
+        #     (the package has ``orchestrator/__init__.py``).
+        # The Makefile's ``PYTHONPATH := shared:gateway:orchestrator`` uses
+        # cwd-relative paths that only work when pytest runs at the repo
+        # root. We resolve absolute paths here because the subprocess's
+        # CWD is the per-test tmp dir.
         "PYTHONPATH": os.pathsep.join(
             [
                 str(repo_root / "shared"),
-                str(repo_root / "orchestrator"),
+                str(repo_root),
                 str(repo_root / "gateway"),
                 os.environ.get("PYTHONPATH", ""),
             ]
