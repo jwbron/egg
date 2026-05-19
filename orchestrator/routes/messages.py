@@ -493,7 +493,25 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
         )
 
     role = request.args.get("role")
+    # #2725: ``from`` (singular) and ``from_producer`` (repeatable set)
+    # both flow into the same store-level sender filter. Validating
+    # only the plural form would leave a typo like ``?from=codr``
+    # silently filtering every event — the same silent-sleep failure
+    # mode the from_producer rejection exists to prevent. Reject empty
+    # explicit values and unknown roles at the route boundary on both
+    # forms so the surface is symmetric.
     from_role = request.args.get("from")
+    if from_role is not None:
+        if from_role == "":
+            return _make_error(
+                "Invalid 'from' parameter: must be a non-empty role name "
+                "(omit the parameter entirely for no sender filter)"
+            )
+        if from_role not in _KNOWN_FROM_PRODUCER_VALUES:
+            return _make_error(
+                f"Invalid 'from' value: {from_role} — must be a known AgentRole "
+                "or system sender (overseer / orchestrator)"
+            )
     # #2725: ``from_producer`` is the repeatable set form of ``from``.
     # ``from`` (singular) wins when both are provided so legacy callers
     # see no behaviour change. An explicit-but-empty list (e.g.

@@ -2099,6 +2099,79 @@ class TestWaitEndpoint:
                 )
                 assert resp.status_code == 200
 
+    def test_wait_empty_from_returns_400(self, client, app):
+        """An explicit-but-empty ``?from=`` is rejected with 400 (#2725
+        review follow-up). Mirrors the empty ``?from_producer=`` and
+        ``?slice=`` rejections — silent acceptance would degrade the
+        filter to "any sender", which is fine here but hides a
+        misconfigured caller."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_PROPOSE&from=&timeout=1"
+                )
+                assert resp.status_code == 400
+                body = json.loads(resp.data)
+                assert "from" in body["message"]
+
+    def test_wait_unknown_from_value_returns_400(self, client, app):
+        """An unknown singular ``?from=`` value is rejected with 400
+        (#2725 review follow-up). A typo like ``?from=codr`` would
+        silently filter every event — same failure mode as the plural
+        ``?from_producer=`` rejection. Validating both keeps the route
+        surface symmetric so callers can't accidentally land in the
+        silent-sleep mode by using the legacy singular parameter."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_PROPOSE&from=codr&timeout=1"
+                )
+                assert resp.status_code == 400
+                body = json.loads(resp.data)
+                assert "codr" in body["message"]
+                assert "from" in body["message"]
+
+    def test_wait_known_from_value_accepted(self, client, app):
+        """``?from=`` accepts canonical ``AgentRole`` values and the
+        system senders (``overseer`` / ``orchestrator``). Pins the
+        symmetric acceptance contract between singular and plural forms
+        so a future change to ``_KNOWN_FROM_PRODUCER_VALUES`` covers
+        both surfaces at once."""
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # ``orchestrator`` exercises the system-sender branch;
+                # the existing test_wait_from_filter covers the
+                # AgentRole branch end-to-end.
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_PROPOSE&from=orchestrator&timeout=1"
+                )
+                assert resp.status_code == 200
+
 
 class TestProducerPendingConfirmGuard:
     """Reject ``wait --for CONSENSUS_CONFIRMED`` from producers in
