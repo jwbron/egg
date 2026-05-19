@@ -148,9 +148,11 @@ orchestrator/
 │   ├── k3s_adapter.py      # `K3sSpawnerAdapter` shim wrapping `KubernetesSpawner.create_concurrent_spawn_fn`
 │   ├── in_process.py       # `run_pipeline_in_process()` generator entry point (claude-code substrate only)
 │   └── claude_code/        # Claude-Code-native implementations
-│       ├── spawner.py      # `ClaudeCodeSpawner` — dispatches via `shared/egg_harness` + Agent tool
+│       ├── spawner.py      # `ClaudeCodeSpawner` — runs `egg_harness.run_agent` in-process (Agent-tool dispatch is a follow-up; see ADR "Open work")
+│       ├── hook_entry.py   # Standalone `python3 -m` PreToolUse hook script invoked by Claude Code (Bash/Write/Edit parser; fail-closed on ambiguous shapes)
 │       ├── message_bus.py  # `InProcessMessageBus` — subclasses `MessageStore` (in-memory)
-│       ├── policy.py       # `PreToolUseHookPolicy` — PreToolUse hook + `settings.template.json`
+│       ├── policy.py       # `PolicyEnforcer` adapter (`check_write` + `install`) wrapping the `hook_entry.py` script
+│       ├── settings.template.json # Claude Code settings template registering `hook_entry.py` as the PreToolUse hook
 │       └── worktree.py     # `LocalWorktreeManager` — per-agent worktrees under `~/.egg-worktrees/`
 ├── overseer/               # Overseer agent package (LLM-powered tier of pipeline health monitoring)
 │   ├── classifier.py       # Haiku-tier classifiers (stall, loop, error triage, off-track detection)
