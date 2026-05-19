@@ -6182,6 +6182,19 @@ def _build_review_prompt(
     # unified wording told the holistic reviewer to "review every changed
     # file systematically", which contradicted the holistic criteria's
     # "don't verify every line".
+    #
+    # The operator-copy-paste framing (step 5) and pre-existing-broken-behavior
+    # clause (added after step 8) are deliberately scoped to code/code-holistic
+    # only. The shapes generalize — a security reviewer reading a `curl | bash`
+    # snippet, a concurrency reviewer reading a `gunicorn` launch line, or a
+    # contract reviewer reading an acceptance-criterion snippet would all
+    # benefit from "would this command execute as written?" — but the four
+    # #2724 misses that motivated these additions were code-lens issues
+    # (`pip install -r requirements.txt`, `${ANSWER}` shell-interpolated,
+    # `datetime.utcnow()` deprecation, non-atomic write). Keeping these on the
+    # code-lens branch avoids prompt bloat for narrower-lens reviewers whose
+    # rubrics already cover the same ground in lens-specific shape. Expand
+    # scope only if observed misses in other-lens reviews motivate it.
     if reviewer_type in ("code", "code-holistic") and not draft_path:
         if reviewer_type == "code-holistic":
             lines.append(
@@ -6203,16 +6216,21 @@ def _build_review_prompt(
             "execution path in the real deployment environment. Check that config files, "
             "environment variables, and dependencies are actually available where the code runs. "
             "**Read every documented snippet, install command, and code example "
-            "as an operator about to copy-paste it — would the command execute as "
-            "written? Does the documented file exist (`ls` or `find` it)? Does the "
-            "library/API the snippet calls match the actual signature (use WebSearch "
-            "for deprecations and version-dependent behavior)?** The four "
-            "blocking findings on PR #2724 (escaped to the GitHub bot) were all "
-            "of this shape — `pip install -r requirements.txt` against a "
-            "non-existent file, `${ANSWER}` shell-interpolated as a bare Python "
-            "identifier, `datetime.utcnow()` deprecated since Python 3.12, "
-            "non-atomic file write — and would all have been caught by reading the "
-            "snippet as a copy-paster instead of as a documentation reader."
+            "as an operator about to copy-paste it.** Apply this verification "
+            "ladder to each snippet:\n"
+            "   - Would the command execute as written?\n"
+            "   - Does the documented file exist (`ls` or `find` it)?\n"
+            "   - Does the library/API the snippet calls match the actual "
+            "signature (use WebSearch for deprecations and version-dependent "
+            "behavior)?\n"
+            "\n"
+            "   The four blocking findings on PR #2724 (escaped to the GitHub "
+            "bot) were all of this shape — `pip install -r requirements.txt` "
+            "against a non-existent file, `${ANSWER}` shell-interpolated as a "
+            "bare Python identifier, `datetime.utcnow()` deprecated since "
+            "Python 3.12, non-atomic file write — and would all have been "
+            "caught by reading the snippet as a copy-paster instead of as a "
+            "documentation reader."
         )
         lines.append(
             "6. Research when uncertain — use WebSearch and WebFetch (when available) "
@@ -6351,13 +6369,6 @@ def _build_review_prompt(
             "style issue. If the feature's core functionality is broken — not just degraded or "
             f"missing edge cases — always {_nack_label}, even if the code structure looks "
             "reasonable or matches an existing pattern."
-        )
-        lines.append(
-            "**Pre-existing issues are still blocking**: If the code being reviewed modifies "
-            f"areas with existing broken or inconsistent behavior, {_nack_label} — do not "
-            'dismiss it as "not a regression." The code is already being changed in that area, '
-            "making it the natural place to fix the issue. Code that adds new paths through "
-            "already-broken logic makes the problem worse."
         )
         lines.append("")
 
@@ -12594,13 +12605,20 @@ def _build_brc_preamble(
                 "it, then re-confirm via `egg-orch consensus confirmed`. Do NOT "
                 "ignore these messages.\n\n"
                 "   **This is adversarial re-review, not blocker-verification.** "
-                "Read the message body — the orchestrator appends an adversarial "
-                "re-prime to every re-review trigger. Your spawn-time mandate "
-                "stands: find ALL issues, last line of defense before production. "
-                "New issues outside the scope of your prior NACK are blocking. "
-                "Re-reviews are cheap by design — read the delta, apply your "
-                "rubric, decide. Minutes, not hours. **NACK without hesitance**; "
-                "the orchestrator absorbs cycles. Two NACKs on the same producer "
+                "Your v2 review has TWO equal-weight mandates: (1) verify v1 "
+                "blockers were addressed AND (2) audit the v2 delta as a fresh "
+                "reviewer with no NACK history. Both must pass to ACK. "
+                "**The message body is authoritative for the full framing** — "
+                "the orchestrator appends an adversarial re-prime to every "
+                "re-review trigger with the complete dual-mandate decomposition, "
+                "the named-blockers-anchor trap, and the operator-copy-paste "
+                "verification ladder; this lifecycle text is a pointer to that, "
+                "not a substitute. Your spawn-time mandate stands: find ALL "
+                "issues, last line of defense before production. New issues "
+                "outside the scope of your prior NACK are blocking. Re-reviews "
+                "are cheap by design — read the delta, apply your rubric, "
+                "decide. Minutes, not hours. **NACK without hesitance**; the "
+                "orchestrator absorbs cycles. Two NACKs on the same producer "
                 "where the second names new findings is the correct trajectory, "
                 "not goalpost-moving. The downstream GitHub reviewer should find "
                 "nothing in your re-reviewed deltas — anything it catches is a "
@@ -13034,16 +13052,21 @@ def _re_review_priming_block() -> str:
         "concerns were satisfied.\n\n"
         "Both mandates have equal weight. If (1) passes but (2) finds new "
         "issues, you NACK. ACK requires both pass.\n\n"
-        "**The named-blockers anchor is a known trap.** The four issues "
-        "that escaped PR #2724 to the GitHub bot were all in "
-        "`reviewer_code`'s mandate-2 territory: `reviewer_code` correctly "
-        'answered mandate 1 ("did v1 line-by-line bugs get fixed? yes") '
-        'and skipped mandate 2 ("does v2 introduce new line-by-line '
-        "bugs? actually yes — `${ANSWER}` as bare Python, deprecated "
-        '`datetime.utcnow()`, non-atomic write, bare `except: pass`"). '
-        "Watching the producer deliver a targeted fix pulls strongly "
-        'toward "verify my fix-request landed → ACK." Recognize the '
-        "pull and do mandate 2 anyway.\n\n"
+        "**The named-blockers anchor is a known trap. Every reviewer "
+        "lens has a mandate-2 in its own territory** — security has "
+        "v2-introduced threat surfaces, concurrency has v2-introduced "
+        "races, contract has v2-introduced AC drift, code has "
+        "v2-introduced line-by-line bugs. The four issues that escaped "
+        "PR #2724 to the GitHub bot were all of code-lens shape "
+        "(`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, "
+        "non-atomic write, bare `except: pass`) — the persistent "
+        'reviewer correctly answered mandate 1 ("did v1 issues get '
+        'fixed? yes") and skipped mandate 2 ("does v2 introduce new '
+        'issues? actually yes"). The shape generalizes: whatever your '
+        "lens, the v2 delta can introduce issues your prior NACK "
+        "didn't name. Watching the producer deliver a targeted fix "
+        'pulls strongly toward "verify my fix-request landed → ACK." '
+        "Recognize the pull and do mandate 2 anyway.\n\n"
         "**How to execute mandate 2:**\n\n"
         "- Read each new hunk as an operator who's about to copy-paste / "
         "run / integrate it. Would this code execute as written? Would "
