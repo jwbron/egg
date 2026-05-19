@@ -1,0 +1,1710 @@
+[
+  {
+    "id": "83df3abd-6c2b-41",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-18T23:56:40.261112+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "409ba48d-6d2a-4e",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-18T23:57:40.305969+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "85b88138-33b8-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-18T23:58:40.373348+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "913e6add-c0da-40",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-18T23:59:40.430236+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dbf7b0a0-5ca6-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-19T00:00:40.615733+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c78e3b08-af81-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-19T00:01:40.670099+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "90225d5c-a792-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-19T00:02:40.726128+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "77a3726d-b06b-48",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-19T00:03:57.817385+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c5746a0a-f902-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-18T23:56:28.048573+00:00"
+    },
+    "timestamp": "2026-05-19T00:05:20.248650+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d50d0086-19e4-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan: walking-skeleton Claude Code substrate spike (one slice, eleven tasks). Single slice per cq-11 spike-then-plan. Lands four substrate interfaces (AgentSpawner/MessageBus/PolicyEnforcer/WorktreeManager), claude-code implementations of each (ClaudeCodeSpawner, InProcessMessageBus, PreToolUseHookPolicy, LocalWorktreeManager), in-process orchestrator boot generator yielding HITLDecision per cq-7, egg-sdlc plugin (TASK-1-7 coder plugin.json + TASK-1-11 documenter SKILL.md/agents) per cq-8, one parametrized regression test in conftest.py + test_brc_single_cycle.py per cq-3, ADR at docs/architecture/claude-code-substrate.md, and reviewer-pasted follow-up issue draft. Existing primitives cited with file:line: KubernetesSpawner orchestrator/kubernetes_spawner.py:249, MessageStore orchestrator/message_store.py:200, ConcurrentPhaseExecutor orchestrator/concurrent_executor.py:114, _spawn_agent orchestrator/concurrent_executor.py:504, HITLDecision orchestrator/models.py:300, build_system_prompt shared/egg_harness/prompt.py:24, build_agent_patterns shared/egg_restrictions/patterns.py:768, WORKTREE_BASE_DIR gateway/worktree_manager.py:49. All eleven cq decisions and six feedback items applied; tasks split by role (coder/tester/documenter); no .github/ writes; tests under integration_tests/regression and shared/tests (existing tester-allowed directories).",
+    "metadata": {
+      "payload": {
+        "summary": "Plan: walking-skeleton Claude Code substrate spike (one slice, eleven tasks). Single slice per cq-11 spike-then-plan. Lands four substrate interfaces (AgentSpawner/MessageBus/PolicyEnforcer/WorktreeManager), claude-code implementations of each (ClaudeCodeSpawner, InProcessMessageBus, PreToolUseHookPolicy, LocalWorktreeManager), in-process orchestrator boot generator yielding HITLDecision per cq-7, egg-sdlc plugin (TASK-1-7 coder plugin.json + TASK-1-11 documenter SKILL.md/agents) per cq-8, one parametrized regression test in conftest.py + test_brc_single_cycle.py per cq-3, ADR at docs/architecture/claude-code-substrate.md, and reviewer-pasted follow-up issue draft. Existing primitives cited with file:line: KubernetesSpawner orchestrator/kubernetes_spawner.py:249, MessageStore orchestrator/message_store.py:200, ConcurrentPhaseExecutor orchestrator/concurrent_executor.py:114, _spawn_agent orchestrator/concurrent_executor.py:504, HITLDecision orchestrator/models.py:300, build_system_prompt shared/egg_harness/prompt.py:24, build_agent_patterns shared/egg_restrictions/patterns.py:768, WORKTREE_BASE_DIR gateway/worktree_manager.py:49. All eleven cq decisions and six feedback items applied; tasks split by role (coder/tester/documenter); no .github/ writes; tests under integration_tests/regression and shared/tests (existing tester-allowed directories).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2623-plan.md"
+        ],
+        "risk_considered": "Single-slice plan over the 1k LOC advisory ceiling (~1.8-2.5k LOC) \u2014 explicitly justified by cq-11 spike-then-plan choice; splitting would re-litigate cq-11. k3s adapter deferred as NotImplementedError TODO marker is a deliberate scope boundary, not silent drift \u2014 surfaced both in tests (TASK-1-8) and the ADR open-work appendix (TASK-1-9, TASK-1-10).",
+        "commit_sha": "51d4a24bc",
+        "files_changed": [
+          ".egg-state/drafts/2623-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "51d4a24bc"
+    },
+    "timestamp": "2026-05-19T00:05:21.308202+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "465276a7-10b6-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:05:21.450617+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7572bf86-4bbc-4d",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:05:35.038235+00:00"
+    },
+    "timestamp": "2026-05-19T00:05:49.617277+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fc985eee-f5a1-4c",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Drafted the plan-phase architect output for #2623 (substrate-swap walking skeleton). The analysis honors all 11 HITL resolutions and the operator's spike-then-plan sequencing (cq-11): it proposes an AgentSpawner ABC + ClaudeCodeSpawner concrete impl as the minimum viable abstraction that proves the substrate boundary on one role (refiner) and one phase (refine) end-to-end, with MessageBus / PolicyEnforcer / WorktreeManager / HITLSurface ABCs accompanying it so the interfaces land together. Substrate selection is an EGG_SUBSTRATE env var (default 'k3s' for back-compat) read by a new egg_orchestrator/substrate.py registry. Concrete decisions: ClaudeCodeSpawner uses Claude Code's Agent tool with synchronous call-and-wait (cq-4) and a pre-created LocalWorktreeManager-owned worktree (cq-5, not Claude Code's EnterWorktree); PreToolUseHookPolicy lives at plugins/sdlc/hooks/pretooluse_policy.sh and imports shared/egg_restrictions/patterns.py for single-source-of-truth (cq-6); HeredocHITLSurface yields HITLDecision via a Python generator that the skill renders through AskUserQuestion (cq-7); plugins/sdlc/.claude-plugin/plugin.json declares a pip dep on egg (cq-8). Conformance is verified by parametrizing integration_tests/regression/test_brc_single_cycle.py with a substrate fixture (cq-3); the remaining regression tests are deferred to follow-ups. The analysis surfaces 48 file:line citations covering every cited primitive (concurrent_executor, kubernetes_spawner, message_store/redis_message_store, action_guards INV-1..INV-6, models.Contract schemaVersion 1.1, patterns.AgentFilePattern.can_write, build_system_prompt, MCP check_file_restriction handler, refine-plan plugin manifest precedent) and classifies each on the #2594 execution-context axes (deployed-pod vs trusted-CI-runner vs the newly introduced parent-claude-code-session context). It hands 9 candidate tasks to task_planner (each scoped to \u22641 logical change), a 7-item risk list to risk_analyst (trust-boundary shift, subagent ceiling, context window, isolation='worktree' availability, schemaVersion rebase, RedisMessageStore drift, pip-install pre-flight), and an explicit deferred-scope list (multi-role concurrency, plan/implement/pr phases, PreToolUse Bash interception, EggHarnessSpawner, full regression matrix, k3s deprecation, overseer thread, slice-DAG concurrency, telemetry review). Satisfies the plan-phase architect contract task by providing the architecture analysis + component breakdown that the task_planner and risk_analyst can build on without re-litigating substrate-swap framing or HITL resolutions.",
+    "metadata": {
+      "payload": {
+        "summary": "Drafted the plan-phase architect output for #2623 (substrate-swap walking skeleton). The analysis honors all 11 HITL resolutions and the operator's spike-then-plan sequencing (cq-11): it proposes an AgentSpawner ABC + ClaudeCodeSpawner concrete impl as the minimum viable abstraction that proves the substrate boundary on one role (refiner) and one phase (refine) end-to-end, with MessageBus / PolicyEnforcer / WorktreeManager / HITLSurface ABCs accompanying it so the interfaces land together. Substrate selection is an EGG_SUBSTRATE env var (default 'k3s' for back-compat) read by a new egg_orchestrator/substrate.py registry. Concrete decisions: ClaudeCodeSpawner uses Claude Code's Agent tool with synchronous call-and-wait (cq-4) and a pre-created LocalWorktreeManager-owned worktree (cq-5, not Claude Code's EnterWorktree); PreToolUseHookPolicy lives at plugins/sdlc/hooks/pretooluse_policy.sh and imports shared/egg_restrictions/patterns.py for single-source-of-truth (cq-6); HeredocHITLSurface yields HITLDecision via a Python generator that the skill renders through AskUserQuestion (cq-7); plugins/sdlc/.claude-plugin/plugin.json declares a pip dep on egg (cq-8). Conformance is verified by parametrizing integration_tests/regression/test_brc_single_cycle.py with a substrate fixture (cq-3); the remaining regression tests are deferred to follow-ups. The analysis surfaces 48 file:line citations covering every cited primitive (concurrent_executor, kubernetes_spawner, message_store/redis_message_store, action_guards INV-1..INV-6, models.Contract schemaVersion 1.1, patterns.AgentFilePattern.can_write, build_system_prompt, MCP check_file_restriction handler, refine-plan plugin manifest precedent) and classifies each on the #2594 execution-context axes (deployed-pod vs trusted-CI-runner vs the newly introduced parent-claude-code-session context). It hands 9 candidate tasks to task_planner (each scoped to \u22641 logical change), a 7-item risk list to risk_analyst (trust-boundary shift, subagent ceiling, context window, isolation='worktree' availability, schemaVersion rebase, RedisMessageStore drift, pip-install pre-flight), and an explicit deferred-scope list (multi-role concurrency, plan/implement/pr phases, PreToolUse Bash interception, EggHarnessSpawner, full regression matrix, k3s deprecation, overseer thread, slice-DAG concurrency, telemetry review). Satisfies the plan-phase architect contract task by providing the architecture analysis + component breakdown that the task_planner and risk_analyst can build on without re-litigating substrate-swap framing or HITL resolutions.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2623-architect-output.json"
+        ],
+        "risk_considered": "Risks for risk_analyst to formally rate: (1) trust-boundary shift \u2014 PreToolUse hooks run in the user's local Claude Code interpreter, not in a sandbox; the k3s gateway has defense-in-depth (NetworkPolicy + sidecar) which the claude-code substrate trades for hook-correctness + user-install integrity; (2) Agent tool subagent ceiling \u2014 the spike runs N=1 so doesn't bite, but the follow-up parallel-reviewer dispatch may oversubscribe; (3) subagent context window vs egg's max_turns=1000 \u2014 for a substantive issue like #2623 itself, the refiner can approach the limit on the claude-code substrate before cq-10's checkpoint+fork infrastructure lands; (4) isolation='worktree' availability \u2014 design assumes stable CC exposes this; if developer-mode-only, the spawner falls back to caller-managed worktrees (the design's cq-5 path already does this); (5) Contract schemaVersion 1.1 rebases \u2014 any parallel schema bump during the spike's review cycle requires a mechanical rebase; (6) RedisMessageStore drift \u2014 the spike does NOT touch Redis paths, but the MessageBus rename PR could inadvertently regress consumer-group semantics; mitigation is to keep the rename mechanical; (7) pip-install pre-flight \u2014 marketplace install cannot enforce 'pip install egg', so the skill's bootstrap must do an importlib.util.find_spec check and print actionable instructions on miss. Mitigations are documented inline next to each risk in the JSON output; the spike's exit criteria include 'completes on at least one substantive issue without context exhaustion' to validate (3) empirically.",
+        "commit_sha": "fb9192341b2c78dfd0ac0dad7c5d444733cacf97",
+        "files_changed": [
+          ".egg-state/agent-outputs/2623-architect-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "fb9192341b2c78dfd0ac0dad7c5d444733cacf97"
+    },
+    "timestamp": "2026-05-19T00:06:18.713778+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3d0318a3-61c2-40",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for substrate-swap (k3s -> claude-code-native) identifying 16 risks across security, design, performance, and compatibility. Overall risk HIGH driven by (a) credential trust-boundary inversion \u2014 Anthropic API key moves from server-side gateway to user's parent Claude session, exposing it to prompt-injection from subagents (R1); (b) PreToolUse-hook role-routing is an unverified runtime primitive \u2014 the chosen policy enforcement layer (cq-6 option 1) assumes hooks can read EGG_AGENT_ROLE for the calling subagent, which is not documented behavior (R2, #2594 class); (c) spike-then-plan slicing risks freezing the four abstraction interfaces (AgentSpawner/MessageBus/PolicyEnforcer/WorktreeManager) from a single-role exercise (R10). Five runtime primitives flagged for explicit spike-time verification (Agent worktree isolation, hook role-routing, subagent concurrency ceiling, subagent context budget vs max_turns=1000, custom subagent_type via .claude/agents/). Five trust-boundary shifts documented (credentials, file-write timing, cost/rate-limit, agent liveness, push serialization). Recommendation: PROCEED_WITH_MITIGATIONS with five high-priority requirements \u2014 (1) spike's exit criteria must surface evidence on the five primitives; (2) ADR must explicitly accept the trust-shift, not bury it as implementation detail; (3) plan must classify the 14 regression tests as portable/k3s-only/claude-code-only; (4) consider expanding spike scope from 1 role to 2 (producer + reviewer) to exercise BRC consensus path; (5) EGG_PIPELINE_MAX_AGENT_INVOCATIONS cap for cost-control regression. Five risks (R1, R2, R4, R7, R10) flagged for explicit human review by reviewer_plan and the operator.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for substrate-swap (k3s -> claude-code-native) identifying 16 risks across security, design, performance, and compatibility. Overall risk HIGH driven by (a) credential trust-boundary inversion \u2014 Anthropic API key moves from server-side gateway to user's parent Claude session, exposing it to prompt-injection from subagents (R1); (b) PreToolUse-hook role-routing is an unverified runtime primitive \u2014 the chosen policy enforcement layer (cq-6 option 1) assumes hooks can read EGG_AGENT_ROLE for the calling subagent, which is not documented behavior (R2, #2594 class); (c) spike-then-plan slicing risks freezing the four abstraction interfaces (AgentSpawner/MessageBus/PolicyEnforcer/WorktreeManager) from a single-role exercise (R10). Five runtime primitives flagged for explicit spike-time verification (Agent worktree isolation, hook role-routing, subagent concurrency ceiling, subagent context budget vs max_turns=1000, custom subagent_type via .claude/agents/). Five trust-boundary shifts documented (credentials, file-write timing, cost/rate-limit, agent liveness, push serialization). Recommendation: PROCEED_WITH_MITIGATIONS with five high-priority requirements \u2014 (1) spike's exit criteria must surface evidence on the five primitives; (2) ADR must explicitly accept the trust-shift, not bury it as implementation detail; (3) plan must classify the 14 regression tests as portable/k3s-only/claude-code-only; (4) consider expanding spike scope from 1 role to 2 (producer + reviewer) to exercise BRC consensus path; (5) EGG_PIPELINE_MAX_AGENT_INVOCATIONS cap for cost-control regression. Five risks (R1, R2, R4, R7, R10) flagged for explicit human review by reviewer_plan and the operator.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2623-risk_analyst-output.json"
+        ],
+        "risk_considered": "16 risks enumerated covering: (R1) credential trust-boundary inversion HIGH; (R2) PreToolUse hook role-routing unverified primitive HIGH; (R3) Agent-tool concurrency ceiling MEDIUM; (R4) in-process orchestrator reentrancy with HITL generator MEDIUM; (R5) shared .git/ contention MEDIUM; (R6) integration_tests/regression/ more substrate-coupled than analysis claims MEDIUM; (R7) subagent context budget vs max_turns=1000 MEDIUM; (R8) plugin pip-install drift MEDIUM; (R9) Anthropic API cost / rate-limit blast radius shifts to user MEDIUM; (R10) spike-then-plan interface-freeze HIGH; (R11) EnterWorktree primitive drift LOW; (R12) BRC heartbeat / stuck-agent detection regression MEDIUM; (R13) PyPI package distribution LOW; (R14) #2612 SendMessage gating stays open LOW; (R15) custom subagent_type vs prompt-injected roles LOW; (R16) cross-substrate test-failure diagnostic shift LOW. Five trust-boundary shifts and five runtime-primitive risks called out per #2594.",
+        "commit_sha": "363e8d6d3",
+        "files_changed": [
+          ".egg-state/agent-outputs/2623-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "363e8d6d3"
+    },
+    "timestamp": "2026-05-19T00:06:21.502298+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6dd06618-fa9d-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-19T00:06:21.502453+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dcb14343-fc68-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:06:30.929609+00:00"
+    },
+    "timestamp": "2026-05-19T00:06:47.536100+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "33902797-5f97-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:05:35.038235+00:00"
+    },
+    "timestamp": "2026-05-19T00:06:49.692565+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2756c5ac-4d01-4e",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:07:23.523495+00:00"
+    },
+    "timestamp": "2026-05-19T00:07:45.674895+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "59563725-6243-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:06:30.929609+00:00"
+    },
+    "timestamp": "2026-05-19T00:07:45.974014+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3b161a34-7ab4-49",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:05:35.038235+00:00"
+    },
+    "timestamp": "2026-05-19T00:08:13.717617+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b7a696b4-b3e1-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:07:23.523495+00:00"
+    },
+    "timestamp": "2026-05-19T00:08:40.415457+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "11b509ae-1582-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:06:30.929609+00:00"
+    },
+    "timestamp": "2026-05-19T00:08:46.037543+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "32c2e17f-241d-40",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:05:35.038235+00:00"
+    },
+    "timestamp": "2026-05-19T00:09:04.805813+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "726f49dc-6595-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:07:23.523495+00:00"
+    },
+    "timestamp": "2026-05-19T00:09:40.502715+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7a47dd4c-e4d0-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:06:30.929609+00:00"
+    },
+    "timestamp": "2026-05-19T00:09:46.107834+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ac8a1088-0764-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:05:35.038235+00:00"
+    },
+    "timestamp": "2026-05-19T00:10:04.891585+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d0d68d88-f50b-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:07:23.523495+00:00"
+    },
+    "timestamp": "2026-05-19T00:10:40.581221+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ea44faba-af20-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:06:30.929609+00:00"
+    },
+    "timestamp": "2026-05-19T00:10:46.219275+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "50ce881e-ac97-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:05:35.038235+00:00"
+    },
+    "timestamp": "2026-05-19T00:11:04.966794+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e42e28cd-ee19-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:07:23.523495+00:00"
+    },
+    "timestamp": "2026-05-19T00:11:40.659338+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3cd1ffc8-c95f-44",
+    "pipeline_id": "issue-2623",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "BRC confirmation timeout \u2014 call mcp__brc__confirm",
+    "body": "You are PROPOSED and fully ACKed but have not confirmed in 301s. Call `mcp__brc__confirm` now. If it returns `status='pending_acks'`, read `message` for the guard reason and wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a producer hasn't proposed (`zero_proposal_producers`), `CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is stale or unresolved. Then retry confirm.",
+    "metadata": {
+      "alert_type": "brc_confirmation_timeout",
+      "elapsed_seconds": 301,
+      "source": "health_monitor"
+    },
+    "timestamp": "2026-05-19T00:11:42.829964+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2967aedb-ad19-4c",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:11:44.939853+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "18fd4de7-8b5e-4e",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-19T00:11:48.938899+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3254ac30-eeae-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:11:57.004124+00:00"
+    },
+    "timestamp": "2026-05-19T00:11:57.056667+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0b320675-85d3-41",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:05:35.038235+00:00"
+    },
+    "timestamp": "2026-05-19T00:12:05.112105+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c9e7b1c4-a4f3-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:07:23.523495+00:00"
+    },
+    "timestamp": "2026-05-19T00:12:40.781667+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "19b0b3f0-ad18-41",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:11:57.004124+00:00"
+    },
+    "timestamp": "2026-05-19T00:12:57.125411+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7fa237c4-c766-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:05:35.038235+00:00"
+    },
+    "timestamp": "2026-05-19T00:13:05.222574+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2dca04aa-c3bc-40",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:07:23.523495+00:00"
+    },
+    "timestamp": "2026-05-19T00:13:40.871108+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "09645a63-a19a-49",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "\n### Blocking\n\n1. **`.egg-state/drafts/2623-plan.md` \u00a7\"Trust-boundary scope\" + Primitives table \u2014 non-existent fixture cited (\u00a79 primitive-existence audit failure).** The plan cites `local_pipeline/conftest.py:261 gateway_url fixture` as load-bearing evidence that the parametrized substrate test is \"already kubectl-gated through `local_pipeline_stack` (via the parent `integration_tests/conftest.py:78` `EggStack` dataclass + the `local_pipeline/conftest.py:261` `gateway_url` fixture)\". Grep verdict: `ls integration_tests/local_pipeline/conftest.py` \u2192 \"No such file or directory\". The directory was deleted in commit `f7803637d1 test: delete deprecated local_pipeline + squid tests; file follow-up issues`. The trust-boundary doc on this branch is stale, but the plan cannot ride on a deleted file. **Fix:** drop the `local_pipeline/conftest.py:261` reference; rewrite the Trust-Boundary section against the actual fixture layout: `EggStack` at `integration_tests/conftest.py:71`, `orchestrator_url` fixture at `integration_tests/conftest.py:357`, `egg_stack` fixture at `integration_tests/conftest.py:340`.\n\n2. **`.egg-state/drafts/2623-plan.md` Trust-Boundary claim \"test_brc_single_cycle.py is already kubectl-gated through local_pipeline_stack\" \u2014 factually wrong.** Read `integration_tests/regression/test_brc_single_cycle.py`: it uses `single_reviewer_graph` (regression/conftest.py:564), `event_capture` (regression/conftest.py:519), and `filter_events` (regression/conftest.py:552), then drives the orchestrator's BRC Python API directly via `make_tracker` (`integration_tests/regression/_helpers.py:156`) and `PeerConsensusTracker` (`orchestrator/peer_consensus.py:69`). The test does not touch kubectl, does not depend on `egg_stack`/`local_pipeline_stack`, and never instantiates a spawner or message bus. Both `substrate=\"k3s\"` and `substrate=\"claude-code\"` parameters would run identical Python code \u2014 the test is not a substrate-distinguishing artifact. **Fix:** pick a test (existing or new) that actually exercises `AgentSpawner.spawn(...)` and/or `MessageBus.add_message/get_messages` so the two substrate parameters can produce divergent execution paths. Without that, TASK-1-8's \"matrix proof\" is vacuous.\n\n3. **Internal contradiction between TASK-1-1 and TASK-1-2 about the k3s adapter \u2014 plan is incoherent on whether k3s still works.** TASK-1-1 acceptance #3 (lines 222-226): \"`select_substrate({})` \u2026 returns the bundle pointing at the k3s implementations *but* the k3s adapters raise `NotImplementedError` from the protocol seam with a clear message naming the follow-up issue \u2014 this is the explicit TODO marker\". TASK-1-2 description (lines 257-266): \"the k3s code path keeps working via the (deferred) k3s adapter raising `NotImplementedError`; this is acceptable because the spike's acceptance is claude-code-substrate-only, **and the regression matrix keeps `EGG_SUBSTRATE=k3s` selecting the existing in-tree `KubernetesSpawner`**\" and TASK-1-2 acceptance #4 (lines 280-283): \"`orchestrator/concurrent_executor.py:504` is patched to dispatch through `select_substrate(...)`; the existing k3s path continues to work unchanged **because the k3s implementation of the protocol is a thin shim around the existing `KubernetesSpawner.spawn_agent_job`**\". The two are mutually exclusive \u2014 either the k3s adapter is a working shim around `spawn_agent_job` (TASK-1-2 description) or it raises `NotImplementedError` (TASK-1-1). If TASK-1-2 patches `concurrent_executor.py:504` (the only call site to `spawn_fn`) to dispatch through a `select_substrate(...)` bundle whose k3s leg raises `NotImplementedError`, every k3s deployment is broken on this PR. **Fix:** pick one model and apply consistently. The architect's tasks_for_task_planner_to_pick_up #1 prescribes the working-shim approach: refactor the existing `create_concurrent_spawn_fn` at `orchestrator/kubernetes_spawner.py:1564` to return an `AgentSpawner`-conforming object \u2014 that path keeps k3s green. If you instead want the `NotImplementedError` k3s leg, do not also rewrite `concurrent_executor.py:504`; leave the k3s path on the direct import for this spike.\n\n4. **AgentResult missing `commit_sha` field \u2192 BRC INV-6 violation, hard correctness regression.** TASK-1-2 acceptance #2 defines `AgentResult` with `stdout, exit_code, duration_seconds, worktree` \u2014 no `commit_sha`. `orchestrator/action_guards.py::validate_invariants` enforces INV-6 (ack_commit_sha consistency) \u2014 the orchestrator must know each agent's resulting commit SHA so reviewers can attach commit-bound ACKs and the consensus tracker can detect commit drift between proposal and ack. The architect's spawner-component design called this out explicitly: \"the spawner runs `git -C <worktree_path> rev-parse HEAD` and records the SHA in AgentResult.commit_sha so the orchestrator can attach commit-bound ACKs (action_guards.validate_invariants INV-6 at orchestrator/action_guards.py:753 requires this)\" (architect output, component \"egg_orchestrator/spawners/claude_code_spawner.py\", design.commit_sha_capture). Dropping commit_sha makes the spawner unable to satisfy the existing BRC invariant. **Fix:** add `commit_sha: str | None` to the `AgentResult` dataclass shape in TASK-1-1 and require capture-via-`git rev-parse HEAD` in TASK-1-2's acceptance criteria.\n\n5. **TASK-1-5 cites a non-existent path-escape primitive (\u00a79 primitive-existence audit failure).** Plan line 380-382: \"Safety: `tear_down` resolves the target through `path.resolve().is_relative_to(base.resolve())` so a malicious pipeline ID can't escape the base \u2014 **same defense as `gateway/gateway.py:7903`**.\" Grep verdict: `grep -n 'is_relative_to\\|path.resolve()' gateway/gateway.py` returns zero hits. The defense pattern actually lives at `gateway/worktree_manager.py:1711` (call site) and `gateway/phase_api.py:96-108` (an unrelated phase-api path-resolve). **Fix:** cite `gateway/worktree_manager.py:1711` as the reference implementation. Mis-citing primitives in acceptance criteria pushes the coder into the same hunt I just did \u2014 and risks them inventing a different defense.\n\n6. **TASK-1-3 acceptance #2 cites BRC unit tests in the wrong directory (\u00a79 primitive-existence audit failure).** Plan line 308-311: \"Existing BRC unit tests under **`shared/tests/test_brc_*`** (or wherever they live) pass when run against `InProcessMessageBus`\". Grep verdict: `ls shared/tests/` returns `test_agent_roles_has_contract.py / test_cross_process_lock.py / test_egg_harness / test_egg_health.py / test_egg_restrictions.py / test_egg_restrictions_hints.py / test_github_block_alignment.py / test_impasse_schema.py / test_overseer_advisor.py` \u2014 zero `test_brc_*` files. The BRC unit tests are at `orchestrator/tests/test_brc_*` (15+ files: `test_brc_confirmation_nudge.py`, `test_brc_content_validation.py`, `test_brc_history.py`, `test_brc_nack_iteration.py`, `test_brc_open_nacks_barrier.py`, `test_brc_phase_propagation.py`, plus `test_auto_ack_pure_producers.py` which exercises `PeerConsensusTracker` directly). The \"or wherever they live\" hedge is not adequate \u2014 the tester role needs a precise path-set to parametrize. **Fix:** point TASK-1-3 acceptance #2 at the actual BRC test directory (`orchestrator/tests/test_brc_*.py`) and confirm the tester role is allowed to write there. If not, the cross-substrate BRC-invariant test belongs in `shared/tests/test_in_process_message_bus.py` (which TASK-1-8 already creates) \u2014 say so explicitly instead of vaguely deferring.\n\n7. **TASK-1-6 ignores the orchestrator-reentrancy problem flagged by risk_analyst R4.** TASK-1-6 (lines 387-419) says \"Build `run_pipeline_in_process(issue, role, ...)`\" and \"instantiates `select_substrate(os.environ)`, runs the refine phase with refiner-only\". The orchestrator today is a Flask/waitress HTTP daemon (`orchestrator/cli.py:83-150 cmd_serve` \u2014 verified). It has no in-process API. `ConcurrentPhaseExecutor` (line 114) uses a `ThreadPoolExecutor` for background dispatch; `PeerConsensusTracker` holds its own lock and runs message poll loops. Wrapping all of this in a Python generator that yields `HITLDecision` and resumes via `.send()` is a non-trivial refactor \u2014 the risk_analyst R4 marks this `requires_human_review: true` with `effort: HIGH`. The plan offers neither a refactor task nor a HITL gate, just an acceptance bullet (\"the generator runs the refiner through to completion\"). **Fix:** either (a) split TASK-1-6 into a \"build in-process orchestrator entry point\" task with its own acceptance criteria covering heartbeat-during-HITL, background-thread lifetime, and contract-state synchronization; or (b) register a HITL decision asking the operator to bound the generator/AskUserQuestion model before this slice merges. Calling it a one-line acceptance bullet is hiding hours of refactor work.\n\n8. **No risk-mitigation tasks for the five risk_analyst HIGH-severity / human-review-required items (R1, R2, R4, R7, R10).** The risk_analyst's proposal flagged five risks requiring human review: R1 credential trust-boundary inversion (security, HIGH/CERTAIN), R2 PreToolUse hook role-routing unverified (design, HIGH/HIGH), R4 in-process orchestrator reentrancy (covered above), R7 subagent context budget vs deep-refine (performance, MEDIUM/HIGH), R10 single-role spike freezing interfaces (design, HIGH/MEDIUM). The plan acknowledges none of these as task-level concerns, decisions, or HITL gates. R1 in particular \u2014 moving the Anthropic credential from a gateway-isolated process into the user's parent session \u2014 is a structural threat-model change that the ADR must document and the operator must explicitly accept (per risk_analyst recommendation_rationale and REC2). The plan's TASK-1-9 ADR acceptance does NOT call this out \u2014 bullets only cover the 11 cq decisions, 6 feedback items, and primitives table. **Fix:** add explicit acceptance criteria in TASK-1-9 for each of R1, R2, R7, R10 (\"ADR's 'Trust-context shift' subsection names credential exposure\"; \"ADR documents PreToolUse hook role-routing fallback path to MCP-validator-side enforcement (cq-6 opt-2) if spike evidence is negative\"; \"ADR documents subagent context budget regression and the smaller-budget fallback per cq-10 opt-2\"; \"interfaces marked unstable / v0.x until \u22653 roles exercise them\"). Without this, the spike encodes design decisions that the second wave will need to revisit, expensively.\n\n9. **TASK-1-8 acceptance #2 \u2014 kubectl gating claim does not match the chosen test.** \"the parametrized regression test passes under both substrates locally (kubectl available for k3s; no kubectl needed for claude-code)\". The chosen test (`test_brc_single_cycle.py`) does not require kubectl for any parameter \u2014 see blocking issue #2. **Fix:** if you keep this test as the parametrize target, drop the \"kubectl available for k3s\" half because both parameters run pure-Python. Better: replace the chosen test as in blocking issue #2.\n\n10. **PyPI package name `egg-shared` is invented (TASK-1-7 and TASK-1-11).** Plan line 432 and line 569: \"lists `egg-shared` (or the canonical pip name) as a required dep\". There is no PyPI package called `egg-shared`. The risk_analyst R13 flagged this: the `egg` name is already taken on PyPI, and no published wheel exists for this repo. Picking `egg-shared` without operator authority pre-empts a packaging decision the project hasn't made. **Fix:** either register a HITL decision asking the operator to pick the canonical pip name (and what registry \u2014 PyPI vs git+https), or accept the dep declaration as a TODO placeholder string with a comment, not as a real install instruction. The current language (\"or the canonical pip name\") will produce a coder asking the same question downstream.\n\n11. **Primitive line numbers off \u2014 minor but a pattern.** Plan line 124: \"`integration_tests/conftest.py:78` `EggStack` dataclass\". Grep: `class EggStack` is at `integration_tests/conftest.py:71`, not :78. (line 78 is the `gateway_url: str` field inside the dataclass.) Plan line 121-123 lists `class HITLDecision` at `orchestrator/models.py:300` \u2014 that one's correct. **Fix:** scan the Primitives table for off-by-N line numbers; cite the class definition line, not a field-in-class line.\n\n### Non-blocking\n\n- **Slice-sizing advisory (#2137 size advisory; never NACK):** the plan's own LOC estimate is 1,800\u20132,500 LOC, over the 1k soft target. Per HITL decision-6 opt-2 I will not NACK on size; this is informational only. The plan acknowledges this and ties it to cq-11's spike-shape choice \u2014 that justification holds, but the next reviewer of the implement-phase BRC cycle should know the slice will be expensive to NACK.\n- **Consider expanding spike to 2 roles (risk_analyst REC4).** A single-role spike does not exercise the BRC consensus path (PROPOSE \u2192 ACK), which is the actual structural concern the orchestrator-as-bus model needs to prove. A `refiner + reviewer_refine` pair stays within cq-11's \"walking skeleton\" framing but exercises producer dispatch AND review verdict round-trip. Operator decision; not a blocker.\n- **Subagent type model (R15).** The plan implicitly assumes `subagent_type='general-purpose'` (matching the existing refine-plan skill) but does not commit. Custom `subagent_type` via `.claude/agents/<role>.md` gives structural tool restrictions per role; the existing model relies on prompt discipline + PreToolUse hooks. Picking one and documenting in the ADR would tighten the design.\n- **Cost cap (risk_analyst REC5).** Consider adding an `EGG_PIPELINE_MAX_AGENT_INVOCATIONS` env var with conservative default. Without it, a buggy NACK loop bills directly to the user's Anthropic account \u2014 a real regression from the gateway model.\n- **TASK-1-2 list of files modified should explicitly include `orchestrator/concurrent_executor.py`** (it does \u2014 line 288, good) \u2014 but the acceptance criteria say \"verified by an `assert isinstance(...)` in a unit test\"; consider also a smoke test that `_spawn_agent` dispatches through the bundle, otherwise the contradiction in blocking #3 could land silently.\n- **TASK-1-1 Files list does not include `orchestrator/substrate/k3s_adapter.py`** \u2014 but TASK-1-2 introduces it. If the adapter is the k3s leg of `select_substrate({})`, it logically belongs to TASK-1-1's deliverable surface. Re-organize so the protocol module and the k3s adapter shim ship together, or document that TASK-1-1's k3s leg is a stub and TASK-1-2 replaces it with the shim.\n- **Plan's \"Manual verification\" step 3 (\"HITL surfaces through AskUserQuestion\")** requires a working in-process generator with HITL round-trip \u2014 circular with blocking #7. Resolve that first.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\n### Blocking\n\n1. **`.egg-state/drafts/2623-plan.md` \u00a7\"Trust-boundary scope\" + Primitives table \u2014 non-existent fixture cited (\u00a79 primitive-existence audit failure).** The plan cites `local_pipeline/conftest.py:261 gateway_url fixture` as load-bearing evidence that the parametrized substrate test is \"already kubectl-gated through `local_pipeline_stack` (via the parent `integration_tests/conftest.py:78` `EggStack` dataclass + the `local_pipeline/conftest.py:261` `gateway_url` fixture)\". Grep verdict: `ls integration_tests/local_pipeline/conftest.py` \u2192 \"No such file or directory\". The directory was deleted in commit `f7803637d1 test: delete deprecated local_pipeline + squid tests; file follow-up issues`. The trust-boundary doc on this branch is stale, but the plan cannot ride on a deleted file. **Fix:** drop the `local_pipeline/conftest.py:261` reference; rewrite the Trust-Boundary section against the actual fixture layout: `EggStack` at `integration_tests/conftest.py:71`, `orchestrator_url` fixture at `integration_tests/conftest.py:357`, `egg_stack` fixture at `integration_tests/conftest.py:340`.\n\n2. **`.egg-state/drafts/2623-plan.md` Trust-Boundary claim \"test_brc_single_cycle.py is already kubectl-gated through local_pipeline_stack\" \u2014 factually wrong.** Read `integration_tests/regression/test_brc_single_cycle.py`: it uses `single_reviewer_graph` (regression/conftest.py:564), `event_capture` (regression/conftest.py:519), and `filter_events` (regression/conftest.py:552), then drives the orchestrator's BRC Python API directly via `make_tracker` (`integration_tests/regression/_helpers.py:156`) and `PeerConsensusTracker` (`orchestrator/peer_consensus.py:69`). The test does not touch kubectl, does not depend on `egg_stack`/`local_pipeline_stack`, and never instantiates a spawner or message bus. Both `substrate=\"k3s\"` and `substrate=\"claude-code\"` parameters would run identical Python code \u2014 the test is not a substrate-distinguishing artifact. **Fix:** pick a test (existing or new) that actually exercises `AgentSpawner.spawn(...)` and/or `MessageBus.add_message/get_messages` so the two substrate parameters can produce divergent execution paths. Without that, TASK-1-8's \"matrix proof\" is vacuous.\n\n3. **Internal contradiction between TASK-1-1 and TASK-1-2 about the k3s adapter \u2014 plan is incoherent on whether k3s still works.** TASK-1-1 acceptance #3 (lines 222-226): \"`select_substrate({})` \u2026 returns the bundle pointing at the k3s implementations *but* the k3s adapters raise `NotImplementedError` from the protocol seam with a clear message naming the follow-up issue \u2014 this is the explicit TODO marker\". TASK-1-2 description (lines 257-266): \"the k3s code path keeps working via the (deferred) k3s adapter raising `NotImplementedError`; this is acceptable because the spike's acceptance is claude-code-substrate-only, **and the regression matrix keeps `EGG_SUBSTRATE=k3s` selecting the existing in-tree `KubernetesSpawner`**\" and TASK-1-2 acceptance #4 (lines 280-283): \"`orchestrator/concurrent_executor.py:504` is patched to dispatch through `select_substrate(...)`; the existing k3s path continues to work unchanged **because the k3s implementation of the protocol is a thin shim around the existing `KubernetesSpawner.spawn_agent_job`**\". The two are mutually exclusive \u2014 either the k3s adapter is a working shim around `spawn_agent_job` (TASK-1-2 description) or it raises `NotImplementedError` (TASK-1-1). If TASK-1-2 patches `concurrent_executor.py:504` (the only call site to `spawn_fn`) to dispatch through a `select_substrate(...)` bundle whose k3s leg raises `NotImplementedError`, every k3s deployment is broken on this PR. **Fix:** pick one model and apply consistently. The architect's tasks_for_task_planner_to_pick_up #1 prescribes the working-shim approach: refactor the existing `create_concurrent_spawn_fn` at `orchestrator/kubernetes_spawner.py:1564` to return an `AgentSpawner`-conforming object \u2014 that path keeps k3s green. If you instead want the `NotImplementedError` k3s leg, do not also rewrite `concurrent_executor.py:504`; leave the k3s path on the direct import for this spike.\n\n4. **AgentResult missing `commit_sha` field \u2192 BRC INV-6 violation, hard correctness regression.** TASK-1-2 acceptance #2 defines `AgentResult` with `stdout, exit_code, duration_seconds, worktree` \u2014 no `commit_sha`. `orchestrator/action_guards.py::validate_invariants` enforces INV-6 (ack_commit_sha consistency) \u2014 the orchestrator must know each agent's resulting commit SHA so reviewers can attach commit-bound ACKs and the consensus tracker can detect commit drift between proposal and ack. The architect's spawner-component design called this out explicitly: \"the spawner runs `git -C <worktree_path> rev-parse HEAD` and records the SHA in AgentResult.commit_sha so the orchestrator can attach commit-bound ACKs (action_guards.validate_invariants INV-6 at orchestrator/action_guards.py:753 requires this)\" (architect output, component \"egg_orchestrator/spawners/claude_code_spawner.py\", design.commit_sha_capture). Dropping commit_sha makes the spawner unable to satisfy the existing BRC invariant. **Fix:** add `commit_sha: str | None` to the `AgentResult` dataclass shape in TASK-1-1 and require capture-via-`git rev-parse HEAD` in TASK-1-2's acceptance criteria.\n\n5. **TASK-1-5 cites a non-existent path-escape primitive (\u00a79 primitive-existence audit failure).** Plan line 380-382: \"Safety: `tear_down` resolves the target through `path.resolve().is_relative_to(base.resolve())` so a malicious pipeline ID can't escape the base \u2014 **same defense as `gateway/gateway.py:7903`**.\" Grep verdict: `grep -n 'is_relative_to\\|path.resolve()' gateway/gateway.py` returns zero hits. The defense pattern actually lives at `gateway/worktree_manager.py:1711` (call site) and `gateway/phase_api.py:96-108` (an unrelated phase-api path-resolve). **Fix:** cite `gateway/worktree_manager.py:1711` as the reference implementation. Mis-citing primitives in acceptance criteria pushes the coder into the same hunt I just did \u2014 and risks them inventing a different defense.\n\n6. **TASK-1-3 acceptance #2 cites BRC unit tests in the wrong directory (\u00a79 primitive-existence audit failure).** Plan line 308-311: \"Existing BRC unit tests under **`shared/tests/test_brc_*`** (or wherever they live) pass when run against `InProcessMessageBus`\". Grep verdict: `ls shared/tests/` returns `test_agent_roles_has_contract.py / test_cross_process_lock.py / test_egg_harness / test_egg_health.py / test_egg_restrictions.py / test_egg_restrictions_hints.py / test_github_block_alignment.py / test_impasse_schema.py / test_overseer_advisor.py` \u2014 zero `test_brc_*` files. The BRC unit tests are at `orchestrator/tests/test_brc_*` (15+ files: `test_brc_confirmation_nudge.py`, `test_brc_content_validation.py`, `test_brc_history.py`, `test_brc_nack_iteration.py`, `test_brc_open_nacks_barrier.py`, `test_brc_phase_propagation.py`, plus `test_auto_ack_pure_producers.py` which exercises `PeerConsensusTracker` directly). The \"or wherever they live\" hedge is not adequate \u2014 the tester role needs a precise path-set to parametrize. **Fix:** point TASK-1-3 acceptance #2 at the actual BRC test directory (`orchestrator/tests/test_brc_*.py`) and confirm the tester role is allowed to write there. If not, the cross-substrate BRC-invariant test belongs in `shared/tests/test_in_process_message_bus.py` (which TASK-1-8 already creates) \u2014 say so explicitly instead of vaguely deferring.\n\n7. **TASK-1-6 ignores the orchestrator-reentrancy problem flagged by risk_analyst R4.** TASK-1-6 (lines 387-419) says \"Build `run_pipeline_in_process(issue, role, ...)`\" and \"instantiates `select_substrate(os.environ)`, runs the refine phase with refiner-only\". The orchestrator today is a Flask/waitress HTTP daemon (`orchestrator/cli.py:83-150 cmd_serve` \u2014 verified). It has no in-process API. `ConcurrentPhaseExecutor` (line 114) uses a `ThreadPoolExecutor` for background dispatch; `PeerConsensusTracker` holds its own lock and runs message poll loops. Wrapping all of this in a Python generator that yields `HITLDecision` and resumes via `.send()` is a non-trivial refactor \u2014 the risk_analyst R4 marks this `requires_human_review: true` with `effort: HIGH`. The plan offers neither a refactor task nor a HITL gate, just an acceptance bullet (\"the generator runs the refiner through to completion\"). **Fix:** either (a) split TASK-1-6 into a \"build in-process orchestrator entry point\" task with its own acceptance criteria covering heartbeat-during-HITL, background-thread lifetime, and contract-state synchronization; or (b) register a HITL decision asking the operator to bound the generator/AskUserQuestion model before this slice merges. Calling it a one-line acceptance bullet is hiding hours of refactor work.\n\n8. **No risk-mitigation tasks for the five risk_analyst HIGH-severity / human-review-required items (R1, R2, R4, R7, R10).** The risk_analyst's proposal flagged five risks requiring human review: R1 credential trust-boundary inversion (security, HIGH/CERTAIN), R2 PreToolUse hook role-routing unverified (design, HIGH/HIGH), R4 in-process orchestrator reentrancy (covered above), R7 subagent context budget vs deep-refine (performance, MEDIUM/HIGH), R10 single-role spike freezing interfaces (design, HIGH/MEDIUM). The plan acknowledges none of these as task-level concerns, decisions, or HITL gates. R1 in particular \u2014 moving the Anthropic credential from a gateway-isolated process into the user's parent session \u2014 is a structural threat-model change that the ADR must document and the operator must explicitly accept (per risk_analyst recommendation_rationale and REC2). The plan's TASK-1-9 ADR acceptance does NOT call this out \u2014 bullets only cover the 11 cq decisions, 6 feedback items, and primitives table. **Fix:** add explicit acceptance criteria in TASK-1-9 for each of R1, R2, R7, R10 (\"ADR's 'Trust-context shift' subsection names credential exposure\"; \"ADR documents PreToolUse hook role-routing fallback path to MCP-validator-side enforcement (cq-6 opt-2) if spike evidence is negative\"; \"ADR documents subagent context budget regression and the smaller-budget fallback per cq-10 opt-2\"; \"interfaces marked unstable / v0.x until \u22653 roles exercise them\"). Without this, the spike encodes design decisions that the second wave will need to revisit, expensively.\n\n9. **TASK-1-8 acceptance #2 \u2014 kubectl gating claim does not match the chosen test.** \"the parametrized regression test passes under both substrates locally (kubectl available for k3s; no kubectl needed for claude-code)\". The chosen test (`test_brc_single_cycle.py`) does not require kubectl for any parameter \u2014 see blocking issue #2. **Fix:** if you keep this test as the parametrize target, drop the \"kubectl available for k3s\" half because both parameters run pure-Python. Better: replace the chosen test as in blocking issue #2.\n\n10. **PyPI package name `egg-shared` is invented (TASK-1-7 and TASK-1-11).** Plan line 432 and line 569: \"lists `egg-shared` (or the canonical pip name) as a required dep\". There is no PyPI package called `egg-shared`. The risk_analyst R13 flagged this: the `egg` name is already taken on PyPI, and no published wheel exists for this repo. Picking `egg-shared` without operator authority pre-empts a packaging decision the project hasn't made. **Fix:** either register a HITL decision asking the operator to pick the canonical pip name (and what registry \u2014 PyPI vs git+https), or accept the dep declaration as a TODO placeholder string with a comment, not as a real install instruction. The current language (\"or the canonical pip name\") will produce a coder asking the same question downstream.\n\n11. **Primitive line numbers off \u2014 minor but a pattern.** Plan line 124: \"`integration_tests/conftest.py:78` `EggStack` dataclass\". Grep: `class EggStack` is at `integration_tests/conftest.py:71`, not :78. (line 78 is the `gateway_url: str` field inside the dataclass.) Plan line 121-123 lists `class HITLDecision` at `orchestrator/models.py:300` \u2014 that one's correct. **Fix:** scan the Primitives table for off-by-N line numbers; cite the class definition line, not a field-in-class line.\n\n### Non-blocking\n\n- **Slice-sizing advisory (#2137 size advisory; never NACK):** the plan's own LOC estimate is 1,800\u20132,500 LOC, over the 1k soft target. Per HITL decision-6 opt-2 I will not NACK on size; this is informational only. The plan acknowledges this and ties it to cq-11's spike-shape choice \u2014 that justification holds, but the next reviewer of the implement-phase BRC cycle should know the slice will be expensive to NACK.\n- **Consider expanding spike to 2 roles (risk_analyst REC4).** A single-role spike does not exercise the BRC consensus path (PROPOSE \u2192 ACK), which is the actual structural concern the orchestrator-as-bus model needs to prove. A `refiner + reviewer_refine` pair stays within cq-11's \"walking skeleton\" framing but exercises producer dispatch AND review verdict round-trip. Operator decision; not a blocker.\n- **Subagent type model (R15).** The plan implicitly assumes `subagent_type='general-purpose'` (matching the existing refine-plan skill) but does not commit. Custom `subagent_type` via `.claude/agents/<role>.md` gives structural tool restrictions per role; the existing model relies on prompt discipline + PreToolUse hooks. Picking one and documenting in the ADR would tighten the design.\n- **Cost cap (risk_analyst REC5).** Consider adding an `EGG_PIPELINE_MAX_AGENT_INVOCATIONS` env var with conservative default. Without it, a buggy NACK loop bills directly to the user's Anthropic account \u2014 a real regression from the gateway model.\n- **TASK-1-2 list of files modified should explicitly include `orchestrator/concurrent_executor.py`** (it does \u2014 line 288, good) \u2014 but the acceptance criteria say \"verified by an `assert isinstance(...)` in a unit test\"; consider also a smoke test that `_spawn_agent` dispatches through the bundle, otherwise the contradiction in blocking #3 could land silently.\n- **TASK-1-1 Files list does not include `orchestrator/substrate/k3s_adapter.py`** \u2014 but TASK-1-2 introduces it. If the adapter is the k3s leg of `select_substrate({})`, it logically belongs to TASK-1-1's deliverable surface. Re-organize so the protocol module and the k3s adapter shim ship together, or document that TASK-1-1's k3s leg is a stub and TASK-1-2 replaces it with the shim.\n- **Plan's \"Manual verification\" step 3 (\"HITL surfaces through AskUserQuestion\")** requires a working in-process generator with HITL round-trip \u2014 circular with blocking #7. Resolve that first.\n",
+        "artifact_references": [
+          ".egg-state/drafts/2623-plan.md",
+          ".egg-state/drafts/2623-analysis.md",
+          "orchestrator/concurrent_executor.py",
+          "orchestrator/kubernetes_spawner.py",
+          "orchestrator/message_store.py",
+          "orchestrator/models.py",
+          "orchestrator/peer_consensus.py",
+          "orchestrator/tests/test_auto_ack_pure_producers.py",
+          "shared/egg_harness/prompt.py",
+          "shared/egg_restrictions/patterns.py",
+          "gateway/worktree_manager.py",
+          "gateway/phase_filter.py",
+          "gateway/gateway.py",
+          "integration_tests/regression/conftest.py",
+          "integration_tests/regression/test_brc_single_cycle.py",
+          "integration_tests/conftest.py",
+          "docs/architecture/integration-test-trust-boundary.md"
+        ],
+        "nack_version": 1
+      },
+      "reason": "\n### Blocking\n\n1. **`.egg-state/drafts/2623-plan.md` \u00a7\"Trust-boundary scope\" + Primitives table \u2014 non-existent fixture cited (\u00a79 primitive-existence audit failure).** The plan cites `local_pipeline/conftest.py:261 gateway_url fixture` as load-bearing evidence that the parametrized substrate test is \"already kubectl-gated through `local_pipeline_stack` (via the parent `integration_tests/conftest.py:78` `EggStack` dataclass + the `local_pipeline/conftest.py:261` `gateway_url` fixture)\". Grep verdict: `ls integration_tests/local_pipeline/conftest.py` \u2192 \"No such file or directory\". The directory was deleted in commit `f7803637d1 test: delete deprecated local_pipeline + squid tests; file follow-up issues`. The trust-boundary doc on this branch is stale, but the plan cannot ride on a deleted file. **Fix:** drop the `local_pipeline/conftest.py:261` reference; rewrite the Trust-Boundary section against the actual fixture layout: `EggStack` at `integration_tests/conftest.py:71`, `orchestrator_url` fixture at `integration_tests/conftest.py:357`, `egg_stack` fixture at `integration_tests/conftest.py:340`.\n\n2. **`.egg-state/drafts/2623-plan.md` Trust-Boundary claim \"test_brc_single_cycle.py is already kubectl-gated through local_pipeline_stack\" \u2014 factually wrong.** Read `integration_tests/regression/test_brc_single_cycle.py`: it uses `single_reviewer_graph` (regression/conftest.py:564), `event_capture` (regression/conftest.py:519), and `filter_events` (regression/conftest.py:552), then drives the orchestrator's BRC Python API directly via `make_tracker` (`integration_tests/regression/_helpers.py:156`) and `PeerConsensusTracker` (`orchestrator/peer_consensus.py:69`). The test does not touch kubectl, does not depend on `egg_stack`/`local_pipeline_stack`, and never instantiates a spawner or message bus. Both `substrate=\"k3s\"` and `substrate=\"claude-code\"` parameters would run identical Python code \u2014 the test is not a substrate-distinguishing artifact. **Fix:** pick a test (existing or new) that actually exercises `AgentSpawner.spawn(...)` and/or `MessageBus.add_message/get_messages` so the two substrate parameters can produce divergent execution paths. Without that, TASK-1-8's \"matrix proof\" is vacuous.\n\n3. **Internal contradiction between TASK-1-1 and TASK-1-2 about the k3s adapter \u2014 plan is incoherent on whether k3s still works.** TASK-1-1 acceptance #3 (lines 222-226): \"`select_substrate({})` \u2026 returns the bundle pointing at the k3s implementations *but* the k3s adapters raise `NotImplementedError` from the protocol seam with a clear message naming the follow-up issue \u2014 this is the explicit TODO marker\". TASK-1-2 description (lines 257-266): \"the k3s code path keeps working via the (deferred) k3s adapter raising `NotImplementedError`; this is acceptable because the spike's acceptance is claude-code-substrate-only, **and the regression matrix keeps `EGG_SUBSTRATE=k3s` selecting the existing in-tree `KubernetesSpawner`**\" and TASK-1-2 acceptance #4 (lines 280-283): \"`orchestrator/concurrent_executor.py:504` is patched to dispatch through `select_substrate(...)`; the existing k3s path continues to work unchanged **because the k3s implementation of the protocol is a thin shim around the existing `KubernetesSpawner.spawn_agent_job`**\". The two are mutually exclusive \u2014 either the k3s adapter is a working shim around `spawn_agent_job` (TASK-1-2 description) or it raises `NotImplementedError` (TASK-1-1). If TASK-1-2 patches `concurrent_executor.py:504` (the only call site to `spawn_fn`) to dispatch through a `select_substrate(...)` bundle whose k3s leg raises `NotImplementedError`, every k3s deployment is broken on this PR. **Fix:** pick one model and apply consistently. The architect's tasks_for_task_planner_to_pick_up #1 prescribes the working-shim approach: refactor the existing `create_concurrent_spawn_fn` at `orchestrator/kubernetes_spawner.py:1564` to return an `AgentSpawner`-conforming object \u2014 that path keeps k3s green. If you instead want the `NotImplementedError` k3s leg, do not also rewrite `concurrent_executor.py:504`; leave the k3s path on the direct import for this spike.\n\n4. **AgentResult missing `commit_sha` field \u2192 BRC INV-6 violation, hard correctness regression.** TASK-1-2 acceptance #2 defines `AgentResult` with `stdout, exit_code, duration_seconds, worktree` \u2014 no `commit_sha`. `orchestrator/action_guards.py::validate_invariants` enforces INV-6 (ack_commit_sha consistency) \u2014 the orchestrator must know each agent's resulting commit SHA so reviewers can attach commit-bound ACKs and the consensus tracker can detect commit drift between proposal and ack. The architect's spawner-component design called this out explicitly: \"the spawner runs `git -C <worktree_path> rev-parse HEAD` and records the SHA in AgentResult.commit_sha so the orchestrator can attach commit-bound ACKs (action_guards.validate_invariants INV-6 at orchestrator/action_guards.py:753 requires this)\" (architect output, component \"egg_orchestrator/spawners/claude_code_spawner.py\", design.commit_sha_capture). Dropping commit_sha makes the spawner unable to satisfy the existing BRC invariant. **Fix:** add `commit_sha: str | None` to the `AgentResult` dataclass shape in TASK-1-1 and require capture-via-`git rev-parse HEAD` in TASK-1-2's acceptance criteria.\n\n5. **TASK-1-5 cites a non-existent path-escape primitive (\u00a79 primitive-existence audit failure).** Plan line 380-382: \"Safety: `tear_down` resolves the target through `path.resolve().is_relative_to(base.resolve())` so a malicious pipeline ID can't escape the base \u2014 **same defense as `gateway/gateway.py:7903`**.\" Grep verdict: `grep -n 'is_relative_to\\|path.resolve()' gateway/gateway.py` returns zero hits. The defense pattern actually lives at `gateway/worktree_manager.py:1711` (call site) and `gateway/phase_api.py:96-108` (an unrelated phase-api path-resolve). **Fix:** cite `gateway/worktree_manager.py:1711` as the reference implementation. Mis-citing primitives in acceptance criteria pushes the coder into the same hunt I just did \u2014 and risks them inventing a different defense.\n\n6. **TASK-1-3 acceptance #2 cites BRC unit tests in the wrong directory (\u00a79 primitive-existence audit failure).** Plan line 308-311: \"Existing BRC unit tests under **`shared/tests/test_brc_*`** (or wherever they live) pass when run against `InProcessMessageBus`\". Grep verdict: `ls shared/tests/` returns `test_agent_roles_has_contract.py / test_cross_process_lock.py / test_egg_harness / test_egg_health.py / test_egg_restrictions.py / test_egg_restrictions_hints.py / test_github_block_alignment.py / test_impasse_schema.py / test_overseer_advisor.py` \u2014 zero `test_brc_*` files. The BRC unit tests are at `orchestrator/tests/test_brc_*` (15+ files: `test_brc_confirmation_nudge.py`, `test_brc_content_validation.py`, `test_brc_history.py`, `test_brc_nack_iteration.py`, `test_brc_open_nacks_barrier.py`, `test_brc_phase_propagation.py`, plus `test_auto_ack_pure_producers.py` which exercises `PeerConsensusTracker` directly). The \"or wherever they live\" hedge is not adequate \u2014 the tester role needs a precise path-set to parametrize. **Fix:** point TASK-1-3 acceptance #2 at the actual BRC test directory (`orchestrator/tests/test_brc_*.py`) and confirm the tester role is allowed to write there. If not, the cross-substrate BRC-invariant test belongs in `shared/tests/test_in_process_message_bus.py` (which TASK-1-8 already creates) \u2014 say so explicitly instead of vaguely deferring.\n\n7. **TASK-1-6 ignores the orchestrator-reentrancy problem flagged by risk_analyst R4.** TASK-1-6 (lines 387-419) says \"Build `run_pipeline_in_process(issue, role, ...)`\" and \"instantiates `select_substrate(os.environ)`, runs the refine phase with refiner-only\". The orchestrator today is a Flask/waitress HTTP daemon (`orchestrator/cli.py:83-150 cmd_serve` \u2014 verified). It has no in-process API. `ConcurrentPhaseExecutor` (line 114) uses a `ThreadPoolExecutor` for background dispatch; `PeerConsensusTracker` holds its own lock and runs message poll loops. Wrapping all of this in a Python generator that yields `HITLDecision` and resumes via `.send()` is a non-trivial refactor \u2014 the risk_analyst R4 marks this `requires_human_review: true` with `effort: HIGH`. The plan offers neither a refactor task nor a HITL gate, just an acceptance bullet (\"the generator runs the refiner through to completion\"). **Fix:** either (a) split TASK-1-6 into a \"build in-process orchestrator entry point\" task with its own acceptance criteria covering heartbeat-during-HITL, background-thread lifetime, and contract-state synchronization; or (b) register a HITL decision asking the operator to bound the generator/AskUserQuestion model before this slice merges. Calling it a one-line acceptance bullet is hiding hours of refactor work.\n\n8. **No risk-mitigation tasks for the five risk_analyst HIGH-severity / human-review-required items (R1, R2, R4, R7, R10).** The risk_analyst's proposal flagged five risks requiring human review: R1 credential trust-boundary inversion (security, HIGH/CERTAIN), R2 PreToolUse hook role-routing unverified (design, HIGH/HIGH), R4 in-process orchestrator reentrancy (covered above), R7 subagent context budget vs deep-refine (performance, MEDIUM/HIGH), R10 single-role spike freezing interfaces (design, HIGH/MEDIUM). The plan acknowledges none of these as task-level concerns, decisions, or HITL gates. R1 in particular \u2014 moving the Anthropic credential from a gateway-isolated process into the user's parent session \u2014 is a structural threat-model change that the ADR must document and the operator must explicitly accept (per risk_analyst recommendation_rationale and REC2). The plan's TASK-1-9 ADR acceptance does NOT call this out \u2014 bullets only cover the 11 cq decisions, 6 feedback items, and primitives table. **Fix:** add explicit acceptance criteria in TASK-1-9 for each of R1, R2, R7, R10 (\"ADR's 'Trust-context shift' subsection names credential exposure\"; \"ADR documents PreToolUse hook role-routing fallback path to MCP-validator-side enforcement (cq-6 opt-2) if spike evidence is negative\"; \"ADR documents subagent context budget regression and the smaller-budget fallback per cq-10 opt-2\"; \"interfaces marked unstable / v0.x until \u22653 roles exercise them\"). Without this, the spike encodes design decisions that the second wave will need to revisit, expensively.\n\n9. **TASK-1-8 acceptance #2 \u2014 kubectl gating claim does not match the chosen test.** \"the parametrized regression test passes under both substrates locally (kubectl available for k3s; no kubectl needed for claude-code)\". The chosen test (`test_brc_single_cycle.py`) does not require kubectl for any parameter \u2014 see blocking issue #2. **Fix:** if you keep this test as the parametrize target, drop the \"kubectl available for k3s\" half because both parameters run pure-Python. Better: replace the chosen test as in blocking issue #2.\n\n10. **PyPI package name `egg-shared` is invented (TASK-1-7 and TASK-1-11).** Plan line 432 and line 569: \"lists `egg-shared` (or the canonical pip name) as a required dep\". There is no PyPI package called `egg-shared`. The risk_analyst R13 flagged this: the `egg` name is already taken on PyPI, and no published wheel exists for this repo. Picking `egg-shared` without operator authority pre-empts a packaging decision the project hasn't made. **Fix:** either register a HITL decision asking the operator to pick the canonical pip name (and what registry \u2014 PyPI vs git+https), or accept the dep declaration as a TODO placeholder string with a comment, not as a real install instruction. The current language (\"or the canonical pip name\") will produce a coder asking the same question downstream.\n\n11. **Primitive line numbers off \u2014 minor but a pattern.** Plan line 124: \"`integration_tests/conftest.py:78` `EggStack` dataclass\". Grep: `class EggStack` is at `integration_tests/conftest.py:71`, not :78. (line 78 is the `gateway_url: str` field inside the dataclass.) Plan line 121-123 lists `class HITLDecision` at `orchestrator/models.py:300` \u2014 that one's correct. **Fix:** scan the Primitives table for off-by-N line numbers; cite the class definition line, not a field-in-class line.\n\n### Non-blocking\n\n- **Slice-sizing advisory (#2137 size advisory; never NACK):** the plan's own LOC estimate is 1,800\u20132,500 LOC, over the 1k soft target. Per HITL decision-6 opt-2 I will not NACK on size; this is informational only. The plan acknowledges this and ties it to cq-11's spike-shape choice \u2014 that justification holds, but the next reviewer of the implement-phase BRC cycle should know the slice will be expensive to NACK.\n- **Consider expanding spike to 2 roles (risk_analyst REC4).** A single-role spike does not exercise the BRC consensus path (PROPOSE \u2192 ACK), which is the actual structural concern the orchestrator-as-bus model needs to prove. A `refiner + reviewer_refine` pair stays within cq-11's \"walking skeleton\" framing but exercises producer dispatch AND review verdict round-trip. Operator decision; not a blocker.\n- **Subagent type model (R15).** The plan implicitly assumes `subagent_type='general-purpose'` (matching the existing refine-plan skill) but does not commit. Custom `subagent_type` via `.claude/agents/<role>.md` gives structural tool restrictions per role; the existing model relies on prompt discipline + PreToolUse hooks. Picking one and documenting in the ADR would tighten the design.\n- **Cost cap (risk_analyst REC5).** Consider adding an `EGG_PIPELINE_MAX_AGENT_INVOCATIONS` env var with conservative default. Without it, a buggy NACK loop bills directly to the user's Anthropic account \u2014 a real regression from the gateway model.\n- **TASK-1-2 list of files modified should explicitly include `orchestrator/concurrent_executor.py`** (it does \u2014 line 288, good) \u2014 but the acceptance criteria say \"verified by an `assert isinstance(...)` in a unit test\"; consider also a smoke test that `_spawn_agent` dispatches through the bundle, otherwise the contradiction in blocking #3 could land silently.\n- **TASK-1-1 Files list does not include `orchestrator/substrate/k3s_adapter.py`** \u2014 but TASK-1-2 introduces it. If the adapter is the k3s leg of `select_substrate({})`, it logically belongs to TASK-1-1's deliverable surface. Re-organize so the protocol module and the k3s adapter shim ship together, or document that TASK-1-1's k3s leg is a stub and TASK-1-2 replaces it with the shim.\n- **Plan's \"Manual verification\" step 3 (\"HITL surfaces through AskUserQuestion\")** requires a working in-process generator with HITL round-trip \u2014 circular with blocking #7. Resolve that first.\n",
+      "revision_count": 1
+    },
+    "timestamp": "2026-05-19T00:13:51.381971+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "412c2595-b714-49",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:13:51.496249+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2f9c97d9-94e3-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "\nReviewed the architect's substrate-swap walking-skeleton analysis at `.egg-state/agent-outputs/2623-architect-output.json` (360 lines, 9 components, 12 primitives audited, 9 candidate tasks for task_planner, 7 risks delegated to risk_analyst, 48-entry evidence_citations_index). Spot-checked every primitive citation against the actual codebase:\n\n- `orchestrator/concurrent_executor.py:52` SpawnFn type alias \u2014 confirmed (line 52, `SpawnFn = Callable[..., Any]`).\n- `orchestrator/concurrent_executor.py:114` ConcurrentPhaseExecutor class def \u2014 confirmed (the architect's :137 cites the constructor; both fit).\n- `orchestrator/concurrent_executor.py:469` ThreadPoolExecutor dispatch \u2014 confirmed (`with ThreadPoolExecutor(max_workers=self.max_concurrent) as pool:`).\n- `orchestrator/concurrent_executor.py:504 _spawn_agent` \u2014 confirmed.\n- `orchestrator/kubernetes_spawner.py:1564 create_concurrent_spawn_fn` \u2014 confirmed.\n- `orchestrator/message_store.py:200 in-memory MessageStore`, :531 `get_message_store`, :552 `EGG_MESSAGE_STORE_BACKEND` \u2014 all confirmed.\n- `orchestrator/redis_message_store.py:107 RedisMessageStore` \u2014 confirmed.\n- `orchestrator/models.py:1106 add_decision` / `:1130 resolve_decision` \u2014 confirmed.\n- `gateway/worktree_manager.py:49 WORKTREE_BASE_DIR` \u2014 confirmed. Architect calls this out as \"second definition\" (parallel to `orchestrator/kubernetes_spawner.py:65`); both exist.\n- `gateway/agent_restrictions.py:58 partition_files_by_role` \u2014 confirmed.\n- `gateway/phase_filter.py:1036 check_phase_file_restrictions`, `:1061 check_agent_restrictions` \u2014 both confirmed.\n- `shared/egg_restrictions/patterns.py:57 AgentFilePattern.can_write`, `:768 build_agent_patterns` \u2014 confirmed. Note: `AgentFilePattern` class is defined at line 44; the architect's `:57` refers to the `can_write` method within it. Both are accurate.\n- `shared/egg_harness/prompt.py:24 build_system_prompt` \u2014 confirmed.\n\nThe component-by-component breakdown correctly slots each interface into the cq-N decisions (cq-1 \u2192 substrate registry; cq-4 \u2192 synchronous spawn; cq-5 \u2192 port WORKTREE_BASE_DIR; cq-6 \u2192 PreToolUse hook; cq-7 \u2192 heredoc HITL; cq-8 \u2192 plugin.json pip dep; cq-11 \u2192 spike scope). The `execution_context_and_primitive_audit` section correctly handles the new `parent-claude-code-session` context as a first-class entry alongside `in-sandbox-agent` / `trusted-CI-runner` / `human-operator`. The `scope_explicitly_in_spike` vs `scope_explicitly_deferred_to_followups` split is exactly the bookkeeping cq-11 needs.\n\nThe architect correctly identified the spawner's `commit_sha` requirement against INV-6 (`orchestrator/action_guards.py:753`) \u2014 a structural detail the task_planner subsequently dropped from `AgentResult`, which I'm NACKing the task_planner for (my blocking #4 there). The architect's design here is sound.\n\nForest-violation check: this proposal does not modify the contract's slice DAG (architect output is analysis, not contract surgery). No forest violation.\n\n### Non-blocking\n\n- **Component \"egg_orchestrator/policy/pretooluse_hook.py\" assumes the hook can resolve calling-subagent role at hook-execution time.** The risk_analyst's R2 marks this as an unverified runtime primitive. Recommend the architect's follow-up note (or the ADR) explicitly state the fallback path: if PreToolUse hooks cannot distinguish the calling subagent's role at runtime, the policy enforcer falls back to MCP-validator-side enforcement (cq-6 option 2). Otherwise the spike commits to a primitive that may not exist in the form assumed.\n- **Component \"plugins/sdlc/\" agents/ design (line 127)** says \"Empty in the spike \u2014 the orchestrator uses build_system_prompt(sources) to assemble per-role prompts dynamically rather than per-role markdown files.\" This is a deliberate choice (model-(a) prompt-injected, per risk_analyst R15). The trade-off vs. custom `subagent_type` (model-(b) structural tool restrictions) is real and should be a named decision in the ADR rather than implicit in the file layout.\n- **Recommended approach line 17 \u2014 \"regression suite is already substrate-portable in its mocking layout\"** somewhat overstates the case. The risk_analyst R6 flags that 12/14 regression tests are BRC-tracker-level (substrate-agnostic) but several still implicitly depend on gateway primitives or k3s metadata. The architect's \"adding `pytest.mark.parametrize('substrate', [...])` is a CI-matrix change, not a test-rewrite\" is the optimistic framing; the realistic framing per R6 REC3 is \"classify each test as portable / k3s-only / claude-code-only first.\" Not blocking the architect since this lands as task_planner / tester work, but worth aligning in any rewrite.\n- **`evidence_citations_index` is excellent (48 entries, file:line each) \u2014 this format should be cargo-culted to future architect outputs.**\n- **`questions_for_followup_iterations` (3 items)** are well-scoped; none rise to plan-phase HITL gates. Operator may want to register Q3 (`EGG_SUBSTRATE` default) as a contract decision once the spike merges and before the follow-up issue starts.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2623-architect-output.json",
+          "orchestrator/concurrent_executor.py",
+          "orchestrator/kubernetes_spawner.py",
+          "orchestrator/message_store.py",
+          "orchestrator/models.py",
+          "orchestrator/action_guards.py",
+          "shared/egg_harness/prompt.py",
+          "shared/egg_restrictions/patterns.py",
+          "gateway/worktree_manager.py",
+          "gateway/phase_filter.py",
+          "gateway/agent_restrictions.py"
+        ],
+        "reason": "\nReviewed the architect's substrate-swap walking-skeleton analysis at `.egg-state/agent-outputs/2623-architect-output.json` (360 lines, 9 components, 12 primitives audited, 9 candidate tasks for task_planner, 7 risks delegated to risk_analyst, 48-entry evidence_citations_index). Spot-checked every primitive citation against the actual codebase:\n\n- `orchestrator/concurrent_executor.py:52` SpawnFn type alias \u2014 confirmed (line 52, `SpawnFn = Callable[..., Any]`).\n- `orchestrator/concurrent_executor.py:114` ConcurrentPhaseExecutor class def \u2014 confirmed (the architect's :137 cites the constructor; both fit).\n- `orchestrator/concurrent_executor.py:469` ThreadPoolExecutor dispatch \u2014 confirmed (`with ThreadPoolExecutor(max_workers=self.max_concurrent) as pool:`).\n- `orchestrator/concurrent_executor.py:504 _spawn_agent` \u2014 confirmed.\n- `orchestrator/kubernetes_spawner.py:1564 create_concurrent_spawn_fn` \u2014 confirmed.\n- `orchestrator/message_store.py:200 in-memory MessageStore`, :531 `get_message_store`, :552 `EGG_MESSAGE_STORE_BACKEND` \u2014 all confirmed.\n- `orchestrator/redis_message_store.py:107 RedisMessageStore` \u2014 confirmed.\n- `orchestrator/models.py:1106 add_decision` / `:1130 resolve_decision` \u2014 confirmed.\n- `gateway/worktree_manager.py:49 WORKTREE_BASE_DIR` \u2014 confirmed. Architect calls this out as \"second definition\" (parallel to `orchestrator/kubernetes_spawner.py:65`); both exist.\n- `gateway/agent_restrictions.py:58 partition_files_by_role` \u2014 confirmed.\n- `gateway/phase_filter.py:1036 check_phase_file_restrictions`, `:1061 check_agent_restrictions` \u2014 both confirmed.\n- `shared/egg_restrictions/patterns.py:57 AgentFilePattern.can_write`, `:768 build_agent_patterns` \u2014 confirmed. Note: `AgentFilePattern` class is defined at line 44; the architect's `:57` refers to the `can_write` method within it. Both are accurate.\n- `shared/egg_harness/prompt.py:24 build_system_prompt` \u2014 confirmed.\n\nThe component-by-component breakdown correctly slots each interface into the cq-N decisions (cq-1 \u2192 substrate registry; cq-4 \u2192 synchronous spawn; cq-5 \u2192 port WORKTREE_BASE_DIR; cq-6 \u2192 PreToolUse hook; cq-7 \u2192 heredoc HITL; cq-8 \u2192 plugin.json pip dep; cq-11 \u2192 spike scope). The `execution_context_and_primitive_audit` section correctly handles the new `parent-claude-code-session` context as a first-class entry alongside `in-sandbox-agent` / `trusted-CI-runner` / `human-operator`. The `scope_explicitly_in_spike` vs `scope_explicitly_deferred_to_followups` split is exactly the bookkeeping cq-11 needs.\n\nThe architect correctly identified the spawner's `commit_sha` requirement against INV-6 (`orchestrator/action_guards.py:753`) \u2014 a structural detail the task_planner subsequently dropped from `AgentResult`, which I'm NACKing the task_planner for (my blocking #4 there). The architect's design here is sound.\n\nForest-violation check: this proposal does not modify the contract's slice DAG (architect output is analysis, not contract surgery). No forest violation.\n\n### Non-blocking\n\n- **Component \"egg_orchestrator/policy/pretooluse_hook.py\" assumes the hook can resolve calling-subagent role at hook-execution time.** The risk_analyst's R2 marks this as an unverified runtime primitive. Recommend the architect's follow-up note (or the ADR) explicitly state the fallback path: if PreToolUse hooks cannot distinguish the calling subagent's role at runtime, the policy enforcer falls back to MCP-validator-side enforcement (cq-6 option 2). Otherwise the spike commits to a primitive that may not exist in the form assumed.\n- **Component \"plugins/sdlc/\" agents/ design (line 127)** says \"Empty in the spike \u2014 the orchestrator uses build_system_prompt(sources) to assemble per-role prompts dynamically rather than per-role markdown files.\" This is a deliberate choice (model-(a) prompt-injected, per risk_analyst R15). The trade-off vs. custom `subagent_type` (model-(b) structural tool restrictions) is real and should be a named decision in the ADR rather than implicit in the file layout.\n- **Recommended approach line 17 \u2014 \"regression suite is already substrate-portable in its mocking layout\"** somewhat overstates the case. The risk_analyst R6 flags that 12/14 regression tests are BRC-tracker-level (substrate-agnostic) but several still implicitly depend on gateway primitives or k3s metadata. The architect's \"adding `pytest.mark.parametrize('substrate', [...])` is a CI-matrix change, not a test-rewrite\" is the optimistic framing; the realistic framing per R6 REC3 is \"classify each test as portable / k3s-only / claude-code-only first.\" Not blocking the architect since this lands as task_planner / tester work, but worth aligning in any rewrite.\n- **`evidence_citations_index` is excellent (48 entries, file:line each) \u2014 this format should be cargo-culted to future architect outputs.**\n- **`questions_for_followup_iterations` (3 items)** are well-scoped; none rise to plan-phase HITL gates. Operator may want to register Q3 (`EGG_SUBSTRATE` default) as a contract decision once the spike merges and before the follow-up issue starts.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-19T00:13:51.538236+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8d9c3460-2cea-4d",
+    "pipeline_id": "issue-2623",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-05-19T00:13:51.538296+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f0547a66-c9e1-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:13:51.592960+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3de219a8-9c20-49",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "\nReviewed the risk_analyst's 572-line output covering 16 risks across security/design/performance/compatibility, 5 runtime primitives flagged for spike-time verification, 5 trust-boundary shifts named with mitigations, 7 implementation recommendations, 4 open questions for plan phase. Cross-referenced against the issue body's constraints (`SendMessage` gating, subagent context windows, HITL-through-parent-session, concurrency ceiling, install footprint) and the architect's parallel proposal.\n\nThe structural risks are correctly identified and graded:\n\n- **R1 (credential trust-boundary inversion, HIGH/CERTAIN)** \u2014 confirmed by reading `gateway/anthropic_credentials.py` plus the analysis's section \"Gateway is an HTTP sidecar with portable policy logic\" (line 53-57). The gateway's `anthropic_credentials.py` does in fact inject server-side; the sandbox sees a placeholder. Moving the orchestrator in-process to a Claude Code session moves the credential into the parent's process, and any subagent inherits access. This is a real structural threat-model change that the issue body's \"credentials are inherited from the user's session \u2014 no injection needed\" framing understates. R1's mitigation strategy (document trust-context shift; scope use to trusted repos; consider opt-in proxy fallback) is the right shape \u2014 risk_analyst correctly flags this for human review (operator must explicitly accept the new boundary).\n\n- **R2 (PreToolUse hook role-routing unverified, HIGH/HIGH)** \u2014 exactly the #2594 failure class. Plan cannot rely on a primitive whose role-awareness is unverified. The fallback path (cq-6 option 2 MCP-validator-side enforcement) is real \u2014 `sandbox/egg_agent_tools/handlers/restrictions.py:70 check_file_restriction` already wraps `shared/egg_restrictions/patterns.py` and runs in-sandbox today. The recommendation that the spike's exit criteria require a 2-subagent worked example before the abstraction freezes is structurally correct.\n\n- **R4 (in-process orchestrator reentrancy, MEDIUM/HIGH)** \u2014 confirmed by reading `orchestrator/concurrent_executor.py`: `ConcurrentPhaseExecutor` (line 114) holds a `ThreadPoolExecutor` (line 469); `PeerConsensusTracker` runs its own lock; heartbeat / message-poll loops run as background threads. The generator-yields-HITLDecision model demands that the orchestrator pause cleanly while preserving these threads. The risk_analyst's mitigation (\"spike must exercise HITL round-trip end-to-end\"; \"pause heartbeat timers during HITL or extend dramatically\") is the right bound to put on the spike.\n\n- **R7 (subagent context budget vs deep-refine, MEDIUM/HIGH)** \u2014 correctly distinguishes k3s-substrate checkpoint primitives (sandbox restart with full prompt rebuild) from Claude Code subagent re-spawn (orchestrator must re-summarize and re-feed). The honest assessment (\"some refines will fit, some won't; the mitigation is acknowledging the gap\") is more useful than a false promise.\n\n- **R10 (single-role spike freezing interfaces, HIGH/MEDIUM)** \u2014 the strongest structural critique of cq-11 itself. A single-role spike doesn't exercise the orchestrator-as-bus model (BRC's PROPOSE\u2192ACK round-trip). The recommendation to expand to 2 roles (refiner + reviewer_refine) is a defensible counter-proposal to cq-11 that the plan reviewer should surface; risk_analyst correctly notes it requires human review.\n\nThe five trust-boundary shifts (credential isolation, file-write enforcement timing, cost/rate-limit control, agent liveness, push serialization) are the right list and each has a concrete mitigation. The `rollback_plan` is realistic (env-var flip back to `EGG_SUBSTRATE=k3s`, no data migration needed because contracts are filesystem-native).\n\nThe 7 `implementation_recommendations` (REC1\u2013REC7) and 4 `open_questions_for_plan_phase` correctly target structural items that should land in the plan's tasks or HITL gates. None of these recommendations exceed risk_analyst's scope (they're properly framed as \"the planner should\u2026\" not \"I will\u2026\").\n\nThe output is well-structured for downstream consumption: every risk has `id`, `category`, `severity`, `likelihood`, `impact`, `description`, `affected_files`, `mitigation` with `strategy`/`effort`/`residual_risk`, and `requires_human_review` flag. This is the schema the plan reviewer needs to cross-reference against the planner's task list.\n\n### Non-blocking\n\n- **R8 (pip install drift) recommendation #5 has a JSON shape glitch (line 475-477)** \u2014 the entry uses `\"id\": \"MEDIUM\"` and then a comment field `\"id_override_note\": \"REC5\"`. This is a serialization mistake; the actual `id` should be `\"REC5\"`. Fix in any re-propose. Not blocking \u2014 content is clear, just self-consistent IDs would help downstream consumers.\n- **R3 (subagent concurrency ceiling) \"MEDIUM/MEDIUM\"** could be argued up to MEDIUM/HIGH given egg's `ThreadPoolExecutor(max_workers=6)` is hard-coded for k3s and the implement-phase slice-DAG fans out to 8+ agents per the issue body. Not blocking \u2014 the mitigation (per-substrate `max_workers` override + semaphore) is sound at either grading.\n- **REC4 (expand spike to 2 roles) directly contradicts cq-11's HITL resolution** (\"Spike then plan: a single 'walking skeleton' slice that gets one role (refiner) running through one substrate (claude-code) end-to-end\"). The risk_analyst correctly flags this as a recommendation, not a verdict. Plan reviewer's call on whether to surface as a re-open of cq-11 to the operator or accept the single-role spike as-is. I lean toward surfacing \u2014 the consensus path is the actually-novel surface \u2014 but cq-11 is a resolved HITL and the planner cannot unilaterally reopen.\n- **R14 (SendMessage / Agent Teams gating)** is correctly bounded as known-known with the right mitigation (don't let scope creep absorb #2612). No action.\n- **`alignment_with_issue_done_criteria`** is a nice closing section; consider including this shape in future risk_analyst outputs as a contract-vs-risk cross-check.\n- **`performance_assessment.note`** (\"'slower than k3s in a datacenter' may still be 'faster than nothing' from the solo-developer perspective\") is the kind of framing the operator needs and was missing from the refine analysis. Good to surface.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2623-risk_analyst-output.json",
+          ".egg-state/drafts/2623-analysis.md",
+          "docs/architecture/integration-test-trust-boundary.md",
+          "orchestrator/concurrent_executor.py",
+          "gateway/anthropic_credentials.py",
+          "shared/egg_restrictions/patterns.py",
+          "shared/egg_harness/prompt.py"
+        ],
+        "reason": "\nReviewed the risk_analyst's 572-line output covering 16 risks across security/design/performance/compatibility, 5 runtime primitives flagged for spike-time verification, 5 trust-boundary shifts named with mitigations, 7 implementation recommendations, 4 open questions for plan phase. Cross-referenced against the issue body's constraints (`SendMessage` gating, subagent context windows, HITL-through-parent-session, concurrency ceiling, install footprint) and the architect's parallel proposal.\n\nThe structural risks are correctly identified and graded:\n\n- **R1 (credential trust-boundary inversion, HIGH/CERTAIN)** \u2014 confirmed by reading `gateway/anthropic_credentials.py` plus the analysis's section \"Gateway is an HTTP sidecar with portable policy logic\" (line 53-57). The gateway's `anthropic_credentials.py` does in fact inject server-side; the sandbox sees a placeholder. Moving the orchestrator in-process to a Claude Code session moves the credential into the parent's process, and any subagent inherits access. This is a real structural threat-model change that the issue body's \"credentials are inherited from the user's session \u2014 no injection needed\" framing understates. R1's mitigation strategy (document trust-context shift; scope use to trusted repos; consider opt-in proxy fallback) is the right shape \u2014 risk_analyst correctly flags this for human review (operator must explicitly accept the new boundary).\n\n- **R2 (PreToolUse hook role-routing unverified, HIGH/HIGH)** \u2014 exactly the #2594 failure class. Plan cannot rely on a primitive whose role-awareness is unverified. The fallback path (cq-6 option 2 MCP-validator-side enforcement) is real \u2014 `sandbox/egg_agent_tools/handlers/restrictions.py:70 check_file_restriction` already wraps `shared/egg_restrictions/patterns.py` and runs in-sandbox today. The recommendation that the spike's exit criteria require a 2-subagent worked example before the abstraction freezes is structurally correct.\n\n- **R4 (in-process orchestrator reentrancy, MEDIUM/HIGH)** \u2014 confirmed by reading `orchestrator/concurrent_executor.py`: `ConcurrentPhaseExecutor` (line 114) holds a `ThreadPoolExecutor` (line 469); `PeerConsensusTracker` runs its own lock; heartbeat / message-poll loops run as background threads. The generator-yields-HITLDecision model demands that the orchestrator pause cleanly while preserving these threads. The risk_analyst's mitigation (\"spike must exercise HITL round-trip end-to-end\"; \"pause heartbeat timers during HITL or extend dramatically\") is the right bound to put on the spike.\n\n- **R7 (subagent context budget vs deep-refine, MEDIUM/HIGH)** \u2014 correctly distinguishes k3s-substrate checkpoint primitives (sandbox restart with full prompt rebuild) from Claude Code subagent re-spawn (orchestrator must re-summarize and re-feed). The honest assessment (\"some refines will fit, some won't; the mitigation is acknowledging the gap\") is more useful than a false promise.\n\n- **R10 (single-role spike freezing interfaces, HIGH/MEDIUM)** \u2014 the strongest structural critique of cq-11 itself. A single-role spike doesn't exercise the orchestrator-as-bus model (BRC's PROPOSE\u2192ACK round-trip). The recommendation to expand to 2 roles (refiner + reviewer_refine) is a defensible counter-proposal to cq-11 that the plan reviewer should surface; risk_analyst correctly notes it requires human review.\n\nThe five trust-boundary shifts (credential isolation, file-write enforcement timing, cost/rate-limit control, agent liveness, push serialization) are the right list and each has a concrete mitigation. The `rollback_plan` is realistic (env-var flip back to `EGG_SUBSTRATE=k3s`, no data migration needed because contracts are filesystem-native).\n\nThe 7 `implementation_recommendations` (REC1\u2013REC7) and 4 `open_questions_for_plan_phase` correctly target structural items that should land in the plan's tasks or HITL gates. None of these recommendations exceed risk_analyst's scope (they're properly framed as \"the planner should\u2026\" not \"I will\u2026\").\n\nThe output is well-structured for downstream consumption: every risk has `id`, `category`, `severity`, `likelihood`, `impact`, `description`, `affected_files`, `mitigation` with `strategy`/`effort`/`residual_risk`, and `requires_human_review` flag. This is the schema the plan reviewer needs to cross-reference against the planner's task list.\n\n### Non-blocking\n\n- **R8 (pip install drift) recommendation #5 has a JSON shape glitch (line 475-477)** \u2014 the entry uses `\"id\": \"MEDIUM\"` and then a comment field `\"id_override_note\": \"REC5\"`. This is a serialization mistake; the actual `id` should be `\"REC5\"`. Fix in any re-propose. Not blocking \u2014 content is clear, just self-consistent IDs would help downstream consumers.\n- **R3 (subagent concurrency ceiling) \"MEDIUM/MEDIUM\"** could be argued up to MEDIUM/HIGH given egg's `ThreadPoolExecutor(max_workers=6)` is hard-coded for k3s and the implement-phase slice-DAG fans out to 8+ agents per the issue body. Not blocking \u2014 the mitigation (per-substrate `max_workers` override + semaphore) is sound at either grading.\n- **REC4 (expand spike to 2 roles) directly contradicts cq-11's HITL resolution** (\"Spike then plan: a single 'walking skeleton' slice that gets one role (refiner) running through one substrate (claude-code) end-to-end\"). The risk_analyst correctly flags this as a recommendation, not a verdict. Plan reviewer's call on whether to surface as a re-open of cq-11 to the operator or accept the single-role spike as-is. I lean toward surfacing \u2014 the consensus path is the actually-novel surface \u2014 but cq-11 is a resolved HITL and the planner cannot unilaterally reopen.\n- **R14 (SendMessage / Agent Teams gating)** is correctly bounded as known-known with the right mitigation (don't let scope creep absorb #2612). No action.\n- **`alignment_with_issue_done_criteria`** is a nice closing section; consider including this shape in future risk_analyst outputs as a contract-vs-risk cross-check.\n- **`performance_assessment.note`** (\"'slower than k3s in a datacenter' may still be 'faster than nothing' from the solo-developer perspective\") is the kind of framing the operator needs and was missing from the refine analysis. Good to surface.\n",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-05-19T00:13:51.638888+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9f421a3c-3419-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-19T00:13:56.522158+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "51264ca5-4325-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:13:56.601835+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3db1f8bb-6451-47",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:14:03.990459+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "73e96e13-e91f-48",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:14:04.358899+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e14d3f73-2cc0-44",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:14:07.203422+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fb650e95-0846-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:15:04.071564+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7009b36f-f1e1-4e",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:15:04.443138+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "81ebd72b-e93b-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:15:07.250372+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c3666cc3-bc0c-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:16:04.150571+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d22d958e-5f87-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:16:04.529624+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9d9f32d3-e124-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:16:07.335968+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "95e2614b-01b1-44",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:17:04.356657+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c2dcbb37-7bc6-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:17:04.610202+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "07825e67-10ab-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:17:07.420571+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c9c7e3ee-d51e-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:18:04.416864+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6d18c834-0500-4a",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:18:04.699888+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "047d3fb2-68fc-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:18:07.480223+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1822671a-bfee-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:19:04.549055+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a0945205-6558-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:19:04.768185+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "62a85bc7-e8eb-4e",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:19:07.623529+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c582760-c53b-41",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:20:04.684898+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "02e7d738-9edf-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:20:04.838836+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e2535f66-02f5-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:20:07.707127+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fb326fad-d6b8-40",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:21:04.787549+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4463d38c-9405-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:21:04.940902+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f6a0c4b5-25a7-4e",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:21:07.830091+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4869401e-931a-4c",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:22:04.860747+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b4bf027a-cea8-4c",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:22:05.031888+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9f0cd47f-04e6-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:22:07.884881+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "58a29a77-44bd-40",
+    "pipeline_id": "issue-2623",
+    "from_role": "overseer",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "NUDGE: BRC CONSENSUS_CONFIRMED required",
+    "body": "task_planner: You are in producer_phase=WORKING after receiving your ACK at 00:13:51 UTC. You have been in WORKING state for 400+ seconds without sending CONSENSUS_CONFIRMED. Architect confirmed at 00:13:56 (5s), risk_analyst confirmed at 00:11:48 (4s). reviewer_plan is blocked in REVIEWING state waiting for your confirmation. Please send CONSENSUS_CONFIRMED for your proposal immediately to unblock BRC.",
+    "metadata": {},
+    "timestamp": "2026-05-19T00:22:09.868979+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c4c4e2e-ccbf-4c",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:03.952398+00:00"
+    },
+    "timestamp": "2026-05-19T00:23:09.211656+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "35612627-8aab-4d",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:23:09.214842+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7a3a4051-bcb0-40",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:23:09.223934+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "29c8900e-0336-47",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Re-propose addressing all 11 reviewer_plan blockers: (1) Trust-Boundary rewritten to cite integration_tests/conftest.py:71/340/357 (dropped deleted local_pipeline reference); (2) NEW substrate-distinguishing test test_substrate_smoke.py exercises select_substrate().spawner.spawn() and .bus directly under both substrate params; (3) k3s adapter contradiction resolved \u2014 K3sSpawnerAdapter is WORKING (wraps orchestrator/kubernetes_spawner.py:1564 create_concurrent_spawn_fn); NotImplementedError only in TASK-1-6's run_pipeline_in_process k3s leg (cq-11 scope-fence); (4) AgentResult.commit_sha added for INV-6 (orchestrator/action_guards.py:631 body :757), captured via git rev-parse HEAD in both spawners; (5) TASK-1-5 cites gateway/worktree_manager.py:1711 is_relative_to defense; (6) TASK-1-3 oracle now orchestrator/tests/test_brc_*.py with named scenarios from test_brc_open_nacks_barrier.py and test_brc_content_validation.py; (7) TASK-1-6 expanded with R4 refactor acceptance: heartbeat-during-HITL, background-thread lifetime on GeneratorExit, contract-state sync; (8) TASK-1-9 ADR covers R1 trust-context shift, R2 hook fallback, R7 context budget, R10 interface stability marker, REC5 cost cap, R15 subagent_type choice; (9) both substrate dimensions pure-Python (kubectl claim corrected); (10) cq-12 HITL registered for pip name selection \u2014 TASK-1-7 carries operator's selection verbatim; (11) EggStack line :78 \u2192 :71. Non-blocking items addressed inline.",
+    "metadata": {
+      "payload": {
+        "summary": "Re-propose addressing all 11 reviewer_plan blockers: (1) Trust-Boundary rewritten to cite integration_tests/conftest.py:71/340/357 (dropped deleted local_pipeline reference); (2) NEW substrate-distinguishing test test_substrate_smoke.py exercises select_substrate().spawner.spawn() and .bus directly under both substrate params; (3) k3s adapter contradiction resolved \u2014 K3sSpawnerAdapter is WORKING (wraps orchestrator/kubernetes_spawner.py:1564 create_concurrent_spawn_fn); NotImplementedError only in TASK-1-6's run_pipeline_in_process k3s leg (cq-11 scope-fence); (4) AgentResult.commit_sha added for INV-6 (orchestrator/action_guards.py:631 body :757), captured via git rev-parse HEAD in both spawners; (5) TASK-1-5 cites gateway/worktree_manager.py:1711 is_relative_to defense; (6) TASK-1-3 oracle now orchestrator/tests/test_brc_*.py with named scenarios from test_brc_open_nacks_barrier.py and test_brc_content_validation.py; (7) TASK-1-6 expanded with R4 refactor acceptance: heartbeat-during-HITL, background-thread lifetime on GeneratorExit, contract-state sync; (8) TASK-1-9 ADR covers R1 trust-context shift, R2 hook fallback, R7 context budget, R10 interface stability marker, REC5 cost cap, R15 subagent_type choice; (9) both substrate dimensions pure-Python (kubectl claim corrected); (10) cq-12 HITL registered for pip name selection \u2014 TASK-1-7 carries operator's selection verbatim; (11) EggStack line :78 \u2192 :71. Non-blocking items addressed inline.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2623-plan.md"
+        ],
+        "risk_considered": "Single-slice plan over 1k LOC advisory ceiling is unchanged (cq-11 spike-then-plan). New cq-12 HITL adds one pending decision the operator must resolve for TASK-1-7 to ship; documented in plan body. TASK-1-6 is now an explicit R4 refactor task with three acceptance bullets (heartbeat, lifetime, state sync) \u2014 the most expensive task in the slice but the cost is now visible to the coder rather than hidden.",
+        "commit_sha": "f760fba16",
+        "files_changed": [
+          ".egg-state/drafts/2623-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 2,
+      "commit_sha": "f760fba16"
+    },
+    "timestamp": "2026-05-19T00:23:09.707117+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3fa8dbed-b2a3-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:23:09.753943+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2138136f-0010-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:23:15.055576+00:00"
+    },
+    "timestamp": "2026-05-19T00:23:34.746093+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6d3a1592-7dd9-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:23:34.838518+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ebd6cbd3-457d-4d",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:23:49.864906+00:00"
+    },
+    "timestamp": "2026-05-19T00:23:49.926493+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6660f40d-4cb4-44",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:24:09.311965+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3f548e9e-11da-4d",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:24:09.320102+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3e32ef0a-80b8-4f",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:23:49.864906+00:00"
+    },
+    "timestamp": "2026-05-19T00:24:50.035429+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "96300726-3b2c-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:25:09.400792+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "04d14f8e-1bce-40",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:25:09.410305+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8e668321-1dc8-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,STATUS,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:23:49.864906+00:00"
+    },
+    "timestamp": "2026-05-19T00:25:50.122517+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eba47701-2da3-4e",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "\nRe-reviewed `.egg-state/drafts/2623-plan.md` (v2, commit `f760fba16`, 1,348 lines, +525/-219 since v1). Walked every blocker from the v1 NACK against the re-propose:\n\n1. **Trust-Boundary scope** \u2014 rewritten. v2 cites `EggStack` at `integration_tests/conftest.py:71` (verified \u2014 `grep -n 'class EggStack' integration_tests/conftest.py` \u2192 `71:class EggStack(GatewayClientMixin):`), `egg_stack` fixture at `:340`, `orchestrator_url` fixture at `:357` (both verified). Drops the deleted `local_pipeline/` reference and explicitly names `f7803637d1` as the deletion commit. Implications block clearly states \"Both parameters run **pure-Python in-process**. No kubectl gate is needed (or claimed) for either parameter.\" Cleanly addresses v1 blockers #1, #9, #11.\n\n2. **Substrate-distinguishing test** \u2014 replaced. v2 introduces a NEW `integration_tests/regression/test_substrate_smoke.py` that drives `select_substrate(...).spawner.spawn(...)` and `.bus.add_message/get_messages` directly. TASK-1-8 acceptance #2 (lines 1220-1234): k3s dimension routes through `K3sSpawnerAdapter` (with the underlying `create_concurrent_spawn_fn` mocked); claude-code dimension routes through `ClaudeCodeSpawner` + `InProcessMessageBus`. Both produce divergent execution paths and the test asserts `AgentResult.commit_sha` populated and INV-3 stale-version rejection round-trip. v1 blocker #2 cleanly addressed.\n\n3. **k3s adapter contradiction** \u2014 resolved. TASK-1-1 acceptance #3 (lines 276-280): `select_substrate({})` defaults to \"k3s\" and returns a **working** `K3sSpawnerAdapter` wrapping `create_concurrent_spawn_fn` (`orchestrator/kubernetes_spawner.py:1564` \u2014 verified by grep). TASK-1-2 description lines 320-326: \"Both substrate legs are working under this patch: the k3s leg returns the `K3sSpawnerAdapter` shim from TASK-1-1 \u2026 the claude-code leg returns this task's `ClaudeCodeSpawner`. The patch is a re-wiring, not a behavior change \u2014 k3s deployments stay green.\" The only `NotImplementedError` raised in this slice is now TASK-1-6's `run_pipeline_in_process` k3s leg \u2014 the cq-11 scope-fence is on the in-process *boot path*, not on the spawner protocol. Internally consistent. v1 blocker #3 cleanly addressed.\n\n4. **AgentResult.commit_sha for INV-6** \u2014 added. TASK-1-1 acceptance #2 (lines 272-275): \"`AgentResult` includes `commit_sha: str | None`\". TASK-1-2 acceptance #2 (lines 333-337): \"captured via `git -C <worktree> rev-parse HEAD`\"; \"A unit test asserts `commit_sha` is a 40-char hex string after a spawn that produced a commit.\" TASK-1-1 adapter and TASK-1-2 ClaudeCodeSpawner both capture commit_sha (lines 261-263 and 311-315 respectively). INV-6 (`orchestrator/action_guards.py:631`, body at `:757` \u2014 verified line numbers) is preserved across both substrates. v1 blocker #4 cleanly addressed.\n\n5. **TASK-1-5 path-escape primitive** \u2014 corrected. Plan now cites `gateway/worktree_manager.py:1711` (call site within `_remove_worktree`) and `:1700` (matching `base.resolve()`) \u2014 verified by grep (`gateway/worktree_manager.py:1693` docstring; `:1711` is `if not resolved.is_relative_to(base_resolved):`). The bogus `gateway/gateway.py:7903` reference is gone. v1 blocker #5 cleanly addressed.\n\n6. **TASK-1-3 BRC oracle directory** \u2014 corrected. TASK-1-3 description (lines 1046-1051) and acceptance (lines 1052-1059) point at `orchestrator/tests/test_brc_*.py` with named scenarios from `test_brc_open_nacks_barrier.py` and `test_brc_content_validation.py` (both verified to exist). The bogus `shared/tests/test_brc_*` reference is gone. Tester role's behavioral test lands at `shared/tests/test_in_process_message_bus.py` (TASK-1-8 file list line 1252) \u2014 tester-allowed path. v1 blocker #6 cleanly addressed.\n\n7. **TASK-1-6 R4 acceptance criteria** \u2014 added. TASK-1-6 description (lines 1117-1131) explicitly calls out the refactor scope: \"This is the slice's most expensive task \u2014 risk_analyst R4 flagged the orchestrator-reentrancy refactor as `requires_human_review` (effort HIGH).\" Acceptance now has three R4-specific bullets: **heartbeat-during-HITL** (\"background heartbeat poll, BRC re-review, and message-bus tick threads remain alive while the generator is paused at a yield boundary\"), **background-thread lifetime** (\"the generator returns cleanly on both normal completion AND on `GeneratorExit`\"), **contract-state synchronization** (\"the in-process orchestrator writes to the same `.egg-state/contracts/<id>.json` filesystem path the HTTP daemon uses\"). Each has a concrete verification path. v1 blocker #7 cleanly addressed.\n\n8. **Risk-mitigation acceptance in TASK-1-9 ADR** \u2014 added. ADR acceptance (lines 1269-1291) now has dedicated subsections for R1 (\"Trust-context shift\" \u2014 credential exposure), R2 (\"PreToolUse hook fallback\" \u2014 primary + MCP-validator-side fallback), R7 (\"Subagent context budget regression\"), R10 (\"Interface stability marker\" \u2014 `# v0.x unstable` until \u22653 roles), REC5 (\"Cost cap\" \u2014 `EGG_PIPELINE_MAX_AGENT_INVOCATIONS`), R15 (\"Subagent type model\" \u2014 `general-purpose` choice + trade-off). Each is required as an explicit acceptance bullet, not buried in narrative. v1 blocker #8 cleanly addressed.\n\n9. **TASK-1-8 kubectl claim** \u2014 corrected per #1 above.\n\n10. **cq-12 HITL for pip name** \u2014 registered. `mcp__sdlc__show_contract` confirms a `cq-12` decision in the contract with three substantive options (PyPI `egg-shared` publish; `git+https://github.com/jwbron/egg.git#subdirectory=shared`; \"Defer to follow-up TODO placeholder\") plus \"Other\". TASK-1-7 description (lines 1170-1180) and acceptance (lines 1182-1193) carry the operator's selection verbatim with TODO-placeholder fallback. v1 blocker #10 cleanly addressed.\n\n11. **EggStack line number** \u2014 corrected to `:71` per #1.\n\nPrimitive-audit grep verdict on the v2 Primitives table (lines 109-139): all newly added rows cite real file:line locations \u2014 `validate_invariants` at `:631`/body at `:757` (verified \u2014 `def validate_invariants` is at `orchestrator/action_guards.py:631`); `create_concurrent_spawn_fn` at `:1564`; `make_tracker` at `integration_tests/regression/_helpers.py:156`; `PeerConsensusTracker` at `orchestrator/peer_consensus.py:69`; existing regression fixtures `single_reviewer_graph`/`event_capture`/`filter_events` at `:564`/`:519`/`:552` (verified). BRC test directory `orchestrator/tests/test_brc_*.py` \u2014 verified the directory contains 15+ matching files. The Primitives table is now grep-clean.\n\nSlice-DAG and forest checks: single root slice (slice id 1), no `serialized_chain_order` required, no forest violation. Plan ingestion would accept this.\n\n### Non-blocking\n\nThe structural plan is sound and I will not re-NACK on these. Each is a mechanical cleanup; please pick up before opening the PR so the auto-rendered PR body matches the actual code.\n\n1. **`yaml-tasks \u2192 pr.description.Changes[1]` still says \"The k3s adapter is a deferred TODO that raises `NotImplementedError` (cq-11 explicit boundary)\" (line 866-867).** This directly contradicts the v2 task definitions: TASK-1-1 acceptance #3 ships a *working* `K3sSpawnerAdapter`. The yaml PR description is what becomes the actual GitHub PR body when the implement-phase coder runs `gh pr create` \u2014 future readers of the PR will be misled. Replace with: \"The k3s leg uses a working `K3sSpawnerAdapter` shim wrapping `orchestrator/kubernetes_spawner.py:1564 create_concurrent_spawn_fn`; the `NotImplementedError` scope-fence applies only to TASK-1-6's `run_pipeline_in_process` boot path (cq-11).\"\n\n2. **`yaml-tasks \u2192 pr.test_plan` still references the wrong test file (line 907):** \"`test_brc_single_cycle.py` passes under both `substrate` parameters\". The new substrate-distinguishing test is `test_substrate_smoke.py` (TASK-1-8 acceptance #2, file at line 1248). Replace `test_brc_single_cycle.py` with `test_substrate_smoke.py` in the yaml test_plan.\n\n3. **Plan \u00a7\"Test strategy\" \u2192 \"Behavioral parity\" bullet (lines 778-781)** has the same stale reference: \"the existing `test_brc_single_cycle.py` runs under both `substrate` parameters; the claude-code parameter exercises `InProcessMessageBus` + `ClaudeCodeSpawner`. Pass on both = behavioral parity proof.\" Replace with the new test_substrate_smoke.py phrasing.\n\n4. **Primitives \"New primitives\" table row \"test_brc_single_cycle_claude_code\" at `integration_tests/regression/test_brc_single_cycle.py (existing \u2014 extended)\" (line 161)** is stale. Remove this row entirely; the actual artifact is the new `test_substrate_smoke.py` row that needs to be added in its place (`integration_tests/regression/test_substrate_smoke.py` NEW, created by TASK-1-8 tester).\n\n5. **`yaml-tasks \u2192 pr.description.Impact` and \"Manual verification (reviewer)\" step 1 and `yaml.test_plan` still hardcode `pip install egg-shared`** (lines 798, 893, 909). The actual install string is whatever cq-12 resolves to. Replace with conditional phrasing: \"`pip install <package selected by cq-12>` (currently TBD pending operator selection \u2014 see `plugins/egg-sdlc/.claude-plugin/plugin.json` after merge)\" or leave the placeholder explicitly bracketed (`<pip-name from cq-12>`) so a coder picks it up at implement time.\n\n6. **The cq-12 decision is currently unresolved.** The plan's TASK-1-7 handles this gracefully (TODO placeholder if cq-12 defers), but if the operator wants to resolve cq-12 *before* implement-phase starts, that gives the coder a deterministic string to ship. Not a plan-phase blocker; just calling it out for the orchestrator's HITL gate scheduling.\n\n7. **Slice-sizing advisory (#2137 size advisory; never NACK):** v2's estimated 1,800\u20132,500 LOC stands (no change). Per HITL decision-6 opt-2 I do NOT NACK on size; this is advisory only and the spike-then-plan framing (cq-11) justifies the size. The next reviewer of the implement-phase BRC cycle should know the slice will be expensive to NACK and the producer should land in tight, well-scoped commits per task.\n\n8. **R5 (git lock contention on concurrent push) and R12 (heartbeat tautology / wall-clock timeouts) from the risk_analyst** are still not surfaced in any acceptance criteria. The spike's single-role / single-phase scope makes these unobservable (no concurrent producer dispatch in the refine phase), so this is acceptable scope-fencing \u2014 but worth listing in TASK-1-9's \"Open work\" appendix so the follow-up issue inherits them. Currently the Open work list (line 1285-1291) names plan/implement/pr, BRC concurrency, full conformance, k3s adapter, EggHarnessSpawner, prune verb, fork delegation, cost cap, subagent_type migration \u2014 but not R5's push-serialization or R12's wall-clock-timeout watchdog. Consider adding these two items.\n\n9. **Risk_analyst's REC4 (expand spike to 2 roles)** is NOT picked up \u2014 the plan stays at refiner-only, consistent with cq-11. This is the right call per the resolved HITL; the operator can revisit by re-opening cq-11 if the spike's interface lessons end up too thin from one role's perspective. Calling it out so the producer / operator know the path explicitly.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2623-plan.md",
+          ".egg-state/contracts/issue-2623.json",
+          "orchestrator/concurrent_executor.py",
+          "orchestrator/kubernetes_spawner.py",
+          "orchestrator/peer_consensus.py",
+          "orchestrator/action_guards.py",
+          "integration_tests/conftest.py",
+          "integration_tests/regression/conftest.py",
+          "integration_tests/regression/test_brc_single_cycle.py",
+          "gateway/worktree_manager.py",
+          "shared/egg_restrictions/patterns.py"
+        ],
+        "reason": "\nRe-reviewed `.egg-state/drafts/2623-plan.md` (v2, commit `f760fba16`, 1,348 lines, +525/-219 since v1). Walked every blocker from the v1 NACK against the re-propose:\n\n1. **Trust-Boundary scope** \u2014 rewritten. v2 cites `EggStack` at `integration_tests/conftest.py:71` (verified \u2014 `grep -n 'class EggStack' integration_tests/conftest.py` \u2192 `71:class EggStack(GatewayClientMixin):`), `egg_stack` fixture at `:340`, `orchestrator_url` fixture at `:357` (both verified). Drops the deleted `local_pipeline/` reference and explicitly names `f7803637d1` as the deletion commit. Implications block clearly states \"Both parameters run **pure-Python in-process**. No kubectl gate is needed (or claimed) for either parameter.\" Cleanly addresses v1 blockers #1, #9, #11.\n\n2. **Substrate-distinguishing test** \u2014 replaced. v2 introduces a NEW `integration_tests/regression/test_substrate_smoke.py` that drives `select_substrate(...).spawner.spawn(...)` and `.bus.add_message/get_messages` directly. TASK-1-8 acceptance #2 (lines 1220-1234): k3s dimension routes through `K3sSpawnerAdapter` (with the underlying `create_concurrent_spawn_fn` mocked); claude-code dimension routes through `ClaudeCodeSpawner` + `InProcessMessageBus`. Both produce divergent execution paths and the test asserts `AgentResult.commit_sha` populated and INV-3 stale-version rejection round-trip. v1 blocker #2 cleanly addressed.\n\n3. **k3s adapter contradiction** \u2014 resolved. TASK-1-1 acceptance #3 (lines 276-280): `select_substrate({})` defaults to \"k3s\" and returns a **working** `K3sSpawnerAdapter` wrapping `create_concurrent_spawn_fn` (`orchestrator/kubernetes_spawner.py:1564` \u2014 verified by grep). TASK-1-2 description lines 320-326: \"Both substrate legs are working under this patch: the k3s leg returns the `K3sSpawnerAdapter` shim from TASK-1-1 \u2026 the claude-code leg returns this task's `ClaudeCodeSpawner`. The patch is a re-wiring, not a behavior change \u2014 k3s deployments stay green.\" The only `NotImplementedError` raised in this slice is now TASK-1-6's `run_pipeline_in_process` k3s leg \u2014 the cq-11 scope-fence is on the in-process *boot path*, not on the spawner protocol. Internally consistent. v1 blocker #3 cleanly addressed.\n\n4. **AgentResult.commit_sha for INV-6** \u2014 added. TASK-1-1 acceptance #2 (lines 272-275): \"`AgentResult` includes `commit_sha: str | None`\". TASK-1-2 acceptance #2 (lines 333-337): \"captured via `git -C <worktree> rev-parse HEAD`\"; \"A unit test asserts `commit_sha` is a 40-char hex string after a spawn that produced a commit.\" TASK-1-1 adapter and TASK-1-2 ClaudeCodeSpawner both capture commit_sha (lines 261-263 and 311-315 respectively). INV-6 (`orchestrator/action_guards.py:631`, body at `:757` \u2014 verified line numbers) is preserved across both substrates. v1 blocker #4 cleanly addressed.\n\n5. **TASK-1-5 path-escape primitive** \u2014 corrected. Plan now cites `gateway/worktree_manager.py:1711` (call site within `_remove_worktree`) and `:1700` (matching `base.resolve()`) \u2014 verified by grep (`gateway/worktree_manager.py:1693` docstring; `:1711` is `if not resolved.is_relative_to(base_resolved):`). The bogus `gateway/gateway.py:7903` reference is gone. v1 blocker #5 cleanly addressed.\n\n6. **TASK-1-3 BRC oracle directory** \u2014 corrected. TASK-1-3 description (lines 1046-1051) and acceptance (lines 1052-1059) point at `orchestrator/tests/test_brc_*.py` with named scenarios from `test_brc_open_nacks_barrier.py` and `test_brc_content_validation.py` (both verified to exist). The bogus `shared/tests/test_brc_*` reference is gone. Tester role's behavioral test lands at `shared/tests/test_in_process_message_bus.py` (TASK-1-8 file list line 1252) \u2014 tester-allowed path. v1 blocker #6 cleanly addressed.\n\n7. **TASK-1-6 R4 acceptance criteria** \u2014 added. TASK-1-6 description (lines 1117-1131) explicitly calls out the refactor scope: \"This is the slice's most expensive task \u2014 risk_analyst R4 flagged the orchestrator-reentrancy refactor as `requires_human_review` (effort HIGH).\" Acceptance now has three R4-specific bullets: **heartbeat-during-HITL** (\"background heartbeat poll, BRC re-review, and message-bus tick threads remain alive while the generator is paused at a yield boundary\"), **background-thread lifetime** (\"the generator returns cleanly on both normal completion AND on `GeneratorExit`\"), **contract-state synchronization** (\"the in-process orchestrator writes to the same `.egg-state/contracts/<id>.json` filesystem path the HTTP daemon uses\"). Each has a concrete verification path. v1 blocker #7 cleanly addressed.\n\n8. **Risk-mitigation acceptance in TASK-1-9 ADR** \u2014 added. ADR acceptance (lines 1269-1291) now has dedicated subsections for R1 (\"Trust-context shift\" \u2014 credential exposure), R2 (\"PreToolUse hook fallback\" \u2014 primary + MCP-validator-side fallback), R7 (\"Subagent context budget regression\"), R10 (\"Interface stability marker\" \u2014 `# v0.x unstable` until \u22653 roles), REC5 (\"Cost cap\" \u2014 `EGG_PIPELINE_MAX_AGENT_INVOCATIONS`), R15 (\"Subagent type model\" \u2014 `general-purpose` choice + trade-off). Each is required as an explicit acceptance bullet, not buried in narrative. v1 blocker #8 cleanly addressed.\n\n9. **TASK-1-8 kubectl claim** \u2014 corrected per #1 above.\n\n10. **cq-12 HITL for pip name** \u2014 registered. `mcp__sdlc__show_contract` confirms a `cq-12` decision in the contract with three substantive options (PyPI `egg-shared` publish; `git+https://github.com/jwbron/egg.git#subdirectory=shared`; \"Defer to follow-up TODO placeholder\") plus \"Other\". TASK-1-7 description (lines 1170-1180) and acceptance (lines 1182-1193) carry the operator's selection verbatim with TODO-placeholder fallback. v1 blocker #10 cleanly addressed.\n\n11. **EggStack line number** \u2014 corrected to `:71` per #1.\n\nPrimitive-audit grep verdict on the v2 Primitives table (lines 109-139): all newly added rows cite real file:line locations \u2014 `validate_invariants` at `:631`/body at `:757` (verified \u2014 `def validate_invariants` is at `orchestrator/action_guards.py:631`); `create_concurrent_spawn_fn` at `:1564`; `make_tracker` at `integration_tests/regression/_helpers.py:156`; `PeerConsensusTracker` at `orchestrator/peer_consensus.py:69`; existing regression fixtures `single_reviewer_graph`/`event_capture`/`filter_events` at `:564`/`:519`/`:552` (verified). BRC test directory `orchestrator/tests/test_brc_*.py` \u2014 verified the directory contains 15+ matching files. The Primitives table is now grep-clean.\n\nSlice-DAG and forest checks: single root slice (slice id 1), no `serialized_chain_order` required, no forest violation. Plan ingestion would accept this.\n\n### Non-blocking\n\nThe structural plan is sound and I will not re-NACK on these. Each is a mechanical cleanup; please pick up before opening the PR so the auto-rendered PR body matches the actual code.\n\n1. **`yaml-tasks \u2192 pr.description.Changes[1]` still says \"The k3s adapter is a deferred TODO that raises `NotImplementedError` (cq-11 explicit boundary)\" (line 866-867).** This directly contradicts the v2 task definitions: TASK-1-1 acceptance #3 ships a *working* `K3sSpawnerAdapter`. The yaml PR description is what becomes the actual GitHub PR body when the implement-phase coder runs `gh pr create` \u2014 future readers of the PR will be misled. Replace with: \"The k3s leg uses a working `K3sSpawnerAdapter` shim wrapping `orchestrator/kubernetes_spawner.py:1564 create_concurrent_spawn_fn`; the `NotImplementedError` scope-fence applies only to TASK-1-6's `run_pipeline_in_process` boot path (cq-11).\"\n\n2. **`yaml-tasks \u2192 pr.test_plan` still references the wrong test file (line 907):** \"`test_brc_single_cycle.py` passes under both `substrate` parameters\". The new substrate-distinguishing test is `test_substrate_smoke.py` (TASK-1-8 acceptance #2, file at line 1248). Replace `test_brc_single_cycle.py` with `test_substrate_smoke.py` in the yaml test_plan.\n\n3. **Plan \u00a7\"Test strategy\" \u2192 \"Behavioral parity\" bullet (lines 778-781)** has the same stale reference: \"the existing `test_brc_single_cycle.py` runs under both `substrate` parameters; the claude-code parameter exercises `InProcessMessageBus` + `ClaudeCodeSpawner`. Pass on both = behavioral parity proof.\" Replace with the new test_substrate_smoke.py phrasing.\n\n4. **Primitives \"New primitives\" table row \"test_brc_single_cycle_claude_code\" at `integration_tests/regression/test_brc_single_cycle.py (existing \u2014 extended)\" (line 161)** is stale. Remove this row entirely; the actual artifact is the new `test_substrate_smoke.py` row that needs to be added in its place (`integration_tests/regression/test_substrate_smoke.py` NEW, created by TASK-1-8 tester).\n\n5. **`yaml-tasks \u2192 pr.description.Impact` and \"Manual verification (reviewer)\" step 1 and `yaml.test_plan` still hardcode `pip install egg-shared`** (lines 798, 893, 909). The actual install string is whatever cq-12 resolves to. Replace with conditional phrasing: \"`pip install <package selected by cq-12>` (currently TBD pending operator selection \u2014 see `plugins/egg-sdlc/.claude-plugin/plugin.json` after merge)\" or leave the placeholder explicitly bracketed (`<pip-name from cq-12>`) so a coder picks it up at implement time.\n\n6. **The cq-12 decision is currently unresolved.** The plan's TASK-1-7 handles this gracefully (TODO placeholder if cq-12 defers), but if the operator wants to resolve cq-12 *before* implement-phase starts, that gives the coder a deterministic string to ship. Not a plan-phase blocker; just calling it out for the orchestrator's HITL gate scheduling.\n\n7. **Slice-sizing advisory (#2137 size advisory; never NACK):** v2's estimated 1,800\u20132,500 LOC stands (no change). Per HITL decision-6 opt-2 I do NOT NACK on size; this is advisory only and the spike-then-plan framing (cq-11) justifies the size. The next reviewer of the implement-phase BRC cycle should know the slice will be expensive to NACK and the producer should land in tight, well-scoped commits per task.\n\n8. **R5 (git lock contention on concurrent push) and R12 (heartbeat tautology / wall-clock timeouts) from the risk_analyst** are still not surfaced in any acceptance criteria. The spike's single-role / single-phase scope makes these unobservable (no concurrent producer dispatch in the refine phase), so this is acceptable scope-fencing \u2014 but worth listing in TASK-1-9's \"Open work\" appendix so the follow-up issue inherits them. Currently the Open work list (line 1285-1291) names plan/implement/pr, BRC concurrency, full conformance, k3s adapter, EggHarnessSpawner, prune verb, fork delegation, cost cap, subagent_type migration \u2014 but not R5's push-serialization or R12's wall-clock-timeout watchdog. Consider adding these two items.\n\n9. **Risk_analyst's REC4 (expand spike to 2 roles)** is NOT picked up \u2014 the plan stays at refiner-only, consistent with cq-11. This is the right call per the resolved HITL; the operator can revisit by re-opening cq-11 if the spike's interface lessons end up too thin from one role's perspective. Calling it out so the producer / operator know the path explicitly.\n",
+        "ack_version": 2
+      },
+      "version": 2
+    },
+    "timestamp": "2026-05-19T00:26:06.834512+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d639bbf7-f495-47",
+    "pipeline_id": "issue-2623",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 2) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 2
+    },
+    "timestamp": "2026-05-19T00:26:06.834649+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c0377c7d-355a-4d",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:26:06.880944+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0320d5e9-a8c8-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:04.318709+00:00"
+    },
+    "timestamp": "2026-05-19T00:26:09.485522+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "78c87376-9b21-49",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:14:07.149250+00:00"
+    },
+    "timestamp": "2026-05-19T00:26:09.496815+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9abb692e-e971-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-05-19T00:26:19.633389+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1b39451e-005a-4d",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:26:19.776486+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bac486c3-f75c-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:26:19.784185+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "696eb922-af87-49",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:26:29.251699+00:00"
+    },
+    "timestamp": "2026-05-19T00:26:29.295476+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cb9ddd3a-739e-44",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:26:29.959878+00:00"
+    },
+    "timestamp": "2026-05-19T00:26:29.992336+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "900672ca-b373-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:26:30.119269+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3451bb7-e71d-4d",
+    "pipeline_id": "issue-2623",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-05-19T00:26:32.099788+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f03ebb75-f0f3-43",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:26:32.178874+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "de289b86-8d47-49",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:26:33.858056+00:00"
+    },
+    "timestamp": "2026-05-19T00:26:33.910057+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "13696345-3ab7-4b",
+    "pipeline_id": "issue-2623",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:26:34.026522+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0a1c07b9-0250-46",
+    "pipeline_id": "issue-2623",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:26:48.496740+00:00"
+    },
+    "timestamp": "2026-05-19T00:27:02.508228+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "87b9ce76-749d-41",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-05-19T00:26:39.211574+00:00"
+    },
+    "timestamp": "2026-05-19T00:27:02.514240+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6b67ccd2-d8e5-45",
+    "pipeline_id": "issue-2623",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-05-19T00:27:02.589929+00:00",
+    "phase": "plan"
+  }
+]
