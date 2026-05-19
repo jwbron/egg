@@ -5,8 +5,8 @@
   "branch": "egg/issue-2717/work",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
-  "current_phase": "plan",
+  "status": "running",
+  "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
     "parallel_agents": true,
@@ -174,10 +174,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "failed",
+      "status": "complete",
       "started_at": "2026-05-19T18:05:41.361352Z",
       "work_started_at": "2026-05-19T18:05:42.227842Z",
-      "completed_at": "2026-05-19T18:40:50.805124Z",
+      "completed_at": "2026-05-19T18:43:15.011758Z",
       "containers": [
         {
           "container_id": "47b8ef73-6a3b-48a4-9c17-08ade7e0b5bf",
@@ -304,6 +304,23 @@
       "error": "plan draft .egg-state/drafts/2717-plan.md missing on local but present on origin/egg/issue-2717/work — refusing to advance plan phase",
       "hitl_feedback": null,
       "phase_start_sha": "0b789a77d8d3e6bb66edd0ec46a348bbef2dc790",
+      "agent_exits": []
+    },
+    "implement": {
+      "phase": "implement",
+      "status": "running",
+      "started_at": "2026-05-19T18:43:15.011781Z",
+      "work_started_at": "2026-05-19T18:43:15.011782Z",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": null,
       "agent_exits": []
     }
   },
@@ -529,7 +546,7 @@
     }
   ],
   "created_at": "2026-05-19T17:08:57.439434Z",
-  "updated_at": "2026-05-19T18:40:50.831384Z",
+  "updated_at": "2026-05-19T18:43:15.012936Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -542,8 +559,8 @@
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-05-19T18:05:21.623588Z",
-  "version": 37,
+  "run_epoch": "2026-05-19T18:43:15.011783Z",
+  "version": 38,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
