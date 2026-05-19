@@ -910,3 +910,135 @@ class TestGetLatestId:
         store.add_message(m2)
         assert store.get_latest_id("pipeline-a") == m1.id
         assert store.get_latest_id("pipeline-b") == m2.id
+
+
+def _slice_message(
+    pipeline_id: str = "test-pipeline",
+    message_type: str = MessageType.PROGRESS,
+    from_role: str = "coder",
+    to_role: str = "all",
+    slice_id: str | None = None,
+) -> Message:
+    """Helper for #2725 redis-store filter tests."""
+    metadata: dict[str, object] = {}
+    if slice_id is not None:
+        metadata["slice_id"] = slice_id
+    return Message(
+        pipeline_id=pipeline_id,
+        from_role=from_role,
+        to_role=to_role,
+        message_type=message_type,
+        subject="filter-test",
+        metadata=metadata,
+    )
+
+
+class TestRedisSingularFromRoleAndSliceCombined:
+    """``from_role`` (singular) + ``slice_id`` compose on the Redis path (#2725).
+
+    The redis store applies ``from_role`` and the slice filter on
+    *different* code paths — singular ``from_role`` is filtered inline
+    in ``get_messages_with_meta`` (redis_message_store.py:385-386 / 411-412),
+    while ``slice_id`` is filtered inside ``_passes_filters``. The
+    cross-backend integration tests cover the plural ``from_roles=``
+    form; this class closes the matrix for singular + slice on the
+    redis path so a future reorder of the two filter blocks (or a
+    refactor that drops one branch) is caught before production.
+    """
+
+    def test_both_match_no_wait(self, store):
+        store.add_message(_slice_message(from_role="coder", slice_id="slice-1"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            from_role="coder",
+            slice_id="slice-1",
+            wait=0,
+        )
+        assert len(msgs) == 1
+        assert msgs[0].from_role == "coder"
+
+    def test_wrong_slice_right_sender_drops(self, store):
+        store.add_message(_slice_message(from_role="coder", slice_id="slice-2"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            from_role="coder",
+            slice_id="slice-1",
+            wait=0,
+        )
+        assert msgs == []
+
+    def test_right_slice_wrong_sender_drops(self, store):
+        store.add_message(_slice_message(from_role="documenter", slice_id="slice-1"))
+        msgs = store.get_messages(
+            "test-pipeline",
+            from_role="coder",
+            slice_id="slice-1",
+            wait=0,
+        )
+        assert msgs == []
+
+    def test_null_slice_passthrough_with_singular_from_role(self, store):
+        """A pipeline-level message (null ``slice_id``) from the same sender
+        still passes the combined filter — the null-passthrough invariant
+        composes with the singular sender filter the same way it composes
+        with the plural form."""
+        store.add_message(_slice_message(from_role="coder", slice_id=None))
+        msgs = store.get_messages(
+            "test-pipeline",
+            from_role="coder",
+            slice_id="slice-1",
+            wait=0,
+        )
+        assert len(msgs) == 1
+        assert msgs[0].from_role == "coder"
+
+    def test_combined_filter_inside_wait_for_types(self, store):
+        """Singular ``from_role`` + ``slice_id`` must compose inside the
+        ``wait_for_types`` inner loop (redis_message_store.py:409-413) —
+        a wrong-slice or wrong-sender message must NOT unblock the wait.
+        """
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "test-pipeline",
+                    from_role="coder",
+                    slice_id="slice-1",
+                    wait=2,
+                    wait_for_types=[MessageType.CONSENSUS_PROPOSE],
+                    from_tip=True,
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        store.add_message(
+            _slice_message(
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                from_role="coder",
+                slice_id="slice-2",
+            )
+        )
+        store.add_message(
+            _slice_message(
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                from_role="documenter",
+                slice_id="slice-1",
+            )
+        )
+        store.add_message(
+            _slice_message(
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                from_role="coder",
+                slice_id="slice-1",
+            )
+        )
+
+        t.join(timeout=3)
+        assert not t.is_alive()
+        assert len(got[0]) == 1
+        assert got[0][0].from_role == "coder"
+        assert got[0][0].metadata.get("slice_id") == "slice-1"

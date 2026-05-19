@@ -1538,6 +1538,32 @@ def _write_cursor_file(path: str | None, cursor: str | None) -> None:
         print(f"Warning: could not write cursor file {path}: {err}", file=sys.stderr)
 
 
+def _resolve_from_producer_arg(cli_values: list[str] | None) -> list[str]:
+    """Resolve the producer allowlist from CLI args and the env var (#2725).
+
+    Explicit CLI ``--from-producer`` args (repeatable) replace the
+    env-derived default. Each CLI value is split on commas so
+    ``--from-producer coder,tester`` and ``--from-producer coder
+    --from-producer tester`` behave identically; without the split
+    the value would be treated as a single literal role
+    ``"coder,tester"`` that matches no real sender, silently
+    sleeping the wait through every event — exactly the failure
+    mode the wake-storm filter exists to avoid (see #2727 review).
+
+    Falls back to ``$EGG_WAIT_PRODUCER_ALLOWLIST`` (the spawner-set
+    env var) when no CLI value was supplied. Empty values are
+    skipped on both paths.
+    """
+    cli_list = list(cli_values or [])
+    if cli_list:
+        out: list[str] = []
+        for value in cli_list:
+            out.extend(r.strip() for r in value.split(",") if r.strip())
+        return out
+    env_allowlist = os.environ.get("EGG_WAIT_PRODUCER_ALLOWLIST", "")
+    return [r.strip() for r in env_allowlist.split(",") if r.strip()]
+
+
 def cmd_message_wait(args: argparse.Namespace) -> int:
     """Event-driven wait for a message of one or more types.
 
@@ -1571,11 +1597,12 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     # Spawner sets EGG_SLICE_ID + EGG_WAIT_PRODUCER_ALLOWLIST so the
     # canonical wait idiom auto-scopes without rubric changes. Explicit
     # CLI args take precedence over env defaults.
-    slice_id_arg = getattr(args, "slice_id", None) or os.environ.get("EGG_SLICE_ID") or None
-    from_producer_arg = list(getattr(args, "from_producer", None) or [])
-    if not from_producer_arg:
-        env_allowlist = os.environ.get("EGG_WAIT_PRODUCER_ALLOWLIST", "")
-        from_producer_arg = [r.strip() for r in env_allowlist.split(",") if r.strip()]
+    # ``resolve_slice_id`` validates ``$EGG_SLICE_ID`` against the
+    # canonical ``slice-<N>`` shape and exits 1 on a malformed value,
+    # so a misconfigured env var fails fast at the agent instead of
+    # producing a tight 400-error retry loop against the route.
+    slice_id_arg = getattr(args, "slice_id", None) or resolve_slice_id()
+    from_producer_arg = _resolve_from_producer_arg(getattr(args, "from_producer", None))
     # Cursor file is auto-derived per (pipeline_id, role, for_types,
     # from_role, from_roles, slice_id) so every wait re-entry threads
     # its cursor without callers having to opt in (issue #2323). The
@@ -1713,11 +1740,10 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
     # #2725: slice scope + producer allowlist with env-var defaults —
     # mirrors cmd_message_wait. The auto-apply makes the wake-storm fix
     # transparent: spawner-set env vars suffice; rubrics don't change.
-    slice_id_arg = getattr(args, "slice_id", None) or os.environ.get("EGG_SLICE_ID") or None
-    from_producer_arg = list(getattr(args, "from_producer", None) or [])
-    if not from_producer_arg:
-        env_allowlist = os.environ.get("EGG_WAIT_PRODUCER_ALLOWLIST", "")
-        from_producer_arg = [r.strip() for r in env_allowlist.split(",") if r.strip()]
+    # ``resolve_slice_id`` validates ``$EGG_SLICE_ID`` and exits 1 on
+    # a malformed value (see cmd_message_wait for rationale).
+    slice_id_arg = getattr(args, "slice_id", None) or resolve_slice_id()
+    from_producer_arg = _resolve_from_producer_arg(getattr(args, "from_producer", None))
     # Cursor file is auto-derived per (pipeline_id, role, for_types,
     # from_role, from_roles, slice_id) — see cmd_message_wait for the
     # rationale (issues #2323 + #2725).

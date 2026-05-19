@@ -2022,6 +2022,83 @@ class TestWaitEndpoint:
                 )
                 assert resp.status_code == 400
 
+    def test_wait_empty_slice_returns_400(self, client, app):
+        """Explicit empty ``?slice=`` is rejected (#2725 review). The
+        empty-string value would be silently dropped by
+        ``extract_slice_id`` (returns ``None`` for ``""``), turning a
+        misconfigured caller's slice filter into "no scope" instead of
+        surfacing the bug. Mirrors the empty-``from_producer`` rejection
+        so the two filter axes have a consistent error surface."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_PROPOSE&slice=&timeout=1"
+                )
+                assert resp.status_code == 400
+                body = json.loads(resp.data)
+                assert "slice" in body["message"].lower()
+
+    def test_wait_unknown_from_producer_value_returns_400(self, client, app):
+        """An unknown ``from_producer`` role value is rejected with 400
+        (#2725 review). A typo like ``?from_producer=codr`` would
+        silently filter every event and sleep the caller — exactly the
+        failure mode the empty-list rejection exists to prevent. The
+        accepted set is canonical ``AgentRole`` names plus the system
+        senders the spawner always injects (``overseer``,
+        ``orchestrator``)."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_PROPOSE&from_producer=codr&timeout=1"
+                )
+                assert resp.status_code == 400
+                body = json.loads(resp.data)
+                assert "codr" in body["message"]
+                assert "from_producer" in body["message"]
+
+    def test_wait_known_from_producer_values_accepted(self, client, app):
+        """The accepted-value set includes every canonical AgentRole
+        plus the system senders ``overseer`` and ``orchestrator``.
+        This pins the route's acceptance contract so a future change
+        that narrows the set (and silently filters legitimate senders)
+        is caught — same direction as the negative-conformance
+        ``CONSENSUS_RE_REVIEW`` test."""
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # ``coder`` + ``orchestrator`` exercise both the
+                # AgentRole branch and the system-sender branch in
+                # _KNOWN_FROM_PRODUCER_VALUES.
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_PROPOSE"
+                    "&from_producer=coder&from_producer=orchestrator&timeout=1"
+                )
+                assert resp.status_code == 200
+
 
 class TestProducerPendingConfirmGuard:
     """Reject ``wait --for CONSENSUS_CONFIRMED`` from producers in

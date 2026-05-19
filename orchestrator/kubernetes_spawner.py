@@ -74,7 +74,11 @@ def _resolve_wait_producer_allowlist(phase: str | None, role: str, repo: str | N
 
     - the role's graph neighbors — reviewers get the producers they
       review; producers get their reviewers so they wake on ACK/NACK
-      and (for dual-role) any producers they also review.
+      and (for dual-role) any producers they also review. For
+      dual-role agents (e.g. ``tester`` is both a producer reviewed by
+      ``reviewer_code`` and a reviewer of ``coder``) the union of both
+      neighbor sets is used so the agent wakes on both directions of
+      cross-graph traffic.
     - the system senders ``overseer`` and ``orchestrator`` so
       ``OVERSEER_ALERT`` and ``CONSENSUS_RE_REVIEW`` keep waking the
       agent regardless of the producer set.
@@ -83,21 +87,17 @@ def _resolve_wait_producer_allowlist(phase: str | None, role: str, repo: str | N
     requested phase. This omits the env var entirely so the spawn
     preserves legacy wake-on-anything behavior — the wake-storm fix
     is opt-in via graph membership, not a default ratchet.
+
+    ``get_review_graph_for_phase`` is documented to return an empty
+    :class:`ReviewGraph` for unknown phases rather than raising, so
+    this function intentionally does NOT wrap it in a ``try/except``:
+    a programmer-error exception from a future refactor should surface
+    loudly during spawn rather than degrade silently to "no allowlist,
+    wake on everything," which is the wake-storm we are fixing.
     """
     if not phase:
         return None
-    try:
-        graph = get_review_graph_for_phase(phase, repo)
-    except Exception:
-        # Defensive: a missing / malformed graph must not block spawning.
-        # Falling through leaves EGG_WAIT_PRODUCER_ALLOWLIST unset and
-        # the agent keeps the pre-#2725 behavior.
-        logger.exception(
-            "Failed to load review graph for #2725 allowlist; skipping env var",
-            phase=phase,
-            role=role,
-        )
-        return None
+    graph = get_review_graph_for_phase(phase, repo)
 
     neighbors: set[str] = set()
     if graph.is_reviewer(role):

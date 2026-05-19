@@ -307,6 +307,64 @@ class TestWaitExitCodes:
             assert "slice=" not in endpoint
             assert "from_producer=" not in endpoint
 
+    def test_wait_from_producer_splits_comma_separated_cli_value(self, monkeypatch):
+        """A single ``--from-producer coder,tester`` (comma-separated)
+        is split into per-role URL params (#2725 review). Without this
+        split argparse stores the literal ``"coder,tester"`` as a single
+        sender that matches no real message — silently filtering every
+        event, the failure mode the wake-storm fix exists to avoid. The
+        env-var path always splits on commas, so doing the same on the
+        CLI keeps the two surfaces symmetric.
+        """
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        monkeypatch.delenv("EGG_WAIT_PRODUCER_ALLOWLIST", raising=False)
+        args = _make_wait_args()
+        args.from_producer = ["coder,tester"]
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0},
+            }
+            cmd_message_wait(args)
+            endpoint = mock_req.call_args.args[0]
+            assert "from_producer=coder" in endpoint
+            assert "from_producer=tester" in endpoint
+            assert "from_producer=coder%2Ctester" not in endpoint
+            assert "from_producer=coder,tester" not in endpoint
+
+    def test_wait_from_producer_mixes_repeatable_and_comma(self, monkeypatch):
+        """``--from-producer coder,tester --from-producer documenter``
+        flattens to three roles. Mixing the two CLI shapes keeps
+        scripts ergonomic without sacrificing the comma-split safety
+        net for the most common single-arg case."""
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        monkeypatch.delenv("EGG_WAIT_PRODUCER_ALLOWLIST", raising=False)
+        args = _make_wait_args()
+        args.from_producer = ["coder,tester", "documenter"]
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0},
+            }
+            cmd_message_wait(args)
+            endpoint = mock_req.call_args.args[0]
+            assert "from_producer=coder" in endpoint
+            assert "from_producer=tester" in endpoint
+            assert "from_producer=documenter" in endpoint
+
+    def test_wait_invalid_egg_slice_id_exits_with_error(self, monkeypatch):
+        """A malformed ``$EGG_SLICE_ID`` (e.g. ``phase-1`` or ``garbage``)
+        fails fast at the agent via ``resolve_slice_id`` — exiting 1
+        instead of round-tripping a 400 to the route on every wait-loop
+        iteration. Pin the behavior so the CLI keeps using the
+        validated env reader rather than bare ``os.environ.get``."""
+        monkeypatch.setenv("EGG_SLICE_ID", "phase-1")
+        monkeypatch.delenv("EGG_WAIT_PRODUCER_ALLOWLIST", raising=False)
+        with patch(_ORCH_MOCK_PATH):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_message_wait(_make_wait_args())
+            assert exc_info.value.code == 1
+
 
 # ---------------------------------------------------------------------------
 # cmd_message_wait_loop
