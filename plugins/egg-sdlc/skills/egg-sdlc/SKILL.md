@@ -3,12 +3,12 @@ name: egg-sdlc
 description: "Run the full egg SDLC stack natively in Claude Code (substrate-swap walking-skeleton for #2623). Boots the real `egg_orchestrator` in-process, dispatches the refiner role via Claude Code's Agent tool, enforces role file-write restrictions via a PreToolUse hook, and renders HITL decisions through `AskUserQuestion`. Walking-skeleton scope: refiner role only — plan / implement / pr roles are deferred to the follow-up issue."
 disable-model-invocation: true
 argument-hint: "[issue# | issue-url] [--repo owner/name]"
-allowed-tools: Agent Read Write Edit AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git -C * remote:*) Bash(git remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(find:*) Bash(python3 *:*) Bash(cat:*) Bash(cp:*)
+allowed-tools: Agent Read AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git -C * remote:*) Bash(git remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(find:*) Bash(python3 *:*) Bash(cat:*) Bash(cp:*)
 ---
 
 # egg-sdlc — full egg SDLC stack inside Claude Code (walking-skeleton)
 
-This skill is the **claude-code-substrate** entry point for the real `egg_orchestrator` stack — the destination of the [substrate-swap ADR](../../../../docs/architecture/claude-code-substrate.md) shipped for [#2623](https://github.com/jwbron/egg/issues/2623). It is **not** a parallel Markdown approximation of egg's BRC like `plugins/refine-plan/`; it is the real orchestrator running in-process to the parent Claude Code session.
+This skill is the **claude-code-substrate** entry point for the real `egg_orchestrator` stack — the user-facing entry point for the [substrate-swap ADR](../../../../docs/architecture/claude-code-substrate.md) shipped for [#2623](https://github.com/jwbron/egg/issues/2623). It is **not** a parallel Markdown approximation of egg's BRC like `plugins/refine-plan/`; it is the real orchestrator running in-process to the parent Claude Code session.
 
 > **Walking-skeleton scope.** Per **cq-11 = "Spike then plan"**, this skill exercises **the refiner role only**. The plan, implement, and pr phases — and the rest of the role roster (`reviewer_refine`, `reviewer_agent_design`, `architect`, `task_planner`, `risk_analyst`, `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_contract`, …) — are explicitly out of scope for this spike. The follow-up issue extends the substrate to plan / implement / pr (see [the ADR](../../../../docs/architecture/claude-code-substrate.md#follow-up-issue-draft-reviewer-pasted-not-auto-filed)). If you call this skill with anything beyond a single refine phase, expect `NotImplementedError` and a pointer to the follow-up.
 
@@ -24,15 +24,15 @@ This skill is the **claude-code-substrate** entry point for the real `egg_orches
 
 The skill depends on the egg Python packages. **You install those once via pip**, then this skill imports them. Per cq-8 the plugin metadata declares the pip dependency name — the canonical string is in `plugins/egg-sdlc/.claude-plugin/plugin.json`.
 
+> **TODO: pip name pending cq-12 resolution.** Until cq-12 settles the canonical pip name and registry (the operator's choice between PyPI `egg-shared`, `git+https://github.com/jwbron/egg.git#subdirectory=shared`, or a deferred-to-follow-up TODO placeholder), the exact command below carries a placeholder. Read the literal string from `plugins/egg-sdlc/.claude-plugin/plugin.json` before running it; do **not** copy-paste the placeholder as-is.
+
 ```bash
-# Whatever pip name the plugin metadata declares — the canonical string lives
-# in `plugins/egg-sdlc/.claude-plugin/plugin.json`. (cq-12 settles the exact
-# name; until then the plugin metadata may carry a TODO placeholder pointing
-# back to these docs.)
+# Replace <pip-name-from-plugin.json> with the literal string declared in
+# plugins/egg-sdlc/.claude-plugin/plugin.json (TODO: cq-12 resolution).
 pip install <pip-name-from-plugin.json>
 ```
 
-The skill's pre-flight check imports `egg_orchestrator`; if that import fails, the skill emits a clear install instruction with the exact pip command and exits — it does NOT try to recover silently. **The install-error message in the pre-flight helper must match the install instruction in this SKILL.md** (TASK-1-7 acceptance).
+The skill's pre-flight check imports `egg_orchestrator`; if that import fails, the skill emits a clear install instruction with the exact pip command and exits — it does NOT try to recover silently. **The install-error message in the pre-flight helper must match the install instruction in this SKILL.md** (TASK-1-7 acceptance). Note: until cq-12 lands, the contract holds string equality on a placeholder; it becomes meaningful only after the placeholder is replaced with the real pip name.
 
 **Python version.** Egg targets Python 3.11+. If your Claude Code session resolves to an older Python, the import will fail with a version error — re-run the install command in a 3.11+ venv.
 
@@ -97,22 +97,38 @@ While the generator is paused at a yield boundary, the orchestrator's background
 
 ### Worktree layout
 
-Per cq-5 the substrate ports egg's `WORKTREE_BASE_DIR` model:
+Per cq-5 the substrate ports egg's `WORKTREE_BASE_DIR` model. There are two filesystem trees: **worktrees** (per-agent git checkouts) and **state** (drafts, contracts, agent-outputs, checkpoints). They live under separate roots by default.
+
+**Worktrees** default to `~/.egg-worktrees/<pipeline_id>/<repo>/` (matching the shape at `gateway/worktree_manager.py:49`, which hardcodes `/home/egg/.egg-worktrees` for the gateway container — the substrate's `LocalWorktreeManager` expands `~` against the calling user's `$HOME`). `EGG_WORKTREE_BASE` overrides the root; the typical override is to point it at `./.egg-state/` so worktrees and state live in one tree.
 
 ```
-.egg-state/
+# Default layout (no EGG_WORKTREE_BASE override)
+~/.egg-worktrees/
   <pipeline_id>/
-    <repo>/          # per-pipeline shared checkout
-      ...            # per-agent worktrees, branches, refs
+    <repo>/          # per-pipeline shared checkout (per-agent worktrees branch off)
+
+.egg-state/           # state files (relative to the repo)
   drafts/
     <issue>-analysis.md
   contracts/
     <pipeline_id>.json
+  agent-outputs/
+    <issue>-<role>-output.json
   checkpoints/
     ...
 ```
 
-The base path defaults to `~/.egg-worktrees/` (matching `gateway/worktree_manager.py:49`) but `EGG_WORKTREE_BASE` overrides. Path-escape safety mirrors the existing `is_relative_to` defense in the gateway (`gateway/worktree_manager.py:1711`) so a malicious pipeline ID can't escape the base.
+```
+# Typical override: EGG_WORKTREE_BASE=./.egg-state/
+.egg-state/
+  <pipeline_id>/
+    <repo>/          # worktrees moved alongside state
+  drafts/
+  contracts/
+  ...
+```
+
+Path-escape safety mirrors the existing `is_relative_to` defense in the gateway (`gateway/worktree_manager.py:1711`) so a malicious pipeline ID can't escape the base.
 
 ### PreToolUse hook (file-write restrictions)
 

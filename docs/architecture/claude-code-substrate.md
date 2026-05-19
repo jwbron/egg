@@ -18,7 +18,7 @@ This issue takes a different framing. Rather than chase parity with a parallel M
 | **Docker container** per agent (`sandbox/Dockerfile`) | `Agent` tool's `isolation: "worktree"` + Bash sandbox mode |
 | **Redis Streams** message bus (`RedisMessageStore`) | In-process Python (`InProcessMessageBus`) — reuses the existing in-memory `MessageStore` |
 | **Gateway sidecar** policy + creds (`gateway/`) | PreToolUse hooks in `.claude/settings.json` calling into the existing `shared/egg_restrictions/patterns.py` |
-| **Persistent volume** for worktrees | User's local filesystem (`.egg-state/<pipeline_id>/<repo>/` via `LocalWorktreeManager`) |
+| **Persistent volume** for worktrees | User's local filesystem (`~/.egg-worktrees/<pipeline_id>/<repo>/` by default via `LocalWorktreeManager`; `EGG_WORKTREE_BASE` overrides) |
 | **Sandbox container image** | User's local Claude Code install + per-role `agents/*.md` files |
 | **`kubectl get pods` health checks** | In-process `egg_health` thread |
 | **Overseer pod** | In-process overseer thread |
@@ -82,10 +82,12 @@ The gateway-equivalent for file-write and tool-use restrictions. cq-6 picked Pre
 
 ### `WorktreeManager` — `orchestrator/substrate/worktree.py`
 
-cq-5: port the existing `WORKTREE_BASE_DIR` model rather than use Claude Code's native `EnterWorktree` primitive. The substrate creates per-agent worktrees under `.egg-state/<pipeline_id>/<repo>/`, tracks them in a dict, and tears them down at phase end.
+cq-5: port the existing `WORKTREE_BASE_DIR` model rather than use Claude Code's native `EnterWorktree` primitive. The substrate creates per-agent worktrees in a `<pipeline_id>/<repo>/` subdirectory under a single configurable base, tracks them in a dict, and tears them down at phase end.
 
-- **k3s implementation**: the existing `gateway/worktree_manager.py` already implements this shape (default base at `gateway/worktree_manager.py:49`). The k3s adapter is not implemented in this spike — left as a TODO in the protocol module.
-- **Claude Code implementation**: `LocalWorktreeManager` (in `orchestrator/substrate/claude_code/worktree.py`) defaults to the same `~/.egg-worktrees/` base but respects an `EGG_WORKTREE_BASE` override. Path-escape safety mirrors the `is_relative_to` defense at `gateway/worktree_manager.py:1711` (call site within `_remove_worktree`; matching `base.resolve()` is at `:1700`).
+The default base is **`~/.egg-worktrees/`** — matching the shape of `gateway/worktree_manager.py:49 WORKTREE_BASE_DIR` (which hardcodes `/home/egg/.egg-worktrees` for the gateway container; the Claude-Code-substrate implementation expands `~` against the calling user's `$HOME` instead). `EGG_WORKTREE_BASE` overrides the base — typical override is `./.egg-state/` so worktrees live alongside the contract / drafts / agent-outputs files in the same `.egg-state/<pipeline_id>/` tree, per cq-5's literal text. Full path on disk by default: `~/.egg-worktrees/<pipeline_id>/<repo>/`; under the typical override: `.egg-state/<pipeline_id>/<repo>/`.
+
+- **k3s implementation**: the existing `gateway/worktree_manager.py` already implements this shape (default base at `gateway/worktree_manager.py:49`, hardcoded to `/home/egg/.egg-worktrees`). The k3s adapter is not implemented in this spike — left as a TODO in the protocol module.
+- **Claude Code implementation**: `LocalWorktreeManager` (in `orchestrator/substrate/claude_code/worktree.py`) defaults to the same `~/.egg-worktrees/` base shape but respects an `EGG_WORKTREE_BASE` override. Path-escape safety mirrors the `is_relative_to` defense at `gateway/worktree_manager.py:1711` (call site within `_remove_worktree`; matching `base.resolve()` is at `:1700`).
 
 ## `EGG_SUBSTRATE` and `select_substrate(env)`
 
@@ -194,9 +196,9 @@ The risk_analyst identified several risks that materially shift egg's behavior u
 
 **The primary seam.** cq-6 selected PreToolUse hooks as the policy enforcement boundary. The hook reads tool name + tool input from stdin (PreToolUse contract), imports `build_agent_patterns` from `shared/egg_restrictions/patterns.py:768`, and emits `deny` + `message` JSON to stdout when the write target is outside the caller's role's allow-list.
 
-**The open question.** Whether Claude Code's PreToolUse hooks can reliably resolve "which subagent / role is calling Write()" from the hook's process context is **not yet established empirically**. The spike's exit criteria include a worked example where the parent session spawns subagents with different role envs and the hook correctly distinguishes (R2 mitigation strategy).
+**The open question.** Whether Claude Code's PreToolUse hooks can reliably resolve "which subagent / role is calling Write()" from the hook's process context is **not yet established empirically**. The spike ships the hook against the single-role refiner case — `EGG_AGENT_ROLE` is set in the spawn env and the hook reads it. That validates the single-subagent path but does NOT validate role-routing under nested / multi-subagent dispatch, which the spike does not exercise (refiner-only scope per cq-11). **Ownership of the multi-role validation belongs to the follow-up**, not the spike — see [Follow-up issue draft, "Validate PreToolUse hook role-routing (R2 empirical question)"](#follow-up-issue-draft-reviewer-pasted-not-auto-filed). The spike merges with the hook in place and the single-role evidence; the follow-up issue is where the worked 2-subagent example lives.
 
-**Documented fallback path.** If the spike evidence shows the PreToolUse hook cannot reliably resolve the caller's role for nested subagent dispatch, the fallback is **cq-6 option 2 — MCP-validator-side enforcement**: every state-mutating MCP verb re-validates the caller's role + path against `patterns.py`. This fallback is known to work because egg already ships `check_file_restriction` as an MCP tool today. The follow-up issue inherits the empirical question and the choice of seam.
+**Documented fallback path.** If the follow-up's evidence shows the PreToolUse hook cannot reliably resolve the caller's role for nested subagent dispatch, the fallback is **cq-6 option 2 — MCP-validator-side enforcement**: every state-mutating MCP verb re-validates the caller's role + path against `patterns.py`. This fallback is known to work because egg already ships `check_file_restriction` as an MCP tool today.
 
 ### Subagent context budget regression (R7)
 
@@ -210,7 +212,7 @@ The risk_analyst identified several risks that materially shift egg's behavior u
 
 The four `Protocol`s in `orchestrator/substrate/` carry a `# v0.x — unstable until ≥3 roles exercise` comment in their module docstrings. The ADR states the interfaces are **explicitly subject to revision** after the follow-up issue extends the substrate to plan / implement / pr roles. Downstream code should treat the interfaces as a moving target until at least three roles run through them end-to-end.
 
-The risk this manages: a single-role spike does not exercise the interface diversity the second wave needs. The plan's design reviewer thought-experimented the interfaces against the full role roster, but design reviews are not a substitute for actual end-to-end exercise. Marking the interfaces unstable lets the follow-up iterate without breaking-change ceremony.
+The risk this manages: a single-role spike does not exercise the interface diversity the second wave needs. The plan's design reviewer reasoned through the interfaces against the full role roster, but design review is not a substitute for end-to-end exercise. Marking the interfaces unstable lets the follow-up iterate without breaking-change ceremony.
 
 ### Cost cap recommendation (REC5)
 
