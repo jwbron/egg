@@ -65,6 +65,17 @@ def run_plan_phase(
         )
 
     runner._current_phase = "plan"
+    # Reviewer_code v2 non-blocking N10: clear the refine-phase
+    # active-role sentinel before the plan-producer fan-out. Three
+    # plan producers can hold the role concurrently, so the single-
+    # valued sentinel cannot disambiguate them (per ``spawn_plan_producer``
+    # docstring). Without this clear, the PreToolUse hook's fallback
+    # path resolves to the stale ``refiner`` role for whichever
+    # plan-producer's nested dispatch loses the EGG_AGENT_ROLE env-var
+    # race; the refiner's allow-list overlaps with architect's but not
+    # universally. Clearing the sentinel makes the fallback resolve to
+    # "no role known" rather than the wrong role.
+    runner._teardown_sentinel()
     return _run_plan_phase_inner(
         runner,
         refine_artifact_path,
@@ -133,6 +144,40 @@ def _run_plan_phase_inner(
     producer_artifacts[architect_role] = architect_artifact
     architect_output_path = plan_producer_output_path(runner, architect_role)
     _record_producer_propose(runner, tracker, architect_role, architect_artifact, architect_result)
+
+    # Reviewer_code v2 non-blocking N9: defensive handoff check. The
+    # downstream producers receive ``EGG_ARCHITECT_OUTPUT_PATH`` and
+    # may try to read it at start-up; if the architect crashed AFTER
+    # ``bundle.spawner.spawn`` returned exit_code 0 but BEFORE writing
+    # the JSON, the fan-out below would dispatch with a dangling
+    # pointer. Surface the broken handoff up-front by NACKing the
+    # architect edge so the operator sees the partial state at the
+    # plan-HITL gate rather than diagnosing a chain of confused
+    # downstream errors.
+    architect_exit = int(getattr(architect_result, "exit_code", 0) or 0)
+    if architect_exit == 0 and not architect_output_path.is_file():
+        try:
+            tracker.handle_nack(
+                plan_reviewer.value,
+                architect_role.value,
+                {
+                    "artifact_references": [str(architect_output_path)],
+                    "reason": (
+                        f"architect spawn returned exit_code=0 but "
+                        f"{architect_output_path} was not written — "
+                        "downstream task_planner / risk_analyst would "
+                        "see a dangling EGG_ARCHITECT_OUTPUT_PATH. "
+                        "Plan-phase fail-fast (#2717 slice-2 N9)."
+                    ),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — defensive
+            log_tracker_warning(
+                "handle_nack",
+                f"{plan_reviewer.value}→{architect_role.value}",
+                exc,
+                runner.pipeline_id,
+            )
 
     # Stage 4b: task_planner + risk_analyst fan out concurrently.
     with executor_factory(max_workers=len(downstream_producers)) as pool:
@@ -307,11 +352,14 @@ def read_plan_reviewer_verdicts(
             verdict = str(entry.get("verdict", "")).strip().upper()
             if verdict not in {"ACK", "NACK"}:
                 continue
+            # pre_merge_condition is a BRC concept for code-merge
+            # obligations on a PR — plan-phase produces a markdown
+            # plan document, so the field has no consumer here
+            # (reviewer_code v2 non-blocking N6 / #2717 slice-2).
             normalised[str(role_name)] = {
                 "verdict": verdict,
                 "reason": str(entry.get("reason", "")),
                 "artifact_references": list(entry.get("artifact_references") or []),
-                "pre_merge_condition": str(entry.get("pre_merge_condition", "")),
             }
         if normalised:
             return verdict_path, normalised
@@ -342,11 +390,14 @@ def read_plan_reviewer_verdicts(
             "criteria-keyed analysis."
         )
         broadcast_refs = list(blob.get("artifact_references") or [])
+        # pre_merge_condition is a BRC concept for code-merge
+        # obligations on a PR — plan-phase has no PR / merge surface,
+        # so the field is intentionally not propagated here
+        # (reviewer_code v2 non-blocking N6 / #2717 slice-2).
         broadcast = {
             "verdict": top_verdict,
             "reason": broadcast_reason,
             "artifact_references": broadcast_refs,
-            "pre_merge_condition": str(blob.get("pre_merge_condition", "")),
         }
         return verdict_path, {role.value: broadcast for role in plan_producers}
 
@@ -424,7 +475,6 @@ def _apply_reviewer_verdicts(
                 producer_artifacts,
                 reason=entry.get("reason", ""),
                 artifact_references=entry.get("artifact_references"),
-                pre_merge_condition=entry.get("pre_merge_condition") or "",
             )
         else:  # entry["verdict"] == "NACK"
             _record_reviewer_nack(
@@ -447,7 +497,6 @@ def _record_reviewer_ack(
     *,
     reason: str = "",
     artifact_references: Any | None = None,
-    pre_merge_condition: str = "",
 ) -> None:
     refs = list(artifact_references or [str(producer_artifacts.get(producer, ""))])
     if not refs or not refs[0]:
@@ -461,8 +510,6 @@ def _record_reviewer_ack(
             "(see _verdict_diagnostics)."
         ),
     }
-    if pre_merge_condition:
-        payload["pre_merge_condition"] = pre_merge_condition
     try:
         tracker.handle_ack(reviewer_role.value, producer.value, payload)
     except Exception as exc:  # noqa: BLE001 — defensive
@@ -714,8 +761,16 @@ def synthetic_commit_for(role_name: str) -> str:
     Reviewer_concurrency v1 non-blocking #2: derive a 7-hex SHA
     from a SHA-1 of the role name so per-producer ProposalPayload
     entries remain distinguishable. The ``ace1`` prefix keeps the
-    string obviously synthetic in log output. Must never escape
-    the in-process driver — see ``_SYNTHETIC_PLAN_COMMIT`` docstring.
+    string obviously synthetic in log output.
+
+    ``ProposalPayload.commit_sha`` is a non-empty-required field
+    (#1473) — real producers capture ``git rev-parse HEAD`` after
+    committing, but harness-faked tests stub the spawn and never
+    reach a git checkout. This synthetic SHA satisfies any callers
+    that hex-validate the field while remaining obviously synthetic
+    in log output. **Never escape this value from the in-process
+    driver** — a future consumer that hex-validates ``commit_sha``
+    would accept it as a real SHA.
     """
     import hashlib
 

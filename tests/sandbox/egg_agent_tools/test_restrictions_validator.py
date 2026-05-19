@@ -68,7 +68,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -285,16 +284,16 @@ def test_unknown_role_raises_handler_error() -> None:
     Slice-2 must not introduce a fall-through that maps an unknown
     role to a permissive answer. Pin the existing behaviour so a
     regression that loosens role validation surfaces here.
+
+    Reviewer_code v2 non-blocking N11: this test previously patched
+    ``restrictions.get_agent_role`` to return ``None``, but
+    ``check_file_restriction`` short-circuits on the truthy
+    ``req["role"] = "unknown_xyz"`` (``role = req.get("role") or
+    get_agent_role()``), so the patch never fired. The patch is
+    dropped to make the test's intent unambiguous.
     """
-    with patch.object(
-        restrictions,
-        "get_agent_role",
-        return_value=None,
-    ):
-        with pytest.raises(HandlerError):
-            restrictions.check_file_restriction(
-                {"role": "unknown_xyz", "path": "orchestrator/foo.py"}
-            )
+    with pytest.raises(HandlerError):
+        restrictions.check_file_restriction({"role": "unknown_xyz", "path": "orchestrator/foo.py"})
 
 
 def test_list_path_returns_per_path_results() -> None:

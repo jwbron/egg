@@ -795,3 +795,90 @@ def test_plan_stage_carries_phase_env_var_to_producers(
         f"missing or wrong. Examples (capped at 3): "
         f"{[{k: v for k, v in env.items() if k.startswith('EGG_')} for env in missing_phase[:3]]}"
     )
+
+
+@pytest.mark.skipif(
+    not _has_plan_stage(),
+    reason=(
+        "task-2-1 (coder) has not landed a plan-stage method on ``_InProcessOrchestrator`` yet."
+    ),
+)
+def test_plan_gate_decision_persists_with_phase_plan(
+    tmp_path: Path,
+    fake_home: Path,
+    short_intervals: None,
+    isolated_pipeline_state: None,
+) -> None:
+    """Plan-gate decision must persist with ``phase: "plan"`` in the contract.
+
+    Reviewer_code v1 blocker B1 (#2717 slice-2): the in-process
+    orchestrator previously hardcoded ``phase: "refine"`` inside
+    ``_write_pending_decision``, so every plan-gate decision landed
+    on disk with the wrong phase even though the yielded
+    ``HITLDecision`` itself carried ``phase="plan"``. Pin the
+    invariant that the persisted decision's ``phase`` field matches
+    the yielded decision's ``phase`` so the regression cannot recur.
+    """
+    import json
+
+    bundle = _make_fake_bundle(tmp_path)
+
+    pipeline_id = "pipeline-plan-brc-phase-persisted"
+    state_dir = tmp_path / ".egg-state"
+    run = in_process_mod.run_pipeline_in_process
+
+    plan_hitl: Any = None
+    with patch(
+        "orchestrator.substrate.select_substrate",
+        return_value=bundle,
+    ):
+        gen = run(
+            pipeline_id,
+            env={"EGG_SUBSTRATE": "claude-code"},
+            state_dir=state_dir,
+        )
+        try:
+            plan_hitl = _drive_past_refine_gate(gen)
+        finally:
+            gen.close()
+            time.sleep(0.2)
+
+    assert plan_hitl is not None, (
+        "plan stage must yield a HITLDecision after the refine-gate "
+        "answer ``approve_continue``; got None."
+    )
+
+    yielded_phase = getattr(plan_hitl, "phase", None) or (
+        plan_hitl.get("phase") if isinstance(plan_hitl, dict) else None
+    )
+    yielded_phase_str = getattr(yielded_phase, "value", yielded_phase)
+    yielded_id = getattr(plan_hitl, "id", None) or (
+        plan_hitl.get("id") if isinstance(plan_hitl, dict) else None
+    )
+
+    contract_path = state_dir / "contracts" / f"{pipeline_id}.json"
+    assert contract_path.is_file(), (
+        f"plan-gate decision must persist to {contract_path}; not found."
+    )
+    contract = json.loads(contract_path.read_text())
+
+    decisions = contract.get("decisions") or []
+    plan_decision = next(
+        (d for d in decisions if d.get("id") == yielded_id),
+        None,
+    )
+    assert plan_decision is not None, (
+        f"plan-gate decision with id={yielded_id!r} not found in "
+        f"persisted contract decisions={decisions!r}."
+    )
+    assert plan_decision.get("phase") == yielded_phase_str, (
+        f"persisted decision's phase must equal yielded decision's "
+        f"phase; persisted={plan_decision.get('phase')!r} vs "
+        f"yielded={yielded_phase_str!r}. Reviewer_code v1 blocker B1 "
+        f"(#2717 slice-2)."
+    )
+    assert contract.get("current_phase") == yielded_phase_str, (
+        f"contract's current_phase must equal the yielded plan-gate "
+        f"phase; current_phase={contract.get('current_phase')!r} vs "
+        f"yielded={yielded_phase_str!r}. Reviewer_code v1 blocker B1."
+    )

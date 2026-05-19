@@ -275,10 +275,15 @@ Each role's rubric lives at `agents/<role>.md` and is prepended to the per-task 
 
 **Plan HITL gate.** Once `CONSENSUS_CONFIRMED` fires on all three producer edges, the stage yields a plan-gate `HITLDecision` with these standard options:
 
-- `approve` — advance to the implement phase (currently fenced until slice 3 of the #2717 rollout).
-- `request_changes` — feed change requests back into a fresh plan cycle (each producer + the reviewer re-spawn with the operator's notes as a NACK-equivalent revision instruction).
-- `change_approach` — kick the pipeline back to the refine phase so the refiner can re-research before another plan attempt.
-- `stop` — abort the run; the skill loop exits with `pending_hitl.status = aborted`.
+- `approve_continue` — would advance to the implement phase. Currently fenced: the generator raises `NotImplementedError` with a pointer to slice 3 of the #2717 rollout (the implement phase ships in slice 3, pr ships in slice 4).
+- `request_changes` — **not implemented in slice 2.** The option is surfaced for forward-compatibility, but the slice-2 generator treats every non-`approve_continue` answer as "stop and return the plan artifact path"; the producer / reviewer re-spawn loop lands in a later slice of the rollout (tracked in the [`#2717` plan](https://github.com/jwbron/egg/issues/2717)).
+- `change_approach` — **not implemented in slice 2.** Same caveat as `request_changes`: surfaced but treated as stop. Kicking the pipeline back to the refine phase for a fresh refiner cycle lands in a later slice.
+- `stop` — terminate the run cleanly; the skill loop exits with `pending_hitl.status = completed` and `result` pointing at the plan artifact path.
+
+If the plan-phase BRC did **not** reach `CONSENSUS_CONFIRMED` (`_run_plan_phase` returned `is_complete=False`), the gate surfaces a different option set instead:
+
+- `retry` — would re-run the failed producers; **not implemented in slice 2** (same forward-compatibility caveat as `request_changes` above — treated as stop today).
+- `abort` — terminate the run cleanly with the partial plan artifact path as the return value.
 
 The skill surfaces the architect's `approach_summary`, the task_planner's slice DAG shape, the risk_analyst's top-3 risks + blocking concerns, and each per-edge `reviewer_plan` verdict alongside the decision so the operator decides with the full plan-team context in view.
 
@@ -309,7 +314,7 @@ The contract schema (`shared/egg_contracts/models.py::Contract` v1.1), BRC histo
 ## Failure modes and diagnostics
 
 - **`ImportError: No module named 'egg_orchestrator'`**: the pre-flight check failed. Re-run the pip install command above.
-- **`NotImplementedError: claude-code substrate runs refine + plan only`**: you tried to advance past the plan HITL gate. Slices 1 + 2 of the #2717 rollout cover refine + plan; implement / pr land in slices 3 / 4 of the same rollout.
+- **`NotImplementedError: egg-sdlc #2717 slice-2: implement / pr phases are deferred to slice-3 / slice-4. See the rollout DAG in docs/architecture/claude-code-substrate.md.`**: you answered `approve_continue` at the plan HITL gate. Slices 1 + 2 of the #2717 rollout cover refine + plan; implement / pr land in slices 3 / 4 of the same rollout.
 - **`NotImplementedError: EGG_SUBSTRATE=k3s requires the HTTP daemon`** (raised from `run_pipeline_in_process`): you set `EGG_SUBSTRATE=k3s` while running this in-process skill. k3s users use `orchestrator/cli.py:83 cmd_serve`, not the skill.
 - **PreToolUse hook denies a write the role *should* be allowed**: the `settings.template.json` is wired against a stale or wrong `EGG_AGENT_ROLE`. The hook prints which role it saw — re-check the spawn env.
 - **HITL takes a long time and you see no progress**: the orchestrator's background threads keep running inside each `bin/run_pipeline.py` invocation while the generator is paused on a yield; the heartbeat-during-HITL acceptance criterion guarantees this within an invocation. Between invocations (i.e. while the skill is rendering `AskUserQuestion` and waiting on the operator), the Python process has exited and the orchestrator state lives only in `.egg-state/contracts/<id>.json#pending_hitl`. If you genuinely want to abandon the run, close the session; the next invocation of `bin/run_pipeline.py` will resume from the contract file, or you can delete the contract file to discard the run entirely.

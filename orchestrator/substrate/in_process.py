@@ -80,23 +80,6 @@ _K3S_FENCE_MESSAGE = (
     "docs/architecture/claude-code-substrate.md."
 )
 
-#: Default synthetic commit SHA stamped on plan-phase proposals
-#: when the harness fake doesn't supply one. ``ProposalPayload.commit_sha``
-#: is a non-empty-required field (#1473) — the harness re-host
-#: model's real producers would capture ``git rev-parse HEAD``
-#: after committing, but harness-faked tests stub the spawn and
-#: never reach a git checkout. A deterministic 7-hex constant
-#: satisfies any callers that hex-validate the field while
-#: remaining obviously synthetic in log output. Real plan
-#: producers route through ``_synthetic_commit_for(role)`` for a
-#: per-role variant so the tracker can distinguish three concurrent
-#: proposals (reviewer_concurrency v1 non-blocking #2); this
-#: module-level constant is kept for the refiner / fallback
-#: callers and as a structural marker. **Never escape this constant
-#: from the in-process driver** — a future consumer that
-#: hex-validates ``commit_sha`` would accept it as a real SHA.
-_SYNTHETIC_PLAN_COMMIT = "ace1ace"
-
 
 def run_pipeline_in_process(
     pipeline_id: str,
@@ -507,12 +490,25 @@ class _InProcessOrchestrator:
         checkpoints.mkdir(parents=True, exist_ok=True)
         return drafts, contracts, checkpoints
 
-    def _write_pending_decision(self, decision_id: str, question: str) -> Path:
+    def _write_pending_decision(
+        self,
+        decision_id: str,
+        question: str,
+        *,
+        phase: str = "refine",
+    ) -> Path:
         """Write a pending HITL entry to the contract file.
 
         The shape mirrors what the HTTP daemon writes (``decisions``
         list with ``status="pending"``) so the skill's outer loop
         and any external observer see a consistent view.
+
+        ``phase`` is stamped onto both the new decision entry and the
+        contract's ``current_phase`` field so observers / tooling that
+        filter the decisions list by phase (or read ``current_phase``
+        to reconstruct pipeline state) see a consistent value rather
+        than a hardcoded ``"refine"`` left over from the spike's
+        single-phase era. Reviewer_code v1 blocker B1 (#2717 slice-2).
 
         Concurrency (reviewer_concurrency v1 blocker #1):
         - Acquires an exclusive ``fcntl.flock`` on a sidecar
@@ -520,9 +516,19 @@ class _InProcessOrchestrator:
           read-modify-write so concurrent writers (HTTP daemon +
           generator, or two generator instances) cannot lose
           updates.
+        - The lock is acquired with ``LOCK_EX | LOCK_NB`` and retried
+          on a bounded schedule (reviewer_code v2 non-blocking N8) so
+          a crashed sibling holding the lock surfaces as a
+          ``BlockingIOError`` after the timeout rather than hanging
+          the orchestrator forever.
         - Writes through a sibling temp file followed by
           ``os.replace()`` so concurrent readers never observe a
           half-written file.
+        - The lock file is unlinked best-effort after the critical
+          section so a long-lived ``.egg-state/`` directory (e.g. CI
+          reused across thousands of pipelines) does not accumulate
+          empty ``<contract>.lock`` artefacts (reviewer_code v2
+          non-blocking N7).
         """
         import fcntl
 
@@ -532,7 +538,7 @@ class _InProcessOrchestrator:
         tmp_path = contract_path.with_suffix(".json.tmp")
 
         with open(lock_path, "w") as lock_fp:
-            fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX)
+            self._acquire_flock_with_timeout(lock_fp)
             try:
                 try:
                     if contract_path.exists():
@@ -541,16 +547,20 @@ class _InProcessOrchestrator:
                         contract = {
                             "schemaVersion": "1.1",
                             "pipeline_id": self.pipeline_id,
-                            "current_phase": "refine",
+                            "current_phase": phase,
                             "decisions": [],
                         }
                 except (json.JSONDecodeError, OSError):  # fmt: skip
                     contract = {
                         "schemaVersion": "1.1",
                         "pipeline_id": self.pipeline_id,
-                        "current_phase": "refine",
+                        "current_phase": phase,
                         "decisions": [],
                     }
+
+                # Track the caller's phase on the contract so the
+                # decisions list and ``current_phase`` agree.
+                contract["current_phase"] = phase
 
                 decisions = list(contract.get("decisions") or [])
                 # Idempotent: skip if already present.
@@ -560,7 +570,7 @@ class _InProcessOrchestrator:
                             "id": decision_id,
                             "question": question,
                             "status": "pending",
-                            "phase": "refine",
+                            "phase": phase,
                         }
                     )
                 contract["decisions"] = decisions
@@ -570,7 +580,41 @@ class _InProcessOrchestrator:
                 os.replace(tmp_path, contract_path)
             finally:
                 fcntl.flock(lock_fp.fileno(), fcntl.LOCK_UN)
+        # Best-effort lock-file cleanup; another writer may race in
+        # between LOCK_UN and unlink, which is harmless — the next
+        # writer just recreates the file under their own ``open("w")``.
+        try:
+            lock_path.unlink()
+        except (FileNotFoundError, OSError):  # fmt: skip
+            pass
         return contract_path
+
+    # Reviewer_code v2 non-blocking N8: bound the flock wait so a
+    # crashed sibling holding the lock surfaces as a ``BlockingIOError``
+    # after the timeout rather than hanging the orchestrator forever.
+    _FLOCK_TIMEOUT_SECONDS: float = 30.0
+    _FLOCK_RETRY_INTERVAL_SECONDS: float = 0.05
+
+    def _acquire_flock_with_timeout(self, lock_fp: Any) -> None:
+        """Acquire ``fcntl.LOCK_EX`` on ``lock_fp`` with a bounded retry.
+
+        Raises ``BlockingIOError`` after ``_FLOCK_TIMEOUT_SECONDS`` if
+        the lock cannot be acquired. The retry loop polls
+        ``LOCK_EX | LOCK_NB`` every ``_FLOCK_RETRY_INTERVAL_SECONDS``
+        so an orderly contended writer wins the lock quickly while a
+        crashed lock-holder eventually surfaces as a timeout.
+        """
+        import fcntl
+
+        deadline = time.monotonic() + self._FLOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(self._FLOCK_RETRY_INTERVAL_SECONDS)
 
     # ------------------------------------------------------------------
     # HITL decisions
@@ -592,6 +636,7 @@ class _InProcessOrchestrator:
         self._write_pending_decision(
             decision_id,
             "Confirm the refiner will run against this repo + issue?",
+            phase="refine",
         )
         return HITLDecision(
             id=decision_id,
@@ -649,7 +694,7 @@ class _InProcessOrchestrator:
                 "stop",
             ]
 
-        self._write_pending_decision(decision_id, question)
+        self._write_pending_decision(decision_id, question, phase="refine")
         context_block = (
             f"artifact={artifact_path}\n"
             f"exit_code={exit_code}\n"
@@ -713,7 +758,7 @@ class _InProcessOrchestrator:
             )
             options = ["retry", "abort"]
 
-        self._write_pending_decision(decision_id, question)
+        self._write_pending_decision(decision_id, question, phase="plan")
         context_block = (
             f"artifact={plan_artifact_path}\n"
             f"is_complete={is_complete}\n"

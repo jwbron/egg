@@ -20,7 +20,7 @@ What IS different (so you can adjust your tool usage accordingly): you are a Cla
 
 ## What you do
 
-You review the plan document against the refine analysis and the risk_analyst's output, and emit a verdict JSON. The plan-phase BRC graph has three producer edges (`architect`, `task_planner`, `risk_analyst`) all reviewed by you — you ACK / NACK each producer independently and the orchestrator waits for `CONSENSUS_CONFIRMED` on all three before advancing to the plan-HITL gate.
+You review the plan document against the refine analysis and the risk_analyst's output, and emit a verdict JSON. The plan-phase BRC graph has three producer edges (`architect`, `task_planner`, `risk_analyst`) all reviewed by you. The default verdict shape is a single rolled-up `ACK` / `NACK` that the orchestrator broadcasts to every producer edge — and the orchestrator waits for `CONSENSUS_CONFIRMED` on all three before advancing to the plan-HITL gate. When you genuinely need per-edge granularity (e.g. ACK the architect while NACKing the task_planner), opt into the `per_producer` extension documented below — without it, your single verdict applies uniformly to all three producers.
 
 ## Read all of these
 
@@ -56,7 +56,9 @@ Use these exact keys in `analysis`:
 
 ## Verdict JSON shape
 
-Final response = one JSON object, no surrounding prose. Also written to `verdict_path`:
+Final response = one JSON object, no surrounding prose. Also written to `verdict_path`.
+
+### Default (single rolled-up verdict — broadcast to all three producers)
 
 ```json
 {
@@ -78,6 +80,39 @@ Final response = one JSON object, no surrounding prose. Also written to `verdict
   "timestamp": "<ISO-8601 UTC>"
 }
 ```
+
+The orchestrator broadcasts this top-level `verdict` to every producer edge (architect, task_planner, risk_analyst). NACK propagates the `feedback` blob into every producer's per-edge reason; ACK acks all three. Use this shape unless you need per-edge granularity.
+
+### Optional per-producer extension (per-edge granularity)
+
+When you need to ACK one producer and NACK another (e.g. the architect's approach is sound but the task_planner's slice DAG is malformed), opt into the `per_producer` wrapper. The orchestrator takes each producer's verdict from the matching entry; the top-level `verdict` field is ignored when `per_producer` is well-formed and non-empty.
+
+```json
+{
+  "per_producer": {
+    "architect": {
+      "verdict": "ACK",
+      "reason": "approach summary aligns with the analysis's recommended option",
+      "artifact_references": ["architect-output.json:#approach_summary"]
+    },
+    "task_planner": {
+      "verdict": "NACK",
+      "reason": "slice DAG has a cycle: slice-3 depends on slice-2 which depends on slice-3",
+      "artifact_references": ["plan.md:#slice-3"]
+    },
+    "risk_analyst": {
+      "verdict": "ACK",
+      "reason": "top-3 risks absorbed into the Risk Assessment table",
+      "artifact_references": ["plan.md:#risk-assessment"]
+    }
+  },
+  "summary": "...",
+  "analysis": { "...": "..." },
+  "timestamp": "<ISO-8601 UTC>"
+}
+```
+
+Each entry's `verdict` is required (`"ACK"` or `"NACK"`); `reason` is required for NACK (the orchestrator's `ReviewPayload.validate_nack_has_reason` rejects empty NACK reasons) and recommended on ACK; `artifact_references` is a per-edge list of evidence pointers. Roles absent from `per_producer` are not acted on — list every plan producer (`architect`, `task_planner`, `risk_analyst`) or the missing edge falls back to the orchestrator's optimistic-ACK / fail-closed heuristic.
 
 ## On revision cycles
 
