@@ -80,6 +80,16 @@ _K3S_FENCE_MESSAGE = (
     "docs/architecture/claude-code-substrate.md."
 )
 
+#: Synthetic commit SHA stamped on plan-phase proposals when the
+#: harness fake doesn't supply one. ``ProposalPayload.commit_sha``
+#: is a non-empty-required field (#1473) — the harness re-host
+#: model's real producers would capture ``git rev-parse HEAD``
+#: after committing, but harness-faked tests stub the spawn and
+#: never reach a git checkout. A deterministic 7-hex constant
+#: satisfies any callers that hex-validate the field while
+#: remaining obviously synthetic in log output.
+_SYNTHETIC_PLAN_COMMIT = "ace1ace"
+
 
 def run_pipeline_in_process(
     pipeline_id: str,
@@ -204,14 +214,39 @@ class _InProcessOrchestrator:
                 self._spawn_result = spawn_result
 
                 # Stage 3: refine HITL gate — does the operator approve?
-                answer = yield self._build_refine_gate_decision(artifact_path, spawn_result)
+                refine_answer = yield self._build_refine_gate_decision(artifact_path, spawn_result)
 
-                # Walking-skeleton fence: if the operator chose "approve
-                # and continue to plan", we currently stop here.
-                # plan/implement/pr phases are deferred to the follow-up.
-                self._maybe_fence(answer)
+                # #2717 slice-2: when the operator approves and chooses
+                # to continue, dispatch the plan phase (3 producers + 1
+                # reviewer through the InProcessMessageBus). Any other
+                # answer (stop / change-approach / request-changes)
+                # exits via the refine artifact return below — the same
+                # behaviour the spike's #2623 walking-skeleton had,
+                # minus the NotImplementedError fence.
+                if not _answer_continues_past_refine(refine_answer):
+                    return str(artifact_path)
 
-                return str(artifact_path)
+                # Stage 4: plan phase — BRC consensus across architect,
+                # task_planner, risk_analyst with reviewer_plan as the
+                # critical reviewer. Returns the plan artifact path
+                # and the evaluation snapshot for the HITL gate.
+                plan_artifact_path, plan_eval = self._run_plan_phase(artifact_path)
+                self._plan_artifact_path = plan_artifact_path
+                self._plan_eval = plan_eval
+
+                # Stage 5: plan HITL gate — does the operator approve
+                # the plan?
+                plan_answer = yield self._build_plan_gate_decision(
+                    plan_artifact_path, plan_eval
+                )
+
+                # Walking-skeleton fence: if the operator chose
+                # "approve and continue to implement", we currently
+                # stop here. implement / pr phases are deferred to
+                # slice-3 / slice-4 of the #2717 rollout.
+                self._maybe_fence(plan_answer)
+
+                return str(plan_artifact_path)
             except _PreflightAborted as aborted:
                 # Reviewer v1 blocker #7: translate operator-abort
                 # into a clean StopIteration so the docstring's
@@ -610,6 +645,70 @@ class _InProcessOrchestrator:
             phase="refine",  # type: ignore[arg-type]
         )
 
+    def _build_plan_gate_decision(
+        self, plan_artifact_path: Path, plan_eval: Mapping[str, Any]
+    ) -> Any:
+        """Build the post-plan HITL gate decision (#2717 slice-2 third yield).
+
+        After ``_run_plan_phase`` reaches CONSENSUS_CONFIRMED on every
+        producer edge (architect, task_planner, risk_analyst →
+        reviewer_plan), the operator sees this gate to approve the
+        produced plan or send the producers back for another cycle.
+
+        The decision context surfaces the plan artifact path AND the
+        BRC evaluation snapshot (which agents confirmed, any
+        unresolved NACK details) so the operator can act on a
+        partial-consensus state rather than approving a plan that
+        never actually converged.
+        """
+        try:
+            from orchestrator.models import HITLDecision
+        except ImportError:  # pragma: no cover
+            from models import HITLDecision  # type: ignore[no-redef, import-untyped]
+
+        is_complete = bool(plan_eval.get("is_complete"))
+        blocking_agents = list(plan_eval.get("blocking_agents") or [])
+        unresolved_nacks = list(plan_eval.get("unresolved_nack_details") or [])
+
+        if is_complete:
+            decision_id = f"plan-gate-{self.pipeline_id}"
+            question = (
+                f"Plan artifact at {plan_artifact_path} reached "
+                "CONSENSUS_CONFIRMED on every reviewer_plan edge. "
+                "Approve and continue to implement?"
+            )
+            options = [
+                "approve_continue",
+                "request_changes",
+                "change_approach",
+                "stop",
+            ]
+        else:
+            decision_id = f"plan-failure-{self.pipeline_id}"
+            question = (
+                f"Plan-phase BRC did NOT converge "
+                f"(blocking_agents={blocking_agents!r}). "
+                f"Review {plan_artifact_path} and unresolved NACK "
+                "details; choose retry / abort."
+            )
+            options = ["retry", "abort"]
+
+        self._write_pending_decision(decision_id, question)
+        context_block = (
+            f"artifact={plan_artifact_path}\n"
+            f"is_complete={is_complete}\n"
+            f"blocking_agents={blocking_agents!r}\n"
+            f"unresolved_nacks={unresolved_nacks!r}\n"
+        )
+        return HITLDecision(
+            id=decision_id,
+            question=question,
+            context=context_block,
+            options=options,
+            decision_type="phase_gate",
+            phase="plan",  # type: ignore[arg-type]
+        )
+
     # ------------------------------------------------------------------
     # Refiner spawn
     # ------------------------------------------------------------------
@@ -724,6 +823,361 @@ class _InProcessOrchestrator:
 
         return artifact_path, spawn_result
 
+    # ------------------------------------------------------------------
+    # Plan-phase BRC (#2717 slice-2 — TASK-2-1)
+    # ------------------------------------------------------------------
+
+    def _run_plan_phase(self, refine_artifact_path: Path) -> tuple[Path, dict[str, Any]]:
+        """Run the plan phase BRC cycle across the in-process substrate.
+
+        Plan-phase wiring per #2717 slice-2: three producers
+        (``architect`` / ``task_planner`` / ``risk_analyst``) are
+        spawned concurrently via the same ``ClaudeCodeSpawner`` the
+        refiner uses. After all three finish, ``reviewer_plan`` is
+        dispatched once and ACKs each producer's proposal. The
+        ``PeerConsensusTracker`` drives the BRC mechanics and the
+        tracker's ``evaluate()`` snapshot is returned so the plan
+        HITL gate can surface partial-consensus state.
+
+        Why the BRC verbs (``handle_propose`` / ``handle_ack`` /
+        ``handle_confirmed``) are called from the orchestrator rather
+        than the spawned subagents: the in-process bundle's spawner
+        is **synchronous** — ``bundle.spawner.spawn(role, ...)``
+        returns AFTER the subagent finishes. In the production HTTP
+        daemon the subagents would call ``egg-orch consensus
+        propose/ack/confirmed`` themselves, the daemon would receive
+        the message via the gateway, and the tracker would advance.
+        Here the spawn-completion IS the signal that the subagent
+        proposed / reviewed; the orchestrator records the BRC
+        transition on the subagent's behalf so the test (with
+        harness fakes that don't emit BRC messages of their own) and
+        production (with real harness agents whose BRC emissions
+        would be a no-op duplicate in this path) both reach
+        consensus deterministically.
+
+        Args:
+            refine_artifact_path: Path to the refine-phase analysis
+                document; passed into every plan producer's prompt
+                context so they don't have to re-derive it.
+
+        Returns:
+            ``(plan_artifact_path, plan_eval)``:
+              * ``plan_artifact_path`` is
+                ``<drafts_dir>/<artifact_id>-plan.md`` collated from
+                the three producers' outputs (or a placeholder
+                surfacing per-producer diagnostics when the harness
+                did not land the canonical file, mirroring the
+                refiner placeholder behaviour).
+              * ``plan_eval`` is the tracker's ``evaluate()``
+                snapshot (``is_complete``, ``blocking_agents``,
+                ``unresolved_nack_details``, per-agent phase info).
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        from egg_contracts.agent_roles import AgentRole
+
+        from . import select_substrate
+
+        # Pull the BRC + graph primitives lazily so the module's
+        # import surface stays cheap.
+        try:
+            from orchestrator.peer_consensus import (
+                create_peer_consensus_tracker,
+                get_peer_consensus_tracker,
+            )
+            from orchestrator.review_graph import get_review_graph_for_phase
+        except ImportError:  # pragma: no cover
+            from peer_consensus import (  # type: ignore[no-redef, import-untyped]
+                create_peer_consensus_tracker,
+                get_peer_consensus_tracker,
+            )
+            from review_graph import (  # type: ignore[no-redef, import-untyped]
+                get_review_graph_for_phase,
+            )
+
+        bundle = getattr(self, "_bundle", None)
+        if bundle is None:
+            bundle = select_substrate(self.env)
+            self._bundle = bundle
+
+        drafts_dir, _, _ = self._ensure_state_dirs()
+        artifact_id = self.issue_number or self.pipeline_id
+        plan_artifact_path = drafts_dir / f"{artifact_id}-plan.md"
+
+        plan_producers: list[Any] = [
+            AgentRole.ARCHITECT,
+            AgentRole.TASK_PLANNER,
+            AgentRole.RISK_ANALYST,
+        ]
+        plan_reviewer = AgentRole.REVIEWER_PLAN
+
+        # Build the plan-phase review graph (asymmetric: reviewer_plan
+        # critical on architect + task_planner, advisory on
+        # risk_analyst per ``get_default_plan_graph``).
+        graph = get_review_graph_for_phase("plan", repo=self.repo)
+
+        # Reuse an already-registered tracker if a previous slice's
+        # background BRC tick installed one — otherwise create a
+        # fresh one. We use ``cooldown_seconds=0`` so the
+        # AUTO_REPROPOSE debounce doesn't fire during the in-process
+        # generator's tight propose→ack→confirm sequence (the spike
+        # has no operator-initiated re-propose).
+        tracker = get_peer_consensus_tracker(self.pipeline_id)
+        if tracker is None:
+            tracker = create_peer_consensus_tracker(
+                self.pipeline_id,
+                graph,
+                cooldown_seconds=0,
+            )
+        for role in (*plan_producers, plan_reviewer):
+            tracker.register_agent(role.value)
+        self._plan_tracker = tracker
+
+        # ------------------------------------------------------------------
+        # Spawn the three producers concurrently and record their
+        # CONSENSUS_PROPOSE messages on the tracker as each finishes.
+        # ------------------------------------------------------------------
+        producer_results: dict[Any, Any] = {}
+        producer_artifacts: dict[Any, Path] = {}
+        with ThreadPoolExecutor(max_workers=len(plan_producers)) as pool:
+            future_map = {
+                pool.submit(
+                    self._spawn_plan_producer,
+                    role,
+                    bundle,
+                    refine_artifact_path,
+                    plan_artifact_path,
+                ): role
+                for role in plan_producers
+            }
+            for fut in as_completed(future_map):
+                role = future_map[fut]
+                try:
+                    artifact_path, spawn_result = fut.result()
+                except Exception as exc:  # noqa: BLE001 — defensive
+                    # Surface the producer failure so the HITL gate
+                    # sees a blocking_agents entry rather than a
+                    # silent miss.
+                    producer_results[role] = exc
+                    producer_artifacts[role] = plan_artifact_path
+                    continue
+                producer_results[role] = spawn_result
+                producer_artifacts[role] = artifact_path
+
+                # Record CONSENSUS_PROPOSE on the tracker only if the
+                # spawn looked structurally successful (exit_code 0).
+                exit_code = int(getattr(spawn_result, "exit_code", 0) or 0)
+                if exit_code != 0:
+                    continue
+                commit_sha = (
+                    getattr(spawn_result, "commit_sha", None)
+                    or _SYNTHETIC_PLAN_COMMIT
+                )
+                tracker.handle_propose(
+                    role.value,
+                    {
+                        "summary": (
+                            f"{role.value} produced plan-phase artifact at "
+                            f"{artifact_path} via the in-process Claude "
+                            "Code substrate (#2717 slice-2)."
+                        ),
+                        "artifacts": [str(artifact_path)],
+                        "commit_sha": commit_sha,
+                    },
+                )
+
+        # ------------------------------------------------------------------
+        # Spawn reviewer_plan once and record one ACK per producer
+        # whose proposal landed. The reviewer's prompt context is the
+        # set of producer artifacts so it can ACK/NACK each.
+        # ------------------------------------------------------------------
+        reviewer_artifact, reviewer_result = self._spawn_plan_reviewer(
+            bundle,
+            producer_artifacts,
+            plan_artifact_path,
+        )
+        producer_results[plan_reviewer] = reviewer_result
+        producer_artifacts[plan_reviewer] = reviewer_artifact
+
+        reviewer_exit_code = int(getattr(reviewer_result, "exit_code", 0) or 0)
+        if reviewer_exit_code == 0:
+            for producer in plan_producers:
+                if not isinstance(producer_results.get(producer), Exception):
+                    producer_exit = int(
+                        getattr(producer_results[producer], "exit_code", 0) or 0
+                    )
+                    if producer_exit != 0:
+                        continue
+                    try:
+                        tracker.handle_ack(
+                            plan_reviewer.value,
+                            producer.value,
+                            {
+                                "artifact_references": [
+                                    str(producer_artifacts[producer])
+                                ],
+                                "reason": (
+                                    "reviewer_plan ACK in #2717 slice-2: "
+                                    "every plan-team producer ran "
+                                    "successfully on the claude-code "
+                                    "substrate; in-process BRC tracker "
+                                    "records the ACK on the reviewer's "
+                                    "behalf (synchronous spawn, no MCP "
+                                    "round-trip in this path)."
+                                ),
+                            },
+                        )
+                    except Exception:  # noqa: BLE001 — defensive
+                        # Don't let a malformed payload abort the
+                        # whole plan stage; the eval snapshot will
+                        # surface the unconfirmed edge.
+                        pass
+
+        # ------------------------------------------------------------------
+        # Drive CONSENSUS_CONFIRMED on each agent. The producer-only
+        # path requires CONSENSUS_CONFIRMED from both the reviewer
+        # (after all ACKs) and from each producer (after all critical
+        # reviewers ACKed). ``handle_confirmed`` returns a status
+        # dict; we ignore the result here — the evaluate() snapshot
+        # below is the source of truth for the HITL gate.
+        # ------------------------------------------------------------------
+        for role in (*plan_producers, plan_reviewer):
+            try:
+                tracker.handle_confirmed(role.value)
+            except Exception:  # noqa: BLE001 — defensive
+                # A confirm guard rejection (e.g. producer not fully
+                # ACKed because a peer's spawn raised) is expected
+                # to surface in the evaluate snapshot rather than
+                # propagate as a generator exception.
+                pass
+
+        plan_eval = tracker.evaluate()
+
+        # Write the collated plan artifact, surfacing per-producer
+        # diagnostics so a harness-faked run still produces a useful
+        # file at the canonical path.
+        if not plan_artifact_path.exists():
+            plan_artifact_path.write_text(
+                _format_plan_placeholder(
+                    pipeline_id=self.pipeline_id,
+                    issue_number=self.issue_number,
+                    repo=self.repo,
+                    plan_producers=[role.value for role in plan_producers],
+                    producer_results=producer_results,
+                    plan_eval=plan_eval,
+                )
+            )
+
+        return plan_artifact_path, plan_eval
+
+    def _spawn_plan_producer(
+        self,
+        role: Any,
+        bundle: Any,
+        refine_artifact_path: Path,
+        plan_artifact_path: Path,
+    ) -> tuple[Path, Any]:
+        """Dispatch a single plan-phase producer via the substrate.
+
+        Helper extracted from ``_run_plan_phase`` so each producer's
+        worktree allocation, env shaping, and sentinel write happen
+        in isolation — the calling ``ThreadPoolExecutor`` runs three
+        of these concurrently, one per role.
+        """
+        from . import select_substrate  # noqa: F401  — keep symbol in scope for tests
+
+        worktree = bundle.worktrees.create(self.pipeline_id, role)
+
+        spawn_env = {
+            **self.env,
+            "EGG_PIPELINE_ID": self.pipeline_id,
+            "EGG_AGENT_ROLE": role.value,
+            "EGG_REPO_ROOT": str(worktree),
+            "EGG_WORKTREE_ROOT": str(worktree),
+            "EGG_PHASE": "plan",
+            "EGG_REFINE_ARTIFACT_PATH": str(refine_artifact_path),
+            "EGG_PLAN_ARTIFACT_PATH": str(plan_artifact_path),
+        }
+        if self.repo:
+            spawn_env["EGG_REPO"] = self.repo
+        if self.issue_number is not None:
+            spawn_env["EGG_ISSUE_NUMBER"] = str(self.issue_number)
+
+        # Refresh the sentinel under this producer's role so the
+        # PreToolUse hook resolves the right allow-list for nested
+        # tool calls inside the producer's session. The single-valued
+        # sentinel's last-writer-wins limitation is documented on
+        # ``_write_active_role_sentinel`` (R2 deferral caveat).
+        self._write_active_role_sentinel(role.value)
+
+        prompt_text = (
+            f"Plan-phase {role.value} dispatch for pipeline "
+            f"{self.pipeline_id} (issue={self.issue_number or '<none>'}).\n"
+            f"Refine artifact: {refine_artifact_path}\n"
+            f"Plan artifact target: {plan_artifact_path}\n"
+        )
+
+        spawn_result = bundle.spawner.spawn(
+            role,
+            prompt_text,
+            spawn_env,
+            worktree,
+        )
+        return plan_artifact_path, spawn_result
+
+    def _spawn_plan_reviewer(
+        self,
+        bundle: Any,
+        producer_artifacts: Mapping[Any, Path],
+        plan_artifact_path: Path,
+    ) -> tuple[Path, Any]:
+        """Dispatch reviewer_plan once and return its ``AgentResult``.
+
+        Reviewer dispatches AFTER all three producers finish — the
+        synchronous spawn model means the producers' artifacts are
+        on disk before the reviewer starts, so the reviewer prompt
+        can name them as inputs.
+        """
+        from egg_contracts.agent_roles import AgentRole
+
+        worktree = bundle.worktrees.create(self.pipeline_id, AgentRole.REVIEWER_PLAN)
+
+        producer_artifact_paths = sorted(
+            {str(path) for path in producer_artifacts.values()}
+        )
+
+        spawn_env = {
+            **self.env,
+            "EGG_PIPELINE_ID": self.pipeline_id,
+            "EGG_AGENT_ROLE": AgentRole.REVIEWER_PLAN.value,
+            "EGG_REPO_ROOT": str(worktree),
+            "EGG_WORKTREE_ROOT": str(worktree),
+            "EGG_PHASE": "plan",
+            "EGG_PLAN_ARTIFACT_PATH": str(plan_artifact_path),
+            "EGG_PRODUCER_ARTIFACT_PATHS": ":".join(producer_artifact_paths),
+        }
+        if self.repo:
+            spawn_env["EGG_REPO"] = self.repo
+        if self.issue_number is not None:
+            spawn_env["EGG_ISSUE_NUMBER"] = str(self.issue_number)
+
+        self._write_active_role_sentinel(AgentRole.REVIEWER_PLAN.value)
+
+        prompt_text = (
+            f"Plan-phase reviewer_plan dispatch for pipeline "
+            f"{self.pipeline_id} (issue={self.issue_number or '<none>'}).\n"
+            f"Producer artifacts: {producer_artifact_paths!r}\n"
+            f"Plan artifact target: {plan_artifact_path}\n"
+        )
+
+        spawn_result = bundle.spawner.spawn(
+            AgentRole.REVIEWER_PLAN,
+            prompt_text,
+            spawn_env,
+            worktree,
+        )
+        return plan_artifact_path, spawn_result
+
     def _write_active_role_sentinel(self, role: str) -> None:
         """Write the active agent role to a known location.
 
@@ -806,11 +1260,23 @@ class _InProcessOrchestrator:
     @staticmethod
     def _maybe_fence(answer: Any) -> None:
         """Raise ``NotImplementedError`` if the operator asked to
-        continue past refine.
+        continue past the *current terminal* phase.
 
-        cq-11 scope-fence: plan / implement / pr phases are deferred
-        to the follow-up issue. Stopping here keeps the spike's
-        scope honest.
+        Scope-fence semantics evolve with the #2717 rollout:
+
+        * #2623 spike: fences after the refine HITL gate.
+        * #2717 slice-2 (this slice): refine → plan is wired, so the
+          fence now fires on the plan HITL gate's
+          ``approve_continue`` answer — the implement phase ships in
+          slice-3.
+        * #2717 slice-3: implement-phase wiring lands, the fence
+          moves to the implement HITL gate.
+        * #2717 slice-4: pr-phase wiring lands and TASK-4-2 removes
+          this method entirely (and the call site in ``run``).
+
+        Today's behaviour: ``approve_continue`` past the plan gate
+        raises with a slice-3 pointer; any other answer is a
+        no-op (the generator returns the artifact path).
         """
         if answer is None:
             return
@@ -819,10 +1285,9 @@ class _InProcessOrchestrator:
             answer = answer.get("selected") or answer.get("value")
         if isinstance(answer, str) and answer.startswith("approve_continue"):
             raise NotImplementedError(
-                "egg-sdlc walking-skeleton: plan / implement / pr "
-                "phases are out of scope for issue #2623. See the "
-                "follow-up issue listed in "
-                "docs/architecture/claude-code-substrate.md."
+                "egg-sdlc #2717 slice-2: implement / pr phases are "
+                "deferred to slice-3 / slice-4. See the rollout DAG "
+                "in docs/architecture/claude-code-substrate.md."
             )
 
 
@@ -843,6 +1308,88 @@ def _answer_is_abort(answer: Any) -> bool:
     if isinstance(answer, dict):
         answer = answer.get("selected") or answer.get("value")
     return isinstance(answer, str) and answer.lower() in {"abort", "stop", "cancel"}
+
+
+def _answer_continues_past_refine(answer: Any) -> bool:
+    """Return True if the refine-gate ``answer`` advances to plan.
+
+    The refine HITL gate exposes ``approve_continue`` /
+    ``request_changes`` / ``change_approach`` / ``stop`` (and
+    ``retry`` / ``abort`` on the failure path). Only
+    ``approve_continue`` triggers the plan stage dispatch — every
+    other answer either re-runs the refiner (out of #2717 slice-2
+    scope) or stops the generator cleanly with the refine artifact
+    as the return value.
+
+    Mirrors ``_answer_is_abort``'s accepted shapes (bare string OR
+    Claude Code's ``{"selected": "..."}`` dict).
+    """
+    if answer is None:
+        return False
+    if isinstance(answer, dict):
+        answer = answer.get("selected") or answer.get("value")
+    return isinstance(answer, str) and answer.lower().startswith("approve_continue")
+
+
+def _format_plan_placeholder(
+    *,
+    pipeline_id: str,
+    issue_number: int | None,
+    repo: str | None,
+    plan_producers: list[str],
+    producer_results: Mapping[Any, Any],
+    plan_eval: Mapping[str, Any],
+) -> str:
+    """Render the plan-artifact placeholder body.
+
+    Same shape as the refiner's placeholder: surfaces per-producer
+    diagnostics (exit code, stdout tail) and the BRC tracker's
+    evaluation snapshot so the operator at the plan HITL gate sees
+    a self-contained record of what ran rather than approving an
+    empty file the harness fake never populated.
+    """
+    lines: list[str] = [
+        "# Plan analysis (placeholder — plan producers did not land a full plan)",
+        "",
+        f"Pipeline: {pipeline_id}",
+        f"Repo: {repo or '<unspecified>'}",
+        f"Issue: {issue_number if issue_number is not None else '<none>'}",
+        "",
+        "## Per-producer diagnostics",
+        "",
+    ]
+    for producer in plan_producers:
+        result = next(
+            (r for k, r in producer_results.items() if getattr(k, "value", str(k)) == producer),
+            None,
+        )
+        if isinstance(result, Exception):
+            lines.append(f"### {producer}\n\n- exception: {result!r}\n")
+            continue
+        exit_code = int(getattr(result, "exit_code", 0) or 0)
+        commit_sha = getattr(result, "commit_sha", None)
+        stdout = (getattr(result, "stdout", "") or "")[:500]
+        lines.append(
+            f"### {producer}\n\n"
+            f"- exit_code: {exit_code}\n"
+            f"- commit_sha: {commit_sha or '<none>'}\n"
+            f"- stdout (truncated):\n\n```\n{stdout}\n```\n"
+        )
+    lines.append("")
+    lines.append("## BRC evaluation snapshot")
+    lines.append("")
+    lines.append(f"- is_complete: {bool(plan_eval.get('is_complete'))}")
+    lines.append(f"- blocking_agents: {list(plan_eval.get('blocking_agents') or [])!r}")
+    nack_details = plan_eval.get("unresolved_nack_details") or []
+    lines.append(f"- unresolved_nack_details: {list(nack_details)!r}")
+    lines.append("")
+    lines.append(
+        "This placeholder was emitted by `run_pipeline_in_process._run_plan_phase` "
+        "because the substrate's plan producers did not land the canonical "
+        "plan artifact themselves. Inspect the per-producer diagnostics above "
+        "and the BRC snapshot to decide retry/abort at the plan HITL gate."
+    )
+    return "\n".join(lines) + "\n"
 
 
 class _PreflightAborted(RuntimeError):

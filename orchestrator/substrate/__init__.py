@@ -264,15 +264,24 @@ _ROLE_RUBRIC_SLICES: dict[str, str] = {
 
 #: Roles whose rubric markdown has been landed by a documenter in this
 #: slice. The set grows as each slice's documenter task completes;
-#: today (#2717 slice-1) it contains the refiner (shipped in #2715) and
-#: the two refine-team reviewers (task-1-4 documenter, lands in
-#: parallel with this loader update — TASK-1-4 → TASK-1-6 sequencing
-#: within the slice).
+#: today (#2717 slice-2) it contains the refiner (shipped in #2715),
+#: the two refine-team reviewers (task-1-4, slice-1) and the four
+#: plan-team rubrics (task-2-3, slice-2 documenter, lands in parallel
+#: with this loader update — TASK-2-3 → TASK-2-2 sequencing within
+#: the slice).
 _RUBRIC_LANDED_ROLES: frozenset[str] = frozenset(
     {
+        # Slice-1 (refine team).
         "refiner",
         "reviewer_refine",
         "reviewer_agent_design",
+        # Slice-2 (plan team — task-2-2 extends the loader; the
+        # documenter ships the markdown files via task-2-3 within the
+        # same slice).
+        "architect",
+        "task_planner",
+        "risk_analyst",
+        "reviewer_plan",
     }
 )
 
@@ -288,14 +297,15 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
     actually receives the rubric (the structural depth fix from
     #2622).
 
-    Issue #2717 rollout scope: slice-1 expands the rubric-supported
-    set to the refine team (refiner + reviewer_refine +
-    reviewer_agent_design). Plan-team and implement-team roles
-    continue to raise ``ValueError`` with a pointer to the slice that
-    ships their rubric, so the structured-error contract for missing
-    rubrics stays consistent across the rollout. The mapping lives
-    in ``_ROLE_RUBRIC_SLICES`` so future slices can extend it without
-    touching this loader's body.
+    Issue #2717 rollout scope: slice-1 added the refine team
+    (refiner + reviewer_refine + reviewer_agent_design); slice-2
+    extends the rubric-supported set to the plan team (architect +
+    task_planner + risk_analyst + reviewer_plan). Implement-team
+    roles continue to raise ``ValueError`` with a pointer to the
+    slice (slice-3) that ships their rubric, so the structured-error
+    contract for missing rubrics stays consistent across the
+    rollout. The mapping lives in ``_ROLE_RUBRIC_SLICES`` so future
+    slices can extend it without touching this loader's body.
 
     Args:
         role: ``AgentRole`` (or a string-equivalent) identifying the
@@ -359,8 +369,9 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
             f"role={role_name!r}. The role is in this slice's "
             "rubric-supported set but the markdown file has not been "
             "landed yet — sequence the documenter's rubric task "
-            "(e.g. TASK-1-4 for slice-1's refine reviewers) before the "
-            "loader update (TASK-1-6) within the same slice."
+            "(e.g. TASK-1-4 for slice-1's refine reviewers, TASK-2-3 "
+            "for slice-2's plan team) before the loader update "
+            "(TASK-1-6 / TASK-2-2) within the same slice."
         )
     return rubric_path.read_text(encoding="utf-8")
 
