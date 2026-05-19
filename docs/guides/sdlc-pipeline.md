@@ -1634,9 +1634,10 @@ If the commit logs show success but files are missing/present in the PR diff, th
 
 1. `PR-phase push succeeded` — Push completed. Includes `commits_ahead` showing how many local commits were ahead of remote before the push.
 2. `Push attempt failed — caller may retry via reconcile` (INFO) followed by `Push rejected — attempting fetch+rebase+retry to reconcile divergence` (WARNING) — Initial push was rejected; `GatewayClient` is attempting a fetch+rebase reconcile and a second push automatically.
-3. `PR-phase push failed after reconcile — falling back to PR against remote HEAD; orchestrator housekeeping commits dropped` (WARNING) — The reconcile+retry also failed. The PR is still created against the current remote HEAD — agent commits are preserved, but orchestrator housekeeping commits (BRC history rewrite, cleanup) are not included. This is preferable to failing the whole pipeline.
-4. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
-5. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
+3. `Push reconcile: rebase succeeded but autostash pop produced conflicts` (ERROR) — The rebase itself succeeded, but the post-rebase autostash pop hit a merge conflict (`reconcile_autostash_pop_conflict`). The autostash entry is preserved in `git stash list` on the orchestrator worktree for manual recovery. The conflicting paths are listed in the log's `conflicting_paths` field.
+4. `PR-phase push failed after reconcile — falling back to PR against remote HEAD; orchestrator housekeeping commits dropped` (WARNING) — The reconcile+retry also failed. The PR is still created against the current remote HEAD — agent commits are preserved, but orchestrator housekeeping commits (BRC history rewrite, cleanup) are not included. This is preferable to failing the whole pipeline.
+5. `PR-phase push skipped` — The push was not attempted. The `reason` field explains why: `"worktree_repo_path == repo_path"` (no separate worktree to push from) or `"no branch set"` (pipeline has no branch configured).
+6. Check the gateway health: `curl http://egg-gateway:9848/api/v1/health`.
 
 **Quick diagnostic checklist**:
 
