@@ -148,16 +148,27 @@ class K3sSpawnerAdapter:
         # Structured note for downstream observability — the gap is
         # documented; INV-6 mismatches will correlate with this
         # log line rather than showing up first at review-time.
-        import sys
+        # Use the structured logger instead of stderr ``print`` so
+        # the message routes through the daemon's log pipeline
+        # (reviewer_code v2 non-blocking).
+        try:
+            try:
+                from egg_logging import get_logger
+            except ImportError:  # pragma: no cover
+                import logging
 
-        print(
-            "[K3sSpawnerAdapter] NOTE: commit_sha intentionally None "
-            f"for role={getattr(role, 'value', role)} — fire-and-monitor "
-            "factory returns before producer commit. The legacy "
-            "gateway-side attestation channel populates the SHA "
-            "out-of-band; see the substrate ADR follow-up appendix.",
-            file=sys.stderr,
-        )
+                _logger = logging.getLogger("orchestrator.substrate.k3s_adapter")
+            else:
+                _logger = get_logger("orchestrator.substrate.k3s_adapter")
+            _logger.warning(
+                "k3s commit_sha intentionally None (fire-and-monitor "
+                "factory races producer commit); legacy gateway-side "
+                "attestation channel is authoritative for k3s INV-6 "
+                "SHAs. See substrate ADR follow-up appendix.",
+                extra={"role": getattr(role, "value", str(role))},
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            pass
 
         # The legacy ``SpawnedContainer`` carries no stdout/exit_code
         # directly — that data lands on ``container_info`` and is

@@ -10,6 +10,27 @@ See ``docs/architecture/claude-code-substrate.md`` for the full ADR.
 
 INTERFACE STABILITY: v0.x unstable.
 
+Multi-exception ``except`` discipline (must read before editing)
+----------------------------------------------------------------
+
+This package targets Python 3.14 (pyproject.toml's
+``requires-python = ">=3.14"``) but the SKILL.md / packaging
+documentation states "Python 3.11+". To keep both surfaces working,
+EVERY ``except`` clause that catches multiple exception types MUST
+use the parenthesised tuple form AND carry a ``# fmt: skip``
+trailing comment, e.g.::
+
+    except (subprocess.SubprocessError, OSError):  # fmt: skip
+
+Without ``# fmt: skip`` ruff format (with
+``target-version = "py314"``) silently strips the redundant parens
+back to ``except A, B:`` which is a SyntaxError on Python
+3.10/3.11/3.12/3.13 — re-introducing the v1 NACK blocker every
+contributor would otherwise step on. The cheapest defense is to
+``grep -nE 'except [A-Za-z.]+ *, *[A-Za-z.]+ *:' orchestrator/
+plugins/`` before every commit; a CI lint rule that catches this
+shape is tracked in the follow-up issue.
+
 The protocols and ``SubstrateBundle`` shape are part of a walking-
 skeleton spike (cq-11). The follow-up rollout issue may reshape them
 in incompatible ways; downstream consumers should not assume API
