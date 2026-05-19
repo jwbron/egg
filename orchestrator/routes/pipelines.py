@@ -7553,6 +7553,102 @@ def _read_tree_head(git_base: list[str]) -> None:
     )
 
 
+def _restore_missing_state_files_from_head(
+    git_base: list[str],
+    worktree_path: Path,
+    pipeline_id: str | None = None,
+) -> None:
+    """Materialize tracked ``.egg-state/`` files that HEAD has but disk doesn't.
+
+    Companion to :func:`_read_tree_head`: the same cross-worktree
+    ``update-ref`` advance behind #2626 leaves the working tree stale
+    relative to the just-advanced HEAD.  The #2626 fix protected the
+    *commit* (no delete-commit lands), but downstream readers go through
+    the working tree — :func:`_populate_contract_from_plan` reads the
+    plan draft via ``Path(...).read_text()``, which fails with the
+    natural ``PlanDraftMissingOnLocalError`` even though HEAD itself
+    carries the agent-pushed draft (the #2721 symptom; recovery in the
+    field was ``git checkout HEAD -- .egg-state/drafts/
+    .egg-state/agent-outputs/``).
+
+    ``git ls-files --deleted -- .egg-state/`` lists tracked files that
+    are missing on disk.  Must be called AFTER :func:`_read_tree_head`
+    so the index reflects HEAD; otherwise a stale index can leave the
+    delete-list incomplete.  ``git checkout HEAD -- <paths>`` then
+    restores each missing path in both the index and the working tree
+    (the index reset is a no-op because read-tree HEAD already aligned
+    it).  Confined to ``.egg-state/`` so the restoration cannot
+    resurrect a sibling-pipeline file the orchestrator deliberately
+    removed elsewhere in the tree.
+
+    Fail-open: any subprocess error logs and returns silently — the
+    downstream populator still has its own missing-draft guard, so a
+    failure here cannot silently hide a true draft-missing case.
+    """
+    try:
+        deleted = subprocess.run(
+            [*git_base, "ls-files", "--deleted", "--", ".egg-state/"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError) as ls_err:
+        logger.warning(
+            "_restore_missing_state_files_from_head: ls-files probe failed",
+            worktree_path=str(worktree_path),
+            pipeline_id=pipeline_id,
+            error=str(ls_err),
+        )
+        return
+    if deleted.returncode != 0:
+        logger.warning(
+            "_restore_missing_state_files_from_head: ls-files probe failed",
+            worktree_path=str(worktree_path),
+            pipeline_id=pipeline_id,
+            returncode=deleted.returncode,
+            stderr=deleted.stderr.strip()[:200],
+        )
+        return
+    missing_paths = [line for line in deleted.stdout.splitlines() if line.strip()]
+    if not missing_paths:
+        return
+    try:
+        restore = subprocess.run(
+            [*git_base, "checkout", "HEAD", "--", *missing_paths],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError) as checkout_err:
+        logger.warning(
+            "_restore_missing_state_files_from_head: checkout failed",
+            worktree_path=str(worktree_path),
+            pipeline_id=pipeline_id,
+            missing_count=len(missing_paths),
+            error=str(checkout_err),
+        )
+        return
+    if restore.returncode != 0:
+        logger.warning(
+            "_restore_missing_state_files_from_head: checkout failed",
+            worktree_path=str(worktree_path),
+            pipeline_id=pipeline_id,
+            missing_count=len(missing_paths),
+            returncode=restore.returncode,
+            stderr=restore.stderr.strip()[:200],
+        )
+        return
+    logger.info(
+        "_restore_missing_state_files_from_head: restored tracked-but-missing files",
+        worktree_path=str(worktree_path),
+        pipeline_id=pipeline_id,
+        restored_count=len(missing_paths),
+        restored_sample=missing_paths[:5],
+    )
+
+
 def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
@@ -7660,6 +7756,7 @@ def _commit_statefiles_to_worktree(
 
         rel_paths = [str(Path(f).relative_to(worktree_path)) for f in matched]
         _read_tree_head(git_base)
+        _restore_missing_state_files_from_head(git_base, worktree_path, pipeline_id)
         subprocess.run(
             [*git_base, "add", "--force", "--"] + rel_paths,
             capture_output=True,
@@ -7669,6 +7766,7 @@ def _commit_statefiles_to_worktree(
         )
     else:
         _read_tree_head(git_base)
+        _restore_missing_state_files_from_head(git_base, worktree_path, pipeline_id)
         subprocess.run(
             [*git_base, "add", "--force", ".egg-state/"],
             capture_output=True,

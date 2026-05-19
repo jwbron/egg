@@ -324,3 +324,57 @@ def test_pre_sync_commit_idempotent_when_no_orch_writes_after_cross_worktree_adv
     assert head_after == head_before, (
         f"no commit expected, but HEAD moved from {head_before} to {head_after}"
     )
+
+
+def test_pre_sync_commit_materializes_agent_pushed_files_after_cross_worktree_advance(
+    tmp_path: Path,
+) -> None:
+    """Regression for #2721: helper must restore agent-pushed files to disk.
+
+    The #2626 fix protected the *commit* (no delete-commit lands), but the
+    same cross-worktree ``update-ref`` advance leaves the working tree
+    stale relative to the just-advanced HEAD.  Downstream readers go
+    through the working tree — ``_populate_contract_from_plan`` reads the
+    plan draft via ``Path(...).read_text()``, which fails with the
+    natural ``PlanDraftMissingOnLocalError`` even though HEAD itself
+    carries the agent-pushed draft.  Field recovery was ``git checkout
+    HEAD -- .egg-state/drafts/ .egg-state/agent-outputs/``; the helper
+    now does that automatically so the populator can read the draft.
+    """
+    orch_wt, agent_wt, branch, identifier = _setup_shared_worktrees(tmp_path)
+    _agent_pushes_draft_and_runs_update_ref(agent_wt, branch, identifier)
+
+    plan_draft = orch_wt / ".egg-state" / "drafts" / f"{identifier}-plan.md"
+    architect_output = (
+        orch_wt / ".egg-state" / "agent-outputs" / f"{identifier}-architect-output.json"
+    )
+    assert not plan_draft.exists(), (
+        "precondition: orch worktree should NOT have the agent's plan draft on "
+        "disk after a cross-worktree update-ref advance"
+    )
+    assert not architect_output.exists(), (
+        "precondition: orch worktree should NOT have the agent's architect-output "
+        "on disk after a cross-worktree update-ref advance"
+    )
+
+    _commit_statefiles_to_worktree(
+        orch_wt,
+        "Persist agent statefile writes before plan sync",
+        pipeline_identifier=identifier,
+        pipeline_id=identifier,
+    )
+
+    assert plan_draft.exists(), (
+        "regression #2721: agent's plan draft should be materialized on disk "
+        "after _commit_statefiles_to_worktree runs against a stale worktree"
+    )
+    assert plan_draft.read_text() == "# yaml-tasks\n\nagent-produced plan body\n", (
+        "restored draft content should match what the agent pushed to HEAD"
+    )
+    assert architect_output.exists(), (
+        "regression #2721: agent's architect-output should be materialized on "
+        "disk after _commit_statefiles_to_worktree runs against a stale worktree"
+    )
+    assert architect_output.read_text() == '{"role":"architect"}\n', (
+        "restored architect-output content should match what the agent pushed to HEAD"
+    )
