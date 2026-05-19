@@ -1,0 +1,1754 @@
+{
+  "schemaVersion": "1.1",
+  "issue": {
+    "number": 2717,
+    "title": "Issue #2717",
+    "url": "https://github.com/jwbron/egg/issues/2717"
+  },
+  "pipeline_id": "issue-2717",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Bridge gap (flattened) + R2 hook validation + refine reviewers",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add `bin/run_pipeline.py` stage driver under\n`plugins/egg-sdlc/skills/egg-sdlc/bin/`. The driver loads\npipeline state from `.egg-state/contracts/<id>.json`,\ncalls `run_pipeline_in_process(...)` and advances the\ngenerator to its next yield via `generator.send(answer)`\n(where `answer` is the operator's last `AskUserQuestion`\nresponse read from the contract's `pending_hitl.answer`\nfield), serialises the yielded `HITLDecision` back to\n`pending_hitl.decision`, and exits. The skill body in\n`SKILL.md` is updated to call this driver once per stage.\n**The `pending_hitl` envelope shape defined here is the\nshared state-serialization contract between Option B\n(this flattened driver) and Option A (slice-3's daemon\nvariant in TASK-3-2)** \u2014 risk_analyst R17 mitigation.\nDefine the schema with a comment in the file marking\nfields that must remain stable for the daemon variant\nto consume the same envelopes (decision, answer,\nversion, pipeline_id, timestamp).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`bin/run_pipeline.py` exists; it imports\n`run_pipeline_in_process` from\n`orchestrator.substrate.in_process` (line 84); on\ninvocation it round-trips a single `HITLDecision` through\n`.egg-state/contracts/<id>.json` and exits with status 0\nwhen the generator yields, status 1 on internal error.\nThe `SKILL.md` \"Usage\" section is updated to call this\ndriver in a loop. The `pending_hitl` envelope schema is\ndocumented as a stable contract (top-of-file comment\nlisting the contract fields).",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Update `SKILL.md` to call the new `bin/run_pipeline.py`\ndriver in a loop: invoke the driver, read\n`pending_hitl.decision`, render via `AskUserQuestion`,\nwrite the operator's answer to `pending_hitl.answer`,\nloop. Replace the \"Walking-skeleton bridge gap\" callout\n(line 97-102) with a brief \"How the flattened bridge\nworks\" subsection that names `pending_hitl` as the\nsingle-yield carrier.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`SKILL.md` no longer carries the \"Walking-skeleton bridge\ngap\" callout for refine-phase; the new usage section\ndocuments the flattened stage-script loop; the\n`allowed-tools` frontmatter still includes\n`AskUserQuestion`, `Read`, `Bash(python3 *:*)` so the\nloop can actually run.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/SKILL.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add `test_bridge_flattened_round_trip.py` under\n`integration_tests/regression/`. Test invokes\n`bin/run_pipeline.py` twice against a deterministic\npipeline id: first invocation produces a preflight\n`HITLDecision`; test writes the answer to\n`pending_hitl.answer`; second invocation produces a\nrefine-gate `HITLDecision`. Validates that generator\nstate survives via the contract-state round-trip even\nthough the Python process exits between calls.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The test runs in <30s, does not require a real Anthropic\nAPI call (uses harness fakes for the subagent spawn), and\nasserts: (a) `pending_hitl.decision.question` matches the\npreflight question on first run; (b) after writing\n`pending_hitl.answer`, the second run consumes it and\nyields the refine-gate decision.",
+          "files_affected": [
+            "integration_tests/regression/test_bridge_flattened_round_trip.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add `reviewer_refine.md` and `reviewer_agent_design.md`\nrole rubric files under\n`plugins/egg-sdlc/skills/egg-sdlc/agents/`. Mirror the\nshape of the existing `refiner.md` (frontmatter + markdown\nbody). Pull the rubric content from the corresponding k3s\nprompt sources under `shared/prompts/` so the substrate\nversion stays in sync with what the k3s reviewer sees.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both files exist with valid frontmatter (`name`,\n`description`); both bodies start with a \"You are the\n**reviewer_refine** running on the Claude Code substrate\"\n(or analogous) preamble; both reference the same review\ncriteria the k3s reviewer uses.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_refine.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_agent_design.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add `test_pretooluse_hook_nested.py` under\n`integration_tests/regression/`. **The R2 question\n(\"does the hook resolve role under nested dispatch?\")\ncan only be answered when subagents run via Claude\nCode's Agent-tool dispatch \u2014 the harness re-host model\n(`ClaudeCodeSpawner` per cq-3) bypasses the PreToolUse\nhook entirely because `shared/egg_harness/client.py:60-150`\nuses its own `ToolRegistry.set_permission_callback(...)`\nand `grep -rn \"PreToolUseHookPolicy|hook_entry\"\nshared/egg_harness/` returns zero hits.** This task\ntherefore uses the test-only Agent-tool dispatch fake\nfrom TASK-1-9: the test spawns a parent fake-subagent\nwith `EGG_AGENT_ROLE=architect` and a nested child fake-\nsubagent with `EGG_AGENT_ROLE=tester`, and asserts the\nPreToolUse hook (invoked via the fake's\n`pre_tool_use_callback`) denies a write to\n`orchestrator/foo.py` from the child even though the\nparent's role would allow it. Records the verdict to\n`.egg-state/<pipeline_id>/r2-verdict.json` so slice 5's\ncontingent R15 migration task can read it. **This is the\ncq-5 early-spike gating test for the rollout.** Production\ndispatch remains on `ClaudeCodeSpawner` (harness re-host)\nper cq-3 \u2014 the Agent-tool dispatch fake in TASK-1-9 is\ntest infrastructure only, not a production spawner.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test runs in <60s; uses the TASK-1-9 fake for nested\ndispatch (no real Anthropic API call); asserts\n`hook_entry.decide(...)` returns\n`{\"action\": \"deny\", \"message\": \"...\"}` for the child's\nwrite attempt when the parent's role would allow it;\nwrites `{\"r2_verdict\": \"pass\"}` or\n`{\"r2_verdict\": \"fail\", \"reason\": \"...\"}` to\n`.egg-state/<pipeline_id>/r2-verdict.json`. The test\ndocstring documents the empirical-vs-test-fake limitation\n(the test confirms hook *logic* is correct given accurate\n`EGG_AGENT_ROLE` propagation; whether Claude Code itself\npropagates `EGG_AGENT_ROLE` correctly under real nested\nAgent-tool dispatch is verifiable only by running real\nClaude Code, which the in-sandbox test cannot do \u2014 but\nwhen cq-3 flips to Agent-tool dispatch in a future issue,\nthe production path becomes the empirical answer to that\nremaining half of R2).",
+          "files_affected": [
+            "integration_tests/regression/test_pretooluse_hook_nested.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-9",
+          "description": "Add a minimal test-only nested-Agent-tool dispatch fake\nunder `integration_tests/regression/_agent_tool_fake.py`.\nSimulates Claude Code's `Agent` tool by spawning a\nsubprocess with controlled `EGG_AGENT_ROLE` env var per\ndispatch; each fake-subagent has a\n`pre_tool_use_callback` that invokes\n`orchestrator.substrate.claude_code.hook_entry.decide(...)`\nwith the tool input. **This is test infrastructure\nONLY** \u2014 it does NOT become a production spawner and is\nNOT registered in `select_substrate`. It exists so\nTASK-1-5 can drive a deterministic nested-dispatch\nscenario without a real Claude Code session. The shared\n`pending_hitl` envelope schema invented in TASK-1-1 also\nflows through this fake so slice 3's daemon variant\n(TASK-3-2) inherits the same state-serialization contract\n(closes risk_analyst R17 dual-bridge concern).\n\n**Role assignment**: the underscored helper-style name\n(mirroring the existing\n`integration_tests/regression/_helpers.py`) places this\nfile outside the `test_*.py` / `conftest.py` glob, so it\nis **coder-owned**, not tester-owned (verified via\n`mcp__sdlc__check_file_restriction`). This is the same\nowner the existing `_helpers.py` has today; the test\nfile that consumes it (TASK-1-5's\n`test_pretooluse_hook_nested.py`) remains tester-owned.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`_agent_tool_fake.py` exists; exposes a\n`dispatch(parent_role, child_role, write_target)`\nhelper; the helper invokes `hook_entry.decide(...)` via\nthe simulated child's `pre_tool_use_callback` and\nreturns the hook verdict. Documented in the module\ndocstring as test-only; protected with a top-of-file\n`if not __name__.startswith(\"integration_tests\")` import\nguard so it can't be silently imported by production\ncode.",
+          "files_affected": [
+            "integration_tests/regression/_agent_tool_fake.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-6",
+          "description": "Update `_load_egg_sdlc_role_rubric` in\n`orchestrator/substrate/__init__.py:232` to remove the\n\"spike only ships refiner rubric\" `ValueError` (lines\n280-284) when the role is `reviewer_refine` or\n`reviewer_agent_design`. The loader continues to raise\n`ValueError` for plan/implement roles until slice 2/3\nadds their rubrics (this preserves the structured-error\ncontract for missing rubrics \u2014 the test in TASK-1-7\ncovers this). **Depends on TASK-1-4 having landed the\ntwo new rubric .md files first** \u2014 if a coder picks up\nTASK-1-6 before TASK-1-4 is merged, the loader returns\ntext from a missing file. The implementer should\nsequence TASK-1-4 \u2192 TASK-1-6 within the slice.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`_load_egg_sdlc_role_rubric(REVIEWER_REFINE)` returns the\nmarkdown body of `reviewer_refine.md`;\n`_load_egg_sdlc_role_rubric(REVIEWER_AGENT_DESIGN)`\nreturns the body of `reviewer_agent_design.md`;\n`_load_egg_sdlc_role_rubric(ARCHITECT)` still raises\n`ValueError` with the \"follow-up issue per cq-11\" hint\nupdated to \"follow-up slice 2\".",
+          "files_affected": [
+            "orchestrator/substrate/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-7",
+          "description": "Add unit tests for the updated rubric loader: assert that\nthe two refine reviewer roles load successfully, and that\nplan/implement roles still raise `ValueError` with the\nupdated diagnostic message. Test file lives under\n`shared/tests/` next to the existing\n`test_substrate_interfaces.py` and `test_claude_code_spawner.py`\nper the repo's substrate-tests convention.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New test file `shared/tests/test_rubric_loader.py`\ncontains four test cases: load refiner (existing,\nregression), load reviewer_refine, load\nreviewer_agent_design, load architect raises ValueError.",
+          "files_affected": [
+            "shared/tests/test_rubric_loader.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-8",
+          "description": "Update the ADR at\n`docs/architecture/claude-code-substrate.md` to reflect:\n(a) the flattened bridge mechanism (replacing the\n\"Walking-skeleton bridge gap\" callout); (b) the R2\nverdict (point to `r2-verdict.json` and TASK-1-5);\n(c) the refine-team expansion (refiner + 2 reviewers now\non the substrate); (d) the \"Rollout deltas\" section\n(line 272-287) marked off the first bullet (bridge gap\nclosed for refine/plan).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "ADR no longer references the bridge gap as deferred for\nrefine-phase; \"Rollout deltas\" first bullet shows\ncompleted-with-strikethrough or moved to a \"Completed in\nthis rollout\" subsection; the \"Open empirical question\n(R2)\" section either documents the pass result or\ndocuments the fail result + slice 5 contingency.",
+          "files_affected": [
+            "docs/architecture/claude-code-substrate.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Plan-phase substrate (3 producers + 1 reviewer)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add `_run_plan` stage to\n`_InProcessOrchestrator.run()` in\n`orchestrator/substrate/in_process.py`. The stage is\ndispatched after the refine HITL gate when the operator\nchooses \"continue to plan\". It spawns the three\nproducers via the existing `concurrent_executor.py`\nseam (line 569) so multi-producer BRC runs through the\n`InProcessMessageBus`. After producers reach\n`CONSENSUS_PROPOSE`, `reviewer_plan` is spawned for the\nACK/NACK cycle. The stage yields a plan-HITL decision\nwhen consensus is reached.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`run_pipeline_in_process(...)` no longer raises\n`NotImplementedError` when the operator advances past\nrefine; the plan stage spawns 3 producers concurrently\nvia the executor; reviewer_plan is spawned after each\n`CONSENSUS_PROPOSE`; the stage yields a plan-HITL\ndecision after CONSENSUS_CONFIRMED on every producer\nedge; the existing refine path still works.",
+          "files_affected": [
+            "orchestrator/substrate/in_process.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Extend `_load_egg_sdlc_role_rubric`\n(`orchestrator/substrate/__init__.py:232`) to load the\nnew plan-team rubrics (architect, task_planner,\nrisk_analyst, reviewer_plan); the loader continues to\nraise `ValueError` for implement-team roles.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Loader returns rubric bodies for all four plan-team\nroles; implement-team roles still raise `ValueError`\nwith the \"follow-up slice 3\" hint.",
+          "files_affected": [
+            "orchestrator/substrate/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add four plan-team rubric files under\n`plugins/egg-sdlc/skills/egg-sdlc/agents/`:\n`architect.md`, `task_planner.md`, `risk_analyst.md`,\n`reviewer_plan.md`. Mirror `refiner.md`'s shape; body\ncontent mirrors what the k3s prompts in\n`shared/prompts/` produce for each role.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All four files exist with valid frontmatter; bodies\nreference the substrate context (\"You are the\n**architect** running on the Claude Code substrate of\negg's SDLC pipeline.\") and the role's specific outputs\n(architect \u2192 architecture analysis; task_planner \u2192\nslice DAG plan; risk_analyst \u2192 risk assessment;\nreviewer_plan \u2192 ACK/NACK on the three producer\nartifacts).",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/architect.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/task_planner.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/risk_analyst.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_plan.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add `test_inprocess_plan_brc.py` under\n`integration_tests/regression/`. Test boots\n`run_pipeline_in_process` against a deterministic\npipeline id with harness-faked subagents; advances past\nthe refine HITL gate; asserts the plan stage spawns\n3 producers + 1 reviewer; asserts CONSENSUS_CONFIRMED\nfires on every producer edge; asserts the stage yields\na plan-HITL decision with the expected fields.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test runs in <120s; uses harness fakes; reaches\nCONSENSUS_CONFIRMED for all three plan-phase BRC edges\n(architect \u2192 reviewer_plan, task_planner \u2192\nreviewer_plan, risk_analyst \u2192 reviewer_plan); asserts\nplan-HITL decision is yielded.",
+          "files_affected": [
+            "integration_tests/regression/test_inprocess_plan_brc.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-5",
+          "description": "Contingent on slice 1's R2 verdict (see\n`.egg-state/<pipeline_id>/r2-verdict.json` from\nTASK-1-5). If R2 = fail, wire **agent-side**\n(sandbox-tool-handler) policy enforcement parallel to\nthe PreToolUse hook: extend\n`sandbox/egg_agent_tools/handlers/restrictions.py`\n(which already exposes\n`check_file_restriction(req)` at line 70) so that\nevery write-bearing tool call passes through it before\nthe agent burns a tool turn, returning the gateway's\n`403 restricted_path_modified` shape on violation. This\nis cq-6 option 2 from #2623 (\"MCP-validator-side\nenforcement\"); the correct surface per the plan\nreviewer's audit is the in-sandbox tool handler, NOT\n`orchestrator/mcp_tools.py` (which is the\norchestrator-side MCP server, a different surface). If\nR2 = pass, this task is a no-op (close with note). Tests\nfor this code path land in TASK-2-6 (tester-owned).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "If R2 fail:\n`sandbox/egg_agent_tools/handlers/restrictions.py` adds\na `validate_write_target(req)` helper (or extends an\nexisting one) that imports\n`build_agent_patterns(role)` from\n`shared/egg_restrictions/patterns.py:768` and returns\nthe gateway's `403 restricted_path_modified` shape\nmirroring `gateway/phase_filter.py:1061`. If R2 pass:\ntask closed with note \"no-op: hooks resolve role\ncorrectly; structural enforcement remains hook-side\".",
+          "files_affected": [
+            "sandbox/egg_agent_tools/handlers/restrictions.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-6",
+          "description": "Add tests for the agent-side policy enforcement landed\nin TASK-2-5. Only meaningful if slice 1's R2 verdict\nwas fail; otherwise the test is a no-op regression guard\nasserting the validator helper does NOT change the\nresponse shape for in-allow-list writes. File lives\nunder `tests/sandbox/egg_agent_tools/`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New test file\n`tests/sandbox/egg_agent_tools/test_restrictions_validator.py`\ncovers: (R2 fail) validator denies a cross-role write\ntool call and the response matches the gateway's\n`403 restricted_path_modified` shape; (R2 pass) asserts\nthe validator helper is a no-op for in-allow-list\nwrites (the contingency is documented in the test\ndocstring).",
+          "files_affected": [
+            "tests/sandbox/egg_agent_tools/test_restrictions_validator.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-7",
+          "description": "Update `SKILL.md` to drop the \"Plan phase deferred\"\ncallout in \"What's NOT in this skill\" (line 163); add a\nnew \"Plan phase\" subsection naming the four roles and\nthe plan HITL gate.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`SKILL.md` documents the plan phase as supported; the\n\"What's NOT in this skill\" section no longer lists\nplan-phase deferral; the plan-HITL gate is named.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/SKILL.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Implement-phase substrate (3 producers + 5 reviewers) + daemon HITL bridge",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add `_run_implement` stage to\n`_InProcessOrchestrator.run()`. Dispatched after the\nplan HITL gate when the operator chooses \"continue to\nimplement\". Spawns 3 producers + 5 reviewers; manages\nmulti-cycle BRC with NACK aggregation, conditional ACK\n(pre-merge obligations), RE_REVIEW, CONFIRMED.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The implement stage spawns 3 producers + 5 reviewers\n(per `_PHASE_ROLES[\"implement\"]` at\n`shared/egg_contracts/agent_roles.py:1173` and\n`_PHASE_REVIEWERS[\"implement\"]` at\n`:1184`); BRC mechanics survive the substrate\ntransition (INV-1..6 covered); the stage yields\nimplement-HITL decisions for each producer's PR.",
+          "files_affected": [
+            "orchestrator/substrate/in_process.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add daemon-style HITL bridge under\n`orchestrator/substrate/claude_code/hitl_daemon.py`:\na long-lived Python process that owns the\n`run_pipeline_in_process` generator across multiple\n`AskUserQuestion` round-trips. The skill talks to it\nvia JSON-RPC envelopes over a UNIX domain socket at\n`.egg-state/<pipeline_id>/sock`. Per cq-1 Option C,\nthis is the implement-phase variant \u2014 refine/plan keep\nthe flattened path from slice 1. **Daemon must detach\nfrom the calling Bash session** via\n`subprocess.Popen(start_new_session=True)` (or\nequivalent `os.setsid()` after fork); otherwise the\ndaemon dies when the skill's `Bash(python3 ...)` step\nexits, defeating the \"long-lived\" property. The daemon\nconsumes the `pending_hitl` envelope schema defined in\nTASK-1-1 so the two bridges share a state-serialization\ncontract (risk_analyst R17 mitigation).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Daemon starts on first `python3 bin/run_pipeline.py\n--daemon` invocation; the launcher uses\n`start_new_session=True` (or `os.setsid()`) so the\ndaemon survives the calling Bash's exit; binds to\n`.egg-state/<pipeline_id>/sock`; serves JSON-RPC\nenvelopes: `{\"method\": \"next_decision\"}` returns the\nnext `HITLDecision`; `{\"method\": \"send_answer\", \"answer\":\n...}` resumes the generator; `{\"method\": \"shutdown\"}`\njoins background threads cleanly via `GeneratorExit`.\nSocket lifecycle is per-pipeline; the daemon\nself-terminates on pipeline completion. The\nlong-lived-across-Bash-exits property is asserted in\nTASK-3-8's test.",
+          "files_affected": [
+            "orchestrator/substrate/claude_code/hitl_daemon.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update `bin/run_pipeline.py` (from TASK-1-1) to add a\n`--daemon` flag that connects to / launches the\n`hitl_daemon`. The flattened single-yield path stays\nthe default for refine/plan; `--daemon` activates for\nimplement-phase.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`bin/run_pipeline.py --daemon` launches the daemon if\nnot running, connects to its socket, ferries one\ndecision-answer round-trip per invocation; exit code\n0 on success; the SKILL.md body picks the right mode\nbased on the current phase.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add three producer rubrics: `coder.md`, `tester.md`,\n`documenter.md` under\n`plugins/egg-sdlc/skills/egg-sdlc/agents/`. Mirror\n`refiner.md`'s shape; body content mirrors what the\nk3s prompts produce for each role.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All three files exist with valid frontmatter; bodies\nname the substrate; bodies reference the file-write\nrestrictions per `shared/egg_restrictions/patterns.py:768`\nso the operator can sanity-check the hook's behavior.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/coder.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/tester.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/documenter.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-5",
+          "description": "Add five reviewer rubrics:\n`reviewer_code.md`, `reviewer_code_holistic.md`,\n`reviewer_contract.md`, `reviewer_security.md`,\n`reviewer_concurrency.md` under\n`plugins/egg-sdlc/skills/egg-sdlc/agents/`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All five files exist with valid frontmatter and bodies\nreferencing the substrate; review criteria mirror the\nk3s reviewer prompts.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_code.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_code_holistic.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_contract.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_security.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_concurrency.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-6",
+          "description": "Extend `_load_egg_sdlc_role_rubric` to load all eight\nnew implement-team rubrics; the loader no longer raises\n`ValueError` for any production role (overseer,\ninspector, autofixer, conflict_resolver remain\nintentionally unhandled).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Loader returns rubric bodies for coder, tester,\ndocumenter, and all five reviewer roles; the existing\nrefine + plan rubrics still load.",
+          "files_affected": [
+            "orchestrator/substrate/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-7",
+          "description": "Add `test_inprocess_implement_brc.py` under\n`integration_tests/regression/`. Drives a full\nimplement-phase BRC cycle through harness fakes;\nasserts ACK / NACK / RE_REVIEW / CONFIRMED transitions\nacross 3 producers + 5 reviewers; covers NACK\naggregation (two reviewers NACK same producer);\ncovers conditional ACK with pre-merge obligation.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test runs in <240s; uses harness fakes; asserts:\n(a) all 3 producer \u00d7 5 reviewer edges reach\nCONSENSUS_CONFIRMED; (b) NACK aggregation triggers\norchestrator HTTP 409 on stale-version re-propose; (c)\nconditional ACK surfaces in the produced PR body's\npre-merge obligations section.",
+          "files_affected": [
+            "integration_tests/regression/test_inprocess_implement_brc.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-8",
+          "description": "Add `test_daemon_bridge.py` under\n`integration_tests/regression/`. Validates the daemon\nround-trips JSON-RPC envelopes; validates that\ngenerator state survives between AskUserQuestion calls\n(simulated by separate JSON-RPC clients); validates\nclean shutdown via `GeneratorExit`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test runs in <60s; spawns the daemon via `subprocess`;\nasserts \u22653 decision-answer round-trips through the\nsocket; asserts daemon process exits cleanly on\n`{\"method\": \"shutdown\"}`; asserts no leaked\nbackground threads (the test process's thread count\nreturns to baseline).",
+          "files_affected": [
+            "integration_tests/regression/test_daemon_bridge.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-9",
+          "description": "Add empirical metrics collection: instrument\n`_InProcessOrchestrator` to record per-role subagent\ninvocations, wall-clock latency, peak context size to\n`.egg-state/<pipeline_id>/substrate-metrics.json`.\nSlice 5's cq-3 Agent-tool dispatcher decision reads\nthis; slice 5's cost cap (cq-6) also reads\ninvocations_count from this file.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "After a full implement-phase BRC cycle, the metrics\nfile contains: one entry per spawned subagent with\n{role, wall_clock_seconds, context_tokens_peak,\nretry_count}; total invocations field at the top\nlevel; format documented in `_InProcessOrchestrator`\nclass docstring.",
+          "files_affected": [
+            "orchestrator/substrate/in_process.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-10",
+          "description": "Update `SKILL.md` to document implement-phase support;\nadd a \"When to use daemon mode\" subsection (refine /\nplan stay flattened; implement uses daemon).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`SKILL.md` covers all three phases supported so far\n(refine, plan, implement); the \"What's NOT in this\nskill\" section's implement-phase line is removed; the\ndaemon mode is documented with a snippet showing the\nUNIX socket round-trip.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/SKILL.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "PR-phase substrate + 5-issue conformance matrix + scope-fence removal",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add `_run_pr` stage to\n`_InProcessOrchestrator.run()`. The pr-phase has no\nproducer/reviewer roles; it's pure orchestration:\ncreate the stacked PRs per slice, render the context\nPR with refine/plan artifacts and BRC consensus\nhistory per #2548, render pre-merge obligations from\nthe contract's `pr.deferred_actions`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`_run_pr` runs after every slice's implement-phase\nCONSENSUS_CONFIRMED; creates one PR per slice; creates\nthe context PR at the root of the stack; injects\npre-merge obligation rendering; the stage yields a\npr-HITL gate (\"approve and merge / request changes /\nabort\").",
+          "files_affected": [
+            "orchestrator/substrate/in_process.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Remove the walking-skeleton scope fence from\n`orchestrator/substrate/in_process.py`. Two locations\nmust be touched: (a) the call site at `:212`\n(`self._maybe_fence(answer)` inside `_run`) and (b) the\nmethod definition at `:807-826` (`def _maybe_fence(...)`\nand its `NotImplementedError` body). Removing only the\ncall site leaves dead code; both must be deleted.\nAlso update the docstring at lines 92-125 to drop the\n\"raises NotImplementedError for plan / implement / pr\"\nlanguage. With pr-phase wired, the operator can chain\nall four phases freely.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`_maybe_fence` call site at `:212` AND method\ndefinition at `:807-826` are both deleted; the\ngenerator no longer raises `NotImplementedError` for\nany phase advancement; the docstring reflects the new\nfour-phase support; existing tests for the fence are\ndeleted (they're obsolete) and replaced with the\nintegration test in TASK-4-4.",
+          "files_affected": [
+            "orchestrator/substrate/in_process.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-3",
+          "description": "Apply the substrate parametrize fixture from\n`integration_tests/regression/conftest.py:623` to every\nregression test that is substrate-portable. Each test\nmust declare via the `substrate` fixture; the fixture\ncontinues to skip the claude-code dimension under\n`_in_sandbox_agent_context()` (line 636-641).\nSubstrate-portable: any test that does not transitively\ndepend on `egg_stack` or `gateway_url` fixtures.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Every test in `integration_tests/regression/` either\n(a) consumes the `substrate` fixture, (b) is marked\n`@pytest.mark.skip(reason=\"k3s-only\" | \"claude-code-only\")`,\nor (c) is exempt with an inline comment explaining why\nit's not portable. The CI matrix runs both dimensions.",
+          "files_affected": [
+            "integration_tests/regression/test_brc_concurrency.py",
+            "integration_tests/regression/test_brc_edge_cases.py",
+            "integration_tests/regression/test_brc_gap_audit.py",
+            "integration_tests/regression/test_brc_phase_timeout.py",
+            "integration_tests/regression/test_brc_single_cycle.py",
+            "integration_tests/regression/test_hitl_round_trip.py",
+            "integration_tests/regression/test_long_name_round_trip.py",
+            "integration_tests/regression/test_message_bus_routing.py",
+            "integration_tests/regression/test_recovery_invariants.py",
+            "integration_tests/regression/test_salvage_ttl_sweep.py",
+            "integration_tests/regression/test_slice_restart_branch_invariants.py",
+            "integration_tests/regression/test_slice_spawn_env_threading.py",
+            "integration_tests/regression/test_start_pipeline_recovery.py",
+            "integration_tests/regression/test_unpushed_commit_salvage.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add `test_conformance_matrix.py` under\n`integration_tests/regression/`. Parametrize over the\n5 curated issues: [2714, 2474, 2261, 2705, 2718] X 2\nsubstrates = 10 parametrize axes. **Conformance fixture\nmechanism**: each axis uses per-subagent `MagicMock`\nstubs in the same style as\n`integration_tests/regression/test_substrate_smoke.py:56`\n(hardcoded `stdout=\"ok\"`, no recorded transcripts) \u2014\nthis is option (b) per the plan reviewer's audit, the\ncheapest path that keeps the matrix in-sandbox-runnable\nand avoids the chicken-and-egg of \"which task records\nthe transcripts the matrix consumes\". The axis asserts:\n(1) `run_pipeline_in_process` reaches a pr-HITL gate\nwithout raising for the issue's recorded SDLC shape\n(bug fix / feature / refactor / infra / doc); (2) the\ntwo substrate dimensions agree on the produced\nartifact paths (`.egg-state/drafts/<id>-analysis.md`,\n`.egg-state/drafts/<id>-plan.md`). The matrix is about\nreplaying the SDLC *shape*, not the verbatim text;\nper feedback Q1 the issues are fixed regardless of\ncurrent GitHub state (note: #2714 closed since the\nrefine analysis was written, but this is irrelevant to\nthe matrix per Q1's rationale). Mark all 10 axes as\n`pytest.mark.slow`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test exists with 10 parametrize axes (5 issues x 2\nsubstrates); uses MagicMock-style stubs (no recorded\ntranscripts); runs only under `pytest --slow`; each\naxis completes within the 3-hour per-phase ceiling\nenforced by TASK-4-5's hook; both substrate dimensions\nagree on the produced artifact paths for every curated\nissue. The test docstring documents the\nMagicMock-vs-real-transcript trade-off and notes that\n#2714's closed state is irrelevant per feedback Q1.",
+          "files_affected": [
+            "integration_tests/regression/test_conformance_matrix.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-5",
+          "description": "Add a `pytest_runtest_setup` hook to\n`integration_tests/regression/conftest.py` that fails\nany single phase exceeding the 3-hour ceiling\n(feedback Q2). The hook reads the per-phase\nwall-clock from `.egg-state/<pipeline_id>/substrate-metrics.json`\n(populated by TASK-3-9) and fails fast.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Hook lands in `conftest.py`; new test\n`test_phase_ceiling.py` verifies a synthetic 4-hour\nphase fails the gate; documented in the conftest\nmodule docstring.",
+          "files_affected": [
+            "integration_tests/regression/conftest.py",
+            "integration_tests/regression/test_phase_ceiling.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-6",
+          "description": "Update `SKILL.md` to remove the \"Walking-skeleton\nscope\" callout entirely (lines 8-12 in the current\nfile); the skill now supports all four phases. Remove\nthe \"What's NOT in this skill\" section's pr-phase\nline; remove the bridge-gap callout entirely.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`SKILL.md` reflects full four-phase support; no\nwalking-skeleton language remains; the front matter's\n`description` is updated to remove the \"walking-skeleton\nspike\" language.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/SKILL.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-7",
+          "description": "Update the ADR's \"Rollout deltas\" section\n(`docs/architecture/claude-code-substrate.md:272-287`)\nto mark off bullets: plan/implement/pr phase rollout\n(line 276), conformance matrix (line 278), perf\nbudget (line 279). Move the satisfied bullets to a\nnew \"Completed in #2717 rollout\" section.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "ADR no longer lists the three phase-rollout bullets,\nconformance, and perf-budget bullets as open; a new\n\"Completed\" section summarises what slice 4 shipped.",
+          "files_affected": [
+            "docs/architecture/claude-code-substrate.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Hardening (cost cap + EggHarnessSpawner + R15 contingent + fork primitive + ADR + v0.x marker drop)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Implement `EGG_PIPELINE_MAX_AGENT_INVOCATIONS` cost\ncap with default 200 (cq-6 = Option 2). Tracked on\n`_InProcessOrchestrator._invocation_count`; raises\n`RuntimeError(\"cost cap exceeded; current=<N>,\ncap=<M>\")` past the cap. The cap reads\n`.egg-state/<pipeline_id>/substrate-metrics.json` to\nstay in sync with TASK-3-9's metrics.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`_InProcessOrchestrator._invocation_count` increments\non every spawn; cap default = 200; env override\nworks; the cap raises BEFORE the over-cap spawn\nexecutes (so the operator's bill stops at the cap).",
+          "files_affected": [
+            "orchestrator/substrate/in_process.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add `EggHarnessSpawner` under\n`orchestrator/substrate/egg_harness/spawner.py`. The\nspawner satisfies the `AgentSpawner` Protocol (third\nimplementation, validating cq-7's stability claim\nper feedback Q3). It drives `egg_harness.run_agent`\nvia `subprocess.Popen` per role; captures\n`commit_sha` via `git rev-parse HEAD` immediately\nafter the subprocess returns (per\n`orchestrator/substrate/claude_code/spawner.py:201`\nfor the existing pattern).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`EggHarnessSpawner` exists and implements\n`AgentSpawner`; `select_substrate(env={\"EGG_SUBSTRATE\":\n\"egg-harness\"})` returns a bundle with this spawner;\na `test_egg_harness_spawner.py` test asserts the\nthird spawner round-trips a fake agent and captures\n`commit_sha`.",
+          "files_affected": [
+            "orchestrator/substrate/egg_harness/__init__.py",
+            "orchestrator/substrate/egg_harness/spawner.py",
+            "orchestrator/substrate/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add `cmd_local_run` subcommand to\n`orchestrator/cli.py`. Mirrors the shape of existing\nsubcommands (`cmd_pipelines_status` at\n`orchestrator/cli.py:541` is the closest reference).\nUsage: `egg-orch local-run --issue <N> --repo\n<owner/name>`. Boots\n`run_pipeline_in_process(...)` against an\n`EggHarnessSpawner`-backed substrate; prints\n`HITLDecision` envelopes to stdout in a JSON\nenvelope; reads operator answers from stdin (the\nenvelope shape mirrors `.egg-state/contracts/<id>.json#pending_hitl`).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`egg-orch local-run --help` documents the\nsubcommand; running `egg-orch local-run --issue\n2718 --repo jwbron/egg` advances the pipeline\nheadlessly; pipeline completes through all four\nphases against the curated doc-only issue.",
+          "files_affected": [
+            "orchestrator/cli.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-4",
+          "description": "Add `test_egg_harness_spawner.py` under\n`integration_tests/regression/`. Asserts the spawner\nsatisfies `AgentSpawner`; round-trips a fake agent\n(no real Anthropic call); captures `commit_sha`;\nworks against `egg-orch local-run` end-to-end against\na curated issue (uses harness fakes for the\nsubagents themselves, but exercises the real CLI\nshell).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test runs in <60s; asserts the three Protocol methods\n(`spawn`, `cleanup`, etc.); asserts the CLI exits 0\non the curated doc-only issue (#2718).",
+          "files_affected": [
+            "integration_tests/regression/test_egg_harness_spawner.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-5",
+          "description": "Add fork-based delegation primitive on\n`_InProcessOrchestrator`:\n`fork_subagent(parent_role: AgentRole, sub_task: str)\n-> SubAgentResult`. **Implementation stays on the\nharness re-host model per cq-3 (decide empirically\npost-implement)**: the fork spawns a child via\n`subprocess.Popen` running a fresh\n`egg_harness.run_agent` invocation in a clean Python\nprocess (NOT via Claude Code's Agent tool with\n`subagent_type=\"general-purpose\"` \u2014 that would commit\nto Agent-tool dispatch ahead of the cq-3 empirical\nverdict). The child does the sub-task with a focused\nprompt; the parent receives the summary back. Mirrors\nhow a human delegates (\"read all files matching X and\nsummarize\") per cq-10's deferred half from #2623. If\ncq-3's empirical verdict in slice-5's ADR refresh\n(TASK-5-9) recommends migrating to Agent-tool\ndispatch, the fork primitive's implementation will\nchange accordingly in a follow-up \u2014 not in this slice.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`fork_subagent` exists on\n`_InProcessOrchestrator`; spawns the child via\n`subprocess.Popen(...)` of `egg_harness.run_agent`\n(NOT via Agent tool); the child inherits the parent's\nrole via `EGG_AGENT_ROLE` env so the harness's own\npermission callback continues to enforce file-write\nrestrictions; the return is a `SubAgentResult`\ndataclass with `summary` and `tool_calls` fields.\nUnit-tested via harness fakes (TASK-5-8). The\ndocstring documents the cq-3 alignment.",
+          "files_affected": [
+            "orchestrator/substrate/in_process.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-6",
+          "description": "Drop the `INTERFACE STABILITY: v0.x unstable.` marker\nand the `# v0.x \u2014 unstable until \u22653 roles exercise`\ncomments from the four substrate protocol modules:\n`orchestrator/substrate/spawner.py`, `message_bus.py`,\n`policy.py`, `worktree.py`. cq-7 selected \"drop the\nmarker after \u22653 roles exercise the claude-code side\";\nby slice 4 the substrate has exercised \u226515 roles\n(refiner + 2 refine reviewers + 3 plan producers +\n1 plan reviewer + 3 implement producers + 5 implement\nreviewers). Regression-guard tests for the absence of\nthese markers land in TASK-5-10 (tester-owned).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Grep for `INTERFACE STABILITY: v0.x unstable.` and\n`v0.x \u2014 unstable` returns zero hits across\n`orchestrator/substrate/`. The module docstrings now\ndocument the protocol as stable.",
+          "files_affected": [
+            "orchestrator/substrate/spawner.py",
+            "orchestrator/substrate/message_bus.py",
+            "orchestrator/substrate/policy.py",
+            "orchestrator/substrate/worktree.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-10",
+          "description": "Add a regression guard test that asserts the v0.x\nunstable markers are absent from all four substrate\nprotocol modules. File lives under `shared/tests/`\nnext to existing `test_substrate_interfaces.py` per\nthe repo's substrate-tests convention.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New test file\n`shared/tests/test_substrate_protocol_stability.py`\nopens each of the four protocol module files and\nasserts neither `INTERFACE STABILITY: v0.x unstable.`\nnor `v0.x \u2014 unstable` substring is present in the\nmodule text. A separate test asserts the module\ndocstring contains positive stability language\n(e.g., \"stable v1 interface\").",
+          "files_affected": [
+            "shared/tests/test_substrate_protocol_stability.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-7",
+          "description": "Contingent on slice 1's R2 verdict (read\n`.egg-state/<pipeline_id>/r2-verdict.json` from\nTASK-1-5). If R2 = fail, migrate every role rubric\nunder `plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md`\nto a real `.claude/agents/<role>.md` definition with\nfrontmatter tool restrictions per\n`build_agent_patterns(<role>)`. If R2 = pass, this\ntask is a no-op (close with note in the slice's BRC\nhistory).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "If R2 fail: every rubric file gains frontmatter with\n`allowed-tools` reflecting the role's allow-list per\n`shared/egg_restrictions/patterns.py:768`; structural\ntool-restriction enforcement now layers on top of the\nPreToolUse hook; a new test under\n`tests/plugins/egg_sdlc/test_role_frontmatter.py`\nasserts every rubric's `allowed-tools` matches its\n`build_agent_patterns(role).allow` set. If R2 pass:\ntask closed with note.",
+          "files_affected": [
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/refiner.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_refine.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_agent_design.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/architect.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/task_planner.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/risk_analyst.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_plan.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/coder.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/tester.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/documenter.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_code.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_code_holistic.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_contract.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_security.md",
+            "plugins/egg-sdlc/skills/egg-sdlc/agents/reviewer_concurrency.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-8",
+          "description": "Add `test_cost_cap.py` and `test_fork_subagent.py`\nunder `integration_tests/regression/`. Cost-cap test\nasserts the default (200) and env override behavior;\nfork test asserts child summary returns to parent\nwithout leaking the child's full tool-call history.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both tests pass; cost cap raises `RuntimeError` past\n200 and at the env override; fork primitive returns\n`SubAgentResult` with `summary` set and `tool_calls`\ntruncated to the parent.",
+          "files_affected": [
+            "integration_tests/regression/test_cost_cap.py",
+            "integration_tests/regression/test_fork_subagent.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-9",
+          "description": "ADR refresh at\n`docs/architecture/claude-code-substrate.md`: rewrite\nthe \"Rollout deltas\" section to a \"Completed in #2717\"\nsection; document the cost cap default (200) and its\nenv override; document `EggHarnessSpawner` + `egg-orch\nlocal-run` shape; document the fork primitive; document\nthe R2 verdict (pass or fail) and what shipped as a\nconsequence (R15 migration or no-op); update R10\n(stability marker) to reflect the drop.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "ADR no longer carries the \"Rollout deltas\" follow-up\nframing; every cq decision from this issue is\nreflected in the relevant section; the document\nreads as a stable substrate ADR rather than a\nwalking-skeleton plus rollout draft.",
+          "files_affected": [
+            "docs/architecture/claude-code-substrate.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "How should the HITL bridge gap (reviewer v1 blocker #6) be closed \u2014 i.e. how does the skill drive a long-lived `run_pipeline_in_process(...)` generator across multiple `AskUserQuestion` round-trips?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A \u2014 Long-lived Python REPL/daemon the skill talks to via JSON-RPC envelopes; generator state survives between AskUserQuestion calls (closest match to engineered surface, requires daemon lifecycle management)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B \u2014 Flatten generator into a hand-shaped sequence of single-yield `python3 <stage>.py` invocations; decisions/answers thread through .egg-state/contracts/<id>.json (no daemon, but loses generator's heartbeat-during-HITL property; demands restructuring of in-process generator)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C \u2014 Hybrid: ship Option B first as MVP for refine/plan; design Option A for implement (multi-producer concurrency makes a daemon cheaper than N separate stage scripts)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option C \u2014 Hybrid: ship Option B first as MVP for refine/plan; design Option A for implement (multi-producer concurrency makes a daemon cheaper than N separate stage scripts)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:46:12.119676Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-2",
+      "question": "How should this rollout work be decomposed into slices (slice count = PR count; siblings in a wave run in parallel)? Items in scope: bridge gap closure, plan/implement/pr phase rollout (+role rubrics), 5-issue conformance matrix, EggHarnessSpawner, fork-based delegation, cost cap, R15 subagent-type migration, R2 hook validation, k3s adapter promotion.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Linear chain \u2014 [bridge gap] -> [plan-phase substrate + rubrics + reviewer wiring] -> [implement-phase substrate + rubrics + reviewer wiring] -> [pr-phase substrate] -> [5-issue conformance matrix] -> [EggHarnessSpawner] -> [hardening pass: R2 validation + R15 migration + cost cap + k3s adapter] (~7 sequential PRs, low review burden, slowest end-to-end)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Bridge-first then parallel rollout \u2014 [bridge gap] -> [plan substrate || implement substrate || pr substrate || conformance fixtures] -> [EggHarnessSpawner || cost cap || R15 migration || R2 validation || k3s adapter] (3 waves; bridge is the hard dep then parallelism unlocks; ~10 PRs)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Bridge-first then phase-sequential rollout \u2014 [bridge gap] -> [plan substrate (3 producers + 1 reviewer)] -> [implement substrate (3 producers + 5 reviewers)] -> [pr-phase substrate + conformance matrix] -> [hardening pass: EggHarnessSpawner + cost cap + R15 + R2 + k3s adapter, all parallel] (~5 PRs; phase ordering surfaces BRC issues earlier with smaller blast radius)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer hardening to a tertiary issue \u2014 in this issue: bridge gap + plan + implement + pr + conformance + EggHarnessSpawner. Spin out R15 migration, cost cap, R2 hook validation, k3s adapter promotion, and fork-based delegation into a separate hardening follow-up. Slices: [bridge] -> [plan] -> [implement] -> [pr + conformance + EggHarnessSpawner] (~4 PRs in this issue)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Bridge-first then phase-sequential rollout \u2014 [bridge gap] -> [plan substrate (3 producers + 1 reviewer)] -> [implement substrate (3 producers + 5 reviewers)] -> [pr-phase substrate + conformance matrix] -> [hardening pass: EggHarnessSpawner + cost cap + R15 + R2 + k3s adapter, all parallel] (~5 PRs; phase ordering surfaces BRC issues earlier with smaller blast radius)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:46:12.132257Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Should the rollout migrate ClaudeCodeSpawner from \"re-host the existing egg_harness loop in the parent Claude Code session\" (today's spike implementation per `orchestrator/substrate/claude_code/spawner.py:14-26`) to a `ClaudeCodeAgentToolSpawner` that emits an actual `Agent`-tool envelope to the parent session's outer loop? This is the difference between \"harness re-host\" and a real substrate swap to Claude Code primitives.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Stay on harness re-host \u2014 keep ClaudeCodeSpawner running egg_harness in-process for all roles in this rollout; defer Agent-tool dispatcher to a future issue. Pros: zero re-architecture; matches the spike's tested seam. Cons: parent session still drives the harness for every subagent; not a true substrate-swap; concurrency uses ThreadPoolExecutor instead of native Agent fan-out",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Migrate to Agent-tool dispatcher in this rollout \u2014 build ClaudeCodeAgentToolSpawner that yields an `Agent` tool envelope; the parent session's outer loop executes the Agent tool and feeds results back via the message bus. Pros: real substrate swap; uses Claude Code's native subagent isolation. Cons: requires bridge-gap design to also carry agent-output flow, not just HITL",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 reviewers stay on harness re-host (they're more research-heavy, harness depth helps), producers migrate to Agent-tool dispatch (typically larger context budget, more parallelism)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Decide empirically at implement-phase \u2014 ship plan + implement rollout on harness re-host; measure concurrency / cost / latency / context usage; decide R15 migration timing once we have data",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Decide empirically at implement-phase \u2014 ship plan + implement rollout on harness re-host; measure concurrency / cost / latency / context usage; decide R15 migration timing once we have data\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:47:02.422102Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-4",
+      "question": "When (if at all) should the rollout migrate from R15 model (a) \u2014 `subagent_type=\"general-purpose\"` + ad-hoc prompt \u2014 to model (b) \u2014 per-role `.claude/agents/<role>.md` definition files with structural tool restrictions in frontmatter? Model (a) puts all enforcement on PreToolUse hooks (R2). Model (b) gives structural tool-restrictions per role.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "In this rollout, alongside each phase's roles \u2014 every new rubric file (architect.md, coder.md, etc.) ships as a real `.claude/agents/<role>.md` definition; the existing refiner.md migrates with the plan-phase wave. Highest correctness on day one; biggest review surface",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Defer entirely to a later hardening issue \u2014 ship every role in this rollout as ad-hoc prompts under `plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md` (matching spike). Promote to model (b) only after R2 PreToolUse hook empirical validation closes (which it might not, in which case the model (b) migration becomes mandatory)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Migrate as part of this issue's hardening pass \u2014 ship all rollout phases on model (a) first, then a single dedicated slice in this same issue converts all roles to model (b) at once. Pros: single conversion event, easier to review consistency; Cons: every role's rubric has to be re-validated as part of the conversion",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Make the choice contingent on R2's empirical result \u2014 if PreToolUse hooks reliably resolve calling role for nested subagents, stay on model (a) indefinitely; if not, migrate to model (b) as a fallback. Treat the R2 spike (item from issue body's 'Out of scope' list) as the gating decision",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Make the choice contingent on R2's empirical result \u2014 if PreToolUse hooks reliably resolve calling role for nested subagents, stay on model (a) indefinitely; if not, migrate to model (b) as a fallback. Treat the R2 spike (item from issue body's 'Out of scope' list) as the gating decision\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:47:02.493075Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-5",
+      "question": "When should the R2 empirical question be answered \u2014 does Claude Code's PreToolUse hook reliably resolve \"which subagent / role is calling Write()\" under nested / multi-subagent dispatch (today's spike validated this only for the single-role refiner case)? The fallback if hooks can't is cq-6 option 2: MCP-validator-side enforcement.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Early-spike before phase rollout begins \u2014 ship a 2-subagent worked example as the first slice (uses two roles, one parent + one child Agent dispatch; hook records EGG_AGENT_ROLE for each). If hooks fail this test, switch to MCP-validator-side enforcement before any further role rollout. Pros: catches the architectural problem before doing N role rollouts; Cons: pushes the timeline of substantive rollout by one slice",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Validate inline during plan-phase rollout \u2014 plan phase has 3 producers running concurrently; their dispatch naturally exercises multi-subagent hooks. Fold the R2 validation into the plan-phase acceptance criteria. Pros: no extra slice; Cons: risks rolling back plan-phase work if hooks fail late",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Validate inline during implement-phase rollout \u2014 implement has the most concurrent roles (3 producers + 5 reviewers); deferring R2 validation here gives maximum dispatch diversity but maximum rollback risk if hooks fail. Pros: most thorough; Cons: latest possible feedback",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Validate at hardening pass after all phases ship \u2014 treat R2 as a release-blocker check. If hooks fail this point, ship the rollout but require operators to opt into MCP-validator-side enforcement until a fix lands. Lowest impact on rollout schedule; highest risk of having to re-platform later",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Early-spike before phase rollout begins \u2014 ship a 2-subagent worked example as the first slice (uses two roles, one parent + one child Agent dispatch; hook records EGG_AGENT_ROLE for each). If hooks fail this test, switch to MCP-validator-side enforcement before any further role rollout. Pros: catches the architectural problem before doing N role rollouts; Cons: pushes the timeline of substantive rollout by one slice\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:50:26.145491Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-6",
+      "question": "What default value should `EGG_PIPELINE_MAX_AGENT_INVOCATIONS` (REC5 cost cap) ship with? The ADR suggests \"e.g. 50\" as a conservative default; the cap protects against runaway-cost scenarios (R9) for users on direct-billing Anthropic accounts.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Conservative: 50 (ADR's suggested value) \u2014 enough for a typical issue with refine + plan + implement + pr on small-to-medium slices; trips early on large slice-DAGs and forces operator to opt up",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Moderate: 200 \u2014 enough for a 3-slice slice-DAG with concurrent producers/reviewers + a couple of NACK cycles before tripping; balances cost safety vs. legitimate large pipelines",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Generous: 500 \u2014 only catches genuine infinite loops or runaway NACK ping-pong; most pipelines never trip",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Opt-in only: no default cap (unset means unlimited); operator must set the env var explicitly to enable. Documented as 'recommended for direct-billing users'",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Moderate: 200 \u2014 enough for a 3-slice slice-DAG with concurrent producers/reviewers + a couple of NACK cycles before tripping; balances cost safety vs. legitimate large pipelines\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:50:52.314176Z",
+      "debounce_until": null
+    },
+    {
+      "id": "cq-7",
+      "question": "Should the full k3s interface adapter (MessageBus, PolicyEnforcer, WorktreeManager protocols backed by Redis / gateway / gateway-worktree-manager) ship in this rollout, or stay deferred? The DoD doesn't require k3s-side adapter parity \u2014 the cq-1 \"parallel substrates\" promise is mostly about claude-code working alongside k3s; the protocol contract on the k3s side today is only `K3sSpawnerAdapter` (a working shim) plus direct use of `RedisMessageStore` / `gateway` for the rest.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Defer entirely (recommended) \u2014 k3s side keeps using RedisMessageStore / gateway directly; only AgentSpawner is unified. The protocols stay v0.x unstable on the k3s leg until a future issue promotes them. Pros: smallest blast radius for this rollout; Cons: leaves cq-1's full 'parallel substrates' promise incomplete",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship inside this issue as a hardening slice \u2014 add K3sMessageBus / K3sPolicyEnforcer / K3sWorktreeManager adapters as one slice in the hardening pass. Pros: closes cq-1 fully; Cons: adds review burden; risks regressions in production k3s users while the substrate-portable code paths are still bedding in",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ship only the K3sMessageBus adapter (promote RedisMessageStore onto the protocol) \u2014 the MessageBus protocol is the smallest seam and the one most likely to surface BRC differences. Policy/worktree adapters can wait. Pros: pragmatic; Cons: partial-promotion is awkward",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer entirely AND drop the v0.x unstable marker after \u22653 roles exercise the claude-code side \u2014 i.e. accept the interfaces are stable on the claude-code leg even if the k3s leg hasn't promoted yet. Documents the actual stability boundary precisely",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer entirely AND drop the v0.x unstable marker after \u22653 roles exercise the claude-code side \u2014 i.e. accept the interfaces are stable on the claude-code leg even if the k3s leg hasn't promoted yet. Documents the actual stability boundary precisely\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-05-19T17:53:37.552281Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-05-19T17:14:09.298852Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "How should the HITL bridge gap (reviewer v1 blocker #6) be closed \u2014 i.e. how does the skill drive a long-lived `run_pipeline_in_process(...)` generator across multiple `AskUserQuestion` round-trips?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A \u2014 Long-lived Python REPL/daemon the skill talks to via JSON-RPC envelopes; generator state survives between AskUserQuestion calls (closest match to engineered surface, requires daemon lifecycle management)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B \u2014 Flatten generator into a hand-shaped sequence of single-yield `python3 <stage>.py` invocations; decisions/answers thread through .egg-state/contracts/<id>.json (no daemon, but loses generator's heartbeat-during-HITL property; demands restructuring of in-process generator)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C \u2014 Hybrid: ship Option B first as MVP for refine/plan; design Option A for implement (multi-producer concurrency makes a daemon cheaper than N separate stage scripts)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the HITL bridge gap (reviewer v1 blocke...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:14:22.339312Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "How should this rollout work be decomposed into slices (slice count = PR count; siblings in a wave run in parallel)? Items in scope: bridge gap closure, plan/implement/pr phase rollout (+role rubrics), 5-issue conformance matrix, EggHarnessSpawner, fork-based delegation, cost cap, R15 subagent-type migration, R2 hook validation, k3s adapter promotion.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Linear chain \u2014 [bridge gap] -> [plan-phase substrate + rubrics + reviewer wiring] -> [implement-phase substrate + rubrics + reviewer wiring] -> [pr-phase substrate] -> [5-issue conformance matrix] -> [EggHarnessSpawner] -> [hardening pass: R2 validation + R15 migration + cost cap + k3s adapter] (~7 sequential PRs, low review burden, slowest end-to-end)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Bridge-first then parallel rollout \u2014 [bridge gap] -> [plan substrate || implement substrate || pr substrate || conformance fixtures] -> [EggHarnessSpawner || cost cap || R15 migration || R2 validation || k3s adapter] (3 waves; bridge is the hard dep then parallelism unlocks; ~10 PRs)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Bridge-first then phase-sequential rollout \u2014 [bridge gap] -> [plan substrate (3 producers + 1 reviewer)] -> [implement substrate (3 producers + 5 reviewers)] -> [pr-phase substrate + conformance matrix] -> [hardening pass: EggHarnessSpawner + cost cap + R15 + R2 + k3s adapter, all parallel] (~5 PRs; phase ordering surfaces BRC issues earlier with smaller blast radius)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer hardening to a tertiary issue \u2014 in this issue: bridge gap + plan + implement + pr + conformance + EggHarnessSpawner. Spin out R15 migration, cost cap, R2 hook validation, k3s adapter promotion, and fork-based delegation into a separate hardening follow-up. Slices: [bridge] -> [plan] -> [implement] -> [pr + conformance + EggHarnessSpawner] (~4 PRs in this issue)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should this rollout work be decomposed into sl...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:14:36.564465Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Should the rollout migrate ClaudeCodeSpawner from \"re-host the existing egg_harness loop in the parent Claude Code session\" (today's spike implementation per `orchestrator/substrate/claude_code/spawner.py:14-26`) to a `ClaudeCodeAgentToolSpawner` that emits an actual `Agent`-tool envelope to the parent session's outer loop? This is the difference between \"harness re-host\" and a real substrate swap to Claude Code primitives.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Stay on harness re-host \u2014 keep ClaudeCodeSpawner running egg_harness in-process for all roles in this rollout; defer Agent-tool dispatcher to a future issue. Pros: zero re-architecture; matches the spike's tested seam. Cons: parent session still drives the harness for every subagent; not a true substrate-swap; concurrency uses ThreadPoolExecutor instead of native Agent fan-out",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Migrate to Agent-tool dispatcher in this rollout \u2014 build ClaudeCodeAgentToolSpawner that yields an `Agent` tool envelope; the parent session's outer loop executes the Agent tool and feeds results back via the message bus. Pros: real substrate swap; uses Claude Code's native subagent isolation. Cons: requires bridge-gap design to also carry agent-output flow, not just HITL",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid \u2014 reviewers stay on harness re-host (they're more research-heavy, harness depth helps), producers migrate to Agent-tool dispatch (typically larger context budget, more parallelism)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Decide empirically at implement-phase \u2014 ship plan + implement rollout on harness re-host; measure concurrency / cost / latency / context usage; decide R15 migration timing once we have data",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the rollout migrate ClaudeCodeSpawner from ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:14:50.507124Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "When (if at all) should the rollout migrate from R15 model (a) \u2014 `subagent_type=\"general-purpose\"` + ad-hoc prompt \u2014 to model (b) \u2014 per-role `.claude/agents/<role>.md` definition files with structural tool restrictions in frontmatter? Model (a) puts all enforcement on PreToolUse hooks (R2). Model (b) gives structural tool-restrictions per role.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "In this rollout, alongside each phase's roles \u2014 every new rubric file (architect.md, coder.md, etc.) ships as a real `.claude/agents/<role>.md` definition; the existing refiner.md migrates with the plan-phase wave. Highest correctness on day one; biggest review surface",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Defer entirely to a later hardening issue \u2014 ship every role in this rollout as ad-hoc prompts under `plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md` (matching spike). Promote to model (b) only after R2 PreToolUse hook empirical validation closes (which it might not, in which case the model (b) migration becomes mandatory)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Migrate as part of this issue's hardening pass \u2014 ship all rollout phases on model (a) first, then a single dedicated slice in this same issue converts all roles to model (b) at once. Pros: single conversion event, easier to review consistency; Cons: every role's rubric has to be re-validated as part of the conversion",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Make the choice contingent on R2's empirical result \u2014 if PreToolUse hooks reliably resolve calling role for nested subagents, stay on model (a) indefinitely; if not, migrate to model (b) as a fallback. Treat the R2 spike (item from issue body's 'Out of scope' list) as the gating decision",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When (if at all) should the rollout migrate from R...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:15:04.939921Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-5",
+        "question": "When should the R2 empirical question be answered \u2014 does Claude Code's PreToolUse hook reliably resolve \"which subagent / role is calling Write()\" under nested / multi-subagent dispatch (today's spike validated this only for the single-role refiner case)? The fallback if hooks can't is cq-6 option 2: MCP-validator-side enforcement.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Early-spike before phase rollout begins \u2014 ship a 2-subagent worked example as the first slice (uses two roles, one parent + one child Agent dispatch; hook records EGG_AGENT_ROLE for each). If hooks fail this test, switch to MCP-validator-side enforcement before any further role rollout. Pros: catches the architectural problem before doing N role rollouts; Cons: pushes the timeline of substantive rollout by one slice",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Validate inline during plan-phase rollout \u2014 plan phase has 3 producers running concurrently; their dispatch naturally exercises multi-subagent hooks. Fold the R2 validation into the plan-phase acceptance criteria. Pros: no extra slice; Cons: risks rolling back plan-phase work if hooks fail late",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Validate inline during implement-phase rollout \u2014 implement has the most concurrent roles (3 producers + 5 reviewers); deferring R2 validation here gives maximum dispatch diversity but maximum rollback risk if hooks fail. Pros: most thorough; Cons: latest possible feedback",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Validate at hardening pass after all phases ship \u2014 treat R2 as a release-blocker check. If hooks fail this point, ship the rollout but require operators to opt into MCP-validator-side enforcement until a fix lands. Lowest impact on rollout schedule; highest risk of having to re-platform later",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When should the R2 empirical question be answered ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:15:15.142183Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-6",
+        "question": "What default value should `EGG_PIPELINE_MAX_AGENT_INVOCATIONS` (REC5 cost cap) ship with? The ADR suggests \"e.g. 50\" as a conservative default; the cap protects against runaway-cost scenarios (R9) for users on direct-billing Anthropic accounts.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Conservative: 50 (ADR's suggested value) \u2014 enough for a typical issue with refine + plan + implement + pr on small-to-medium slices; trips early on large slice-DAGs and forces operator to opt up",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Moderate: 200 \u2014 enough for a 3-slice slice-DAG with concurrent producers/reviewers + a couple of NACK cycles before tripping; balances cost safety vs. legitimate large pipelines",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Generous: 500 \u2014 only catches genuine infinite loops or runaway NACK ping-pong; most pipelines never trip",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Opt-in only: no default cap (unset means unlimited); operator must set the env var explicitly to enable. Documented as 'recommended for direct-billing users'",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What default value should `EGG_PIPELINE_MAX_AGENT_...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:15:29.342794Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-7",
+        "question": "Should the full k3s interface adapter (MessageBus, PolicyEnforcer, WorktreeManager protocols backed by Redis / gateway / gateway-worktree-manager) ship in this rollout, or stay deferred? The DoD doesn't require k3s-side adapter parity \u2014 the cq-1 \"parallel substrates\" promise is mostly about claude-code working alongside k3s; the protocol contract on the k3s side today is only `K3sSpawnerAdapter` (a working shim) plus direct use of `RedisMessageStore` / `gateway` for the rest.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Defer entirely (recommended) \u2014 k3s side keeps using RedisMessageStore / gateway directly; only AgentSpawner is unified. The protocols stay v0.x unstable on the k3s leg until a future issue promotes them. Pros: smallest blast radius for this rollout; Cons: leaves cq-1's full 'parallel substrates' promise incomplete",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship inside this issue as a hardening slice \u2014 add K3sMessageBus / K3sPolicyEnforcer / K3sWorktreeManager adapters as one slice in the hardening pass. Pros: closes cq-1 fully; Cons: adds review burden; risks regressions in production k3s users while the substrate-portable code paths are still bedding in",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Ship only the K3sMessageBus adapter (promote RedisMessageStore onto the protocol) \u2014 the MessageBus protocol is the smallest seam and the one most likely to surface BRC differences. Policy/worktree adapters can wait. Pros: pragmatic; Cons: partial-promotion is awkward",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer entirely AND drop the v0.x unstable marker after \u22653 roles exercise the claude-code side \u2014 i.e. accept the interfaces are stable on the claude-code leg even if the k3s leg hasn't promoted yet. Documents the actual stability boundary precisely",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the full k3s interface adapter (MessageBus,...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-05-19T17:15:56.741142Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Curated 5-issue conformance set (feedback Q1 in #2623 settled the rule, not the specific issues): name the 5 GitHub issue numbers covering the SDLC hot paths: one bug fix, one feature add, one refactor, one infra/script change, one doc change. The conformance matrix will run all 5 under both `EGG_SUBSTRATE=k3s` and `EGG_SUBSTRATE=claude-code` in CI. Suggested candidates the analysis can pre-select: #2714 (bug), #2474 (feature/regression suite), #2261 (refactor), #2705 (infra), #2718 (doc) \u2014 are these acceptable, or would you prefer different ones?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Latency / cost budget for the conformance matrix (feedback Q2 deferred to this issue): now that we'll run refine + plan + implement + pr against 5 issues under both substrates, do you want a budget per phase (e.g., 'refine \u2264 2x k3s wall-clock', 'cost per issue \u2264 $5 of Anthropic spend'), or a global per-issue budget, or no budget at all (just `pytest.mark.slow` if any test exceeds N minutes)?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "EggHarnessSpawner scope (feedback Q4 named it a secondary goal; DoD #5 promotes it to required for parent-close): how much of the EggHarnessSpawner ships in this issue? A) a working `egg-orch local-run --issue 1234` end-to-end against a curated issue; B) just the spawner class + protocol satisfaction + unit tests (CLI in a follow-up); C) full local-run including HITL flow via stdin/stdout JSON prompts; D) defer entirely \u2014 we promised in DoD but it can be a tertiary issue.",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Operator-acceptance for trust-context shift (R1) at multi-role scale: the spike's R1 acceptance is scoped to 'one refiner subagent running against a trusted repo'. Plan / implement phases dispatch 3+8 = 11 subagents per pipeline, each with access to the parent session's API credential context. Do you want any additional mitigations beyond what the spike documents (e.g. an opt-in `EGG_REQUIRE_CREDENTIAL_PROXY=true` flag that forces operators to acknowledge multi-subagent credential exposure, or a per-role allowlist of which subagents may run on the claude-code substrate)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Reviewer-roster expansion: are any new reviewer roles needed for the substrate-rollout work itself? For example, `reviewer_substrate` or `reviewer_concurrency_substrate` to give bridge / message bus / hook work a dedicated reviewer beyond the existing `reviewer_code`, `reviewer_concurrency`, `reviewer_security`, `reviewer_agent_design`? Or are the existing reviewers adequate?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Walking-skeleton scope-fence behavior post-rollout: today `run_pipeline_in_process` raises NotImplementedError if the operator chooses 'continue to plan'. After plan / implement / pr land, should the fence be removed entirely (operator can chain phases freely), kept as an opt-in `--single-phase` flag for short runs, or moved to a per-phase fence each operator must explicitly clear?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 6 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Roll out Claude Code substrate to remaining roles + plan/implement/pr",
+    "description": "Issue #2715 shipped the walking-skeleton spike for the Claude\nCode substrate (one role \u00d7 one phase end-to-end). This issue\nrolls the substrate out from there per **cq-11 = \"Spike then\nplan\"**.\n\n**What this PR stack does** (5 slices, stacked PRs):\n\n1. **Bridge gap + R2 spike + refine reviewers (slice 1)** \u2014\n   Closes the heredoc-HITL bridge gap via flattened\n   `python3 <stage>.py` invocations (cq-1 Option C, refine/plan\n   half). Ships a 2-subagent worked example that validates\n   PreToolUse hooks resolve role under nested dispatch (cq-5).\n   Adds the two refine-team reviewer rubrics (`reviewer_refine`,\n   `reviewer_agent_design`).\n2. **Plan-phase substrate (slice 2)** \u2014 First multi-role BRC\n   stress test. Wires architect / task_planner / risk_analyst\n   producers and `reviewer_plan` through the in-process\n   orchestrator.\n3. **Implement-phase substrate + daemon bridge (slice 3)** \u2014\n   Second BRC stress test at largest scale (3 producers + 5\n   reviewers). Switches the HITL bridge to Option A (long-lived\n   daemon over UNIX socket) because the flattened path is\n   impractical at this many yields.\n4. **PR-phase + conformance matrix (slice 4)** \u2014 Wires the PR\n   phase, removes the walking-skeleton fence (feedback Q6),\n   ships the 5-issue conformance matrix (#2714, #2474, #2261,\n   #2705, #2718) under both substrates with `pytest.mark.slow`\n   gating + 3-hour per-phase ceiling.\n5. **Hardening (slice 5)** \u2014 `EGG_PIPELINE_MAX_AGENT_INVOCATIONS`\n   cost cap default 200 (cq-6); `EggHarnessSpawner` + `egg-orch\n   local-run` CLI (DoD #5 / feedback Q3); fork-based delegation\n   (cq-10 deferred half); contingent R15 model (b) migration\n   based on slice 1's R2 verdict (cq-4); drop the v0.x unstable\n   marker on the four substrate protocols (cq-7); ADR refresh.\n\n**Impact**: every agent role in egg's SDLC pipeline gains a\nsecond substrate; the operator can drive a full pipeline\nnatively in Claude Code via `AskUserQuestion` without an MCP\n`provide_input` round-trip; the conformance matrix is green on\nboth substrate dimensions; `egg-orch local-run` enables headless\nruns; the four substrate protocols are stable.",
+    "test_plan": "- Automated: every slice ships substrate-portable tests under\n  `integration_tests/regression/` (per slice: bridge round-trip,\n  R2 nested-hook denial, plan-phase BRC, implement-phase BRC,\n  daemon round-trip, conformance matrix x5 issues x2 substrates,\n  cost cap, EggHarnessSpawner, fork primitive).\n- Manual (slice 4 / slice 5): operator runs\n  `python3 bin/run_pipeline.py issue-2717` end-to-end and\n  `egg-orch local-run --issue 2718` headlessly; both produce the\n  expected PR stack and metrics.",
+    "manual_steps": "Pre-merge (each slice): reviewer copies\n`orchestrator/substrate/claude_code/settings.template.json` into\ntheir own `.claude/settings.json` before exercising the\nconformance matrix; reviewer spot-checks BRC consensus history\nagainst the plan's primitives table.\n\nPost-merge (slice 5): if slice 3's empirical metrics warrant the\nAgent-tool dispatcher migration (cq-3), reviewer files a\nfollow-up issue; if R15 model (b) migration shipped (R2 fail\npath), reviewer files a follow-up to deprecate model (a) after\noperator migration.",
+    "context_title": null,
+    "context_description": null,
+    "context_branch": null,
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Curated 5-issue conformance set (feedback Q1 in #2623 settled the rule, not the specific issues): name the 5 GitHub issue numbers covering the SDLC hot paths: one bug fix, one feature add, one refactor, one infra/script change, one doc change. The conformance matrix will run all 5 under both `EGG_SUBSTRATE=k3s` and `EGG_SUBSTRATE=claude-code` in CI. Suggested candidates the analysis can pre-select: #2714 (bug), #2474 (feature/regression suite), #2261 (refactor), #2705 (infra), #2718 (doc) \u2014 are these acceptable, or would you prefer different ones?",
+        "answer": "Accept the refiner's suggested 5: #2714 (bug \u2014 sync regression on dirty worktree), #2474 (feature / regression suite \u2014 k3s integration coverage), #2261 (refactor \u2014 decomposing 15 oversize source files), #2705 (infra \u2014 Cilium datapath / k3s setup), #2718 (doc \u2014 claude-code substrate docs). Each represents a distinct SDLC shape; current state (open/closed/merged) is not relevant for using them as conformance fixtures. Note: #2714 was closed since this issue was filed (presumably part of the operator's recent redeploy)."
+      },
+      {
+        "id": "Q2",
+        "question": "Latency / cost budget for the conformance matrix (feedback Q2 deferred to this issue): now that we'll run refine + plan + implement + pr against 5 issues under both substrates, do you want a budget per phase (e.g., 'refine \u2264 2x k3s wall-clock', 'cost per issue \u2264 $5 of Anthropic spend'), or a global per-issue budget, or no budget at all (just `pytest.mark.slow` if any test exceeds N minutes)?",
+        "answer": "No hard budget; pytest.mark.slow as soft inclusion gate; 3-hour-per-phase ceiling as safety fallback that fails the CI job if any single phase exceeds it. Per-phase cost/latency budgets remain deferred until we have empirical rollout data from the 5x2 matrix; reassess in a follow-up issue once the matrix has run end-to-end at least once. The 3-hour ceiling is calibrated against this issue's predecessor (#2623) which had an 80-minute implement phase on k3s; claude-code substrate is expected to be slower per-call (subagent dispatch overhead), so 3 hours leaves headroom for legitimate multi-cycle BRC without inviting runaway loops."
+      },
+      {
+        "id": "Q3",
+        "question": "EggHarnessSpawner scope (feedback Q4 named it a secondary goal; DoD #5 promotes it to required for parent-close): how much of the EggHarnessSpawner ships in this issue? A) a working `egg-orch local-run --issue 1234` end-to-end against a curated issue; B) just the spawner class + protocol satisfaction + unit tests (CLI in a follow-up); C) full local-run including HITL flow via stdin/stdout JSON prompts; D) defer entirely \u2014 we promised in DoD but it can be a tertiary issue.",
+        "answer": "Option A \u2014 Full local-run end-to-end. DoD #5 in the issue body says 'EggHarnessSpawner ships and can drive a pipeline headlessly (egg-orch local-run --issue 1234)' which Option B (spawner-only, defer CLI) does not satisfy. Option A also gives the third spawner implementation needed to battle-test the AgentSpawner protocol contract with >2 implementations (per cq-7's stability rationale)."
+      },
+      {
+        "id": "Q4",
+        "question": "Operator-acceptance for trust-context shift (R1) at multi-role scale: the spike's R1 acceptance is scoped to 'one refiner subagent running against a trusted repo'. Plan / implement phases dispatch 3+8 = 11 subagents per pipeline, each with access to the parent session's API credential context. Do you want any additional mitigations beyond what the spike documents (e.g. an opt-in `EGG_REQUIRE_CREDENTIAL_PROXY=true` flag that forces operators to acknowledge multi-subagent credential exposure, or a per-role allowlist of which subagents may run on the claude-code substrate)?",
+        "answer": "No additional mitigations for v1. R1's acceptance was scoped to 'trusted-repo SDLC on operator's own machine' \u2014 that scales to multi-subagent because the trust model is unchanged (same operator's session credentials, same operator's repo, same operator's machine). The 11-15 subagents per pipeline expand the credential-exposure surface but not the credential-trust model. Revisit only if multi-tenant operator use cases or CI-runner-managed substrate use cases emerge. An opt-in EGG_REQUIRE_CREDENTIAL_PROXY flag was considered but adds operator friction with no concrete threat-model justification for v1; can be added later if real use cases warrant it."
+      },
+      {
+        "id": "Q5",
+        "question": "Reviewer-roster expansion: are any new reviewer roles needed for the substrate-rollout work itself? For example, `reviewer_substrate` or `reviewer_concurrency_substrate` to give bridge / message bus / hook work a dedicated reviewer beyond the existing `reviewer_code`, `reviewer_concurrency`, `reviewer_security`, `reviewer_agent_design`? Or are the existing reviewers adequate?",
+        "answer": "No new reviewer roles. The existing roster (reviewer_code, reviewer_concurrency, reviewer_security, reviewer_agent_design) already covers the substrate dimensions: substrate concurrency falls under reviewer_concurrency; substrate code under reviewer_code; substrate hooks / policy / credential boundaries under reviewer_security; substrate architecture / design choices under reviewer_agent_design. Adding reviewer_substrate or reviewer_concurrency_substrate bloats dispatch fan-out (already 8 reviewers in implement phase) without clear coverage value. If a specific gap surfaces during the rollout \u2014 e.g. a reviewer dimension that isn't being caught by any existing reviewer \u2014 file it as a follow-up issue with a concrete coverage gap."
+      },
+      {
+        "id": "Q6",
+        "question": "Walking-skeleton scope-fence behavior post-rollout: today `run_pipeline_in_process` raises NotImplementedError if the operator chooses 'continue to plan'. After plan / implement / pr land, should the fence be removed entirely (operator can chain phases freely), kept as an opt-in `--single-phase` flag for short runs, or moved to a per-phase fence each operator must explicitly clear?",
+        "answer": "Remove the scope-fence entirely once plan/implement/pr land. Today's NotImplementedError fence was a spike-scope guard; once all phases work, chaining phases freely is the expected behavior. The 'single-phase' use case is already structurally covered by the start_phase + hitl_gates: false config flags (used today by the short flow). A per-phase fence each operator must explicitly clear adds friction with no benefit. A --single-phase flag is redundant with start_phase. Fence removal should land as part of the pr-phase + conformance slice."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-05-19T18:05:18.325428Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}

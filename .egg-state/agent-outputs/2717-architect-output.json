@@ -1,0 +1,389 @@
+{
+  "issue": 2717,
+  "phase": "plan",
+  "role": "architect",
+  "pipeline_id": "issue-2717",
+  "summary": "Architecture analysis for the substrate-swap follow-up rollout (#2717). The refine phase settled the slice decomposition (cq-2 option 3: bridge-first then phase-sequential rollout with parallel hardening at the end), the HITL bridge approach (cq-1 option C: hybrid — flatten for refine/plan, daemon for implement), the harness re-host vs Agent-tool dispatch question (cq-3 option 4: decide empirically at implement-phase), the R15 model decision (cq-4 option 4: contingent on R2's empirical result), the R2 validation timing (cq-5 option 1: early-spike before phase rollout begins), the cost-cap default (cq-6 option 2: EGG_PIPELINE_MAX_AGENT_INVOCATIONS=200), and the k3s adapter posture (cq-7 option 4: defer + drop v0.x unstable marker after ≥3 roles exercise the claude-code leg). This document maps those decisions onto concrete component changes, with file:line evidence for every runtime primitive cited.",
+  "scope_boundary": {
+    "in_scope": [
+      "Closing the HITL bridge gap (cq-7 / reviewer-v1 blocker #6) end-to-end so the egg-sdlc skill can drive `run_pipeline_in_process(...)` across multiple AskUserQuestion round-trips",
+      "Wiring all 15 remaining role rubrics under plugins/egg-sdlc/skills/egg-sdlc/agents/ (architect, task_planner, risk_analyst, coder, tester, documenter, applier, reviewer_refine, reviewer_agent_design, reviewer_plan, reviewer_code, reviewer_code_holistic, reviewer_contract, reviewer_security, reviewer_concurrency)",
+      "Extending run_pipeline_in_process (orchestrator/substrate/in_process.py:84-149) with plan, implement, and pr phase branches; removing the cq-11 NotImplementedError scope-fence at orchestrator/substrate/in_process.py:820-826",
+      "Substrate-parametrized conformance matrix covering the 5 curated issues (#2714, #2474, #2261, #2705, #2718) under both EGG_SUBSTRATE values",
+      "EggHarnessSpawner with `egg-orch local-run --issue N` CLI subcommand (DoD #5; feedback Q3 = Option A full local-run)",
+      "Cost cap (REC5) at EGG_PIPELINE_MAX_AGENT_INVOCATIONS=200 default",
+      "R2 hook role-resolution empirical spike as the first deliverable in slice-1 (cq-5 option 1)",
+      "Drop the v0.x unstable marker on claude-code-side substrate modules once ≥3 roles run end-to-end (cq-7 option 4)",
+      "ADR refresh (docs/architecture/claude-code-substrate.md) to capture rollout deltas vs the spike's design"
+    ],
+    "out_of_scope": [
+      "K3s-side adapter parity for MessageBus, PolicyEnforcer, WorktreeManager protocols (cq-7 option 4: defer entirely; RedisMessageStore / gateway / gateway-worktree-manager keep their direct call paths on k3s)",
+      "Marketplace publishing of the egg-sdlc plugin (cq-12 carryover; not a parent-close blocker)",
+      "Mid-cycle peer-to-peer messaging between subagents (issue body 'Out of scope'; still platform-gated on SendMessage / Agent Teams)",
+      "#2714 sync-regression-on-dirty-worktree (issue body 'Out of scope'; #2719 already merged a related rebase-autostash fix on the gateway leg)",
+      "#2622 structural causes #5 / #6 (tool-use budget signaling, minimum-breadth targets in role files) — stays in #2622's scope per feedback Q5 from #2623",
+      "Reviewer roster expansion (feedback Q5 in refine: existing roster covers all substrate dimensions; no new reviewer roles in this rollout)",
+      "Per-phase explicit budget tuning (feedback Q2: deferred until empirical data exists; the rollout produces that data, retune in a follow-up issue)",
+      "Migration of ClaudeCodeSpawner to a ClaudeCodeAgentToolSpawner that emits real Agent-tool envelopes (cq-3 option 4: stay on harness re-host for this rollout, decide empirically at implement-phase post-shipping)",
+      "Full R15 migration to per-role .claude/agents/<role>.md frontmatter-restriction files (cq-4 option 4: contingent on R2's empirical result; only triggered if R2 fails)"
+    ]
+  },
+  "current_state_map": {
+    "substrate_protocols": {
+      "spawner": "orchestrator/substrate/spawner.py:73 AgentSpawner Protocol — `spawn(role, prompt, env, worktree) -> AgentResult`. Today's two implementations: ClaudeCodeSpawner (orchestrator/substrate/claude_code/spawner.py:64) and K3sSpawnerAdapter (orchestrator/substrate/k3s_adapter.py:38).",
+      "bus": "orchestrator/substrate/message_bus.py:27 MessageBus Protocol. Today only one substrate satisfies it via the inheriting class: InProcessMessageBus (orchestrator/substrate/claude_code/message_bus.py:30) — k3s uses RedisMessageStore directly without going through the Protocol (cq-7 option 4 leaves this as-is for the rollout).",
+      "policy": "orchestrator/substrate/policy.py:25 PolicyEnforcer Protocol. Today's only implementation: PreToolUseHookPolicy (orchestrator/substrate/claude_code/policy.py:26). hook_entry.py at orchestrator/substrate/claude_code/hook_entry.py is the subprocess Claude Code invokes per tool-call.",
+      "worktrees": "orchestrator/substrate/worktree.py:24 WorktreeManager Protocol. Today's only implementation: LocalWorktreeManager (orchestrator/substrate/claude_code/worktree.py:59). K3s side still calls gateway/worktree_manager.py directly."
+    },
+    "substrate_selector": "orchestrator/substrate/__init__.py:96 select_substrate(env) — reads EGG_SUBSTRATE, returns SubstrateBundle dataclass (orchestrator/substrate/__init__.py:77). v0.x markers at __init__.py:11, in_process.py:22, claude_code/spawner.py:46, spawner.py:15, message_bus.py:18, policy.py:17, worktree.py:13 — all are slated for removal in the hardening slice per cq-7 option 4.",
+    "rubric_loader": "orchestrator/substrate/__init__.py:232 _load_egg_sdlc_role_rubric(role) — reads plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md, raises ValueError for any role except refiner today. Roster expansion is a pure additive-file change; the loader is already roster-agnostic.",
+    "spawn_seam_for_concurrent_executor": "orchestrator/concurrent_executor.py:504 _spawn_agent(role, prompt_text) — the dispatch site; at line 539 it reads EGG_SUBSTRATE and routes to _spawn_agent_via_substrate(role, prompt_text) at line 569 when claude-code is selected. K3s defaults retain the legacy KubernetesSpawner factory path.",
+    "in_process_generator": "orchestrator/substrate/in_process.py:84 run_pipeline_in_process(...) — yields HITLDecision objects. Yield sites: line 191 (preflight gate) and line 207 (refine artifact approval gate). The k3s leg fences at line 130-131; the plan/implement/pr scope-fence is the `_maybe_fence` method at line 820-826 which raises NotImplementedError on any 'approve_continue' answer.",
+    "phase_roles": "shared/egg_contracts/agent_roles.py:1172 _PHASE_ROLES + :1183 _PHASE_REVIEWERS. Confirmed roster: refine={REFINER}+{REVIEWER_REFINE,REVIEWER_AGENT_DESIGN}; plan={ARCHITECT,TASK_PLANNER,RISK_ANALYST}+{REVIEWER_PLAN}; apply={APPLIER}+{REVIEWER_CONTRACT}; implement={CODER,TESTER,DOCUMENTER}+{REVIEWER_CODE,REVIEWER_CODE_HOLISTIC,REVIEWER_CONTRACT,REVIEWER_SECURITY,REVIEWER_CONCURRENCY}. 15 new role rubrics needed plus the existing refiner.md.",
+    "monolithic_pipelines_route": "orchestrator/routes/pipelines.py — 23,354 lines today; #2261 slice-15 will decompose it into orchestrator/routes/pipelines/_run_loop/ with per-phase handlers (_run_refine.py, _run_plan.py, _run_implement.py, _run_pr.py). The rollout's in-process phase orchestrators in run_pipeline_in_process MUST NOT duplicate the BRC state-machine that pipelines.py already owns — they reuse ConcurrentPhaseExecutor (orchestrator/concurrent_executor.py:114) and PeerConsensusTracker (orchestrator/peer_consensus.py:69) the same way refine does today.",
+    "build_system_prompt_depth": "shared/egg_harness/prompt.py:24 build_system_prompt(sources) — joins fragments with `\\n\\n---\\n\\n`. The ClaudeCodeSpawner-side hook is orchestrator/substrate/claude_code/spawner.py:175 _build_system_prompt(role). Adding a new role rubric is structurally a no-op for prompt-build; the bottleneck is curating each rubric to match what the k3s side already injects via shared/prompts/ + agent_roles.py default prompts.",
+    "policy_single_source_of_truth": "shared/egg_restrictions/patterns.py:768 build_agent_patterns(repo, role) — the single source of truth shared by gateway/phase_filter.py:1061 (the trusted-CI-runner enforcement leg) and orchestrator/substrate/claude_code/hook_entry.py:99 (the in-sandbox-agent enforcement leg).",
+    "substrate_conformance_fixture": "integration_tests/regression/conftest.py:592-642 — `substrate` fixture parametrized over [k3s, claude-code]; skips claude-code dimension when EGG_AGENT_ROLE is set (in-sandbox-agent context) per the same conftest. Smoke test at integration_tests/regression/test_substrate_smoke.py — covers select_substrate shape, spawner round-trip type, in-process bus round-trip, and a single INV-3 stale-version test. Parametrize set for the wider conformance matrix is currently empty / per-test inline."
+  },
+  "component_architecture": {
+    "slice_1_bridge_plus_r2_spike": {
+      "intent": "Close the HITL bridge gap (cq-1 option C: hybrid → ship Option B 'flatten' as MVP for refine and plan) AND ship the R2 hook-resolution empirical spike (cq-5 option 1: 2-subagent worked example as first slice). Bridge work is necessary for any phase rollout to be operator-driven; R2 validation gates the model-(a) vs model-(b) decision per cq-4. The two land together because both are slice-0 work and the R2 spike validates that the bridge surface (which dispatches a subagent via the harness) does not lose role identity.",
+      "deliverables": [
+        {
+          "name": "Bridge driver — `bin/egg-sdlc-stage` script invoked from skill steps",
+          "purpose": "deployed-pod skill helper",
+          "execution_context": "in-sandbox-agent (parent Claude session, called from `Bash(python3 ...)` skill steps)",
+          "evidence": "plugins/egg-sdlc/skills/egg-sdlc/SKILL.md:97-102 documents the gap — Claude Code skills cannot drive a long-lived Python generator across AskUserQuestion round-trips because each `python3` invocation is a fresh process. The fix flattens run_pipeline_in_process's generator into a sequence of single-yield stage scripts that serialize state through .egg-state/contracts/<id>.json (the same path the HTTP daemon uses per orchestrator/substrate/in_process.py:49-55).",
+          "shape": "Each invocation reads the prior HITL answer from a CLI flag (`--hitl-answer 'opt-1'` or `--preflight-answer '{...}'`), advances the in-process generator to the next yield point, serializes the HITLDecision to stdout as JSON for the skill to render via AskUserQuestion, persists in-flight contract state to .egg-state/contracts/<id>.json, and exits. The skill's outer loop reads the JSON, invokes AskUserQuestion, captures the answer, and re-invokes the same stage script with the answer. Refine and plan phases are single-pass-per-phase so the stage script approach is a natural fit."
+        },
+        {
+          "name": "Skill driver migration — SKILL.md updated to drive the stage script + multi-yield AskUserQuestion loop",
+          "purpose": "deployed-pod skill body",
+          "execution_context": "in-sandbox-agent (the parent Claude session reads SKILL.md and runs its Bash steps)",
+          "evidence": "plugins/egg-sdlc/skills/egg-sdlc/SKILL.md currently documents an aspirational 7-step flow (SKILL.md:60-68); slice-1 reifies it. The driver replaces the `_K3S_FENCE_MESSAGE` early-exit logic in orchestrator/substrate/in_process.py:130-131 with a more graceful fallback so an operator without an installed plugin gets a useful diagnostic."
+        },
+        {
+          "name": "R2 hook-resolution spike — 2-subagent worked example",
+          "purpose": "deployed-pod test fixture",
+          "execution_context": "trusted-CI-runner (pytest from outside the cluster) exercising in-sandbox-agent code paths",
+          "evidence": "orchestrator/substrate/claude_code/hook_entry.py reads EGG_AGENT_ROLE from os.environ (set at orchestrator/substrate/claude_code/spawner.py:124-128 by ClaudeCodeSpawner). The spike adds a test under shared/tests/test_hook_role_resolution.py that spawns one role (parent) and has it dispatch a second role (child) via Claude Code's Agent tool (subagent_type='general-purpose'), then asserts hook_entry.decide() sees the child's EGG_AGENT_ROLE for the child's Bash/Write tool calls and the parent's for the parent's. The shape is a true 2-subagent dispatch — if hooks fail this check the rollout switches to MCP-validator-side enforcement per cq-6 fallback BEFORE phase rollout begins.",
+          "fallback_branch": "If the spike shows hooks misattribute the nested call to the parent, slice-1 ALSO ships an MCP-validator-side enforcement path that calls build_agent_patterns(role) from inside whichever MCP tool the agent is calling (Write, Edit). This is heavier review surface but doesn't block downstream slices."
+        },
+        {
+          "name": "Acceptance tests for bridge + R2",
+          "purpose": "test-only",
+          "execution_context": "trusted-CI-runner",
+          "evidence": "integration_tests/regression/test_substrate_bridge.py NEW. Drives a full refine-phase pipeline via the stage-script bridge and asserts the HITL answer flow round-trips correctly. Builds on the substrate fixture at integration_tests/regression/conftest.py:592-642."
+        }
+      ]
+    },
+    "slice_2_plan_phase_substrate": {
+      "intent": "Wire the plan phase end-to-end on the claude-code substrate. Plan is the right first multi-role stress test for BRC mechanics: 3 producers (architect, task_planner, risk_analyst) + 1 reviewer (reviewer_plan) is enough concurrency to surface INV-3 / INV-5 / INV-6 regressions without the 8-subagent blast radius of implement.",
+      "deliverables": [
+        {
+          "name": "Four new role rubrics — architect.md, task_planner.md, risk_analyst.md, reviewer_plan.md",
+          "purpose": "deployed-pod rubric files (concatenated into system prompt)",
+          "execution_context": "in-sandbox-agent (loaded by ClaudeCodeSpawner at orchestrator/substrate/claude_code/spawner.py:175)",
+          "evidence": "plugins/egg-sdlc/skills/egg-sdlc/agents/ today holds only refiner.md. _load_egg_sdlc_role_rubric at orchestrator/substrate/__init__.py:232-285 is already roster-agnostic; adding files extends the roster without code change. Each rubric mirrors the k3s side's per-role prompts so the role behaves identically across substrates — source is shared/prompts/ for k3s, the new agents/<role>.md for claude-code; the rubrics are deliberately substrate-portable text."
+        },
+        {
+          "name": "Plan-phase branch in run_pipeline_in_process",
+          "purpose": "deployed-pod orchestrator entry",
+          "execution_context": "in-sandbox-agent (run from skill driver) and trusted-CI-runner (run from local-run CLI)",
+          "evidence": "orchestrator/substrate/in_process.py:820-826 _maybe_fence currently raises NotImplementedError on 'approve_continue_to_plan'. The slice replaces the fence with a real plan-phase invocation that calls ConcurrentPhaseExecutor (orchestrator/concurrent_executor.py:114) to fan out the 3 producers concurrently, waits for PeerConsensusTracker (orchestrator/peer_consensus.py:69) to ratify CONSENSUS_CONFIRMED, then yields the plan HITL gate decision (analogous to the refine gate at line 207). This reuses the existing BRC state machine — no parallel implementation.",
+          "shape": "Add `_spawn_plan_producers(...)` (mirrors `_spawn_refiner` near line 203), `_build_plan_gate_decision(...)` (mirrors `_build_refine_gate_decision`), and extend the main loop to yield plan-gate after refine-gate when the operator selects 'approve_continue_to_plan'."
+        },
+        {
+          "name": "Plan-phase BRC concurrency tests",
+          "purpose": "test-only",
+          "execution_context": "trusted-CI-runner",
+          "evidence": "integration_tests/regression/test_substrate_smoke.py:1-80 already covers a single INV-3 case via PeerConsensusTracker. Extend to: (a) parallel producer dispatch through ClaudeCodeSpawner (the synchronous spawn shape from cq-4 + ThreadPoolExecutor at the executor layer), (b) reviewer ACK aggregation in InProcessMessageBus, (c) open-NACK barrier at producer re-propose time (INV-5)."
+        }
+      ]
+    },
+    "slice_3_implement_phase_substrate": {
+      "intent": "Wire the implement phase end-to-end. 8-role dispatch (3 producers + 5 reviewers) is the maximum concurrency surface in the SDLC. Also the empirical-data-collection point for cq-3 (harness re-host vs ClaudeCodeAgentToolSpawner) and the cq-1 (b)→(a) transition consideration for the bridge.",
+      "deliverables": [
+        {
+          "name": "Eight new role rubrics — coder.md, tester.md, documenter.md, reviewer_code.md, reviewer_code_holistic.md, reviewer_contract.md, reviewer_security.md, reviewer_concurrency.md",
+          "purpose": "deployed-pod rubric files",
+          "execution_context": "in-sandbox-agent",
+          "evidence": "Same loader path as slice-2; this slice fills the rest of the producer-and-reviewer roster for the implement phase. Each rubric must encode the role's contract task assignments per shared/egg_contracts/agent_roles.py:954 AGENT_ROLES and the role's file-write boundary per shared/egg_restrictions/patterns.py:768 build_agent_patterns."
+        },
+        {
+          "name": "Implement-phase branch in run_pipeline_in_process",
+          "purpose": "deployed-pod orchestrator entry",
+          "execution_context": "in-sandbox-agent and trusted-CI-runner",
+          "evidence": "Same shape as plan-phase branch in slice-2, with the 8-role dispatch. Critical concurrency invariants to preserve (validated via orchestrator/action_guards.py:631 validate_invariants): INV-3 stale-version rejection on producer re-propose (#2142), INV-5 open-NACK barrier (#2142), INV-6 commit-bound ACKs (gateway side; claude-code substrate gets commit_sha from ClaudeCodeSpawner at orchestrator/substrate/claude_code/spawner.py:158 _capture_head_sha).",
+          "shape": "Add `_spawn_implement_producers(...)`, `_build_implement_gate_decision(...)`. The implement phase is the natural cq-1 transition point from Option B (stage scripts) to Option A (daemon) for the bridge — multi-NACK BRC cycles across 8 subagents add up faster than the per-stage script overhead. The slice ships a `--daemon` flag on `egg-sdlc-stage` that switches the bridge from stage-per-call to a long-lived JSON-RPC daemon backing run_pipeline_in_process. Skill driver chooses daemon for implement, stage-script for refine/plan."
+        },
+        {
+          "name": "Implement-phase concurrency stress test + cq-3 data collection",
+          "purpose": "test-only + telemetry artifact",
+          "execution_context": "trusted-CI-runner",
+          "evidence": "integration_tests/regression/test_substrate_implement.py NEW. Drives a full implement-phase pipeline on the claude-code substrate against one of the curated 5 issues. Collects timing (wall-clock per producer / per reviewer), invocation count, NACK cycle count, and context budget hit-rate (R7 risk). Writes to .egg-state/conformance-metrics/<issue>-<substrate>.json. This is the data set for cq-3 option 4 ('decide empirically at implement-phase').",
+          "scope_boundary": "Stay on harness re-host per cq-3 default. If the data shows ClaudeCodeAgentToolSpawner migration is mandatory (e.g., context-budget regression > 50% on architect/refiner roles, R7 trip), file a follow-up issue rather than expanding this slice."
+        }
+      ]
+    },
+    "slice_4_pr_phase_plus_conformance_plus_scope_fence_removal": {
+      "intent": "Wire the pr phase (mostly automation), land the 5-issue × 2-substrate conformance matrix, and remove the cq-11 scope-fence entirely (feedback Q6: operator can chain phases freely).",
+      "deliverables": [
+        {
+          "name": "PR-phase branch in run_pipeline_in_process",
+          "purpose": "deployed-pod orchestrator entry",
+          "execution_context": "in-sandbox-agent (parent session) and trusted-CI-runner (local-run)",
+          "evidence": "_PHASE_ROLES has no producers for pr per shared/egg_contracts/agent_roles.py:1172 (it's automation in orchestrator/routes/pipelines.py for the HTTP daemon). The substrate version just needs to ferry the implement artifacts into the PR-creation routine and yield a final HITL gate for the operator to confirm the PR body. Reuses the post-#2685 context-PR + PR-phase plumbing in orchestrator/routes/pipelines.py (referenced by the audit-log entry #2694).",
+          "shape": "Add `_build_pr_gate_decision(...)` that yields the final approve-PR HITLDecision; on approval, call the existing PR-creation routine the HTTP daemon uses."
+        },
+        {
+          "name": "Three new reviewer rubrics — reviewer_refine.md, reviewer_agent_design.md, applier.md",
+          "purpose": "deployed-pod rubric files",
+          "execution_context": "in-sandbox-agent",
+          "evidence": "These three round out the 15-rubric roster. reviewer_refine and reviewer_agent_design are exercised when refine phase runs on the claude-code substrate (today only the producer side, refiner.md, is wired). applier covers the epic-only apply phase per shared/egg_contracts/agent_roles.py:1180."
+        },
+        {
+          "name": "Substrate-parametrized conformance matrix",
+          "purpose": "test-only",
+          "execution_context": "trusted-CI-runner",
+          "evidence": "integration_tests/regression/conftest.py:592-642 already has the substrate fixture. The slice adds a `@pytest.mark.parametrize` set covering the 5 curated issues (feedback Q1 confirmed: #2714, #2474, #2261, #2705, #2718). New file integration_tests/regression/test_conformance_matrix.py drives each issue under each substrate via the conftest fixture. Per feedback Q2: pytest.mark.slow as soft gate; 3-hour-per-phase ceiling as fail-the-CI-job safety fallback. No per-phase cost / latency budget yet (retune in a follow-up once empirical data exists from slice-3).",
+          "skip_semantics": "claude-code dimension stays gated on EGG_AGENT_ROLE-unset (in-sandbox-agent contexts skip per the existing conftest skip heuristic). CI matrix dimension `EGG_SUBSTRATE=claude-code` only runs on the trusted-CI-runner leg."
+        },
+        {
+          "name": "Scope-fence removal",
+          "purpose": "deployed-pod orchestrator entry",
+          "execution_context": "in-sandbox-agent and trusted-CI-runner",
+          "evidence": "orchestrator/substrate/in_process.py:820-826 `_maybe_fence` is removed entirely (feedback Q6 option 1). Confirmation comes from the test in shared/tests/test_run_pipeline_in_process.py that asserts the fence fires — flip to assert it does NOT fire and chain proceeds. No replacement --single-phase flag (feedback Q6: redundant with the existing start_phase + hitl_gates: false config flags)."
+        }
+      ]
+    },
+    "slice_5_hardening_pass": {
+      "intent": "Parallel-shippable hardening work: EggHarnessSpawner with full local-run, cost cap, R15 migration (if R2 forced it in slice-1), drop v0.x markers, and ADR refresh. All siblings within slice-5 can dispatch concurrently because they touch disjoint surfaces.",
+      "deliverables": [
+        {
+          "name": "EggHarnessSpawner — third AgentSpawner implementation + `egg-orch local-run --issue N` CLI",
+          "purpose": "deployed-pod production code",
+          "execution_context": "trusted-CI-runner (operator's local dev machine; runs outside any Claude Code session)",
+          "evidence": "Today's spawners: orchestrator/substrate/claude_code/spawner.py:64 ClaudeCodeSpawner and orchestrator/substrate/k3s_adapter.py:38 K3sSpawnerAdapter. The new orchestrator/substrate/egg_harness/spawner.py:EggHarnessSpawner drives egg_harness.client.run_agent directly without a parent Claude Code session — equivalent to today's k3s-inside-the-pod model but in a local subprocess. CLI entry at orchestrator/cli.py adds `local-run --issue N` (next to the existing `serve`, `status`, etc. subcommands). DoD #5 + feedback Q3 option A: full local-run end-to-end including HITL via stdin/stdout JSON prompts (operator answers HITL by typing JSON at a stdin prompt).",
+          "shape": "Third concrete implementation of the AgentSpawner Protocol (orchestrator/substrate/spawner.py:73). Selectable via EGG_SUBSTRATE=egg-harness in select_substrate at orchestrator/substrate/__init__.py:96-202. CLI handler at orchestrator/cli.py invokes run_pipeline_in_process with the egg-harness bundle and renders HITLDecision yields to stdin prompts."
+        },
+        {
+          "name": "Cost cap — EGG_PIPELINE_MAX_AGENT_INVOCATIONS=200",
+          "purpose": "deployed-pod production safeguard",
+          "execution_context": "in-sandbox-agent (where the parent's API credentials are charged) and trusted-CI-runner (where CI minutes are charged)",
+          "evidence": "Env var EGG_PIPELINE_MAX_AGENT_INVOCATIONS does not exist anywhere in the codebase today (verified by grep). Add a per-pipeline counter in orchestrator/concurrent_executor.py:_spawn_agent at line 504 (the canonical dispatch point). When the counter exceeds the cap, raise a PipelineCostCapExceeded exception that propagates through ConcurrentPhaseExecutor and halts the pipeline cleanly. Default 200 per cq-6 option 2 — enough headroom for a 3-slice slice-DAG with concurrent producers/reviewers plus a couple of NACK cycles."
+        },
+        {
+          "name": "R15 model-(b) migration — only if slice-1's R2 spike forced it",
+          "purpose": "deployed-pod production code (conditional)",
+          "execution_context": "in-sandbox-agent",
+          "evidence": "cq-4 option 4 makes this contingent on the R2 spike's outcome. If hooks reliably resolve nested-subagent EGG_AGENT_ROLE, stay on model (a) ad-hoc prompts indefinitely. If not, this sub-slice converts every plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md into a structurally restricting .claude/agents/<role>.md frontmatter file (per Claude Code's subagent definition convention). Loader at orchestrator/substrate/__init__.py:232 switches from reading agents/<role>.md as raw markdown to reading .claude/agents/<role>.md with frontmatter (tools, allowed-tools, model)."
+        },
+        {
+          "name": "Drop v0.x unstable markers on claude-code-side substrate modules",
+          "purpose": "deployed-pod docstring updates",
+          "execution_context": "deployed-pod (the comments live in production code that runs in-sandbox-agent or trusted-CI-runner depending on consumer)",
+          "evidence": "cq-7 option 4: 'drop the v0.x unstable marker after ≥3 roles exercise the claude-code side'. Markers live at orchestrator/substrate/__init__.py:11, orchestrator/substrate/in_process.py:22, orchestrator/substrate/claude_code/spawner.py:46, orchestrator/substrate/spawner.py:15, orchestrator/substrate/message_bus.py:18, orchestrator/substrate/policy.py:17, orchestrator/substrate/worktree.py:13. After slice-3 lands, the 8-role implement phase exercises every Protocol method on the claude-code leg; the markers come off. Slice-5 also documents in the ADR that the k3s leg interfaces remain v0.x unstable (cq-7 option 4 second clause)."
+        },
+        {
+          "name": "ADR refresh — docs/architecture/claude-code-substrate.md",
+          "purpose": "documentation (no runtime behavior)",
+          "execution_context": "n/a — docs are read by humans / IDE-assisted agents",
+          "evidence": "docs/architecture/claude-code-substrate.md sections: 'Open work', 'Follow-up draft', 'Rollout deltas'. Update each to reflect what shipped vs what's deferred, capture cq-3 empirical decision outcome, document the bridge architecture (stage-script for refine/plan, daemon for implement), document the cost cap default and tuning guidance, document the drop of the v0.x marker on the claude-code leg only. Issue body DoD #6 calls this out explicitly."
+        }
+      ]
+    }
+  },
+  "runtime_primitives_with_evidence": [
+    {
+      "primitive": "run_pipeline_in_process",
+      "evidence": "orchestrator/substrate/in_process.py:84-149",
+      "purpose": "deployed-pod orchestrator entry (production code)",
+      "execution_context": "both — invoked by in-sandbox-agent from the egg-sdlc skill, and by trusted-CI-runner from the egg-orch local-run CLI"
+    },
+    {
+      "primitive": "select_substrate(env)",
+      "evidence": "orchestrator/substrate/__init__.py:96-202",
+      "purpose": "deployed-pod factory function",
+      "execution_context": "both — used by concurrent_executor (in-sandbox-agent under claude-code substrate, deployed-pod gateway under k3s) and by tests (trusted-CI-runner)"
+    },
+    {
+      "primitive": "_load_egg_sdlc_role_rubric(role)",
+      "evidence": "orchestrator/substrate/__init__.py:232-285",
+      "purpose": "deployed-pod rubric loader",
+      "execution_context": "in-sandbox-agent — wired into ClaudeCodeSpawner constructor; trusted-CI-runner invokes the same path under tests"
+    },
+    {
+      "primitive": "ClaudeCodeSpawner.spawn",
+      "evidence": "orchestrator/substrate/claude_code/spawner.py:64-236; _capture_head_sha at :158; env injection at :124-128",
+      "purpose": "deployed-pod production spawner",
+      "execution_context": "in-sandbox-agent (calls egg_harness.run_agent in the parent's Python process)"
+    },
+    {
+      "primitive": "InProcessMessageBus",
+      "evidence": "orchestrator/substrate/claude_code/message_bus.py:30-53; subclasses orchestrator/message_store.py:200 MessageStore",
+      "purpose": "deployed-pod production message bus",
+      "execution_context": "in-sandbox-agent (in-memory, lives in the parent's Python process)"
+    },
+    {
+      "primitive": "PreToolUseHookPolicy + hook_entry.decide",
+      "evidence": "orchestrator/substrate/claude_code/policy.py:26-188; orchestrator/substrate/claude_code/hook_entry.py reads EGG_AGENT_ROLE",
+      "purpose": "deployed-pod production policy enforcer (the hook runs in-process as a subprocess Claude Code invokes for every tool call)",
+      "execution_context": "in-sandbox-agent — hook subprocesses run inside the parent Claude Code session's environment"
+    },
+    {
+      "primitive": "LocalWorktreeManager",
+      "evidence": "orchestrator/substrate/claude_code/worktree.py:59-291",
+      "purpose": "deployed-pod production worktree manager",
+      "execution_context": "in-sandbox-agent (filesystem operations under EGG_WORKTREE_BASE)"
+    },
+    {
+      "primitive": "build_agent_patterns(repo, role)",
+      "evidence": "shared/egg_restrictions/patterns.py:768",
+      "purpose": "deployed-pod single source of truth for file-write boundaries",
+      "execution_context": "both — gateway/phase_filter.py:1061 calls it in the trusted-CI-runner-vs-deployed-pod boundary, hook_entry.py calls it in-sandbox-agent"
+    },
+    {
+      "primitive": "validate_invariants() / INV-3 / INV-5 / INV-6",
+      "evidence": "orchestrator/action_guards.py:631-757",
+      "purpose": "deployed-pod BRC concurrency guard",
+      "execution_context": "both — runs in any consumer of PeerConsensusTracker (orchestrator/peer_consensus.py:69)"
+    },
+    {
+      "primitive": "_PHASE_ROLES / _PHASE_REVIEWERS",
+      "evidence": "shared/egg_contracts/agent_roles.py:1172, :1183",
+      "purpose": "deployed-pod roster definition (single source of truth for phase composition)",
+      "execution_context": "both — same import path on k3s and claude-code"
+    },
+    {
+      "primitive": "_spawn_agent + _spawn_agent_via_substrate",
+      "evidence": "orchestrator/concurrent_executor.py:504-603",
+      "purpose": "deployed-pod dispatch seam (reads EGG_SUBSTRATE, picks bundle, calls spawner)",
+      "execution_context": "both — ConcurrentPhaseExecutor runs under in-sandbox-agent (claude-code) or in the gateway pod (k3s)"
+    },
+    {
+      "primitive": "EGG_AGENT_ROLE env var",
+      "evidence": "set at orchestrator/substrate/claude_code/spawner.py:124-128; read at orchestrator/substrate/claude_code/hook_entry.py for role resolution",
+      "purpose": "deployed-pod production env var",
+      "execution_context": "in-sandbox-agent — must be set on every spawned subagent's environment"
+    },
+    {
+      "primitive": "EGG_SUBSTRATE env var",
+      "evidence": "read at orchestrator/substrate/__init__.py:96-202 (select_substrate) and orchestrator/concurrent_executor.py:539",
+      "purpose": "deployed-pod production env var",
+      "execution_context": "both — operator sets it once per pipeline run; both substrates honor it identically"
+    },
+    {
+      "primitive": "EGG_WORKTREE_BASE env var",
+      "evidence": "read at orchestrator/substrate/claude_code/worktree.py:LocalWorktreeManager; default ~/.egg-worktrees/<pipeline_id>/<role>/",
+      "purpose": "deployed-pod production env var",
+      "execution_context": "in-sandbox-agent (parent session) — typical override in dev is ./.egg-state/"
+    },
+    {
+      "primitive": "EGG_PIPELINE_MAX_AGENT_INVOCATIONS env var (NEW in slice-5)",
+      "evidence": "does NOT exist today; verified by grep across orchestrator/ shared/. Will be introduced at orchestrator/concurrent_executor.py:_spawn_agent",
+      "purpose": "deployed-pod production safeguard env var",
+      "execution_context": "both — counter is per-pipeline, surfaced via PipelineCostCapExceeded exception",
+      "default": "200 per cq-6 option 2"
+    },
+    {
+      "primitive": "egg-orch local-run --issue N CLI subcommand (NEW in slice-5)",
+      "evidence": "does NOT exist today; orchestrator/cli.py has serve / status / etc but not local-run",
+      "purpose": "deployed-pod operator-facing CLI",
+      "execution_context": "trusted-CI-runner (operator's local machine; outside any Claude Code session). DoD #5 requirement; feedback Q3 option A scope."
+    },
+    {
+      "primitive": "substrate test fixture",
+      "evidence": "integration_tests/regression/conftest.py:592-642 — parametrized over [k3s, claude-code]; skips claude-code when EGG_AGENT_ROLE is set",
+      "purpose": "test-only fixture",
+      "execution_context": "trusted-CI-runner (pytest-driven); the skip heuristic prevents in-sandbox-agent test runs from exercising the claude-code dimension twice"
+    },
+    {
+      "primitive": "substrate smoke test",
+      "evidence": "integration_tests/regression/test_substrate_smoke.py — covers select_substrate shape, spawner round-trip type, in-process bus round-trip, single INV-3 case",
+      "purpose": "test-only",
+      "execution_context": "trusted-CI-runner"
+    },
+    {
+      "primitive": "Substrate conformance matrix (NEW in slice-4)",
+      "evidence": "integration_tests/regression/test_conformance_matrix.py NEW; parametrize set is empty today, populated with [#2714, #2474, #2261, #2705, #2718] in slice-4 per feedback Q1",
+      "purpose": "test-only",
+      "execution_context": "trusted-CI-runner — pytest.mark.slow + 3-hour-per-phase ceiling per feedback Q2"
+    }
+  ],
+  "risks_anticipated": [
+    {
+      "id": "R2-hook-multi-subagent",
+      "summary": "PreToolUse hook may not resolve EGG_AGENT_ROLE correctly for nested Agent-tool subagents (the parent's role leaks into the child's hook context). Today's single-role refiner case verifies it for one subagent only.",
+      "mitigation": "Slice-1 ships the 2-subagent worked-example spike BEFORE phase rollout begins (cq-5 option 1). If hooks fail this check, slice-1 also ships MCP-validator-side enforcement (cq-6 fallback). The decision to migrate to model (b) per-role .claude/agents/<role>.md depends on this outcome (cq-4 option 4)."
+    },
+    {
+      "id": "R7-context-budget",
+      "summary": "Architect / refiner / risk_analyst roles do deeper research than the single-role spike validated; they may hit Claude Code's subagent context limit in real pipelines.",
+      "mitigation": "Slice-3 collects context-budget metrics into .egg-state/conformance-metrics/<issue>-<substrate>.json. If the data shows context-budget regression > 50% on architect / refiner, file a follow-up issue for the cq-10 fork-based delegation work (deferred from the spike per ADR open-work section)."
+    },
+    {
+      "id": "BRC-concurrency-on-new-substrate",
+      "summary": "INV-3 / INV-5 / INV-6 are validated only for the single-role refiner case today. Plan-phase concurrency (3 producers + 1 reviewer) is the first multi-role BRC test; implement is the maximum concurrency surface (8 roles).",
+      "mitigation": "Slice-2 ships plan-phase BRC concurrency tests covering INV-3 stale-version, INV-5 open-NACK barrier, INV-6 commit-bound ACK on the new substrate before slice-3's 8-role surface. Re-use existing PeerConsensusTracker via InProcessMessageBus (no parallel implementation)."
+    },
+    {
+      "id": "cost-runaway",
+      "summary": "At 11-15 subagents per pipeline on the parent's direct-billing API credentials, NACK ping-pong can rack up real money fast before the operator notices.",
+      "mitigation": "Slice-5 ships the EGG_PIPELINE_MAX_AGENT_INVOCATIONS=200 cap (cq-6 option 2). The cap is 200 — enough for legitimate 3-slice slice-DAG runs but trips before a runaway loop multiplies the spend by 10x. Operator can raise it explicitly when expected; opt-out by setting to a large value."
+    },
+    {
+      "id": "decomposition-conflict-with-2261",
+      "summary": "#2261 slice-15 will decompose orchestrator/routes/pipelines.py (23,354 lines today) into orchestrator/routes/pipelines/_run_loop/ with per-phase handlers. The rollout's plan/implement/pr extensions in run_pipeline_in_process touch the same surface conceptually.",
+      "mitigation": "run_pipeline_in_process does NOT modify orchestrator/routes/pipelines.py — it reuses ConcurrentPhaseExecutor + PeerConsensusTracker from outside. The two efforts are decoupled at the file level. If #2261 slice-15 lands during this rollout, run_pipeline_in_process callers continue to import from the (decomposed) pipelines barrel without behavioral change."
+    },
+    {
+      "id": "scope-fence-removal-blast-radius",
+      "summary": "Removing the cq-11 NotImplementedError scope-fence at in_process.py:820-826 widens the running surface from 1 phase to 4 phases at once. A regression in any phase blocks the whole rollout.",
+      "mitigation": "Scope-fence removal is in slice-4 — after slice-2 (plan) and slice-3 (implement) have each separately shipped and proven. The fence comes off only after each phase has its own BRC concurrency tests green. Slice-4 also re-flips the unit test in shared/tests/test_run_pipeline_in_process.py from 'assert fence raises' to 'assert chain proceeds' so the regression case is caught."
+    }
+  ],
+  "key_files_to_touch": [
+    "orchestrator/substrate/in_process.py (plan/implement/pr branches; remove fence at :820-826)",
+    "orchestrator/substrate/__init__.py (drop v0.x markers at :11, :96-202 stays roster-agnostic)",
+    "orchestrator/substrate/claude_code/spawner.py (drop v0.x marker at :46; no functional change unless cq-3 outcome forces ClaudeCodeAgentToolSpawner)",
+    "orchestrator/substrate/claude_code/message_bus.py / policy.py / worktree.py / spawner.py / message_bus.py / policy.py / worktree.py (drop v0.x markers)",
+    "orchestrator/substrate/egg_harness/spawner.py (NEW EggHarnessSpawner)",
+    "orchestrator/concurrent_executor.py (cost cap counter; add EGG_PIPELINE_MAX_AGENT_INVOCATIONS handling in _spawn_agent / _spawn_agent_via_substrate seam)",
+    "orchestrator/cli.py (NEW local-run subcommand)",
+    "plugins/egg-sdlc/skills/egg-sdlc/agents/architect.md / task_planner.md / risk_analyst.md / coder.md / tester.md / documenter.md / applier.md / reviewer_refine.md / reviewer_agent_design.md / reviewer_plan.md / reviewer_code.md / reviewer_code_holistic.md / reviewer_contract.md / reviewer_security.md / reviewer_concurrency.md (15 NEW rubrics)",
+    "plugins/egg-sdlc/skills/egg-sdlc/SKILL.md (drive-loop migrated to real stage-script bridge; deferred-bridge callout removed at :97-102)",
+    "bin/egg-sdlc-stage (NEW bridge driver — stage-script for refine/plan, daemon mode for implement)",
+    "shared/tests/test_hook_role_resolution.py (NEW 2-subagent worked example for R2 spike)",
+    "shared/tests/test_run_pipeline_in_process.py (flip fence-removal assertion in slice-4)",
+    "integration_tests/regression/test_substrate_bridge.py (NEW HITL round-trip test)",
+    "integration_tests/regression/test_substrate_plan.py (NEW plan-phase BRC concurrency test)",
+    "integration_tests/regression/test_substrate_implement.py (NEW implement-phase concurrency stress + cq-3 metrics)",
+    "integration_tests/regression/test_conformance_matrix.py (NEW 5×2 matrix)",
+    "integration_tests/regression/conftest.py (parametrize set populated with the 5 curated issues at :592-642)",
+    "docs/architecture/claude-code-substrate.md (ADR refresh — DoD #6)"
+  ],
+  "acceptance_signals": [
+    "All 15 new role rubric files exist under plugins/egg-sdlc/skills/egg-sdlc/agents/ and load via _load_egg_sdlc_role_rubric without ValueError.",
+    "run_pipeline_in_process(...) drives refine → plan → implement → pr end-to-end on EGG_SUBSTRATE=claude-code against at least one of the 5 curated conformance issues.",
+    "Operator can drive a full pipeline including all HITL gates through the egg-sdlc skill (no MCP provide_input round-trips required for the claude-code dimension).",
+    "egg-orch local-run --issue N produces the same artifact path as run_pipeline_in_process driven from the skill.",
+    "Conformance matrix integration_tests/regression/test_conformance_matrix.py is green for {#2714, #2474, #2261, #2705, #2718} × {k3s, claude-code} in CI.",
+    "EGG_PIPELINE_MAX_AGENT_INVOCATIONS=200 trips correctly when exceeded (verified by a unit test that fakes invocation counter overflow).",
+    "v0.x unstable markers removed from orchestrator/substrate/__init__.py, in_process.py, claude_code/spawner.py, spawner.py, message_bus.py, policy.py, worktree.py (claude-code leg). K3s leg keeps its markers per cq-7 option 4.",
+    "docs/architecture/claude-code-substrate.md updated to document the bridge architecture, the cost cap default, the dropped markers, and any cq-3 / cq-4 empirical outcomes."
+  ],
+  "open_questions_for_task_planner_and_risk_analyst": [
+    "task_planner: How granular should the 15 role rubrics be? Each one is a fresh task or can the rubrics share a templated structure with role-specific variances?",
+    "task_planner: Is slice-1's R2 spike a single task or two (one for the spike, one for the conditional MCP-validator fallback)?",
+    "task_planner: How is slice-3's empirical data collection (cq-3 decision input) scoped — task with explicit metrics target, or a deliverable artifact (.egg-state/conformance-metrics/) without a pass/fail?",
+    "risk_analyst: What's the rollback story if slice-3's implement-phase substrate ships with a context-budget regression > 50% on one of the deeper-research roles? Does the slice ship with a feature flag to disable claude-code for specific roles?",
+    "risk_analyst: At 15-subagent scale, the parent session's API credentials are exposed to all subagents (feedback Q4 from refine: no additional mitigations for v1). Should slice-1 add a startup banner that confirms this trust posture before the first subagent dispatches?",
+    "risk_analyst: How do we monitor for runaway-NACK loops between EGG_PIPELINE_MAX_AGENT_INVOCATIONS triggers? The cap is a hard kill; we may want a softer 'review burden warning' at 100 invocations."
+  ],
+  "rollout_dependencies": [
+    "#2261 slice-15 (decomposition of orchestrator/routes/pipelines.py) — independent but adjacent. Coordinate landing order; if slice-15 lands first, this rollout imports from the decomposed barrel; if this rollout lands first, slice-15's _run_loop/_run_plan.py / _run_implement.py / _run_pr.py will need to consider the in-process variant lives under orchestrator/substrate/in_process.py rather than orchestrator/routes/pipelines.py.",
+    "#2715 (predecessor spike) — already merged; this rollout extends rather than replaces it.",
+    "#2718 (claude-code substrate docs) — already merged into docs/index.md and docs/structure.md; the ADR refresh in slice-5 extends docs/architecture/claude-code-substrate.md from there."
+  ]
+}
