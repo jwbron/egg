@@ -196,6 +196,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_plan"
     },
+    "bfa3e76c3f8f5efb0b07c4e1e3b9ff0d96f074ee": {
+      "branch": "egg/issue-2717/slice-1",
+      "pipeline_id": "issue-2717",
+      "registered_at": "2026-05-19T18:55:30.774969+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "c4f4e0ccdb29d4ddfaac28ef833e64b002da44bd": {
       "branch": "egg/issue-2717/work",
       "pipeline_id": "issue-2717",
