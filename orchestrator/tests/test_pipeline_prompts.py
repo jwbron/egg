@@ -4593,6 +4593,13 @@ class TestAdversarialReReviewPriming:
         assert "adversarial re-review" in s8_block.lower()
         assert "find ALL issues" in s8_block
         assert "not blocker-verification" in s8_block.lower()
+        # Dual-mandate decomposition: the lifecycle-side surface must
+        # carry the "TWO equal-weight mandates" pointer so a reviewer
+        # who scrolls back during verdict drafting sees the dual-mandate
+        # framing inline (the priming block in the message body is the
+        # authoritative full version; this is the inline pointer).
+        assert "TWO equal-weight mandates" in s8_block
+        assert "message body is authoritative" in s8_block
         # Cheapness / no-hesitance economics — the main behavioral lever.
         assert "cheap" in s8_block.lower()
         assert "NACK without hesitance" in s8_block
