@@ -249,10 +249,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "When (if at all) should the rollout migrate from R15 model (a) — `subagent_type=\"general-purpose\"` + ad-hoc prompt — to model (b) — per-role `.claude/agents/<role>.md` definition files with structural tool restrictions in frontmatter? Model (a) puts all enforcement on PreToolUse hooks (R2). Model (b) gives structural tool-restrictions per role.",
+      "context": "Open contract question cq-4, registered by an agent during the refine phase.",
+      "options": [
+        "In this rollout, alongside each phase's roles — every new rubric file (architect.md, coder.md, etc.) ships as a real `.claude/agents/<role>.md` definition; the existing refiner.md migrates with the plan-phase wave. Highest correctness on day one; biggest review surface",
+        "Defer entirely to a later hardening issue — ship every role in this rollout as ad-hoc prompts under `plugins/egg-sdlc/skills/egg-sdlc/agents/<role>.md` (matching spike). Promote to model (b) only after R2 PreToolUse hook empirical validation closes (which it might not, in which case the model (b) migration becomes mandatory)",
+        "Migrate as part of this issue's hardening pass — ship all rollout phases on model (a) first, then a single dedicated slice in this same issue converts all roles to model (b) at once. Pros: single conversion event, easier to review consistency; Cons: every role's rubric has to be re-validated as part of the conversion",
+        "Make the choice contingent on R2's empirical result — if PreToolUse hooks reliably resolve calling role for nested subagents, stay on model (a) indefinitely; if not, migrate to model (b) as a fallback. Treat the R2 spike (item from issue body's 'Out of scope' list) as the gating decision",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-19T17:33:05.848475Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-19T17:08:57.439434Z",
-  "updated_at": "2026-05-19T17:33:05.818025Z",
+  "updated_at": "2026-05-19T17:33:05.858019Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -266,7 +286,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
