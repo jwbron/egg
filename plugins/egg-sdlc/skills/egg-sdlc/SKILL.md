@@ -59,70 +59,120 @@ See the ADR's [Trust-context shift (R1)](../../../../docs/architecture/claude-co
 
 1. **Pre-flight check**. Imports `egg_orchestrator`. If the import fails, prints the install instruction (verbatim from the section above) and exits. _(`bin/preflight.py`.)_
 2. **Resolve repo + issue**. Picks up the repo from `--repo`, falls back to `git -C "$EGG_REPO_PATH" remote get-url origin`, falls back to cwd. Fetches the issue body once with `gh issue view <N>`.
-3. **Boot the in-process orchestrator** by invoking the flattened stage driver `bin/run_pipeline.py` for the first time, passing the repo / issue / pipeline id. The driver imports `run_pipeline_in_process(...)` from `orchestrator/substrate/in_process.py`, advances the generator to its next `HITLDecision` yield, serialises the decision into `.egg-state/contracts/<id>.json#pending_hitl.decision`, and exits.
-4. **Render the decision**. The skill reads `pending_hitl.decision` and surfaces it via `AskUserQuestion`. The operator's selected option is written back to `pending_hitl.answer`.
-5. **Resume the orchestrator**. The skill re-invokes `bin/run_pipeline.py`. The driver loads pipeline state from the contract file, calls `generator.send(answer)`, advances to the next yield (or to `StopIteration`), serialises the next decision, and exits. The skill loops back to step 4 until the driver signals "no more decisions" (the generator completed) or the operator chooses a terminating answer.
+3. **Boot the in-process orchestrator** by invoking the flattened stage driver `bin/run_pipeline.py` for the first time with the pipeline id as a positional arg plus `--repo` / `--issue-number` flags. The driver imports `run_pipeline_in_process(...)` from `orchestrator/substrate/in_process.py`, advances a fresh generator to its first `HITLDecision` yield, serialises the decision into `.egg-state/contracts/<id>.json#pending_hitl`, and exits 0.
+4. **Render the decision**. The skill reads `pending_hitl.decision` and `pending_hitl.status` from the contract; when `status == "pending"` it surfaces the decision via `AskUserQuestion`. The operator's selected option is written back to `pending_hitl.answer` (and `status` is set to `answered`) via an inline `python3 -c "..."` invocation — see "How the flattened bridge works" below.
+5. **Resume the orchestrator**. The skill re-invokes `bin/run_pipeline.py` with the same args. The driver promotes `pending_hitl.answer` into `answer_log`, replays the full `answer_log` into a fresh generator (deterministic replay — see "Generator state across invocations" below), advances to the next yield (or to `StopIteration`), serialises the next decision, and exits. The skill loops back to step 4 until `pending_hitl.status ∈ {completed, aborted, error}`.
 6. **Refine subagents run inside step 3 / 5.** The `ClaudeCodeSpawner` dispatches the three refine-team roles via the `Agent` tool with `subagent_type: "general-purpose"`. Each subagent runs inside a worktree under `<EGG_WORKTREE_BASE>/<pipeline_id>/<role>/` (default base `~/.egg-worktrees/`), the refiner writes its analysis to `.egg-state/drafts/<issue>-analysis.md`, each reviewer writes its verdict to `.egg-state/agent-outputs/<issue>-<reviewer>-output.json`. The orchestrator coordinates ACK / NACK / re-propose cycles via the in-process message bus before pausing at the refine HITL gate.
 7. **Refine HITL gate**. The skill surfaces a refine-gate `HITLDecision` (approve / request changes / change approach / stop) alongside the refiner's recommended option, the top open questions, and each reviewer's ACK or NACK summary.
 8. **Phase fence**. If the operator chooses "approve and continue to plan", the skill currently raises `NotImplementedError` with a pointer to slice 2 of the #2717 rollout — plan / implement / pr phases are out of scope until later slices land.
 
 ### How the flattened bridge works
 
-The orchestrator's `run_pipeline_in_process(...)` is a Python generator that pauses at each HITL boundary by **yielding** an `HITLDecision`. A Claude Code skill cannot keep a single long-lived Python process alive across multiple `AskUserQuestion` round-trips — every `python3` invocation from a Bash skill step is a fresh process whose generator state dies at exit. Per cq-1 = hybrid (Option C), this skill picks the **flattened** option for refine and plan phases (the daemon variant lives in slice 3 for implement-phase concurrency): a hand-shaped sequence of single-yield `python3 bin/run_pipeline.py` invocations that thread decisions and answers through `.egg-state/contracts/<id>.json#pending_hitl`.
+The orchestrator's `run_pipeline_in_process(...)` is a Python generator that pauses at each HITL boundary by **yielding** an `HITLDecision`. A Claude Code skill cannot keep a single long-lived Python process alive across multiple `AskUserQuestion` round-trips — every `python3` invocation from a Bash skill step is a fresh process whose generator state dies at exit. Per cq-1 = hybrid (Option C), this skill picks the **flattened** option for refine and plan phases (the daemon variant lives in slice 3 for implement-phase concurrency): a hand-shaped sequence of `python3 bin/run_pipeline.py` invocations that thread decisions and answers through `.egg-state/contracts/<id>.json#pending_hitl`.
 
-The single-yield carrier is the **`pending_hitl` envelope**. Its shape is the load-bearing state-serialization contract between this driver and the future daemon variant — the daemon-mode driver in slice 3 consumes the same envelope shape, so reviewers can compare contract files across the two bridges 1:1.
+The single-yield carrier is the **`pending_hitl` envelope**. Its shape is the load-bearing state-serialization contract between this driver and the future daemon variant — the daemon-mode driver in slice 3 (TASK-3-2) consumes the same envelope shape, so reviewers can compare contract files across the two bridges 1:1. The driver's top-of-file comment at `plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py:20-46` is the source of truth; this section mirrors it.
 
 ```json
 {
   "pending_hitl": {
     "version": 1,
     "pipeline_id": "issue-1234",
-    "timestamp": "<ISO-8601 UTC>",
+    "timestamp": "<ISO-8601 UTC of last driver write>",
     "decision": {
       "question": "...",
       "options": [{"label": "...", "description": "..."}, ...],
       "phase": "refine",
-      ...
+      "...": "..."
     },
-    "answer": null
+    "answer": null,
+    "status": "pending",
+    "result": null,
+    "error": null,
+    "answer_log": []
   }
 }
 ```
 
-The skill loop:
+Field semantics:
+
+- `version` — schema version (currently `1`). Do not bump without coordinating with the slice-3 daemon variant; the field exists so a future schema bump can be detected by both bridges.
+- `pipeline_id` — echoes `contract.pipeline_id` for sanity-checking.
+- `timestamp` — ISO-8601 UTC of the last driver write.
+- `decision` — the most recently yielded `HITLDecision`, serialised via `.model_dump(mode="json")` (pydantic) or `dict()` (fallback). `null` before the generator yields, and `null` again on `StopIteration`.
+- `answer` — the operator's response to the current `decision`. The skill body writes this after rendering `AskUserQuestion`; the driver consumes it on its next invocation (promotes it into `answer_log` and clears `answer` back to `null`).
+- `status` — **the skill's loop predicate**. One of:
+  - `pending` — `decision` is set and waiting for an answer. Render via `AskUserQuestion` and write the answer back.
+  - `answered` — the skill body wrote `answer` and the driver hasn't been re-invoked yet. (You'll only see this transiently, written by the skill body.)
+  - `completed` — the generator returned (StopIteration). `result` holds the return value (refine artifact path). Skill loop exits cleanly.
+  - `aborted` — the operator chose an abort-style answer (`abort` / `stop` / `cancel`). Skill loop exits cleanly.
+  - `error` — the driver hit an internal error. `error` holds the diagnostic. Driver exited 1.
+- `result` — generator return value when `status == "completed"` (typically the analysis path).
+- `error` — diagnostic message when `status == "error"`.
+- `answer_log` — the operator's accumulated answer history. The driver replays this list on every invocation (see "Generator state across invocations" below); the slice-3 daemon variant inherits this field unchanged.
+
+**The full 9-field envelope is a stable cross-bridge contract.** The slice-3 daemon variant in `orchestrator/substrate/claude_code/hitl_daemon.py` (TASK-3-2) consumes every field; do not drop or rename any field without bumping `version`.
+
+#### Generator state across invocations (replay semantics)
+
+Each `python3 bin/run_pipeline.py` invocation is a fresh process — generator frames cannot persist across processes. To resume at the right yield boundary across invocations, the driver **replays** the operator's answers from `answer_log` on every call: it spawns a fresh `run_pipeline_in_process(...)` generator, calls `next()` to land on the first yield, then loops `generator.send(replay)` over each historical answer to fast-forward to the next un-answered yield. This works because the generator is deterministic — the same `(pipeline_id, repo, issue_number, issue_body)` inputs combined with the same answer sequence reach the same yield boundary every time.
+
+Practical consequence: **side effects (refiner subagent dispatch, worktree create / teardown, artifact write) re-run on every invocation.** For the walking-skeleton refine + plan phases this is acceptable (each subagent's worktree is idempotent and the artifact write overwrites). The implement phase has too many concurrent yields for replay to be practical, which is why slice 3 ships the daemon variant for implement-phase concurrency instead.
+
+#### The skill loop
+
+Run the driver, read `status` and `decision`, render via `AskUserQuestion`, write the answer back to `pending_hitl.answer` (and bump `status` to `answered`), re-invoke the driver. Loop until `status ∈ {completed, aborted, error}`:
 
 ```bash
-# Iteration N: ask the orchestrator for the next decision.
+ISSUE=1234
+REPO="jwbron/egg"
+PIPELINE_ID="issue-${ISSUE}"
+CONTRACT_PATH=".egg-state/contracts/${PIPELINE_ID}.json"
+
+# Iteration N — ask the orchestrator for the next decision (positional
+# pipeline_id; --repo / --issue-number flags match the driver's argparse
+# at plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py:355-402).
 python3 plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py \
-    --pipeline-id "issue-${ISSUE}" \
+    "${PIPELINE_ID}" \
     --repo "${REPO}" \
-    --issue "${ISSUE}"
+    --issue-number "${ISSUE}"
 
-# Read pending_hitl.decision out of the contract; render via AskUserQuestion;
-# write the operator's selected option back to pending_hitl.answer.
+# Read status + decision out of the contract.
+STATUS=$(python3 -c "import json,sys; e=json.load(open('${CONTRACT_PATH}'))['pending_hitl']; print(e['status'])")
 
-# Iteration N+1: feed the answer back. Same invocation; the driver picks up
-# pending_hitl.answer, calls generator.send(answer), serialises the next yield.
-python3 plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py \
-    --pipeline-id "issue-${ISSUE}" \
-    --repo "${REPO}" \
-    --issue "${ISSUE}"
-
-# Repeat until the driver reports `pending_hitl.decision == null` (generator
-# completed) or the operator's answer was a terminating one.
+case "${STATUS}" in
+  pending)
+    # Read pending_hitl.decision and render via AskUserQuestion (an
+    # LLM-side tool — outside Bash). The skill body collects the
+    # operator's selection into shell variable ${ANSWER}.
+    # Then write the answer back to the envelope:
+    python3 -c "
+import json, sys, datetime
+path = '${CONTRACT_PATH}'
+contract = json.load(open(path))
+env = contract['pending_hitl']
+env['answer'] = ${ANSWER}        # operator's selection; JSON-encode appropriately
+env['status'] = 'answered'
+env['timestamp'] = datetime.datetime.utcnow().isoformat() + 'Z'
+json.dump(contract, open(path, 'w'), indent=2)
+"
+    # Loop: re-invoke run_pipeline.py with the same args. The driver
+    # promotes pending_hitl.answer → answer_log, clears answer to null,
+    # replays the full answer_log into a fresh generator, and writes
+    # the next pending_hitl.decision.
+    ;;
+  completed|aborted)
+    # Read pending_hitl.result for the artifact path (completed) or the
+    # abort diagnostic (aborted). Skill exits cleanly.
+    ;;
+  error)
+    # Read pending_hitl.error for the diagnostic. Driver exited 1.
+    ;;
+esac
 ```
 
-Each `bin/run_pipeline.py` invocation:
+The skill body's `allowed-tools` frontmatter includes `Bash(python3 *:*)`, which covers the inline `python3 -c "..."` invocation used to write `pending_hitl.answer`. No separate `Write` permission is needed; an alternative path (a dedicated `bin/write_answer.py` helper, or a `--answer` flag on `run_pipeline.py`) is reserved for the rollout if the inline `python3 -c` shape proves ergonomically awkward.
 
-1. Loads `.egg-state/contracts/<id>.json` (the orchestrator-managed pipeline state).
-2. If `pending_hitl.answer` is set, advances the generator via `generator.send(answer)` and clears the answer. Otherwise this is the first invocation; it starts the generator.
-3. On the next yield, writes the new `HITLDecision` into `pending_hitl.decision` (with `answer = null`, bumped `version`, and a fresh `timestamp`) and exits 0.
-4. On `StopIteration`, clears `pending_hitl.decision` (signals "no more decisions") and writes the analysis path / completion summary into the contract, then exits 0.
-5. On internal error, writes a diagnostic into the contract's failure log and exits 1.
-
-**The `pending_hitl` envelope is a stable contract**: the `version`, `pipeline_id`, `timestamp`, `decision`, and `answer` fields must remain shape-compatible with the daemon-variant driver (slice 3 = TASK-3-2) so a pipeline started on one bridge can be resumed on the other. The driver's top-of-file comment names this contract explicitly.
-
-While the generator is paused at a yield boundary, the orchestrator's background threads (heartbeat poll, BRC re-review, message-bus tick) inside the current `bin/run_pipeline.py` invocation join cleanly via `GeneratorExit` when the process exits — no leaked threads across the skill→Python boundary.
+While the generator is paused at a yield boundary inside a single `bin/run_pipeline.py` invocation, the orchestrator's background threads (heartbeat poll, BRC re-review, message-bus tick) keep running so a long-paused HITL does not cause stuck-phase-transition alerts within that invocation. Dropping the generator (process exit) joins the background threads cleanly via `GeneratorExit` — no leaked threads across the skill→Python boundary.
 
 ### Worktree layout
 
@@ -209,7 +259,7 @@ The contract schema (`shared/egg_contracts/models.py::Contract` v1.1), BRC histo
 - **PreToolUse hook denies a write the role *should* be allowed**: the `settings.template.json` is wired against a stale or wrong `EGG_AGENT_ROLE`. The hook prints which role it saw — re-check the spawn env.
 - **HITL takes a long time and you see no progress**: the orchestrator's background threads keep running inside each `bin/run_pipeline.py` invocation while the generator is paused on a yield; the heartbeat-during-HITL acceptance criterion guarantees this within an invocation. Between invocations (i.e. while the skill is rendering `AskUserQuestion` and waiting on the operator), the Python process has exited and the orchestrator state lives only in `.egg-state/contracts/<id>.json#pending_hitl`. If you genuinely want to abandon the run, close the session; the next invocation of `bin/run_pipeline.py` will resume from the contract file, or you can delete the contract file to discard the run entirely.
 
-- **`pending_hitl.decision` is `null` after a `bin/run_pipeline.py` invocation**: the generator returned (`StopIteration`); the phase is complete and the analysis path is recorded on the contract. The skill loop should exit, not call `bin/run_pipeline.py` again.
+- **`pending_hitl.status` is `completed`, `aborted`, or `error`** after a `bin/run_pipeline.py` invocation: the loop is done. `completed` → read `pending_hitl.result` for the artifact path. `aborted` → the operator chose an abort-style answer; `pending_hitl.result` holds the abort diagnostic. `error` → read `pending_hitl.error` for the driver's diagnostic string; the driver exited 1. The skill loop should exit in all three cases, not call `bin/run_pipeline.py` again.
 
 ## Where this fits
 
