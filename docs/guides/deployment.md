@@ -72,7 +72,7 @@ scripts/install-cilium.sh   # downloads cilium-cli and runs `cilium install`
 >
 > **Migrating from a pre-#2713 install:** `install-cilium.sh` chains the portmap CNI plugin (`cni.chainingMode=portmap`) for hostPort support and installs a pod-egress MASQUERADE iptables rule that Cilium omits in chained mode. If the running cluster predates #2713, `install-cilium.sh` will exit with a `cni-chaining-mode` mismatch error and instruct you to run `make k3s-teardown && make k3s-setup` — the chainingMode cannot be changed on a live cluster.
 >
-> **After a host reboot:** re-run `scripts/install-cilium.sh` (or `make k3s-setup`) to restore the pod-egress MASQUERADE iptables rule. This rule is not persisted across reboots. Without it, pod-to-external traffic (gateway → GitHub, sandbox agents → Anthropic API) silently fails while intra-cluster traffic continues working.
+> **After a host reboot:** re-run `scripts/install-cilium.sh` (or `make k3s-setup`) to restore the pod-egress MASQUERADE iptables rule. This rule is not persisted across reboots. Without it, pod-to-external traffic (gateway → GitHub, sandbox agents → Anthropic API) silently fails while intra-cluster traffic continues working. On long-running hosts where re-running after every reboot is painful, wire the rule into `netfilter-persistent`/`iptables-restore` at the system level instead.
 
 #### Image Management
 
