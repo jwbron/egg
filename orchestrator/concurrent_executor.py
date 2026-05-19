@@ -587,7 +587,15 @@ class ConcurrentPhaseExecutor:
         """
         import os
 
-        from substrate import SubstrateBundle, select_substrate
+        try:
+            from orchestrator.substrate import SubstrateBundle, select_substrate
+        except ImportError:
+            # Fallback for environments where orchestrator/ is on sys.path
+            # directly rather than as a package (e.g. the sandbox container).
+            from substrate import (  # type: ignore[no-redef, import-untyped]
+                SubstrateBundle,
+                select_substrate,
+            )
 
         bundle: SubstrateBundle = select_substrate(
             os.environ,

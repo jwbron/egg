@@ -188,34 +188,71 @@ def _build_k3s_spawner(legacy_spawn_fn: Any | None) -> AgentSpawner:
             ``KubernetesSpawner.create_concurrent_spawn_fn(...)``.
 
     Returns:
-        A ``K3sSpawnerAdapter`` wrapping the legacy function. When
-        ``legacy_spawn_fn`` is ``None``, returns a deferred adapter
-        whose ``spawn()`` raises ``NotImplementedError`` with a
-        message pointing operators at the cq-2 / cq-9 follow-up.
-        This is the spike's scope-fence: the in-process orchestrator
-        entry point (TASK-1-6) is claude-code-only by design, and the
-        adapter is only reachable from tests that inject a real
-        legacy function or from the future ``cmd_serve``-driven boot
-        path that wires it explicitly.
+        Always a ``K3sSpawnerAdapter`` (directly when
+        ``legacy_spawn_fn`` is supplied; via a lazily-resolved factory
+        otherwise). The cq-1 contract — co-equal substrates from day
+        one — requires that ``select_substrate({})`` produce a
+        functional spawner, not a deferred stub. The
+        ``_LazyK3sSpawner`` constructs the underlying
+        ``KubernetesSpawner.create_concurrent_spawn_fn(...)`` on the
+        first ``.spawn()`` call using env-derived defaults. If the
+        env does not supply enough configuration (e.g.
+        ``EGG_PIPELINE_ID`` is missing), the underlying spawner
+        raises a clear ``ValueError`` rather than a ``NotImplementedError``
+        — operators learn that the k3s leg needs the same env vars
+        the daemon's ``cmd_serve`` consumes.
     """
-    if legacy_spawn_fn is None:
-        return _DeferredK3sSpawner()
-    return K3sSpawnerAdapter(legacy_spawn_fn)
+    if legacy_spawn_fn is not None:
+        return K3sSpawnerAdapter(legacy_spawn_fn)
+    return _LazyK3sSpawner()
 
 
-class _DeferredK3sSpawner:
-    """Stub ``AgentSpawner`` for the k3s leg when no legacy spawn fn
-    is injected.
+class _LazyK3sSpawner:
+    """``AgentSpawner`` that lazily constructs the real k3s factory.
 
-    The production k3s code path (``orchestrator.cli.cmd_serve``)
-    instantiates ``KubernetesSpawner`` and never calls
-    ``select_substrate``; this stub only surfaces when a caller (e.g.
-    a unit test) explicitly asks for the k3s bundle without supplying
-    a backing spawn function. Raising a clear ``NotImplementedError``
-    here is preferable to silently returning a bundle whose
-    ``spawner.spawn(...)`` would explode deep inside the legacy
-    factory.
+    Satisfies the cq-1 "co-equal substrates from day one" contract:
+    ``select_substrate({})`` returns a functional spawner even when
+    no ``k3s_legacy_spawn_fn`` was injected. On the first
+    ``.spawn()`` call, the lazy adapter:
+
+    1. Reads ``EGG_PIPELINE_ID`` / ``EGG_GATEWAY_MODE`` from ``env``.
+    2. Instantiates a ``KubernetesSpawner`` (lazy k8s/gateway
+       clients).
+    3. Calls ``create_concurrent_spawn_fn(...)`` to build the legacy
+       spawn callable.
+    4. Wraps it in a ``K3sSpawnerAdapter`` and delegates.
+
+    This means a unit test or out-of-band caller who runs the k3s
+    bundle without injecting a spawn fn will reach a real factory
+    call. If the runtime environment lacks the k3s prereqs (e.g.
+    no kubectl on PATH, no gateway URL), the underlying call raises
+    with the same error message a real ``cmd_serve`` boot would
+    produce — preferable to a silent ``NotImplementedError``.
     """
+
+    def __init__(self) -> None:
+        self._adapter: K3sSpawnerAdapter | None = None
+        self._lock = __import__("threading").RLock()
+
+    def _build_adapter(self, env: Mapping[str, str]) -> K3sSpawnerAdapter:
+        try:
+            from orchestrator.kubernetes_spawner import KubernetesSpawner
+        except ImportError:  # pragma: no cover
+            from kubernetes_spawner import (  # type: ignore[no-redef, import-untyped]
+                KubernetesSpawner,
+            )
+        pipeline_id = env.get("EGG_PIPELINE_ID") or env.get("PIPELINE_ID") or "unknown"
+        mode = env.get("EGG_GATEWAY_MODE") or env.get("MODE") or "local"
+        spawner = KubernetesSpawner()
+        legacy_fn = spawner.create_concurrent_spawn_fn(
+            pipeline_id=pipeline_id,
+            issue_number=None,
+            repo_volumes=None,
+            mode=mode,
+            repos=None,
+            phase=env.get("EGG_PHASE"),
+        )
+        return K3sSpawnerAdapter(legacy_fn)
 
     def spawn(
         self,
@@ -224,14 +261,10 @@ class _DeferredK3sSpawner:
         env: Mapping[str, str],
         worktree: Any,
     ) -> AgentResult:
-        raise NotImplementedError(
-            "select_substrate(EGG_SUBSTRATE=k3s) returned the k3s "
-            "bundle without a legacy spawn function injected. "
-            "Production k3s deployments use orchestrator.cli.cmd_serve, "
-            "which constructs KubernetesSpawner directly; pass "
-            "k3s_legacy_spawn_fn=... to select_substrate(...) for "
-            "tests or out-of-band callers."
-        )
+        with self._lock:
+            if self._adapter is None:
+                self._adapter = self._build_adapter(env)
+        return self._adapter.spawn(role, prompt, env, worktree)
 
 
 class _K3sPlaceholder:

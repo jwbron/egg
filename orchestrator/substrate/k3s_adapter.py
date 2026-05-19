@@ -149,6 +149,25 @@ class K3sSpawnerAdapter:
                 # of truth for k3s commit SHAs.
                 commit_sha = None
 
+        # Reviewer_code_holistic v1 finding #12: surface a structured
+        # warning when commit_sha is None so INV-6 attach-time failures
+        # are correlated with the silent capture failure here rather
+        # than showing up first at review-time.
+        if commit_sha is None:
+            import sys
+
+            print(
+                "[K3sSpawnerAdapter] WARNING: commit_sha not captured "
+                f"for role={getattr(role, 'value', role)} worktree="
+                f"{target_worktree}. INV-6 reviewers will not have a "
+                "commit-bound ACK target from this AgentResult. "
+                "The legacy gateway-side attestation flow may still "
+                "carry the SHA out-of-band; the follow-up issue "
+                "covers wiring that into AgentResult.commit_sha "
+                "directly.",
+                file=sys.stderr,
+            )
+
         # The legacy ``SpawnedContainer`` carries no stdout/exit_code
         # directly — that data lands on ``container_info`` and is
         # consumed by the orchestrator's monitor loop. We surface a
