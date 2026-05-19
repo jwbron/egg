@@ -51,7 +51,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -323,4 +323,126 @@ def test_pre_sync_commit_idempotent_when_no_orch_writes_after_cross_worktree_adv
     head_after = _git("rev-parse", "HEAD", cwd=orch_wt).stdout.strip()
     assert head_after == head_before, (
         f"no commit expected, but HEAD moved from {head_before} to {head_after}"
+    )
+
+
+def test_pre_sync_commit_materializes_agent_pushed_files_after_cross_worktree_advance(
+    tmp_path: Path,
+) -> None:
+    """Regression for #2721: helper must restore agent-pushed files to disk.
+
+    The #2626 fix protected the *commit* (no delete-commit lands), but the
+    same cross-worktree ``update-ref`` advance leaves the working tree
+    stale relative to the just-advanced HEAD.  Downstream readers go
+    through the working tree — ``_populate_contract_from_plan`` reads the
+    plan draft via ``Path(...).read_text()``, which fails with the
+    natural ``PlanDraftMissingOnLocalError`` even though HEAD itself
+    carries the agent-pushed draft.  Field recovery was ``git checkout
+    HEAD -- .egg-state/drafts/ .egg-state/agent-outputs/``; the helper
+    now does that automatically so the populator can read the draft.
+    """
+    orch_wt, agent_wt, branch, identifier = _setup_shared_worktrees(tmp_path)
+    _agent_pushes_draft_and_runs_update_ref(agent_wt, branch, identifier)
+
+    plan_draft = orch_wt / ".egg-state" / "drafts" / f"{identifier}-plan.md"
+    architect_output = (
+        orch_wt / ".egg-state" / "agent-outputs" / f"{identifier}-architect-output.json"
+    )
+    assert not plan_draft.exists(), (
+        "precondition: orch worktree should NOT have the agent's plan draft on "
+        "disk after a cross-worktree update-ref advance"
+    )
+    assert not architect_output.exists(), (
+        "precondition: orch worktree should NOT have the agent's architect-output "
+        "on disk after a cross-worktree update-ref advance"
+    )
+
+    head_before = _git("rev-parse", "HEAD", cwd=orch_wt).stdout.strip()
+
+    committed = _commit_statefiles_to_worktree(
+        orch_wt,
+        "Persist agent statefile writes before plan sync",
+        pipeline_identifier=identifier,
+        pipeline_id=identifier,
+    )
+
+    assert plan_draft.exists(), (
+        "regression #2721: agent's plan draft should be materialized on disk "
+        "after _commit_statefiles_to_worktree runs against a stale worktree"
+    )
+    assert plan_draft.read_text() == "# yaml-tasks\n\nagent-produced plan body\n", (
+        "restored draft content should match what the agent pushed to HEAD"
+    )
+    assert architect_output.exists(), (
+        "regression #2721: agent's architect-output should be materialized on "
+        "disk after _commit_statefiles_to_worktree runs against a stale worktree"
+    )
+    assert architect_output.read_text() == '{"role":"architect"}\n', (
+        "restored architect-output content should match what the agent pushed to HEAD"
+    )
+    # Restoration writes files that match HEAD byte-for-byte, so the
+    # subsequent ``git diff --cached --quiet`` exits zero and no commit
+    # lands — restore must not silently dirty the index.
+    assert committed is False, (
+        "restore should match HEAD exactly — no commit expected, but the helper "
+        "reported it created one"
+    )
+    head_after = _git("rev-parse", "HEAD", cwd=orch_wt).stdout.strip()
+    assert head_after == head_before, (
+        f"restore must not move HEAD — moved from {head_before} to {head_after}"
+    )
+
+
+def test_pre_sync_commit_fail_open_when_restore_probe_times_out(
+    tmp_path: Path,
+) -> None:
+    """Restore-helper fail-open contract: timeouts must not raise.
+
+    The docstring on :func:`_restore_missing_state_files_from_head`
+    promises that any subprocess error logs and returns silently — the
+    downstream populator still has its own missing-draft guard, so a
+    flaky probe cannot silently hide a true missing-draft case.  This
+    test locks the contract in by monkeypatching the ``ls-files`` probe
+    to raise :class:`subprocess.TimeoutExpired`, then asserting:
+
+    1. ``_commit_statefiles_to_worktree`` does not propagate the
+       exception (the helper has to swallow it).
+    2. The stale-worktree state is left as-is — no restore happened,
+       so the agent's plan draft is still missing from disk.  This is
+       exactly the state where the downstream populator's own missing-
+       draft guard becomes the source of truth.
+    """
+    orch_wt, agent_wt, branch, identifier = _setup_shared_worktrees(tmp_path)
+    _agent_pushes_draft_and_runs_update_ref(agent_wt, branch, identifier)
+
+    plan_draft = orch_wt / ".egg-state" / "drafts" / f"{identifier}-plan.md"
+    assert not plan_draft.exists(), "precondition: draft is missing from disk"
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):  # type: ignore[no-untyped-def]
+        # The restore helper's ls-files probe is the only
+        # ``ls-files -z --deleted`` invocation in this code path; match
+        # on its hallmark token sequence and pass everything else
+        # through to the real subprocess.run.
+        if isinstance(cmd, list) and "ls-files" in cmd and "--deleted" in cmd and "-z" in cmd:
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=30)
+        return real_run(cmd, *args, **kwargs)
+
+    with patch("routes.pipelines.subprocess.run", side_effect=fake_run):
+        # Must not raise — the helper swallows the timeout and returns.
+        _commit_statefiles_to_worktree(
+            orch_wt,
+            "Persist agent statefile writes before plan sync",
+            pipeline_identifier=identifier,
+            pipeline_id=identifier,
+        )
+
+    # Restore was suppressed — the draft is still missing on disk.  The
+    # downstream populator's own guard is now the source of truth, which
+    # is the whole point of the fail-open contract.
+    assert not plan_draft.exists(), (
+        "fail-open: restore probe failed, so the draft must still be missing "
+        "from disk — the downstream populator is responsible for surfacing the "
+        "missing-draft error from here"
     )

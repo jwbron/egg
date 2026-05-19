@@ -40,8 +40,20 @@ def _make_run_side_effect(*, diff_has_changes: bool = True):
             result.returncode = 1 if diff_has_changes else 0
         else:
             result.returncode = 0
-        result.stdout = ""
-        result.stderr = ""
+        # ``_restore_missing_state_files_from_head`` invokes
+        # ``ls-files -z --deleted`` in binary mode (no ``text=True``) so
+        # NUL-separated output survives ``core.quotePath`` re-encoding;
+        # the probe is therefore the one call whose stdout the helper
+        # ``.split(b"\0")`` parses.  Return bytes for that single call
+        # shape so the mock matches the helper's binary contract; every
+        # other call still uses string stdout/stderr to keep the
+        # existing assertions valid.
+        if isinstance(cmd, list) and "ls-files" in cmd and "-z" in cmd and "--deleted" in cmd:
+            result.stdout = b""
+            result.stderr = b""
+        else:
+            result.stdout = ""
+            result.stderr = ""
         return result
 
     return _side_effect
