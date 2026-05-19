@@ -6,7 +6,28 @@ inside the user's Claude Code session. The caller blocks until the
 subagent completes; internal concurrency is the spawner's
 responsibility per cq-4.
 
-Key responsibilities:
+Substrate-swap framing (reviewer_code_holistic v1 finding #3)
+-------------------------------------------------------------
+
+The walking-skeleton spike runs egg's existing ``egg_harness`` loop
+in-process to the user's Claude Code session — it does NOT, at the
+spike level, dispatch via Claude Code's native ``Agent`` tool with
+``subagent_type="general-purpose"``. The harness drives the
+AnthropicProvider directly and exposes its own tool registry.
+
+This is a deliberate scope decision for the spike: the harness
+runner is what the existing k3s sandbox uses inside its pod, so
+re-hosting it inside Claude Code is the minimum-viable substrate
+swap. The follow-up issue (listed in the ADR's "Open work"
+appendix) covers wiring an alternative
+``ClaudeCodeAgentToolSpawner`` that emits an ``Agent`` tool
+envelope for the parent session's outer loop to execute. Until
+then this spawner is functionally a "re-host the harness in the
+user's session" path, not a "swap to Claude Code primitives" path.
+The R1 trust-context section of the ADR documents the security
+delta this framing implies.
+
+Key responsibilities (in the implemented scope):
 
 1. Assemble the system prompt via ``build_system_prompt(...)`` from
    ``shared/egg_harness/prompt.py:24`` — this is the structural fix
@@ -204,7 +225,7 @@ def _capture_head_sha(worktree: Path) -> str | None:
                 "GIT_TERMINAL_PROMPT": "0",
             },
         )
-    except subprocess.SubprocessError, OSError:
+    except (subprocess.SubprocessError, OSError):  # fmt: skip
         return None
     if proc.returncode != 0:
         return None

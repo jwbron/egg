@@ -103,7 +103,7 @@ class LocalWorktreeManager:
                 check=False,
                 timeout=30,
             )
-        except subprocess.SubprocessError, OSError:
+        except (subprocess.SubprocessError, OSError):  # fmt: skip
             # Worktree creation may fail (no git, no checkout); the
             # directory still exists for the spawner to use.
             pass
@@ -156,7 +156,7 @@ class LocalWorktreeManager:
                     check=False,
                     timeout=30,
                 )
-            except subprocess.SubprocessError, OSError:
+            except (subprocess.SubprocessError, OSError):  # fmt: skip
                 pass
 
             if resolved.exists():
@@ -172,7 +172,7 @@ class LocalWorktreeManager:
                     check=False,
                     timeout=15,
                 )
-            except subprocess.SubprocessError, OSError:
+            except (subprocess.SubprocessError, OSError):  # fmt: skip
                 pass
 
         # Tear down the pipeline-level dir if it's empty and lives
@@ -180,7 +180,7 @@ class LocalWorktreeManager:
         try:
             if pipeline_dir.is_relative_to(base_resolved) and pipeline_dir.exists():
                 shutil.rmtree(pipeline_dir, ignore_errors=True)
-        except AttributeError, OSError:
+        except (AttributeError, OSError):  # fmt: skip
             if pipeline_dir.exists() and str(pipeline_dir).startswith(str(base_resolved) + os.sep):
                 shutil.rmtree(pipeline_dir, ignore_errors=True)
 

@@ -17,6 +17,7 @@ INTERFACE STABILITY: v0.x unstable.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from . import hook_entry
@@ -71,13 +72,42 @@ class PreToolUseHookPolicy:
 
         Args:
             target_dir: The directory whose ``.claude/`` subdir
-                should receive the settings file (typically the
-                repo root the user is running egg in).
+                should receive the settings file. Must be either the
+                user's ``$HOME`` or a path under it (typically the
+                repo root the user is running egg in). System paths
+                like ``/etc/`` or ``/`` are rejected as a defense in
+                depth against a caller-supplied ``target_dir`` —
+                reviewer_security v1 non-blocking #4.
 
         Returns:
             The path that was written.
+
+        Raises:
+            ValueError: If ``target_dir`` is not under the user's
+                ``$HOME`` (or ``$HOME`` cannot be resolved).
         """
-        root = Path(target_dir)
+        root = Path(target_dir).expanduser().resolve()
+        home_env = os.environ.get("HOME")
+        if not home_env:
+            raise ValueError(
+                "PreToolUseHookPolicy.install: $HOME is unset; refusing "
+                "to write .claude/settings.json to an unknown location."
+            )
+        home_resolved = Path(home_env).resolve()
+        try:
+            if root != home_resolved and not root.is_relative_to(home_resolved):
+                raise ValueError(
+                    f"PreToolUseHookPolicy.install: target_dir {root} is "
+                    f"not under $HOME ({home_resolved}); refusing to "
+                    f"write .claude/settings.json. Path-escape guard."
+                )
+        except AttributeError:  # pragma: no cover
+            # Python <3.9 fallback — never hit on our 3.11+ runtime.
+            if not str(root).startswith(str(home_resolved) + os.sep) and root != home_resolved:
+                raise ValueError(
+                    f"PreToolUseHookPolicy.install: target_dir {root} is "
+                    f"not under $HOME ({home_resolved})."
+                ) from None
         out_dir = root / ".claude"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / "settings.json"
@@ -89,7 +119,7 @@ class PreToolUseHookPolicy:
         if out_path.exists():
             try:
                 existing = json.loads(out_path.read_text())
-            except json.JSONDecodeError, OSError:
+            except (json.JSONDecodeError, OSError):  # fmt: skip
                 existing = {}
         else:
             existing = {}

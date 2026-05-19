@@ -37,21 +37,39 @@ def _load_python_dep_string() -> str:
     )
     try:
         data = json.loads(plugin_json_path.read_text())
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):  # fmt: skip
         return ""
     egg = data.get("egg") or {}
     return str(egg.get("python_dependency") or "")
 
 
 def main() -> int:
-    """Try to import ``egg_orchestrator``; print + exit on failure."""
+    """Probe the actual import path the skill's runtime uses.
+
+    Earlier versions (reviewer_code_holistic v1 blocker #7) imported
+    ``egg_orchestrator`` — that package is the orchestrator API
+    CLIENT, not the substrate orchestrator entry point. The skill's
+    actual runtime dependency is
+    ``orchestrator.substrate.in_process.run_pipeline_in_process``,
+    so we probe that exact import. A user who installs the API
+    client but not the orchestrator code now sees the install error
+    instead of passing preflight and then crashing later.
+    """
+    missing: str | None = None
     try:
-        import egg_orchestrator  # noqa: F401
+        from orchestrator.substrate.in_process import (  # noqa: F401
+            run_pipeline_in_process,
+        )
     except ImportError as exc:
+        missing = f"orchestrator.substrate.in_process.run_pipeline_in_process: {exc}"
+
+    if missing is not None:
         dep = _load_python_dep_string()
         print(INSTALL_ERROR_MARKER, file=sys.stderr)
         print(
-            "  ImportError: egg_orchestrator could not be loaded.\n"
+            "  ImportError: orchestrator.substrate.in_process is not\n"
+            "  importable. The skill needs the egg orchestrator code on\n"
+            "  PYTHONPATH (or installed as a package).\n"
             "\n"
             "  Install the egg Python packages, then retry:\n",
             file=sys.stderr,
@@ -69,7 +87,7 @@ def main() -> int:
             "  See plugins/egg-sdlc/skills/egg-sdlc/SKILL.md for the\n"
             "  full install instructions (cq-12).\n"
             "\n"
-            f"  Underlying import error: {exc}\n",
+            f"  Underlying import error: {missing}\n",
             file=sys.stderr,
         )
         return 1
