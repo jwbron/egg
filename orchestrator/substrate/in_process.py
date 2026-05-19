@@ -217,6 +217,10 @@ class _InProcessOrchestrator:
             # directory + branch. Bound exceptions so teardown
             # failures don't mask the original exit reason.
             self._teardown_worktrees()
+            # reviewer_code v2 blocker #1: clean the active-role
+            # sentinel so the user's subsequent plain Claude Code
+            # session is not impeded by a stale role-based denial.
+            self._teardown_sentinel()
 
     # ------------------------------------------------------------------
     # Background-thread lifecycle
@@ -701,6 +705,15 @@ class _InProcessOrchestrator:
         not per-pipeline — only one refiner runs at a time in the
         spike). The hook reads it as a fallback when
         ``EGG_AGENT_ROLE`` is unset.
+
+        Reviewer_code v2 blocker #1: the sentinel is stamped with
+        the orchestrator's PID so a stale sentinel from a crashed
+        run (OOM, hard kill) does not poison a subsequent plain
+        Claude Code session — the hook's
+        ``_resolve_active_role`` treats sentinel files whose PID is
+        no longer alive as missing. The generator's ``finally``
+        block also unlinks the sentinel via
+        ``_teardown_sentinel()``.
         """
         try:
             home = Path(os.environ.get("HOME", ""))
@@ -714,10 +727,34 @@ class _InProcessOrchestrator:
                         "role": role,
                         "pipeline_id": self.pipeline_id,
                         "repo": self.repo or None,
+                        "pid": os.getpid(),
                     }
                 )
                 + "\n"
             )
+        except OSError:  # pragma: no cover — defensive
+            pass
+
+    def _teardown_sentinel(self) -> None:
+        """Remove the active-role sentinel on generator exit.
+
+        Reviewer_code v2 blocker #1: without explicit cleanup, a
+        completed (or aborted) run leaves a stale sentinel in
+        ``$HOME/.claude/egg-active-role.json`` that the
+        PreToolUse hook reads as the active role — causing the user's
+        next plain Claude Code session to refuse writes outside the
+        stale role's allow-list.
+
+        Wrapped in a broad except so unlink failure doesn't mask the
+        original generator-exit reason.
+        """
+        try:
+            home_env = os.environ.get("HOME", "")
+            if not home_env:
+                return
+            target = Path(home_env) / ".claude" / "egg-active-role.json"
+            if target.exists():
+                target.unlink(missing_ok=True)
         except OSError:  # pragma: no cover — defensive
             pass
 

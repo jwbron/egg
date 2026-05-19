@@ -116,10 +116,47 @@ class PreToolUseHookPolicy:
         # Merge with any pre-existing settings.json so we don't blow
         # away user hooks. Egg's hook gets appended (idempotent: skip
         # if already present).
+        #
+        # Reviewer_code v2 blocker #2: on JSON decode error of the
+        # existing settings.json we FAIL LOUD instead of silently
+        # using ``{}``. The previous behavior silently replaced the
+        # user's settings (including unrelated hooks / statusline /
+        # plugin enablement) with the egg-substrate template. We now
+        # raise ``ValueError`` with a clear message naming the path
+        # so the operator can fix the typo themselves.
+        existing: dict
         if out_path.exists():
             try:
-                existing = json.loads(out_path.read_text())
-            except (json.JSONDecodeError, OSError):  # fmt: skip
+                raw = out_path.read_text()
+            except OSError as exc:
+                raise ValueError(
+                    f"PreToolUseHookPolicy.install: existing "
+                    f"settings.json at {out_path} could not be read: "
+                    f"{exc}"
+                ) from exc
+            if raw.strip():
+                try:
+                    existing = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"PreToolUseHookPolicy.install: existing "
+                        f"settings.json at {out_path} is not valid "
+                        f"JSON ({exc.msg} at line {exc.lineno} col "
+                        f"{exc.colno}). Refusing to overwrite — fix "
+                        f"the file manually (or move it aside) and "
+                        f"re-run install. This avoids silently "
+                        f"obliterating the user's prior hooks / "
+                        f"statusline / plugin enablement."
+                    ) from exc
+                if not isinstance(existing, dict):
+                    raise ValueError(
+                        f"PreToolUseHookPolicy.install: existing "
+                        f"settings.json at {out_path} is not a JSON "
+                        f"object (top-level type: "
+                        f"{type(existing).__name__}). Refusing to "
+                        f"overwrite."
+                    )
+            else:
                 existing = {}
         else:
             existing = {}

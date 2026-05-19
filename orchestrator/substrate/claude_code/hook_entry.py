@@ -459,7 +459,17 @@ def _resolve_active_role() -> str:
     is unset, falls back to the sentinel file the spawner writes at
     ``$HOME/.claude/egg-active-role.json`` (reviewer_code_holistic v1
     finding #8 — spawn↔hook role coordination across process
-    boundaries). Returns an empty string when neither source
+    boundaries).
+
+    Reviewer_code v2 blocker #1: the sentinel is PID-stamped by the
+    spawner. When the recorded PID is no longer alive (crashed
+    pipeline, OOM-kill, hard kill), the sentinel is treated as
+    missing — preventing a stale sentinel from impeding the user's
+    next plain Claude Code session. Live-PID sentinels still
+    function normally as a fallback when env propagation is dropped
+    in nested dispatch.
+
+    Returns an empty string when neither env nor a live-PID sentinel
     resolves a role.
     """
     role = os.environ.get("EGG_AGENT_ROLE", "").strip()
@@ -473,8 +483,29 @@ def _resolve_active_role() -> str:
         if sentinel.exists():
             blob = json.loads(sentinel.read_text())
             sentinel_role = blob.get("role")
-            if isinstance(sentinel_role, str) and sentinel_role.strip():
-                return sentinel_role.strip()
+            sentinel_pid = blob.get("pid")
+            if not isinstance(sentinel_role, str) or not sentinel_role.strip():
+                return ""
+            # PID-liveness check (reviewer_code v2 blocker #1): treat
+            # sentinel as missing when the owning orchestrator
+            # process is no longer running. This prevents a stale
+            # sentinel from a crashed pipeline from impeding the
+            # user's next plain Claude Code session.
+            if isinstance(sentinel_pid, int) and sentinel_pid > 0:
+                try:
+                    os.kill(sentinel_pid, 0)
+                except ProcessLookupError, PermissionError:
+                    # Process is gone (ProcessLookupError) OR we
+                    # cannot signal it (different user / permission
+                    # denied — treat as not-alive to fail safe).
+                    return ""
+                except OSError:
+                    # Unknown errno — fall through and trust the
+                    # sentinel; we don't want kernel quirks to
+                    # lock the user out.
+                    pass
+            # Either no PID stamp (legacy sentinel) or PID is alive.
+            return sentinel_role.strip()
     except (json.JSONDecodeError, OSError):  # fmt: skip
         pass
     return ""
