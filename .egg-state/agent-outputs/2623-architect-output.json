@@ -1,0 +1,360 @@
+{
+  "issue": 2623,
+  "phase": "plan",
+  "role": "architect",
+  "schema_version": "1.0",
+  "title": "Substrate-swap walking skeleton: AgentSpawner abstraction + ClaudeCodeSpawner spike",
+  "summary": "Per the operator's resolution of cq-11 (Spike then plan), this plan is the walking-skeleton slice that gets ONE producer role (refiner) running through ONE phase (refine) end-to-end on the Claude Code substrate. It lands the minimum-viable AgentSpawner ABC and MessageBus ABC in egg_orchestrator, a first ClaudeCodeSpawner + InProcessMessageBus implementation, env-var substrate selection (EGG_SUBSTRATE=claude-code|k3s), a `sdlc` plugin entry point (Python-dep-declared, no shipped wheels — cq-8), a PreToolUseHookPolicy enforcer (cq-6) calling into the existing shared/egg_restrictions/patterns.py, a heredoc-style HITL generator surface (cq-7), and an integration-test parameter that runs the refine-phase happy-path under both substrates. The remaining roles (reviewer_refine, reviewer_agent_design), the remaining phases (plan/implement/pr), the full BRC concurrent dispatch, and k3s deprecation are explicitly deferred to follow-up issues once the spike proves the spawner shape.",
+  "recommended_approach": {
+    "approach": "Option A (parallel substrates, named interfaces, env-var selected), executed via cq-11's spike-first sequencing. The spike's job is to prove the AgentSpawner shape; the follow-up issues fill in the remaining roles, the second-phase BRC matrix in CI, and the operational surface (overseer thread, health checks, monitoring).",
+    "rationale": [
+      "Operator resolved cq-1 to Option A (parallel substrates) and cq-11 to 'Spike then plan'. The plan must honor both: the abstractions land in this PR family with one concrete implementation each; the second implementations (Claude-Code-side multi-role concurrency, PR phase, etc.) are explicit follow-up scope.",
+      "AgentSpawner is the single largest abstraction gap in the codebase today. orchestrator/concurrent_executor.py:504 calls a SpawnFn callable that today is closured by orchestrator/kubernetes_spawner.py:1564 (create_concurrent_spawn_fn). The closure shape (role, branch, extra_env, command) is already substrate-agnostic — it just isn't named as an interface. Promoting it to an ABC is a refactor, not a rewrite.",
+      "MessageStore is already pluggable: orchestrator/message_store.py:531 (get_message_store) selects between in-memory MessageStore (line 200) and RedisMessageStore via EGG_MESSAGE_STORE_BACKEND. The in-process substrate reuses the in-memory MessageStore class verbatim; no new code path needed for the bus itself, only the substrate-selector wiring.",
+      "Policy enforcement is already factored: shared/egg_restrictions/patterns.py is a pure-Python module with no HTTP/k8s dependencies (gateway/agent_restrictions.py:58 partition_files_by_role wraps it, and sandbox/egg_agent_tools/handlers/restrictions.py:70 check_file_restriction calls it too — single source of truth). A PreToolUse hook script can import the same module without any new policy logic.",
+      "The contract layer (shared/egg_contracts/models.py:759 Contract, schemaVersion 1.1) is filesystem-native (.egg-state/contracts/<id>.json) — survives the substrate transition unchanged.",
+      "build_system_prompt (shared/egg_harness/prompt.py:24) is already designed to assemble a system prompt from PromptSource = str | Callable[[], str] — the Claude-Code-substrate spawner just has to pass this assembled string into the subagent prompt. The depth-gap closure (#2622's structural cause) becomes a free side-effect of routing through the real spawner.",
+      "The integration_tests/regression/ suite is already substrate-portable in its mocking layout (KubernetesSpawner is constructor-injected with k8s_client=MockKubernetesClient in tests). Adding a pytest.mark.parametrize('substrate', [...]) is a CI-matrix change, not a test-rewrite — exactly what cq-3 selected.",
+      "Spike-first contains blast radius. The walking-skeleton slice touches ~6 source files (orchestrator interfaces + ClaudeCodeSpawner + skill bootstrap + one test) and keeps k3s users running unchanged. Failure modes are visible at one PR's blast radius, not at the substrate-swap's full surface."
+    ]
+  },
+  "component_breakdown": [
+    {
+      "component": "egg_orchestrator/spawner.py (NEW)",
+      "purpose": "AgentSpawner ABC + SpawnRequest/AgentResult dataclasses. The single named interface the orchestrator depends on for agent dispatch.",
+      "interface": {
+        "abc_name": "AgentSpawner",
+        "method_signature": "def spawn(self, request: SpawnRequest) -> AgentResult",
+        "spawn_request_fields": [
+          "role: AgentRole",
+          "prompt: str (full assembled system+task prompt)",
+          "env: dict[str, str]",
+          "worktree_path: pathlib.Path",
+          "pipeline_id: str",
+          "slice_id: str | None",
+          "phase: PipelinePhase",
+          "command: list[str] | None (compat with today's kubernetes_spawner.spawn_agent_job command arg)"
+        ],
+        "agent_result_fields": [
+          "exit_code: int",
+          "stdout: str",
+          "stderr: str",
+          "commit_sha: str | None (HEAD of agent's branch on completion)",
+          "agent_role: AgentRole",
+          "pipeline_id: str",
+          "duration_seconds: float"
+        ]
+      },
+      "scope_for_spike": "ABC + dataclasses + one implementation (ClaudeCodeSpawner). KubernetesSpawner becomes the second implementation in the same PR via an adapter (existing create_concurrent_spawn_fn at orchestrator/kubernetes_spawner.py:1564 wraps the existing spawn_agent_job call to match the new AgentResult return shape).",
+      "decision_alignment": "cq-4 → synchronous spawn(role, prompt, env, worktree) -> AgentResult"
+    },
+    {
+      "component": "egg_orchestrator/substrate.py (NEW)",
+      "purpose": "Substrate registry + env-var selector. Single import point that returns the right (AgentSpawner, MessageBus, PolicyEnforcer, WorktreeManager, HITLSurface) tuple based on EGG_SUBSTRATE.",
+      "interface": {
+        "function": "def get_substrate(substrate: str | None = None) -> Substrate",
+        "substrate_dataclass": "Substrate(spawner: AgentSpawner, bus: MessageBus, policy: PolicyEnforcer, worktrees: WorktreeManager, hitl: HITLSurface)",
+        "env_var": "EGG_SUBSTRATE (values: k3s, claude-code; default: k3s for back-compat)"
+      },
+      "scope_for_spike": "Registry + two substrate factories: build_k3s_substrate(), build_claude_code_substrate(). The factory bodies stay thin — each constructs the relevant ABC subclass and wires them.",
+      "decision_alignment": "cq-1 → parallel substrates, env-var-selected"
+    },
+    {
+      "component": "egg_orchestrator/spawners/claude_code_spawner.py (NEW)",
+      "purpose": "Concrete AgentSpawner implementation that dispatches to Claude Code's Agent tool from the parent session.",
+      "design": {
+        "call_shape": "Inside the parent Claude Code session, the spawner calls the Agent tool with subagent_type='general-purpose', the SpawnRequest.prompt verbatim, and isolation='worktree' for git isolation. The Agent call blocks until the subagent completes; the return contains stdout (which the spawner captures as AgentResult.stdout) and the exit status maps to AgentResult.exit_code.",
+        "worktree_lifecycle": "Per cq-5, the spawner does NOT use Claude Code's EnterWorktree primitive. Instead it pre-creates the worktree at SpawnRequest.worktree_path (mirroring today's WORKTREE_BASE_DIR layout, see gateway/worktree_manager.py:49 and orchestrator/kubernetes_spawner.py:65), checks the agent's branch out there, and passes that path to the Agent call. Teardown is filesystem-level after the AgentResult is returned.",
+        "commit_sha_capture": "After Agent returns, the spawner runs `git -C <worktree_path> rev-parse HEAD` and records the SHA in AgentResult.commit_sha so the orchestrator can attach commit-bound ACKs (action_guards.validate_invariants INV-6 at orchestrator/action_guards.py:753 requires this).",
+        "non_claude_code_caller": "Per feedback-1 Q4 (operator: 'support non-Claude-Code callers as secondary goal'), the ClaudeCodeSpawner is constructor-injected with a `agent_tool_callable` so a test or CLI can pass a stub. A separate EggHarnessSpawner subprocess-based implementation is stub-only in this slice (not in scope); it lives as a TODO with a follow-up issue link."
+      },
+      "scope_for_spike": "Single role (refiner) and single phase (refine). Multi-role concurrent dispatch (the BRC parallel-producer case) is in the spawner's surface but lands as a follow-up — for the spike, the orchestrator calls spawn() once per role serially. ThreadPoolExecutor-style parallelism at orchestrator/concurrent_executor.py:469 stays unchanged; the spike just stays in the N=1 case.",
+      "decision_alignment": "cq-4 (synchronous spawn), cq-5 (port WORKTREE_BASE_DIR), cq-11 (spike: single-role walking skeleton)"
+    },
+    {
+      "component": "egg_orchestrator/buses/in_process_bus.py (NEW)",
+      "purpose": "In-process MessageBus implementation reusing the existing in-memory MessageStore.",
+      "design": {
+        "implementation": "Thin wrapper around orchestrator/message_store.py:200 (existing in-memory MessageStore class). The MessageBus ABC's surface is the six methods MessageStore already implements: add_message, get_messages, get_messages_with_meta, get_latest_id, get_status, clear (orchestrator/message_store.py:224, 253, 315, 478, 489, 505). Promoting MessageStore to a named ABC is a renaming refactor.",
+        "wait_loop_semantics": "Existing MessageStore.get_messages already supports the wait + wait_for_types blocking primitive (orchestrator/message_store.py:253). InProcessMessageBus inherits this for free. No new event-loop integration is needed for the spike — the BRC consensus-wait pattern (egg-orch message wait-loop) already works against an in-memory MessageStore.",
+        "thread_safety": "In-memory MessageStore is already thread-safe (existing tests confirm). The Claude-Code-substrate orchestrator runs in-process to the parent Claude Code session, so the bus is touched only by the orchestrator main thread + the ThreadPoolExecutor it owns — no IPC."
+      },
+      "scope_for_spike": "Lift the existing in-memory MessageStore (no behavior changes) behind a named MessageBus ABC. Wire it into Substrate.bus.",
+      "decision_alignment": "Implicit in cq-1 (orchestrator-as-bus per refine analysis); reuses existing primitive"
+    },
+    {
+      "component": "egg_orchestrator/policy/pretooluse_hook.py (NEW) + plugins/sdlc/hooks/pretooluse_policy.sh (NEW)",
+      "purpose": "PolicyEnforcer ABC + ClaudeCode-side concrete impl that calls a PreToolUse hook script. The hook script invokes shared/egg_restrictions/patterns.py and refuses Write/Edit/Bash on blocked paths.",
+      "design": {
+        "abc": "PolicyEnforcer with one method: validate(role: AgentRole, action: ToolAction, target: str) -> PolicyVerdict, where ToolAction is one of {WRITE, EDIT, BASH_GIT_PUSH, BASH_GH_PR_CREATE, ...} and PolicyVerdict is {ALLOW, DENY (reason)}.",
+        "k3s_impl": "Existing gateway/agent_restrictions.py:58 partition_files_by_role wrapping is already a PolicyEnforcer in everything but name. K3sPolicyEnforcer is a thin adapter — same logic, called from the gateway HTTP boundary as today.",
+        "claude_code_impl": "PreToolUseHookPolicy registers a PreToolUse hook in .claude/settings.json (skill-installed). The hook script (plugins/sdlc/hooks/pretooluse_policy.sh, or .py) reads the proposed tool call from stdin, extracts (role, action, target), calls into the same shared/egg_restrictions/patterns.py::AgentFilePattern.can_write() (shared/egg_restrictions/patterns.py:57), and exits 0 (allow) or 1 (deny) with a stderr message that surfaces in the Claude Code UI. Single source of truth preserved: the hook and the gateway both import the same patterns module.",
+        "scope_in_spike": "Hook script + .claude/settings.json registration template that the sdlc skill installs. The spike enforces Write/Edit only; Bash interception (git push, gh pr create) is in the same module but the spike doesn't exercise those paths (refine phase, refiner role writes .egg-state/drafts/ only)."
+      },
+      "decision_alignment": "cq-6 → PreToolUse hooks in .claude/settings.json"
+    },
+    {
+      "component": "egg_orchestrator/worktrees/local_worktree_manager.py (NEW)",
+      "purpose": "WorktreeManager ABC + filesystem-native implementation that ports gateway/worktree_manager.py to a substrate-agnostic shape.",
+      "design": {
+        "abc": "WorktreeManager with create_worktree(pipeline_id, role, slice_id=None, base_branch=...) -> Path, delete_worktree(path) -> None. Mirrors the existing gateway/worktree_manager.py public surface (create_worktrees / delete_worktrees, see gateway/worktree_manager.py:164+).",
+        "directory_layout": "<EGG_WORKTREE_BASE_DIR>/<pipeline_id>-<slice_id>-<role>/<repo_name>/ — same layout as today (orchestrator/kubernetes_spawner.py:65, gateway/worktree_manager.py:49). The default base is ~/.egg-worktrees on the user's filesystem (no k8s persistent volume).",
+        "concrete_impl": "LocalWorktreeManager uses git CLI (subprocess) to run `git worktree add -b <branch> <path>` and `git worktree remove <path>`. No HTTP, no k8s API. The existing gateway code is mostly portable — extract into shared/.",
+        "credentials": "No credential injection in the worktree path — the user's local git config holds the GitHub token (or uses gh CLI auth)."
+      },
+      "scope_for_spike": "ABC + LocalWorktreeManager class. Both substrates use it (the gateway-side k3s path eventually delegates here too, but for the spike the k3s substrate keeps its existing gateway worktree code unchanged).",
+      "decision_alignment": "cq-5 → port egg's WORKTREE_BASE_DIR model"
+    },
+    {
+      "component": "egg_orchestrator/hitl/heredoc_surface.py (NEW)",
+      "purpose": "HITLSurface ABC + heredoc-style generator implementation that yields HITLDecision objects to the parent skill, which renders them via AskUserQuestion and feeds answers back.",
+      "design": {
+        "abc": "HITLSurface with pause_for_decision(question, options) -> HITLDecision. The orchestrator's add_decision call (orchestrator/models.py:1106) creates the decision; the HITLSurface implementation yields it.",
+        "heredoc_impl": "HeredocHITLSurface is a Python coroutine/generator. The skill's outer Python loop drives the orchestrator: each yielded HITLDecision is rendered by AskUserQuestion (the parent Claude Code session's tool, not an agent tool); the user answer is sent back into the coroutine via .send() and resolved via Pipeline.resolve_decision (orchestrator/models.py:1130).",
+        "k3s_impl": "K3sHITLSurface is the existing MCP provide_input path — the orchestrator's HTTP endpoint polls for resolution and agents call provide_input via the gateway (orchestrator/mcp_tools.py:2099 _handle_provide_input). No code change for k3s.",
+        "scope_in_spike": "The refiner role on a fresh issue usually emits ≥1 HITL decision (the substrate analysis already issued cq-1..cq-11 + feedback-1). The spike must exercise at least one round-trip through HeredocHITLSurface before the refiner completes."
+      },
+      "decision_alignment": "cq-7 → Heredoc-style synchronous: orchestrator yields HITLDecision objects; skill renders via AskUserQuestion"
+    },
+    {
+      "component": "plugins/sdlc/ (NEW marketplace plugin)",
+      "purpose": "Thin Claude Code skill entry point that boots the in-process orchestrator with EGG_SUBSTRATE=claude-code.",
+      "contents": {
+        ".claude-plugin/plugin.json": "Manifest with name='sdlc', description, version='0.1.0', and a pip dependency declaration ('egg>=X.Y.Z' — exact pin TBD by tester). Plugin metadata declares the pip dep per cq-8; install docs add a pre-flight `pip install egg` step.",
+        "SKILL.md": "Skill instructions: parses the user's input (issue number or PR), constructs a Pipeline object, calls orchestrator.run_phase() in a loop, renders HITLDecision yields via AskUserQuestion, surfaces final status.",
+        "commands/sdlc.md": "Slash-command entry: /sdlc <issue-number> launches the full pipeline; /sdlc-phase <issue> <phase> runs a single phase.",
+        "hooks/pretooluse_policy.sh": "PreToolUse hook script (see policy component above).",
+        "agents/": "Empty in the spike — the orchestrator uses build_system_prompt(sources) to assemble per-role prompts dynamically rather than per-role markdown files. (Existing plugins/refine-plan/skills/refine-plan/agents/refiner.md becomes a PromptSource the orchestrator loads, not a Claude Code subagent definition.)"
+      },
+      "scope_for_spike": "Entry-point + slash command + PreToolUse hook. The skill imports egg_orchestrator and calls a new boot helper that returns a Substrate; passes that into Pipeline construction.",
+      "decision_alignment": "cq-8 → plugin.json declares pip dependencies (not vendored, not shipped as wheels)"
+    },
+    {
+      "component": "integration_tests/regression/conftest.py (EXTEND)",
+      "purpose": "Add `substrate` parametrize fixture so the existing regression tests can run on both k3s and claude-code substrates.",
+      "design": {
+        "fixture": "@pytest.fixture(params=['k3s', 'claude-code']) def substrate(request): ... — returns a Substrate object the test uses to construct the orchestrator. Tests that are k3s-specific (e.g. test_live_pod_guard.py) are decorated with @pytest.mark.skipif(substrate == 'claude-code', reason='requires k8s primitive') at the function level.",
+        "scope": "Only one test gets parametrized in the spike (test_brc_single_cycle.py — the simplest refine-phase round-trip). Other tests remain k3s-only until follow-up issues parametrize them. CI runs both dimensions; matrix failures block merge.",
+        "spike_test_path": "test_brc_single_cycle.py — refiner + reviewer_refine, refine phase, no slice-DAG, no concurrent dispatch. The substrate=claude-code branch uses ClaudeCodeSpawner with a stub `agent_tool_callable` that returns a fixed AgentResult (so CI doesn't actually require Anthropic creds)."
+      },
+      "decision_alignment": "cq-3 → extend integration_tests/regression/ with substrate parameter"
+    },
+    {
+      "component": "docs/architecture/substrate-swap-adr.md (NEW)",
+      "purpose": "Architecture Decision Record documenting the substrate-swap interfaces, the spike scope, and the deferred work.",
+      "contents_outline": "ADR header (status: Accepted), Context (issue body summary + HITL resolutions table), Decision (Option A, spike-first), Consequences (k3s remains co-equal per cq-9; Python install footprint per cq-8; SendMessage gating documented as 'orchestrator-as-bus sidesteps for BRC correctness; mid-cycle revision is a quality booster only'), Alternatives Considered (Options B/C/D from refine analysis), Follow-up issues table (multi-role spawner, multi-phase parametrization, PreToolUse Bash interception, EggHarnessSpawner, conformance matrix expansion, k3s deprecation review)."
+    }
+  ],
+  "execution_context_and_primitive_audit": {
+    "preamble": "Per #2594, every runtime primitive cited here is classified on two orthogonal axes: (a) purpose — unit-test-only vs deployed-pod / production code; (b) execution context — in-sandbox-agent vs trusted-CI-runner vs parent-claude-code-session (new context introduced by this substrate). This is the surface most likely to attract reviewer NACKs.",
+    "primitives": [
+      {
+        "primitive": "AgentSpawner ABC + SpawnRequest/AgentResult",
+        "evidence": "egg_orchestrator/spawner.py (NEW); replaces today's untyped SpawnFn = Callable[..., Any] at orchestrator/concurrent_executor.py:52",
+        "purpose": "production code (deployed-pod for k3s substrate; parent-claude-code-session for claude-code substrate)",
+        "execution_context": "k3s substrate: trusted-CI-runner constructs KubernetesSpawner via create_concurrent_spawn_fn (orchestrator/kubernetes_spawner.py:1564), in-sandbox-agent never sees it (agent runs in its own pod). claude-code substrate: parent-claude-code-session constructs ClaudeCodeSpawner; in-sandbox-agent is now 'spawned subagent', not a k8s pod."
+      },
+      {
+        "primitive": "MessageBus ABC + InProcessMessageBus",
+        "evidence": "Promotion of in-memory MessageStore at orchestrator/message_store.py:200; the get_message_store factory at orchestrator/message_store.py:531 selects backend via EGG_MESSAGE_STORE_BACKEND env var",
+        "purpose": "production code (both substrates)",
+        "execution_context": "k3s substrate: deployed-pod RedisMessageStore at orchestrator/redis_message_store.py:107. claude-code substrate: parent-claude-code-session in-memory MessageStore. trusted-CI-runner tests already use the in-memory backend via EGG_MESSAGE_STORE_BACKEND=memory."
+      },
+      {
+        "primitive": "PolicyEnforcer ABC + PreToolUseHookPolicy",
+        "evidence": "Hook script at plugins/sdlc/hooks/pretooluse_policy.sh (NEW); policy logic imported from shared/egg_restrictions/patterns.py:57 (AgentFilePattern.can_write); existing call site at sandbox/egg_agent_tools/handlers/restrictions.py:70 (check_file_restriction) and gateway/agent_restrictions.py:58 (partition_files_by_role) confirm pure-Python importability",
+        "purpose": "production code (gateway-side: deployed-pod; hook-side: parent-claude-code-session)",
+        "execution_context": "k3s substrate: deployed-pod gateway/gateway.py /api/v1/git/push (line 1097) calls check_phase_file_restrictions (gateway/phase_filter.py:1036). claude-code substrate: PreToolUse hook in .claude/settings.json runs in parent-claude-code-session before Write/Edit/Bash; same policy module imported. NOTE: hook executes in the user's local interpreter, not in a sandbox — the trust boundary moves from 'gateway sidecar in-cluster' to 'user's local Claude Code session'. The substrate-swap ADR must document this trust-context shift."
+      },
+      {
+        "primitive": "WorktreeManager ABC + LocalWorktreeManager",
+        "evidence": "egg_orchestrator/worktrees/local_worktree_manager.py (NEW), porting gateway/worktree_manager.py:49 (WORKTREE_BASE_DIR) + gateway/worktree_manager.py:164 (worktree create/delete public surface). Directory layout: <base>/<pipeline_id>-<slice_id>-<role>/<repo_name>/",
+        "purpose": "production code (both substrates)",
+        "execution_context": "k3s substrate: deployed-pod gateway runs worktree CLI inside the gateway container, persisted on PV. claude-code substrate: parent-claude-code-session runs `git worktree add/remove` on the user's local filesystem at ~/.egg-worktrees/. trusted-CI-runner tests stub the WorktreeManager with a tempfile.TemporaryDirectory."
+      },
+      {
+        "primitive": "HITLSurface ABC + HeredocHITLSurface",
+        "evidence": "egg_orchestrator/hitl/heredoc_surface.py (NEW). Existing pause point: orchestrator/models.py:1106 Pipeline.add_decision; resume: orchestrator/models.py:1130 Pipeline.resolve_decision; k3s-substrate resume path: orchestrator/mcp_tools.py:2099 _handle_provide_input",
+        "purpose": "production code (both substrates)",
+        "execution_context": "k3s substrate: deployed-pod orchestrator's HTTP endpoint polls for resolution; in-sandbox-agent calls provide_input MCP verb. claude-code substrate: parent-claude-code-session orchestrator yields HITLDecision to the skill loop; AskUserQuestion is the parent-session tool (not available to subagents); the user-typed reply goes back into the generator via .send(). The skill, not the subagent, holds the AskUserQuestion authority — this is the key architectural shift."
+      },
+      {
+        "primitive": "Agent tool with isolation='worktree' (Claude Code native primitive)",
+        "evidence": "Claude Code subagent dispatch is the system tool the parent session uses; existing skill calls it without isolation today (plugins/refine-plan/skills/refine-plan/SKILL.md:66 'Agent call with subagent_type: \"general-purpose\"'). The spike adds isolation='worktree' for git isolation; the spawner pre-creates the worktree (cq-5) and passes the path through the subagent's prompt header so the subagent knows its CWD.",
+        "purpose": "production code (claude-code substrate only)",
+        "execution_context": "parent-claude-code-session only. NOTE: this primitive is gated on Claude Code itself, not on any developer-mode flag (per feedback-1 Q3, the substrate must work on stable Claude Code). Verify before merging that isolation='worktree' is in stable Claude Code's Agent tool surface, not a dev-mode preview."
+      },
+      {
+        "primitive": "EGG_SUBSTRATE env var",
+        "evidence": "New env var; default 'k3s' for back-compat. Read at egg_orchestrator/substrate.py:get_substrate() (NEW). Existing precedent: EGG_HARNESS at shared/egg_agent/client.py:104, EGG_MESSAGE_STORE_BACKEND at orchestrator/message_store.py:552.",
+        "purpose": "production code (both substrates) + trusted-CI-runner (CI matrix dimension)",
+        "execution_context": "All three contexts. trusted-CI-runner pytest reads it via the substrate fixture (conftest.py change). parent-claude-code-session sets it to 'claude-code' at skill boot. deployed-pod orchestrator container defaults it to 'k3s'."
+      },
+      {
+        "primitive": "shared/egg_restrictions/patterns.py::AgentFilePattern.can_write(file_path)",
+        "evidence": "shared/egg_restrictions/patterns.py:57; pure-Python module; imports json, logging, os, posixpath, collections.abc.Callable, dataclasses, egg_contracts.agent_roles. NO HTTP, k8s, or external services.",
+        "purpose": "production code; deployed-pod (k3s gateway), in-sandbox-agent (MCP check_file_restriction), and parent-claude-code-session (PreToolUse hook) all import it.",
+        "execution_context": "all three. Confirms single-source-of-truth across the substrate boundary."
+      },
+      {
+        "primitive": "Contract schema (shared/egg_contracts/models.py:759, schemaVersion 1.1)",
+        "evidence": "Pydantic BaseModel at shared/egg_contracts/models.py:759; schemaVersion at line 762; top-level fields: issue (line 774), current_phase (line 785), slices (line 798), decisions (line 808), agent_executions (line 833)",
+        "purpose": "production code (both substrates use unchanged); test fixtures also construct Contract instances",
+        "execution_context": "all three contexts read/write to .egg-state/contracts/<id>.json. No substrate coupling."
+      },
+      {
+        "primitive": "validate_invariants(...) BRC invariants INV-1..INV-6",
+        "evidence": "orchestrator/action_guards.py:631; INV-1 (line 701, no-confirmed-with-unresolved-NACK), INV-2 (line 718, no-confirmed-with-stale-ACK), INV-3 (line 721, no-confirmed-with-unreviewed-changes), INV-4 (line 669, no-confirmed-with-zero-proposal-producer), INV-5 (line 652, is_fully_acked consistency), INV-6 (line 753, ack_commit_sha consistency)",
+        "purpose": "production code (both substrates use unchanged); validate_invariants is called by the orchestrator before CONSENSUS_CONFIRMED is emitted",
+        "execution_context": "in-process to whatever runs the orchestrator. INV-6 (line 753) requires the spawner to return commit_sha — that's why AgentResult.commit_sha is a first-class field above, not optional."
+      },
+      {
+        "primitive": "ConcurrentPhaseExecutor (orchestrator/concurrent_executor.py:137) + ThreadPoolExecutor (line 469)",
+        "evidence": "Class constructor at orchestrator/concurrent_executor.py:137; ThreadPoolExecutor dispatch at line 469; SpawnFn type alias at line 52",
+        "purpose": "production code (both substrates use unchanged)",
+        "execution_context": "in-process to the orchestrator. Spike does NOT change concurrency model — just substitutes the SpawnFn closure to invoke ClaudeCodeSpawner instead of KubernetesSpawner."
+      },
+      {
+        "primitive": "build_system_prompt(sources) (shared/egg_harness/prompt.py:24)",
+        "evidence": "Function signature `def build_system_prompt(sources: list[PromptSource]) -> str` at shared/egg_harness/prompt.py:24; PromptSource = str | Callable[[], str] at line 16. Joins with `\\n\\n---\\n\\n`.",
+        "purpose": "production code (both substrates depend on it for depth closure per #2622); also used in unit tests at shared/tests/test_egg_harness/test_prompt.py:9",
+        "execution_context": "parent-claude-code-session calls it before invoking the Agent tool (subagent receives the full assembled prompt in its prompt arg); deployed-pod calls it inside the orchestrator before issuing the agent job. Identical call shape — the depth gap closes structurally."
+      }
+    ]
+  },
+  "scope_explicitly_in_spike": [
+    "AgentSpawner ABC + ClaudeCodeSpawner (one role: refiner; one phase: refine)",
+    "MessageBus ABC promotion (no behavioral change; just naming)",
+    "PolicyEnforcer ABC + PreToolUseHookPolicy (Write/Edit only; Bash intercept is in the same module but spike doesn't exercise)",
+    "WorktreeManager ABC + LocalWorktreeManager (basic create/delete)",
+    "HITLSurface ABC + HeredocHITLSurface (round-trip exercised by cq-1..cq-11 style prompts)",
+    "Substrate registry + EGG_SUBSTRATE env var",
+    "plugins/sdlc/ marketplace skill entry point (slash command + hook + plugin.json)",
+    "One integration test parametrized: test_brc_single_cycle.py (refine phase only)",
+    "ADR documenting the design + deferred follow-ups"
+  ],
+  "scope_explicitly_deferred_to_followups": [
+    "Multi-role concurrent dispatch on the claude-code substrate (parallel reviewers within a phase). Follow-up issue must address subagent ceiling per the issue body's 'concurrency limits' constraint and validate with a 4-role plan phase.",
+    "Plan/implement/pr phases on the claude-code substrate. Each becomes a follow-up: plan phase first (since cq-2 = all phases), then implement (the heaviest BRC surface — coder/tester/documenter producers + reviewer_code/reviewer_contract reviewers), then pr (gh CLI through the policy-enforced Bash path).",
+    "PreToolUse Bash interception (git push, gh pr create, gh execute). The hook script's policy module already covers these; the spike doesn't exercise the call paths because the refine phase writes only .egg-state/drafts/.",
+    "EggHarnessSpawner (non-Claude-Code subprocess-driven third implementation, per feedback-1 Q4). Constructor-shape compatibility is preserved in this spike; an actual implementation is its own slice.",
+    "Substrate-parametrize the remaining ~9 regression tests in integration_tests/regression/. cq-3's CI-matrix vision is fully realized only when all portable tests run on both substrates.",
+    "Latency / throughput budget characterization (feedback-1 Q2: operator deferred setting a budget until empirical data exists post-spike). Add to the spike's PR summary: measured refiner-phase wall-clock on the claude-code substrate vs an equivalent k3s run.",
+    "Telemetry / privacy review (feedback-1 Q6). Document checkpoint location (~/.egg-state/<pipeline_id>/) in install docs; add an egg-state prune verb. Tracked in a separate doc PR.",
+    "Slice-DAG concurrency (sibling slices in a wave running in parallel). The spike uses N=1 slice; the parallel-slices invariant set lives at orchestrator/concurrent_executor.py:469 and ports unchanged but isn't exercised.",
+    "Overseer thread / in-process health checks. Egg's overseer pod (egg_overseer/) ports to an in-process thread for the claude-code substrate; punted from the spike to keep the skeleton walking.",
+    "k3s deprecation review (cq-9 = leave k3s indefinitely; no deprecation work in this issue family)"
+  ],
+  "risks_for_risk_analyst_to_pick_up": [
+    "Trust-boundary shift: PreToolUse hooks run in the user's local Claude Code interpreter, not in a sandbox. A malicious agent that bypasses the prompt-time restrictions reaches Write/Bash directly — the hook is the only enforcement. The k3s gateway has defense-in-depth (NetworkPolicy + sidecar). The claude-code substrate relies on the hook's correctness and the user's Claude Code install integrity. Document mitigation in ADR.",
+    "Agent tool subagent ceiling. The spike runs N=1 so this doesn't bite, but the follow-up that adds parallel reviewer dispatch must measure whether the ThreadPoolExecutor pattern at orchestrator/concurrent_executor.py:469 oversubscribes Claude Code's subagent slot. Mitigation: cap max_concurrent per substrate at substrate-build time.",
+    "Subagent context window vs egg's max_turns=1000 (docs/guides/concurrent-execution.md:97). For the refiner role on a substantive issue (#2623 itself is a good example), the parent's analysis prompt + the issue body + the codebase reads can approach context limits. cq-10 (hybrid checkpoint+fork) covers the medium term but the spike has no checkpoint infrastructure on the claude-code substrate yet — if the refiner exhausts context, it crashes. Mitigation: spike's exit criteria include 'completes on at least one substantive issue without context exhaustion'.",
+    "isolation='worktree' availability: the design assumes stable Claude Code exposes this on the Agent tool. If it's developer-mode-only, the spike falls back to the spawner pre-creating the worktree and not using the Agent tool's isolation flag (effectively the design's behavior anyway because cq-5 chose the WORKTREE_BASE_DIR port). Mitigation: spike's smoke test should verify the Agent tool call shape on stable CC before declaring done.",
+    "EggContract schemaVersion 1.1 already in flight (shared/egg_contracts/models.py:762). Any schema bump landed in parallel issues during the spike's review cycle may require a rebase. Mitigation: rebase aggressively; treat schema-bump rebase as a coder-task in the slice.",
+    "RedisMessageStore migration: the k3s substrate's RedisMessageStore at orchestrator/redis_message_store.py:107 has subtle wait-loop and stream-ID semantics that the in-memory MessageStore matches in tests but may diverge in production (e.g. consumer-group semantics). The spike doesn't touch RedisMessageStore but the AgentSpawner refactor lands as one PR with the bus rename — risk that the refactor touches Redis paths inadvertently. Mitigation: keep the rename mechanical; do not refactor Redis logic in the same PR.",
+    "Plug-in installation footprint per cq-8: 'pip install egg' is a pre-flight step that the marketplace install cannot enforce. Users who skip it get cryptic ImportError messages at /sdlc invocation time. Mitigation: the skill's bootstrap script does an importlib.util.find_spec check and prints an actionable install instruction on miss."
+  ],
+  "tasks_for_task_planner_to_pick_up": [
+    {
+      "suggested_task_id": "task-1",
+      "title": "Introduce AgentSpawner ABC + SpawnRequest/AgentResult dataclasses; refactor existing KubernetesSpawner to satisfy the interface (adapter at create_concurrent_spawn_fn)",
+      "files_likely": ["egg_orchestrator/spawner.py (NEW)", "orchestrator/concurrent_executor.py (edit: replace SpawnFn at line 52 with AgentSpawner)", "orchestrator/kubernetes_spawner.py (edit: create_concurrent_spawn_fn at line 1564 returns an AgentSpawner instance)"],
+      "acceptance_criteria": "All existing tests pass; orchestrator.spawn_fn becomes AgentSpawner.spawn; KubernetesSpawner test fixtures construct a real or stub AgentSpawner."
+    },
+    {
+      "suggested_task_id": "task-2",
+      "title": "Promote orchestrator/message_store.py:200 MessageStore to a named MessageBus ABC; add a substrate registry that picks MessageStore vs RedisMessageStore via EGG_SUBSTRATE",
+      "files_likely": ["egg_orchestrator/substrate.py (NEW)", "orchestrator/message_store.py (edit: subclass relationship, keep behavior)", "orchestrator/redis_message_store.py (edit: declare it implements MessageBus)"]
+    },
+    {
+      "suggested_task_id": "task-3",
+      "title": "Implement ClaudeCodeSpawner (orchestrator/spawners/claude_code_spawner.py); pre-creates worktree via LocalWorktreeManager, calls Agent tool, captures stdout + commit_sha",
+      "files_likely": ["egg_orchestrator/spawners/claude_code_spawner.py (NEW)", "tests for it in shared/tests/ or new module"]
+    },
+    {
+      "suggested_task_id": "task-4",
+      "title": "Implement LocalWorktreeManager (port gateway/worktree_manager.py to substrate-agnostic surface)",
+      "files_likely": ["egg_orchestrator/worktrees/local_worktree_manager.py (NEW)", "gateway/worktree_manager.py (refactor: thin wrapper that delegates)"]
+    },
+    {
+      "suggested_task_id": "task-5",
+      "title": "Implement PreToolUseHookPolicy; ship plugins/sdlc/hooks/pretooluse_policy.sh that imports shared/egg_restrictions/patterns.py and refuses Write/Edit on blocked paths",
+      "files_likely": ["egg_orchestrator/policy/pretooluse_hook.py (NEW)", "plugins/sdlc/hooks/pretooluse_policy.sh (NEW)", "plugins/sdlc/.claude/settings.json (NEW: registers the hook)"]
+    },
+    {
+      "suggested_task_id": "task-6",
+      "title": "Implement HeredocHITLSurface (generator-based HITLSurface impl); wire to Pipeline.add_decision / resolve_decision",
+      "files_likely": ["egg_orchestrator/hitl/heredoc_surface.py (NEW)", "orchestrator/models.py (no edit; Pipeline already exposes the right primitives)"]
+    },
+    {
+      "suggested_task_id": "task-7",
+      "title": "Create plugins/sdlc/ marketplace plugin entry point (plugin.json with pip dep, SKILL.md, commands/sdlc.md, hooks/)",
+      "files_likely": ["plugins/sdlc/.claude-plugin/plugin.json (NEW)", "plugins/sdlc/skills/sdlc/SKILL.md (NEW)", "plugins/sdlc/skills/sdlc/commands/sdlc.md (NEW)"]
+    },
+    {
+      "suggested_task_id": "task-8",
+      "title": "Parametrize integration_tests/regression/test_brc_single_cycle.py with substrate fixture; CI matrix runs both substrates",
+      "files_likely": ["integration_tests/regression/conftest.py (edit: add substrate fixture)", "integration_tests/regression/test_brc_single_cycle.py (edit: accept substrate fixture)", "Makefile or CI config (edit: add substrate matrix dimension)"]
+    },
+    {
+      "suggested_task_id": "task-9",
+      "title": "Write substrate-swap ADR at docs/architecture/substrate-swap-adr.md; document deferred work + trust-boundary shift + cq-1..cq-11 resolutions",
+      "files_likely": ["docs/architecture/substrate-swap-adr.md (NEW)"]
+    }
+  ],
+  "evidence_citations_index": {
+    "orchestrator/concurrent_executor.py:52": "SpawnFn type alias (becomes AgentSpawner.spawn)",
+    "orchestrator/concurrent_executor.py:137": "ConcurrentPhaseExecutor constructor",
+    "orchestrator/concurrent_executor.py:469": "ThreadPoolExecutor dispatch",
+    "orchestrator/concurrent_executor.py:504": "_spawn_agent (the call site to AgentSpawner.spawn after refactor)",
+    "orchestrator/kubernetes_spawner.py:65": "WORKTREE_BASE_DIR constant (one of two definitions)",
+    "orchestrator/kubernetes_spawner.py:249": "KubernetesSpawner class",
+    "orchestrator/kubernetes_spawner.py:411": "spawn_agent_job public method",
+    "orchestrator/kubernetes_spawner.py:1564": "create_concurrent_spawn_fn factory (becomes the k3s adapter)",
+    "orchestrator/message_store.py:200": "in-memory MessageStore class (becomes InProcessMessageBus)",
+    "orchestrator/message_store.py:224": "MessageStore.add_message",
+    "orchestrator/message_store.py:253": "MessageStore.get_messages (blocking wait-loop primitive)",
+    "orchestrator/message_store.py:315": "MessageStore.get_messages_with_meta",
+    "orchestrator/message_store.py:478": "MessageStore.get_latest_id",
+    "orchestrator/message_store.py:489": "MessageStore.get_status",
+    "orchestrator/message_store.py:505": "MessageStore.clear",
+    "orchestrator/message_store.py:531": "get_message_store factory (env-var dispatcher)",
+    "orchestrator/message_store.py:552": "EGG_MESSAGE_STORE_BACKEND env var read",
+    "orchestrator/redis_message_store.py:107": "RedisMessageStore class (becomes the k3s MessageBus impl)",
+    "orchestrator/models.py:1106": "Pipeline.add_decision (HITL pause point)",
+    "orchestrator/models.py:1130": "Pipeline.resolve_decision (HITL resume)",
+    "orchestrator/mcp_tools.py:2099": "_handle_provide_input (k3s-substrate HITL resume path)",
+    "orchestrator/action_guards.py:631": "validate_invariants function (BRC consensus correctness)",
+    "orchestrator/action_guards.py:652": "INV-5 is_fully_acked consistency",
+    "orchestrator/action_guards.py:669": "INV-4 no-confirmed-with-zero-proposal-producer",
+    "orchestrator/action_guards.py:701": "INV-1 no-confirmed-with-unresolved-NACK",
+    "orchestrator/action_guards.py:718": "INV-2 no-confirmed-with-stale-ACK",
+    "orchestrator/action_guards.py:721": "INV-3 no-confirmed-with-unreviewed-changes",
+    "orchestrator/action_guards.py:753": "INV-6 ack_commit_sha consistency (requires AgentResult.commit_sha)",
+    "gateway/gateway.py:1097": "/api/v1/git/push route (becomes K3sPolicyEnforcer entry)",
+    "gateway/phase_filter.py:1036": "check_phase_file_restrictions function",
+    "gateway/agent_restrictions.py:58": "partition_files_by_role (gateway-side wrapper of patterns.py)",
+    "gateway/worktree_manager.py:49": "WORKTREE_BASE_DIR (second definition)",
+    "gateway/worktree_manager.py:164": "WorktreeManager class (public surface to port)",
+    "gateway/anthropic_credentials.py:1": "Anthropic credential layer (k3s-substrate; not used in claude-code substrate)",
+    "shared/egg_restrictions/patterns.py:57": "AgentFilePattern.can_write — single source of truth for file-write policy",
+    "shared/egg_restrictions/checker.py:32": "check_agent_file_access entry point",
+    "shared/egg_harness/prompt.py:24": "build_system_prompt — depth-gap closure primitive",
+    "shared/egg_harness/prompt.py:16": "PromptSource = str | Callable[[], str]",
+    "shared/egg_contracts/models.py:759": "Contract Pydantic BaseModel",
+    "shared/egg_contracts/models.py:762": "schemaVersion 1.1",
+    "shared/egg_agent/client.py:104": "EGG_HARNESS env var (precedent for EGG_SUBSTRATE)",
+    "sandbox/egg_agent_tools/handlers/restrictions.py:70": "MCP check_file_restriction handler (proof patterns.py is sandbox-importable)",
+    "sandbox/egg_agent_tools/tools/sdlc.py:256": "MCP tool wrapper for check_file_restriction",
+    "plugins/refine-plan/.claude-plugin/plugin.json:1": "existing marketplace manifest precedent",
+    "plugins/refine-plan/skills/refine-plan/SKILL.md:66": "Agent tool call shape today (subagent_type='general-purpose')",
+    "docs/guides/concurrent-execution.md:97": "max_turns: 1000 target (context-window constraint)",
+    "docs/guides/harness-configuration.md": "harness modes documentation (claude-sdk / claude-code / egg)",
+    "docs/architecture/integration-test-trust-boundary.md": "trust-boundary doc (in-sandbox-agent / trusted-CI-runner / human-operator — the substrate swap adds parent-claude-code-session)"
+  },
+  "questions_for_followup_iterations": [
+    "Is `isolation='worktree'` on Claude Code's Agent tool surface available on stable CC, or developer-mode-only? Spike's smoke test must verify; if not stable, ClaudeCodeSpawner falls back to caller-managed worktrees with no flag (the design's cq-5 path handles this either way).",
+    "Does the operator want the EggHarnessSpawner (non-CC subprocess-driven third implementation per feedback-1 Q4) in the spike's PR family, or strictly a follow-up? Current plan: follow-up; the AgentSpawner ABC just preserves shape compatibility.",
+    "Should `EGG_SUBSTRATE` default to 'claude-code' once the spike merges, or stay 'k3s' until k3s deprecation review (cq-9 = leave k3s indefinitely)? Current plan: stay 'k3s' to preserve back-compat; users opt-in to claude-code via the /sdlc skill which sets the env var at boot."
+  ]
+}

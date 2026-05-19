@@ -511,13 +511,40 @@ class ConcurrentPhaseExecutor:
 
         Works with both ContainerSpawner.create_concurrent_spawn_fn() and
         KubernetesSpawner.create_concurrent_spawn_fn().
+
+        Substrate-swap seam (#2623): when ``EGG_SUBSTRATE=claude-code``
+        is set, this method routes through
+        ``orchestrator.substrate.select_substrate(...).spawner.spawn(...)``
+        instead of calling ``self.spawn_fn`` directly. All other values
+        (unset, ``"k3s"``, anything else) preserve the legacy path
+        verbatim so existing k3s production deployments are unaffected.
+
+        Why this is claude-code-only (reviewer v1 blocker #1): the
+        ``K3sSpawnerAdapter`` shim does NOT yet preserve slice-aware
+        branch selection or the BRC consensus wrapper command, so any
+        operator who set ``EGG_SUBSTRATE=k3s`` to be explicit would
+        silently lose those. The follow-up issue extends the adapter
+        to forward both, at which point the seam can also be gated on
+        ``"k3s"``. Until then, the legacy path is the only k3s path.
         """
+        import os
+
         branch = self.get_worktree_branch(role, slice_id=self._slice_id)
         env = self.get_agent_env(role)
 
         command: list[str] | None = None
         if prompt_text:
             command = build_consensus_wrapped_command(prompt_text)
+
+        substrate_name = (os.environ.get("EGG_SUBSTRATE") or "").lower()
+        if substrate_name == "claude-code":
+            return self._spawn_agent_via_substrate(
+                role=role,
+                branch=branch,
+                env=env,
+                command=command,
+                prompt_text=prompt_text,
+            )
 
         result = self.spawn_fn(
             role=role,
@@ -538,6 +565,135 @@ class ConcurrentPhaseExecutor:
             started_at=datetime.now(UTC),
             slice_id=self._slice_id,
         )
+
+    def _spawn_agent_via_substrate(
+        self,
+        *,
+        role: AgentRole,
+        branch: str | None,
+        env: dict[str, str],
+        command: list[str] | None,
+        prompt_text: str,
+    ) -> AgentExecution:
+        """Dispatch a spawn through the ``EGG_SUBSTRATE`` bundle.
+
+        Walking-skeleton seam for issue #2623. The substrate bundle's
+        ``spawner.spawn(role, prompt, env, worktree)`` returns an
+        ``AgentResult`` (not a ``SpawnedContainer``); we synthesise
+        an ``AgentExecution`` from it.
+
+        Under ``EGG_SUBSTRATE=k3s`` the bundle returns the
+        ``K3sSpawnerAdapter`` shim wrapping ``self.spawn_fn``, so the
+        legacy spawn path still runs — this method is the rewire.
+        Under ``EGG_SUBSTRATE=claude-code`` the bundle returns the
+        ``ClaudeCodeSpawner`` and the legacy ``spawn_fn`` is bypassed.
+        """
+        import os
+
+        try:
+            from orchestrator.substrate import SubstrateBundle, select_substrate
+        except ImportError:
+            # Fallback for environments where orchestrator/ is on sys.path
+            # directly rather than as a package (e.g. the sandbox container).
+            from substrate import (  # type: ignore[no-redef, import-untyped]
+                SubstrateBundle,
+                select_substrate,
+            )
+
+        bundle: SubstrateBundle = select_substrate(
+            os.environ,
+            k3s_legacy_spawn_fn=self.spawn_fn,
+        )
+
+        # The substrate path uses an in-process worktree handle; the
+        # legacy k3s path manages the gateway-side worktree itself.
+        # When the bundle's worktree manager is the in-process
+        # LocalWorktreeManager (claude-code), allocate the worktree
+        # before spawning. Otherwise pass a placeholder path — the
+        # K3sSpawnerAdapter doesn't read it for spawn dispatch.
+        worktree_path: Path
+        worktree_created = False
+        try:
+            worktree_path = bundle.worktrees.create(
+                self.pipeline.id,
+                role,
+            )
+            worktree_created = True
+        except (NotImplementedError, AttributeError):  # fmt: skip
+            worktree_path = Path(env.get("EGG_WORKTREE_ROOT", "."))
+
+        # reviewer_concurrency v1 blocker #5: wrap the spawn so an
+        # exception (kubectl unreachable, harness import failure,
+        # etc.) lands in handle_agent_failure-equivalent territory
+        # rather than propagating up and bypassing the executor's
+        # recovery path.
+        try:
+            result = bundle.spawner.spawn(role, prompt_text, env, worktree_path)
+        except Exception as exc:  # noqa: BLE001
+            # reviewer v1 blocker #3: scope teardown to just this
+            # role's worktree. ``tear_down(pipeline_id)`` is pipeline-
+            # scoped and would wipe peer worktrees mid-spawn under
+            # concurrent dispatch.
+            if worktree_created:
+                self._teardown_role_worktree(bundle, role)
+            logger.exception("substrate spawn failed", role=str(role), error=str(exc))
+            return AgentExecution(
+                role=role,
+                status=AgentExecutionStatus.FAILED,
+                container_id=f"substrate-{bundle.name}-{role.value if hasattr(role, 'value') else role}",
+                started_at=datetime.now(UTC),
+                error=f"substrate spawn raised: {exc!r}",
+                slice_id=self._slice_id,
+            )
+
+        # Synthesise an AgentExecution. The substrate path runs
+        # synchronously, so the spawn returns AFTER the agent
+        # finishes — we mark it COMPLETE on success / FAILED on
+        # non-zero exit. The caller's monitor loop then sees
+        # AgentExecutionStatus.COMPLETE immediately and the worktree
+        # can be torn down at phase teardown
+        # (reviewer_concurrency v1 blocker #3 — the worktree's
+        # lifecycle is bound to the phase, NOT the spawn function).
+        status = (
+            AgentExecutionStatus.COMPLETE
+            if (getattr(result, "exit_code", 0) == 0)
+            else AgentExecutionStatus.FAILED
+        )
+        if status == AgentExecutionStatus.FAILED and worktree_created:
+            # On a non-zero spawn, tear down just this role's worktree
+            # (reviewer v1 blocker #3 — pipeline-scoped teardown would
+            # wipe peer worktrees mid-spawn).
+            self._teardown_role_worktree(bundle, role)
+
+        return AgentExecution(
+            role=role,
+            status=status,
+            container_id=f"substrate-{bundle.name}-{role.value if hasattr(role, 'value') else role}",
+            started_at=datetime.now(UTC),
+            slice_id=self._slice_id,
+        )
+
+    def _teardown_role_worktree(self, bundle: Any, role: AgentRole) -> None:
+        """Tear down a single (pipeline, role) worktree on the substrate bundle.
+
+        Reviewer v1 blocker #3: use the worktree manager's per-role
+        ``remove(pipeline_id, role)`` API when available so the
+        failure path for one role's spawn does not wipe peer
+        worktrees. Falls back to the pipeline-scoped ``tear_down``
+        only for managers that don't expose the per-role variant
+        (e.g., legacy stubs).
+        """
+        worktrees = getattr(bundle, "worktrees", None)
+        if worktrees is None:
+            return
+        remove_one = getattr(worktrees, "remove", None)
+        try:
+            if callable(remove_one):
+                remove_one(self.pipeline.id, role)
+            else:
+                worktrees.tear_down(self.pipeline.id)
+        except Exception:  # noqa: BLE001 — defensive
+            pass
 
     def handle_agent_failure(self, role: str, error: str) -> dict[str, Any]:
         """Handle an agent failure during concurrent execution.
