@@ -767,21 +767,22 @@ class TestPushWorktreeBranchReconcile:
             statefile_path.write_text('{"v": 2}\n')
 
             # Sanity: the precondition that broke the pre-fix rebase is
-            # an unstaged modification to a *tracked* path (porcelain
-            # code starting with ``M`` or `` M``), not an untracked one
-            # (``??``).  A ``??``-only worktree would not reproduce the
-            # bug.
+            # specifically an *unstaged* modification to a tracked path
+            # (porcelain code `` M``).  Staged-only (``M ``) would trip
+            # a different error (``Your index contains uncommitted
+            # changes``) and would not exercise the ``--autostash`` code
+            # path; untracked (``??``) would not refuse the rebase at
+            # all.  Pin to `` M`` so a future setup drift cannot silently
+            # regress this test back to not exercising the bug.
             status = subprocess.run(
                 ["git", "-C", str(work), "status", "--porcelain"],
                 capture_output=True,
                 text=True,
                 check=True,
             )
-            assert any(
-                line.startswith(("M ", " M", "MM")) for line in status.stdout.splitlines()
-            ), (
-                f"[{case_label}] precondition failed: worktree should have a "
-                f"modified tracked file, got: {status.stdout!r}"
+            assert any(line.startswith(" M") for line in status.stdout.splitlines()), (
+                f"[{case_label}] precondition failed: worktree should have an "
+                f"unstaged modification to a tracked file, got: {status.stdout!r}"
             )
 
             git_base = [
