@@ -1040,6 +1040,15 @@ def _sleep_or_shutdown(interval: float, shutdown: threading.Event) -> bool:
     return shutdown.wait(interval)
 
 
+#: Lowercased answer strings the operator can submit to indicate "abort
+#: the run, do not advance the generator past this yield." Single source
+#: of truth shared with the flattened bridge driver
+#: (``plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py``) and the
+#: slice-3 daemon variant, so all three surfaces agree on what counts as
+#: abort without drifting independently.
+ABORT_ANSWERS: frozenset[str] = frozenset({"abort", "stop", "cancel"})
+
+
 def _answer_is_abort(answer: Any) -> bool:
     """Return True if a HITL ``answer`` indicates the operator aborted.
 
@@ -1051,7 +1060,7 @@ def _answer_is_abort(answer: Any) -> bool:
         return False
     if isinstance(answer, dict):
         answer = answer.get("selected") or answer.get("value")
-    return isinstance(answer, str) and answer.lower() in {"abort", "stop", "cancel"}
+    return isinstance(answer, str) and answer.lower() in ABORT_ANSWERS
 
 
 def _answer_continues_past_refine(answer: Any) -> bool:
@@ -1084,6 +1093,7 @@ class _PreflightAborted(RuntimeError):
 
 # Re-exported for tests that want a fast tick budget.
 __all__ = [
+    "ABORT_ANSWERS",
     "_BRC_REVIEW_INTERVAL",
     "_BUS_TICK_INTERVAL",
     "_HEARTBEAT_INTERVAL",

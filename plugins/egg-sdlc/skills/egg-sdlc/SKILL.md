@@ -3,7 +3,7 @@ name: egg-sdlc
 description: "Run the full egg SDLC stack natively in Claude Code (substrate-swap rollout from #2623 → #2717). Target shape: boot the real `egg_orchestrator` in-process, dispatch role subagents via Claude Code's Agent tool, enforce role file-write restrictions via a PreToolUse hook, and render HITL decisions through `AskUserQuestion`. Refine-phase scope landed in slice 1 of the #2717 rollout (refiner + reviewer_refine + reviewer_agent_design); plan-phase scope landed in slice 2 (architect + task_planner + risk_analyst + reviewer_plan). Both phases are driven by the flattened `bin/run_pipeline.py` stage driver that ferries a single `pending_hitl` envelope through `.egg-state/contracts/<id>.json` per skill→Python round-trip. Implement / pr phases land in later slices of the rollout."
 disable-model-invocation: true
 argument-hint: "[issue# | issue-url] [--repo owner/name]"
-allowed-tools: Agent Read AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git -C * remote:*) Bash(git remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(find:*) Bash(python3 *:*) Bash(cat:*) Bash(cp:*)
+allowed-tools: Agent Read AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git -C * remote:*) Bash(git remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(find:*) Bash(python3 plugins/egg-sdlc/skills/egg-sdlc/bin/*:*) Bash(cat:*) Bash(cp:*)
 ---
 
 # egg-sdlc — full egg SDLC stack inside Claude Code
@@ -32,13 +32,13 @@ The skill depends on the egg Python packages. **Until cq-12 resolves and publish
 ```bash
 git clone https://github.com/jwbron/egg.git
 cd egg
-pip install -r requirements.txt
+pip install .
 export PYTHONPATH="$PWD:$PWD/shared:$PYTHONPATH"
 ```
 
 The skill's pre-flight check imports `orchestrator.substrate.in_process.run_pipeline_in_process`; if that import fails, the skill emits the same from-source instructions and exits — it does NOT try to recover silently. **The install-error message in the pre-flight helper reads from the same `plugin.json` field this section documents** so the two surfaces remain consistent (TASK-1-7 acceptance). The follow-up issue (see the substrate ADR) tracks publishing a `pip install`-able package; until then, the from-source path is the only supported install.
 
-**Python version.** Egg targets Python 3.11+. If your Claude Code session resolves to an older Python, the import will fail with a version error — re-run the install command in a 3.11+ venv.
+**Python version.** Egg requires Python **3.14+** (per `pyproject.toml`'s `requires-python = ">=3.14"`). `pip install .` will refuse to install on older interpreters. If your Claude Code session resolves to an older Python, re-run the install command in a 3.14+ venv (e.g. `python3.14 -m venv .venv && source .venv/bin/activate && pip install .`).
 
 **Marketplace footprint** stays well under the soft ~100 MB cap (feedback Q3). No new third-party dependencies were introduced for this substrate beyond what egg already declares.
 
@@ -125,6 +125,8 @@ Each `python3 bin/run_pipeline.py` invocation is a fresh process — generator f
 
 Practical consequence: **side effects (refiner subagent dispatch, worktree create / teardown, artifact write) re-run on every invocation.** For the walking-skeleton refine + plan phases this is acceptable (each subagent's worktree is idempotent and the artifact write overwrites). The implement phase has too many concurrent yields for replay to be practical, which is why slice 3 ships the daemon variant for implement-phase concurrency instead.
 
+**Cost note.** Each re-spawn is a real Anthropic API call: tokens, plus 10–60 s of wall-clock per subagent. For slice 1's 2-yield refine phase this means the refiner (and both refine reviewers, when the target is `jwbron/egg`) spawn **twice** — once when the operator first sees the refine-gate, again when they answer it. Slice 2's plan phase (4 yields, per the ADR) compounds: stage B = 2 spawns, stage C = 4, stage D = 6, stage E = 8 — eight spawns just to reach the plan-gate's final yield. For a real `jwbron/egg` issue this is on the order of tens of dollars in Anthropic API spend per pipeline run before the slice-3 daemon variant lands and eliminates replay. If cost matters to your run, prefer the k3s substrate (no replay) until slice 3 lands; the cost cap (`EGG_PIPELINE_MAX_AGENT_INVOCATIONS`, slice 5) does not apply to this substrate until then.
+
 #### The skill loop
 
 Run the driver, read `status` and `decision`, render via `AskUserQuestion`, write the answer back to `pending_hitl.answer` (and bump `status` to `answered`), re-invoke the driver. Loop until `status ∈ {completed, aborted, error}`:
@@ -151,17 +153,20 @@ case "${STATUS}" in
     # Read pending_hitl.decision and render via AskUserQuestion (an
     # LLM-side tool — outside Bash). The skill body collects the
     # operator's selection into shell variable ${ANSWER}.
-    # Then write the answer back to the envelope:
-    python3 -c "
-import json, sys, datetime
-path = '${CONTRACT_PATH}'
-contract = json.load(open(path))
-env = contract['pending_hitl']
-env['answer'] = ${ANSWER}        # operator's selection; JSON-encode appropriately
-env['status'] = 'answered'
-env['timestamp'] = datetime.datetime.utcnow().isoformat() + 'Z'
-json.dump(contract, open(path, 'w'), indent=2)
-"
+    # Then write the answer back to the envelope via the helper script.
+    # The helper reads the JSON-encoded answer from stdin (so shell
+    # quoting cannot mis-encode it), uses datetime.now(UTC) — matching
+    # the driver's own _now_iso() at run_pipeline.py:103 — and writes
+    # the contract atomically via tmp + os.replace (matching
+    # _write_contract at run_pipeline.py:139-147). Failure to ferry
+    # the answer exits non-zero so the skill loop notices.
+    printf '%s' "${ANSWER}" | python3 -c '
+import json, sys
+sys.stdout.write(json.dumps(sys.stdin.read()))
+' | python3 plugins/egg-sdlc/skills/egg-sdlc/bin/write_answer.py \
+    --pipeline-id "${PIPELINE_ID}" \
+    --state-root "$(dirname "$(dirname "${CONTRACT_PATH}")")" \
+    --answer-stdin
     # Loop: re-invoke run_pipeline.py with the same args. The driver
     # promotes pending_hitl.answer → answer_log, clears answer to null,
     # replays the full answer_log into a fresh generator, and writes
@@ -177,7 +182,7 @@ json.dump(contract, open(path, 'w'), indent=2)
 esac
 ```
 
-The skill body's `allowed-tools` frontmatter includes `Bash(python3 *:*)`, which covers the inline `python3 -c "..."` invocation used to write `pending_hitl.answer`. No separate `Write` permission is needed; an alternative path (a dedicated `bin/write_answer.py` helper, or a `--answer` flag on `run_pipeline.py`) is reserved for the rollout if the inline `python3 -c` shape proves ergonomically awkward.
+The skill body's `allowed-tools` frontmatter scopes `python3` to `plugins/egg-sdlc/skills/egg-sdlc/bin/*` so the skill cannot be coerced (via a prompt-injected issue body, say) into running arbitrary `python3 -c "..."` snippets. The two helpers under `bin/` (`run_pipeline.py` and `write_answer.py`) are the entire Python surface the skill can invoke; both ship in this PR and are read-reviewable next to `SKILL.md`. No separate `Write` permission is needed — `write_answer.py` is the only path that writes `pending_hitl.answer`, and it consumes the operator's selection from stdin so shell quoting cannot mis-encode it.
 
 While the generator is paused at a yield boundary inside a single `bin/run_pipeline.py` invocation, the orchestrator's background threads (heartbeat poll, BRC re-review, message-bus tick) keep running so a long-paused HITL does not cause stuck-phase-transition alerts within that invocation. Dropping the generator (process exit) joins the background threads cleanly via `GeneratorExit` — no leaked threads across the skill→Python boundary.
 
@@ -233,6 +238,8 @@ What the hook does:
 3. Emits `deny` + `message` JSON to stdout when the write target is outside the caller's role's allow-list. The `message` mirrors the gateway's `check_agent_restrictions` denial format (`gateway/phase_filter.py:1061`) so the error you see in the Claude Code UI matches what k3s users see in their gateway logs.
 
 The hook reads the calling role from `EGG_AGENT_ROLE` in the env. **R2 — nested-dispatch role-routing**: slice 1 of #2717 lands a 2-subagent worked example at `integration_tests/regression/test_pretooluse_hook_nested.py` (TASK-1-5) that drives the hook through a parent → child Agent-tool dispatch via the test-only fake at `integration_tests/regression/_agent_tool_fake.py` (TASK-1-9). The verdict is recorded to `.egg-state/<pipeline_id>/r2-verdict.json`. Note that the production substrate runs subagents through the harness re-host (`ClaudeCodeSpawner` per cq-3) rather than Agent-tool dispatch, so R2 today validates hook *logic* (given accurate `EGG_AGENT_ROLE` propagation) and becomes load-bearing only if cq-3 flips to Agent-tool dispatch in a future issue. If the verdict is `fail`, slice 5 wires the documented fallback — **MCP-validator-side enforcement** (cq-6 option 2) — the substrate keeps `patterns.py` as the source of truth and adds agent-side policy enforcement at `sandbox/egg_agent_tools/handlers/restrictions.py`.
+
+> **Open question for slice-5 sequencing.** The slice-1 R2 verdict file (`r2-verdict.json`) records *only* the hook-logic half of R2 — it is **not** a green-light for the R15 model-(b) migration on its own. Before slice 5 reads the verdict as "ship Agent-tool dispatch," an empirical Claude-Code-side test must land that exercises real nested Agent-tool dispatch and observes `EGG_AGENT_ROLE` propagation in the child. Slice 5's R15 task should treat the verdict file as a necessary-but-not-sufficient input. Tracked in the slice-5 plan; this caveat is duplicated in `integration_tests/regression/test_pretooluse_hook_nested.py`'s module docstring so a reader of either surface sees the same constraint.
 
 ### Plan phase (landed in slice 2 of #2717)
 

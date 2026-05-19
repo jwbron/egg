@@ -13,23 +13,30 @@ INTERFACE STABILITY: v0.x unstable.
 Multi-exception ``except`` discipline (must read before editing)
 ----------------------------------------------------------------
 
-This package targets Python 3.14 (pyproject.toml's
-``requires-python = ">=3.14"``) but the SKILL.md / packaging
-documentation states "Python 3.11+". To keep both surfaces working,
-EVERY ``except`` clause that catches multiple exception types MUST
-use the parenthesised tuple form AND carry a ``# fmt: skip``
-trailing comment, e.g.::
+This package — and the whole repo (pyproject.toml's
+``requires-python = ">=3.14"``) — targets Python 3.14+. Python 3.14
+introduces the parenthesless ``except A, B:`` syntax (PEP 758, 2025);
+under ruff's ``target-version = "py314"`` formatter, the redundant
+parens in ``except (A, B):`` are stripped to that 3.14-only shape.
+On any older interpreter (3.13 and below) the stripped form is a
+SyntaxError.
+
+We deliberately keep the parenthesised form in source for two reasons:
+(1) it parses on every interpreter from 3.0 onward, so contributors
+copying snippets into a 3.13 venv (or the ADR's "Python 3.14+" claim
+in SKILL.md isn't honored) get a clearer error path; (2) the
+parenthesised form is unambiguous to read — ``except A, B:`` shares
+its grammar with a Python-2-era binding form some readers still see
+in muscle memory. To preserve the parens against ``ruff format``,
+multi-exception ``except`` clauses carry a trailing
+``# fmt: skip``::
 
     except (subprocess.SubprocessError, OSError):  # fmt: skip
 
-Without ``# fmt: skip`` ruff format (with
-``target-version = "py314"``) silently strips the redundant parens
-back to ``except A, B:`` which is a SyntaxError on Python
-3.10/3.11/3.12/3.13 — re-introducing the v1 NACK blocker every
-contributor would otherwise step on. The cheapest defense is to
-``grep -nE 'except [A-Za-z.]+ *, *[A-Za-z.]+ *:' orchestrator/
-plugins/`` before every commit; a CI lint rule that catches this
-shape is tracked in the follow-up issue.
+The cheapest preflight is to grep for the bare form
+(``grep -nE 'except [A-Za-z.]+ *, *[A-Za-z.]+ *:' orchestrator/
+plugins/``) before every commit; a CI lint rule that catches this
+shape is tracked in the follow-up issue beyond #2717.
 
 The protocols and ``SubstrateBundle`` shape are part of a walking-
 skeleton spike (cq-11). The follow-up rollout issue may reshape them
@@ -234,6 +241,11 @@ def _build_k3s_spawner(legacy_spawn_fn: Any | None) -> AgentSpawner:
 #: documenter-owned rubric files. Roles absent from this map are
 #: "deferred indefinitely" (overseer / inspector / autofixer /
 #: conflict_resolver — intentionally unhandled per task-3-6).
+#:
+#: Source of truth for "is this role part of the rollout?". Whether
+#: the rubric *file* has actually landed on disk is checked by the
+#: loader via ``Path.is_file()`` — no parallel "landed roles" registry
+#: that could drift from the filesystem state.
 #:
 #: The slice numbers match issue #2717's plan:
 #:   slice-1: refiner (already shipped in #2715) + 2 refine reviewers
