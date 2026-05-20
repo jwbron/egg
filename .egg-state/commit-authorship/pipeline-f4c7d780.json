@@ -126,6 +126,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "tester"
     },
+    "e06489ffaeac6ab37e42384e2b904345153db954": {
+      "branch": "egg/pipeline-f4c7d780/slice-1",
+      "pipeline_id": "pipeline-f4c7d780",
+      "registered_at": "2026-05-20T23:43:34.522698+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "e537265e9a59f99559ff816fcafd0a27bdab8c1a": {
       "branch": "egg/pipeline-f4c7d780/slice-2",
       "pipeline_id": "pipeline-f4c7d780",
