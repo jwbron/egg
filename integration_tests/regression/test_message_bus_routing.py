@@ -1422,6 +1422,278 @@ class TestBlockingGetMessages:
 
 
 # ---------------------------------------------------------------------------
+# 9b. Subscription filtering — slice + producer-allowlist axes on
+#     /messages/wait (issue #2725). Cross-backend through the live
+#     Flask route to pin the end-to-end contract.
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _blocking_get_meta_signal(backend):
+    """``/messages/wait`` route variant of ``_blocking_get_signal``.
+
+    The status-wait route uses ``get_messages``; the messages-wait
+    route uses ``get_messages_with_meta`` (issue #2464 — returns the
+    cursor-staleness side-channel). Wrap *that* method so the producer
+    side of these filter tests knows the route is parked in the
+    blocking branch before injecting.
+    """
+    consumer_entered = threading.Event()
+    original = backend.get_messages_with_meta
+
+    def _instrumented(*args, **kwargs):
+        if kwargs.get("wait"):
+            consumer_entered.set()
+        return original(*args, **kwargs)
+
+    with patch.object(backend, "get_messages_with_meta", side_effect=_instrumented):
+        yield consumer_entered
+
+
+class TestSubscriptionFiltering:
+    """``/messages/wait`` accepts ``slice`` + repeatable ``from_producer``
+    filters (#2725). Tests run cross-backend (in-memory + fakeredis)
+    against the live Flask blueprint so a regression in the route
+    layer, either store's filter logic, or the route-store wiring
+    surfaces in the integration tier.
+
+    Load-bearing invariants pinned here:
+
+    * Wrong-slice messages do NOT unblock a slice-filtered wait —
+      otherwise the filter just delays the wake-storm by one LLM
+      round-trip instead of eliminating it.
+    * Null-on-message slice IS a passthrough — OVERSEER_ALERT,
+      phase-boundary CONSENSUS_CONFIRMED, and other pipeline-level
+      signals continue to wake every blocked waiter.
+    * Wrong-sender messages do NOT unblock a from_producer-filtered
+      wait.
+    * Negative conformance: an orchestrator-emitted CONSENSUS_RE_REVIEW
+      addressed to this reviewer wakes a tight slice + producer
+      allowlist. The spawner builds the allowlist to always include
+      ``orchestrator``; this test pins the end-to-end behavior so a
+      regression that drops the system sender (or shifts the null-
+      slice passthrough) surfaces here, not in production where it
+      would manifest as a silent reviewer stall.
+    """
+
+    def test_messages_wait_slice_filter_drops_other_slice(
+        self,
+        client,
+        resolve_pipeline_to,
+        message_backend,
+    ):
+        """A reviewer in ``slice-1`` does NOT wake on a ``slice-2``
+        CONSENSUS_PROPOSE — pinned through the live route on both
+        backends.
+        """
+        with _blocking_get_meta_signal(message_backend) as consumer_entered:
+
+            def _fire() -> None:
+                assert consumer_entered.wait(timeout=3), "consumer never entered blocking wait"
+                message_backend.add_message(
+                    Message(
+                        pipeline_id=_PIPELINE_ID,
+                        from_role="coder",
+                        to_role="all",
+                        message_type=MessageType.CONSENSUS_PROPOSE,
+                        subject="slice-2 propose",
+                        metadata={"slice_id": "slice-2"},
+                    )
+                )
+
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(
+                f"/api/v1/pipelines/{_PIPELINE_ID}/messages/wait"
+                "?for=CONSENSUS_PROPOSE&slice=slice-1&timeout=1"
+            )
+        envelope = json.loads(resp.data)["data"]
+        assert resp.status_code == 200
+        assert envelope["matched"] is False, (
+            "slice-2 message unblocked a slice-1 wait — filter is leaking across slices"
+        )
+
+    def test_messages_wait_slice_filter_passthrough_null_slice(
+        self,
+        client,
+        resolve_pipeline_to,
+        message_backend,
+    ):
+        """An OVERSEER_ALERT with no ``metadata.slice_id`` wakes a
+        slice-filtered wait — the null-passthrough invariant. Pinned
+        end-to-end so a future change that adds strict slice equality
+        (and breaks this) is caught."""
+        with _blocking_get_meta_signal(message_backend) as consumer_entered:
+
+            def _fire() -> None:
+                assert consumer_entered.wait(timeout=3), "consumer never entered blocking wait"
+                message_backend.add_message(
+                    Message(
+                        pipeline_id=_PIPELINE_ID,
+                        from_role="overseer",
+                        to_role="all",
+                        message_type=MessageType.OVERSEER_ALERT,
+                        subject="alert",
+                    )
+                )
+
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(
+                f"/api/v1/pipelines/{_PIPELINE_ID}/messages/wait"
+                "?for=OVERSEER_ALERT&slice=slice-1&timeout=3"
+            )
+        envelope = json.loads(resp.data)["data"]
+        assert resp.status_code == 200
+        assert envelope["matched"] is True, (
+            "null-slice OVERSEER_ALERT did not wake a slice-filtered wait "
+            "— pipeline-level passthrough invariant broken"
+        )
+        assert envelope["messages"][0]["message_type"] == "OVERSEER_ALERT"
+
+    def test_messages_wait_from_producer_filter_drops_other_sender(
+        self,
+        client,
+        resolve_pipeline_to,
+        message_backend,
+    ):
+        """A reviewer with ``--from-producer coder,tester`` does NOT
+        wake on a ``documenter`` CONSENSUS_PROPOSE — cross-backend
+        through the live route."""
+        with _blocking_get_meta_signal(message_backend) as consumer_entered:
+
+            def _fire() -> None:
+                assert consumer_entered.wait(timeout=3), "consumer never entered blocking wait"
+                message_backend.add_message(
+                    Message(
+                        pipeline_id=_PIPELINE_ID,
+                        from_role="documenter",
+                        to_role="all",
+                        message_type=MessageType.CONSENSUS_PROPOSE,
+                        subject="not-my-producer",
+                    )
+                )
+
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(
+                f"/api/v1/pipelines/{_PIPELINE_ID}/messages/wait"
+                "?for=CONSENSUS_PROPOSE"
+                "&from_producer=coder&from_producer=tester&timeout=1"
+            )
+        envelope = json.loads(resp.data)["data"]
+        assert resp.status_code == 200
+        assert envelope["matched"] is False
+
+    def test_messages_wait_from_producer_filter_wakes_on_allowed_sender(
+        self,
+        client,
+        resolve_pipeline_to,
+        message_backend,
+    ):
+        """A reviewer with ``--from-producer coder,tester`` DOES wake
+        when ``coder`` proposes — pinned through the live route on
+        both backends."""
+        with _blocking_get_meta_signal(message_backend) as consumer_entered:
+
+            def _fire() -> None:
+                assert consumer_entered.wait(timeout=3), "consumer never entered blocking wait"
+                message_backend.add_message(
+                    Message(
+                        pipeline_id=_PIPELINE_ID,
+                        from_role="coder",
+                        to_role="all",
+                        message_type=MessageType.CONSENSUS_PROPOSE,
+                        subject="my producer",
+                    )
+                )
+
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(
+                f"/api/v1/pipelines/{_PIPELINE_ID}/messages/wait"
+                "?for=CONSENSUS_PROPOSE"
+                "&from_producer=coder&from_producer=tester&timeout=3"
+            )
+        envelope = json.loads(resp.data)["data"]
+        assert resp.status_code == 200
+        assert envelope["matched"] is True
+        assert envelope["messages"][0]["from_role"] == "coder"
+
+    def test_messages_wait_negative_conformance_orchestrator_re_review(
+        self,
+        client,
+        resolve_pipeline_to,
+        message_backend,
+    ):
+        """Negative-conformance pin (#2725) at the integration tier.
+
+        An orchestrator-emitted ``CONSENSUS_RE_REVIEW`` addressed to a
+        reviewer in ``slice-1`` MUST wake even a tight filter:
+        ``slice=slice-1`` + ``from_producer=coder,tester,overseer,
+        orchestrator`` (the shape the spawner builds for
+        ``reviewer_code`` in the implement phase). The route layer +
+        message-store filter chain together must let this through
+        — silent sleep is the failure mode worse than the original
+        wake-storm, and the test exists so a future change that drops
+        the ``orchestrator`` system sender from the allowlist (or
+        breaks the null-slice passthrough that ``CONSENSUS_RE_REVIEW``
+        relies on when emitted without a slice scope) is caught
+        cross-backend rather than in production.
+
+        Constructed to mirror routes/signals.py:1373-1393 — the actual
+        re-review path: ``from_role="orchestrator"``,
+        ``to_role=<reviewer>``, ``metadata.slice_id`` set to the
+        reviewer's slice.
+        """
+        with _blocking_get_meta_signal(message_backend) as consumer_entered:
+
+            def _fire() -> None:
+                assert consumer_entered.wait(timeout=3), "consumer never entered blocking wait"
+                message_backend.add_message(
+                    Message(
+                        pipeline_id=_PIPELINE_ID,
+                        from_role="orchestrator",
+                        to_role="reviewer_code",
+                        message_type=MessageType.CONSENSUS_RE_REVIEW,
+                        subject="Re-review required: coder submitted new proposal v2",
+                        metadata={"slice_id": "slice-1", "producer_role": "coder"},
+                    )
+                )
+
+            threading.Thread(target=_fire, daemon=True).start()
+            resp = client.get(
+                f"/api/v1/pipelines/{_PIPELINE_ID}/messages/wait"
+                "?for=CONSENSUS_RE_REVIEW&role=reviewer_code&slice=slice-1"
+                "&from_producer=coder&from_producer=tester"
+                "&from_producer=overseer&from_producer=orchestrator&timeout=3"
+            )
+        envelope = json.loads(resp.data)["data"]
+        assert resp.status_code == 200
+        assert envelope["matched"] is True, (
+            "orchestrator-emitted CONSENSUS_RE_REVIEW did NOT wake a tight "
+            "reviewer wait — the filter is silently sleeping through a "
+            "cross-graph cascade, which is worse than the wake-storm"
+        )
+        msg = envelope["messages"][0]
+        assert msg["from_role"] == "orchestrator"
+        assert msg["message_type"] == "CONSENSUS_RE_REVIEW"
+
+    def test_messages_wait_empty_from_producer_rejected_at_route(
+        self,
+        client,
+        resolve_pipeline_to,
+        message_backend,
+    ):
+        """An explicit-but-empty ``from_producer`` is rejected with
+        HTTP 400 — silent acceptance would sleep the caller through
+        every event. Cross-backend through the live route."""
+        resp = client.get(
+            f"/api/v1/pipelines/{_PIPELINE_ID}/messages/wait"
+            "?for=CONSENSUS_PROPOSE&from_producer=&timeout=1"
+        )
+        assert resp.status_code == 400
+        body = json.loads(resp.data)
+        assert "from_producer" in body["message"]
+
+
+# ---------------------------------------------------------------------------
 # 10. Message store ordering matches event-bus ordering for a single
 #     agent's stream (issue #2640 starting point 3, exact wording)
 # ---------------------------------------------------------------------------

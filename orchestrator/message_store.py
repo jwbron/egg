@@ -260,6 +260,8 @@ class MessageStore:
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
         from_role: str | None = None,
+        from_roles: Sequence[str] | None = None,
+        slice_id: str | None = None,
         from_tip: bool = False,
     ) -> list[Message]:
         """Get messages for a pipeline, optionally filtered.
@@ -291,6 +293,20 @@ class MessageStore:
                 ``from_role`` equals this value.  Applied inside the blocking
                 loop so a message from the wrong sender does NOT unblock the
                 wait (prevents spinning — issue #1897 reviewer_code non-blocker).
+            from_roles: If set, the wait only matches messages whose
+                ``from_role`` is in this set. The set form of ``from_role``
+                (#2725) — agents pass their consensus-graph neighbors plus
+                system senders to avoid waking on unrelated producers' BRC
+                chatter. When both ``from_role`` and ``from_roles`` are
+                supplied, ``from_role`` wins (single-sender semantics
+                preserve back-compat).
+            slice_id: If set, only match messages whose ``metadata.slice_id``
+                equals this value OR is ``None`` (#2725). Null on the message
+                is a passthrough — pipeline-level signals (OVERSEER_ALERT,
+                phase-boundary CONSENSUS_CONFIRMED emitted without slice
+                scope) wake every blocked waiter regardless of the requested
+                slice. Applied inside the blocking branch so a wrong-slice
+                message does not unblock the wait.
             from_tip: If True AND ``since_id`` is not set AND ``wait > 0``, snap
                 the starting cursor to ``len(messages)`` at call entry so only
                 messages added *after* this call starts can unblock the wait.
@@ -308,6 +324,8 @@ class MessageStore:
             wait=wait,
             wait_for_types=wait_for_types,
             from_role=from_role,
+            from_roles=from_roles,
+            slice_id=slice_id,
             from_tip=from_tip,
         )
         return messages
@@ -322,6 +340,8 @@ class MessageStore:
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
         from_role: str | None = None,
+        from_roles: Sequence[str] | None = None,
+        slice_id: str | None = None,
         from_tip: bool = False,
         _suppress_stale_warning: bool = False,
     ) -> tuple[list[Message], GetMessagesMeta]:
@@ -356,6 +376,18 @@ class MessageStore:
         start_idx = 0
         since_id_stale = False
 
+        # Pre-resolve the from_roles set once. ``from_role`` (singular) wins
+        # if both are set so single-sender back-compat is preserved.
+        from_roles_set: set[str] | None
+        if from_role:
+            from_roles_set = None  # singular path handled below
+        elif from_roles:
+            from_roles_set = {r for r in from_roles if r}
+            if not from_roles_set:
+                from_roles_set = None
+        else:
+            from_roles_set = None
+
         def _filter(all_msgs: list[Message]) -> list[Message]:
             # Slice forward from the resolved start_idx (set under the
             # lock below). Cheap: O(n_total - start_idx) plus the filter
@@ -366,6 +398,24 @@ class MessageStore:
             # wait-for-match decision (wrong sender does not unblock).
             if from_role:
                 msgs = [m for m in msgs if m.from_role == from_role]
+            elif from_roles_set is not None:
+                # Sender allowlist (#2725). Messages whose from_role is not in
+                # the set are dropped inside the blocking branch so wrong
+                # senders do NOT unblock a filtered wait.
+                msgs = [m for m in msgs if m.from_role in from_roles_set]
+
+            # Slice scope (#2725). A message whose metadata.slice_id is None
+            # is treated as a pipeline-level signal and passes through any
+            # slice filter — OVERSEER_ALERT and global phase-boundary signals
+            # continue to fan out. Strict equality otherwise.
+            if slice_id is not None:
+                msgs = [
+                    m
+                    for m in msgs
+                    if (
+                        m.metadata.get("slice_id") is None or m.metadata.get("slice_id") == slice_id
+                    )
+                ]
 
             # Filter by role (messages targeted to this role or broadcast)
             if role:

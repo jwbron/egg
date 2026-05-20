@@ -118,6 +118,43 @@ calls together into a "block forever server-side" behaviour so the agent
 can issue one command and **do nothing else** until the orchestrator
 SIGTERMs it or a terminal event arrives.
 
+### Auto-scoping by slice and producer-allowlist (#2725)
+
+`wait` and `wait-loop` auto-apply two filter axes from the agent
+container's environment when they are set — the canonical idiom shown
+above does **not** change, but a reviewer in `slice-1` only wakes on
+events scoped to its slice (or pipeline-level signals like
+OVERSEER_ALERT) and only when the sender is one of its graph neighbors
+or the system roles `overseer` / `orchestrator`.
+
+| Env var | Set by | Effect |
+|---------|--------|--------|
+| `EGG_SLICE_ID` | `kubernetes_spawner` for every slice-scoped agent | `--slice` defaults to this. The wait only matches messages whose `metadata.slice_id` equals this value OR is null (pipeline-level passthrough — OVERSEER_ALERT and global phase signals continue to wake every waiter). |
+| `EGG_WAIT_PRODUCER_ALLOWLIST` | `kubernetes_spawner` for slice + phase agents that participate in the BRC review graph | `--from-producer` defaults to the comma-separated values. The wait only matches messages whose `from_role` is in this set. The spawner derives the set from `review_graph.get_review_graph_for_phase(phase, repo)` — neighbors only — plus the always-included system senders `overseer` and `orchestrator`. |
+
+Explicit `--slice` / `--from-producer` CLI args override the env-derived
+defaults. Pipeline-level spawns (no `phase`) get no allowlist env var
+set and keep the pre-#2725 wake-on-anything behavior.
+
+Both axes apply **inside the server-side blocking branch** so a
+wrong-slice or wrong-sender message does not unblock the wait — it
+isn't filtered client-side after a wake, it never wakes the agent at
+all. That's where the LLM-round-trip savings come from.
+
+> **Filter safety.** A blocking filter that's too tight would sleep the
+> agent through a legitimate event. Three guarantees prevent this:
+>
+> 1. Null `metadata.slice_id` on the message always passes a slice
+>    filter (pipeline-level passthrough). OVERSEER_ALERT, phase
+>    boundary CONSENSUS_CONFIRMED emitted without slice scope, and
+>    the orchestrator's CONSENSUS_RE_REVIEW all reach scoped waiters.
+> 2. The spawner-built allowlist always includes `overseer` and
+>    `orchestrator` so the system senders are never filtered out.
+> 3. An explicit-but-empty `from_producer` list is rejected by the
+>    route with HTTP 400 — silent acceptance would sleep the caller
+>    through every event, which is worse than the wake-storm the
+>    filter exists to fix.
+
 ### Cursor threading is automatic across re-entered waits
 
 Reviewer `POLL` (waiting for proposals from each producer in turn) and
@@ -484,13 +521,17 @@ without callers having to opt in. The mechanism:
 1. **Path derivation.** When `EGG_AGENT_ROLE` is set, the CLI uses
    `${EGG_WAIT_CURSOR_DIR:-/tmp}/egg-wait-cursor-<pipeline_id>-<role>-<hash>`,
    where `<hash>` is an MD5 of the **sorted** `--for` types together
-   with the `--from` filter (if any). Same type set + same `--from` →
-   same file (regardless of `--for` arg order); different type sets,
-   different `--from` filters, or different pipelines → different
-   files. POLL (`--for CONSENSUS_PROPOSE`) and STAY ALIVE
+   with the `--from` filter, the **sorted** `--from-producer` set, and
+   the `--slice` value (if any — #2725). Same type set + same `--from`
+   + same `--from-producer` set + same `--slice` → same file
+   (regardless of arg order); any axis differs → distinct file.
+   POLL (`--for CONSENSUS_PROPOSE`) and STAY ALIVE
    (`--for ... 4 types ...`) hash to distinct files automatically;
    two pipelines sharing a `/tmp` mount (debug shells, integration
-   test reuse) cannot leak cursors into each other.
+   test reuse) cannot leak cursors into each other; and a scoped wait
+   never shares a cursor with an unscoped sibling — a wait that
+   advanced past a message its filter dropped would otherwise mask
+   that message for the sibling.
 2. **Read on entry.** If the file exists and is non-empty, its
    contents become the default for `--since`. An explicit `--since`
    still wins. A corrupt file (non-UTF-8, unreadable) is treated as
@@ -550,9 +591,10 @@ restarting from that cursor will not see the dropped `Y`. Mitigate
 by including all relevant types in the `--for` list — different
 type sets get different cursor files automatically, so a drifted
 POLL cursor can never affect a STAY ALIVE wait. The same isolation
-holds for `--from` filters: a wait scoped to one sender can drop
-messages its filter rejected, but a sibling wait with a different
-`--from` keeps its own cursor and sees them.
+holds for `--from`, `--from-producer`, and `--slice` filters: a
+wait scoped to one sender / producer set / slice can drop messages
+its filter rejected, but a sibling wait with a different filter
+keeps its own cursor and sees them.
 
 ## 4. `HEARTBEAT` Message Type
 

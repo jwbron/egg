@@ -41,6 +41,30 @@ from routes import get_state_store_for_pipeline
 from slice_id_validation import extract_slice_id as _extract_slice_id
 from state_store import InvalidPipelineIdError, PipelineNotFoundError
 
+# #2725: the system senders the spawner always injects into
+# ``EGG_WAIT_PRODUCER_ALLOWLIST`` (kubernetes_spawner
+# ``_WAIT_ALLOWLIST_SYSTEM_SENDERS``). They must stay accepted at the
+# route boundary so OVERSEER_ALERT / CONSENSUS_RE_REVIEW keep waking
+# scoped waiters. Kept separate from ``AgentRole`` because neither
+# ``overseer`` nor ``orchestrator`` is a spawnable agent role.
+_SYSTEM_FROM_PRODUCER_SENDERS: frozenset[str] = frozenset({"overseer", "orchestrator"})
+
+
+def _build_known_from_producer_values() -> frozenset[str]:
+    """Resolve the accepted ``from_producer`` value set (#2725).
+
+    The route validates every supplied value against this set so a
+    typo (``codr`` instead of ``coder``) fails fast with HTTP 400
+    rather than silently filtering every event and sleeping the
+    caller — the same rationale as the empty-allowlist rejection.
+    """
+    from models import AgentRole  # type: ignore[import-not-found]
+
+    return frozenset({role.value for role in AgentRole}) | _SYSTEM_FROM_PRODUCER_SENDERS
+
+
+_KNOWN_FROM_PRODUCER_VALUES: frozenset[str] = _build_known_from_producer_values()
+
 logger = get_logger("orchestrator.messages")
 
 # Delegate env-var reads to the central ``env_config`` module (issue
@@ -469,7 +493,67 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
         )
 
     role = request.args.get("role")
+    # #2725: ``from`` (singular) and ``from_producer`` (repeatable set)
+    # both flow into the same store-level sender filter. Validating
+    # only the plural form would leave a typo like ``?from=codr``
+    # silently filtering every event — the same silent-sleep failure
+    # mode the from_producer rejection exists to prevent. Reject empty
+    # explicit values and unknown roles at the route boundary on both
+    # forms so the surface is symmetric.
     from_role = request.args.get("from")
+    if from_role is not None:
+        if from_role == "":
+            return _make_error(
+                "Invalid 'from' parameter: must be a non-empty role name "
+                "(omit the parameter entirely for no sender filter)"
+            )
+        if from_role not in _KNOWN_FROM_PRODUCER_VALUES:
+            return _make_error(
+                f"Invalid 'from' value: {from_role} — must be a known AgentRole "
+                "or system sender (overseer / orchestrator)"
+            )
+    # #2725: ``from_producer`` is the repeatable set form of ``from``.
+    # ``from`` (singular) wins when both are provided so legacy callers
+    # see no behaviour change. An explicit-but-empty list (e.g.
+    # ``?from_producer=&from_producer=``) is rejected here rather than
+    # silently dropped — silent acceptance would sleep the caller
+    # through every event, which is worse than the wake-storm. The same
+    # rationale applies to unknown role values: a typo like
+    # ``?from_producer=codr`` would silently filter every event, so we
+    # reject anything outside ``_KNOWN_FROM_PRODUCER_VALUES`` (canonical
+    # AgentRole names plus the system senders the spawner always
+    # includes) at the route boundary.
+    raw_from_producers = request.args.getlist("from_producer")
+    from_producers = [r for r in raw_from_producers if r]
+    if raw_from_producers and not from_producers:
+        return _make_error(
+            "Invalid 'from_producer' parameter: must list at least one non-empty role"
+        )
+    if from_producers:
+        unknown = [r for r in from_producers if r not in _KNOWN_FROM_PRODUCER_VALUES]
+        if unknown:
+            return _make_error(
+                "Invalid 'from_producer' value(s): "
+                f"{', '.join(sorted(set(unknown)))} — must be a known AgentRole "
+                "or system sender (overseer / orchestrator)"
+            )
+    # #2725: optional slice scope. Null-on-message is a passthrough so
+    # OVERSEER_ALERT and global phase signals still wake slice-scoped
+    # waiters. An explicit-but-empty ``?slice=`` is rejected here rather
+    # than silently dropped — mirrors the ``from_producer`` rejection
+    # above so an asymmetric "empty is fine for slice, error for sender"
+    # surface doesn't paper over a misconfigured caller.
+    slice_id_arg = request.args.get("slice")
+    if slice_id_arg is not None:
+        if slice_id_arg == "":
+            return _make_error(
+                "Invalid 'slice' parameter: must be a non-empty 'slice-<N>' value "
+                "(omit the parameter entirely for pipeline-level scope)"
+            )
+        try:
+            slice_id_arg = _extract_slice_id({"slice_id": slice_id_arg})
+        except ValueError as exc:
+            return _make_error(f"Invalid slice: {exc}")
     since_id = request.args.get("since_id")
     try:
         limit = int(request.args.get("limit", "100"))
@@ -513,6 +597,8 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
             wait=timeout,
             wait_for_types=wait_for_types,
             from_role=from_role,
+            from_roles=from_producers or None,
+            slice_id=slice_id_arg,
             from_tip=since_id is None,
         )
     finally:

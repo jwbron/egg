@@ -165,6 +165,8 @@ class RedisMessageStore:
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
         from_role: str | None = None,
+        from_roles: Sequence[str] | None = None,
+        slice_id: str | None = None,
         from_tip: bool = False,
     ) -> list[Message]:
         """Get messages from the Redis Stream.
@@ -208,6 +210,8 @@ class RedisMessageStore:
             wait=wait,
             wait_for_types=wait_for_types,
             from_role=from_role,
+            from_roles=from_roles,
+            slice_id=slice_id,
             from_tip=from_tip,
         )
         return messages
@@ -222,6 +226,8 @@ class RedisMessageStore:
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
         from_role: str | None = None,
+        from_roles: Sequence[str] | None = None,
+        slice_id: str | None = None,
         from_tip: bool = False,
         _suppress_stale_warning: bool = False,
     ) -> tuple[list[Message], GetMessagesMeta]:
@@ -289,6 +295,33 @@ class RedisMessageStore:
 
         meta = GetMessagesMeta(since_id_stale=since_id_stale)
         want_types = set(wait_for_types) if wait_for_types else None
+        # Sender allowlist (#2725): set form of from_role. ``from_role``
+        # (singular) wins when both are provided so legacy callers see no
+        # behavior change.
+        from_roles_set: set[str] | None
+        if from_role:
+            from_roles_set = None
+        elif from_roles:
+            from_roles_set = {r for r in from_roles if r}
+            if not from_roles_set:
+                from_roles_set = None
+        else:
+            from_roles_set = None
+
+        def _passes_filters(m: Message) -> bool:
+            """Apply slice + sender-allowlist filters (#2725).
+
+            Null-on-message slice is a pipeline-level passthrough so
+            OVERSEER_ALERT and global phase signals continue to wake
+            slice-scoped waiters.
+            """
+            if slice_id is not None:
+                msg_slice = m.metadata.get("slice_id")
+                if msg_slice is not None and msg_slice != slice_id:
+                    return False
+            if from_roles_set is not None and m.from_role not in from_roles_set:
+                return False
+            return True
 
         def _read_once(
             read_start_id: str, block_ms: int | None
@@ -351,6 +384,7 @@ class RedisMessageStore:
                 messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
             if from_role:
                 messages = [m for m in messages if m.from_role == from_role]
+            messages = [m for m in messages if _passes_filters(m)]
             out_msgs = messages[-limit:] if len(messages) > limit else messages
             return out_msgs, meta
 
@@ -376,6 +410,7 @@ class RedisMessageStore:
                 messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
             if from_role:
                 messages = [m for m in messages if m.from_role == from_role]
+            messages = [m for m in messages if _passes_filters(m)]
 
             matching = [m for m in messages if m.message_type in want_types]
             if matching:

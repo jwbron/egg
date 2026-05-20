@@ -751,3 +751,292 @@ class TestGetLatestId:
         # Every read must have returned a valid id (never None after the
         # initial message was added).
         assert all(i is not None for i in ids)
+
+
+def _make_message_with_slice(
+    pipeline_id: str = "p1",
+    message_type: str = MessageType.CONSENSUS_PROPOSE,
+    from_role: str = "coder",
+    to_role: str = "all",
+    slice_id: str | None = None,
+) -> Message:
+    """Build a CONSENSUS-shaped Message with optional slice metadata.
+
+    Used by the #2725 filter tests where ``metadata.slice_id`` drives the
+    new slice-scoped wait filter.
+    """
+    metadata: dict[str, object] = {}
+    if slice_id is not None:
+        metadata["slice_id"] = slice_id
+    return Message(
+        pipeline_id=pipeline_id,
+        from_role=from_role,
+        to_role=to_role,
+        message_type=message_type,
+        subject="test",
+        metadata=metadata,
+    )
+
+
+class TestSliceFilter:
+    """``slice_id`` filter: only match the requested slice OR null (#2725).
+
+    Null on the message is a pipeline-level passthrough so OVERSEER_ALERT
+    and global phase signals continue to wake slice-scoped waiters.
+    """
+
+    def test_fast_path_drops_wrong_slice(self, store: MessageStore) -> None:
+        store.add_message(_make_message_with_slice(slice_id="slice-2"))
+        msgs = store.get_messages("p1", slice_id="slice-1", wait=0)
+        assert msgs == []
+
+    def test_fast_path_keeps_matching_slice(self, store: MessageStore) -> None:
+        store.add_message(_make_message_with_slice(slice_id="slice-1"))
+        msgs = store.get_messages("p1", slice_id="slice-1", wait=0)
+        assert len(msgs) == 1
+
+    def test_fast_path_keeps_null_slice_message(self, store: MessageStore) -> None:
+        """A pipeline-level message (null slice_id) passes the slice filter.
+
+        OVERSEER_ALERT is the canonical example — it has no slice scope and
+        must wake every slice-filtered waiter.
+        """
+        store.add_message(
+            _make_message_with_slice(
+                message_type=MessageType.OVERSEER_ALERT,
+                from_role="overseer",
+                slice_id=None,
+            )
+        )
+        msgs = store.get_messages("p1", slice_id="slice-1", wait=0)
+        assert len(msgs) == 1
+        assert msgs[0].message_type == MessageType.OVERSEER_ALERT
+
+    def test_wrong_slice_does_not_unblock(self, store: MessageStore) -> None:
+        """Wrong-slice messages must not unblock a slice-filtered wait —
+        otherwise the filter would just delay the wake-storm by one round-trip."""
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "p1",
+                    slice_id="slice-1",
+                    wait=1,
+                    wait_for_types=[MessageType.CONSENSUS_PROPOSE],
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        # Flood with wrong-slice events. Each notifies the cv but must not
+        # be returned to the slice-1 waiter.
+        for _ in range(5):
+            store.add_message(_make_message_with_slice(slice_id="slice-2"))
+
+        t.join(timeout=3)
+        assert not t.is_alive()
+        assert got == [[]]
+
+    def test_null_slice_unblocks_filtered_wait(self, store: MessageStore) -> None:
+        """Null-slice (pipeline-level) message unblocks a slice-filtered wait."""
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "p1",
+                    slice_id="slice-1",
+                    wait=2,
+                    wait_for_types=[MessageType.OVERSEER_ALERT],
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        store.add_message(
+            _make_message_with_slice(
+                message_type=MessageType.OVERSEER_ALERT,
+                from_role="overseer",
+                slice_id=None,
+            )
+        )
+
+        t.join(timeout=3)
+        assert not t.is_alive()
+        assert len(got[0]) == 1
+
+
+class TestFromRolesFilter:
+    """``from_roles`` allowlist filter: only match named senders (#2725).
+
+    ``from_role`` (singular) wins when both are supplied so legacy callers
+    see no behavior change.
+    """
+
+    def test_fast_path_keeps_allowed_sender(self, store: MessageStore) -> None:
+        store.add_message(_make_message_with_slice(from_role="coder"))
+        msgs = store.get_messages("p1", from_roles=["coder", "tester"], wait=0)
+        assert len(msgs) == 1
+
+    def test_fast_path_drops_disallowed_sender(self, store: MessageStore) -> None:
+        store.add_message(_make_message_with_slice(from_role="documenter"))
+        msgs = store.get_messages("p1", from_roles=["coder", "tester"], wait=0)
+        assert msgs == []
+
+    def test_wrong_sender_does_not_unblock(self, store: MessageStore) -> None:
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "p1",
+                    from_roles=["coder", "tester"],
+                    wait=1,
+                    wait_for_types=[MessageType.CONSENSUS_PROPOSE],
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        for _ in range(5):
+            store.add_message(_make_message_with_slice(from_role="documenter"))
+
+        t.join(timeout=3)
+        assert not t.is_alive()
+        assert got == [[]]
+
+    def test_singular_from_role_wins_over_set(self, store: MessageStore) -> None:
+        """When both are supplied, ``from_role`` (singular) wins.
+
+        This preserves single-sender back-compat — a caller that already
+        passes ``from_role="X"`` and adds ``from_roles=["X","Y"]`` for some
+        reason gets exactly the X-only matches the singular form has
+        always returned.
+        """
+        store.add_message(_make_message_with_slice(from_role="coder"))
+        store.add_message(_make_message_with_slice(from_role="tester"))
+        msgs = store.get_messages(
+            "p1",
+            from_role="coder",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert [m.from_role for m in msgs] == ["coder"]
+
+    def test_empty_set_is_no_filter(self, store: MessageStore) -> None:
+        """An empty ``from_roles`` set is treated as no filter at the
+        store layer — the route layer rejects this at request time so an
+        empty list never reaches the store from network callers."""
+        store.add_message(_make_message_with_slice(from_role="documenter"))
+        msgs = store.get_messages("p1", from_roles=[], wait=0)
+        assert len(msgs) == 1
+
+
+class TestSliceAndFromRolesCombined:
+    """Filters compose — both must accept the message for it to match."""
+
+    def test_both_match(self, store: MessageStore) -> None:
+        store.add_message(_make_message_with_slice(from_role="coder", slice_id="slice-1"))
+        msgs = store.get_messages(
+            "p1",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert len(msgs) == 1
+
+    def test_wrong_slice_right_sender_drops(self, store: MessageStore) -> None:
+        store.add_message(_make_message_with_slice(from_role="coder", slice_id="slice-2"))
+        msgs = store.get_messages(
+            "p1",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert msgs == []
+
+    def test_right_slice_wrong_sender_drops(self, store: MessageStore) -> None:
+        store.add_message(_make_message_with_slice(from_role="documenter", slice_id="slice-1"))
+        msgs = store.get_messages(
+            "p1",
+            slice_id="slice-1",
+            from_roles=["coder", "tester"],
+            wait=0,
+        )
+        assert msgs == []
+
+    def test_overseer_alert_bypasses_slice_filter(self, store: MessageStore) -> None:
+        """Combined filter still respects the null-slice passthrough so
+        system senders included in the allowlist (overseer / orchestrator)
+        keep waking slice-filtered waiters."""
+        store.add_message(
+            _make_message_with_slice(
+                message_type=MessageType.OVERSEER_ALERT,
+                from_role="overseer",
+                slice_id=None,
+            )
+        )
+        msgs = store.get_messages(
+            "p1",
+            slice_id="slice-1",
+            from_roles=["coder", "tester", "overseer", "orchestrator"],
+            wait=0,
+        )
+        assert len(msgs) == 1
+
+    def test_orchestrator_re_review_wakes_tightly_filtered_reviewer(
+        self, store: MessageStore
+    ) -> None:
+        """Negative-conformance pin (#2725): an orchestrator-emitted
+        CONSENSUS_RE_REVIEW targeted at this reviewer must wake even a
+        tight slice + producer-allowlist filter — otherwise the filter
+        silently sleeps the reviewer through a legitimate cross-graph
+        cascade, which is the failure mode worse than the wake-storm.
+
+        Constructed to mirror the orchestrator's signal-handler shape
+        (routes/signals.py:1373-1393): from_role="orchestrator", to_role
+        targeted at the reviewer, metadata.slice_id matching the
+        reviewer's slice. The spawner-built allowlist always includes
+        ``orchestrator`` so this works without rubric edits.
+        """
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "p1",
+                    role="reviewer_code",
+                    slice_id="slice-1",
+                    from_roles=["coder", "tester", "overseer", "orchestrator"],
+                    wait=2,
+                    wait_for_types=[MessageType.CONSENSUS_RE_REVIEW],
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.1)
+
+        store.add_message(
+            Message(
+                pipeline_id="p1",
+                from_role="orchestrator",
+                to_role="reviewer_code",
+                message_type=MessageType.CONSENSUS_RE_REVIEW,
+                subject="Re-review required: coder submitted new proposal v2",
+                metadata={"slice_id": "slice-1", "producer_role": "coder"},
+            )
+        )
+
+        t.join(timeout=3)
+        assert not t.is_alive()
+        assert len(got[0]) == 1
+        assert got[0][0].from_role == "orchestrator"
+        assert got[0][0].message_type == MessageType.CONSENSUS_RE_REVIEW

@@ -244,6 +244,127 @@ class TestWaitExitCodes:
             endpoint = mock_req.call_args.args[0]
             assert "timeout=15" in endpoint
 
+    def test_wait_auto_applies_egg_slice_id(self, monkeypatch):
+        """#2725: ``$EGG_SLICE_ID`` flows into the request URL with no
+        explicit --slice flag, so the wake-storm fix is transparent."""
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        monkeypatch.delenv("EGG_WAIT_PRODUCER_ALLOWLIST", raising=False)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0},
+            }
+            cmd_message_wait(_make_wait_args())
+            endpoint = mock_req.call_args.args[0]
+            assert "slice=slice-1" in endpoint
+
+    def test_wait_auto_applies_egg_wait_producer_allowlist(self, monkeypatch):
+        """#2725: ``$EGG_WAIT_PRODUCER_ALLOWLIST`` (comma-separated)
+        flows into one ``from_producer`` URL param per role."""
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        monkeypatch.setenv("EGG_WAIT_PRODUCER_ALLOWLIST", "coder,tester,overseer,orchestrator")
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0},
+            }
+            cmd_message_wait(_make_wait_args())
+            endpoint = mock_req.call_args.args[0]
+            assert "from_producer=coder" in endpoint
+            assert "from_producer=tester" in endpoint
+            assert "from_producer=overseer" in endpoint
+            assert "from_producer=orchestrator" in endpoint
+
+    def test_wait_explicit_slice_overrides_env(self, monkeypatch):
+        """An explicit --slice value beats $EGG_SLICE_ID (escape hatch
+        for debug shells / integration tests)."""
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-1")
+        args = _make_wait_args()
+        args.slice_id = "slice-7"
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0},
+            }
+            cmd_message_wait(args)
+            endpoint = mock_req.call_args.args[0]
+            assert "slice=slice-7" in endpoint
+            assert "slice=slice-1" not in endpoint
+
+    def test_wait_no_env_no_filter_params(self, monkeypatch):
+        """Without env vars and without explicit args, no new filter
+        params are emitted — back-compat with the pre-#2725 wake-on-all
+        behavior for callers that haven't migrated."""
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        monkeypatch.delenv("EGG_WAIT_PRODUCER_ALLOWLIST", raising=False)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0},
+            }
+            cmd_message_wait(_make_wait_args())
+            endpoint = mock_req.call_args.args[0]
+            assert "slice=" not in endpoint
+            assert "from_producer=" not in endpoint
+
+    def test_wait_from_producer_splits_comma_separated_cli_value(self, monkeypatch):
+        """A single ``--from-producer coder,tester`` (comma-separated)
+        is split into per-role URL params (#2725 review). Without this
+        split argparse stores the literal ``"coder,tester"`` as a single
+        sender that matches no real message — silently filtering every
+        event, the failure mode the wake-storm fix exists to avoid. The
+        env-var path always splits on commas, so doing the same on the
+        CLI keeps the two surfaces symmetric.
+        """
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        monkeypatch.delenv("EGG_WAIT_PRODUCER_ALLOWLIST", raising=False)
+        args = _make_wait_args()
+        args.from_producer = ["coder,tester"]
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0},
+            }
+            cmd_message_wait(args)
+            endpoint = mock_req.call_args.args[0]
+            assert "from_producer=coder" in endpoint
+            assert "from_producer=tester" in endpoint
+            assert "from_producer=coder%2Ctester" not in endpoint
+            assert "from_producer=coder,tester" not in endpoint
+
+    def test_wait_from_producer_mixes_repeatable_and_comma(self, monkeypatch):
+        """``--from-producer coder,tester --from-producer documenter``
+        flattens to three roles. Mixing the two CLI shapes keeps
+        scripts ergonomic without sacrificing the comma-split safety
+        net for the most common single-arg case."""
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        monkeypatch.delenv("EGG_WAIT_PRODUCER_ALLOWLIST", raising=False)
+        args = _make_wait_args()
+        args.from_producer = ["coder,tester", "documenter"]
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {"messages": [], "matched": False, "count": 0},
+            }
+            cmd_message_wait(args)
+            endpoint = mock_req.call_args.args[0]
+            assert "from_producer=coder" in endpoint
+            assert "from_producer=tester" in endpoint
+            assert "from_producer=documenter" in endpoint
+
+    def test_wait_invalid_egg_slice_id_exits_with_error(self, monkeypatch):
+        """A malformed ``$EGG_SLICE_ID`` (e.g. ``phase-1`` or ``garbage``)
+        fails fast at the agent via ``resolve_slice_id`` — exiting 1
+        instead of round-tripping a 400 to the route on every wait-loop
+        iteration. Pin the behavior so the CLI keeps using the
+        validated env reader rather than bare ``os.environ.get``."""
+        monkeypatch.setenv("EGG_SLICE_ID", "phase-1")
+        monkeypatch.delenv("EGG_WAIT_PRODUCER_ALLOWLIST", raising=False)
+        with patch(_ORCH_MOCK_PATH):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_message_wait(_make_wait_args())
+            assert exc_info.value.code == 1
+
 
 # ---------------------------------------------------------------------------
 # cmd_message_wait_loop
@@ -606,6 +727,56 @@ class TestWaitCursorPath:
         assert a != b
         assert a != no_filter
         assert b != no_filter
+
+    def test_distinct_slice_ids_yield_distinct_paths(self, monkeypatch, tmp_path):
+        """#2725: two waits with the same ``--for`` set but different
+        ``--slice`` filters must NOT share a cursor — same rationale as
+        for ``--from`` above. Slice filter is similarly drop-bearing."""
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+        a = _wait_cursor_path("issue-42", "reviewer_plan", ["X"], slice_id="slice-1")
+        b = _wait_cursor_path("issue-42", "reviewer_plan", ["X"], slice_id="slice-2")
+        no_filter = _wait_cursor_path("issue-42", "reviewer_plan", ["X"])
+        assert a != b
+        assert a != no_filter
+        assert b != no_filter
+
+    def test_distinct_from_roles_sets_yield_distinct_paths(self, monkeypatch, tmp_path):
+        """#2725: producer-allowlist set membership changes drive
+        distinct cursors. A reviewer with ``--from-producer coder,tester``
+        and one with ``--from-producer coder`` MUST NOT share — the
+        first's cursor may have advanced past a tester message the
+        second's filter would drop, masking events."""
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+        a = _wait_cursor_path(
+            "issue-42",
+            "reviewer_plan",
+            ["X"],
+            from_roles=["coder", "tester"],
+        )
+        b = _wait_cursor_path("issue-42", "reviewer_plan", ["X"], from_roles=["coder"])
+        no_filter = _wait_cursor_path("issue-42", "reviewer_plan", ["X"])
+        assert a != b
+        assert a != no_filter
+        assert b != no_filter
+
+    def test_from_roles_set_order_independent(self, monkeypatch, tmp_path):
+        """The producer-allowlist set is order-insensitive — the
+        hash MUST be stable across permutations so a rubric that lists
+        producers in different orders does not fragment cursors."""
+        monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))
+        a = _wait_cursor_path(
+            "issue-42",
+            "reviewer_plan",
+            ["X"],
+            from_roles=["coder", "tester"],
+        )
+        b = _wait_cursor_path(
+            "issue-42",
+            "reviewer_plan",
+            ["X"],
+            from_roles=["tester", "coder"],
+        )
+        assert a == b
 
     def test_path_lives_under_egg_wait_cursor_dir(self, monkeypatch, tmp_path):
         monkeypatch.setenv("EGG_WAIT_CURSOR_DIR", str(tmp_path))

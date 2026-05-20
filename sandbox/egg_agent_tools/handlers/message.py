@@ -123,6 +123,19 @@ def message_wait(req: dict[str, Any]) -> dict[str, Any]:
     from_role = req.get("from_role") or req.get("from")
     if from_role:
         params.append(("from", str(from_role)))
+    # #2725: producer allowlist — repeatable set form of ``from`` so a
+    # reviewer can name every producer it reviews (and the system senders
+    # ``overseer`` / ``orchestrator``) in one call.
+    from_roles = req.get("from_roles")
+    if from_roles and not from_role:
+        for r in from_roles:
+            if r:
+                params.append(("from_producer", str(r)))
+    # #2725: slice scope — only match messages whose metadata.slice_id
+    # equals this OR is null (pipeline-level passthrough).
+    slice_id = req.get("slice_id")
+    if slice_id:
+        params.append(("slice", str(slice_id)))
     if req.get("since"):
         params.append(("since_id", str(req["since"])))
     if req.get("limit"):
