@@ -2119,7 +2119,7 @@ class TestWaitEndpoint:
                 )
                 assert resp.status_code == 400
                 body = json.loads(resp.data)
-                assert "from" in body["message"]
+                assert "'from' parameter" in body["message"]
 
     def test_wait_unknown_from_value_returns_400(self, client, app):
         """An unknown singular ``?from=`` value is rejected with 400
