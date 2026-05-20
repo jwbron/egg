@@ -15,6 +15,12 @@ FROM ubuntu:22.04 AS repo-deps
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
+# PIP_IGNORE_INSTALLED is for this stage's own system-Python `pip3 install`
+# below. It's an ARG so it doesn't persist into the final image, but Docker
+# still exposes ARGs as env vars to RUN subprocesses in this stage — including
+# `python3 /tmp/docker-setup.py` below, which then leaks it into each repo's
+# build commands. docker-setup.py's run_build_commands strips it from the env
+# it passes to those subprocesses; keep both halves of the contract in sync.
 ARG PIP_IGNORE_INSTALLED=1
 # Point GOMODCACHE at the module cache populated during `docker build`
 # (via build_commands in repositories.yaml). Without this, Go defaults to
@@ -67,8 +73,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 # PIP_IGNORE_INSTALLED bypasses the distutils uninstall error (e.g. blinker 1.4
 # installed by apt can't be removed by pip, but we can install a newer version
-# into Python 3.14's site-packages). ARG so it only applies during build — at
-# runtime it would cause pip to wastefully reinstall already-present packages.
+# into Python 3.14's site-packages). ARG so it doesn't persist into the final
+# image — at runtime it would cause pip to wastefully reinstall already-present
+# packages, and (more critically) leak into agent-launched venv pip installs
+# where it reinstalls pip itself, breaking version-pinned tooling. The Stage 1
+# `repo-deps` ARG is stripped by docker-setup.py for the same reason.
 ARG PIP_IGNORE_INSTALLED=1
 # Point GOMODCACHE at the module cache populated during `docker build`
 # (via build_commands in repositories.yaml). Without this, Go defaults to
