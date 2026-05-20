@@ -285,7 +285,7 @@ _ROLE_RUBRIC_SLICES: dict[str, str] = {
 #: "slice-2"}``, slice-3 → ``{"slice-1", "slice-2", "slice-3"}``)
 #: rather than replacing it — otherwise slice-2's loader would fence
 #: off slice-1's already-landed roles, regressing earlier slices.
-_LANDED_SLICES: frozenset[str] = frozenset({"slice-1"})
+_LANDED_SLICES: frozenset[str] = frozenset({"slice-1", "slice-2"})
 
 
 def _load_egg_sdlc_role_rubric(role: Any) -> str:
@@ -299,14 +299,15 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
     actually receives the rubric (the structural depth fix from
     #2622).
 
-    Issue #2717 rollout scope: slice-1 expands the rubric-supported
-    set to the refine team (refiner + reviewer_refine +
-    reviewer_agent_design). Plan-team and implement-team roles
-    continue to raise ``ValueError`` with a pointer to the slice that
-    ships their rubric, so the structured-error contract for missing
-    rubrics stays consistent across the rollout. The mapping lives
-    in ``_ROLE_RUBRIC_SLICES`` so future slices can extend it without
-    touching this loader's body.
+    Issue #2717 rollout scope: slice-1 added the refine team
+    (refiner + reviewer_refine + reviewer_agent_design); slice-2
+    extends the rubric-supported set to the plan team (architect +
+    task_planner + risk_analyst + reviewer_plan). Implement-team
+    roles continue to raise ``ValueError`` with a pointer to the
+    slice (slice-3) that ships their rubric, so the structured-error
+    contract for missing rubrics stays consistent across the
+    rollout. The mapping lives in ``_ROLE_RUBRIC_SLICES`` so future
+    slices can extend it without touching this loader's body.
 
     Args:
         role: ``AgentRole`` (or a string-equivalent) identifying the
@@ -382,8 +383,9 @@ def _load_egg_sdlc_role_rubric(role: Any) -> str:
             f"{slice_hint} (already landed per _LANDED_SLICES) but the "
             "markdown file has not been added to plugins/egg-sdlc/skills/"
             "egg-sdlc/agents/ yet — sequence the documenter's rubric task "
-            "(e.g. TASK-1-4 for slice-1's refine reviewers) before the "
-            "loader update (TASK-1-6) within the same slice."
+            "(e.g. TASK-1-4 for slice-1's refine reviewers, TASK-2-3 for "
+            "slice-2's plan team) before the loader update (TASK-1-6 / "
+            "TASK-2-2) within the same slice."
         )
     return rubric_path.read_text(encoding="utf-8")
 

@@ -1,6 +1,6 @@
 ---
 name: egg-sdlc
-description: "Run the full egg SDLC stack natively in Claude Code (substrate-swap rollout from #2623 → #2717). Target shape: boot the real `egg_orchestrator` in-process, dispatch role subagents via Claude Code's Agent tool, enforce role file-write restrictions via a PreToolUse hook, and render HITL decisions through `AskUserQuestion`. Refine-phase scope landed in slice 1 of the #2717 rollout: refiner + reviewer_refine + reviewer_agent_design, driven by a flattened `bin/run_pipeline.py` stage driver that ferries a single `pending_hitl` envelope through `.egg-state/contracts/<id>.json` per skill→Python round-trip. Plan / implement / pr phases land in later slices of the rollout."
+description: "Run the full egg SDLC stack natively in Claude Code (substrate-swap rollout from #2623 → #2717). Target shape: boot the real `egg_orchestrator` in-process, dispatch role subagents via Claude Code's Agent tool, enforce role file-write restrictions via a PreToolUse hook, and render HITL decisions through `AskUserQuestion`. Refine-phase scope landed in slice 1 of the #2717 rollout (refiner + reviewer_refine + reviewer_agent_design); plan-phase scope landed in slice 2 (architect + task_planner + risk_analyst + reviewer_plan). Both phases are driven by the flattened `bin/run_pipeline.py` stage driver that ferries a single `pending_hitl` envelope through `.egg-state/contracts/<id>.json` per skill→Python round-trip. Implement / pr phases land in later slices of the rollout."
 disable-model-invocation: true
 argument-hint: "[issue# | issue-url] [--repo owner/name]"
 allowed-tools: Agent Read AskUserQuestion Bash(gh issue view:*) Bash(gh issue list:*) Bash(git -C * remote:*) Bash(git remote:*) Bash(mkdir:*) Bash(ls:*) Bash(test:*) Bash(find:*) Bash(python3 plugins/egg-sdlc/skills/egg-sdlc/bin/*:*) Bash(cat:*) Bash(cp:*)
@@ -10,15 +10,20 @@ allowed-tools: Agent Read AskUserQuestion Bash(gh issue view:*) Bash(gh issue li
 
 This skill is the **claude-code-substrate** entry point for the real `egg_orchestrator` stack — the user-facing entry point for the [substrate-swap ADR](../../../../docs/architecture/claude-code-substrate.md) seeded by the walking-skeleton spike [#2623](https://github.com/jwbron/egg/issues/2623) and being rolled out under [#2717](https://github.com/jwbron/egg/issues/2717). It is **not** a parallel Markdown approximation of egg's BRC like `plugins/refine-plan/`; it is the real orchestrator running in-process to the parent Claude Code session.
 
-> **Rollout status (slice 1 of #2717 landed).** The refine phase now exercises the full refine-team roster on this substrate: `refiner` + `reviewer_refine` + `reviewer_agent_design` (the third is spawned only when the target repo is `jwbron/egg`). The heredoc-HITL bridge gap that the original spike deferred is **closed for refine-phase** via the flattened `bin/run_pipeline.py` stage driver (see "How the flattened bridge works" below). The plan / implement / pr phases — and their role rosters (`architect`, `task_planner`, `risk_analyst`, `reviewer_plan`, `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_contract`, …) — land in later slices of the #2717 rollout (slice 2 = plan, slice 3 = implement, slice 4 = pr, slice 5 = hardening). If you call this skill with anything beyond refine today, expect `NotImplementedError` and a pointer to the next slice.
+> **Rollout status (slices 1 + 2 of #2717 landed).** The refine and plan phases now exercise their full role rosters on this substrate:
+>
+> - **Refine** — `refiner` + `reviewer_refine` + `reviewer_agent_design` (the third is spawned only when the target repo is `jwbron/egg`). _(Slice 1.)_
+> - **Plan** — `architect` (runs solo first) + `task_planner` and `risk_analyst` (run concurrently downstream of the architect) + `reviewer_plan` (ACKs / NACKs each of the three producer edges). The stage yields a plan-HITL decision after `CONSENSUS_CONFIRMED` lands on every producer edge — see "Plan phase" below. _(Slice 2.)_
+>
+> The heredoc-HITL bridge gap that the original spike deferred is **closed for refine + plan** via the flattened `bin/run_pipeline.py` stage driver (see "How the flattened bridge works" below). The implement / pr phases — and their role rosters (`coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) — land in later slices of the #2717 rollout (slice 3 = implement + daemon HITL bridge, slice 4 = pr + the rest of the conformance matrix, slice 5 = hardening). If you call this skill with anything beyond refine or plan today, expect `NotImplementedError` and a pointer to the next slice.
 
 ## What this gets you
 
 - Real `egg_orchestrator` running in-process to your Claude Code session — no k3s, no Redis, no Docker, no gateway sidecar.
-- Refine-team subagents run via Claude Code's `Agent` tool with `subagent_type: "general-purpose"` and a system prompt assembled by the real `build_system_prompt(sources)` (`shared/egg_harness/prompt.py:24`) — the structural depth fix from #2622. The refiner + the two refine reviewers each pick up their role rubric from `agents/<role>.md` automatically.
+- Refine- and plan-team subagents run via Claude Code's `Agent` tool with `subagent_type: "general-purpose"` and a system prompt assembled by the real `build_system_prompt(sources)` (`shared/egg_harness/prompt.py:24`) — the structural depth fix from #2622. Each role (`refiner`, `reviewer_refine`, `reviewer_agent_design`, `architect`, `task_planner`, `risk_analyst`, `reviewer_plan`) picks up its rubric from `agents/<role>.md` automatically.
 - Role file-write restrictions are enforced at write time by a PreToolUse hook that imports `build_agent_patterns` from `shared/egg_restrictions/patterns.py:768` — the same source of truth the gateway uses for `403 restricted_path_modified`.
 - HITL decisions surface through the parent session via `AskUserQuestion` and resume the orchestrator from where it paused — the flattened `bin/run_pipeline.py` stage driver round-trips each `HITLDecision` through `.egg-state/contracts/<id>.json#pending_hitl` so the skill can drive a generator-yielding orchestrator from Bash steps without keeping a Python process alive across yields.
-- The refine artifact lands at the canonical egg path: `.egg-state/drafts/<issue>-analysis.md` (same path the k3s substrate writes); reviewer verdicts land at `.egg-state/agent-outputs/<issue>-<reviewer>-output.json`.
+- Refine + plan artifacts land at the canonical egg paths: `.egg-state/drafts/<issue>-analysis.md` (refine) and `.egg-state/drafts/<issue>-plan.md` (plan); each role's handoff JSON / verdict JSON lands at `.egg-state/agent-outputs/<issue>-<role>-output.json`. These paths match the k3s substrate's writes.
 
 ## Install
 
@@ -64,7 +69,9 @@ See the ADR's [Trust-context shift (R1)](../../../../docs/architecture/claude-co
 5. **Resume the orchestrator**. The skill re-invokes `bin/run_pipeline.py` with the same args. The driver promotes `pending_hitl.answer` into `answer_log`, replays the full `answer_log` into a fresh generator (deterministic replay — see "Generator state across invocations" below), advances to the next yield (or to `StopIteration`), serialises the next decision, and exits. The skill loops back to step 4 until `pending_hitl.status ∈ {completed, aborted, error}`.
 6. **Refine subagents run inside step 3 / 5.** The `ClaudeCodeSpawner` dispatches the three refine-team roles via the `Agent` tool with `subagent_type: "general-purpose"`. Each subagent runs inside a worktree under `<EGG_WORKTREE_BASE>/<pipeline_id>/<role>/` (default base `~/.egg-worktrees/`), the refiner writes its analysis to `.egg-state/drafts/<issue>-analysis.md`, each reviewer writes its verdict to `.egg-state/agent-outputs/<issue>-<reviewer>-output.json`. The orchestrator coordinates ACK / NACK / re-propose cycles via the in-process message bus before pausing at the refine HITL gate.
 7. **Refine HITL gate**. The skill surfaces a refine-gate `HITLDecision` (approve / request changes / change approach / stop) alongside the refiner's recommended option, the top open questions, and each reviewer's ACK or NACK summary.
-8. **Phase fence**. If the operator chooses "approve and continue to plan", the skill currently raises `NotImplementedError` with a pointer to slice 2 of the #2717 rollout — plan / implement / pr phases are out of scope until later slices land.
+8. **Plan subagents run inside the next driver invocation.** When the operator chooses "approve and continue to plan" at the refine gate, the next `bin/run_pipeline.py` invocation enters the plan stage. The `ClaudeCodeSpawner` dispatches `architect` solo first; once its handoff lands, `task_planner` and `risk_analyst` are spawned concurrently. `reviewer_plan` is spawned for the ACK / NACK cycle after each `CONSENSUS_PROPOSE`; the in-process message bus runs the open-NACK barrier the same way the k3s substrate does. The plan document lands at `.egg-state/drafts/<issue>-plan.md`; each role's handoff or verdict lands at `.egg-state/agent-outputs/<issue>-<role>-output.json`.
+9. **Plan HITL gate.** Once `CONSENSUS_CONFIRMED` fires on all three producer edges (`architect → reviewer_plan`, `task_planner → reviewer_plan`, `risk_analyst → reviewer_plan`), the stage yields a plan-gate `HITLDecision` (approve / request changes / change approach / stop) alongside the architect's approach summary, the task_planner's slice DAG, the risk_analyst's top-3 risks and blocking concerns, and each per-edge reviewer verdict.
+10. **Phase fence.** If the operator chooses "approve and continue to implement", the skill currently raises `NotImplementedError` with a pointer to slice 3 of the #2717 rollout — implement / pr phases land in slices 3 / 4 of the rollout.
 
 ### How the flattened bridge works
 
@@ -103,10 +110,10 @@ Field semantics:
 - `status` — **the skill's loop predicate**. One of:
   - `pending` — `decision` is set and waiting for an answer. Render via `AskUserQuestion` and write the answer back.
   - `answered` — the skill body wrote `answer` and the driver hasn't been re-invoked yet. (You'll only see this transiently, written by the skill body.)
-  - `completed` — the generator returned (StopIteration). `result` holds the return value (refine artifact path). Skill loop exits cleanly.
+  - `completed` — the generator returned (StopIteration). `result` holds the return value (the refine analysis path for slice-1 runs; the plan-document path for slice-2 runs that walked through both phases). Skill loop exits cleanly.
   - `aborted` — the operator chose an abort-style answer (`abort` / `stop` / `cancel`). Skill loop exits cleanly.
   - `error` — the driver hit an internal error. `error` holds the diagnostic. Driver exited 1.
-- `result` — generator return value when `status == "completed"` (typically the analysis path).
+- `result` — generator return value when `status == "completed"`. For a refine-only run this is the analysis path; for a run that walked through both refine and plan, the value depends on how the operator answered the plan HITL gate (e.g. the plan document path on `approve`).
 - `error` — diagnostic message when `status == "error"`.
 - `answer_log` — the operator's accumulated answer history. The driver replays this list on every invocation (see "Generator state across invocations" below); the slice-3 daemon variant inherits this field unchanged.
 
@@ -253,11 +260,38 @@ The hook reads the calling role from `EGG_AGENT_ROLE` in the env. **R2 — neste
 
 > **Open question for slice-5 sequencing.** The slice-1 R2 verdict file (`r2-verdict.json`) records *only* the hook-logic half of R2 — it is **not** a green-light for the R15 model-(b) migration on its own. Before slice 5 reads the verdict as "ship Agent-tool dispatch," an empirical Claude-Code-side test must land that exercises real nested Agent-tool dispatch and observes `EGG_AGENT_ROLE` propagation in the child. Slice 5's R15 task should treat the verdict file as a necessary-but-not-sufficient input. Tracked in the slice-5 plan; this caveat is duplicated in `integration_tests/regression/test_pretooluse_hook_nested.py`'s module docstring so a reader of either surface sees the same constraint.
 
+### Plan phase (landed in slice 2 of #2717)
+
+The plan stage runs **three producers reviewed by one reviewer**:
+
+| Role | When it spawns | Output |
+|---|---|---|
+| `architect` | First, solo | `.egg-state/agent-outputs/<issue>-architect-output.json` — approach summary + key design decisions + ordering constraints |
+| `task_planner` | Concurrently with `risk_analyst`, downstream of the architect | `.egg-state/drafts/<issue>-plan.md` + `.egg-state/agent-outputs/<issue>-task_planner-output.json` — slice DAG with role-typed tasks |
+| `risk_analyst` | Concurrently with `task_planner` | `.egg-state/agent-outputs/<issue>-risk_analyst-output.json` — risks with evidence, top-3, blocking concerns |
+| `reviewer_plan` | After each producer's `CONSENSUS_PROPOSE` | `.egg-state/agent-outputs/<issue>-reviewer_plan-output.json` — ACK / NACK per producer edge |
+
+Each role's rubric lives at `agents/<role>.md` and is prepended to the per-task prompt by `build_system_prompt(sources)`. The plan stage advances through three BRC edges (`architect → reviewer_plan`, `task_planner → reviewer_plan`, `risk_analyst → reviewer_plan`); the orchestrator's open-NACK barrier applies per edge.
+
+**Plan HITL gate.** Once `CONSENSUS_CONFIRMED` fires on all three producer edges, the stage yields a plan-gate `HITLDecision` with these standard options:
+
+- `approve_continue` — would advance to the implement phase. Currently fenced: the generator raises `NotImplementedError` with a pointer to slice 3 of the #2717 rollout (the implement phase ships in slice 3, pr ships in slice 4).
+- `request_changes` — **not implemented in slice 2.** The option is surfaced for forward-compatibility, but the slice-2 generator treats every non-`approve_continue` answer as "stop and return the plan artifact path"; the producer / reviewer re-spawn loop lands in a later slice of the rollout (tracked in the [`#2717` plan](https://github.com/jwbron/egg/issues/2717)).
+- `change_approach` — **not implemented in slice 2.** Same caveat as `request_changes`: surfaced but treated as stop. Kicking the pipeline back to the refine phase for a fresh refiner cycle lands in a later slice.
+- `stop` — terminate the run cleanly; the skill loop exits with `pending_hitl.status = completed` and `result` pointing at the plan artifact path.
+
+If the plan-phase BRC did **not** reach `CONSENSUS_CONFIRMED` (`_run_plan_phase` returned `is_complete=False`), the gate surfaces a different option set instead:
+
+- `retry` — would re-run the failed producers; **not implemented in slice 2** (same forward-compatibility caveat as `request_changes` above — treated as stop today).
+- `abort` — terminate the run cleanly with the partial plan artifact path as the return value.
+
+The skill surfaces the architect's `approach_summary`, the task_planner's slice DAG shape, the risk_analyst's top-3 risks + blocking concerns, and each per-edge `reviewer_plan` verdict alongside the decision so the operator decides with the full plan-team context in view.
+
 ### What's NOT in this skill (yet)
 
-A non-exhaustive list of capabilities that the substrate-swap rollout targets but slice 1 of #2717 has not landed:
+A non-exhaustive list of capabilities that the substrate-swap rollout targets but slices 1 + 2 of #2717 have not landed:
 
-- **Plan / implement / pr phases.** Slice 1 lands the bridge + refine reviewers; slice 2 lands the plan-phase substrate (3 producers + 1 reviewer); slice 3 lands the implement-phase substrate + daemon HITL bridge; slice 4 lands the pr-phase substrate + the rest of the conformance matrix. If you advance past the refine HITL gate today, the skill raises `NotImplementedError` with a pointer to the active slice.
+- **Implement / pr phases.** Slice 3 lands the implement-phase substrate (3 producers + 5 reviewers) + daemon HITL bridge; slice 4 lands the pr-phase substrate + the rest of the conformance matrix. If you advance past the plan HITL gate today, the skill raises `NotImplementedError` with a pointer to the active slice.
 - **Cost cap (`EGG_PIPELINE_MAX_AGENT_INVOCATIONS`).** Recommended in the ADR (REC5); lands in slice 5 of the #2717 rollout.
 - **Custom `subagent_type` per-role agent definitions in `.claude/agents/<role>.md` (R15 model (b)).** The skill uses `subagent_type: "general-purpose"` for now; per-role tool restrictions rely on the PreToolUse hook + prompt discipline. Migration is **contingent on the R2 verdict** (TASK-1-5): if the hook reliably resolves role under nested dispatch, slice 5 stays on model (a); if not, slice 5 migrates every role rubric to a real `.claude/agents/<role>.md` definition and adds agent-side policy enforcement (cq-6 option 2). The R2 verdict file at `.egg-state/<pipeline_id>/r2-verdict.json` records the empirical result.
 - **`EggHarnessSpawner` for headless / CLI mode (feedback Q4).** Lands in slice 5.
@@ -280,7 +314,7 @@ The contract schema (`shared/egg_contracts/models.py::Contract` v1.1), BRC histo
 ## Failure modes and diagnostics
 
 - **`ImportError: No module named 'egg_orchestrator'`**: the pre-flight check failed. Re-run the pip install command above.
-- **`NotImplementedError: claude-code substrate runs refine only`**: you tried to advance past the refine HITL gate. Slice 1 of the #2717 rollout is refine-only; plan / implement / pr land in slices 2 / 3 / 4 of the same rollout.
+- **`NotImplementedError: egg-sdlc #2717 slice-2: implement / pr phases are deferred to slice-3 / slice-4. See the rollout DAG in docs/architecture/claude-code-substrate.md.`**: you answered `approve_continue` at the plan HITL gate. Slices 1 + 2 of the #2717 rollout cover refine + plan; implement / pr land in slices 3 / 4 of the same rollout.
 - **`NotImplementedError: EGG_SUBSTRATE=k3s requires the HTTP daemon`** (raised from `run_pipeline_in_process`): you set `EGG_SUBSTRATE=k3s` while running this in-process skill. k3s users use `orchestrator/cli.py:83 cmd_serve`, not the skill.
 - **PreToolUse hook denies a write the role *should* be allowed**: the `settings.template.json` is wired against a stale or wrong `EGG_AGENT_ROLE`. The hook prints which role it saw — re-check the spawn env.
 - **HITL takes a long time and you see no progress**: the orchestrator's background threads keep running inside each `bin/run_pipeline.py` invocation while the generator is paused on a yield; the heartbeat-during-HITL acceptance criterion guarantees this within an invocation. Between invocations (i.e. while the skill is rendering `AskUserQuestion` and waiting on the operator), the Python process has exited and the orchestrator state lives only in `.egg-state/contracts/<id>.json#pending_hitl`. If you genuinely want to abandon the run, close the session; the next invocation of `bin/run_pipeline.py` will resume from the contract file, or you can delete the contract file to discard the run entirely.
