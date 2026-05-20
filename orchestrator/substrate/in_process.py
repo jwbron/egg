@@ -177,6 +177,12 @@ class _InProcessOrchestrator:
         self._heartbeat_ticks = 0
         self._brc_review_ticks = 0
         self._bus_ticks = 0
+        # Current phase the generator is executing; read by the
+        # heartbeat publisher so HEARTBEAT messages carry the correct
+        # phase string across the refine→plan transition
+        # (reviewer_concurrency v1 blocker #2 — stuck-phase-transition
+        # monitors filter heartbeats on ``phase``).
+        self._current_phase = "refine"
 
     # ------------------------------------------------------------------
     # Generator entry
@@ -204,14 +210,37 @@ class _InProcessOrchestrator:
                 self._spawn_result = spawn_result
 
                 # Stage 3: refine HITL gate — does the operator approve?
-                answer = yield self._build_refine_gate_decision(artifact_path, spawn_result)
+                refine_answer = yield self._build_refine_gate_decision(artifact_path, spawn_result)
 
-                # Walking-skeleton fence: if the operator chose "approve
-                # and continue to plan", we currently stop here.
-                # plan/implement/pr phases are deferred to the follow-up.
-                self._maybe_fence(answer)
+                # #2717 slice-2: when the operator approves and chooses
+                # to continue, dispatch the plan phase (3 producers + 1
+                # reviewer through the InProcessMessageBus). Any other
+                # answer (stop / change-approach / request-changes)
+                # exits via the refine artifact return below — the same
+                # behaviour the spike's #2623 walking-skeleton had,
+                # minus the NotImplementedError fence.
+                if not _answer_continues_past_refine(refine_answer):
+                    return str(artifact_path)
 
-                return str(artifact_path)
+                # Stage 4: plan phase — BRC consensus across architect,
+                # task_planner, risk_analyst with reviewer_plan as the
+                # critical reviewer. Returns the plan artifact path
+                # and the evaluation snapshot for the HITL gate.
+                plan_artifact_path, plan_eval = self._run_plan_phase(artifact_path)
+                self._plan_artifact_path = plan_artifact_path
+                self._plan_eval = plan_eval
+
+                # Stage 5: plan HITL gate — does the operator approve
+                # the plan?
+                plan_answer = yield self._build_plan_gate_decision(plan_artifact_path, plan_eval)
+
+                # Walking-skeleton fence: if the operator chose
+                # "approve and continue to implement", we currently
+                # stop here. implement / pr phases are deferred to
+                # slice-3 / slice-4 of the #2717 rollout.
+                self._maybe_fence(plan_answer)
+
+                return str(plan_artifact_path)
             except _PreflightAborted as aborted:
                 # Reviewer v1 blocker #7: translate operator-abort
                 # into a clean StopIteration so the docstring's
@@ -334,7 +363,16 @@ class _InProcessOrchestrator:
 
     def _publish_heartbeat(self) -> None:
         """Best-effort heartbeat publish. Swallows exceptions so a
-        transient failure does not kill the background loop."""
+        transient failure does not kill the background loop.
+
+        Reviewer_concurrency v1 blocker #2: ``phase`` is read from
+        ``self._current_phase`` so the heartbeat reflects whichever
+        stage the generator is in (refine vs plan). The orchestrator's
+        stuck-phase-transition watchdog filters heartbeats by
+        ``phase``; a hardcoded refine string would make the
+        in-process orchestrator appear stalled during plan-stage
+        work even though the generator is making progress.
+        """
         try:
             try:
                 from orchestrator.message_store import Message, MessageType
@@ -354,7 +392,7 @@ class _InProcessOrchestrator:
                     message_type=MessageType.HEARTBEAT,
                     subject=f"inproc heartbeat #{self._heartbeat_ticks}",
                     body="",
-                    phase="refine",
+                    phase=self._current_phase,
                 )
             )
         except Exception:  # noqa: BLE001 — defensive
@@ -452,12 +490,25 @@ class _InProcessOrchestrator:
         checkpoints.mkdir(parents=True, exist_ok=True)
         return drafts, contracts, checkpoints
 
-    def _write_pending_decision(self, decision_id: str, question: str) -> Path:
+    def _write_pending_decision(
+        self,
+        decision_id: str,
+        question: str,
+        *,
+        phase: str = "refine",
+    ) -> Path:
         """Write a pending HITL entry to the contract file.
 
         The shape mirrors what the HTTP daemon writes (``decisions``
         list with ``status="pending"``) so the skill's outer loop
         and any external observer see a consistent view.
+
+        ``phase`` is stamped onto both the new decision entry and the
+        contract's ``current_phase`` field so observers / tooling that
+        filter the decisions list by phase (or read ``current_phase``
+        to reconstruct pipeline state) see a consistent value rather
+        than a hardcoded ``"refine"`` left over from the spike's
+        single-phase era. Reviewer_code v1 blocker B1 (#2717 slice-2).
 
         Concurrency (reviewer_concurrency v1 blocker #1):
         - Acquires an exclusive ``fcntl.flock`` on a sidecar
@@ -465,9 +516,24 @@ class _InProcessOrchestrator:
           read-modify-write so concurrent writers (HTTP daemon +
           generator, or two generator instances) cannot lose
           updates.
+        - The lock is acquired with ``LOCK_EX | LOCK_NB`` and retried
+          on a bounded schedule (reviewer_code v2 non-blocking N8) so
+          a crashed sibling holding the lock surfaces as a
+          ``BlockingIOError`` after the timeout rather than hanging
+          the orchestrator forever.
         - Writes through a sibling temp file followed by
           ``os.replace()`` so concurrent readers never observe a
           half-written file.
+        - The lock file is **intentionally not unlinked** after the
+          critical section. The ``flock + unlink`` pattern races
+          (reviewer_code v3 non-blocking NB2 / #2717 slice-2): an
+          unlink between two writers can leave them holding locks on
+          different inodes for the same path, defeating mutual
+          exclusion. Each lock file is a 0-byte sidecar — the
+          accumulated cruft is bounded by the number of distinct
+          pipeline ids the ``.egg-state/`` directory has ever seen,
+          and the cost of one inode per pipeline is far smaller than
+          the cost of double-writing decisions.
         """
         import fcntl
 
@@ -477,7 +543,7 @@ class _InProcessOrchestrator:
         tmp_path = contract_path.with_suffix(".json.tmp")
 
         with open(lock_path, "w") as lock_fp:
-            fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX)
+            self._acquire_flock_with_timeout(lock_fp)
             try:
                 try:
                     if contract_path.exists():
@@ -486,16 +552,20 @@ class _InProcessOrchestrator:
                         contract = {
                             "schemaVersion": "1.1",
                             "pipeline_id": self.pipeline_id,
-                            "current_phase": "refine",
+                            "current_phase": phase,
                             "decisions": [],
                         }
                 except (json.JSONDecodeError, OSError):  # fmt: skip
                     contract = {
                         "schemaVersion": "1.1",
                         "pipeline_id": self.pipeline_id,
-                        "current_phase": "refine",
+                        "current_phase": phase,
                         "decisions": [],
                     }
+
+                # Track the caller's phase on the contract so the
+                # decisions list and ``current_phase`` agree.
+                contract["current_phase"] = phase
 
                 decisions = list(contract.get("decisions") or [])
                 # Idempotent: skip if already present.
@@ -505,7 +575,7 @@ class _InProcessOrchestrator:
                             "id": decision_id,
                             "question": question,
                             "status": "pending",
-                            "phase": "refine",
+                            "phase": phase,
                         }
                     )
                 contract["decisions"] = decisions
@@ -516,6 +586,41 @@ class _InProcessOrchestrator:
             finally:
                 fcntl.flock(lock_fp.fileno(), fcntl.LOCK_UN)
         return contract_path
+
+    # Reviewer_code v2 non-blocking N8: bound the flock wait so a
+    # crashed sibling holding the lock surfaces as a ``BlockingIOError``
+    # after the timeout rather than hanging the orchestrator forever.
+    _FLOCK_TIMEOUT_SECONDS: float = 30.0
+    _FLOCK_RETRY_INTERVAL_SECONDS: float = 0.05
+
+    def _acquire_flock_with_timeout(self, lock_fp: Any) -> None:
+        """Acquire ``fcntl.LOCK_EX`` on ``lock_fp`` with a bounded retry.
+
+        Raises ``BlockingIOError`` after ``_FLOCK_TIMEOUT_SECONDS`` if
+        the lock cannot be acquired. The retry loop polls
+        ``LOCK_EX | LOCK_NB`` every ``_FLOCK_RETRY_INTERVAL_SECONDS``
+        so an orderly contended writer wins the lock quickly while a
+        crashed lock-holder eventually surfaces as a timeout.
+
+        The deadline is checked before sleeping AND the sleep itself
+        is clamped to the remaining budget so the documented
+        ``_FLOCK_TIMEOUT_SECONDS`` ceiling is the true upper bound
+        (reviewer_code v3 non-blocking NB4 / #2717 slice-2). Without
+        the clamp the worst-case wait is
+        ``_FLOCK_TIMEOUT_SECONDS + _FLOCK_RETRY_INTERVAL_SECONDS``.
+        """
+        import fcntl
+
+        deadline = time.monotonic() + self._FLOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(self._FLOCK_RETRY_INTERVAL_SECONDS, remaining))
 
     # ------------------------------------------------------------------
     # HITL decisions
@@ -537,6 +642,7 @@ class _InProcessOrchestrator:
         self._write_pending_decision(
             decision_id,
             "Confirm the refiner will run against this repo + issue?",
+            phase="refine",
         )
         return HITLDecision(
             id=decision_id,
@@ -594,7 +700,7 @@ class _InProcessOrchestrator:
                 "stop",
             ]
 
-        self._write_pending_decision(decision_id, question)
+        self._write_pending_decision(decision_id, question, phase="refine")
         context_block = (
             f"artifact={artifact_path}\n"
             f"exit_code={exit_code}\n"
@@ -608,6 +714,70 @@ class _InProcessOrchestrator:
             options=options,
             decision_type="phase_gate",
             phase="refine",  # type: ignore[arg-type]
+        )
+
+    def _build_plan_gate_decision(
+        self, plan_artifact_path: Path, plan_eval: Mapping[str, Any]
+    ) -> Any:
+        """Build the post-plan HITL gate decision (#2717 slice-2 third yield).
+
+        After ``_run_plan_phase`` reaches CONSENSUS_CONFIRMED on every
+        producer edge (architect, task_planner, risk_analyst →
+        reviewer_plan), the operator sees this gate to approve the
+        produced plan or send the producers back for another cycle.
+
+        The decision context surfaces the plan artifact path AND the
+        BRC evaluation snapshot (which agents confirmed, any
+        unresolved NACK details) so the operator can act on a
+        partial-consensus state rather than approving a plan that
+        never actually converged.
+        """
+        try:
+            from orchestrator.models import HITLDecision
+        except ImportError:  # pragma: no cover
+            from models import HITLDecision  # type: ignore[no-redef, import-untyped]
+
+        is_complete = bool(plan_eval.get("is_complete"))
+        blocking_agents = list(plan_eval.get("blocking_agents") or [])
+        unresolved_nacks = list(plan_eval.get("unresolved_nack_details") or [])
+
+        if is_complete:
+            decision_id = f"plan-gate-{self.pipeline_id}"
+            question = (
+                f"Plan artifact at {plan_artifact_path} reached "
+                "CONSENSUS_CONFIRMED on every reviewer_plan edge. "
+                "Approve and continue to implement?"
+            )
+            options = [
+                "approve_continue",
+                "request_changes",
+                "change_approach",
+                "stop",
+            ]
+        else:
+            decision_id = f"plan-failure-{self.pipeline_id}"
+            question = (
+                f"Plan-phase BRC did NOT converge "
+                f"(blocking_agents={blocking_agents!r}). "
+                f"Review {plan_artifact_path} and unresolved NACK "
+                "details; choose retry / abort."
+            )
+            options = ["retry", "abort"]
+
+        self._write_pending_decision(decision_id, question, phase="plan")
+        context_block = (
+            f"artifact={plan_artifact_path}\n"
+            f"is_complete={is_complete}\n"
+            f"blocking_agents={blocking_agents!r}\n"
+            f"unresolved_nacks={unresolved_nacks!r}\n"
+        )
+        return HITLDecision(
+            id=decision_id,
+            question=question,
+            context=context_block,
+            options=options,
+            decision_type="phase_gate",
+            phase="plan",  # type: ignore[arg-type]
         )
 
     # ------------------------------------------------------------------
@@ -724,6 +894,85 @@ class _InProcessOrchestrator:
 
         return artifact_path, spawn_result
 
+    # ------------------------------------------------------------------
+    # Plan-phase BRC (#2717 slice-2 — TASK-2-1) — body in _plan_phase.py
+    # ------------------------------------------------------------------
+
+    def _run_plan_phase(self, refine_artifact_path: Path) -> tuple[Path, dict[str, Any]]:
+        """Run the plan phase BRC cycle.
+
+        Architect-first then fan-out (reviewer_code_holistic v1
+        blocker H1): spawn architect synchronously first, then
+        fan out task_planner + risk_analyst concurrently through
+        a ThreadPoolExecutor(max_workers=2). Reviewer_plan
+        dispatches once after the fan-out; its verdict JSON drives
+        per-edge ACK / NACK on the tracker (reviewer_code_holistic
+        v1 blocker H2 — verdict-based not exit-code-based).
+        Heartbeat phase flips to "plan" for the duration
+        (reviewer_concurrency v1 blocker #2).
+
+        Body lives in orchestrator/substrate/_plan_phase.py so
+        in_process.py stays under the repo's 1500-line cap —
+        see scripts/file-size-allowlist.yaml. The class method
+        is the public surface tests / external callers use; the
+        module-level function is a coder-side decomposition seam.
+        """
+        from . import _plan_phase
+
+        return _plan_phase.run_plan_phase(self, refine_artifact_path)
+
+    # Plan-phase delegate helpers — surfaced on the class so tests
+    # and observability code can call them as methods. Each delegates
+    # to _plan_phase for the body so the in_process module stays
+    # under 1500 lines without losing the class-method API.
+
+    def _spawn_plan_producer(
+        self,
+        role: Any,
+        bundle: Any,
+        refine_artifact_path: Path,
+        plan_artifact_path: Path,
+        architect_output_path: Path | None = None,
+    ) -> tuple[Path, Any]:
+        """See _plan_phase.spawn_plan_producer."""
+        from . import _plan_phase
+
+        return _plan_phase.spawn_plan_producer(
+            self,
+            role,
+            bundle,
+            refine_artifact_path,
+            plan_artifact_path,
+            architect_output_path,
+        )
+
+    def _spawn_plan_reviewer(
+        self,
+        bundle: Any,
+        producer_artifacts: Mapping[Any, Path],
+        plan_artifact_path: Path,
+    ) -> tuple[Path, Any]:
+        """See _plan_phase.spawn_plan_reviewer."""
+        from . import _plan_phase
+
+        return _plan_phase.spawn_plan_reviewer(self, bundle, producer_artifacts, plan_artifact_path)
+
+    def _plan_producer_output_path(self, role: Any) -> Path:
+        """See _plan_phase.plan_producer_output_path."""
+        from . import _plan_phase
+
+        return _plan_phase.plan_producer_output_path(self, role)
+
+    def _read_plan_reviewer_verdicts(
+        self,
+        *,
+        plan_producers: list[Any] | None = None,
+    ) -> tuple[Path | None, dict[str, dict[str, Any]]]:
+        """See _plan_phase.read_plan_reviewer_verdicts."""
+        from . import _plan_phase
+
+        return _plan_phase.read_plan_reviewer_verdicts(self, plan_producers=plan_producers)
+
     def _write_active_role_sentinel(self, role: str) -> None:
         """Write the active agent role to a known location.
 
@@ -806,11 +1055,23 @@ class _InProcessOrchestrator:
     @staticmethod
     def _maybe_fence(answer: Any) -> None:
         """Raise ``NotImplementedError`` if the operator asked to
-        continue past refine.
+        continue past the *current terminal* phase.
 
-        cq-11 scope-fence: plan / implement / pr phases are deferred
-        to the follow-up issue. Stopping here keeps the spike's
-        scope honest.
+        Scope-fence semantics evolve with the #2717 rollout:
+
+        * #2623 spike: fences after the refine HITL gate.
+        * #2717 slice-2 (this slice): refine → plan is wired, so the
+          fence now fires on the plan HITL gate's
+          ``approve_continue`` answer — the implement phase ships in
+          slice-3.
+        * #2717 slice-3: implement-phase wiring lands, the fence
+          moves to the implement HITL gate.
+        * #2717 slice-4: pr-phase wiring lands and TASK-4-2 removes
+          this method entirely (and the call site in ``run``).
+
+        Today's behaviour: ``approve_continue`` past the plan gate
+        raises with a slice-3 pointer; any other answer is a
+        no-op (the generator returns the artifact path).
         """
         if answer is None:
             return
@@ -819,16 +1080,24 @@ class _InProcessOrchestrator:
             answer = answer.get("selected") or answer.get("value")
         if isinstance(answer, str) and answer.startswith("approve_continue"):
             raise NotImplementedError(
-                "egg-sdlc walking-skeleton: plan / implement / pr "
-                "phases are out of scope for issue #2623. See the "
-                "follow-up issue listed in "
-                "docs/architecture/claude-code-substrate.md."
+                "egg-sdlc #2717 slice-2: implement / pr phases are "
+                "deferred to slice-3 / slice-4. See the rollout DAG "
+                "in docs/architecture/claude-code-substrate.md."
             )
 
 
 def _sleep_or_shutdown(interval: float, shutdown: threading.Event) -> bool:
     """Return ``True`` if the shutdown event fires during the sleep."""
     return shutdown.wait(interval)
+
+
+#: Lowercased answer strings the operator can submit to indicate "abort
+#: the run, do not advance the generator past this yield." Single source
+#: of truth shared with the flattened bridge driver
+#: (``plugins/egg-sdlc/skills/egg-sdlc/bin/run_pipeline.py``) and the
+#: slice-3 daemon variant, so all three surfaces agree on what counts as
+#: abort without drifting independently.
+ABORT_ANSWERS: frozenset[str] = frozenset({"abort", "stop", "cancel"})
 
 
 def _answer_is_abort(answer: Any) -> bool:
@@ -842,7 +1111,28 @@ def _answer_is_abort(answer: Any) -> bool:
         return False
     if isinstance(answer, dict):
         answer = answer.get("selected") or answer.get("value")
-    return isinstance(answer, str) and answer.lower() in {"abort", "stop", "cancel"}
+    return isinstance(answer, str) and answer.lower() in ABORT_ANSWERS
+
+
+def _answer_continues_past_refine(answer: Any) -> bool:
+    """Return True if the refine-gate ``answer`` advances to plan.
+
+    The refine HITL gate exposes ``approve_continue`` /
+    ``request_changes`` / ``change_approach`` / ``stop`` (and
+    ``retry`` / ``abort`` on the failure path). Only
+    ``approve_continue`` triggers the plan stage dispatch — every
+    other answer either re-runs the refiner (out of #2717 slice-2
+    scope) or stops the generator cleanly with the refine artifact
+    as the return value.
+
+    Mirrors ``_answer_is_abort``'s accepted shapes (bare string OR
+    Claude Code's ``{"selected": "..."}`` dict).
+    """
+    if answer is None:
+        return False
+    if isinstance(answer, dict):
+        answer = answer.get("selected") or answer.get("value")
+    return isinstance(answer, str) and answer.lower().startswith("approve_continue")
 
 
 class _PreflightAborted(RuntimeError):
@@ -854,6 +1144,7 @@ class _PreflightAborted(RuntimeError):
 
 # Re-exported for tests that want a fast tick budget.
 __all__ = [
+    "ABORT_ANSWERS",
     "_BRC_REVIEW_INTERVAL",
     "_BUS_TICK_INTERVAL",
     "_HEARTBEAT_INTERVAL",
