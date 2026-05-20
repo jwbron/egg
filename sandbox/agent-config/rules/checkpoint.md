@@ -2,6 +2,23 @@
 
 Use `egg-checkpoint` to browse agent checkpoints (transcripts, tool calls, files, token usage). Full reference: `$EGG_REPO_PATH/docs/reference/checkpoint-browser.md`
 
+**Use the structured checkpoint tools — do not compose an `egg-checkpoint`
+command for the `Bash` tool.** The `search --text <t>` query and other
+free-text inputs are silently corrupted by shell metacharacters
+(backticks, `$(...)`, `$VAR`, `<`, `>`, `;`, `|`, `&`) when routed
+through a `Bash` command string, and a backtick or `$(...)` span is
+*executed* as a command rather than searched. The structured tools pass
+each field as data and never touch a shell:
+
+- **`claude_agent_sdk` harness** — the `mcp__checkpoint__*` tools
+  (mapped below).
+- **`EGG_HARNESS=egg`** — the `EggCheckpoint` tool: subcommand as
+  `command`, each flag and value as a separate `args` element.
+
+The `egg-checkpoint` commands below are the reference for what each
+operation does and stay available to human operators; agents invoke them
+through the structured tool.
+
 **Commands**: `list`, `show <id>`, `browse --issue <n>`, `context`, `cost`, `search --text <t>`. All support `--json`.
 
 **Common filters**: `--issue N`, `--pipeline ID`, `--agent-type TYPE`, `--phase PHASE`, `--status STATUS`
@@ -20,14 +37,15 @@ egg-checkpoint search --text "error" --status failed --limit 10
 
 **Empty results**: The CLI prints which repo/branch was searched to stderr. With `--json`, empty results produce valid JSON (`[]` or structured empty object).
 
-## Prefer MCP tools over the CLI
+## MCP tool equivalents (`claude_agent_sdk` harness)
 
-Sandbox agents on the default harness should call the in-process MCP
-tools instead of shelling out — they share the same `collect_checkpoints`
-/ `load_checkpoint` / `search_checkpoints` helpers the CLI uses
-(drift-gate enforced) and avoid a subprocess + JSON parsing step.
-Iteration-2 ([#1917](https://github.com/jwbron/egg/issues/1917)) added
-the **core 3** verbs (per decision-3) — `browse`, `context`, and
+On the `claude_agent_sdk` harness the operations above are also exposed
+as in-process MCP tools, which share the same `collect_checkpoints` /
+`load_checkpoint` / `search_checkpoints` helpers the CLI uses
+(drift-gate enforced). Prefer them for the reason in the callout above:
+free-text routed to the CLI through the `Bash` tool is mangled by the
+shell. Iteration-2 ([#1917](https://github.com/jwbron/egg/issues/1917))
+added the **core 3** verbs (per decision-3) — `browse`, `context`, and
 `cost` are still CLI-only and tracked for a follow-up.
 
 - `mcp__checkpoint__list` — Prefer this over `egg-checkpoint list`. Returns `{items, next_cursor}` paginated by `limit` (default 100) + opaque `cursor`.
