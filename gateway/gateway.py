@@ -137,13 +137,13 @@ try:
         ALLOWED_GH_COMMANDS,
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
-        READONLY_GH_COMMANDS,
         GitHubClient,
         extract_comment_edit_info,
         extract_issue_label_info,
         extract_pr_review_info,
         extract_pr_reviewer_info,
         extract_repo_from_gh_command,
+        find_gh_command_index,
         get_github_client,
         is_gh_command_allowed,
         parse_gh_api_args,
@@ -241,13 +241,13 @@ except ImportError:
         ALLOWED_GH_COMMANDS,
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
-        READONLY_GH_COMMANDS,
         GitHubClient,
         extract_comment_edit_info,
         extract_issue_label_info,
         extract_pr_review_info,
         extract_pr_reviewer_info,
         extract_repo_from_gh_command,
+        find_gh_command_index,
         get_github_client,
         is_gh_command_allowed,
         parse_gh_api_args,
@@ -4265,7 +4265,7 @@ def gh_execute() -> tuple[Response, int] | Response:
             )
             return make_error(
                 f"Command '{blocked}' is not allowed through the gateway. "
-                f"Allowed read-only commands: {', '.join(sorted(READONLY_GH_COMMANDS))}",
+                f"Allowed: {', '.join(sorted(ALLOWED_GH_COMMANDS))}, api.",
                 status_code=403,
                 details={"blocked_command": blocked, "command_args": args},
             )
@@ -4283,8 +4283,9 @@ def gh_execute() -> tuple[Response, int] | Response:
             success=False,
             details={"command_args": args, "command_key": gh_cmd_key},
         )
+        _display_key = gh_cmd_key or "(no subcommand)"
         return make_error(
-            f"Command 'gh {gh_cmd_key}' is not permitted through the gateway. "
+            f"Command 'gh {_display_key}' is not permitted through the gateway. "
             f"Allowed: {', '.join(sorted(ALLOWED_GH_COMMANDS))}, api.",
             status_code=403,
             details={"command_key": gh_cmd_key, "command_args": args},
@@ -4517,12 +4518,17 @@ def gh_execute() -> tuple[Response, int] | Response:
                 },
             )
 
-    # For 'gh api' commands, validate the path against allowlist
+    # For 'gh api' commands, validate the path against allowlist.
+    # Look past any leading -R/--repo selector so `gh -R owner/repo api /path`
+    # is still subjected to GH_API_ALLOWED_PATHS — otherwise the leading
+    # selector would shift args[0] off "api" and the path check would be
+    # silently skipped.
     api_path: str | None = None
     method: str = "GET"
-    if args and args[0] == "api" and len(args) > 1:
+    _gh_cmd_idx = find_gh_command_index(args)
+    if _gh_cmd_idx < len(args) and args[_gh_cmd_idx] == "api" and len(args) > _gh_cmd_idx + 1:
         # Parse arguments to find the actual API path (skip flags like -X, --method, etc.)
-        api_path, method = parse_gh_api_args(args[1:])
+        api_path, method = parse_gh_api_args(args[_gh_cmd_idx + 1 :])
         if api_path is None:
             audit_log(
                 "api_path_missing",

@@ -25,7 +25,11 @@ import pytest
 TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
 
 import session_manager
-from github_client import extract_gh_command_key, is_gh_command_allowed
+from github_client import (
+    extract_gh_command_key,
+    find_gh_command_index,
+    is_gh_command_allowed,
+)
 from policy import PolicyResult
 from session_manager import SessionValidationResult
 
@@ -2518,7 +2522,7 @@ class TestGhCommandAllowlist:
         assert extract_gh_command_key(["api", "repos/o/r/pulls"]) == "api repos/o/r/pulls"
 
     def test_extract_key_skips_leading_repo_selector(self):
-        """A leading -R/--repo/-H/--hostname selector is skipped with its value."""
+        """A leading -R/--repo selector is skipped with its value."""
         assert extract_gh_command_key(["-R", "owner/repo", "pr", "view"]) == "pr view"
         assert extract_gh_command_key(["--repo", "o/r", "issue", "list"]) == "issue list"
         assert extract_gh_command_key(["--repo=o/r", "pr", "diff"]) == "pr diff"
@@ -2557,6 +2561,35 @@ class TestGhCommandAllowlist:
             ["--version"],
         ):
             assert is_gh_command_allowed(args)[0] is False, args
+
+    def test_find_command_index_skips_leading_repo_selector(self):
+        """`find_gh_command_index` returns the index of the real command token."""
+        assert find_gh_command_index(["pr", "view"]) == 0
+        assert find_gh_command_index(["-R", "owner/repo", "pr", "view"]) == 2
+        assert find_gh_command_index(["--repo", "o/r", "api", "/path"]) == 2
+        assert find_gh_command_index(["--repo=o/r", "api", "/path"]) == 1
+        assert find_gh_command_index([]) == 0
+        # All flags, no command token → past-the-end.
+        assert find_gh_command_index(["--version"]) == 1
+
+    def test_denies_auth_token_with_leading_repo_selector(self):
+        """Layered defense: a leading -R/--repo can't smuggle past the allowlist.
+
+        The blocklist branch in gh_execute uses a prefix match on
+        ``" ".join(args[:2])`` and would NOT match ``["-R", "owner/repo",
+        "auth", "token"]``. The deny-by-default allowlist is the second
+        layer: ``extract_gh_command_key`` skips the ``-R`` value pair and
+        returns ``"auth token"``, which is not on ``ALLOWED_GH_COMMANDS``,
+        so the call still 403s.
+        """
+        for args in (
+            ["-R", "owner/repo", "auth", "token"],
+            ["--repo", "owner/repo", "auth", "status", "--show-token"],
+            ["--repo=owner/repo", "auth", "login"],
+        ):
+            allowed, key = is_gh_command_allowed(args)
+            assert allowed is False, args
+            assert key.startswith("auth"), (args, key)
 
 
 class TestGhExecute:
@@ -2615,6 +2648,30 @@ class TestGhExecute:
     def test_execute_blocks_auth_status(self, client, auth_headers):
         """gh auth status is blocked (auth status --show-token leaks the token)."""
         for args in (["auth", "status"], ["auth", "status", "--show-token"]):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": args}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403, args
+            assert json.loads(response.data)["success"] is False
+
+    def test_execute_blocks_auth_token_with_leading_repo_selector(self, client, auth_headers):
+        """Layered defense: a leading -R selector can't smuggle `auth token` past the gateway.
+
+        The blocklist branch keys on ``" ".join(args[:2])`` and won't match
+        when the first two args are ``-R owner/repo``. The deny-by-default
+        allowlist behind it still fires because ``extract_gh_command_key``
+        looks past the leading repo selector and resolves the real command
+        key to ``"auth token"``, which is not on ``ALLOWED_GH_COMMANDS``.
+        """
+        for args in (
+            ["-R", "owner/repo", "auth", "token"],
+            ["--repo", "owner/repo", "auth", "status", "--show-token"],
+            ["--repo=owner/repo", "auth", "login"],
+        ):
             response = client.post(
                 "/api/v1/gh/execute",
                 headers=auth_headers,
@@ -2767,6 +2824,33 @@ class TestGhExecute:
             assert executed_args[0] == "--repo"  # --repo should be first
             assert executed_args[1] == "owner/repo"
             assert executed_args[2] == "pr"
+
+    def test_execute_api_with_leading_repo_selector_still_validates_path(
+        self, client, auth_headers
+    ):
+        """`gh -R owner/repo api /denied-path` is still gated by GH_API_ALLOWED_PATHS.
+
+        Pre-#2740 (and before this PR's allowlist landed) the api-path
+        validation was guarded by ``args[0] == "api"``, which a leading
+        ``-R``/``--repo`` selector would bypass — falling through to the
+        gh subprocess unchecked. The guard now looks past the leading
+        selector via ``find_gh_command_index``, so the allowlist applies
+        and a denied path returns 403.
+        """
+        for args in (
+            ["-R", "owner/repo", "api", "/admin/orgs/owner"],
+            ["--repo", "owner/repo", "api", "/admin/orgs/owner"],
+            ["--repo=owner/repo", "api", "/admin/orgs/owner"],
+        ):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": args}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403, args
+            assert json.loads(response.data)["success"] is False
 
     def test_execute_api_with_template_variables_resolved(self, client, auth_headers):
         """Execute resolves {owner}/{repo} template variables from cwd.
@@ -2962,11 +3046,11 @@ class TestGhExecuteReviewerToken:
         ):
             mock_result = MagicMock()
             mock_result.success = True
-            mock_result.stdout = "PR created"
+            mock_result.stdout = "PR #123: ..."
             mock_result.stderr = ""
             mock_result.to_dict.return_value = {
                 "success": True,
-                "stdout": "PR created",
+                "stdout": "PR #123: ...",
                 "stderr": "",
             }
             mock_gh.return_value.execute.return_value = mock_result

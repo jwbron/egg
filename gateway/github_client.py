@@ -113,6 +113,14 @@ ALLOWED_GH_COMMANDS = frozenset(
         "repo list",
         "release view",
         "release list",
+        # Read-only Actions runs surface. The self-improvement log collector
+        # (sandbox/egg_lib/self_improvement/collectors/gha.py) uses
+        # `gh run view <id> --log` to pull workflow run logs; the JSON-only
+        # listing path `repos/.../actions/runs` is already on
+        # GH_API_ALLOWED_PATHS, so this just keeps the convenience wrapper
+        # working in-sandbox.
+        "run view",
+        "run list",
         "config get",
         # --- writes the sandbox wrapper / orchestrator route through here ---
         "issue create",
@@ -124,19 +132,50 @@ ALLOWED_GH_COMMANDS = frozenset(
     }
 )
 
-# Leading gh flags that select a repo/host and consume the next token as a
-# value. They may precede the command (`gh -R owner/repo pr view 1`), so the
-# command-key extractor must skip both the flag and the token it consumes.
-_GH_LEADING_VALUE_FLAGS = frozenset({"-R", "--repo", "-H", "--hostname"})
+# Leading gh flag that selects a repo and consumes the next token as a value.
+# `-R`/`--repo` is the only global gh flag that may precede the command and
+# takes a separate-token value, so the command-key extractor must skip both
+# the flag and the token it consumes. `--hostname` is a per-command flag on
+# the auth-group commands (already blocklisted), and `-H` is not a global gh
+# flag at all — it means `--header` for `gh api` and `--head` for `gh pr
+# create`, both of which are subcommand-positional.
+_GH_LEADING_VALUE_FLAGS = frozenset({"-R", "--repo"})
+
+
+def find_gh_command_index(args: list[str]) -> int:
+    """Return the index of the first non-flag (command) token in gh argv.
+
+    Skips a leading ``-R``/``--repo``/``--repo=…`` selector and any other
+    leading flags. ``gh -R owner/repo api /path`` returns ``2`` (the index
+    of ``"api"``). Returns ``len(args)`` if no command token is present.
+
+    Callers that need to slice past the command (e.g. ``args[idx+1:]`` to
+    pass the api path through ``parse_gh_api_args``) must use this rather
+    than hardcoding ``args[1:]``, otherwise a leading repo selector
+    silently shifts the slice and the validator gets the wrong tokens.
+    """
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in _GH_LEADING_VALUE_FLAGS:
+            i += 2  # skip the flag and the token it consumes
+            continue
+        if arg.startswith("--repo="):
+            i += 1
+            continue
+        if arg.startswith("-"):
+            i += 1
+            continue
+        return i
+    return len(args)
 
 
 def extract_gh_command_key(args: list[str]) -> str:
     """Return the ``"<command> [subcommand]"`` key used for allowlist matching.
 
-    Skips a leading repo/host selector flag and its value so that
+    Skips a leading ``-R``/``--repo`` selector and its value so that
     ``gh -R owner/repo pr view 1`` keys as ``"pr view"``. Other leading flags
-    are skipped without consuming a value — no global gh flag that precedes
-    the command takes a separate-token value except the repo/host selectors.
+    are skipped without consuming a value.
 
     Args:
         args: gh argv with the ``gh`` prefix already stripped.
@@ -147,15 +186,9 @@ def extract_gh_command_key(args: list[str]) -> str:
         the argv carries no command token.
     """
     tokens: list[str] = []
-    i = 0
+    i = find_gh_command_index(args)
     while i < len(args) and len(tokens) < 2:
         arg = args[i]
-        if arg in _GH_LEADING_VALUE_FLAGS:
-            i += 2  # skip the flag and the token it consumes
-            continue
-        if arg.startswith(("--repo=", "--hostname=")):
-            i += 1
-            continue
         if arg.startswith("-"):
             i += 1
             continue
