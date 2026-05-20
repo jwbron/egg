@@ -128,8 +128,13 @@ _EGG_TOOL_SPECS: list[tuple[str, str, str]] = [
     ),
     (
         "EggContract",
-        "Execute egg-contract CLI commands for SDLC contract tracking "
-        "(task completion, phase management, decisions).",
+        "SDLC contract tracking: task completion, phase management, "
+        "decisions, and feedback. Use this tool for every egg-contract "
+        "operation; pass the subcommand as `command` and each flag and "
+        "value as a separate `args` element. Never invoke egg-contract "
+        "through the Bash tool: free-text fields such as --question, "
+        "--options, and --notes are corrupted (or executed) by shell "
+        "metacharacters there.",
         "egg-contract",
     ),
     (
