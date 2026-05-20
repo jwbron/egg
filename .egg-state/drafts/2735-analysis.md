@@ -178,7 +178,10 @@ The following decisions and feedback items are registered against this contract 
 > **Errata** (read before answering):
 >
 > - **`cq-5` is superseded by `cq-10`.** The original `cq-5` question text lost its example URLs (`git@github.com:owner/repo`, `ssh://git@github.com/owner/repo`) to shell escaping when the decision was registered. `cq-10` is the same question with the URLs preserved verbatim. Disregard `cq-5`; answer `cq-10` instead. The options are identical between the two.
+> - **`cq-11` is superseded by `cq-14`.** The original `cq-11` option-1 label lost the literal backticked `permissions.deny` token to shell escaping; the option reads "mirror into a parallel  list" in the contract UI, ambiguous against option-3. `cq-14` is the same question with the token preserved. Disregard `cq-11`; answer `cq-14` instead.
 > - **`cq-12` is superseded by `cq-13`.** The original `cq-12` SessionStart question accidentally executed `gh auth token` in a shell context and substituted a **live GitHub Apps token value** into option-1's label text. An `OVERSEER_ALERT` has been broadcast asking the operator to rotate the token and scrub `.egg-state/contracts/issue-2735.json`. `cq-13` is the same question with safer escaping. Disregard `cq-12` entirely; answer `cq-13` instead.
+>
+> **Shell-escaping incident summary.** The above three supersessions all stem from the same root cause: `egg-contract add-decision --options` is invoked via Bash, and Bash interprets unescaped backticks and certain `:`-followed tokens before the CLI sees them. The plan/implement phases should standardize on `mcp__sdlc__register_open_question` (or shell single-quotes throughout) for any option text containing shell metacharacters. A follow-up issue should consider hardening `egg-contract add-decision` to reject unquoted backticks in `--options` arguments.
 
 ### Multiple-choice decisions
 
@@ -270,10 +273,14 @@ The following decisions and feedback items are registered against this contract 
 
 <!-- egg-hitl-decision id=cq-11 -->
 
-**Self-protection — `permissions.deny` mirror: Claude Code has two enforcement layers — `sandbox.filesystem.denyWrite` gates Bash-spawned subprocesses, `permissions.deny` gates the Write/Edit/MultiEdit/NotebookEdit tools. `cq-2` names paths for the sandbox layer only. Should the substrate ALSO populate a `permissions.deny` list with the same paths so the tool-layer cannot rewrite the enforcement config either?** (Note: option-1 label rendering lost the literal backticked `permissions.deny` token to shell escaping; the option intent is "mirror cq-2's selection into a parallel `permissions.deny` list to close both layers.")
+**[SUPERSEDED by cq-14 — disregard cq-11; option-1's label lost the literal `permissions.deny` token to shell escaping. Answer cq-14 below.]**
 
-- [ ] Yes — mirror cq-2's selection into a parallel `permissions.deny` list (close both layers)
-- [ ] Yes, but only for `.claude/settings.json` + hook-script files (narrower mirror — covers self-protection but not the role-pattern source-of-truth)
+<!-- egg-hitl-decision id=cq-14 -->
+
+**Self-protection — `permissions.deny` mirror: Claude Code has two enforcement layers — `sandbox.filesystem.denyWrite` gates Bash-spawned subprocesses, `permissions.deny` gates the Write/Edit/MultiEdit/NotebookEdit tools. `cq-2` names paths for the sandbox layer only. Should the substrate ALSO populate a `permissions.deny` list with the same paths so the tool-layer cannot rewrite the enforcement config either? (Replaces cq-11.)**
+
+- [ ] Yes — mirror cq-2 selection into a parallel `permissions.deny` list (close both layers — `sandbox.filesystem.denyWrite` AND `permissions.deny` carry the same path set)
+- [ ] Yes, but only for `.claude/settings.json` and the hook-script files (narrower mirror — covers self-protection but not the role-pattern source-of-truth)
 - [ ] No — accept that Write/Edit/MultiEdit tool calls can rewrite the substrate's enforcement config (sandbox-block layer is sufficient because the tool layer is gated by the orchestrator-side role-pattern checker on the hook anyway)
 - [ ] Other (explain in reply)
 
