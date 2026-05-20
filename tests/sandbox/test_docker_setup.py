@@ -413,6 +413,36 @@ class TestRunBuildCommands:
         assert captured.out == ""
 
     @patch("subprocess.run")
+    def test_strips_pip_ignore_installed_from_env(self, mock_run, tmp_path, monkeypatch):
+        """PIP_IGNORE_INSTALLED must not leak into build commands.
+
+        The sandbox image sets it for system-Python installs; inherited by a
+        repo's `pip install` it reinstalls pip itself, breaking pinned tooling.
+        Also asserts an unrelated sentinel var passes through, so a future
+        overzealous cleanup that wipes more than intended is caught here.
+        """
+        mock_run.return_value = MagicMock(returncode=0)
+        monkeypatch.setenv("PIP_IGNORE_INSTALLED", "1")
+        monkeypatch.setenv("PATH", "/sentinel-path:/usr/bin")
+
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
+
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": [],
+                "commands": ["pip install -r requirements.txt"],
+            }
+        ]
+
+        run_build_commands(build_commands, repo_deps_base=repo_deps)
+
+        env = mock_run.call_args.kwargs["env"]
+        assert "PIP_IGNORE_INSTALLED" not in env
+        assert env["PATH"] == "/sentinel-path:/usr/bin"
+
+    @patch("subprocess.run")
     def test_command_failure_aborts_build(self, mock_run, tmp_path, capsys):
         """A failed build command aborts the image build (was warn-only). See #2087."""
         mock_run.return_value = MagicMock(returncode=1)

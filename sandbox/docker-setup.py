@@ -316,6 +316,15 @@ def run_build_commands(
 
     print("\n=== Running build commands ===")
 
+    # Build commands install each repo's deps into isolated virtualenvs. The
+    # sandbox image sets PIP_IGNORE_INSTALLED=1 for its own system-Python pip
+    # installs, but inheriting it here makes a fresh venv's `pip install`
+    # re-resolve and reinstall pip/setuptools/wheel themselves — pulling the
+    # newest pip, which can break version-pinned tooling (e.g. pip-tools 7.4.1's
+    # pip-compile against pip >= 25.1). Strip it so venv installs behave normally.
+    build_env = os.environ.copy()
+    build_env.pop("PIP_IGNORE_INSTALLED", None)
+
     for entry in build_commands:
         repo = entry["repo"]
         commands = entry["commands"]
@@ -342,6 +351,7 @@ def run_build_commands(
                     cwd=str(work_dir),
                     check=False,
                     capture_output=False,
+                    env=build_env,
                 )
             except Exception as e:
                 raise RuntimeError(
