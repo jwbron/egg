@@ -5,7 +5,7 @@
   "branch": "egg/issue-2735/work",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "awaiting_human",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -67,7 +67,7 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "complete",
+      "status": "awaiting_human",
       "started_at": "2026-05-20T16:45:39.966072Z",
       "work_started_at": "2026-05-20T16:45:40.364939Z",
       "completed_at": "2026-05-20T17:20:28.870731Z",
@@ -193,7 +193,7 @@
     }
   ],
   "created_at": "2026-05-20T16:45:35.915640Z",
-  "updated_at": "2026-05-20T17:21:00.562027Z",
+  "updated_at": "2026-05-20T17:21:00.580701Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -207,7 +207,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 10,
+  "version": 11,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
