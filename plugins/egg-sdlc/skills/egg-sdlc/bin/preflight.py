@@ -78,7 +78,8 @@ def main() -> int:
         else:
             print(
                 "    git clone https://github.com/jwbron/egg.git && cd egg && "
-                'pip install -r requirements.txt && export PYTHONPATH="$PWD:$PWD/shared:$PYTHONPATH"\n',
+                'pip install . && export PYTHONPATH="$PWD:$PWD/shared:$PYTHONPATH"\n'
+                "    (requires Python >=3.14; see pyproject.toml)\n",
                 file=sys.stderr,
             )
         print(

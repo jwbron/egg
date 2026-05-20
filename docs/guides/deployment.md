@@ -69,6 +69,10 @@ scripts/install-cilium.sh   # downloads cilium-cli and runs `cilium install`
 > **Why `--disable=metrics-server`?** Under Cilium, the metrics-server pod cannot reach the kubelet on the node IP, so it never becomes Ready. The resulting perpetually-unavailable `v1beta1.metrics.k8s.io` APIService causes the namespace controller's discovery step to fail, which wedges all namespace deletion (namespaces become stuck in `Terminating` indefinitely). egg does not use metrics-server; disabling it avoids this hang with no functional loss.
 >
 > **Migrating from a pre-#2703 install:** in-place CNI swap on a live k3s cluster is not supported (host CNI binaries, conflists, CRDs, `tunl0`, and per-pod veth pairs persist after deleting the calico-node DaemonSet). Run `make k3s-teardown && make k3s-setup` for a clean install. `install-cilium.sh` will refuse if it detects leftover Calico state.
+>
+> **Migrating from a pre-#2713 install:** `install-cilium.sh` chains the portmap CNI plugin (`cni.chainingMode=portmap`) for hostPort support and installs a pod-egress MASQUERADE iptables rule that Cilium omits in chained mode. If the running cluster predates #2713, `install-cilium.sh` will exit with a `cni-chaining-mode` mismatch error and instruct you to run `make k3s-teardown && make k3s-setup` — the chainingMode cannot be changed on a live cluster.
+>
+> **After a host reboot:** re-run `scripts/install-cilium.sh` (or `make k3s-setup`) to restore the pod-egress MASQUERADE iptables rule. This rule is not persisted across reboots. Without it, pod-to-external traffic (gateway → GitHub, sandbox agents → Anthropic API) silently fails while intra-cluster traffic continues working. On long-running hosts where re-running after every reboot is painful, wire the rule into `netfilter-persistent`/`iptables-restore` at the system level instead.
 
 #### Image Management
 
