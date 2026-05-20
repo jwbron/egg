@@ -47,26 +47,6 @@ USER_TOKEN_VAR = "GITHUB_USER_TOKEN"
 # gh Command Validation
 # =============================================================================
 
-# Read-only gh commands that don't require ownership checks
-READONLY_GH_COMMANDS = frozenset(
-    {
-        "pr view",
-        "pr list",
-        "pr checks",
-        "pr diff",
-        "pr status",
-        "issue view",
-        "issue list",
-        "issue status",
-        "repo view",
-        "repo list",
-        "release view",
-        "release list",
-        "api",  # Read-only API calls (GET)
-        "config get",
-    }
-)
-
 # Blocked gh commands (dangerous operations)
 BLOCKED_GH_COMMANDS = frozenset(
     {
@@ -76,9 +56,22 @@ BLOCKED_GH_COMMANDS = frozenset(
         "release delete",
         # Entire `gh auth` group. Agents are credential-less by design;
         # `gh auth token` and `gh auth status --show-token` would print the
-        # gateway's GitHub App token. Blocklist entries match by prefix, so
-        # this rejects `auth login`, `auth logout`, `auth token`,
-        # `auth status`, `auth refresh`, `auth setup-git`, etc.
+        # gateway's GitHub App token. Blocklist entries match by prefix on
+        # `" ".join(args[:2])`, so this rejects `auth login`, `auth logout`,
+        # `auth token`, `auth status`, `auth refresh`, `auth setup-git`,
+        # etc. when `auth` is the first positional token.
+        #
+        # The prefix match has argv-shape limitations: an argv with a
+        # leading global flag (e.g. `["-R", "owner/repo", "auth", "token"]`)
+        # keys as `"-R owner/repo"` and slips past this branch. The
+        # `ALLOWED_GH_COMMANDS` allowlist below is the load-bearing second
+        # layer that catches those smuggle attempts — it normalizes the
+        # argv via `find_gh_command_index` before keying, so
+        # `["-R", "owner/repo", "auth", "token"]` resolves to `"auth token"`
+        # and fails the allowlist check. See
+        # `test_denies_auth_token_with_leading_repo_selector` and
+        # `test_execute_blocks_auth_token_with_leading_repo_selector` for
+        # the in-tree evidence of this layering.
         "auth",
         "config set",
     }

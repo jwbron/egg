@@ -4368,12 +4368,21 @@ def gh_execute() -> tuple[Response, int] | Response:
     # repo enforcement against EGG_PIPELINE_REPO, label injection,
     # title/body size limits, and a defense-in-depth secret-pattern
     # scan on the body. Failure is a structured 403.
+    #
+    # The guard looks past any leading `-R`/`--repo` selector via
+    # `find_gh_command_index` so an argv like
+    # `[-R owner/repo issue create --title ... --body <secret>]`
+    # still runs the secret-pattern scan; otherwise the leading
+    # selector would shift args[0] off "issue" and the entire
+    # overseer block would be silently skipped (parity fix with
+    # the api-path guard below).
+    _overseer_cmd_idx = find_gh_command_index(args)
     if (
         session_role
         and session_role.lower() == "overseer"
-        and len(args) >= 2
-        and args[0] == "issue"
-        and args[1] == "create"
+        and _overseer_cmd_idx + 1 < len(args)
+        and args[_overseer_cmd_idx] == "issue"
+        and args[_overseer_cmd_idx + 1] == "create"
     ):
         from .agent_restrictions import check_overseer_gh_issue_create
 
@@ -4415,7 +4424,11 @@ def gh_execute() -> tuple[Response, int] | Response:
                 )
             return val, None
 
-        i = 2
+        # Start past the `issue create` tokens; `_overseer_cmd_idx` is the
+        # index of `"issue"`, so the flag walk begins at `_overseer_cmd_idx
+        # + 2`. With no leading selector this collapses to the original
+        # `i = 2`.
+        i = _overseer_cmd_idx + 2
         while i < len(args):
             tok = args[i]
             if tok in _OVERSEER_VALUE_FLAGS:

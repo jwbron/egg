@@ -7398,3 +7398,170 @@ class TestGhExecuteIssueCommentBlocking:
                     content_type="application/json",
                 )
                 assert response.status_code == 200
+
+
+class TestGhExecuteOverseerLeadingSelector:
+    """Regression: leading `-R`/`--repo` selector must not bypass the
+    overseer ``gh issue create`` guardrail.
+
+    The overseer block in ``gh_execute`` is the only enforcement layer
+    that runs ``check_overseer_gh_issue_create`` — repo enforcement,
+    label injection, title/body size limits, and the defense-in-depth
+    secret-pattern scan on the body. Before the fix it was guarded by
+    ``args[0] == "issue"``, so an argv like
+    ``["-R", "owner/repo", "issue", "create", ...]`` shifted ``args[0]``
+    off ``"issue"`` and the entire block was skipped — letting the
+    request fall through to the gh subprocess with no secret scan.
+    The fix normalizes the argv via ``find_gh_command_index`` (parity
+    with the api-path guard below it in the same handler).
+    """
+
+    _GH_PAT = "ghp_" + "A" * 36
+
+    def _make_overseer_session(self):
+        """Create a mock session with agent_role='overseer'."""
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = "overseer"
+        mock_session.phase = None
+        mock_session.pipeline_id = "test-pipeline"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        return (
+            patch.object(
+                current_session_manager,
+                "validate_session_for_request",
+                return_value=mock_result,
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        )
+
+    def test_overseer_issue_create_secret_scan_fires_without_leading_selector(self, client):
+        """Control: the overseer secret-scan fires for plain `issue create` argv.
+
+        Establishes the baseline behavior the leading-selector cases below
+        must also exhibit. If this case ever passes 200, the test
+        infrastructure (session mock / env var) is misconfigured.
+        """
+        ctx1, ctx2 = self._make_overseer_session()
+        with ctx1, ctx2, patch.dict(os.environ, {"EGG_PIPELINE_REPO": "owner/repo"}):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "args": [
+                            "issue",
+                            "create",
+                            "--repo",
+                            "owner/repo",
+                            "--title",
+                            "x",
+                            "--body",
+                            f"Token leaked: {self._GH_PAT}",
+                            "--label",
+                            "agent:overseer",
+                            "--label",
+                            "p1",
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert data["success"] is False
+            assert "secret" in data["message"].lower()
+            assert "gh-pat" in data["data"].get("secret_kinds", [])
+
+    def test_overseer_issue_create_with_leading_repo_selector_still_runs_secret_scan(self, client):
+        """The fix: leading `-R`/`--repo` selector must NOT bypass the overseer block.
+
+        Each argv variant places a global repo selector before the
+        ``issue create`` tokens. The handler must normalize past the
+        selector via ``find_gh_command_index`` and still run
+        ``check_overseer_gh_issue_create``, including the secret-pattern
+        scan on ``--body``.
+        """
+        variants = (
+            [
+                "-R",
+                "owner/repo",
+                "issue",
+                "create",
+                "--title",
+                "x",
+                "--body",
+                f"Token leaked: {self._GH_PAT}",
+                "--label",
+                "agent:overseer",
+                "--label",
+                "p1",
+            ],
+            [
+                "--repo",
+                "owner/repo",
+                "issue",
+                "create",
+                "--title",
+                "x",
+                "--body",
+                f"Token leaked: {self._GH_PAT}",
+                "--label",
+                "agent:overseer",
+                "--label",
+                "p1",
+            ],
+            [
+                "--repo=owner/repo",
+                "issue",
+                "create",
+                "--title",
+                "x",
+                "--body",
+                f"Token leaked: {self._GH_PAT}",
+                "--label",
+                "agent:overseer",
+                "--label",
+                "p1",
+            ],
+        )
+        for args in variants:
+            ctx1, ctx2 = self._make_overseer_session()
+            with ctx1, ctx2, patch.dict(os.environ, {"EGG_PIPELINE_REPO": "owner/repo"}):
+                response = client.post(
+                    "/api/v1/gh/execute",
+                    headers={"Authorization": "Bearer test-session-token"},
+                    data=json.dumps({"args": args}),
+                    content_type="application/json",
+                )
+
+                assert response.status_code == 403, args
+                data = json.loads(response.data)
+                assert data["success"] is False, args
+                assert "secret" in data["message"].lower(), args
+                assert "gh-pat" in data["data"].get("secret_kinds", []), args
