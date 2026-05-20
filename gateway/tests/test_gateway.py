@@ -7399,6 +7399,58 @@ class TestGhExecuteIssueCommentBlocking:
                 )
                 assert response.status_code == 200
 
+    def test_issue_comment_with_leading_repo_selector_still_blocked_by_role(self, client):
+        """Regression: a leading `-R`/`--repo` selector must not bypass
+        the role-based `issue comment` block.
+
+        The phase + role filters build `gh_command_str` from non-flag
+        args. Before the fix, `["-R", "owner/repo", "issue", "comment",
+        "1032", "--body", "..."]` keyed as `"owner/repo issue comment"`,
+        which neither `fnmatch("issue comment *")` (phase filter) nor
+        `startswith("issue comment")` (`_BLOCKED_GH_OPS`) would catch —
+        letting role/phase enforcement be bypassed entirely. The fix
+        normalizes past the selector via `find_gh_command_index`
+        (parity with the overseer block and the api-path guard).
+        """
+        ctx1, ctx2 = self._make_session(phase=None, agent_role="coder")
+        with ctx1, ctx2:
+            for args in (
+                ["-R", "owner/repo", "issue", "comment", "1032", "--body", "t"],
+                ["--repo", "owner/repo", "issue", "comment", "1032", "--body", "t"],
+                ["--repo=owner/repo", "issue", "comment", "1032", "--body", "t"],
+            ):
+                response = client.post(
+                    "/api/v1/gh/execute",
+                    headers={"Authorization": "Bearer test-session-token"},
+                    data=json.dumps({"args": args}),
+                    content_type="application/json",
+                )
+                assert response.status_code == 403, args
+                data = json.loads(response.data)
+                assert "not allowed" in data["message"].lower(), args
+
+    def test_issue_comment_with_leading_repo_selector_still_blocked_by_phase(self, client):
+        """Regression: leading selector must not bypass the phase filter.
+
+        Companion to the role-filter regression above — same argv shape,
+        but exercises the phase-filter path (refine phase blocks
+        `issue comment *`).
+        """
+        ctx1, ctx2 = self._make_session(phase="refine", agent_role=None)
+        with ctx1, ctx2:
+            for args in (
+                ["-R", "owner/repo", "issue", "comment", "1032", "--body", "t"],
+                ["--repo", "owner/repo", "issue", "comment", "1032", "--body", "t"],
+                ["--repo=owner/repo", "issue", "comment", "1032", "--body", "t"],
+            ):
+                response = client.post(
+                    "/api/v1/gh/execute",
+                    headers={"Authorization": "Bearer test-session-token"},
+                    data=json.dumps({"args": args}),
+                    content_type="application/json",
+                )
+                assert response.status_code == 403, args
+
 
 class TestGhExecuteOverseerLeadingSelector:
     """Regression: leading `-R`/`--repo` selector must not bypass the

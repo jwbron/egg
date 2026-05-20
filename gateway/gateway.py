@@ -4294,7 +4294,19 @@ def gh_execute() -> tuple[Response, int] | Response:
     # --- Phase and role-based operation filtering ---
     # Block operations like "issue comment" / "issue edit" when phase or role restricts them.
     # Build a command string from the first 3 non-flag args for matching.
-    non_flag_args = [a for a in args if not a.startswith("-")]
+    #
+    # Normalize past any leading -R/--repo selector before constructing the
+    # command string used by the phase and role filters — parity with the
+    # overseer block below (line 4379) and the api-path guard further down
+    # (line 4541). Without this, an argv like `["-R", "owner/repo", "issue",
+    # "comment", "1032", "--body", "..."]` keys as `"owner/repo issue
+    # comment"`, which doesn't fnmatch `"issue comment *"` (phase filter)
+    # and doesn't `startswith("issue comment")` (_BLOCKED_GH_OPS), letting
+    # the role/phase enforcement be bypassed entirely. The allowlist check
+    # above already normalizes via `find_gh_command_index`, so doing the
+    # same here keeps the three positional-key call sites consistent.
+    _filter_cmd_idx = find_gh_command_index(args)
+    non_flag_args = [a for a in args[_filter_cmd_idx:] if not a.startswith("-")]
     gh_command_str = " ".join(non_flag_args[:3])
 
     session_phase = getattr(g, "session_phase", None)
@@ -4373,9 +4385,10 @@ def gh_execute() -> tuple[Response, int] | Response:
     # `find_gh_command_index` so an argv like
     # `[-R owner/repo issue create --title ... --body <secret>]`
     # still runs the secret-pattern scan; otherwise the leading
-    # selector would shift args[0] off "issue" and the entire
-    # overseer block would be silently skipped (parity fix with
-    # the api-path guard below).
+    # selector would put the `"issue"` token at args[2] instead of
+    # args[0], so an `args[0] == "issue"` check would miss it and
+    # the entire overseer block would be silently skipped (parity
+    # fix with the api-path guard below).
     _overseer_cmd_idx = find_gh_command_index(args)
     if (
         session_role
