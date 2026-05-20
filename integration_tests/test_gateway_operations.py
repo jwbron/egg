@@ -70,8 +70,13 @@ class TestGitExecuteEndpoint:
 class TestGhExecuteEndpoint:
     """Tests for POST /api/v1/gh/execute."""
 
-    def test_gh_version_works(self, egg_stack, gateway_session):
-        """gh --version executes successfully."""
+    def test_gh_bare_version_flag_denied(self, egg_stack, gateway_session):
+        """`gh --version` has no command token, so the allowlist denies it.
+
+        gh_execute is deny-by-default: an argv carrying no
+        `<command> <subcommand>` (only flags) is rejected. This also confirms
+        the endpoint is reachable and session auth works (not a 401).
+        """
         token = gateway_session.get("session_token")
         resp = egg_stack.api_request(
             "POST",
@@ -81,13 +86,10 @@ class TestGhExecuteEndpoint:
                 "args": ["--version"],
             },
         )
-        # Should succeed or at least not be an auth failure
+        # Endpoint reachable + authed (not a 401), but the command is denied.
         assert resp.status_code != 401
         body = resp.json()
-        # If successful, output should contain "gh version"
-        if body.get("success"):
-            output = body.get("data", {}).get("output", body.get("output", ""))
-            assert "gh" in output.lower() or body.get("success")
+        assert body.get("success") is not True
 
     def test_response_format_is_json(self, egg_stack, gateway_session):
         """gh/execute returns JSON, not HTML error pages."""

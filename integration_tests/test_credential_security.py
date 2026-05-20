@@ -52,6 +52,38 @@ class TestCredentialIsolation:
             "SECURITY VIOLATION: BOT_GITHUB_TOKEN found in container environment"
         )
 
+    def test_agent_cannot_obtain_github_token_via_gh(self, egg_stack, gateway_session):
+        """`gh auth token` / `gh auth status --show-token` cannot extract the token.
+
+        The gateway holds the GitHub App token and runs `gh` with it in the
+        subprocess environment. `gh auth token` and `gh auth status
+        --show-token` exist only to print that credential, so the gateway
+        must reject the whole `gh auth` group instead of running it and
+        returning its output (gateway/github_client.py BLOCKED_GH_COMMANDS).
+        """
+        token = gateway_session.get("session_token")
+        # Prefixes for GitHub App installation / user / OAuth / PAT tokens.
+        token_prefixes = ("gho_", "ghs_", "ghp_", "ghu_", "github_pat_")
+        for args in (["auth", "token"], ["auth", "status", "--show-token"]):
+            label = "gh " + " ".join(args)
+            resp = egg_stack.api_request(
+                "POST",
+                "/api/v1/gh/execute",
+                token=token,
+                json_data={"args": args},
+            )
+            assert resp.status_code == 403, f"SECURITY VIOLATION: `{label}` was not blocked"
+            body = resp.json()
+            assert body.get("success") is not True, f"SECURITY VIOLATION: `{label}` succeeded"
+            # Belt-and-suspenders: even an error envelope must not carry a
+            # value that looks like a GitHub token.
+            blob = str(body)
+            for prefix in token_prefixes:
+                assert prefix not in blob, (
+                    f"SECURITY VIOLATION: response to `{label}` contains a "
+                    f"value with GitHub token prefix {prefix!r}"
+                )
+
     def test_container_cannot_reach_github_directly(self, egg_stack, isolated_container):
         """Container on the isolated network cannot reach github.com directly.
 

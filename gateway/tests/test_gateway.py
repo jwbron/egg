@@ -25,6 +25,7 @@ import pytest
 TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
 
 import session_manager
+from github_client import extract_gh_command_key, is_gh_command_allowed
 from policy import PolicyResult
 from session_manager import SessionValidationResult
 
@@ -2507,6 +2508,57 @@ class TestGhPrClose:
             assert response.status_code == 403
 
 
+class TestGhCommandAllowlist:
+    """Unit tests for the deny-by-default gh command allowlist helpers."""
+
+    def test_extract_key_basic(self):
+        """The command key is the first one or two non-flag tokens."""
+        assert extract_gh_command_key(["pr", "view", "123"]) == "pr view"
+        assert extract_gh_command_key(["issue", "create", "--title", "x"]) == "issue create"
+        assert extract_gh_command_key(["api", "repos/o/r/pulls"]) == "api repos/o/r/pulls"
+
+    def test_extract_key_skips_leading_repo_selector(self):
+        """A leading -R/--repo/-H/--hostname selector is skipped with its value."""
+        assert extract_gh_command_key(["-R", "owner/repo", "pr", "view"]) == "pr view"
+        assert extract_gh_command_key(["--repo", "o/r", "issue", "list"]) == "issue list"
+        assert extract_gh_command_key(["--repo=o/r", "pr", "diff"]) == "pr diff"
+
+    def test_extract_key_empty_without_command(self):
+        """Argv with no command token yields an empty key."""
+        assert extract_gh_command_key([]) == ""
+        assert extract_gh_command_key(["--version"]) == ""
+
+    def test_allowed_reads_and_writes(self):
+        """Allowlisted reads and the writes routed through gh/execute pass."""
+        for args in (
+            ["pr", "view", "1"],
+            ["pr", "checkout", "1"],
+            ["issue", "list"],
+            ["issue", "create", "--title", "x"],
+            ["pr", "review", "1", "--approve"],
+        ):
+            assert is_gh_command_allowed(args)[0] is True, args
+
+    def test_api_command_allowed(self):
+        """gh api is allowed at this layer; the path allowlist gates it later."""
+        allowed, key = is_gh_command_allowed(["api", "repos/o/r/pulls"])
+        assert allowed is True
+        assert key == "api"
+
+    def test_denies_credential_and_unlisted_commands(self):
+        """Credential-adjacent and otherwise unlisted commands fail closed."""
+        for args in (
+            ["auth", "token"],
+            ["auth", "status", "--show-token"],
+            ["secret", "list"],
+            ["alias", "set", "x", "!echo hi"],
+            ["extension", "exec", "x"],
+            ["repo", "create", "r"],
+            ["--version"],
+        ):
+            assert is_gh_command_allowed(args)[0] is False, args
+
+
 class TestGhExecute:
     """Tests for /api/v1/gh/execute endpoint."""
 
@@ -2547,6 +2599,72 @@ class TestGhExecute:
         )
 
         assert response.status_code == 403
+
+    def test_execute_blocks_auth_token(self, client, auth_headers):
+        """gh auth token is blocked -- it would print the gateway's GitHub token."""
+        response = client.post(
+            "/api/v1/gh/execute",
+            headers=auth_headers,
+            data=json.dumps({"args": ["auth", "token"]}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert json.loads(response.data)["success"] is False
+
+    def test_execute_blocks_auth_status(self, client, auth_headers):
+        """gh auth status is blocked (auth status --show-token leaks the token)."""
+        for args in (["auth", "status"], ["auth", "status", "--show-token"]):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": args}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403, args
+            assert json.loads(response.data)["success"] is False
+
+    def test_execute_denies_commands_not_on_allowlist(self, client, auth_headers):
+        """Commands absent from the allowlist fail closed (deny-by-default)."""
+        for args in (
+            ["secret", "list"],
+            ["alias", "set", "x", "!echo hi"],
+            ["extension", "list"],
+            ["repo", "create", "newrepo"],
+        ):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": args}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403, args
+            assert json.loads(response.data)["success"] is False
+
+    def test_execute_allows_pr_checkout(self, client, auth_headers):
+        """pr checkout is allowlisted -- agents check out PRs to review them."""
+        with patch.object(gateway, "get_github_client") as mock_gh:
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "Switched to branch"
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "Switched to branch",
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": ["pr", "checkout", "123"]}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
 
     def test_execute_allows_read_operations(self, client, auth_headers):
         """Execute allows read-only operations."""
@@ -2836,7 +2954,7 @@ class TestGhExecuteReviewerToken:
             mock_gh.assert_called_with(mode="bot")
 
     def test_non_review_pr_commands_dont_switch_to_reviewer_mode(self, client, auth_headers):
-        """Non-review PR commands (like pr create) don't switch to reviewer mode."""
+        """Non-review PR commands (like pr view) don't switch to reviewer mode."""
         with (
             patch.object(gateway, "get_github_client") as mock_gh,
             patch.object(gateway, "get_auth_mode", return_value="bot"),
@@ -2858,7 +2976,7 @@ class TestGhExecuteReviewerToken:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["pr", "create", "--title", "Test"],
+                        "args": ["pr", "view", "123"],
                         "repo": "owner/repo",
                     }
                 ),
@@ -3425,29 +3543,24 @@ class TestGhExecutePrivateMode:
         assert data["success"] is False
         assert "private mode" in data["message"].lower()
 
-    def test_search_allowed_in_public_mode(self, client, auth_headers):
-        """gh search is allowed in public mode."""
-        with patch.object(gateway, "get_github_client") as mock_gh:
-            mock_result = MagicMock()
-            mock_result.success = True
-            mock_result.stdout = "search results"
-            mock_result.stderr = ""
-            mock_result.to_dict.return_value = {
-                "success": True,
-                "stdout": "search results",
-                "stderr": "",
-            }
-            mock_gh.return_value.execute.return_value = mock_result
+    def test_search_denied_by_allowlist_in_public_mode(self, client, auth_headers):
+        """gh search is not on the allowlist, so it is denied in public mode too.
 
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=auth_headers,
-                data=json.dumps({"args": ["search", "repos", "query"]}),
-                content_type="application/json",
-            )
+        Private mode already blocks `search` as "too broad"; the
+        deny-by-default allowlist makes it 403 in every mode, since `search`
+        is not a command the gateway mediates for agents.
+        """
+        response = client.post(
+            "/api/v1/gh/execute",
+            headers=auth_headers,
+            data=json.dumps({"args": ["search", "repos", "query"]}),
+            content_type="application/json",
+        )
 
-            # Should succeed (not blocked)
-            assert response.status_code == 200
+        assert response.status_code == 403
+        data = json.loads(response.data)
+        assert data["success"] is False
+        assert "not permitted" in data["message"].lower()
 
     def test_gh_repo_view_public_blocked_in_private_mode(self, client, private_mode_auth_headers):
         """gh repo view of public repo blocked in private mode (full integration)."""

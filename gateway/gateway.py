@@ -134,6 +134,7 @@ try:
         validate_repo_path,
     )
     from .github_client import (
+        ALLOWED_GH_COMMANDS,
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
@@ -144,6 +145,7 @@ try:
         extract_pr_reviewer_info,
         extract_repo_from_gh_command,
         get_github_client,
+        is_gh_command_allowed,
         parse_gh_api_args,
         resolve_gh_api_template_variables,
         validate_gh_api_path,
@@ -236,6 +238,7 @@ except ImportError:
         validate_repo_path,
     )
     from github_client import (  # type: ignore[no-redef, import-untyped]
+        ALLOWED_GH_COMMANDS,
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
@@ -246,6 +249,7 @@ except ImportError:
         extract_pr_reviewer_info,
         extract_repo_from_gh_command,
         get_github_client,
+        is_gh_command_allowed,
         parse_gh_api_args,
         resolve_gh_api_template_variables,
         validate_gh_api_path,
@@ -4265,6 +4269,26 @@ def gh_execute() -> tuple[Response, int] | Response:
                 status_code=403,
                 details={"blocked_command": blocked, "command_args": args},
             )
+
+    # --- Deny-by-default allowlist (parity with git_execute) ---
+    # A generic gh command must be on ALLOWED_GH_COMMANDS, or be `gh api`
+    # (further constrained below by GH_API_ALLOWED_PATHS). Anything else fails
+    # closed — this is what keeps credential-adjacent and otherwise
+    # unanticipated subcommands from executing by default.
+    gh_allowed, gh_cmd_key = is_gh_command_allowed(args)
+    if not gh_allowed:
+        audit_log(
+            "gh_command_not_allowed",
+            "gh_execute",
+            success=False,
+            details={"command_args": args, "command_key": gh_cmd_key},
+        )
+        return make_error(
+            f"Command 'gh {gh_cmd_key}' is not permitted through the gateway. "
+            f"Allowed: {', '.join(sorted(ALLOWED_GH_COMMANDS))}, api.",
+            status_code=403,
+            details={"command_key": gh_cmd_key, "command_args": args},
+        )
 
     # --- Phase and role-based operation filtering ---
     # Block operations like "issue comment" / "issue edit" when phase or role restricts them.
