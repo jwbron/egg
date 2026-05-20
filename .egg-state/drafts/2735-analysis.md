@@ -71,7 +71,7 @@ Listing here so the plan phase has a checklist:
 
 `ClaudeCodeSpawner` (`orchestrator/substrate/claude_code/spawner.py:1–236`) re-hosts `shared/egg_harness` in-process: the spawner imports `client.run_agent(...)` and the harness drives the AnthropicProvider directly through its own `ToolRegistry.set_permission_callback(...)`. Tool calls inside this loop **never** transit the Claude Code parent's PreToolUse hooks — the harness's tool dispatch is a parallel pipeline. ADR §R2 acknowledges this explicitly: "production dispatch under cq-3 remains on `ClaudeCodeSpawner` (the harness re-host model) — `shared/egg_harness/client.py:60–150` uses its own `ToolRegistry.set_permission_callback(...)` and does NOT invoke the PreToolUse hook. R2 therefore validates hook *logic* given accurate `EGG_AGENT_ROLE` propagation; it does **not** validate that Claude Code itself propagates `EGG_AGENT_ROLE` correctly under real nested Agent-tool dispatch."
 
-The slice-1 R2 nested-dispatch test (`integration_tests/regression/test_pretooluse_hook_nested.py`, TASK-1-5) writes a verdict to `.egg-state/<pipeline_id>/r2-verdict.json` that gates slice 5 of #2717's contingent R15 model-(b) migration. The verdict today is **the load-bearing fact this issue's dispatch-path-integration question hangs on**.
+The slice-1 R2 nested-dispatch test (`integration_tests/regression/test_pretooluse_hook_nested.py`, TASK-1-5) writes a verdict to a per-test `tmp_path` r2-verdict.json that gates slice 5 of #2717's contingent R15 model-(b) migration. **The verdict is *latently* load-bearing, not *currently* load-bearing**: ADR §R2 (line 224) explicitly states "the R2 result becomes load-bearing only if cq-3 flips to Agent-tool dispatch in a future issue." Today's production dispatch (the harness re-host) bypasses the PreToolUse hook regardless of the verdict's shape; the verdict becomes load-bearing only if `cq-8` opt-2/opt-3 or a future cq-3 flip routes subagents through the Agent-tool surface.
 
 ### Trust-context shift today (R1)
 
@@ -97,6 +97,8 @@ The acceptance argument is "trusted-repo SDLC streams only" + "k3s remains avail
 - **Khan setting names may not be current**: the issue body's `enableWeakerNetworkIsolation: true` does not match the current Claude Code settings docs, which describe `enableWeakerNestedSandbox` (macOS-only). Plan phase must verify which exact key name the substrate writes; `feedback-1 Q3` collects the macOS-support context that determines whether the flag is needed at all.
 - **Claude Code's `if:` conditional matcher in the Khan JSON snippet** (`"matcher": "Bash", "hooks": [{ "if": "Bash(git *)", ... }]`) is not in mainline Claude Code's documented hook contract. Egg's existing `hook_entry.py` already routes Bash commands by parsing the command itself; the natural extension is to keep that single-hook-script shape rather than rely on a Claude-Code-extension matcher field. This is the trade-off behind `cq-7`.
 - **Hook script execution context**: the hook script runs as a subprocess of the parent Claude Code session (not as a subagent). The parent's environment / cwd is what the hook sees. Role resolution today uses `EGG_AGENT_ROLE` env + the live-PID-stamped sentinel at `~/.claude/egg-active-role.json` (`hook_entry.py:677–742`); the new git/gh logic must reuse this so the role-resolution surface stays single.
+- **`core.hooksPath=/dev/null` is the substrate default**: every allowed `git` invocation has `-c core.hooksPath=/dev/null` injected after the `git` keyword. This neutralizes any `.git/hooks/*` that an attacker (or unhygienic upstream) can land in the cloned repo — a known RCE vector when checking out untrusted commits. The substrate does not surface this as an HITL because the cost of skipping it (RCE on every clone of a hostile repo) outweighs every legitimate use case for repo-supplied hooks during an SDLC pipeline run. The planner should treat this injection as non-negotiable.
+- **File-size cap on the hook entry script**: `orchestrator/substrate/claude_code/hook_entry.py` is 780 lines today; the git/gh extension adds an estimated 400–800 lines, putting the file in the 1200–1600 range — within striking distance of the 1500-line cap in `scripts/file-size-allowlist.yaml` (`orchestrator/CLAUDE.md` cites this). If `cq-7` resolves to opt-1 (extend `hook_entry.py`), the planner should pre-allocate a decomposition under `orchestrator/substrate/claude_code/_hook_entry/` per `docs/guides/decomposition-pattern.md` rather than fight the cap mid-implementation.
 
 ## Options Considered
 
@@ -152,20 +154,31 @@ The implementation scope is essentially settled by the issue body (the JSON shap
 
 ## Recommended Approach
 
-**Recommend Option B**: two parallel slices — [A] sandbox-block + denyWrite + partial ADR update || [B] git/gh-filter hook + restricted-path-push + partial ADR update. Decompose for parallelism; let the ADR coverage-claim edits ride on whichever slice merges second.
+**Recommend Option B, conditioned on `cq-8`**: two parallel slices — [A] sandbox-block + denyWrite + partial ADR update || [B] git/gh-filter hook + restricted-path-push + partial ADR update. The slice contents adapt to `cq-8`'s answer:
 
-Rationale:
+- **If `cq-8` = opt-1 (assume model (a), proceed in parallel with #2717)** — Option B as described. The new sandbox block + git/gh-filter cover the parent Claude Code session's direct Bash/tool calls. **`ClaudeCodeSpawner`'s in-process harness re-host continues to bypass the PreToolUse hook**: ADR §R2 already documents this; Slice A's ADR edit must explicitly call out that Goal #4 ("subagent tool calls route through the enforcement layer") becomes a **documented residual gap** for subagents until `cq-8` resolves to opt-2 or opt-3, or until #2717's R15 work flips the dispatch model. This is honest scope — better than implying enforcement coverage the substrate cannot deliver under opt-1.
+- **If `cq-8` = opt-2 (wait for slice 5 of #2717's R15 verdict)** — this issue parks on #2717. Option B does not start until R15 decides. If R15 keeps model (a), Option B proceeds as opt-1 above; if R15 flips to model (b), Option B proceeds as opt-3 below.
+- **If `cq-8` = opt-3 (build for both — hook + agent-side enforcement)** — Option B expands to a third workstream in slice B: agent-side enforcement at `sandbox/egg_agent_tools/handlers/restrictions.py` that re-validates the caller's role + tool input against `build_agent_patterns(...)` whenever the harness dispatches a tool call. This adds ~150–250 lines and a parallel test surface (`shared/tests/test_agent_side_restrictions.py`-style). The result: Goal #4 is fully covered regardless of whether the dispatch path is the parent's PreToolUse hook or the in-process harness.
+
+Rationale for Option B over A/C/D:
 
 1. The work is substantively two independent surfaces. The `sandbox` block is declarative JSON + the merge logic already in `PreToolUseHookPolicy._merge_hooks(...)` (which dedupes idempotently per reviewer_code v2 blocker #2). The git/gh-filter is substantive Python — subcommand parsing, push-range diffing, credential-helper rewriting — with a real test surface. Mixing them in one PR (Option A) inflates the review surface and delays both ends of the work.
 2. The slice scheduler runs siblings in parallel per `docs/architecture/slice-dag.md`. Two parallel PRs ≈ half the wall-clock of one big PR or two sequential PRs.
 3. Option C's multi-parent ADR slice is rejected by the slice DAG, and a doc-only standalone PR is hard to justify on its own.
 4. Option D buys an empirical-evidence-first ADR update but costs the parallelism that motivates the decomposition in the first place; the operator can review the ADR edits inline with the code in the second-to-merge slice.
 
-The final slice-shape decision is registered as `cq-9` so the operator can override. The other open questions — most importantly the network-allowlist scope (`cq-1`), the deny-vs-ask policy (`cq-3`), the SoT location for the subcommand allowlist (`cq-4`), the SSH-URL handling (`cq-5`), the push-target enforcement (`cq-6`), and the R15 coordination (`cq-8`) — feed into the *content* of slices A and B regardless of how the slice DAG is shaped.
+**Goal #5 ADR language under Option B**: the ADR edit moves R1 from "accepted delta" to **"mitigated; residual gap = parent session still holds the real Anthropic API key"** — not to "covered." The substrate's sandbox network allowlist + denyWrite on the credential file family + hook-script-no-exfiltrate property close the easy exfiltration paths, but an in-process subagent in the parent's own address space can still read the env. Calling this "covered" would mis-state the security posture. `feedback-1 Q4` asks the operator to confirm the exact language; default to "mitigated; residual" until they reply.
+
+The final slice-shape decision is registered as `cq-9` so the operator can override. The other open questions — most importantly the network-allowlist scope (`cq-1`), the deny-vs-ask policy (`cq-3`), the SoT location for the subcommand allowlist (`cq-4`), the SSH-URL handling (`cq-10` — see "cq-5 superseded" note below), the push-target enforcement (`cq-6`), the dispatch-path coordination (`cq-8`), the `permissions.deny` mirror (`cq-11`), and the SessionStart bootstrap (`cq-13` — see "cq-12 superseded" note below) — feed into the *content* of slices A and B regardless of how the slice DAG is shaped.
 
 ## Open Questions
 
 The following decisions and feedback items are registered against this contract and visible to the operator via the issue's review surface. Every question below requires an answer before the plan phase begins.
+
+> **Errata** (read before answering):
+>
+> - **`cq-5` is superseded by `cq-10`.** The original `cq-5` question text lost its example URLs (`git@github.com:owner/repo`, `ssh://git@github.com/owner/repo`) to shell escaping when the decision was registered. `cq-10` is the same question with the URLs preserved verbatim. Disregard `cq-5`; answer `cq-10` instead. The options are identical between the two.
+> - **`cq-12` is superseded by `cq-13`.** The original `cq-12` SessionStart question accidentally executed `gh auth token` in a shell context and substituted a **live GitHub Apps token value** into option-1's label text. An `OVERSEER_ALERT` has been broadcast asking the operator to rotate the token and scrub `.egg-state/contracts/issue-2735.json`. `cq-13` is the same question with safer escaping. Disregard `cq-12` entirely; answer `cq-13` instead.
 
 ### Multiple-choice decisions
 
@@ -208,7 +221,11 @@ The following decisions and feedback items are registered against this contract 
 
 <!-- egg-hitl-decision id=cq-5 -->
 
-**SSH GitHub URL handling: how should the substrate hook handle SSH-style GitHub remotes (`git@github.com:owner/repo` or `ssh://git@github.com/owner/repo`) — see `feedback-1 Q1` for the example URLs that the shell ate from the question text itself.**
+**[SUPERSEDED by cq-10 — disregard cq-5; the original question text lost its example URLs to shell escaping. Answer cq-10 below.]**
+
+<!-- egg-hitl-decision id=cq-10 -->
+
+**SSH GitHub URL handling: how should the substrate hook handle SSH-style GitHub remotes of the form `git@github.com:owner/repo` or `ssh://git@github.com/owner/repo`? (Replaces cq-5.)**
 
 - [ ] Rewrite SSH URLs to HTTPS so the injected credential helper resolves (mirrors the Khan pattern)
 - [ ] Hard-deny SSH URLs (forces operator to configure HTTPS remotes; eliminates the rewrite-and-inject vector entirely)
@@ -251,15 +268,39 @@ The following decisions and feedback items are registered against this contract 
 - [ ] Two slices with dependency: [A] git/gh-filter hook + restricted-path-push + sandbox-block + denyWrite -> [B] ADR R1/network/restricted-path delta update (2 PRs)
 - [ ] Other (explain in reply)
 
+<!-- egg-hitl-decision id=cq-11 -->
+
+**Self-protection — `permissions.deny` mirror: Claude Code has two enforcement layers — `sandbox.filesystem.denyWrite` gates Bash-spawned subprocesses, `permissions.deny` gates the Write/Edit/MultiEdit/NotebookEdit tools. `cq-2` names paths for the sandbox layer only. Should the substrate ALSO populate a `permissions.deny` list with the same paths so the tool-layer cannot rewrite the enforcement config either?** (Note: option-1 label rendering lost the literal backticked `permissions.deny` token to shell escaping; the option intent is "mirror cq-2's selection into a parallel `permissions.deny` list to close both layers.")
+
+- [ ] Yes — mirror cq-2's selection into a parallel `permissions.deny` list (close both layers)
+- [ ] Yes, but only for `.claude/settings.json` + hook-script files (narrower mirror — covers self-protection but not the role-pattern source-of-truth)
+- [ ] No — accept that Write/Edit/MultiEdit tool calls can rewrite the substrate's enforcement config (sandbox-block layer is sufficient because the tool layer is gated by the orchestrator-side role-pattern checker on the hook anyway)
+- [ ] Other (explain in reply)
+
+<!-- egg-hitl-decision id=cq-12 -->
+
+**[SUPERSEDED by cq-13 — disregard cq-12 entirely; the original question's option-1 text accidentally executed `gh auth token` and leaked a live GitHub Apps token. An OVERSEER_ALERT has been raised. Answer cq-13 below.]**
+
+<!-- egg-hitl-decision id=cq-13 -->
+
+**SessionStart credential bootstrap: the issue body's Reference §3 names a `SessionStart` hook that reads a GitHub token and exports `GH_TOKEN` / `GITHUB_TOKEN` to `$CLAUDE_ENV_FILE`. This is load-bearing for the credential-helper rewrite in Goal #2 — without it, the rewritten `git push` command resolves `$GITHUB_TOKEN` to empty and fails at runtime. How should the substrate satisfy this? (Replaces cq-12.)**
+
+- [ ] Ship a SessionStart hook mirroring the Khan pattern: a Python entry script at `orchestrator/substrate/claude_code/session_start.py` that reads `~/.config/egg/secrets.env`, then falls back to the `gh` CLI auth-token surface and the GH config hosts file; writes `$CLAUDE_ENV_FILE`; `settings.template.json` registers it under `hooks.SessionStart`
+- [ ] Document that `GITHUB_TOKEN` must be exported by the operator before launching Claude Code; the git-filter PreToolUse hook fail-closes (deny + actionable message) when `GITHUB_TOKEN` is unset
+- [ ] Reuse the gateway-side `~/.config/egg/secrets.env` reader via a small shared extension and inject the token literal directly into the rewritten command rather than relying on env-var propagation (no SessionStart hook needed)
+- [ ] Other (explain in reply)
+
 ### Open-ended feedback
 
-The six free-form clarification questions are registered as `feedback-1` (see the issue's feedback comment). They cover: (1) cq-5 example-URL clarification, (2) `allowUnsandboxedCommands: false` + `failIfUnavailable: true` defaults, (3) macOS support / `enableWeakerNestedSandbox` need, (4) ADR §R1 coverage-claim language given the residual API-key gap, (5) restricted-path-push coarse-vs-attribution-aware enforcement, (6) bare-shell git/gh fail-closed semantics when no `EGG_AGENT_ROLE` is set.
+<!-- egg-hitl-feedback id=feedback-1 -->
+
+The six free-form clarification questions are registered as `feedback-1` (see the issue's feedback comment). They cover: (1) cq-5/cq-10 example-URL clarification (now redundant since cq-10 is the canonical SSH question — operator may ignore Q1), (2) `allowUnsandboxedCommands: false` + `failIfUnavailable: true` defaults, (3) macOS support / `enableWeakerNestedSandbox` need, (4) ADR §R1 coverage-claim language given the residual API-key gap (default recommendation: "mitigated; residual gap = parent session still holds the key"), (5) restricted-path-push coarse-vs-attribution-aware enforcement, (6) bare-shell git/gh fail-closed semantics when no `EGG_AGENT_ROLE` is set.
 
 ---
 
 ## Complexity Assessment
 
-**high** — architectural change across the substrate config (`settings.template.json` + sandbox block + denyWrite), a substantial extension of the PreToolUse hook (`hook_entry.py` grows by ~400–800 lines for git/gh parsing, push-range diffing, credential rewriting), a new single-source-of-truth module (`shared/egg_restrictions/git_policy.py`) consumed by both `gateway/git_client.py` and the substrate hook, dispatch-path coordination with #2717's R15 work, and an ADR rewrite covering R1, network isolation, and restricted-path enforcement. The two slices recommended in Option B are independently sized at roughly "medium" each; the combined surface is "high" by the rubric's "cross-cutting concern, many independent phases that could be parallelized" definition.
+**high** — architectural change across the substrate config (`settings.template.json` + sandbox block + denyWrite + (conditionally) `SessionStart` hook), a substantial extension of the PreToolUse hook (`hook_entry.py` grows by ~400–800 lines for git/gh parsing, push-range diffing, credential rewriting — likely requiring a decomposition under `orchestrator/substrate/claude_code/_hook_entry/` to stay under the 1500-line cap), a new single-source-of-truth module (`shared/egg_restrictions/git_policy.py`) consumed by both `gateway/git_client.py` and the substrate hook, dispatch-path coordination with #2717's R15 work (and a third agent-side-enforcement workstream if `cq-8` = opt-3), and an ADR rewrite covering R1, network isolation, restricted-path enforcement, and the residual-gap honesty. The two slices recommended in Option B are independently sized at roughly "medium" each; the combined surface is "high" by the rubric's "cross-cutting concern, many independent phases that could be parallelized" definition.
 
 ---
 
