@@ -2248,8 +2248,9 @@ class GatewayClient:
         :func:`stacked_pr_reconciler.find_orphaned_child_prs`'s
         contract. The transport is the standard
         ``/api/v1/gh/execute`` route — ``pr list`` is on the
-        ``READONLY_GH_COMMANDS`` allowlist (gateway/github_client.py:54)
-        so no privileged endpoint is introduced (decision-15).
+        ``ALLOWED_GH_COMMANDS`` deny-by-default allowlist
+        (gateway/github_client.py) so no privileged endpoint is introduced
+        (decision-15).
 
         On any error (gateway 4xx/5xx, JSON parse failure) the
         function logs and returns an empty list — the reconciler

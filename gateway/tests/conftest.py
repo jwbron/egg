@@ -355,6 +355,7 @@ gateway = _load_module_with_replaced_imports(
     GATEWAY_DIR / "gateway.py",
     import_replacements={
         "from ._module_loader import": "from _module_loader import",
+        "from .agent_restrictions import": "from agent_restrictions import",
         "from .anthropic_credentials import": "from anthropic_credentials import",
         "from .auth import": "from auth import",
         "from .checkpoint_handler import": "from checkpoint_handler import",

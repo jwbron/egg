@@ -25,6 +25,11 @@ import pytest
 TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
 
 import session_manager
+from github_client import (
+    extract_gh_command_key,
+    find_gh_command_index,
+    is_gh_command_allowed,
+)
 from policy import PolicyResult
 from session_manager import SessionValidationResult
 
@@ -2507,6 +2512,86 @@ class TestGhPrClose:
             assert response.status_code == 403
 
 
+class TestGhCommandAllowlist:
+    """Unit tests for the deny-by-default gh command allowlist helpers."""
+
+    def test_extract_key_basic(self):
+        """The command key is the first one or two non-flag tokens."""
+        assert extract_gh_command_key(["pr", "view", "123"]) == "pr view"
+        assert extract_gh_command_key(["issue", "create", "--title", "x"]) == "issue create"
+        assert extract_gh_command_key(["api", "repos/o/r/pulls"]) == "api repos/o/r/pulls"
+
+    def test_extract_key_skips_leading_repo_selector(self):
+        """A leading -R/--repo selector is skipped with its value."""
+        assert extract_gh_command_key(["-R", "owner/repo", "pr", "view"]) == "pr view"
+        assert extract_gh_command_key(["--repo", "o/r", "issue", "list"]) == "issue list"
+        assert extract_gh_command_key(["--repo=o/r", "pr", "diff"]) == "pr diff"
+
+    def test_extract_key_empty_without_command(self):
+        """Argv with no command token yields an empty key."""
+        assert extract_gh_command_key([]) == ""
+        assert extract_gh_command_key(["--version"]) == ""
+
+    def test_allowed_reads_and_writes(self):
+        """Allowlisted reads and the writes routed through gh/execute pass."""
+        for args in (
+            ["pr", "view", "1"],
+            ["pr", "checkout", "1"],
+            ["issue", "list"],
+            ["issue", "create", "--title", "x"],
+            ["pr", "review", "1", "--approve"],
+        ):
+            assert is_gh_command_allowed(args)[0] is True, args
+
+    def test_api_command_allowed(self):
+        """gh api is allowed at this layer; the path allowlist gates it later."""
+        allowed, key = is_gh_command_allowed(["api", "repos/o/r/pulls"])
+        assert allowed is True
+        assert key == "api"
+
+    def test_denies_credential_and_unlisted_commands(self):
+        """Credential-adjacent and otherwise unlisted commands fail closed."""
+        for args in (
+            ["auth", "token"],
+            ["auth", "status", "--show-token"],
+            ["secret", "list"],
+            ["alias", "set", "x", "!echo hi"],
+            ["extension", "exec", "x"],
+            ["repo", "create", "r"],
+            ["--version"],
+        ):
+            assert is_gh_command_allowed(args)[0] is False, args
+
+    def test_find_command_index_skips_leading_repo_selector(self):
+        """`find_gh_command_index` returns the index of the real command token."""
+        assert find_gh_command_index(["pr", "view"]) == 0
+        assert find_gh_command_index(["-R", "owner/repo", "pr", "view"]) == 2
+        assert find_gh_command_index(["--repo", "o/r", "api", "/path"]) == 2
+        assert find_gh_command_index(["--repo=o/r", "api", "/path"]) == 1
+        assert find_gh_command_index([]) == 0
+        # All flags, no command token → past-the-end.
+        assert find_gh_command_index(["--version"]) == 1
+
+    def test_denies_auth_token_with_leading_repo_selector(self):
+        """Layered defense: a leading -R/--repo can't smuggle past the allowlist.
+
+        The blocklist branch in gh_execute uses a prefix match on
+        ``" ".join(args[:2])`` and would NOT match ``["-R", "owner/repo",
+        "auth", "token"]``. The deny-by-default allowlist is the second
+        layer: ``extract_gh_command_key`` skips the ``-R`` value pair and
+        returns ``"auth token"``, which is not on ``ALLOWED_GH_COMMANDS``,
+        so the call still 403s.
+        """
+        for args in (
+            ["-R", "owner/repo", "auth", "token"],
+            ["--repo", "owner/repo", "auth", "status", "--show-token"],
+            ["--repo=owner/repo", "auth", "login"],
+        ):
+            allowed, key = is_gh_command_allowed(args)
+            assert allowed is False, args
+            assert key.startswith("auth"), (args, key)
+
+
 class TestGhExecute:
     """Tests for /api/v1/gh/execute endpoint."""
 
@@ -2547,6 +2632,96 @@ class TestGhExecute:
         )
 
         assert response.status_code == 403
+
+    def test_execute_blocks_auth_token(self, client, auth_headers):
+        """gh auth token is blocked -- it would print the gateway's GitHub token."""
+        response = client.post(
+            "/api/v1/gh/execute",
+            headers=auth_headers,
+            data=json.dumps({"args": ["auth", "token"]}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert json.loads(response.data)["success"] is False
+
+    def test_execute_blocks_auth_status(self, client, auth_headers):
+        """gh auth status is blocked (auth status --show-token leaks the token)."""
+        for args in (["auth", "status"], ["auth", "status", "--show-token"]):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": args}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403, args
+            assert json.loads(response.data)["success"] is False
+
+    def test_execute_blocks_auth_token_with_leading_repo_selector(self, client, auth_headers):
+        """Layered defense: a leading -R selector can't smuggle `auth token` past the gateway.
+
+        The blocklist branch keys on ``" ".join(args[:2])`` and won't match
+        when the first two args are ``-R owner/repo``. The deny-by-default
+        allowlist behind it still fires because ``extract_gh_command_key``
+        looks past the leading repo selector and resolves the real command
+        key to ``"auth token"``, which is not on ``ALLOWED_GH_COMMANDS``.
+        """
+        for args in (
+            ["-R", "owner/repo", "auth", "token"],
+            ["--repo", "owner/repo", "auth", "status", "--show-token"],
+            ["--repo=owner/repo", "auth", "login"],
+        ):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": args}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403, args
+            assert json.loads(response.data)["success"] is False
+
+    def test_execute_denies_commands_not_on_allowlist(self, client, auth_headers):
+        """Commands absent from the allowlist fail closed (deny-by-default)."""
+        for args in (
+            ["secret", "list"],
+            ["alias", "set", "x", "!echo hi"],
+            ["extension", "list"],
+            ["repo", "create", "newrepo"],
+        ):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": args}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403, args
+            assert json.loads(response.data)["success"] is False
+
+    def test_execute_allows_pr_checkout(self, client, auth_headers):
+        """pr checkout is allowlisted -- agents check out PRs to review them."""
+        with patch.object(gateway, "get_github_client") as mock_gh:
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "Switched to branch"
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "Switched to branch",
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": ["pr", "checkout", "123"]}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
 
     def test_execute_allows_read_operations(self, client, auth_headers):
         """Execute allows read-only operations."""
@@ -2649,6 +2824,33 @@ class TestGhExecute:
             assert executed_args[0] == "--repo"  # --repo should be first
             assert executed_args[1] == "owner/repo"
             assert executed_args[2] == "pr"
+
+    def test_execute_api_with_leading_repo_selector_still_validates_path(
+        self, client, auth_headers
+    ):
+        """`gh -R owner/repo api /denied-path` is still gated by GH_API_ALLOWED_PATHS.
+
+        Pre-#2740 (and before this PR's allowlist landed) the api-path
+        validation was guarded by ``args[0] == "api"``, which a leading
+        ``-R``/``--repo`` selector would bypass — falling through to the
+        gh subprocess unchecked. The guard now looks past the leading
+        selector via ``find_gh_command_index``, so the allowlist applies
+        and a denied path returns 403.
+        """
+        for args in (
+            ["-R", "owner/repo", "api", "/admin/orgs/owner"],
+            ["--repo", "owner/repo", "api", "/admin/orgs/owner"],
+            ["--repo=owner/repo", "api", "/admin/orgs/owner"],
+        ):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps({"args": args}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403, args
+            assert json.loads(response.data)["success"] is False
 
     def test_execute_api_with_template_variables_resolved(self, client, auth_headers):
         """Execute resolves {owner}/{repo} template variables from cwd.
@@ -2836,7 +3038,7 @@ class TestGhExecuteReviewerToken:
             mock_gh.assert_called_with(mode="bot")
 
     def test_non_review_pr_commands_dont_switch_to_reviewer_mode(self, client, auth_headers):
-        """Non-review PR commands (like pr create) don't switch to reviewer mode."""
+        """Non-review PR commands (like pr view) don't switch to reviewer mode."""
         with (
             patch.object(gateway, "get_github_client") as mock_gh,
             patch.object(gateway, "get_auth_mode", return_value="bot"),
@@ -2844,11 +3046,11 @@ class TestGhExecuteReviewerToken:
         ):
             mock_result = MagicMock()
             mock_result.success = True
-            mock_result.stdout = "PR created"
+            mock_result.stdout = "PR #123: ..."
             mock_result.stderr = ""
             mock_result.to_dict.return_value = {
                 "success": True,
-                "stdout": "PR created",
+                "stdout": "PR #123: ...",
                 "stderr": "",
             }
             mock_gh.return_value.execute.return_value = mock_result
@@ -2858,7 +3060,7 @@ class TestGhExecuteReviewerToken:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["pr", "create", "--title", "Test"],
+                        "args": ["pr", "view", "123"],
                         "repo": "owner/repo",
                     }
                 ),
@@ -3425,29 +3627,24 @@ class TestGhExecutePrivateMode:
         assert data["success"] is False
         assert "private mode" in data["message"].lower()
 
-    def test_search_allowed_in_public_mode(self, client, auth_headers):
-        """gh search is allowed in public mode."""
-        with patch.object(gateway, "get_github_client") as mock_gh:
-            mock_result = MagicMock()
-            mock_result.success = True
-            mock_result.stdout = "search results"
-            mock_result.stderr = ""
-            mock_result.to_dict.return_value = {
-                "success": True,
-                "stdout": "search results",
-                "stderr": "",
-            }
-            mock_gh.return_value.execute.return_value = mock_result
+    def test_search_denied_by_allowlist_in_public_mode(self, client, auth_headers):
+        """gh search is not on the allowlist, so it is denied in public mode too.
 
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=auth_headers,
-                data=json.dumps({"args": ["search", "repos", "query"]}),
-                content_type="application/json",
-            )
+        Private mode already blocks `search` as "too broad"; the
+        deny-by-default allowlist makes it 403 in every mode, since `search`
+        is not a command the gateway mediates for agents.
+        """
+        response = client.post(
+            "/api/v1/gh/execute",
+            headers=auth_headers,
+            data=json.dumps({"args": ["search", "repos", "query"]}),
+            content_type="application/json",
+        )
 
-            # Should succeed (not blocked)
-            assert response.status_code == 200
+        assert response.status_code == 403
+        data = json.loads(response.data)
+        assert data["success"] is False
+        assert "not permitted" in data["message"].lower()
 
     def test_gh_repo_view_public_blocked_in_private_mode(self, client, private_mode_auth_headers):
         """gh repo view of public repo blocked in private mode (full integration)."""
@@ -7201,3 +7398,222 @@ class TestGhExecuteIssueCommentBlocking:
                     content_type="application/json",
                 )
                 assert response.status_code == 200
+
+    def test_issue_comment_with_leading_repo_selector_still_blocked_by_role(self, client):
+        """Regression: a leading `-R`/`--repo` selector must not bypass
+        the role-based `issue comment` block.
+
+        The phase + role filters build `gh_command_str` from non-flag
+        args. Before the fix, `["-R", "owner/repo", "issue", "comment",
+        "1032", "--body", "..."]` keyed as `"owner/repo issue comment"`,
+        which neither `fnmatch("issue comment *")` (phase filter) nor
+        `startswith("issue comment")` (`_BLOCKED_GH_OPS`) would catch —
+        letting role/phase enforcement be bypassed entirely. The fix
+        normalizes past the selector via `find_gh_command_index`
+        (parity with the overseer block and the api-path guard).
+        """
+        ctx1, ctx2 = self._make_session(phase=None, agent_role="coder")
+        with ctx1, ctx2:
+            for args in (
+                ["-R", "owner/repo", "issue", "comment", "1032", "--body", "t"],
+                ["--repo", "owner/repo", "issue", "comment", "1032", "--body", "t"],
+                ["--repo=owner/repo", "issue", "comment", "1032", "--body", "t"],
+            ):
+                response = client.post(
+                    "/api/v1/gh/execute",
+                    headers={"Authorization": "Bearer test-session-token"},
+                    data=json.dumps({"args": args}),
+                    content_type="application/json",
+                )
+                assert response.status_code == 403, args
+                data = json.loads(response.data)
+                assert "not allowed" in data["message"].lower(), args
+
+    def test_issue_comment_with_leading_repo_selector_still_blocked_by_phase(self, client):
+        """Regression: leading selector must not bypass the phase filter.
+
+        Companion to the role-filter regression above — same argv shape,
+        but exercises the phase-filter path (refine phase blocks
+        `issue comment *`).
+        """
+        ctx1, ctx2 = self._make_session(phase="refine", agent_role=None)
+        with ctx1, ctx2:
+            for args in (
+                ["-R", "owner/repo", "issue", "comment", "1032", "--body", "t"],
+                ["--repo", "owner/repo", "issue", "comment", "1032", "--body", "t"],
+                ["--repo=owner/repo", "issue", "comment", "1032", "--body", "t"],
+            ):
+                response = client.post(
+                    "/api/v1/gh/execute",
+                    headers={"Authorization": "Bearer test-session-token"},
+                    data=json.dumps({"args": args}),
+                    content_type="application/json",
+                )
+                assert response.status_code == 403, args
+
+
+class TestGhExecuteOverseerLeadingSelector:
+    """Regression: leading `-R`/`--repo` selector must not bypass the
+    overseer ``gh issue create`` guardrail.
+
+    The overseer block in ``gh_execute`` is the only enforcement layer
+    that runs ``check_overseer_gh_issue_create`` — repo enforcement,
+    label injection, title/body size limits, and the defense-in-depth
+    secret-pattern scan on the body. Before the fix it was guarded by
+    ``args[0] == "issue"``, so an argv like
+    ``["-R", "owner/repo", "issue", "create", ...]`` shifted ``args[0]``
+    off ``"issue"`` and the entire block was skipped — letting the
+    request fall through to the gh subprocess with no secret scan.
+    The fix normalizes the argv via ``find_gh_command_index`` (parity
+    with the api-path guard below it in the same handler).
+    """
+
+    _GH_PAT = "ghp_" + "A" * 36
+
+    def _make_overseer_session(self):
+        """Create a mock session with agent_role='overseer'."""
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = "overseer"
+        mock_session.phase = None
+        mock_session.pipeline_id = "test-pipeline"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        return (
+            patch.object(
+                current_session_manager,
+                "validate_session_for_request",
+                return_value=mock_result,
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        )
+
+    def test_overseer_issue_create_secret_scan_fires_without_leading_selector(self, client):
+        """Control: the overseer secret-scan fires for plain `issue create` argv.
+
+        Establishes the baseline behavior the leading-selector cases below
+        must also exhibit. If this case ever passes 200, the test
+        infrastructure (session mock / env var) is misconfigured.
+        """
+        ctx1, ctx2 = self._make_overseer_session()
+        with ctx1, ctx2, patch.dict(os.environ, {"EGG_PIPELINE_REPO": "owner/repo"}):
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "args": [
+                            "issue",
+                            "create",
+                            "--repo",
+                            "owner/repo",
+                            "--title",
+                            "x",
+                            "--body",
+                            f"Token leaked: {self._GH_PAT}",
+                            "--label",
+                            "agent:overseer",
+                            "--label",
+                            "p1",
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert data["success"] is False
+            assert "secret" in data["message"].lower()
+            assert "gh-pat" in data["data"].get("secret_kinds", [])
+
+    def test_overseer_issue_create_with_leading_repo_selector_still_runs_secret_scan(self, client):
+        """The fix: leading `-R`/`--repo` selector must NOT bypass the overseer block.
+
+        Each argv variant places a global repo selector before the
+        ``issue create`` tokens. The handler must normalize past the
+        selector via ``find_gh_command_index`` and still run
+        ``check_overseer_gh_issue_create``, including the secret-pattern
+        scan on ``--body``.
+        """
+        variants = (
+            [
+                "-R",
+                "owner/repo",
+                "issue",
+                "create",
+                "--title",
+                "x",
+                "--body",
+                f"Token leaked: {self._GH_PAT}",
+                "--label",
+                "agent:overseer",
+                "--label",
+                "p1",
+            ],
+            [
+                "--repo",
+                "owner/repo",
+                "issue",
+                "create",
+                "--title",
+                "x",
+                "--body",
+                f"Token leaked: {self._GH_PAT}",
+                "--label",
+                "agent:overseer",
+                "--label",
+                "p1",
+            ],
+            [
+                "--repo=owner/repo",
+                "issue",
+                "create",
+                "--title",
+                "x",
+                "--body",
+                f"Token leaked: {self._GH_PAT}",
+                "--label",
+                "agent:overseer",
+                "--label",
+                "p1",
+            ],
+        )
+        for args in variants:
+            ctx1, ctx2 = self._make_overseer_session()
+            with ctx1, ctx2, patch.dict(os.environ, {"EGG_PIPELINE_REPO": "owner/repo"}):
+                response = client.post(
+                    "/api/v1/gh/execute",
+                    headers={"Authorization": "Bearer test-session-token"},
+                    data=json.dumps({"args": args}),
+                    content_type="application/json",
+                )
+
+                assert response.status_code == 403, args
+                data = json.loads(response.data)
+                assert data["success"] is False, args
+                assert "secret" in data["message"].lower(), args
+                assert "gh-pat" in data["data"].get("secret_kinds", []), args

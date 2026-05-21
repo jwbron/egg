@@ -47,27 +47,6 @@ USER_TOKEN_VAR = "GITHUB_USER_TOKEN"
 # gh Command Validation
 # =============================================================================
 
-# Read-only gh commands that don't require ownership checks
-READONLY_GH_COMMANDS = frozenset(
-    {
-        "pr view",
-        "pr list",
-        "pr checks",
-        "pr diff",
-        "pr status",
-        "issue view",
-        "issue list",
-        "issue status",
-        "repo view",
-        "repo list",
-        "release view",
-        "release list",
-        "api",  # Read-only API calls (GET)
-        "auth status",
-        "config get",
-    }
-)
-
 # Blocked gh commands (dangerous operations)
 BLOCKED_GH_COMMANDS = frozenset(
     {
@@ -75,11 +54,163 @@ BLOCKED_GH_COMMANDS = frozenset(
         "repo delete",
         "repo archive",
         "release delete",
-        "auth logout",
-        "auth login",
+        # Entire `gh auth` group. Agents are credential-less by design;
+        # `gh auth token` and `gh auth status --show-token` would print the
+        # gateway's GitHub App token. Blocklist entries match by prefix on
+        # `" ".join(args[:2])`, so this rejects `auth login`, `auth logout`,
+        # `auth token`, `auth status`, `auth refresh`, `auth setup-git`,
+        # etc. when `auth` is the first positional token.
+        #
+        # The prefix match has argv-shape limitations: an argv with a
+        # leading global flag (e.g. `["-R", "owner/repo", "auth", "token"]`)
+        # keys as `"-R owner/repo"` and slips past this branch. The
+        # `ALLOWED_GH_COMMANDS` allowlist below is the load-bearing second
+        # layer that catches those smuggle attempts — it normalizes the
+        # argv via `find_gh_command_index` before keying, so
+        # `["-R", "owner/repo", "auth", "token"]` resolves to `"auth token"`
+        # and fails the allowlist check. See
+        # `test_denies_auth_token_with_leading_repo_selector` and
+        # `test_execute_blocks_auth_token_with_leading_repo_selector` for
+        # the in-tree evidence of this layering.
+        "auth",
         "config set",
     }
 )
+
+# Generic gh commands permitted through POST /api/v1/gh/execute.
+#
+# This is a deny-by-default allowlist: any "<command> <subcommand>" pair not
+# listed here — and not `gh api`, which is gated separately by
+# GH_API_ALLOWED_PATHS — is rejected with 403. It brings the gh passthrough
+# to parity with the git passthrough (GIT_ALLOWED_COMMANDS in git_client.py),
+# so unanticipated credential-adjacent subcommands (`gh auth token`,
+# `gh alias set --shell`, `gh extension`, ...) fail closed instead of open.
+#
+# Writes are included only where the sandbox `gh` wrapper or the orchestrator
+# legitimately POST them to this endpoint; per-phase (phase_filter.py) and
+# per-role (agent_restrictions.py) filters apply additional restrictions on
+# top of this allowlist.
+ALLOWED_GH_COMMANDS = frozenset(
+    {
+        # --- read-only ---
+        "pr view",
+        "pr list",
+        "pr checks",
+        "pr diff",
+        "pr status",
+        "pr checkout",
+        "issue view",
+        "issue list",
+        "issue status",
+        "repo view",
+        "repo list",
+        "release view",
+        "release list",
+        # Read-only Actions runs surface. The self-improvement log collector
+        # (sandbox/egg_lib/self_improvement/collectors/gha.py) uses
+        # `gh run view <id> --log` to pull workflow run logs; the JSON-only
+        # listing path `repos/.../actions/runs` is already on
+        # GH_API_ALLOWED_PATHS, so this just keeps the convenience wrapper
+        # working in-sandbox.
+        "run view",
+        "run list",
+        "config get",
+        # --- writes the sandbox wrapper / orchestrator route through here ---
+        "issue create",
+        "issue comment",
+        "issue edit",
+        "issue close",
+        "pr review",
+        "pr ready",
+    }
+)
+
+# Leading gh flag that selects a repo and consumes the next token as a value.
+# `-R`/`--repo` is the only global gh flag that may precede the command and
+# takes a separate-token value, so the command-key extractor must skip both
+# the flag and the token it consumes. `--hostname` is a per-command flag on
+# the auth-group commands (already blocklisted), and `-H` is not a global gh
+# flag at all — it means `--header` for `gh api` and `--head` for `gh pr
+# create`, both of which are subcommand-positional.
+_GH_LEADING_VALUE_FLAGS = frozenset({"-R", "--repo"})
+
+
+def find_gh_command_index(args: list[str]) -> int:
+    """Return the index of the first non-flag (command) token in gh argv.
+
+    Skips a leading ``-R``/``--repo``/``--repo=…`` selector and any other
+    leading flags. ``gh -R owner/repo api /path`` returns ``2`` (the index
+    of ``"api"``). Returns ``len(args)`` if no command token is present.
+
+    Callers that need to slice past the command (e.g. ``args[idx+1:]`` to
+    pass the api path through ``parse_gh_api_args``) must use this rather
+    than hardcoding ``args[1:]``, otherwise a leading repo selector
+    silently shifts the slice and the validator gets the wrong tokens.
+    """
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in _GH_LEADING_VALUE_FLAGS:
+            i += 2  # skip the flag and the token it consumes
+            continue
+        if arg.startswith("--repo="):
+            i += 1
+            continue
+        if arg.startswith("-"):
+            i += 1
+            continue
+        return i
+    return len(args)
+
+
+def extract_gh_command_key(args: list[str]) -> str:
+    """Return the ``"<command> [subcommand]"`` key used for allowlist matching.
+
+    Skips a leading ``-R``/``--repo`` selector and its value so that
+    ``gh -R owner/repo pr view 1`` keys as ``"pr view"``. Other leading flags
+    are skipped without consuming a value.
+
+    Args:
+        args: gh argv with the ``gh`` prefix already stripped.
+
+    Returns:
+        The first one or two non-flag tokens joined by a space (e.g.
+        ``"pr view"``, ``"issue create"``, ``"api"``), or an empty string if
+        the argv carries no command token.
+    """
+    tokens: list[str] = []
+    i = find_gh_command_index(args)
+    while i < len(args) and len(tokens) < 2:
+        arg = args[i]
+        if arg.startswith("-"):
+            i += 1
+            continue
+        tokens.append(arg)
+        i += 1
+    return " ".join(tokens)
+
+
+def is_gh_command_allowed(args: list[str]) -> tuple[bool, str]:
+    """Check a generic gh command against the deny-by-default allowlist.
+
+    ``gh api`` is allowed here and further constrained by
+    ``GH_API_ALLOWED_PATHS`` / ``validate_gh_api_path`` in the caller.
+
+    Args:
+        args: gh argv with the ``gh`` prefix already stripped.
+
+    Returns:
+        ``(allowed, command_key)`` — ``command_key`` is the value matched
+        against ``ALLOWED_GH_COMMANDS`` (``"api"`` for gh api commands),
+        suitable for an audit-log entry or error message.
+    """
+    key = extract_gh_command_key(args)
+    if not key:
+        return False, key
+    if key.split(" ", 1)[0] == "api":
+        return True, "api"
+    return key in ALLOWED_GH_COMMANDS, key
+
 
 # Allowlist of gh api paths that are permitted
 # These patterns match GitHub API endpoints that are safe for read/write operations

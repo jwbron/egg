@@ -261,16 +261,19 @@ test_authentication() {
     return
   fi
 
+  # `gh api user` is on the allowlist (commands without args, like
+  # `gh --version`, now 403 against the deny-by-default allowlist). We only
+  # care that auth succeeded, not what the upstream API returned.
   RESP=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "${GATEWAY_URL}/api/v1/gh/execute" \
     -H "Content-Type: application/json" \
     -H "Authorization: $AUTH" \
-    -d '{"args": ["--version"]}')
+    -d '{"args": ["api", "user"]}')
   HTTP_CODE=$(echo "$RESP" | grep "HTTP_CODE:" | cut -d: -f2)
   BODY=$(echo "$RESP" | grep -v "HTTP_CODE:")
 
-  if [[ "$HTTP_CODE" == "200" ]]; then
-    log_pass "Valid token accepted (200)"
-    record_result "auth_valid_token" "pass" "200 returned" "$BODY"
+  if [[ "$HTTP_CODE" != "401" ]] && [[ "$HTTP_CODE" != "403" ]]; then
+    log_pass "Valid token accepted ($HTTP_CODE)"
+    record_result "auth_valid_token" "pass" "$HTTP_CODE returned" "$BODY"
   else
     log_fail "Valid token rejected with $HTTP_CODE"
     record_result "auth_valid_token" "fail" "Wrong status: $HTTP_CODE" "$BODY"
@@ -390,15 +393,18 @@ test_gh_operations() {
 
   cd "$REPO_PATH" || return 1
 
-  log_test "gh auth status"
+  log_test "gh auth status is blocked (no token leak via --show-token)"
+  # `gh auth` is on BLOCKED_GH_COMMANDS — the whole auth group must 403 so
+  # the gateway's GitHub App token cannot be extracted by an agent.
   RESP=$(gh auth status 2>&1)
-  if [[ $? -eq 0 ]] || echo "$RESP" | grep -qi "logged in"; then
-    log_pass "gh auth status works"
-    record_result "gh_auth_status" "pass" "Works" "$RESP"
+  EXIT_CODE=$?
+  if [[ $EXIT_CODE -ne 0 ]] && echo "$RESP" | grep -qi "not allowed\|not permitted\|forbidden\|blocked"; then
+    log_pass "gh auth status correctly blocked"
+    record_result "gh_auth_status_blocked" "pass" "Blocked" "$RESP"
   else
-    log_fail "gh auth status failed"
+    log_fail "gh auth status was NOT blocked (exit $EXIT_CODE)"
     log_info "$RESP"
-    record_result "gh_auth_status" "fail" "Failed" "$RESP"
+    record_result "gh_auth_status_blocked" "fail" "Not blocked" "$RESP"
   fi
 
   log_test "gh repo view (read operation)"
@@ -525,7 +531,7 @@ test_rate_limiting() {
   RESP=$(curl -s -X POST "${GATEWAY_URL}/api/v1/gh/execute" \
     -H "Content-Type: application/json" \
     -H "Authorization: $AUTH" \
-    -d '{"args": ["--version"]}')
+    -d '{"args": ["api", "user"]}')
 
   if echo "$RESP" | grep -qi "rate\|limit\|remaining"; then
     log_pass "Rate limit info present in response"
@@ -542,8 +548,8 @@ test_rate_limiting() {
     RESP=$(curl -s -X POST "${GATEWAY_URL}/api/v1/gh/execute" \
       -H "Content-Type: application/json" \
       -H "Authorization: $AUTH" \
-      -d '{"args": ["--version"]}')
-    if ! echo "$RESP" | grep -q "success\|gh version"; then
+      -d '{"args": ["api", "user"]}')
+    if ! echo "$RESP" | grep -q "success\|login"; then
       if echo "$RESP" | grep -qi "rate.*limit\|too many"; then
         log_info "Rate limited at request $i (expected for high volume)"
         break

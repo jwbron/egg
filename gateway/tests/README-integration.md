@@ -52,7 +52,7 @@ Options:
 | Connectivity | Health endpoint, token validity |
 | Authentication | 401 for missing/invalid tokens, 200 for valid |
 | Git Operations | remote, status, fetch, push (with policy) |
-| gh Operations | auth status, repo view, pr list, issue list |
+| gh Operations | repo view, pr list, issue list (auth status now blocked — see security note) |
 | Blocked Operations | pr merge, repo delete, repo create |
 | Rate Limiting | Rate limit info, normal volume handling |
 | Fail-Closed | Operations fail when gateway unavailable |
@@ -66,7 +66,7 @@ For a working gateway sidecar setup:
 - **Connectivity**: Must pass
 - **Authentication**: Must pass
 - **Git Operations**: Most pass; push to main may be blocked by policy (expected)
-- **gh Operations**: All pass
+- **gh Operations**: All pass — except `gh auth status`, which must show "blocked" (the whole `gh auth` group is now denied to prevent token extraction via `gh auth token` / `gh auth status --show-token`)
 - **Blocked Operations**: All must show "blocked" (security-critical)
 - **Rate Limiting**: Pass or skip
 - **Fail-Closed**: Must pass (security-critical)
