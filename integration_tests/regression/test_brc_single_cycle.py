@@ -8,8 +8,8 @@ Why this lives in ``integration_tests/regression/``:
 The unit tier under ``orchestrator/tests/`` covers the
 ``PeerConsensusTracker`` internals exhaustively (``test_brc_*.py``),
 but no test asserts the end-to-end event-counts contract that
-external consumers — the SSE bridge, the SDLC skill, the
-``babysit_pr`` BRC bridge — depend on.  When a future refactor
+external consumers — the SSE bridge, the SDLC skill — depend on.
+When a future refactor
 re-routes one event type through a wrapper or skips emission on a
 fast path, the unit tier won't catch it; this regression will.
 

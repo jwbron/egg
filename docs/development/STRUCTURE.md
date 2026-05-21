@@ -273,9 +273,6 @@ shared/
 │   ├── command.py          # build_agent_command() for orchestrator-spawned containers
 │   ├── result.py           # AgentResult dataclass
 │   └── tool_interceptor.py # Pre-execution file write checks (Write/Edit/NotebookEdit) against role restrictions
-# (No egg_babysit package — replaced by the /babysit-pr MCP skill in issue #1748.
-#  Babysit cycles now run through the orchestrator's implement-phase route with
-#  mode=babysit and has_contract=false. See docs/guides/babysit-pr.md.)
 ├── egg_anchor/             # Agent anchor mechanism for post-compaction state recovery
 │   ├── __init__.py         # Public API exports
 │   ├── models.py           # Pydantic models (AgentAnchor, AnchorMeta, ProgressItem, Decision, BRCState)
@@ -356,13 +353,6 @@ integration_tests/
 ├── test_policy_enforcement.py     # Policy enforcement tests
 ├── test_rate_limiting.py          # Rate limiting tests
 ├── test_stack_lifecycle.py        # Container lifecycle tests
-├── test_babysit_pr/               # Babysit-PR BRC cycle integration tests
-│   ├── __init__.py
-│   ├── conftest.py                # Fixtures for babysit-pr tests
-│   ├── test_skill.py              # /babysit-pr MCP skill tests (argument validation, POST, 409 duplicate)
-│   ├── test_pipeline.py           # End-to-end implement-phase BRC cycle against a fixture PR
-│   ├── test_gateway.py            # Staging-branch push validation via the gateway
-│   └── test_escalation.py         # Early-exit paths (fork, merged, empty diff) and final-push head-move escalation
 ├── test_k8s_deployment_tools.py   # Auth-rejection regression suite for the #1759 deployment MCP routes
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures

@@ -6,8 +6,7 @@ This directory hosts five orthogonal regression tiers:
   between the unit-tier (``orchestrator/tests/``) and the k3s-tier
   (``integration_tests/test_*.py`` against a live cluster): imports
   the real ``pipelines_bp`` blueprint and exercises routes through an
-  in-process Flask test client (same shape as
-  ``integration_tests/test_babysit_pr/``), uses the real
+  in-process Flask test client, uses the real
   ``agent_salvage`` module, the real git binary, and real worktree
   directories on ``tmp_path``. Only the gateway HTTP client and the
   spawner backend (the network/k8s boundaries) are stubbed out. Catches
@@ -96,9 +95,8 @@ from unittest.mock import MagicMock
 # plus orchestrator + shared + project root so test modules can import
 # the orchestrator's internal modules (events, message_store,
 # redis_message_store, routes.pipelines, peer_consensus, review_graph).
-# Mirrors integration_tests/test_babysit_pr/conftest.py and stubs the
-# kubernetes / docker SDKs so the blueprint loads without those packages
-# installed.
+# Stubs the kubernetes / docker SDKs so the blueprint loads without
+# those packages installed.
 _REGRESSION_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _REGRESSION_DIR.parent.parent
 for _p in (
@@ -140,9 +138,8 @@ def pytest_configure(config: pytest.Config) -> None:
 def _set_lifecycle_secret_env():
     """Set ``EGG_LIFECYCLE_SECRET`` so lifecycle-gated routes don't 503.
 
-    Function-scoped per the same reasoning as
-    ``test_babysit_pr/conftest.py``: a session-scoped autouse would leak
-    the env var to any sibling suite that happens to read it directly.
+    Function-scoped: a session-scoped autouse would leak the env var to
+    any sibling suite that happens to read it directly.
     """
     overrides = {
         "EGG_LIFECYCLE_SECRET": _TEST_LIFECYCLE_SECRET,

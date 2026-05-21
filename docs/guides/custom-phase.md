@@ -10,7 +10,6 @@ Claude session.
 > Issue: [#1762](https://github.com/jwbron/egg/issues/1762).
 > See also
 > [SDLC Pipeline Guide](sdlc-pipeline.md),
-> [Babysit-PR Guide](babysit-pr.md),
 > [Agent Roles Reference](../reference/agent-roles.md).
 
 ## What It Does
@@ -30,7 +29,7 @@ A few common shapes:
 | Research-only refiner pass | `run_agent_task(phase="refine", roles=["refiner"], repo=..., description=...)` |
 | Single-coder drive-by change | `run_agent_task(phase="implement", roles=["coder"], repo=..., description=...)` |
 | Implement with default roster (coder + tester + documenter + reviewers) | `run_agent_task(phase="implement", repo=..., description=...)` |
-| Babysit-style PR improvement (via BABYSIT subsumption) | `run_agent_task(phase="implement", pr_number=N, repo=...)` |
+| PR improvement against an existing PR | `run_agent_task(phase="implement", pr_number=N, repo=...)` |
 
 `run_agent_task` is **phase-scoped**: a selected role must belong to the
 chosen phase's roster. Cross-phase roles (`overseer`, `autofixer`,
@@ -98,7 +97,7 @@ run_agent_task(
 | `roles` | `list[str]` | no | Full phase roster | Subset of the phase's roles. Must contain ≥1 producer. Cross-phase roles rejected. |
 | `branch` | `str` | no | `egg/custom-<pipeline_id>` | Target branch. Created from `base_branch` if it doesn't exist. |
 | `base_branch` | `str` | no | Repo default branch | Base for the target branch. |
-| `pr_number` | `int` | no | — | Target an existing PR. Reuses BABYSIT's per-role staging-branch / head-move guard semantics internally (decision-2). |
+| `pr_number` | `int` | no | — | Target an existing PR. Uses per-role staging-branch semantics; BRC consensus output stays on the staging branches and is not pushed back to the PR head. |
 | `issue_number` | `int` | no | — | Issue context. The CUSTOM pipeline's contract file is still keyed by `pipeline_id` (not `issue-<N>.json`) so concurrent ISSUE-mode pipelines on the same issue don't collide. |
 | `analysis` | `str` | no | — | Pre-populated analysis draft. Written to `.egg-state/drafts/` on first run. Producers may overwrite. |
 | `plan` | `str` | no | — | Pre-populated plan draft. Same semantics as `analysis`. |
@@ -115,7 +114,7 @@ The handler derives `pipeline_id` from the caller inputs (see
 | `issue_number=N`, `qualifier=Q` | `issue-<N>-<Q>` |
 | `issue_number=N`, no `qualifier` | `issue-<N>-custom` |
 | `pr_number=N`, `qualifier=Q` | `pr-<N>-<Q>` |
-| `pr_number=N`, no `qualifier` | `pr-<N>` (BABYSIT-compatible) |
+| `pr_number=N`, no `qualifier` | `pr-<N>` |
 | Neither | `custom-<hex>` (synthetic) |
 
 The branch default `egg/custom-<pipeline_id>` inherits the same id — so
@@ -290,16 +289,14 @@ run_agent_task(
   phase = "implement",
   roles = ["coder", "reviewer_code"],
   repo = "owner/repo",
-  description = "Refactor _handle_submit_task to share a common validator helper with _handle_babysit_pr"
+  description = "Refactor _handle_submit_task to share a common validator helper with _handle_run_agent_task"
 )
 ```
 
 ### PR-targeted custom phase
 
-With `pr_number`, `run_agent_task` reuses BABYSIT's pre-flight checks
-(PR open, same-repo non-fork, non-empty diff) and per-role staging
-branches. This is the **subsumption path** (decision-2): the underlying
-`babysit_pr` MCP tool now builds a CUSTOM pipeline internally.
+With `pr_number`, `run_agent_task` runs PR pre-flight checks (PR open,
+same-repo non-fork, non-empty diff) and uses per-role staging branches.
 
 ```
 run_agent_task(
@@ -310,9 +307,12 @@ run_agent_task(
 )
 ```
 
-This is equivalent to `babysit_pr(pr_number=1234, repo="owner/repo")`
-end-to-end — use `babysit_pr` for the canonical PR-improvement flow,
-and `run_agent_task` when you want a non-default roster on a PR.
+The BRC consensus output stays on the per-role staging branches
+(`egg/custom-pr/<pr>/<sha>/<role>`); the pipeline terminates after the
+chosen phase reaches CONSENSUS_REACHED and **does not push a commit
+back to the PR head**. If you want the consensus diff applied to the
+PR, retrieve it from the staging branches via `git show` (see
+[Artifact Retrieval](#artifact-retrieval)) and apply it manually.
 
 ### Pre-populated analysis / plan
 
@@ -349,7 +349,7 @@ programmatic callers can switch on them.
 | Unknown role string, role outside phase roster, or egg-only reviewer on non-egg repo | 400 | `invalid_roles` |
 | `reviewer_contract` requested without an upstream contract artifact | 400 | `reviewer_contract_without_artifact` |
 | `phase` not one of `refine` / `plan` / `implement` | 400 | `invalid_phase` |
-| `pr_number` on merged / closed / fork / empty PR (reuses BABYSIT pre-flight) | 400 / 409 | Same body shape as `babysit_pr` |
+| `pr_number` on merged / closed / fork / empty PR | 400 / 409 | Structured `{"details": {"reason": "pr_merged" / "pr_closed" / "pr_from_fork" / "pr_empty_diff"}}` |
 | Repo not in allowlist (gateway `repositories.yaml`) | 400 | (gateway-surfaced; shape matches `submit_task`) |
 | Existing pipeline with same id | 409 | (route-surfaced; shape matches `submit_task`) |
 
@@ -410,13 +410,8 @@ show` from.
 |---|---|---|---|
 | `ISSUE` | `submit_task` | GitHub issue body | refine → plan → implement (full) |
 | `ISSUE` (short) | `submit_task --start-phase=<P>` | Issue + explicit start phase | `<P>` and later |
-| `BABYSIT` | `babysit_pr` | Open non-fork non-empty PR | implement only, PR diff as input |
 | `CUSTOM` | `run_agent_task` | MCP call with explicit phase + roles | One phase, user-chosen roster |
-
-Internally, `babysit_pr` now constructs a `CUSTOM` pipeline under the
-hood (decision-2) — the BABYSIT MCP tool stays as a user-facing façade
-with no behavioural change for callers. Full BABYSIT deprecation is a
-follow-up.
+| `CUSTOM` + `pr_number` | `run_agent_task(pr_number=N, ...)` | Open non-fork non-empty PR | Chosen phase, PR diff as input. Output stays on staging branches; no commit pushed back to the PR head. |
 
 ## Related Documentation
 
@@ -425,9 +420,6 @@ follow-up.
 - [SDLC Pipeline Guide](sdlc-pipeline.md) — the full three-phase
   pipeline that `submit_task` drives; `run_agent_task` targets one
   phase of the same machinery.
-- [Babysit-PR Guide](babysit-pr.md) — the PR-targeted flavor of
-  implement-phase BRC. Now implemented as a CUSTOM-mode pipeline
-  internally.
 - [Concurrent Execution](concurrent-execution.md) — BRC consensus,
   message bus, directed coordination. `run_agent_task` participates
   unchanged.

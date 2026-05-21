@@ -465,9 +465,8 @@ class TestDeriveProducerRolesWithTasks:
         assert result is None
 
     def test_returns_none_when_pipeline_has_no_contract(self):
-        """``has_contract=False`` (BABYSIT / CUSTOM-mode with no
-        contract draft) short-circuits the same way — the helper never
-        attempts to load."""
+        """``has_contract=False`` (CUSTOM-mode with no contract draft)
+        short-circuits the same way — the helper never attempts to load."""
         from routes.pipelines import _derive_producer_roles_with_tasks
 
         result = _derive_producer_roles_with_tasks(

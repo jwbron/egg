@@ -5,9 +5,8 @@ Verifies:
 * ``ConcurrentPhaseExecutor.get_worktree_branch(role, slice_id=...)``
   returns the nested ``egg/issue-N/slice-M/{role}/work`` shape.
 * Bare integer slice ids are normalised (``slice_id=2`` → ``slice-2``).
-* Babysit-pr mode is intentionally NOT slice-aware in this PR
-  (refine-phase decision-8 deferred babysit slicing) — supplying
-  ``slice_id`` while the pipeline is in babysit mode falls through
+* CUSTOM+PR mode is intentionally NOT slice-aware — supplying
+  ``slice_id`` while the pipeline is in CUSTOM+PR mode falls through
   to the per-role staging-branch path.
 * ``ConcurrentPhaseExecutor.get_slice_integration_branch`` returns
   the bare ``egg/issue-N/slice-M`` name.

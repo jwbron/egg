@@ -775,7 +775,7 @@ def _collect_unresolved_phase_decisions(
         if d.status == DecisionStatus.PENDING and d.phase == current_phase
     ]
 
-    # Contract decisions are optional — babysit-pr pipelines set
+    # Contract decisions are optional — CUSTOM+PR pipelines set
     # has_contract=False, and issue pipelines may reach this endpoint before
     # a contract has been populated.
     if pipeline.has_contract:

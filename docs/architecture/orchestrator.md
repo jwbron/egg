@@ -116,9 +116,7 @@ See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) 
 The orchestrator supports two pipeline modes:
 
 - **`issue`** (default): Standard SDLC pipeline triggered by a GitHub issue. Progresses through refine → plan → implement phases with structured agent teams.
-- **`babysit`**: One-off implement-phase BRC cycle against an existing PR, triggered via the `/babysit-pr` MCP skill with `mode=babysit` and `pr_number=N`. Runs the standard implement-phase machinery (role-typed coder + tester + documenter producers, `reviewer_code` reviewer, BRC consensus) on a staging branch rooted at the PR head; pushes a single final commit to the PR branch on consensus. Pipeline ID uses `pr-{N}` format. Skips refine and plan phases. See [Babysit-PR Guide](../guides/babysit-pr.md).
-
-The `babysit` mode registers with the same orchestrator infrastructure (state store, health monitoring, HITL decision queue) as issue mode. Under the hood it is an implement-phase pipeline with `has_contract=false`, which filters `reviewer_contract` out of the role roster and carries no contract/plan artifacts. The cycle runs once per invocation — there is no polling loop; CI failures, if any, are observed and addressed by the producers as part of BRC orientation.
+- **`custom`**: One-off single-phase pipeline triggered via the `run_agent_task` MCP tool. Runs the chosen phase (`refine` / `plan` / `implement`) against a repo with a user-chosen subset of that phase's roles. When `pr_number` is supplied the pipeline targets the PR's diff with per-role staging branches and `has_contract=false`. See [Custom-Phase Guide](../guides/custom-phase.md).
 
 ## Orchestrator-Only Jira Transitions (`/api/v1/jira/ticket/transition`) — #1557 decision-15
 
@@ -285,7 +283,7 @@ The PR phase no longer spawns an agent. Instead, the orchestrator auto-creates t
 4. Creates the PR via the gateway using a temporary session with `phase="pr"` permissions and the pipeline's resolved network mode; in `private` mode the PR is created as a draft
 5. Applies `egg` and `agent:orchestrator` labels to the newly created PR
 
-In slice-DAG mode (`len(contract.slices) > 1`) the auto-PR is **suppressed** — per-slice PRs already exist stacked on the [Context PR](#context-pr-slice-aware-mode-2548), so a program-level `<pipeline_branch> → main` PR would be redundant and confusing to reviewers. The skip gate is `_should_skip_pr_phase_auto_pr` in `orchestrator/routes/pipelines.py`; babysit-pr mode short-circuits the same gate because the PR already exists. Contract-load failures fail safe to running the legacy path (#2685).
+In slice-DAG mode (`len(contract.slices) > 1`) the auto-PR is **suppressed** — per-slice PRs already exist stacked on the [Context PR](#context-pr-slice-aware-mode-2548), so a program-level `<pipeline_branch> → main` PR would be redundant and confusing to reviewers. The skip gate is `_should_skip_pr_phase_auto_pr` in `orchestrator/routes/pipelines.py`. Contract-load failures fail safe to running the legacy path (#2685).
 
 The gateway also injects an `<!-- egg-pipeline-context ... -->` HTML comment into the PR body containing machine-parseable pipeline metadata (`pipeline_id`, `agent_role`, `issue`). Labels are applied best-effort — failures are logged but non-fatal.
 
@@ -298,7 +296,7 @@ After a successful auto-PR creation, `_finalize_pr_phase_failed` (in `orchestrat
 - `pr_number` is parsed from the `pr_url` via `re.search(r"/pull/(\d+)", pr_url)`. It is always populated when the URL has the expected shape.
 - `pr_head_sha` is fetched via `_fetch_pr_state(pr_number, pipeline.repo)` (which shells out to `gh pr view`). It is assigned only when the returned value matches the `[0-9a-f]{7,40}` hex-SHA pattern (guarded explicitly in `_finalize_pr_phase_failed` before assignment). If `_fetch_pr_state` returns an empty dict — e.g., `gh` is unavailable, or the PR is not yet propagated — `pr_head_sha` is left `None` and the PR phase still succeeds (graceful degradation).
 
-Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`, babysit-worker handoffs) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where stale `pr_number` / `pr_head_sha` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
+Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where stale `pr_number` / `pr_head_sha` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
 
 ### Per-agent commit SHA diagnostics
 
@@ -347,7 +345,7 @@ The implement phase splits per slice in slice-aware mode:
 | Mode | File pattern |
 |------|--------------|
 | Slice-aware (issue-mode pipelines with `contract.slices`, #2548 hard switchover) | `.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` (one per slice) plus `<id>-implement-unattributed.{md,json}` for cross-cutting messages without canonical slice scope (HEARTBEAT, OVERSEER_ALERT, AGENT_FAILED, …). The aggregate `<id>-implement.{md,json}` file used by non-slice runs is **not** produced in slice-aware mode — slice-aware pipelines partition the implement-phase BRC history into per-slice + unattributed files instead. |
-| Non-slice (babysit-pr; override pipelines without `contract.slices`) | A single content-addressed file: `pr-<N>-<short-sha>-implement.{md,json}` for babysit-pr; `<id>-implement.{md,json}` for non-slice override runs. The identifier shape is what differs — babysit cycles never partition into slices. |
+| Non-slice (CUSTOM+PR; override pipelines without `contract.slices`) | A single content-addressed file: `pr-<N>-<short-sha>-implement.{md,json}` for CUSTOM+PR; `<id>-implement.{md,json}` for non-slice override runs. The identifier shape is what differs — CUSTOM+PR cycles never partition into slices. |
 
 The orchestrator commits each `<id>-implement-slice-<N>.{md,json}` to the slice integration branch as a final orchestrator-authored commit before the slice PR is opened. This is necessary because the `coder` and `tester` role boundaries forbid pushes under `.egg-state/brc-history/`; the existing `_commit_statefiles_to_worktree` pattern keeps history persistence deterministic. See [Concurrent Execution: BRC History Link in PR Body](../guides/concurrent-execution.md#brc-history-link-in-pr-body) for the link-line behaviour rendered into auto-generated PR bodies.
 
@@ -358,7 +356,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 **Architecture:**
 - Gateway creates worktrees at `/home/egg/.egg-worktrees/{job-name}/{repo-name}/` (one per agent)
 - Each agent pod mounts its own worktree via hostPath and writes artifacts to it
-- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}/work` since #2399; babysit-pr uses the existing PR head branch)
+- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}/work` since #2399; CUSTOM+PR uses per-role staging branches off the existing PR head)
 - Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
 - Worktree paths are resolved dynamically based on Job name and repository
 

@@ -7,8 +7,6 @@ credentials, merge PRs, or push outside its branch namespace.
 **Using these workflows in external repositories?** See the [Reusable Workflows guide](reusable-workflows.md)
 for how to call egg's workflows from your own repositories.
 
-**Want a one-off BRC cycle against an existing PR instead of event-driven workflows?** See the [Babysit-PR Guide](babysit-pr.md) — it runs an implement-phase BRC cycle (role-typed `coder` + `tester` + `documenter` producers, `reviewer_code` reviewer) against the PR diff, pushing a single final consensus commit to the PR head. Entry point is the `/babysit-pr` MCP skill.
-
 ## Workflows Overview
 
 | Workflow | Trigger | What It Does |

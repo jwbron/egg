@@ -1,15 +1,10 @@
-"""Tests for per-role babysit-pr staging branch derivation.
+"""Tests for per-role CUSTOM+PR staging branch derivation.
 
 Verifies ``ConcurrentPhaseExecutor.get_worktree_branch()`` produces the
-expected namespaced branch names for babysit-pr pipelines
-(``egg/babysit-pr/{pr}/{short-sha}/{role}``) and falls back sensibly
+expected namespaced branch names for CUSTOM-mode pipelines targeting a
+PR (``egg/custom-pr/{pr}/{short-sha}/{role}``) and falls back sensibly
 when required fields are missing, while leaving the issue-mode path
 unaffected.
-
-The spec calls the class ``ConcurrentExecutor``; the actual class in
-``concurrent_executor.py`` is ``ConcurrentPhaseExecutor`` and this test
-imports that.  ``AgentRole`` is re-exported from the module so it is
-imported from there as requested.
 """
 
 import sys
@@ -62,13 +57,13 @@ def _make_executor(pipeline: Pipeline) -> ConcurrentExecutor:
     return executor
 
 
-def _babysit_pipeline(
+def _custom_pr_pipeline(
     *,
     pr_number: int | None,
     pr_head_sha: str | None,
     branch: str | None = None,
     issue_number: int | None = None,
-    pipeline_id: str = "babysit-test",
+    pipeline_id: str = "custom-pr-test",
 ) -> Pipeline:
     return Pipeline(
         id=pipeline_id,
@@ -77,7 +72,7 @@ def _babysit_pipeline(
         branch=branch,
         status=PipelineStatus.RUNNING,
         current_phase=PipelinePhase.IMPLEMENT,
-        mode=PipelineMode.BABYSIT,
+        mode=PipelineMode.CUSTOM,
         pr_number=pr_number,
         pr_head_sha=pr_head_sha,
     )
@@ -104,31 +99,31 @@ def _issue_pipeline(
     )
 
 
-class TestBabysitStagingBranchHappyPath:
-    """Normal babysit-pr path: pr_number + 7+ char SHA produces namespaced branch."""
+class TestCustomPrStagingBranchHappyPath:
+    """Normal CUSTOM+PR path: pr_number + 7+ char SHA produces namespaced branch."""
 
     def test_coder_gets_namespaced_staging_branch(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="abc1234deadbeef5678901234567890abcdefabc",
             branch="feature-x",
         )
         executor = _make_executor(pipeline)
 
-        assert executor.get_worktree_branch(AgentRole.CODER) == "egg/babysit-pr/42/abc1234/coder"
+        assert executor.get_worktree_branch(AgentRole.CODER) == "egg/custom-pr/42/abc1234/coder"
 
     def test_tester_gets_namespaced_staging_branch(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="abc1234deadbeef5678901234567890abcdefabc",
             branch="feature-x",
         )
         executor = _make_executor(pipeline)
 
-        assert executor.get_worktree_branch(AgentRole.TESTER) == "egg/babysit-pr/42/abc1234/tester"
+        assert executor.get_worktree_branch(AgentRole.TESTER) == "egg/custom-pr/42/abc1234/tester"
 
     def test_documenter_gets_namespaced_staging_branch(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="abc1234deadbeef5678901234567890abcdefabc",
             branch="feature-x",
@@ -137,25 +132,25 @@ class TestBabysitStagingBranchHappyPath:
 
         assert (
             executor.get_worktree_branch(AgentRole.DOCUMENTER)
-            == "egg/babysit-pr/42/abc1234/documenter"
+            == "egg/custom-pr/42/abc1234/documenter"
         )
 
     def test_different_pr_and_sha_yields_expected_branch(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=7,
             pr_head_sha="def5678cafebabe",
             branch="feature-y",
         )
         executor = _make_executor(pipeline)
 
-        assert executor.get_worktree_branch(AgentRole.CODER) == "egg/babysit-pr/7/def5678/coder"
+        assert executor.get_worktree_branch(AgentRole.CODER) == "egg/custom-pr/7/def5678/coder"
 
 
-class TestBabysitStagingBranchHasEggPrefix:
-    """All babysit-pr branches must start with 'egg/' so the gateway accepts pushes."""
+class TestCustomPrStagingBranchHasEggPrefix:
+    """All CUSTOM+PR branches must start with 'egg/' so the gateway accepts pushes."""
 
     def test_all_roles_produce_egg_prefixed_branch(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=101,
             pr_head_sha="1234567abcdef890",
             branch="feature-z",
@@ -165,20 +160,20 @@ class TestBabysitStagingBranchHasEggPrefix:
         for role in (AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER):
             branch = executor.get_worktree_branch(role)
             assert branch.startswith("egg/"), f"role={role.value} branch={branch!r}"
-            assert branch.startswith("egg/babysit-pr/"), f"role={role.value} branch={branch!r}"
+            assert branch.startswith("egg/custom-pr/"), f"role={role.value} branch={branch!r}"
 
 
-class TestBabysitStagingBranchPerSha:
+class TestCustomPrStagingBranchPerSha:
     """Same PR, different head SHA → different branch names (no collisions across revisions)."""
 
     def test_two_shas_yield_different_branches(self):
-        p1 = _babysit_pipeline(
+        p1 = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="abc1234deadbeef5678901234567890abcdefabc",
             branch="feature-x",
             pipeline_id="p1",
         )
-        p2 = _babysit_pipeline(
+        p2 = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="9999999aaaaaaaabbbbbbbbbcccccccdddddddde",
             branch="feature-x",
@@ -191,8 +186,8 @@ class TestBabysitStagingBranchPerSha:
         b2 = e2.get_worktree_branch(AgentRole.CODER)
 
         assert b1 != b2
-        assert b1 == "egg/babysit-pr/42/abc1234/coder"
-        assert b2 == "egg/babysit-pr/42/9999999/coder"
+        assert b1 == "egg/custom-pr/42/abc1234/coder"
+        assert b2 == "egg/custom-pr/42/9999999/coder"
 
     def test_three_shas_yield_three_distinct_branches(self):
         shas = [
@@ -202,7 +197,7 @@ class TestBabysitStagingBranchPerSha:
         ]
         branches: set[str] = set()
         for sha in shas:
-            pipeline = _babysit_pipeline(
+            pipeline = _custom_pr_pipeline(
                 pr_number=42,
                 pr_head_sha=sha,
                 branch="feature-x",
@@ -214,11 +209,11 @@ class TestBabysitStagingBranchPerSha:
         assert len(branches) == 3
 
 
-class TestBabysitStagingBranchPerRole:
+class TestCustomPrStagingBranchPerRole:
     """Same pipeline, different roles → different branch names under a shared prefix."""
 
     def test_three_roles_yield_three_distinct_branches_same_prefix(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="abc1234deadbeef5678901234567890abcdefabc",
             branch="feature-x",
@@ -229,16 +224,16 @@ class TestBabysitStagingBranchPerRole:
         results = [executor.get_worktree_branch(r) for r in roles]
 
         assert len(set(results)) == 3
-        shared_prefix = "egg/babysit-pr/42/abc1234/"
+        shared_prefix = "egg/custom-pr/42/abc1234/"
         for branch in results:
             assert branch.startswith(shared_prefix)
 
 
-class TestBabysitFallbackToPrHeadBranch:
+class TestCustomPrFallbackToPrHeadBranch:
     """When SHA is missing/short or pr_number is missing, fall back to pipeline.branch."""
 
     def test_none_sha_falls_back_to_pr_head_branch(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha=None,
             branch="feature-x",
@@ -248,7 +243,7 @@ class TestBabysitFallbackToPrHeadBranch:
         assert executor.get_worktree_branch(AgentRole.CODER) == "feature-x"
 
     def test_empty_sha_falls_back_to_pr_head_branch(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="",
             branch="feature-x",
@@ -260,13 +255,13 @@ class TestBabysitFallbackToPrHeadBranch:
     def test_short_sha_falls_back_to_pr_head_branch(self):
         # Use SimpleNamespace because Pipeline validator rejects non-hex SHAs.
         pipeline = SimpleNamespace(
-            id="babysit-test",
+            id="custom-pr-test",
             repo="test/repo",
             issue_number=None,
             branch="feature-x",
             status=PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
-            mode=PipelineMode.BABYSIT,
+            mode=PipelineMode.CUSTOM,
             pr_number=42,
             pr_head_sha="short",
         )
@@ -275,7 +270,7 @@ class TestBabysitFallbackToPrHeadBranch:
         assert executor.get_worktree_branch(AgentRole.CODER) == "feature-x"
 
     def test_missing_pr_number_falls_through_to_pr_head_branch(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=None,
             pr_head_sha="abc1234deadbeef",
             branch="feature-x",
@@ -285,7 +280,7 @@ class TestBabysitFallbackToPrHeadBranch:
         assert executor.get_worktree_branch(AgentRole.CODER) == "feature-x"
 
     def test_all_missing_falls_through_to_issue_naming(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=None,
             pr_head_sha=None,
             branch=None,
@@ -298,7 +293,7 @@ class TestBabysitFallbackToPrHeadBranch:
 
 
 class TestIssueModePathUnaffected:
-    """Babysit logic must not trigger for issue-mode pipelines."""
+    """Per-role staging logic must not trigger for issue-mode pipelines."""
 
     def test_issue_mode_with_branch_returns_branch(self):
         pipeline = _issue_pipeline(branch="feature-x")
@@ -326,7 +321,7 @@ class TestIssueModePathUnaffected:
 
         assert executor.get_worktree_branch(AgentRole.CODER) == "egg/issue-custom-id"
 
-    def test_issue_mode_with_pr_fields_does_not_produce_babysit_branch(self):
+    def test_issue_mode_with_pr_fields_does_not_produce_custom_pr_branch(self):
         pipeline = _issue_pipeline(
             branch="feature-x",
             pr_number=42,
@@ -336,14 +331,14 @@ class TestIssueModePathUnaffected:
 
         branch = executor.get_worktree_branch(AgentRole.CODER)
         assert branch == "feature-x"
-        assert "babysit-pr" not in branch
+        assert "custom-pr" not in branch
 
 
 class TestShortShaTruncation:
     """Short SHA is exactly the first 7 chars of pr_head_sha."""
 
     def test_forty_char_sha_truncates_to_seven(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="abc1234deadbeef5678901234567890abcdefabc",
             branch="feature-x",
@@ -351,14 +346,14 @@ class TestShortShaTruncation:
         executor = _make_executor(pipeline)
 
         branch = executor.get_worktree_branch(AgentRole.CODER)
-        # Branch format: egg/babysit-pr/{pr}/{short-sha}/{role}
+        # Branch format: egg/custom-pr/{pr}/{short-sha}/{role}
         parts = branch.split("/")
-        # ["egg", "babysit-pr", "42", "abc1234", "coder"]
+        # ["egg", "custom-pr", "42", "abc1234", "coder"]
         assert parts[3] == "abc1234"
         assert len(parts[3]) == 7
 
     def test_exactly_seven_char_sha_is_used_verbatim(self):
-        pipeline = _babysit_pipeline(
+        pipeline = _custom_pr_pipeline(
             pr_number=42,
             pr_head_sha="abc1234",
             branch="feature-x",
@@ -368,4 +363,4 @@ class TestShortShaTruncation:
         branch = executor.get_worktree_branch(AgentRole.CODER)
         parts = branch.split("/")
         assert parts[3] == "abc1234"
-        assert branch == "egg/babysit-pr/42/abc1234/coder"
+        assert branch == "egg/custom-pr/42/abc1234/coder"

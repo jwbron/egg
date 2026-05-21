@@ -1,6 +1,6 @@
 """Tests for the ``has_contract`` parameter of ``get_roles_for_phase()``.
 
-Babysit-pr pipelines (#1748) run without an upstream SDLC contract. In that
+CUSTOM+PR pipelines (#1762) run without an upstream SDLC contract. In that
 mode the ``reviewer_contract`` reviewer has no artifacts to verify, so it must
 be filtered out of the phase roster so BRC does not wait on an agent that
 cannot ACK. These tests lock in that behavior.

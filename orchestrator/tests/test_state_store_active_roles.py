@@ -95,8 +95,7 @@ class TestActiveRolesPersistence:
 
     def test_issue_mode_with_active_roles_also_works(self, state_store):
         """The kwarg is not coupled to PipelineMode.CUSTOM — future
-        callers (e.g. BABYSIT subsumption) can persist active_roles on
-        non-CUSTOM pipelines too."""
+        callers can persist active_roles on non-CUSTOM pipelines too."""
         pipeline = state_store.create_pipeline(
             issue_number=998,
             repo="owner/repo",

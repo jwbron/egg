@@ -1201,8 +1201,8 @@ class TestBrcReadPeerArtifact:
 
     def test_pipeline_level_implement_reads_aggregate(self, tmp_path, monkeypatch):
         """Without EGG_SLICE_ID the handler reads the aggregate
-        ``{identifier}-implement.json`` file (babysit_pr / non-slice
-        runs are unaffected by the slice-aware switch)."""
+        ``{identifier}-implement.json`` file (non-slice runs are
+        unaffected by the slice-aware switch)."""
         self._set_env(monkeypatch, tmp_path)
         monkeypatch.delenv("EGG_SLICE_ID", raising=False)
         _make_history_file(

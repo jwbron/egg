@@ -1,7 +1,7 @@
 """
 Docs regression tests for issue #2548 — context PR + per-slice BRC history.
 
-Slice-1 of #2548 updates four documentation files to reflect the new
+Slice-1 of #2548 updates documentation files to reflect the new
 runtime behavior that landed across earlier slices:
 
 * `docs/architecture/orchestrator.md` — now describes the
@@ -11,8 +11,6 @@ runtime behavior that landed across earlier slices:
   command/flag exposure and cross-references the new contract fields.
 * `docs/guides/concurrent-execution.md` — adds an explicit
   "Context PR" subsection to the PR-stack diagram.
-* `docs/guides/babysit-pr.md` — flips its references from the aggregate
-  ``-implement.md``/``-implement.json`` files to the per-slice variant.
 
 The risk this test guards against is *silent docs drift*: a future PR
 restoring the deprecated terminology, or removing the new pinning
@@ -23,7 +21,7 @@ Each test pins one acceptance-criterion line to a literal-string check
 so the failure message points directly at the missing element. The
 deprecated-filename grep uses a directory-scoped scan with an explicit
 allow-list of known-legitimate references (operational documentation
-covering babysit_pr / non-slice mode where the aggregate file is still
+covering CUSTOM+PR / non-slice mode where the aggregate file is still
 emitted, plus the file-tree reference in
 ``docs/guides/sdlc-pipeline.md``).
 
@@ -49,7 +47,6 @@ DOCS_ROOT = PROJECT_ROOT / "docs"
 ARCHITECTURE_ORCHESTRATOR = DOCS_ROOT / "architecture" / "orchestrator.md"
 REFERENCE_ORCHESTRATOR_CLI = DOCS_ROOT / "reference" / "orchestrator-cli.md"
 GUIDES_CONCURRENT_EXECUTION = DOCS_ROOT / "guides" / "concurrent-execution.md"
-GUIDES_BABYSIT_PR = DOCS_ROOT / "guides" / "babysit-pr.md"
 
 
 def _read(path: Path) -> str:
@@ -134,7 +131,7 @@ class TestArchitectureOrchestratorNoDeprecatedReferences:
             "`{identifier}-implement.{md,json}` outside an allow-listed "
             "historical context. Update each line to the per-slice "
             "filename `{identifier}-implement-slice-<N>.{md,json}` or "
-            "wrap it in an explicit historical/legacy/babysit_pr framing."
+            "wrap it in an explicit historical/legacy framing."
             f" Offending lines:\n{_format_lines(offending)}"
         )
 
@@ -288,45 +285,6 @@ class TestConcurrentExecutionContextPrSection:
 
 
 # ---------------------------------------------------------------------------
-# task-1-2: docs/guides/babysit-pr.md pinning
-# ---------------------------------------------------------------------------
-
-
-class TestBabysitPrPerSliceBrcReferences:
-    """`docs/guides/babysit-pr.md` must note that babysit_pr now reads
-    per-slice implement BRC files, not the aggregate file. Acceptance
-    criterion for task-1-2 (#2548).
-
-    babysit_pr operates on already-merged PRs in the implement phase,
-    so its file references must match what the orchestrator actually
-    writes today — that is, the per-slice variant when the contract
-    has slices, and the aggregate when it doesn't. The doc should
-    surface the per-slice case explicitly because the existing prose
-    pre-#2548 only described the aggregate.
-    """
-
-    @pytest.fixture(scope="class")
-    def text(self) -> str:
-        return _read(GUIDES_BABYSIT_PR)
-
-    def test_mentions_per_slice_brc_filename_pattern(self, text: str) -> None:
-        assert "-implement-slice-" in text, (
-            "task-1-2: docs/guides/babysit-pr.md must reference the "
-            "per-slice BRC filename pattern (`-implement-slice-<N>`). "
-            "Otherwise the guide still implies babysit_pr only knows "
-            "about the aggregate file, which is wrong post-#2548 hard "
-            "switchover."
-        )
-
-    def test_cross_references_issue_2548(self, text: str) -> None:
-        assert "#2548" in text, (
-            "task-1-2: docs/guides/babysit-pr.md must cross-reference "
-            "issue #2548 so the rationale is one click away. The "
-            "contract task description requires this cross-ref."
-        )
-
-
-# ---------------------------------------------------------------------------
 # Directory-scoped grep with allow-list (acceptance criterion for task-1-3)
 # ---------------------------------------------------------------------------
 
@@ -343,7 +301,7 @@ class TestBabysitPrPerSliceBrcReferences:
 # * `docs/guides/concurrent-execution.md` lines 706, 708, 710, 712 —
 #   these explain the contrast with the slice-aware mode (the historic
 #   aggregate file is shown to anchor the migration narrative) and
-#   describe the babysit_pr / non-slice mode where the aggregate is
+#   describe the CUSTOM+PR / non-slice mode where the aggregate is
 #   still the canonical artifact. Both are operational documentation.
 #
 # * `docs/guides/sdlc-pipeline.md` lines around 350-351 — the file-tree
@@ -527,7 +485,6 @@ class TestSliceOneDocsExist:
             ARCHITECTURE_ORCHESTRATOR,
             REFERENCE_ORCHESTRATOR_CLI,
             GUIDES_CONCURRENT_EXECUTION,
-            GUIDES_BABYSIT_PR,
         ],
     )
     def test_doc_file_exists(self, path: Path) -> None:

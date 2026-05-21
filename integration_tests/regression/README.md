@@ -77,7 +77,7 @@ and #2655 to land before they flip to passing.
 Pulled from [#2632](https://github.com/jwbron/egg/issues/2632) and
 recent slice/BRC postmortems. Tracking issues:
 
-- **[#2664](https://github.com/jwbron/egg/issues/2664)** — umbrella for the remaining #2474 starting points (HITL, salvage, BRC, babysit-PR push, etc.).
+- **[#2664](https://github.com/jwbron/egg/issues/2664)** — umbrella for the remaining #2474 starting points (HITL, salvage, BRC, etc.).
 - **[#2666](https://github.com/jwbron/egg/issues/2666)** — slice-scoped pods missing an `egg.slice.id` label (operability gap).
 
 | Invariant | Why it matters | Why not yet |
@@ -88,7 +88,6 @@ recent slice/BRC postmortems. Tracking issues:
 | HITL round-trip (#2430) | Pipeline pauses on `AWAITING_HUMAN`, resumes on `provide_input`. Pins #2430. | Needs a pipeline that actually reaches HITL — requires either a scripted provider or a pre-seeded contract. Follow-up. |
 | BRC single-cycle consensus message counts | Pins `feedback_brc_single_cycle.md`: producer PROPOSE → reviewer ACK → CONFIRMED in exactly N messages. | Needs ScriptedProvider pod injection. Deferred to #2585. |
 | Phase-aware consensus timeouts honored end-to-end | Pins that `phase_configs.<phase>.consensus_timeout_s` is wired through to the actual timeout fired. | Implementable as a unit test against the orchestrator's timeout source-of-truth; the k3s tier doesn't add much. |
-| Babysit-PR single final push to PR branch | Pins that 2 coder revisions produce exactly 1 push to the PR head ref. | Needs scripted provider for the coder revision loop. Deferred to #2585. |
 | Slice teardown isolation under partial-failure | Deleting one slice's Job mid-flight doesn't disturb sibling slices' worktrees or sessions. | Achievable with the existing spawner harness once #2644 is fixed; adds another regression test to this directory. |
 | `EGG_SLICE_ID` and `egg.slice.id` label parity | Today the slice scope is propagated as an env var on the pod but **not** as a Job/Pod label — operator queries like `kubectl get jobs -l egg.slice.id=slice-2` don't work, and the kubernetes_monitor can't filter by slice without parsing Job names. | Out of scope for #2632 (an operability gap, not a correctness regression) but worth opening separately if cluster-side slice introspection becomes important. |
 

@@ -29,8 +29,8 @@ class TestEnsurePipelineWorkRef:
         assert _ensure_pipeline_work_ref(None) is None
 
     def test_passthrough_for_non_egg_branch(self) -> None:
-        # Babysit branches are arbitrary PR head refs; the orchestrator
-        # does not own the namespace below them and must not rewrite them.
+        # Non-``egg/`` branches are foreign refs; the orchestrator does
+        # not own the namespace below them and must not rewrite them.
         assert _ensure_pipeline_work_ref("feature/foo") == "feature/foo"
         assert _ensure_pipeline_work_ref("main") == "main"
 

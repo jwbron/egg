@@ -723,7 +723,15 @@ class TestGetContract:
     def test_contract_fetch_http_error_surfaces_to_caller(self, handler):
         """A 404 from the orchestrator's contracts route is surfaced to the
         caller via handle_tool_call's outer catch, not swallowed silently."""
-        http_err = _make_http_error(404, {"error": "Contract not found"})
+        import io
+
+        http_err = HTTPError(
+            url="http://orchestrator/api/v1/contracts/issue-42",
+            code=404,
+            msg="",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=io.BytesIO(json.dumps({"error": "Contract not found"}).encode()),
+        )
         with patch.object(handler, "_make_request", side_effect=http_err):
             result = handler.handle_tool_call("get_contract", {"task_id": "issue-42-v9"})
 
@@ -883,7 +891,6 @@ class TestToolRouting:
             "start_phase",
             "complete_phase",
             "populate_contract",
-            "babysit_pr",
             # Custom-phase primitive (#1762 run_agent_task)
             "run_agent_task",
             # Deployment-diagnostic tools (#1759)
@@ -2255,262 +2262,6 @@ class TestPhaseManagementToolSchemas:
         schema = tools_by_name["populate_contract"]["inputSchema"]
         assert schema["required"] == ["task_id"]
         assert "task_id" in schema["properties"]
-
-
-def _make_http_error(code: int, body: dict) -> HTTPError:
-    """Build an HTTPError with a readable JSON body for babysit-pr tests."""
-    import io
-
-    return HTTPError(
-        url="http://orchestrator/api/v1/pipelines",
-        code=code,
-        msg="",
-        hdrs=None,  # type: ignore[arg-type]
-        fp=io.BytesIO(json.dumps(body).encode()),
-    )
-
-
-class TestBabysitPr:
-    """Tests for PipelineToolHandler._handle_babysit_pr and its tool schema."""
-
-    def test_missing_pr_number(self, handler):
-        result = handler.handle_tool_call("babysit_pr", {"repo": "owner/repo"})
-        assert "error" in result
-        assert "pr_number" in result["error"]
-
-    def test_negative_pr_number(self, handler):
-        result = handler.handle_tool_call("babysit_pr", {"pr_number": -1, "repo": "owner/repo"})
-        assert "error" in result
-        assert "positive integer" in result["error"]
-
-    def test_zero_pr_number(self, handler):
-        result = handler.handle_tool_call("babysit_pr", {"pr_number": 0, "repo": "owner/repo"})
-        assert "error" in result
-        assert "pr_number" in result["error"]
-
-    def test_string_pr_number(self, handler):
-        result = handler.handle_tool_call("babysit_pr", {"pr_number": "42", "repo": "owner/repo"})
-        assert "error" in result
-        assert "positive integer" in result["error"]
-
-    def test_missing_repo(self, handler):
-        result = handler.handle_tool_call("babysit_pr", {"pr_number": 42})
-        assert "error" in result
-        assert "repo" in result["error"]
-
-    def test_empty_repo(self, handler):
-        result = handler.handle_tool_call("babysit_pr", {"pr_number": 42, "repo": ""})
-        assert "error" in result
-        assert "repo" in result["error"]
-
-    def test_happy_path_posts_correct_payload(self, handler):
-        create_response = {"data": {"pipeline": {"id": "pr-42"}}}
-        start_response = {"data": {"started": True}}
-        with patch.object(
-            handler,
-            "_make_request",
-            side_effect=[create_response, start_response],
-        ) as mock_req:
-            result = handler.handle_tool_call("babysit_pr", {"pr_number": 42, "repo": "owner/repo"})
-
-        assert mock_req.call_count == 2
-        # First call — create pipeline
-        create_call = mock_req.call_args_list[0]
-        assert create_call.args[0] == "/api/v1/pipelines"
-        assert create_call.kwargs["method"] == "POST"
-        payload = create_call.kwargs["data"]
-        assert payload["mode"] == "babysit"
-        assert payload["pr_number"] == 42
-        assert payload["repo"] == "owner/repo"
-        assert payload["pipeline_id"] == "pr-42"
-
-        # Second call — start pipeline
-        start_call = mock_req.call_args_list[1]
-        assert start_call.args[0] == "/api/v1/pipelines/pr-42/start"
-        assert start_call.kwargs["method"] == "POST"
-
-        assert result == {
-            "task_id": "pr-42",
-            "status": "started",
-            "message": "Babysit-pr cycle started for PR #42",
-        }
-
-    def test_forwards_optional_branch_and_base_branch(self, handler):
-        create_response = {"data": {"pipeline": {"id": "pr-7"}}}
-        start_response = {"data": {"started": True}}
-        with patch.object(
-            handler,
-            "_make_request",
-            side_effect=[create_response, start_response],
-        ) as mock_req:
-            handler.handle_tool_call(
-                "babysit_pr",
-                {
-                    "pr_number": 7,
-                    "repo": "owner/repo",
-                    "branch": "feature-x",
-                    "base_branch": "develop",
-                },
-            )
-
-        payload = mock_req.call_args_list[0].kwargs["data"]
-        assert payload["branch"] == "feature-x"
-        assert payload["base_branch"] == "develop"
-
-    def test_config_dict_forwarded_as_is(self, handler):
-        create_response = {"data": {"pipeline": {"id": "pr-1"}}}
-        start_response = {"data": {"started": True}}
-        with patch.object(
-            handler,
-            "_make_request",
-            side_effect=[create_response, start_response],
-        ) as mock_req:
-            handler.handle_tool_call(
-                "babysit_pr",
-                {
-                    "pr_number": 1,
-                    "repo": "owner/repo",
-                    "config": {"hitl_gates": False},
-                },
-            )
-
-        payload = mock_req.call_args_list[0].kwargs["data"]
-        assert payload["config"] == {"hitl_gates": False}
-
-    def test_config_json_string_parsed(self, handler):
-        create_response = {"data": {"pipeline": {"id": "pr-1"}}}
-        start_response = {"data": {"started": True}}
-        with patch.object(
-            handler,
-            "_make_request",
-            side_effect=[create_response, start_response],
-        ) as mock_req:
-            handler.handle_tool_call(
-                "babysit_pr",
-                {
-                    "pr_number": 1,
-                    "repo": "owner/repo",
-                    "config": '{"hitl_gates": false}',
-                },
-            )
-
-        payload = mock_req.call_args_list[0].kwargs["data"]
-        assert payload["config"] == {"hitl_gates": False}
-
-    def test_invalid_config_json_returns_error(self, handler):
-        with patch.object(handler, "_make_request") as mock_req:
-            result = handler.handle_tool_call(
-                "babysit_pr",
-                {
-                    "pr_number": 1,
-                    "repo": "owner/repo",
-                    "config": "{not valid json",
-                },
-            )
-
-        # Should short-circuit before making any HTTP request.
-        mock_req.assert_not_called()
-        assert "error" in result
-        assert "Invalid config JSON" in result["error"]
-
-    def test_409_duplicate_pipeline_includes_existing_fields(self, handler):
-        http_error = _make_http_error(
-            409,
-            {
-                "message": "Pipeline already exists",
-                "details": {
-                    "reason": "duplicate_pipeline",
-                    "existing_pipeline_id": "pr-42",
-                    "existing_status": "running",
-                    "existing_phase": "implement",
-                },
-            },
-        )
-        with patch.object(handler, "_make_request", side_effect=http_error):
-            result = handler.handle_tool_call("babysit_pr", {"pr_number": 42, "repo": "owner/repo"})
-
-        assert result["error"] == "Pipeline already exists"
-        assert result["reason"] == "duplicate_pipeline"
-        assert result["existing_pipeline_id"] == "pr-42"
-        assert result["existing_status"] == "running"
-        assert result["existing_phase"] == "implement"
-
-    def test_400_fork_pr_includes_reason(self, handler):
-        http_error = _make_http_error(
-            400,
-            {
-                "message": "PR is from a fork",
-                "details": {"reason": "pr_from_fork"},
-            },
-        )
-        with patch.object(handler, "_make_request", side_effect=http_error):
-            result = handler.handle_tool_call("babysit_pr", {"pr_number": 42, "repo": "owner/repo"})
-
-        assert result["error"] == "PR is from a fork"
-        assert result["reason"] == "pr_from_fork"
-
-    def test_409_merged_pr_includes_reason(self, handler):
-        http_error = _make_http_error(
-            409,
-            {
-                "message": "PR is already merged",
-                "details": {"reason": "pr_merged"},
-            },
-        )
-        with patch.object(handler, "_make_request", side_effect=http_error):
-            result = handler.handle_tool_call("babysit_pr", {"pr_number": 42, "repo": "owner/repo"})
-
-        assert result["error"] == "PR is already merged"
-        assert result["reason"] == "pr_merged"
-
-    def test_409_empty_diff_includes_reason(self, handler):
-        http_error = _make_http_error(
-            409,
-            {
-                "message": "PR has an empty diff",
-                "details": {"reason": "pr_empty_diff"},
-            },
-        )
-        with patch.object(handler, "_make_request", side_effect=http_error):
-            result = handler.handle_tool_call("babysit_pr", {"pr_number": 42, "repo": "owner/repo"})
-
-        assert result["error"] == "PR has an empty diff"
-        assert result["reason"] == "pr_empty_diff"
-
-    def test_start_failure_returns_created_not_started(self, handler):
-        create_response = {"data": {"pipeline": {"id": "pr-99"}}}
-        with patch.object(
-            handler,
-            "_make_request",
-            side_effect=[create_response, Exception("start failed")],
-        ):
-            result = handler.handle_tool_call("babysit_pr", {"pr_number": 99, "repo": "owner/repo"})
-
-        assert result["status"] == "created_not_started"
-        assert result["task_id"] == "pr-99"
-        assert "failed to start" in result["message"]
-
-    def test_tool_registered_in_pipeline_tools(self):
-        from mcp_tools import PIPELINE_TOOLS
-
-        assert "babysit_pr" in [t["name"] for t in PIPELINE_TOOLS]
-
-    def test_tool_schema_required_fields(self):
-        from mcp_tools import PIPELINE_TOOLS
-
-        tools_by_name = {t["name"]: t for t in PIPELINE_TOOLS}
-        schema = tools_by_name["babysit_pr"]["inputSchema"]
-        # pr_number is intentionally not in required so the handler can return
-        # a structured {"error": "pr_number must be a positive integer"} when
-        # it is omitted rather than Pydantic raising a generic "Field required".
-        # Assert by membership rather than exact list/order so adding another
-        # required field in a later PR doesn't force this test to update.
-        required = set(schema["required"])
-        assert "repo" in required
-        assert "pr_number" not in required
-        assert "pr_number" in schema["properties"]
-        assert schema["properties"]["pr_number"]["type"] == "integer"
-        assert schema["properties"]["repo"]["type"] == "string"
 
 
 class TestMakeRequestBody:

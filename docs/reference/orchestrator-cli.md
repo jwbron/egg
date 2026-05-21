@@ -218,7 +218,7 @@ Agent restart preserves the agent's existing worktree (including committed work 
 > # envelope and a "details" object containing slice_id and known_slices:
 > # {"success": false, "message": "slice_id 'slice-99' does not match any slice ...",
 > #  "details": {"slice_id": "slice-99", "known_slices": ["slice-1", "slice-2"]}}
-> # Pipelines without a contract (BABYSIT, CUSTOM+PR, and CUSTOM without inline
+> # Pipelines without a contract (CUSTOM+PR, and CUSTOM without inline
 > # analysis/plan or issue-mode contract file) reject any slice_id with 404 and
 > # known_slices: []; the message reads "... is invalid for pipeline <id>
 > # (pipeline has no contract; not slice-aware)" instead.
@@ -480,7 +480,7 @@ gh pr close <context_pr_number>
 git push origin --delete egg/<pipeline-id>/context  # (gateway-mediated push)
 ```
 
-Per-slice implement-phase BRC history files written by the orchestrator (`.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` plus `<id>-implement-unattributed.{md,json}`) are visible in each slice PR's diff; the aggregate `<id>-implement.{md,json}` file is **not** produced in slice-aware mode. Babysit-pr and other non-slice runs continue to emit the single content-addressed file (`pr-<N>-<short-sha>-implement.{md,json}` for babysit). See [Orchestrator Architecture: BRC-history file naming](../architecture/orchestrator.md#brc-history-file-naming) for the full file-pattern table. If the BRC history file is absent from a slice PR's diff, check orchestrator logs for `Per-slice BRC commit: WORKTREE_BASE_DIR missing — falling back to system temp…` — this WARNING indicates the `/home/egg/.egg-worktrees` volume is not mounted on the orchestrator pod, causing the gateway to reject the push (#2684).
+Per-slice implement-phase BRC history files written by the orchestrator (`.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` plus `<id>-implement-unattributed.{md,json}`) are visible in each slice PR's diff; the aggregate `<id>-implement.{md,json}` file is **not** produced in slice-aware mode. CUSTOM+PR and other non-slice runs continue to emit the single content-addressed file (`pr-<N>-<short-sha>-implement.{md,json}` for CUSTOM+PR). See [Orchestrator Architecture: BRC-history file naming](../architecture/orchestrator.md#brc-history-file-naming) for the full file-pattern table. If the BRC history file is absent from a slice PR's diff, check orchestrator logs for `Per-slice BRC commit: WORKTREE_BASE_DIR missing — falling back to system temp…` — this WARNING indicates the `/home/egg/.egg-worktrees` volume is not mounted on the orchestrator pod, causing the gateway to reject the push (#2684).
 
 ## Related CLIs
 

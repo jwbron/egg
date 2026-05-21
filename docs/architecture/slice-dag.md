@@ -310,7 +310,7 @@ lived on a per-role sibling branch GitHub does not see in the PR.
 
 | Mode | `slice_id` | Result |
 |------|------------|--------|
-| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N/work` (tip pushed to `<id>/work` since #2399; babysit-pr staging uses `egg/babysit-pr/{pr}/{short-sha}/{role}` instead). |
+| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N/work` (tip pushed to `<id>/work` since #2399; CUSTOM+PR staging uses `egg/custom-pr/{pr}/{short-sha}/{role}` instead). |
 | Slice mode (post-v6) | `"slice-2"` or `"2"` | `egg/issue-N/slice-2` — **shared by every role in the slice**. |
 
 > **The slice is the unit of isolation, not the role within the slice.**
@@ -319,9 +319,8 @@ lived on a per-role sibling branch GitHub does not see in the PR.
 > shared-branch model the non-slice flow has always used, just scoped
 > per slice.
 
-Babysit-pr mode is **not** slice-aware in this PR (refine-phase
-decision-8 deferred babysit slicing to a follow-up). Babysit-pr's
-existing per-role staging branches are unchanged.
+CUSTOM+PR mode is **not** slice-aware. CUSTOM+PR's per-role staging
+branches are unchanged.
 
 The shared-branch model implicitly relies on the gateway's multi-agent
 push attribution surface
@@ -757,8 +756,6 @@ during refine. The most consequential are referenced inline above:
   to fully honour. Today the orchestrator-side cascade emission and
   log lines provide the always-on `pipeline_id`-scoped fallback for
   cascade visibility.
-- **Babysit-PR slicing** — refine-phase decision-8 keeps `babysit_pr`
-  monolithic for now; follow-up tracked separately.
 - **Cross-slice architectural review** — `reviewer_code_holistic` runs
   per-slice; cross-slice cohesion is not re-checked once slices land.
 

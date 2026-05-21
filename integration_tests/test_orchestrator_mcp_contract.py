@@ -2,7 +2,7 @@
 
 The orchestrator runs an MCP sidecar (``orchestrator/mcp_server.py``,
 streamable-HTTP at ``/mcp`` on port 9850) that exposes the
-``submit_task`` / ``run_agent_task`` / ``babysit_pr`` pipeline-control
+``submit_task`` / ``run_agent_task`` pipeline-control
 verbs to external Claude Code sessions.  ``test_sandbox_mcp_tools_e2e``
 covers the sandbox-side MCP wire-up; the orchestrator-side MCP contract
 had no end-to-end coverage before this file.
@@ -27,9 +27,9 @@ the contract surface that the unit tests in
 Coverage explicitly *not* attempted here (tracked separately):
 
 * Full ``submit_task`` round-trip to ``PR_READY`` / ``run_agent_task``
-  single-phase / ``babysit_pr`` against a real PR — all three need
-  pod-level LLM-response injection (per #2474) before they can be
-  driven deterministically from CI.  Tracked: #2668.
+  single-phase against a real PR — both need pod-level LLM-response
+  injection (per #2474) before they can be driven deterministically
+  from CI.  Tracked: #2668.
 * Pydantic-vs-handler error envelope mismatch — FastMCP schema-layer
   rejections surface as raw "Error executing tool ..." text rather
   than the documented ``{"error": "..."}`` JSON envelope.  The tests
@@ -168,7 +168,7 @@ class TestMCPDiscovery:
 
     def test_target_tools_advertised(self, orchestrator_mcp_url: str) -> None:
         names = _list_tool_names(orchestrator_mcp_url)
-        for tool in ("submit_task", "run_agent_task", "babysit_pr"):
+        for tool in ("submit_task", "run_agent_task"):
             assert tool in names, (
                 f"{tool!r} not advertised by orchestrator MCP server. Advertised: {sorted(names)}"
             )
@@ -323,47 +323,6 @@ class TestRunAgentTaskValidation:
         )
         assert "error" in result, result
         assert result.get("reason") == "cross_phase_role", result
-
-
-# ---------------------------------------------------------------------------
-# babysit_pr — handler-level argument validation
-# ---------------------------------------------------------------------------
-
-
-class TestBabysitPRValidation:
-    """babysit_pr rejects missing/malformed PR identifiers before any
-    GitHub or orchestrator call.
-
-    The full PR-state validation path (fork, merged, empty diff) is
-    owned by the route handler and requires real ``gh pr view`` access;
-    those scenarios are exercised by the in-process Flask tests under
-    ``integration_tests/test_babysit_pr/`` and the unit tests in
-    ``orchestrator/tests/test_mcp_tools.py::TestBabysitPr``.  We only
-    cover the MCP-side argument gates here.
-    """
-
-    def test_missing_pr_number_rejected(self, orchestrator_mcp_url: str) -> None:
-        result = _call_tool(orchestrator_mcp_url, "babysit_pr", {"repo": "owner/repo"})
-        assert "error" in result, result
-        assert "pr_number" in result["error"]
-
-    def test_negative_pr_number_rejected(self, orchestrator_mcp_url: str) -> None:
-        result = _call_tool(
-            orchestrator_mcp_url,
-            "babysit_pr",
-            {"pr_number": -1, "repo": "owner/repo"},
-        )
-        assert "error" in result, result
-        assert "positive integer" in result["error"]
-
-    def test_invalid_repo_format_rejected(self, orchestrator_mcp_url: str) -> None:
-        result = _call_tool(
-            orchestrator_mcp_url,
-            "babysit_pr",
-            {"pr_number": 1, "repo": "not-owner-slash-repo"},
-        )
-        assert "error" in result, result
-        assert "owner/name" in result["error"]
 
 
 # ---------------------------------------------------------------------------

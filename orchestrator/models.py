@@ -63,17 +63,6 @@ class PipelineMode(StrEnum):
     """Pipeline execution mode."""
 
     ISSUE = "issue"  # Standard issue-driven SDLC pipeline
-    BABYSIT = "babysit"
-    """One-off implement-phase BRC cycle targeted at an existing PR's diff.
-
-    Repurposed from the legacy ``egg-babysit`` fixer/reviewer loop. In this
-    mode the orchestrator creates an implement-phase pipeline with
-    ``has_contract=False`` against the PR's head branch; producers
-    (coder, tester, documenter) and reviewers (reviewer_code) run
-    the standard Broadcast-Review-Converge protocol on a staging branch
-    derived from the PR head. Only the final consensus commit is pushed to
-    the PR branch. See #1748.
-    """
     CUSTOM = "custom"
     """One-off pipeline that runs a single phase against a repo with a
     user-chosen subset of that phase's roles via the ``run_agent_task``
@@ -81,10 +70,11 @@ class PipelineMode(StrEnum):
 
     Unlike ISSUE mode, the pipeline terminates after the selected phase
     reaches CONSENSUS_REACHED — no auto-advance through refine/plan/
-    implement. Unlike BABYSIT, CUSTOM is not tied to a PR (though
-    ``pr_number`` is accepted and re-uses BABYSIT's per-role staging-branch
-    + head-move-guard semantics when supplied). The resolved role roster
-    is persisted on ``Pipeline.active_roles``. See #1762.
+    implement. ``pr_number`` is accepted and enables per-role staging
+    branches when supplied; the BRC consensus output stays on those
+    staging branches and is not pushed back to the PR head. The
+    resolved role roster is persisted on ``Pipeline.active_roles``.
+    See #1762.
     """
 
 
@@ -878,28 +868,28 @@ class Pipeline(BaseModel):
     )
     mode: PipelineMode = Field(
         default=PipelineMode.ISSUE,
-        description="Pipeline execution mode: 'issue' for standard SDLC, 'babysit' for PR review/fix loop",
+        description="Pipeline execution mode: 'issue' for standard SDLC, 'custom' for one-off single-phase runs",
     )
     pr_number: int | None = Field(
         default=None,
         ge=1,
-        description="PR number for babysit mode pipelines",
+        description="PR number for CUSTOM-mode pipelines that target an existing PR",
     )
     pr_head_sha: str | None = Field(
         default=None,
         description="The PR head commit SHA captured at pipeline creation. "
-        "Used to namespace per-role staging branches "
-        "(egg/babysit-pr/{pr}/{short-sha}/{role}) and the BRC-history "
-        "identifier (pr-{pr}-{short-sha}). A subsequent remote HEAD move "
-        "invalidates the cycle because the stored SHA no longer matches "
-        "origin/<head_branch>.",
+        "Used purely as a namespacing input for per-role staging branches "
+        "(egg/custom-pr/{pr}/{short-sha}/{role}) and the BRC-history "
+        "identifier (pr-{pr}-{short-sha}); it is not an invalidation "
+        "signal. A subsequent remote HEAD move during the cycle does not "
+        "affect pipeline progression — the consensus output stays on the "
+        "staging branches regardless.",
     )
     active_roles: list[str] | None = Field(
         default=None,
         description="Resolved role roster for this pipeline's active phase "
-        "(populated for CUSTOM-mode pipelines via run_agent_task and for "
-        "BABYSIT pipelines via the subsumed code path). None means "
-        "'use the default roster for the current phase', preserving "
+        "(populated for CUSTOM-mode pipelines via run_agent_task). None "
+        "means 'use the default roster for the current phase', preserving "
         "backward compatibility with ISSUE-mode pipelines that existed "
         "before #1762.",
     )
@@ -961,9 +951,9 @@ class Pipeline(BaseModel):
         default=True,
         description="Whether this pipeline has an upstream SDLC contract "
         "(plan/refine artifacts, .egg-state/contracts/<issue>.json). "
-        "Babysit-pr pipelines set this to False so the implement-phase "
-        "reviewer roster is filtered to drop reviewer_contract, which "
-        "has no artifacts to verify. Default True preserves backward "
+        "CUSTOM-mode pipelines targeting an existing PR set this to False "
+        "so the implement-phase reviewer roster drops reviewer_contract, "
+        "which has no artifacts to verify. Default True preserves backward "
         "compatibility for issue-mode pipelines.",
     )
     error: str | None = Field(default=None, description="Error if failed")
