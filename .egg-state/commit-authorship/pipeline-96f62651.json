@@ -1,0 +1,19 @@
+{
+  "entries": {
+    "049a3a2d69b0bfadeec7102b8e2a49951fec1ed4": {
+      "branch": "egg/pipeline-96f62651/work",
+      "pipeline_id": "pipeline-96f62651",
+      "registered_at": "2026-05-21T18:11:16.235278+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
+    "4ecc59d6c6e50ab9c73028bd3f47b3ee3d4f8d33": {
+      "branch": "egg/pipeline-96f62651/work",
+      "pipeline_id": "pipeline-96f62651",
+      "registered_at": "2026-05-21T18:11:16.236713+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    }
+  },
+  "version": 1
+}
