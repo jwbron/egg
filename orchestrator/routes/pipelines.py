@@ -2560,8 +2560,11 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             only — if the pipeline has advanced past the slice's phase
             (e.g. to ``pr`` or a later iteration) no current-phase records
             will name the role, derivation falls through, and the operator
-            must supply ``slice_id`` explicitly. Genuinely pipeline-level
-            agents (no per-slice records for the role) omit it.
+            should supply ``slice_id`` explicitly. This is operator guidance,
+            not a code-enforced precondition: the fall-through branch
+            proceeds to a pipeline-level spawn rather than rejecting.
+            Genuinely pipeline-level agents (no per-slice records for the
+            role) omit ``slice_id``.
 
     Request body (optional):
         {
