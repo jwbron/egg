@@ -2556,8 +2556,12 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             (#2759): if exactly one slice has a non-complete record for
             the role, that slice is used; otherwise the request is
             rejected with the candidate list rather than spawning an
-            unscoped agent. Genuinely pipeline-level agents (no per-slice
-            records for the role) omit it.
+            unscoped agent. The scan is scoped to ``pipeline.current_phase``
+            only — if the pipeline has advanced past the slice's phase
+            (e.g. to ``pr`` or a later iteration) no current-phase records
+            will name the role, derivation falls through, and the operator
+            must supply ``slice_id`` explicitly. Genuinely pipeline-level
+            agents (no per-slice records for the role) omit it.
 
     Request body (optional):
         {
