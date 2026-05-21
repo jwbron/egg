@@ -10989,7 +10989,7 @@ def _maybe_open_base_pr_for_plan_to_implement(
 ) -> None:
     """Open the doc-only base/context PR for the plan→implement transition (#2548, #2593).
 
-    Single call site for every plan→implement code path:
+    Shared wrapper for every plan→implement code path:
 
     * the inline auto-advance in :func:`_run_pipeline` (the path #2548
       originally wired up);

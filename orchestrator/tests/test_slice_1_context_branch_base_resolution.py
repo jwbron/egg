@@ -624,9 +624,13 @@ class TestSliceLoopEntryContextPRSafetyNet:
         so the test pins the call itself rather than its effect."""
         pipeline = _make_pipeline()
         slice_obj = _make_slice("slice-1", tasks=[_make_task()])
+        # ``context_branch`` is intentionally None: the wrapper is
+        # patched, so its value is never read.  Setting it to None
+        # makes the test honest about what it pins (the call wiring,
+        # not the wrapper's effect on contract state).
         contract = _make_contract(
             slices=[slice_obj],
-            context_branch="egg/issue-2548/context",
+            context_branch=None,
         )
 
         with (
