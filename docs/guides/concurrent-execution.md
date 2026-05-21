@@ -65,7 +65,7 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 | `EGG_BRC_ROLE_TYPE` | `"producer"`, `"reviewer"`, or `"producer,reviewer"` | Agent's role in the BRC review graph |
 | `EGG_BRC_REVIEWERS` | Comma-separated roles | Reviewer roles assigned to this producer (producers only) |
 | `EGG_BRC_PRODUCERS` | Comma-separated roles | Producer roles this agent must review (reviewers only) |
-| `EGG_SLICE_ID` | `"slice-<N>"` | Slice scope for per-slice BRC teams (implement phase only); absent for pipeline-level agents. BRC handlers forward this to the orchestrator so `CONSENSUS_*` signals are routed to the per-slice tracker. |
+| `EGG_SLICE_ID` | `"slice-<N>"` | Slice scope for per-slice BRC teams (implement phase only); absent for pipeline-level agents. BRC handlers forward this to the orchestrator so `CONSENSUS_*` signals **and status reads** (`mcp__brc__get_state`, `egg-orch consensus status`) are routed to the per-slice tracker (#2761). |
 
 Each agent is registered in the peer consensus tracker before spawning begins.
 
