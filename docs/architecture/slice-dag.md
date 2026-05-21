@@ -441,23 +441,28 @@ timeout / stuck-phase handler operates on the correct tracker.
 `GatewayClient.create_slice_pr(pipeline_id, repo, *, slice_id, slice_name,
 slice_tasks, head, base, program_title=None, program_description=None,
 program_test_plan=None, program_manual_steps=None,
-terminal_slice_id=None, slice_index=None, slice_count=None,
-slice_files_affected=None, context_pr_number=None, ...)` opens one PR
-per slice (#2745). Slice PRs are scoped to their own slice: the body
-shows the slice subject, files affected, and full task descriptions
-with acceptance criteria. Strategic context (analysis doc, plan doc,
-refine/plan BRC history) lives on the base/context PR opened by #2548,
-which slice PRs link to via `context_pr_number`. The terminal slice
-keeps the umbrella treatment (program-level test plan, manual steps,
-pre-merge obligations) because it is the merge gate.
+program_deferred_actions=None, terminal_slice_id=None, slice_index=None,
+slice_count=None, slice_files_affected=None, context_pr_number=None, ...)`
+opens one PR per slice (#2745). Slice PRs are scoped to their own slice:
+the body shows the slice subject, files affected, and full task
+descriptions with acceptance criteria. Strategic context (analysis doc,
+plan doc, refine/plan BRC history) lives on the base/context PR opened
+by #2548, which slice PRs link to via `context_pr_number`. The terminal
+slice keeps the umbrella treatment (program-level test plan, manual
+steps, pre-merge obligations) because it is the merge gate.
 
-- **Title.** `[<program-slug>][<position>] <subject>`. `program-slug`
-  is derived from `pipeline_id`: `issue-<N>` pipelines collapse to
-  `issue-<N>` (version suffix dropped); `pipeline-<hash>` pipelines
-  keep a truncated prefix. `position` is `slice-N/M` for non-terminal
-  slices (1-based index over total declared slice count) and
-  `merge-gate` for the terminal slice. `subject` is `slice_name` for
-  non-terminals and `program_title` for the terminal. When
+- **Title.** `[<program-slug>][<position>] <subject>`, capped at 70
+  chars (titles longer than that get truncated to `title[:67] + "..."`).
+  `program-slug` is derived from `pipeline_id`: `issue-<N>` pipelines
+  collapse to `issue-<N>` (version suffix dropped); `pipeline-<hash>`
+  pipelines keep a truncated prefix. `position` is `slice-N/M` for
+  non-terminal slices (1-based index over total declared slice count)
+  and `merge-gate` for the terminal slice. `subject` is `slice_name`
+  for non-terminals and `program_title` for the terminal. When the
+  70-char cap fires, the slug + position marker are preserved and the
+  `subject` is what gets truncated first — on hash-id pipelines the
+  slug + position eat ~20–30 chars, so subjects on long-named slices
+  can lose their tail (see `_derive_program_slug` for the budget). When
   `program_title` is empty (older contracts / planner skipped the
   field), every slice falls back to the deterministic
   `{slice_id}: {slice_name}` form (#2539).
@@ -476,6 +481,12 @@ pre-merge obligations) because it is the merge gate.
   remains reviewable as a standalone diff against `/work`. The stack
   is still unmergeable in this state (no base PR for `work → main`);
   the fallback is a presentational fix only.
+
+The `## Stack` block is the human-facing footer, but `_format_stack_block`
+also appends a legacy plain-text line (`Slice <slice-id> of pipeline
+<pipeline>. Stacked on top of \`<base>\`.`) after it, preserved so
+existing tooling / scrapers that grep for that exact phrase keep
+working.
 
 Task bullets carry full descriptions (the pre-#2745 300-char
 truncation is removed) and a nested `Acceptance criteria:` line when
