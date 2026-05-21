@@ -1237,7 +1237,7 @@ class PipelineToolHandler:
         # orchestrator side can run epic detection and persist
         # ``is_epic`` / ``pipeline_mode`` on the Pipeline. The wire
         # field is named ``epic_mode`` to avoid colliding with the
-        # existing ``mode`` field (PipelineMode: 'issue' / 'custom').
+        # existing ``mode`` field (PipelineMode: 'issue').
         if args.get("jira_ticket"):
             data["jira_ticket"] = args["jira_ticket"].upper()
         if mode_arg is not None:

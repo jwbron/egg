@@ -12042,7 +12042,6 @@ def _build_brc_preamble(
                     phase,
                     reviewers,
                     branch=branch,
-                    base_branch=base_branch,
                     is_pre_seeded_empty_producer=is_pre_seeded_empty_producer,
                 ),
                 "2. **WORK**: Complete your assigned task (see Your Task below).",
@@ -12752,7 +12751,6 @@ def _build_producer_orientation(
     reviewers: list[str],
     branch: str | None = None,
     *,
-    base_branch: str | None = None,
     is_pre_seeded_empty_producer: bool = False,
 ) -> str:
     """Build orientation instructions for producer agents.
@@ -12766,8 +12764,6 @@ def _build_producer_orientation(
         phase: Pipeline phase name.
         reviewers: Names of reviewers that will review this producer.
         branch: The pipeline's working branch, used for sync instructions.
-        base_branch: Resolved base branch for rebase/merge targets. Falls
-            back to the default branch when ``None``.
         is_pre_seeded_empty_producer: True when this role has no tasks in
             the slice and its matrix entry was pre-seeded (#2581). The
             orient text is shortened to "read the contract, confirm there
