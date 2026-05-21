@@ -214,6 +214,15 @@ Agent restart preserves the agent's existing worktree (including committed work 
 > curl -X POST "http://egg-orchestrator:9849/api/v1/pipelines/<id>/agents/<role>/restart?slice_id=slice-2" \
 >   -H "Content-Type: application/json" -d '{"reason": "Slice agent hung"}'
 >
+> # Omitting slice_id for a per-slice agent: the endpoint derives the slice
+> # from the phase's agent records (#2759). If exactly one slice has a
+> # non-complete record for the role, that slice is used; otherwise the
+> # request is rejected with HTTP 400 reason "slice_id_required" and a
+> # "details" object listing known_slices and restart_candidates — re-issue
+> # with an explicit slice_id. This prevents a slice-mode restart from
+> # silently spawning an unscoped agent whose BRC signals route to the bare
+> # pipeline tracker, wedging the slice's consensus.
+>
 > # If slice_id is unknown, the endpoint returns HTTP 404 with a "success: false"
 > # envelope and a "details" object containing slice_id and known_slices:
 > # {"success": false, "message": "slice_id 'slice-99' does not match any slice ...",

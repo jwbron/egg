@@ -74,6 +74,16 @@ class TestRestartToolDefinitions:
         assert "reason" in props
         assert "reason" not in tool["inputSchema"].get("required", [])
 
+    def test_restart_agent_has_optional_slice_id(self):
+        """restart_agent should expose an optional slice_id field (#2759)."""
+        from mcp_tools import PIPELINE_TOOLS
+
+        tool = next(t for t in PIPELINE_TOOLS if t["name"] == "restart_agent")
+        props = tool["inputSchema"]["properties"]
+
+        assert "slice_id" in props
+        assert "slice_id" not in tool["inputSchema"].get("required", [])
+
     def test_restart_phase_has_no_context_field(self):
         """restart_phase should not have a context field (not implemented in endpoint)."""
         from mcp_tools import PIPELINE_TOOLS
@@ -148,6 +158,34 @@ class TestHandleRestartAgent:
         call_args = mock_req.call_args
         data = call_args.kwargs.get("data", {})
         assert data.get("reason") == "heartbeat timeout"
+
+    def test_passes_slice_id_in_request(self, handler):
+        """slice_id should be passed in the POST body so the route can
+        target the slice's Job, worktree, and BRC tracker (#2759)."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
+                "restart_agent",
+                {"task_id": "issue-42", "agent_role": "coder", "slice_id": "slice-3"},
+            )
+
+        call_args = mock_req.call_args
+        data = call_args.kwargs.get("data", {})
+        assert data.get("slice_id") == "slice-3"
+
+    def test_omitted_slice_id_not_in_request(self, handler):
+        """Omitting slice_id leaves it off the body so the route's
+        auto-derivation path runs (#2759)."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
+                "restart_agent",
+                {"task_id": "issue-42", "agent_role": "coder"},
+            )
+
+        call_args = mock_req.call_args
+        data = call_args.kwargs.get("data", {})
+        assert "slice_id" not in data
 
 
 # ---------------------------------------------------------------------------
