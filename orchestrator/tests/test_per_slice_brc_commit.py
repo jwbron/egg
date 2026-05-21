@@ -408,7 +408,7 @@ class TestHappyPath:
             issue_number=999,
             repo=None,
             branch=None,
-            mode="custom",
+            mode="issue",
             status=PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
         )

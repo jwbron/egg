@@ -39,14 +39,12 @@ logger = logging.getLogger("orchestrator.state_store")
 #   {LETTERS}-{digits}[-qualifier[-...]] — JIRA ticket-driven (e.g. KORE-1234, KORE-1234-v2-hotfix)
 #   local-{8 hex chars}         — local dev
 #   pipeline-{8 hex chars}      — auto-generated
-#   pr-{number}                 — CUSTOM mode targeting a PR
 PIPELINE_ID_PATTERN = re.compile(
     r"^("
     r"issue-[0-9]+(-[a-z0-9]+)*"
     r"|[A-Z][A-Z0-9]+-[0-9]+(-[a-z0-9]+)*"
     r"|local-[0-9a-f]{8}"
     r"|pipeline-[0-9a-f]{8}"
-    r"|pr-[0-9]+"
     r")$"
 )
 
@@ -986,15 +984,11 @@ class StateStore:
         pipeline_id: str | None = None,
         network_mode: str | None = None,
         mode: PipelineMode | None = None,
-        pr_number: int | None = None,
         analysis: str | None = None,
         plan: str | None = None,
         source_branch: str | None = None,
         source_artifact_prefix: str | None = None,
         has_contract: bool = True,
-        pr_head_sha: str | None = None,
-        active_roles: list[str] | None = None,
-        custom_phase: str | None = None,
         jira_ticket: str | None = None,
         is_epic: bool = False,
         pipeline_mode: str | None = None,
@@ -1010,23 +1004,13 @@ class StateStore:
             prompt: User prompt (for prompt-driven pipelines)
             pipeline_id: Explicit pipeline ID (auto-generated if not provided)
             network_mode: Network mode for spawned containers ("public", "private", or None)
-            mode: Pipeline mode (ISSUE or CUSTOM). Defaults to ISSUE.
-            pr_number: PR number for CUSTOM-mode pipelines targeting a PR (optional).
+            mode: Pipeline mode. Defaults to ISSUE.
             analysis: Pre-generated analysis markdown for short flow pipelines (optional).
             plan: Pre-generated plan markdown with yaml-tasks appendix (optional).
             source_branch: Source branch to read prior-run artifacts from (optional).
             source_artifact_prefix: Explicit prefix for draft filenames on
                 the source branch (e.g. ``"issue-1570-v3"``).  Overrides
                 the default pipeline_id-based prefix when reading artifacts.
-            active_roles: Resolved role subset for the pipeline's active phase.
-                Populated by run_agent_task (CUSTOM mode). None preserves
-                the legacy default-roster behaviour for ISSUE-mode pipelines
-                (see #1762).
-            custom_phase: Phase name to start a CUSTOM-mode pipeline on
-                (e.g. "refine", "plan", "implement"). When set alongside
-                ``mode=PipelineMode.CUSTOM``, the phase is applied atomically
-                during creation so callers never observe a stale
-                ``current_phase`` via ``get_status``.
 
         Returns:
             Created pipeline
@@ -1076,12 +1060,6 @@ class StateStore:
             }
             if mode is not None:
                 pipeline_kwargs["mode"] = mode
-            if pr_number is not None:
-                pipeline_kwargs["pr_number"] = pr_number
-            if pr_head_sha is not None:
-                pipeline_kwargs["pr_head_sha"] = pr_head_sha
-            if active_roles is not None:
-                pipeline_kwargs["active_roles"] = active_roles
             # Issue #1557: persist Jira-epic SDLC fields on the Pipeline.
             if jira_ticket is not None:
                 pipeline_kwargs["jira_ticket"] = jira_ticket
@@ -1106,12 +1084,6 @@ class StateStore:
             # gets to update it.
             if pipeline.config.start_phase:
                 pipeline.current_phase = PipelinePhase(pipeline.config.start_phase)
-            elif mode == PipelineMode.CUSTOM and custom_phase:
-                # CUSTOM-mode pipelines run a single requested phase; set it
-                # atomically during creation so get_status never returns a
-                # stale phase between create and save (#1762 / review
-                # feedback item 1).
-                pipeline.current_phase = PipelinePhase(custom_phase)
 
             commit_msg = f"Create pipeline {pipeline_id}"
             self.save_pipeline(pipeline, message=commit_msg)

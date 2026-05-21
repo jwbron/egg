@@ -298,11 +298,11 @@ class TestConcurrentExecutionContextPrSection:
 #
 # Rationale per-entry:
 #
-# * `docs/guides/concurrent-execution.md` lines 706, 708, 710, 712 —
-#   these explain the contrast with the slice-aware mode (the historic
-#   aggregate file is shown to anchor the migration narrative) and
-#   describe the CUSTOM+PR / non-slice mode where the aggregate is
-#   still the canonical artifact. Both are operational documentation.
+# * `docs/guides/concurrent-execution.md` — these explain the contrast
+#   with the slice-aware mode (the historic aggregate file is shown to
+#   anchor the migration narrative) and describe the non-slice mode
+#   where the aggregate is still the canonical artifact. Both are
+#   operational documentation.
 #
 # * `docs/guides/sdlc-pipeline.md` lines around 350-351 — the file-tree
 #   reference shows the brc-history layout for non-slice pipelines.
@@ -319,7 +319,7 @@ DEPRECATED_FILENAME_ALLOWLIST: list[tuple[str, str]] = [
     ),
     (
         "docs/guides/concurrent-execution.md",
-        "non-slice implement runs continue to emit the aggregate",
+        "Non-slice implement runs continue to emit the aggregate",
     ),
     (
         "docs/guides/sdlc-pipeline.md",

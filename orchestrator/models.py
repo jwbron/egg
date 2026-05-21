@@ -63,19 +63,6 @@ class PipelineMode(StrEnum):
     """Pipeline execution mode."""
 
     ISSUE = "issue"  # Standard issue-driven SDLC pipeline
-    CUSTOM = "custom"
-    """One-off pipeline that runs a single phase against a repo with a
-    user-chosen subset of that phase's roles via the ``run_agent_task``
-    MCP tool.
-
-    Unlike ISSUE mode, the pipeline terminates after the selected phase
-    reaches CONSENSUS_REACHED — no auto-advance through refine/plan/
-    implement. ``pr_number`` is accepted and enables per-role staging
-    branches when supplied; the BRC consensus output stays on those
-    staging branches and is not pushed back to the PR head. The
-    resolved role roster is persisted on ``Pipeline.active_roles``.
-    See #1762.
-    """
 
 
 class AgentExecutionStatus(StrEnum):
@@ -868,30 +855,19 @@ class Pipeline(BaseModel):
     )
     mode: PipelineMode = Field(
         default=PipelineMode.ISSUE,
-        description="Pipeline execution mode: 'issue' for standard SDLC, 'custom' for one-off single-phase runs",
+        description="Pipeline execution mode (currently only 'issue' for standard SDLC)",
     )
     pr_number: int | None = Field(
         default=None,
         ge=1,
-        description="PR number for CUSTOM-mode pipelines that target an existing PR",
+        description="Number of the PR opened by this pipeline's implement "
+        "phase (issue #1557 reverse-index in-flight detection). None until "
+        "the pipeline reaches the PR stage.",
     )
     pr_head_sha: str | None = Field(
         default=None,
-        description="The PR head commit SHA captured at pipeline creation. "
-        "Used purely as a namespacing input for per-role staging branches "
-        "(egg/custom-pr/{pr}/{short-sha}/{role}) and the BRC-history "
-        "identifier (pr-{pr}-{short-sha}); it is not an invalidation "
-        "signal. A subsequent remote HEAD move during the cycle does not "
-        "affect pipeline progression — the consensus output stays on the "
-        "staging branches regardless.",
-    )
-    active_roles: list[str] | None = Field(
-        default=None,
-        description="Resolved role roster for this pipeline's active phase "
-        "(populated for CUSTOM-mode pipelines via run_agent_task). None "
-        "means 'use the default roster for the current phase', preserving "
-        "backward compatibility with ISSUE-mode pipelines that existed "
-        "before #1762.",
+        description="Head commit SHA of the PR opened by this pipeline, "
+        "captured during PR finalization. None until the PR stage.",
     )
 
     @field_validator("pr_head_sha")
@@ -903,58 +879,12 @@ class Pipeline(BaseModel):
             raise ValueError("pr_head_sha must be a 7-40 char hex string")
         return v
 
-    @field_validator("active_roles")
-    @classmethod
-    def _validate_active_roles(cls, v: list[str] | None) -> list[str] | None:
-        """Validate the active_roles field on Pipeline.
-
-        Rules (aligned with #1762 TASK-1-2):
-          (a) None is allowed (default roster / ISSUE mode backward compat).
-          (b) Non-None MUST be a non-empty list of strings.
-          (c) Every entry must be a valid AgentRole value.
-          (d) At least one entry must be a phase-scoped producer role.
-              We compute the producer set as
-              ``all AgentRoles - reviewer_* - cross_phase``
-              so ``overseer`` / ``autofixer`` / ``conflict_resolver`` /
-              ``inspector`` are never counted as producers here. The
-              full phase-aware check still lives in
-              ``validate_roles_for_custom_phase`` (callers should prefer
-              that helper for detailed error reasons); this check is
-              defence-in-depth for direct-construction callers.
-        """
-        if v is None:
-            return None
-        if not isinstance(v, list) or len(v) == 0:
-            raise ValueError("active_roles must be a non-empty list (or null)")
-        valid_role_values = {r.value for r in AgentRole}
-        invalid = [r for r in v if r not in valid_role_values]
-        if invalid:
-            raise ValueError(f"active_roles contains unknown AgentRole values: {invalid}")
-        # Defensive producer check: exclude reviewers AND cross-phase roles.
-        _cross_phase_values = {
-            AgentRole.OVERSEER.value,
-            AgentRole.AUTOFIXER.value,
-            AgentRole.CONFLICT_RESOLVER.value,
-            AgentRole.INSPECTOR.value,
-        }
-        has_producer = any(
-            (not r.startswith("reviewer_")) and r not in _cross_phase_values for r in v
-        )
-        if not has_producer:
-            raise ValueError(
-                "active_roles must include at least one producer role "
-                "(reviewer-only or cross-phase-only rosters deadlock BRC)"
-            )
-        return v
-
     has_contract: bool = Field(
         default=True,
         description="Whether this pipeline has an upstream SDLC contract "
         "(plan/refine artifacts, .egg-state/contracts/<issue>.json). "
-        "CUSTOM-mode pipelines targeting an existing PR set this to False "
-        "so the implement-phase reviewer roster drops reviewer_contract, "
-        "which has no artifacts to verify. Default True preserves backward "
-        "compatibility for issue-mode pipelines.",
+        "Controls whether the implement-phase reviewer roster includes "
+        "reviewer_contract. Default True for standard issue-mode pipelines.",
     )
     error: str | None = Field(default=None, description="Error if failed")
     analysis: str | None = Field(

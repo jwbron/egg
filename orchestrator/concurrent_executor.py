@@ -73,28 +73,6 @@ _TRANSIENT_AGENT_ERROR_SUBSTRINGS: tuple[str, ...] = (
 )
 
 
-def _uses_per_role_staging(pipeline: Pipeline) -> bool:
-    """Return True when a pipeline uses per-role staging branches.
-
-    Mirrors the helper in ``orchestrator/routes/pipelines.py``: CUSTOM
-    pipelines that supply a ``pr_number`` (#1762) use per-role staging.
-
-    Defined here as well (rather than importing from routes/pipelines.py)
-    because ``routes.pipelines`` already imports from
-    ``concurrent_executor`` — the reverse import would create a cycle.
-    """
-    try:
-        from models import PipelineMode as _PipelineMode
-    except Exception:
-        return False
-    mode = getattr(pipeline, "mode", None)
-    if mode is None:
-        return False
-    if mode == _PipelineMode.CUSTOM and getattr(pipeline, "pr_number", None) is not None:
-        return True
-    return False
-
-
 def _is_transient_agent_error(error: str | None) -> bool:
     """Return True if an AgentExecution.error string looks retry-worthy.
 
@@ -122,9 +100,7 @@ class ConcurrentPhaseExecutor:
 
     Role roster resolution:
     - When ``roles`` is explicitly supplied, that list is used verbatim
-      (the caller has already resolved the roster). ``_run_concurrent_phase``
-      drives this from ``Pipeline.active_roles`` for CUSTOM-mode pipelines
-      (#1762), so in-flight pipelines survive role-roster version bumps.
+      (the caller has already resolved the roster).
     - When ``roles`` is ``None``, the executor falls back to
       ``get_roles_for_phase(current_phase, has_contract, repo)``.
     """
@@ -143,17 +119,12 @@ class ConcurrentPhaseExecutor:
 
         Args:
             pipeline: The Pipeline record this executor is running against.
-                When ``pipeline.active_roles`` is populated (CUSTOM-mode,
-                #1762), callers typically also pass the resolved list
-                here as ``roles`` so the override is honoured even before
-                the next pipeline reload.
             spawn_fn: Callable that creates containers for the given role.
             max_concurrent: Maximum number of containers to run at once.
             review_graph: Optional pre-filtered review graph; when None,
                 the executor derives it from the pipeline's current phase.
-            roles: Optional roster override. Driven by
-                ``Pipeline.active_roles`` when CUSTOM-mode (#1762). None
-                falls through to the full phase-default roster.
+            roles: Optional roster override. None falls through to the
+                full phase-default roster.
             slice_id: Optional slice scope (#2137 TASK-4-3 / TASK-4-4).
                 When supplied, the executor namespaces the BRC consensus
                 tracker key under ``{pipeline_id}/{slice_id}`` so per-
@@ -171,8 +142,7 @@ class ConcurrentPhaseExecutor:
                 reviewers to ACK an empty proposal. ``None`` (the
                 default) preserves the prior unconditional-roster
                 behavior; callers that don't know the slice's task list
-                yet (CUSTOM-mode, prompt-mode pipelines) leave
-                it unset.
+                yet leave it unset.
         """
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
@@ -225,20 +195,6 @@ class ConcurrentPhaseExecutor:
         an issue-based branch name.  All agents share the same branch
         so their commits land on a single history.
 
-        CUSTOM+PR mode is the exception: to keep per-role proposals
-        isolated from each other and from the PR's head branch, each
-        producer is given a namespaced staging branch derived from the
-        PR number, the PR head short-SHA, and the role
-        (``egg/custom-pr/{pr}/{short-sha}/{role}``).  Reviewers ACK/NACK
-        each role's staging branch independently; the staging branches
-        *are* the terminal state for the consensus diff. CUSTOM mode
-        terminates after the chosen phase reaches CONSENSUS_REACHED and
-        does not push a merge commit back to the PR head — the operator
-        retrieves the diff from the staging refs via ``git show`` and
-        applies it manually if desired. If the PR head SHA is not known
-        at call time, we fall back to the PR head branch so agents can
-        still operate against the live PR.
-
         Slice-aware mode (#2137): when ``slice_id`` is supplied, **every
         agent in the slice shares the slice's integration branch
         ``egg/issue-N/slice-M``** — the same shared-branch model the
@@ -250,25 +206,8 @@ class ConcurrentPhaseExecutor:
         live on per-role sibling branches GitHub doesn't see). The
         ``slice_id`` is normalised — both ``slice-2`` and the bare
         integer ``2`` are accepted (the latter for callers that
-        haven't yet plumbed canonical IDs through). CUSTOM+PR mode is
-        **not** slice-aware.
+        haven't yet plumbed canonical IDs through).
         """
-        # CUSTOM+PR (#1762): per-role staging branch namespaced by PR head
-        # SHA. See :func:`_uses_per_role_staging` at module scope.
-        if _uses_per_role_staging(self.pipeline):
-            pr_number = getattr(self.pipeline, "pr_number", None)
-            sha = getattr(self.pipeline, "pr_head_sha", None)
-            if pr_number and isinstance(sha, str) and len(sha) >= 7:
-                short_sha = sha[:7]
-                return f"egg/custom-pr/{pr_number}/{short_sha}/{role.value}"
-            # Fall back to the PR head branch so the agent still has a
-            # starting point. There is no compensating safety net later in
-            # the pipeline — the only safety is "don't reach this fallback",
-            # i.e. ``_fetch_pr_state`` must populate ``pr_head_sha`` during
-            # pre-flight so the per-role staging branch is used instead.
-            if self.pipeline.branch:
-                return self.pipeline.branch
-
         if slice_id is not None:
             # Issue-mode slice scope: ``egg/issue-N/slice-M`` — the
             # shared integration branch for every agent in the slice.
@@ -413,8 +352,8 @@ class ConcurrentPhaseExecutor:
         # ``max_revision_rounds``. The seeder records an empty proposal +
         # synthetic ACKs from pure reviewers; dual-role reviewers (TESTER
         # reviewing CODER) are intentionally left to run and decide.
-        # Skipped when callers don't supply the task-role set (CUSTOM-mode,
-        # prompt-mode), preserving the prior behavior.
+        # Skipped when callers don't supply the task-role set,
+        # preserving the prior behavior.
         if self._producer_roles_with_tasks is not None:
             auto_acked = tracker.seed_auto_ack_for_empty_pure_producers(
                 self._producer_roles_with_tasks

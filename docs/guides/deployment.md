@@ -14,9 +14,7 @@ egg supports two deployment methods depending on your use case:
 > **Removal note:** The legacy `egg` CLI / `bin/egg` interactive mode
 > and its Docker Compose fallback were removed in
 > [#1762](https://github.com/jwbron/egg/issues/1762). All deployments
-> now use `bin/egg-deploy` against k3s. See
-> [Custom-Phase Guide](custom-phase.md) for the `run_agent_task` MCP
-> primitive that replaced interactive mode.
+> now use `bin/egg-deploy` against k3s.
 
 ### Prerequisites by Platform
 
@@ -183,7 +181,6 @@ k3s is Linux-native. On macOS, use one of:
 - **Docker Desktop with k3s**: Enable Kubernetes in Docker Desktop settings
 
 Once deployed, interact with egg through the MCP server (port 9850) from any MCP-compatible client.
-See the [Custom-Phase Guide](custom-phase.md) for one-off agent work via `run_agent_task`.
 
 ## GitHub Action Deployment
 

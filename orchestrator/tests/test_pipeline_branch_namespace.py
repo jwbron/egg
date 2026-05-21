@@ -34,12 +34,6 @@ class TestEnsurePipelineWorkRef:
         assert _ensure_pipeline_work_ref("feature/foo") == "feature/foo"
         assert _ensure_pipeline_work_ref("main") == "main"
 
-    def test_passthrough_for_egg_custom_branch(self) -> None:
-        # CUSTOM-mode auto-generates ``egg/custom-<hex>``; the same
-        # ``/work`` rule applies so slice integration branches can be
-        # added as siblings if a custom pipeline ever uses the slice DAG.
-        assert _ensure_pipeline_work_ref("egg/custom-deadbeef") == "egg/custom-deadbeef/work"
-
     def test_single_segment_egg_work_is_not_treated_as_normalised(self) -> None:
         # Degenerate input: ``egg/work`` ends in ``/work`` but is a
         # single-segment id, not an already-normalised pipeline branch.

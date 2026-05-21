@@ -2067,9 +2067,8 @@ def main() -> None:
     os.environ.pop("EGG_LAUNCHER_SECRET", None)
 
     # Run appropriate mode (timing summary is printed inside each mode).
-    # Interactive mode was removed in #1762 (replaced by the
-    # ``run_agent_task`` MCP primitive); this container now only supports
-    # --exec / orchestrator mode.
+    # Interactive mode was removed in #1762; this container now only
+    # supports --exec / orchestrator mode.
     if len(sys.argv) == 1:
         if config.is_orchestrator_mode:
             error_msg = (
@@ -2085,8 +2084,8 @@ def main() -> None:
         error_msg = (
             "No command provided; this container only supports --exec or "
             "orchestrator mode. Interactive mode was removed in #1762 — "
-            "use the ``run_agent_task`` MCP tool from a host (Claude Code "
-            "or any MCP client) to run individual SDLC roles."
+            "submit work through the egg orchestrator's MCP server "
+            "(submit_task) from a host (Claude Code or any MCP client)."
         )
         logger.error("")
         logger.error(f"ERROR: {error_msg}")

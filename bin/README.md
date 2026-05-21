@@ -3,8 +3,7 @@
 CLI entry points. Most are symlinks to the actual implementations in `gateway/` and `sandbox/`.
 
 > **Note:** `bin/egg` (interactive mode) was removed in [#1762](https://github.com/jwbron/egg/issues/1762).
-> Use `bin/egg-deploy` for k3s deployments and the `run_agent_task` MCP primitive for one-off agent work.
-> See the [Custom-Phase Guide](../docs/guides/custom-phase.md) for details.
+> Use `bin/egg-deploy` for k3s deployments and the `submit_task` MCP tool for agent work.
 
 ## egg-sdlc
 

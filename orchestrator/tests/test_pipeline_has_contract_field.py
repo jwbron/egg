@@ -11,7 +11,7 @@ The tests pin:
 """
 
 import pytest
-from models import Pipeline, PipelineMode
+from models import Pipeline
 from pydantic import ValidationError
 
 
@@ -67,25 +67,6 @@ class TestPrHeadSha:
 
         restored = Pipeline.model_validate(data)
         assert restored.pr_head_sha == sha
-
-
-class TestPipelineModeCustomPr:
-    """CUSTOM-mode pipelines with a PR target serialise correctly."""
-
-    def test_pipeline_with_custom_mode_and_pr_number_serializes(self):
-        pipeline = Pipeline(
-            id="x",
-            repo="o/r",
-            mode=PipelineMode.CUSTOM,
-            pr_number=42,
-        )
-        data = pipeline.model_dump()
-        assert data["mode"] == "custom"
-        assert data["pr_number"] == 42
-
-        restored = Pipeline.model_validate(data)
-        assert restored.mode == PipelineMode.CUSTOM
-        assert restored.pr_number == 42
 
 
 class TestPrNumberConstraint:

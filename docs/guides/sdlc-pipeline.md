@@ -55,7 +55,7 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 
 ## Pipeline Architecture
 
-> **Note**: The architecture below describes the standard **issue mode** pipeline. For one-off single-phase runs against a custom roster (or an existing PR), see the [Custom-Phase Guide](custom-phase.md).
+> **Note**: The architecture below describes the standard **issue mode** pipeline.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -1131,7 +1131,6 @@ egg-orch pipeline create --issue 123
 Pipeline ID formats:
 - `issue-{number}[-qualifier]` — GitHub issue-driven
 - `{TICKET}[-qualifier]` — JIRA ticket-driven (e.g. `KORE-1234`, `KORE-1234-backend`)
-- `pr-{number}` — CUSTOM mode targeting an existing PR (`run_agent_task(pr_number=N, ...)`)
 - `local-{8hex}` / `pipeline-{8hex}` — prompt-driven
 
 **Short-flow pipelines** — skip refine/plan phases and start directly at implement by passing `start_phase: implement` in `config`, along with pre-generated `analysis` and `plan` content. The orchestrator writes these to draft files and parses the plan's `yaml-tasks` appendix to populate the contract:

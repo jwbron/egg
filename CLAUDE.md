@@ -38,9 +38,8 @@ If `.venv` is absent, run `make deps` to install everything. This installs `uv` 
 ## Key Entry Points
 
 - **Headless agents** use the Agent SDK (`egg_agent` package)
-- **One-off agent work** goes through the MCP server — see
-  [`run_agent_task`](docs/guides/custom-phase.md) (single-phase, subset
-  roster) and [`submit_task`](docs/guides/sdlc-pipeline.md) (full
+- **Agent work** goes through the MCP server — see
+  [`submit_task`](docs/guides/sdlc-pipeline.md) (full
   refine → plan → implement). The legacy interactive-mode CLI
   (`bin/egg`) was removed in
   [#1762](https://github.com/jwbron/egg/issues/1762).

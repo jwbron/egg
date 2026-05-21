@@ -1111,7 +1111,7 @@ class TestOpenContextPRAdversarial:
         )
 
     def test_gather_includes_contract_for_qualified_pipeline_id(self, tmp_path):
-        """CUSTOM / qualified pipelines (e.g. ``issue-2685-v2``) key the
+        """Qualified pipelines (e.g. ``issue-2685-v2``) key the
         contract under the pipeline_id string. The dynamic loader path
         must resolve those too (#2685)."""
         _seed_repo(tmp_path, identifier="issue-2685-v2")
@@ -1180,7 +1180,7 @@ class TestOpenContextPRAdversarial:
 
         Qualified pipelines key per-state files by ``pipeline_id``
         (``issue-2548-v2``) rather than by the bare ``issue_number``
-        (#1762 CUSTOM-mode disambiguation in ``_pipeline_identifier``),
+        (qualifier disambiguation in ``_pipeline_identifier``),
         so the test seeds with the qualified identifier shape.
         """
         from gateway.gateway import _CONTEXT_BRANCH_RE
@@ -1334,7 +1334,7 @@ class TestOpenContextPRCallSiteWiring:
         ``_maybe_open_base_pr_for_plan_to_implement`` wrapper, so the
         regression check is against the wrapper invocation rather than
         the inner ``_open_context_pr_for_pipeline`` call (the wrapper
-        owns the CUSTOM-mode guard and exception swallow now)."""
+        owns the exception swallow now)."""
         src = Path(__file__).parent.parent / "routes" / "pipelines.py"
         text = src.read_text()
         m = re.search(
@@ -1346,35 +1346,6 @@ class TestOpenContextPRCallSiteWiring:
             "plan→implement call site must be gated on "
             "current_phase.value == 'plan' and route through "
             "_maybe_open_base_pr_for_plan_to_implement (D3, #2593)"
-        )
-
-    def test_call_site_is_gated_on_non_custom_mode(self):
-        """CUSTOM-mode pipelines (#1762) terminate after a single phase
-        and never advance to implement — opening a context PR for them
-        would orphan a PR on GitHub with no slice PRs to stack on
-        (#2548 review issue 3).  Under #2593 the CUSTOM-mode skip moved
-        from the call site into the
-        ``_maybe_open_base_pr_for_plan_to_implement`` wrapper so every
-        transition path inherits the same guard.  Pin the guard in the
-        wrapper body."""
-        src = Path(__file__).parent.parent / "routes" / "pipelines.py"
-        text = src.read_text()
-        # Look inside the wrapper for the CUSTOM-mode early return.
-        # The body between ``if _is_custom_mode:`` and the ``return``
-        # may contain a log line (#2593 review issue 10) — match
-        # non-greedy across comments/logging so the regression check
-        # still catches a missing return.
-        m = re.search(
-            r"def\s+_maybe_open_base_pr_for_plan_to_implement\b.+?"
-            r"_is_custom_mode\s*=\s*getattr\(pipeline,\s*['\"]mode['\"],\s*None\)"
-            r"\s*==\s*PipelineMode\.CUSTOM.+?if\s+_is_custom_mode\s*:.+?return\b",
-            text,
-            flags=re.DOTALL,
-        )
-        assert m is not None, (
-            "_maybe_open_base_pr_for_plan_to_implement must skip CUSTOM-mode "
-            "pipelines: they terminate after one phase and would orphan "
-            "the context PR (#2548 review issue 3, #2593)"
         )
 
     def test_call_site_swallows_any_exception(self):
