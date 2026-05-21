@@ -148,20 +148,13 @@ class TestRegressionLockNoLiteralInDiffCommands:
             f"_resolve_origin_ref."
         )
 
-    @pytest.mark.parametrize(
-        "func,func_name",
-        [
-            (_build_reviewer_preparation, "_build_reviewer_preparation"),
-            (_build_producer_orientation, "_build_producer_orientation"),
-        ],
-    )
-    def test_function_invokes_resolve_origin_ref(self, func, func_name: str) -> None:
-        """Verify the prep-prompt builders actually call
+    def test_function_invokes_resolve_origin_ref(self) -> None:
+        """Verify ``_build_reviewer_preparation`` actually calls
         ``_resolve_origin_ref`` (positive check complementing the
         no-literal regression lock).
         """
-        source = inspect.getsource(func)
+        source = inspect.getsource(_build_reviewer_preparation)
         assert "_resolve_origin_ref(" in source, (
-            f"{func_name} does not invoke _resolve_origin_ref; "
-            f"base-ref resolution may have been bypassed."
+            "_build_reviewer_preparation does not invoke _resolve_origin_ref; "
+            "base-ref resolution may have been bypassed."
         )

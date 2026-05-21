@@ -173,8 +173,6 @@ The pipeline stores its internal state in `.egg-state/` on the feature branch (n
 # The interactive `egg` / `egg --public` / `egg --private` CLI was
 # removed in #1762. Drive agent work through the MCP server instead:
 #   submit_task(issue_number=..., repo="...")
-#   run_agent_task(phase=..., roles=[...], repo="...", description="...")
-# See docs/guides/custom-phase.md for the run_agent_task primitive.
 
 bin/egg-deploy up          # apply k8s manifests, wait for readiness
 bin/egg-deploy status      # health + endpoint summary

@@ -1051,7 +1051,6 @@ def _validate_planner_role_alignment(
         "plan",
         issue_number=pipeline_state.issue_number,
         pipeline_id=pipeline_id,
-        mode=getattr(pipeline_state, "mode", None),
     )
     if not plan_rel:
         return

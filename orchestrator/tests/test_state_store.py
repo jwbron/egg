@@ -590,10 +590,6 @@ class TestPipelineIdValidation:
         with pytest.raises(InvalidPipelineIdError):
             _validate_pipeline_id("pipeline-a1b2c3d4e5")
 
-    def test_valid_pr_prefix(self):
-        """Test pipeline ID with pr- prefix is accepted (CUSTOM+PR mode)."""
-        _validate_pipeline_id("pr-123")  # Should not raise
-
     def test_invalid_wrong_prefix(self):
         """Test pipeline ID with wrong prefix is rejected."""
         with pytest.raises(InvalidPipelineIdError):

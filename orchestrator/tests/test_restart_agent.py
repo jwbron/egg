@@ -1049,11 +1049,11 @@ class TestRestartAgentEndpointSliceScope:
     ):
         """``slice_id`` is rejected for pipelines with ``has_contract=False`` (#2421).
 
-        CUSTOM+PR pipelines are not slice-aware (no contract = no
-        slices), so any non-``None`` ``slice_id`` against
-        them is by definition unknown. Rejecting outright also avoids a
-        wasted ``resolve_worktree_path`` + ``load_contract`` call that
-        would always raise ``ContractNotFoundError``.
+        Pipelines without a contract are not slice-aware (no contract =
+        no slices), so any non-``None`` ``slice_id`` against them is by
+        definition unknown. Rejecting outright also avoids a wasted
+        ``resolve_worktree_path`` + ``load_contract`` call that would
+        always raise ``ContractNotFoundError``.
         """
         mock_repo.return_value = "/repo"
         pipeline = _make_pipeline_with_running_agent()

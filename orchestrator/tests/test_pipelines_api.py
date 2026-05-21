@@ -957,12 +957,6 @@ class TestPipelineIdValidation:
 
         _validate_pipeline_id("local-abcd1234")
 
-    def test_validate_pr_id(self):
-        """PR IDs still work."""
-        from state_store import _validate_pipeline_id
-
-        _validate_pipeline_id("pr-123")
-
     def test_reject_trailing_hyphen_qualifier(self):
         """Qualifiers with trailing hyphens are rejected."""
         from state_store import InvalidPipelineIdError, _validate_pipeline_id

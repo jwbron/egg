@@ -576,7 +576,7 @@ When the slice plan assigns no tasks to a pure-producer role (e.g. CODER or DOCU
 
 **Scope**: applies only to pure producers (roles that are not also reviewers). Dual-role roles like TESTER, which review CODER as well as produce their own work, always run so they can discharge their reviewer responsibilities. A dual-role reviewer's seeded ACK is advisory: if the reviewer's own work later reveals a need for code the producer should have written, it NACKs the seeded version — invalidating it and forcing a normal re-propose flow.
 
-**Not applied** when the pipeline has no contract (CUSTOM-mode, prompt-mode) or when the contract cannot be loaded — those pipelines preserve pre-#2581 unconditional-roster behavior.
+**Not applied** when the pipeline has no contract or when the contract cannot be loaded — those pipelines preserve pre-#2581 unconditional-roster behavior.
 
 #### Agent lifecycle for pre-seeded producers
 
@@ -738,7 +738,7 @@ In slice-aware mode (issue mode with `contract.slices`, #2548 hard switchover), 
 
 > _Per-phase BRC transcripts: [`refine`](./.egg-state/brc-history/42-refine.md), [`plan`](./.egg-state/brc-history/42-plan.md), [`implement-slice-1`](./.egg-state/brc-history/42-implement-slice-1.md), [`implement-slice-2`](./.egg-state/brc-history/42-implement-slice-2.md), [`implement-unattributed`](./.egg-state/brc-history/42-implement-unattributed.md)._
 
-CUSTOM+PR and other non-slice implement runs continue to emit the aggregate `{identifier}-implement.md` file. Phases are ordered by canonical execution order (`refine` → `plan` → `implement` → `pr`); any non-canonical names sort alphabetically after. The line is omitted entirely when no transcript files exist on disk or the identifier is `None`. See [#1828](https://github.com/jwbron/egg/issues/1828) for why the old inline BRC Consensus Summary was removed and [#2548](https://github.com/jwbron/egg/issues/2548) for the per-slice partition.
+Non-slice implement runs continue to emit the aggregate `{identifier}-implement.md` file. Phases are ordered by canonical execution order (`refine` → `plan` → `implement` → `pr`); any non-canonical names sort alphabetically after. The line is omitted entirely when no transcript files exist on disk or the identifier is `None`. See [#1828](https://github.com/jwbron/egg/issues/1828) for why the old inline BRC Consensus Summary was removed and [#2548](https://github.com/jwbron/egg/issues/2548) for the per-slice partition.
 
 ### Consensus Check
 

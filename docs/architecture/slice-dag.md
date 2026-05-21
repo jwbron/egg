@@ -310,7 +310,7 @@ lived on a per-role sibling branch GitHub does not see in the PR.
 
 | Mode | `slice_id` | Result |
 |------|------------|--------|
-| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N/work` (tip pushed to `<id>/work` since #2399; CUSTOM+PR staging uses `egg/custom-pr/{pr}/{short-sha}/{role}` instead). |
+| Pipeline mode (pre-#2137 / non-slice phases) | `None` (default) | `pipeline.branch` or `egg/issue-N/work` (tip pushed to `<id>/work` since #2399). |
 | Slice mode (post-v6) | `"slice-2"` or `"2"` | `egg/issue-N/slice-2` — **shared by every role in the slice**. |
 
 > **The slice is the unit of isolation, not the role within the slice.**
@@ -318,9 +318,6 @@ lived on a per-role sibling branch GitHub does not see in the PR.
 > within a slice, all agents collaborate on one history — the same
 > shared-branch model the non-slice flow has always used, just scoped
 > per slice.
-
-CUSTOM+PR mode is **not** slice-aware. CUSTOM+PR's per-role staging
-branches are unchanged.
 
 The shared-branch model implicitly relies on the gateway's multi-agent
 push attribution surface

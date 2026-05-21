@@ -891,8 +891,6 @@ class TestToolRouting:
             "start_phase",
             "complete_phase",
             "populate_contract",
-            # Custom-phase primitive (#1762 run_agent_task)
-            "run_agent_task",
             # Deployment-diagnostic tools (#1759)
             "get_deployment_context",
             "validate_deployment_manifests",

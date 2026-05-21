@@ -116,5 +116,4 @@ Setup was integrated into `egg_lib/setup_flow.py` and invoked via `egg --setup`:
 
 - [Architecture Overview](README.md) — System design
 - [Deployment Guide](../guides/deployment.md) — Current `bin/egg-deploy` based deployment
-- [Custom-Phase Guide](../guides/custom-phase.md) — `run_agent_task` MCP primitive (replaces the `egg` CLI entry)
 - [repo_config.py](../../config/repo_config.py) — Repository config loader

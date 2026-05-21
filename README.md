@@ -207,13 +207,11 @@ bin/egg-deploy up        # kubectl apply + wait for readiness
 
 Interactive mode (`bin/egg`, `egg --setup`, `egg --public/--private`,
 Docker Compose) was removed in [#1762](https://github.com/jwbron/egg/issues/1762).
-Drive one-off agent work through the MCP server from any
+Drive agent work through the MCP server from any
 MCP-compatible host (Claude Code, etc.):
 
 ```
 submit_task(issue_number=123, repo="owner/name")
-run_agent_task(phase="refine", roles=["refiner"], repo="owner/name",
-               description="Investigate foo")
 ```
 
 See:
@@ -221,8 +219,6 @@ See:
 - [Local Quickstart](docs/guides/local-quickstart.md) for k8s-based
   setup.
 - [Deployment Guide](docs/guides/deployment.md) for production options.
-- [Custom-Phase Guide](docs/guides/custom-phase.md) for the
-  `run_agent_task` primitive that replaces interactive mode.
 
 ## Platform Support
 

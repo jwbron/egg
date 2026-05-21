@@ -21,9 +21,8 @@ Each test pins one acceptance-criterion line to a literal-string check
 so the failure message points directly at the missing element. The
 deprecated-filename grep uses a directory-scoped scan with an explicit
 allow-list of known-legitimate references (operational documentation
-covering CUSTOM+PR / non-slice mode where the aggregate file is still
-emitted, plus the file-tree reference in
-``docs/guides/sdlc-pipeline.md``).
+covering non-slice mode where the aggregate file is still emitted, plus
+the file-tree reference in ``docs/guides/sdlc-pipeline.md``).
 
 If the documenter moves a section heading or changes wording, this file
 will fail loudly and direct the change to the planner: docs drift is
@@ -298,11 +297,11 @@ class TestConcurrentExecutionContextPrSection:
 #
 # Rationale per-entry:
 #
-# * `docs/guides/concurrent-execution.md` lines 706, 708, 710, 712 —
-#   these explain the contrast with the slice-aware mode (the historic
-#   aggregate file is shown to anchor the migration narrative) and
-#   describe the CUSTOM+PR / non-slice mode where the aggregate is
-#   still the canonical artifact. Both are operational documentation.
+# * `docs/guides/concurrent-execution.md` — these explain the contrast
+#   with the slice-aware mode (the historic aggregate file is shown to
+#   anchor the migration narrative) and describe the non-slice mode
+#   where the aggregate is still the canonical artifact. Both are
+#   operational documentation.
 #
 # * `docs/guides/sdlc-pipeline.md` lines around 350-351 — the file-tree
 #   reference shows the brc-history layout for non-slice pipelines.
@@ -319,7 +318,7 @@ DEPRECATED_FILENAME_ALLOWLIST: list[tuple[str, str]] = [
     ),
     (
         "docs/guides/concurrent-execution.md",
-        "non-slice implement runs continue to emit the aggregate",
+        "Non-slice implement runs continue to emit the aggregate",
     ),
     (
         "docs/guides/sdlc-pipeline.md",

@@ -1771,8 +1771,7 @@ class TestPerSliceImplementBrcHistory:
     def test_all_messages_unattributed_writes_aggregate_fallback(self, tmp_path):
         """When EVERY implement-phase BRC message lacks ``slice_id``, the
         writer falls back to the aggregate ``{identifier}-implement.{md,json}``
-        filename so non-slice pipelines (CUSTOM+PR) keep producing an
-        artifact.
+        filename so non-slice pipelines keep producing an artifact.
 
         Surfaced as v2-NACK reviewer_code_holistic finding #2 (#2548): v2
         dropped the entire BRC stream for non-slice pipelines; v3 falls

@@ -10,8 +10,8 @@ paths got a slice stack rooted on ``/work`` with no PR to ``main``.
 This file pins:
 
 * ``_maybe_open_base_pr_for_plan_to_implement`` wraps the inner hook
-  with the CUSTOM-mode guard, the swallow-all-exceptions semantics,
-  and the post-hook message-bus emission;
+  with the swallow-all-exceptions semantics and the post-hook
+  message-bus emission;
 * The wrapper passes ``source`` through to the inner hook so logs
   identify the call site that fired;
 * The "hook entered" log line is emitted on every call, even on
@@ -67,20 +67,6 @@ def issue_pipeline():
 
 
 @pytest.fixture
-def custom_pipeline():
-    return Pipeline(
-        id="issue-2593-custom",
-        issue_number=2593,
-        repo="owner/repo",
-        branch="egg/issue-2593-custom/work",
-        base_branch="main",
-        mode=PipelineMode.CUSTOM,
-        status=PipelineStatus.RUNNING,
-        current_phase=PipelinePhase.PLAN,
-    )
-
-
-@pytest.fixture
 def spawner():
     s = MagicMock(name="spawner")
     s.gateway = MagicMock(name="gateway")
@@ -115,53 +101,6 @@ def reset_context_pr_dedupe():
     _pipelines_mod._context_pr_events_emitted.clear()
     yield
     _pipelines_mod._context_pr_events_emitted.clear()
-
-
-# ---------------------------------------------------------------------------
-# CUSTOM-mode guard
-# ---------------------------------------------------------------------------
-
-
-class TestCustomModeGuard:
-    def test_skips_custom_mode_pipelines(self, tmp_path, custom_pipeline, spawner):
-        """CUSTOM-mode pipelines run a single phase and terminate (#1762).
-        Opening a context PR for them would orphan a PR with no slices.
-        The wrapper must short-circuit before invoking the inner hook."""
-        with patch.object(_pipelines_mod, "_open_context_pr_for_pipeline") as inner:
-            _maybe_open_base_pr_for_plan_to_implement(
-                custom_pipeline,
-                spawner,
-                tmp_path,
-                source="run_pipeline_autoadvance",
-            )
-        inner.assert_not_called()
-
-    def test_emits_skip_log_line_for_custom_mode(
-        self,
-        tmp_path,
-        custom_pipeline,
-        spawner,
-        caplog,
-        propagate_orchestrator_logs,
-    ):
-        """#2593 review issue 10 — CUSTOM-mode pipelines short-circuit
-        before the inner hook is invoked, but the wrapper still emits
-        a "hook skipped (CUSTOM mode)" log line so operators tracing
-        transition paths via log greps see one record per call site
-        (not silence)."""
-        with caplog.at_level(logging.INFO):
-            _maybe_open_base_pr_for_plan_to_implement(
-                custom_pipeline,
-                spawner,
-                tmp_path,
-                source="run_pipeline_autoadvance",
-            )
-        skipped = [
-            rec
-            for rec in caplog.records
-            if "Context PR hook skipped (CUSTOM mode)" in rec.getMessage()
-        ]
-        assert skipped, "expected a 'Context PR hook skipped (CUSTOM mode)' log line"
 
 
 # ---------------------------------------------------------------------------

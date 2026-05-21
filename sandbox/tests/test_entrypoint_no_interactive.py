@@ -11,7 +11,7 @@ Covers:
     * ``len(sys.argv) == 1`` in orchestrator mode → exit(1) and the
       orchestrator-completion signal fires with the expected payload.
     * ``len(sys.argv) == 1`` in host mode → exit(2) with a
-      "use run_agent_task MCP tool" message. No ``run_interactive``
+      "use submit_task MCP tool" message. No ``run_interactive``
       call exists to mock — if one sneaks back in, the pytest run
       surfaces the regression by failing on the ``sys.exit`` contract.
 """
@@ -109,7 +109,7 @@ class TestNoArgsInPipelineMode:
 
 
 class TestNoArgsInHostMode:
-    """No command + host mode → exit(2) with clear 'use run_agent_task'
+    """No command + host mode → exit(2) with clear 'use submit_task'
     guidance; no orchestrator signal (there is no orchestrator)."""
 
     @patch("entrypoint.signal_orchestrator_completion")

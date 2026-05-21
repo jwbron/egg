@@ -2,23 +2,20 @@
 
 The orchestrator runs an MCP sidecar (``orchestrator/mcp_server.py``,
 streamable-HTTP at ``/mcp`` on port 9850) that exposes the
-``submit_task`` / ``run_agent_task`` pipeline-control
-verbs to external Claude Code sessions.  ``test_sandbox_mcp_tools_e2e``
-covers the sandbox-side MCP wire-up; the orchestrator-side MCP contract
-had no end-to-end coverage before this file.
+``submit_task`` pipeline-control verb to external Claude Code
+sessions.  ``test_sandbox_mcp_tools_e2e`` covers the sandbox-side MCP
+wire-up; the orchestrator-side MCP contract had no end-to-end coverage
+before this file.
 
 The tests below drive the live MCP server over its streamable-HTTP
 transport (matching what Claude Code does in production) and assert
 the contract surface that the unit tests in
 ``orchestrator/tests/test_mcp_tools.py`` mock around:
 
-* Tool discovery — the three target tools are advertised.
+* Tool discovery — the target tools are advertised.
 * Argument validation — invalid inputs short-circuit before any HTTP
   call to ``/api/v1/pipelines`` and surface the structured ``error``
   field the schema documents.
-* Route-level validation — ``run_agent_task`` reviewer-only roster /
-  cross-phase role rejections from the orchestrator route survive the
-  MCP boundary with their ``reason`` codes intact.
 * ``validate_config`` — pure validation tool, side-effect free, exercises
   the FastMCP↔handler glue against the live ``PipelineConfig`` model.
 * ``get_status`` — unknown task_id returns a structured error rather
@@ -26,10 +23,9 @@ the contract surface that the unit tests in
 
 Coverage explicitly *not* attempted here (tracked separately):
 
-* Full ``submit_task`` round-trip to ``PR_READY`` / ``run_agent_task``
-  single-phase against a real PR — both need pod-level LLM-response
-  injection (per #2474) before they can be driven deterministically
-  from CI.  Tracked: #2668.
+* Full ``submit_task`` round-trip to ``PR_READY`` — needs pod-level
+  LLM-response injection (per #2474) before it can be driven
+  deterministically from CI.  Tracked: #2668.
 * Pydantic-vs-handler error envelope mismatch — FastMCP schema-layer
   rejections surface as raw "Error executing tool ..." text rather
   than the documented ``{"error": "..."}`` JSON envelope.  The tests
@@ -164,14 +160,13 @@ def _healthy_gateway_or_skip(egg_stack) -> None:  # noqa: ANN001
 
 
 class TestMCPDiscovery:
-    """Verifies the three target tools are advertised over MCP."""
+    """Verifies the target tools are advertised over MCP."""
 
     def test_target_tools_advertised(self, orchestrator_mcp_url: str) -> None:
         names = _list_tool_names(orchestrator_mcp_url)
-        for tool in ("submit_task", "run_agent_task"):
-            assert tool in names, (
-                f"{tool!r} not advertised by orchestrator MCP server. Advertised: {sorted(names)}"
-            )
+        assert "submit_task" in names, (
+            f"'submit_task' not advertised by orchestrator MCP server. Advertised: {sorted(names)}"
+        )
 
     def test_supporting_tools_advertised(self, orchestrator_mcp_url: str) -> None:
         # ``get_status`` and ``validate_config`` round out the contract
@@ -223,106 +218,6 @@ class TestSubmitTaskValidation:
         )
         assert "error" in result, result
         assert "jira" in result["error"].lower() or "ticket" in result["error"].lower()
-
-
-# ---------------------------------------------------------------------------
-# run_agent_task — argument validation + route-level rejection survives MCP
-# ---------------------------------------------------------------------------
-
-
-class TestRunAgentTaskValidation:
-    """run_agent_task handler validates before hitting the route, and
-    surfaces route-level ``details.reason`` codes for the validation
-    cases the route owns.
-    """
-
-    def test_invalid_phase_rejected(self, orchestrator_mcp_url: str) -> None:
-        result = _call_tool(
-            orchestrator_mcp_url,
-            "run_agent_task",
-            {
-                "phase": "deploy",  # not in {refine,plan,implement}
-                "repo": "owner/repo",
-                "description": "test",
-            },
-        )
-        assert "error" in result, result
-        assert "phase" in result["error"].lower()
-
-    def test_invalid_repo_format_rejected(self, orchestrator_mcp_url: str) -> None:
-        result = _call_tool(
-            orchestrator_mcp_url,
-            "run_agent_task",
-            {
-                "phase": "plan",
-                "repo": "not-a-valid-repo-shape",
-                "description": "test",
-            },
-        )
-        assert "error" in result, result
-        assert "repo" in result["error"].lower()
-
-    def test_missing_description_rejected(self, orchestrator_mcp_url: str) -> None:
-        # The FastMCP layer fills in ``None`` for omitted optional args,
-        # but ``description`` is required by the schema; check the
-        # explicit-empty case at the handler level so a schema-side
-        # bypass would still be caught.
-        result = _call_tool(
-            orchestrator_mcp_url,
-            "run_agent_task",
-            {"phase": "plan", "repo": "owner/repo", "description": ""},
-        )
-        assert "error" in result, result
-        assert "description" in result["error"].lower()
-
-    def test_reviewer_only_roster_surfaces_reason(
-        self, orchestrator_mcp_url: str, _healthy_gateway_or_skip
-    ) -> None:
-        # Route returns 400 with details.reason='reviewer_only_roster'.
-        # The MCP handler must propagate the reason code so callers can
-        # branch on it (documented in the tool description).  Uses a
-        # randomized pipeline_id qualifier so two parallel CI runs don't
-        # race on the same pipeline_id when this test creates state.
-        # (It does not — the route validates roles before the state-
-        # store write, see orchestrator/routes/pipelines.py:1905-1918.)
-        # Must use an allowlisted repo (_TEST_REPO) — the repo allowlist
-        # check for CUSTOM mode rejects unknown repos before reaching role
-        # validation.
-        result = _call_tool(
-            orchestrator_mcp_url,
-            "run_agent_task",
-            {
-                "phase": "implement",
-                "repo": _TEST_REPO,
-                "description": "reviewer-only roster test",
-                "roles": ["reviewer_code"],
-                "qualifier": f"mcp-contract-{secrets.token_hex(4)}",
-            },
-        )
-        assert "error" in result, result
-        assert result.get("reason") == "reviewer_only_roster", result
-
-    def test_cross_phase_role_surfaces_reason(
-        self, orchestrator_mcp_url: str, _healthy_gateway_or_skip
-    ) -> None:
-        # Cross-phase roles (overseer / autofixer / conflict_resolver /
-        # inspector) are rejected by the route with reason='cross_phase_role'.
-        # Same no-state-write guarantee as reviewer-only roster.
-        # Must use an allowlisted repo — same reasoning as the reviewer-only
-        # roster test above.
-        result = _call_tool(
-            orchestrator_mcp_url,
-            "run_agent_task",
-            {
-                "phase": "implement",
-                "repo": _TEST_REPO,
-                "description": "cross-phase role test",
-                "roles": ["coder", "overseer"],
-                "qualifier": f"mcp-contract-{secrets.token_hex(4)}",
-            },
-        )
-        assert "error" in result, result
-        assert result.get("reason") == "cross_phase_role", result
 
 
 # ---------------------------------------------------------------------------

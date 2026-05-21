@@ -113,10 +113,7 @@ See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) 
 
 ## Pipeline Modes
 
-The orchestrator supports two pipeline modes:
-
 - **`issue`** (default): Standard SDLC pipeline triggered by a GitHub issue. Progresses through refine → plan → implement phases with structured agent teams.
-- **`custom`**: One-off single-phase pipeline triggered via the `run_agent_task` MCP tool. Runs the chosen phase (`refine` / `plan` / `implement`) against a repo with a user-chosen subset of that phase's roles. When `pr_number` is supplied the pipeline targets the PR's diff with per-role staging branches and `has_contract=false`. See [Custom-Phase Guide](../guides/custom-phase.md).
 
 ## Orchestrator-Only Jira Transitions (`/api/v1/jira/ticket/transition`) — #1557 decision-15
 
@@ -345,7 +342,7 @@ The implement phase splits per slice in slice-aware mode:
 | Mode | File pattern |
 |------|--------------|
 | Slice-aware (issue-mode pipelines with `contract.slices`, #2548 hard switchover) | `.egg-state/brc-history/<id>-implement-slice-<N>.{md,json}` (one per slice) plus `<id>-implement-unattributed.{md,json}` for cross-cutting messages without canonical slice scope (HEARTBEAT, OVERSEER_ALERT, AGENT_FAILED, …). The aggregate `<id>-implement.{md,json}` file used by non-slice runs is **not** produced in slice-aware mode — slice-aware pipelines partition the implement-phase BRC history into per-slice + unattributed files instead. |
-| Non-slice (CUSTOM+PR; override pipelines without `contract.slices`) | A single content-addressed file: `pr-<N>-<short-sha>-implement.{md,json}` for CUSTOM+PR; `<id>-implement.{md,json}` for non-slice override runs. The identifier shape is what differs — CUSTOM+PR cycles never partition into slices. |
+| Non-slice (override pipelines without `contract.slices`) | A single aggregate file: `<id>-implement.{md,json}`. |
 
 The orchestrator commits each `<id>-implement-slice-<N>.{md,json}` to the slice integration branch as a final orchestrator-authored commit before the slice PR is opened. This is necessary because the `coder` and `tester` role boundaries forbid pushes under `.egg-state/brc-history/`; the existing `_commit_statefiles_to_worktree` pattern keeps history persistence deterministic. See [Concurrent Execution: BRC History Link in PR Body](../guides/concurrent-execution.md#brc-history-link-in-pr-body) for the link-line behaviour rendered into auto-generated PR bodies.
 
@@ -356,7 +353,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 **Architecture:**
 - Gateway creates worktrees at `/home/egg/.egg-worktrees/{job-name}/{repo-name}/` (one per agent)
 - Each agent pod mounts its own worktree via hostPath and writes artifacts to it
-- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}/work` since #2399; CUSTOM+PR uses per-role staging branches off the existing PR head)
+- All agents in a pipeline push to the same shared branch (e.g., `egg/issue-{N}/work` since #2399)
 - Orchestrator mounts `/home/egg/.egg-worktrees` and reads artifacts from pipeline-specific paths
 - Worktree paths are resolved dynamically based on Job name and repository
 

@@ -3,10 +3,9 @@
 This module exists as a dedicated home for the ``gha_exec()`` function
 previously defined in ``sandbox/egg_lib/cli.py``.  ``cli.py`` used to host
 both the interactive-mode ``main()`` entry point AND this GHA-only entry
-point; interactive mode was removed in #1762 (replaced by the
-``run_agent_task`` MCP primitive) and the remaining ``gha_exec()``
-function was relocated here so the GHA action can continue to import it
-without pulling in the dead-code ``main()`` path.
+point; interactive mode was removed in #1762 and the remaining
+``gha_exec()`` function was relocated here so the GHA action can continue
+to import it without pulling in the dead-code ``main()`` path.
 
 The GHA action shell script (``action/entrypoint.sh``) calls this
 function via:

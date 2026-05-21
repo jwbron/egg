@@ -284,9 +284,9 @@ def _persist_deferred_actions(
     if not new_actions:
         return
 
-    # PR metadata may be absent (e.g. on CUSTOM+PR pipelines with
-    # has_contract=False — unlikely here since the gate requires a tracker,
-    # but defensive). Create a minimal stub using the issue title if so.
+    # PR metadata may be absent on ISSUE-mode pipelines that haven't yet hit
+    # the PR-finalization writeback (unlikely here since the gate requires a
+    # tracker, but defensive). Create a minimal stub using the issue title if so.
     if contract.pr is None:
         contract.pr = PRMetadata(
             title=(contract.issue.title if contract.issue else "Pipeline deferred actions"),
