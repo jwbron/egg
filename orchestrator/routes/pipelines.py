@@ -12288,6 +12288,57 @@ def _build_phase_prompt(
 # ---------------------------------------------------------------------------
 
 
+def _brc_preconfirm_wait_line(is_dual_role: bool) -> str:
+    """Producer step 4 (pre-confirm) wait-loop invocation.
+
+    Dual-role agents (#2749) get ``--for CONSENSUS_PROPOSE`` added so
+    peer producer proposals wake them without a separate reviewer
+    ``wait-loop``. The returned string ends with a period so the caller
+    can append " Do **not** include …" prose with a single intervening
+    space.
+    """
+    if is_dual_role:
+        return (
+            "`egg-orch message wait-loop --for CONSENSUS_ACK "
+            "--for CONSENSUS_NACK --for CONSENSUS_PROPOSE "
+            "--for CONSENSUS_RE_REVIEW --for STATUS "
+            "--for OVERSEER_ALERT` (the `CONSENSUS_PROPOSE` "
+            "entry is the dual-role augmentation from #2749 — "
+            "see the *Dual-Role Execution Order* banner above; "
+            "it folds your reviewer POLL into this wait so you "
+            "do not issue a second `wait-loop`)."
+        )
+    return (
+        "`egg-orch message wait-loop --for CONSENSUS_ACK "
+        "--for CONSENSUS_NACK --for CONSENSUS_RE_REVIEW "
+        "--for STATUS --for OVERSEER_ALERT`."
+    )
+
+
+def _brc_stay_alive_wait_line(is_dual_role: bool) -> str:
+    """Producer step 6 (STAY ALIVE) wait-loop invocation.
+
+    Dual-role agents (#2749) get ``--for CONSENSUS_PROPOSE`` added so
+    peer producer re-proposes still wake them after their own confirm.
+    The returned string ends with a trailing space so the caller can
+    append "until the orchestrator stops you." prose directly.
+    """
+    if is_dual_role:
+        return (
+            "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
+            "--for CONSENSUS_PROPOSE --for CONSENSUS_RE_REVIEW "
+            "--for OVERSEER_ALERT --timeout 60` (the "
+            "`CONSENSUS_PROPOSE` entry is the dual-role "
+            "augmentation from #2749 so peer producer proposals "
+            "still wake you for review after you have confirmed) "
+        )
+    return (
+        "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
+        "--for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT "
+        "--timeout 60` "
+    )
+
+
 def _build_brc_preamble(
     role_value: str,
     phase: str,
@@ -12514,20 +12565,7 @@ def _build_brc_preamble(
                 "built, what was tested, and which contract tasks it satisfies. "
                 "Boilerplate like 'looks good' or 'approved' will be rejected.",
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers with "
-                + (
-                    "`egg-orch message wait-loop --for CONSENSUS_ACK "
-                    "--for CONSENSUS_NACK --for CONSENSUS_PROPOSE "
-                    "--for CONSENSUS_RE_REVIEW --for STATUS "
-                    "--for OVERSEER_ALERT` (the `CONSENSUS_PROPOSE` "
-                    "entry is the dual-role augmentation from #2749 — "
-                    "see the *Dual-Role Execution Order* banner above; "
-                    "it folds your reviewer POLL into this wait so you "
-                    "do not issue a second `wait-loop`)."
-                    if is_dual_role
-                    else "`egg-orch message wait-loop --for CONSENSUS_ACK "
-                    "--for CONSENSUS_NACK --for CONSENSUS_RE_REVIEW "
-                    "--for STATUS --for OVERSEER_ALERT`."
-                )
+                + _brc_preconfirm_wait_line(is_dual_role)
                 + " Do **not** include "
                 "`CONSENSUS_CONFIRMED` in this pre-confirm wait — your own "
                 "confirm is part of what generates that signal, so the "
@@ -12581,18 +12619,7 @@ def _build_brc_preamble(
                 "is real, fix it and re-propose rather than arguing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Block on the next BRC event with "
-                + (
-                    "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
-                    "--for CONSENSUS_PROPOSE --for CONSENSUS_RE_REVIEW "
-                    "--for OVERSEER_ALERT --timeout 60` (the "
-                    "`CONSENSUS_PROPOSE` entry is the dual-role "
-                    "augmentation from #2749 so peer producer proposals "
-                    "still wake you for review after you have confirmed) "
-                    if is_dual_role
-                    else "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
-                    "--for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT "
-                    "--timeout 60` "
-                )
+                + _brc_stay_alive_wait_line(is_dual_role)
                 + "until the orchestrator stops you. "
                 "**Don't** wrap this in a shell `for i in 1..N` loop; "
                 "**don't** prefix it with `sleep N`.  The wait-loop "
