@@ -1544,7 +1544,9 @@ class TestCreateSlicePR:
 
     def test_terminal_slice_truncates_long_title_to_70_chars(self, gateway_client):
         """Title-length cap (70 chars) is symmetric for the new
-        ``[<slug>][merge-gate] <program_title>`` shape."""
+        ``[<slug>][merge-gate] <program_title>`` shape. The slug + marker
+        prefix survives the truncation — only the subject is cut — so
+        reviewers can still tell it's the merge gate by title alone."""
         captured, ctx = self._capture(gateway_client)
         long_title = "A" * 90
         with ctx:
@@ -1562,6 +1564,10 @@ class TestCreateSlicePR:
             )
         assert len(captured["title"]) == 70
         assert captured["title"].endswith("...")
+        # Pin the new shape: slug + merge-gate marker must survive the
+        # 70-char truncation so reviewers can still tell it's the merge
+        # gate by title alone (#2746 review item 7).
+        assert captured["title"].startswith("[issue-42][merge-gate] ")
 
     def test_terminal_slice_renders_program_deferred_actions(self, gateway_client):
         """#2354: when the terminal slice receives ``program_deferred_actions``
@@ -1680,6 +1686,58 @@ class TestCreateSlicePR:
                 slice_tasks=[{"id": "task-1-1", "description": "do X"}],
                 head="egg/issue-42/slice-1",
                 base="egg/issue-42",
+                program_deferred_actions=[
+                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
+                ],
+            )
+
+    def test_non_terminal_slice_lean_branch_with_obligations_raises(self, gateway_client):
+        """#2746 review item 1: the lean non-terminal branch (program_title
+        set, base PR opened) must also reject mis-routed
+        ``program_deferred_actions``. The pre-fix code only asserted in
+        the no-program-title branch, so a non-terminal slice with a
+        program_title silently dropped obligations."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx, pytest.raises(AssertionError, match="program_deferred_actions must be None"):
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                terminal_slice_id="slice-3",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=99,  # lean branch
+                program_deferred_actions=[
+                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
+                ],
+            )
+
+    def test_non_terminal_slice_inline_fallback_branch_with_obligations_raises(
+        self, gateway_client
+    ):
+        """#2746 review item 1: the inline-fallback non-terminal branch
+        (program_title set, no base PR) must also reject mis-routed
+        ``program_deferred_actions`` — same reason as the lean branch."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx, pytest.raises(AssertionError, match="program_deferred_actions must be None"):
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                terminal_slice_id="slice-3",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=None,  # inline-fallback branch
                 program_deferred_actions=[
                     {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
                 ],

@@ -209,8 +209,16 @@ def _derive_program_slug(pipeline_id: str, max_len: int = 18) -> str:
     so reviewers see a stable identifier across pipeline re-runs).
     ``pipeline-<hash>`` keeps the prefix and truncates the hash to fit.
     Any other shape is truncated as-is.
+
+    ``max_len`` keeps the slug short so the slice-PR title still has room
+    for the position marker (``[slice-N/M]``) and the slice subject inside
+    the 70-char title cap. Worst-case budget: a hash-id pipeline at slice
+    99/100 leaves roughly 30 chars for the subject after the slug
+    (``[pipeline-f4c7d780ab][slice-99/100] ``) — tight, so the subject is
+    what gets truncated first. ``issue-<N>`` pipelines are unaffected
+    because the slug collapses to ``issue-<N>`` regardless of ``max_len``.
     """
-    if not pipeline_id:
+    if not pipeline_id or not pipeline_id.strip():
         return "pipeline"
     pid = pipeline_id.strip()
     issue_match = re.match(r"^(issue-\d+)(?:-v\d+)?", pid)
@@ -247,17 +255,29 @@ def _format_slice_title(program_slug: str, position_marker: str, subject: str) -
     return f"[{program_slug}][{position_marker}] {subject}".strip()
 
 
-def _first_sentence(text: str, max_len: int = 240) -> str:
+def _first_sentence(text: str, max_len: int = 120) -> str:
     """Return the first sentence of ``text``, capped at ``max_len`` chars.
 
-    Used as the slice-PR program blurb. Conservative on what counts as
-    a sentence boundary: first ``.``/``!``/``?`` followed by whitespace
-    or end-of-string. Falls back to the first ``max_len`` chars if no
-    sentence boundary is found.
+    Used as the slice-PR program blurb — meant to be a 1-line hook, not
+    a paragraph. The blurb ends at whichever boundary comes first:
+
+    * the first ``.``/``!``/``?`` followed by whitespace or end-of-string;
+    * the first newline (so a description that opens with a markdown
+      bullet list or a header doesn't bleed into the blurb);
+    * ``max_len`` chars (truncated with a trailing ``...``).
+
+    Returns ``""`` when ``text`` is empty / whitespace-only.
     """
     if not text:
         return ""
-    collapsed = " ".join(text.strip().split())
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    # Take everything up to the first newline (in the original string,
+    # before collapsing whitespace) so a list / header on the second
+    # line is excluded from the blurb.
+    first_line = stripped.split("\n", 1)[0]
+    collapsed = " ".join(first_line.split())
     if not collapsed:
         return ""
     match = re.search(r"[.!?](?:\s|$)", collapsed)
@@ -323,23 +343,20 @@ def _append_this_slice_section(
     slice_files_affected: list[str] | None,
     slice_tasks: list[dict[str, Any]] | None,
 ) -> None:
-    """Render the ``## This slice`` block: subject + files + tasks."""
+    """Render the ``## This slice`` block: subject + files + tasks.
+
+    ``slice_files_affected`` is treated as already deduplicated /
+    empty-filtered by the caller (``_run_one_slice_inner`` is the only
+    production caller and does this work under the contract-state lock).
+    """
     body_lines.append("## This slice")
     body_lines.append("")
     body_lines.append(slice_name)
     if slice_files_affected:
-        seen: set[str] = set()
-        unique = []
+        body_lines.append("")
+        body_lines.append("Files affected:")
         for path in slice_files_affected:
-            if not path or path in seen:
-                continue
-            seen.add(path)
-            unique.append(path)
-        if unique:
-            body_lines.append("")
-            body_lines.append("Files affected:")
-            for path in unique:
-                body_lines.append(f"- `{path}`")
+            body_lines.append(f"- `{path}`")
     if slice_tasks:
         body_lines.append("")
         body_lines.append("Tasks:")
@@ -354,15 +371,18 @@ def _format_stack_block(
     slice_index: int | None,
     slice_count: int | None,
     base_branch: str,
-    parent_pr_number: int | None,
     context_pr_number: int | None,
     is_terminal_slice: bool,
 ) -> list[str]:
-    r"""Render the ``## Stack`` footer with parent + base PR pointers.
+    r"""Render the ``## Stack`` footer with base PR + position pointers.
 
     Replaces the pre-#2745 trailing ``"Slice X of pipeline Y. Stacked
     on top of \`base\`."`` line with a structured block so reviewers
     can navigate the stack without leaving the PR.
+
+    A ``Parent PR:`` line would also be useful here, but slice PR numbers
+    aren't persisted on the contract yet, so the parent PR # isn't
+    available at slice-PR-creation time. Tracked separately.
     """
     lines: list[str] = ["## Stack", ""]
     if slice_index is not None and slice_count is not None and slice_count >= 1:
@@ -374,8 +394,6 @@ def _format_stack_block(
     else:
         position = "merge-gate" if is_terminal_slice else slice_id
     lines.append(f"- Position: {position} in pipeline `{pipeline_id}`")
-    if parent_pr_number is not None and parent_pr_number >= 1:
-        lines.append(f"- Parent PR: #{parent_pr_number}")
     if context_pr_number is not None and context_pr_number >= 1:
         lines.append(f"- Base PR: #{context_pr_number}")
     lines.append(f"- Stacked on top of `{base_branch}`")
@@ -1468,7 +1486,6 @@ class GatewayClient:
         slice_count: int | None = None,
         slice_files_affected: list[str] | None = None,
         context_pr_number: int | None = None,
-        parent_pr_number: int | None = None,
     ) -> str | None:
         """Open a PR for one slice in a stacked-PR chain (#2745).
 
@@ -1492,7 +1509,7 @@ class GatewayClient:
         * **Body (non-terminal).** Optional 1-line program blurb →
           ``**Base PR:** #<context_pr_number>`` → ``## This slice``
           (subject, files affected, full task descriptions + acceptance
-          criteria) → ``## Stack`` (parent PR, base PR, position).
+          criteria) → ``## Stack`` (base PR, position).
         * **Body (terminal — umbrella).** Umbrella banner → program
           description → pre-merge obligations → ``## This slice`` →
           ``## Test Plan`` → ``## Manual Steps`` → ``## Stack``. The
@@ -1503,9 +1520,14 @@ class GatewayClient:
           merge gate.
 
         ``program_deferred_actions`` is terminal-only by convention
-        (the merge gate is the last-to-merge PR in the stack); the
-        assertion below fails fast if a caller wires obligations
-        through to a non-terminal slice (#2354 review nit).
+        (the merge gate is the last-to-merge PR in the stack); each
+        non-terminal body branch (``program_title is None`` umbrella
+        fallback, lean, inline-fallback) asserts ``program_deferred_actions
+        is None`` so a mis-routed obligations payload fails fast instead
+        of being silently dropped (#2354 review nit, #2746 review
+        item 1). The whitespace-only ``program_title`` case is
+        intentionally not covered — that's a ``PRMetadata`` data bug,
+        not a slice-routing error.
 
         When ``context_pr_number is None`` (covers the #2744 regression
         where the base/context PR is silently not opened) the
@@ -1524,6 +1546,16 @@ class GatewayClient:
         # single-slice pipeline, which is also terminal).
         is_terminal_slice = has_program_title and terminal_slice_id is None
         has_base_pr = context_pr_number is not None and context_pr_number >= 1
+
+        # Pre-merge obligations belong only on the merge-gate (terminal
+        # slice). The assertions live inside each non-terminal body
+        # branch below — not at the top — because a whitespace-only
+        # ``program_title`` (which ``PRMetadata.title`` allows under its
+        # ``min_length=1`` validator) flows into the deterministic
+        # else-branch and is a different bug (PRMetadata data
+        # validation), not a slice-routing error (#2354 review
+        # observation B). The branch-local assertions cover the lean /
+        # inline non-terminal paths that #2746 review item 1 flagged.
 
         program_slug = _derive_program_slug(pipeline_id)
         position_marker = _format_position_marker(
@@ -1603,6 +1635,14 @@ class GatewayClient:
         elif has_program_title and not is_terminal_slice and has_base_pr:
             # Non-terminal slice with a base/context PR opened: lean
             # body. Defer the strategic narrative to the base PR.
+            #
+            # Pre-merge obligations belong on the merge-gate only — fail
+            # fast here so the lean branch doesn't silently drop them
+            # (#2746 review item 1).
+            assert program_deferred_actions is None, (
+                "program_deferred_actions must be None on non-terminal slices; "
+                "obligations belong on the umbrella PR only"
+            )
             blurb = _first_sentence(program_description) if program_description else ""
             if blurb:
                 body_lines.append(blurb)
@@ -1617,6 +1657,14 @@ class GatewayClient:
             # the stack is still unmergeable in this state — fixing the
             # body here does not fix the missing-base-PR structural
             # break.
+            #
+            # Pre-merge obligations belong on the merge-gate only — fail
+            # fast here so the inline-fallback branch doesn't silently
+            # drop them (#2746 review item 1).
+            assert program_deferred_actions is None, (
+                "program_deferred_actions must be None on non-terminal slices; "
+                "obligations belong on the umbrella PR only"
+            )
             if program_description and program_description.strip():
                 body_lines.append(program_description.strip())
                 body_lines.append("")
@@ -1648,7 +1696,6 @@ class GatewayClient:
             slice_index=slice_index,
             slice_count=slice_count,
             base_branch=base,
-            parent_pr_number=parent_pr_number,
             context_pr_number=context_pr_number,
             is_terminal_slice=is_terminal_slice,
         )
