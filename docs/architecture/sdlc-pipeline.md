@@ -144,7 +144,11 @@ The contract is a JSON document tracking the complete state of an issue through 
 > (#2593 extended the hook from the inline `_run_pipeline` auto-advance
 > path to all plan→implement transition paths: `advance_phase` REST/MCP,
 > HITL-approval recovery in `start_pipeline`, and the implement-entry
-> backstop.)
+> backstop. #2744 added a fifth safety net at slice-loop entry in
+> `_run_implement_phase_slices` — called before any slice is provisioned
+> so slice-1's context-branch resolution finds a populated
+> `context_branch`; the wrapper's inner `context_pr_number` short-circuit
+> makes this call cheap when an earlier path already opened the PR.)
 >
 > **#2685 added two follow-on behaviors:** the contract JSON is now
 > included in the context PR diff (resolved via the contract loader so

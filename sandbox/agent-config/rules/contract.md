@@ -1,6 +1,25 @@
 # SDLC Contract
 
-Use `egg-contract` to track SDLC pipeline progress. Full reference: `$EGG_REPO_PATH/docs/reference/sdlc-contract.md`
+Track SDLC pipeline progress through the contract. Full reference:
+`$EGG_REPO_PATH/docs/reference/sdlc-contract.md`
+
+**Use the structured contract tool — do not compose an `egg-contract`
+command for the `Bash` tool.** The free-text fields (`--question`,
+`--options`, `--notes`) carry LLM-authored prose. In a `Bash` command
+string the shell interprets backticks, `$(...)`, `$VAR`, `<`, `>`, `;`,
+`|`, and `&` — so prose that contains them (a markdown code span, a
+URL, a `<` comparison) is silently corrupted, and a backtick or
+`$(...)` span is *executed* as a command rather than stored. The
+structured tool passes each field as data and never touches a shell:
+
+- **`claude_agent_sdk` harness** — the `mcp__sdlc__*` / `mcp__task__*` /
+  `mcp__phase__*` tools (mapped below).
+- **`EGG_HARNESS=egg`** — the `EggContract` tool: subcommand as
+  `command`, each flag and value as a separate `args` element.
+
+The `egg-contract` commands below are the reference for what each
+operation does and stay available to human operators; agents invoke
+them through the structured tool.
 
 **Commands:**
 
@@ -19,13 +38,14 @@ Use `egg-contract` to track SDLC pipeline progress. Full reference: `$EGG_REPO_P
 
 **Env**: `EGG_ISSUE_NUMBER`, `EGG_REPO_PATH` (auto-set).
 
-## Prefer MCP tools over the CLI
+## MCP tool equivalents (`claude_agent_sdk` harness)
 
-Sandbox agents on the default harness should call the in-process MCP
-tools instead of shelling out — they share the same handler the CLI
-uses (drift-gate enforced) and avoid a subprocess + JSON parsing step.
-Iteration-2 ([#1917](https://github.com/jwbron/egg/issues/1917)) added
-the contract verbs that iteration-1 left as Bash-only:
+On the `claude_agent_sdk` harness the operations above are also exposed
+as in-process MCP tools, which share the same handler the CLI uses
+(drift-gate enforced). Prefer them for the reason in the callout above:
+free-text routed to the CLI through the `Bash` tool is mangled by the
+shell. Iteration-2 ([#1917](https://github.com/jwbron/egg/issues/1917))
+added the contract verbs that iteration-1 left as Bash-only:
 
 - `mcp__sdlc__show_contract` — Prefer this over `egg-contract show`. Returns the contract dict (optional `fields=[…]` projection; unknown field raises).
 - `mcp__task__add_commit` — Prefer this over `egg-contract add-commit`. Links a commit SHA to a task; does not mark the task complete.

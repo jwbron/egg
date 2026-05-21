@@ -26,9 +26,11 @@ except ImportError:
     print("FAIL: PyYAML not installed (try: python3 -m pip install pyyaml)", file=sys.stderr)
     sys.exit(2)
 
+# Closing ``` must start at a line boundary — see issue #2743. A nested
+# code fence inside a YAML block scalar would otherwise terminate the
+# non-greedy capture early and the validator would pass a truncated plan.
 FENCE_RE = re.compile(
-    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```",
-    re.DOTALL,
+    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n((?:.*\n)*?)[ ]{0,3}```\s*(?:\n|$)",
 )
 TASK_ID_RE = re.compile(r"^TASK-\d+-\d+$", re.IGNORECASE)
 SLICE_NUMBER_RE = re.compile(r"^(?:slice-|phase-)?(\d+)$", re.IGNORECASE)
@@ -80,6 +82,8 @@ def _normalise_dep(raw: object) -> str | None:
     if m:
         return f"slice-{m.group(1)}"
     return None
+
+
 VALID_ROLES = {"coder", "tester", "documenter"}
 # Mirrors .egg/schemas/yaml-tasks.schema.json: only `pr.title` is required;
 # description/test_plan/manual_steps are optional. shared/egg_contracts/
@@ -144,21 +148,65 @@ def validate(plan_path: str) -> tuple[int, list[str], list[str]]:
             )
         else:
             if canonical in seen_slice_ids:
-                errors.append(
-                    f"duplicate slice id {slice_id!r} (canonical {canonical!r})"
-                )
+                errors.append(f"duplicate slice id {slice_id!r} (canonical {canonical!r})")
             seen_slice_ids.add(canonical)
-        for field in ("dependencies", "serialized_chain_order"):
-            raw = sl.get(field, [])
-            if isinstance(raw, str):
+        # #2743 — accept ``depends_on`` as a non-canonical alias for
+        # ``dependencies``. When both keys are present the canonical
+        # ``dependencies`` wins and ``depends_on`` is dropped (mirrors
+        # the emitter and ``parse_phases_from_yaml`` conflict policy);
+        # validating both would NACK on entries the emitter ignores.
+        if "depends_on" in sl and "dependencies" in sl:
+            warnings.append(
+                f"slice {slice_id}: declares both 'dependencies' and "
+                "'depends_on' — preferring 'dependencies' (canonical key "
+                "per yaml-tasks.schema.json). Remove 'depends_on' to "
+                "silence this warning."
+            )
+            dep_fields: tuple[str, ...] = ("dependencies",)
+        elif "depends_on" in sl:
+            warnings.append(
+                f"slice {slice_id}: 'depends_on' is a non-canonical alias "
+                "for 'dependencies' (per yaml-tasks.schema.json). Accepted "
+                "for now, but please rename."
+            )
+            dep_fields = ("depends_on",)
+        else:
+            dep_fields = ("dependencies",)
+        # Dependency fields accept int / str / list (the emitter and
+        # canonical parser both normalise a bare int to ``slice-<N>``);
+        # ``serialized_chain_order`` only accepts str / list to match
+        # the parser, which warns on any other type.
+        for field in dep_fields:
+            if field not in sl:
+                continue
+            raw = sl[field]
+            if isinstance(raw, bool):
+                errors.append(
+                    f"slice {slice_id}: '{field}' must be an int, string, or list — got bool"
+                )
+                continue
+            if isinstance(raw, int):
+                raw = [raw]
+            elif isinstance(raw, str):
                 raw = [d.strip() for d in raw.split(",") if d.strip()]
             elif not isinstance(raw, list):
                 errors.append(
-                    f"slice {slice_id}: '{field}' must be a list or comma string"
+                    f"slice {slice_id}: '{field}' must be a list, comma string, or single int"
                 )
                 continue
             for entry in raw:
                 dep_refs.append((slice_id, field, entry))
+        if "serialized_chain_order" in sl:
+            raw = sl["serialized_chain_order"]
+            if isinstance(raw, str):
+                raw = [d.strip() for d in raw.split(",") if d.strip()]
+            elif not isinstance(raw, list):
+                errors.append(
+                    f"slice {slice_id}: 'serialized_chain_order' must be a list or comma string"
+                )
+                raw = []
+            for entry in raw:
+                dep_refs.append((slice_id, "serialized_chain_order", entry))
         for t in sl.get("tasks") or []:
             tid = str(t.get("id", "")) if isinstance(t, dict) else ""
             if not TASK_ID_RE.match(tid):
@@ -169,10 +217,7 @@ def validate(plan_path: str) -> tuple[int, list[str], list[str]]:
                 # Mirrors plan_parser.py's seen_contract_ids check (#1988).
                 contract_id = tid.lower()
                 if contract_id in seen_task_ids:
-                    errors.append(
-                        f"duplicate task id {contract_id!r} "
-                        f"(source id {tid!r})"
-                    )
+                    errors.append(f"duplicate task id {contract_id!r} (source id {tid!r})")
                 seen_task_ids.add(contract_id)
             role = t.get("role") if isinstance(t, dict) else None
             if role is not None and role not in VALID_ROLES:
@@ -187,8 +232,7 @@ def validate(plan_path: str) -> tuple[int, list[str], list[str]]:
         norm = _normalise_dep(entry)
         if norm is None:
             errors.append(
-                f"slice {src_slice}: {field} entry {entry!r} is not a "
-                "valid slice reference"
+                f"slice {src_slice}: {field} entry {entry!r} is not a valid slice reference"
             )
         elif norm not in seen_slice_ids:
             errors.append(

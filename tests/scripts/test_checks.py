@@ -311,8 +311,8 @@ phases:
         assert result.status == CheckStatus.FAIL
         assert "Invalid YAML" in result.message
 
-    def test_missing_phases_fails(self, tmp_path):
-        """Test that YAML without phases field fails."""
+    def test_missing_slices_fails(self, tmp_path):
+        """Test that YAML without slices/phases field fails."""
         PlanYamlCheck = _import_check_module("plan_yaml_check").PlanYamlCheck
 
         drafts_dir = tmp_path / ".egg-state" / "drafts"
@@ -334,7 +334,38 @@ pr:
         result = check.run()
 
         assert result.status == CheckStatus.FAIL
-        assert "Missing 'phases' field" in result.details["errors"]
+        assert "Missing 'slices' (or legacy 'phases') field" in result.details["errors"]
+
+    def test_valid_slices_plan_passes(self, tmp_path):
+        """``slices:`` is the canonical key (#2137); the check must
+        accept it the same as legacy ``phases:``.
+        """
+        PlanYamlCheck = _import_check_module("plan_yaml_check").PlanYamlCheck
+
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+        plan_path = drafts_dir / "123-plan.md"
+        plan_path.write_text("""# Plan
+
+```yaml
+# yaml-tasks
+slices:
+  - id: 1
+    name: Setup
+    tasks:
+      - id: TASK-1-1
+        description: First task
+```
+""")
+
+        contract = Contract(
+            issue=IssueInfo(number=123, title="Test", url="https://example.com"),
+        )
+        check = PlanYamlCheck(contract, tmp_path)
+        result = check.run()
+
+        assert result.status == CheckStatus.PASS
+        assert result.details["slices_count"] == 1
 
 
 class TestLintCheck:

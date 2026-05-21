@@ -10750,7 +10750,7 @@ def _maybe_open_base_pr_for_plan_to_implement(
 ) -> None:
     """Open the doc-only base/context PR for the plan→implement transition (#2548, #2593).
 
-    Single call site for every plan→implement code path:
+    Shared wrapper for every plan→implement code path:
 
     * the inline auto-advance in :func:`_run_pipeline` (the path #2548
       originally wired up);
@@ -10766,7 +10766,17 @@ def _maybe_open_base_pr_for_plan_to_implement(
       ``routes/phases.py:379``) bypass the backstop and so must call
       the wrapper directly; the inner short-circuit on
       ``context_pr_number`` makes any path that DOES re-enter the
-      backstop a no-op).
+      backstop a no-op);
+    * the slice-loop entry in :func:`_run_implement_phase_slices`
+      (#2744) — a defensive safety net for pipeline shapes where the
+      four earlier paths silently missed.  Slice-1 base resolution
+      reads ``contract.pr.context_branch`` and falls back to
+      ``pipeline_branch`` when it is empty, leaving the whole slice
+      stack stranded on ``/work`` with no path to ``main``.  Calling
+      the wrapper here, before any slice provisions, converts that
+      failure mode into "context PR opens at the last second."  The
+      inner short-circuit makes the call cheap when an earlier path
+      already opened the PR.
 
     CUSTOM-mode pipelines run a single phase and terminate (#1762) —
     they never advance to implement, so opening a context PR for them
@@ -15212,6 +15222,35 @@ def _run_implement_phase_slices(
         )
         return 1, f"slice scheduler validation failed: {exc}"
 
+    # #2744 — defensive context-PR safety net at slice-loop entry.
+    # The four plan→implement transition paths (``_run_pipeline``
+    # auto-advance, ``advance_phase`` REST, ``start_pipeline`` HITL
+    # recovery, IMPLEMENT entry backstop) should each have opened the
+    # context PR before we reach the slice loop.  But #2593 / #2744
+    # show those paths can silently miss on specific pipeline shapes
+    # (most recently a non-issue-keyed ``pipeline-<hex>`` pipeline),
+    # and the only failure signal is slice-1 stacking on
+    # ``pipeline_branch`` instead of the context branch — exactly the
+    # stranded-stack symptom this hook exists to prevent.
+    #
+    # The wrapper is idempotent: its inner
+    # ``contract.pr.context_pr_number`` fast-path makes a fifth call
+    # cheap (one contract read) when one of the earlier paths already
+    # ran.  Failures here are logged and swallowed by the wrapper, so
+    # this never strands the slice loop.  Adding the safety net here —
+    # before any slice provisions, so slice-1's
+    # ``_resolve_slice_1_context_branch_from_contract`` lookup at
+    # ``_run_one_slice_inner`` finds the populated context_branch —
+    # converts "every slice PR stranded on /work" into "context PR
+    # opens at the last second."
+    _maybe_open_base_pr_for_plan_to_implement(
+        pipeline,
+        spawner,
+        worktree_repo_path,
+        gateway_mode=gateway_mode,  # type: ignore[arg-type]
+        source="slice_loop_entry",
+    )
+
     def _contract_loader() -> Any:
         try:
             return load_contract(pipeline_id, worktree_repo_path)
@@ -15707,12 +15746,56 @@ def _run_implement_phase_slices(
                                 if is_terminal or not umbrella_has_program_block
                                 else chosen_terminal
                             )
+                            # #2745: derive 1-based slice position +
+                            # total slice count from declared contract
+                            # order so the slice PR title can carry
+                            # ``[slice-N/M]`` for non-terminal slices.
+                            slice_count = len(contract_post.slices)
+                            slice_index_lookup = next(
+                                (
+                                    i + 1
+                                    for i, s in enumerate(contract_post.slices)
+                                    if s.id == slice_id
+                                ),
+                                None,
+                            )
+                            # Union of ``task.files_affected`` across the
+                            # slice's tasks; rendered under
+                            # ``## This slice`` so reviewers see what
+                            # this slice actually touches without
+                            # opening the diff (#2745).
+                            slice_files_affected_list: list[str] = []
+                            seen_paths: set[str] = set()
+                            for t in slice_obj.tasks or []:
+                                for path in t.files_affected or []:
+                                    if path and path not in seen_paths:
+                                        seen_paths.add(path)
+                                        slice_files_affected_list.append(path)
                             slice_pr_data = {
                                 "slice_name": slice_obj.name or slice_id,
                                 "slice_tasks": [
-                                    {"id": t.id, "description": t.description}
+                                    {
+                                        "id": t.id,
+                                        "description": t.description,
+                                        "acceptance_criteria": t.acceptance_criteria,
+                                    }
                                     for t in (slice_obj.tasks or [])
                                 ],
+                                "slice_index": slice_index_lookup,
+                                "slice_count": slice_count,
+                                "slice_files_affected": slice_files_affected_list or None,
+                                # ``context_pr_number`` is populated by
+                                # ``_open_context_pr_for_pipeline`` after
+                                # the base/context PR opens (#2548). When
+                                # None — covers the #2744 regression where
+                                # the base PR is silently not opened —
+                                # ``create_slice_pr`` falls back to the
+                                # pre-#2745 inline-narrative body so the
+                                # slice PR stays reviewable as a
+                                # standalone diff against ``/work``.
+                                "context_pr_number": (
+                                    program_pr.context_pr_number if program_pr else None
+                                ),
                                 "program_title": (program_pr.title if program_pr else None),
                                 "program_description": (
                                     program_pr.description if program_pr else None
@@ -15808,6 +15891,10 @@ def _run_implement_phase_slices(
                             program_manual_steps=slice_pr_data["program_manual_steps"],
                             program_deferred_actions=slice_pr_data["program_deferred_actions"],
                             terminal_slice_id=slice_pr_data["terminal_slice_id"],
+                            slice_index=slice_pr_data["slice_index"],
+                            slice_count=slice_pr_data["slice_count"],
+                            slice_files_affected=slice_pr_data["slice_files_affected"],
+                            context_pr_number=slice_pr_data["context_pr_number"],
                         )
                     except Exception as pr_err:  # noqa: BLE001
                         logger.error(

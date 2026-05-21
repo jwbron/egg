@@ -272,7 +272,15 @@ POST /api/v1/gh/pr/close
 
 POST /api/v1/gh/execute
   Request: {args[], require_auth}
-  Policy: filtered passthrough for read operations
+  Policy: deny-by-default allowlist (parity with /api/v1/git/execute).
+          The full `gh auth` group is blocklisted — `gh auth token` and
+          `gh auth status --show-token` would print the gateway's GitHub
+          App token. The allowlist (see ALLOWED_GH_COMMANDS in
+          github_client.py) covers `pr`/`issue`/`repo`/`release` reads,
+          `pr checkout`, and the writes the sandbox wrapper / orchestrator
+          route through here (`issue create/comment/edit/close`,
+          `pr review`, `pr ready`). `gh api` is allowed at this layer and
+          gated further by GH_API_ALLOWED_PATHS. Anything else returns 403.
   Note: For 'gh pr review' commands, automatically switches to reviewer
         token if available (separate GitHub App identity for posting
         approve/request-changes on bot-authored PRs)

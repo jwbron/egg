@@ -778,11 +778,33 @@ class TestRunImplementPhaseSlices:
             assert "seam tables" in kwargs["program_manual_steps"]
 
         # The terminal slice gets terminal_slice_id=None (it IS the
-        # merge gate); non-terminals get the terminal id so the
-        # gateway prefixes their title with [<slice-id>].
+        # merge gate); non-terminals get the terminal id so the gateway
+        # selects the ``[<program-slug>][slice-N/M] <subject>`` shape
+        # for non-terminals and ``[<program-slug>][merge-gate]
+        # <program_title>`` for the terminal (#2745).
         assert pr_calls_by_slice["slice-3"]["terminal_slice_id"] is None
         for non_terminal_id in ("slice-1", "slice-2"):
             assert pr_calls_by_slice[non_terminal_id]["terminal_slice_id"] == "slice-3"
+
+        # #2745 wiring: ``slice_index`` / ``slice_count`` /
+        # ``slice_files_affected`` / ``context_pr_number`` are threaded
+        # from ``_run_one_slice_inner`` into ``create_slice_pr`` so the
+        # title and body can render the new shape. Pin them here so a
+        # regression in the wiring (e.g. dropping a kwarg) fails the
+        # integration test, not just the unit test (#2746 review item 3).
+        assert pr_calls_by_slice["slice-1"]["slice_index"] == 1
+        assert pr_calls_by_slice["slice-2"]["slice_index"] == 2
+        assert pr_calls_by_slice["slice-3"]["slice_index"] == 3
+        for slice_id in ("slice-1", "slice-2", "slice-3"):
+            kwargs = pr_calls_by_slice[slice_id]
+            assert kwargs["slice_count"] == 3
+            # ``_make_task`` builds tasks with ``files_affected=[]``, so
+            # the derived list is empty and the wiring sends ``None``.
+            assert kwargs["slice_files_affected"] is None
+            # No context PR is opened in this fixture, so the slice PRs
+            # see ``context_pr_number=None`` (the #2744 regression
+            # backstop path inside ``create_slice_pr``).
+            assert kwargs["context_pr_number"] is None
 
     def test_terminal_slice_pr_carries_program_deferred_actions(
         self,

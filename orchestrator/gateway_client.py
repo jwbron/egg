@@ -197,6 +197,214 @@ def _classify_push_stderr(stderr: str) -> str:
     return "push_rejected"
 
 
+# ----------------------------------------------------------------------
+# Slice PR body / title helpers (#2745).
+# ----------------------------------------------------------------------
+
+
+def _derive_program_slug(pipeline_id: str, max_len: int = 18) -> str:
+    """Derive a short program slug from ``pipeline_id`` for slice PR titles.
+
+    ``issue-<N>[-v<K>]`` collapses to ``issue-<N>`` (drops version suffix
+    so reviewers see a stable identifier across pipeline re-runs).
+    ``pipeline-<hash>`` keeps the prefix and truncates the hash to fit.
+    Any other shape is truncated as-is.
+
+    ``max_len`` keeps the slug short so the slice-PR title still has room
+    for the position marker (``[slice-N/M]``) and the slice subject inside
+    the 70-char title cap. Worst-case budget: a hash-id pipeline at slice
+    99/100 leaves roughly 30 chars for the subject after the slug
+    (``[pipeline-f4c7d780ab][slice-99/100] ``) — tight, so the subject is
+    what gets truncated first. ``issue-<N>`` pipelines are unaffected
+    because the slug collapses to ``issue-<N>`` regardless of ``max_len``.
+    """
+    if not pipeline_id or not pipeline_id.strip():
+        return "pipeline"
+    pid = pipeline_id.strip()
+    issue_match = re.match(r"^(issue-\d+)(?:-v\d+)?", pid)
+    if issue_match:
+        return issue_match.group(1)
+    if len(pid) <= max_len:
+        return pid
+    return pid[:max_len]
+
+
+def _format_position_marker(
+    slice_id: str,
+    slice_index: int | None,
+    slice_count: int | None,
+    is_terminal_slice: bool,
+) -> str:
+    """Return ``slice-N/M`` (or ``merge-gate`` for the terminal slice).
+
+    Falls back to ``slice_id`` when index / count aren't supplied (older
+    callers / tests). Terminal gets the ``merge-gate`` marker so its
+    title is still distinguishable from a hypothetical sibling program
+    PR (the original #2745 complaint about the terminal title being
+    indistinguishable from any program-level PR).
+    """
+    if is_terminal_slice:
+        return "merge-gate"
+    if slice_index is not None and slice_count is not None and slice_count >= 1:
+        return f"slice-{slice_index}/{slice_count}"
+    return slice_id
+
+
+def _format_slice_title(program_slug: str, position_marker: str, subject: str) -> str:
+    """Compose ``[<slug>][<position>] <subject>``."""
+    return f"[{program_slug}][{position_marker}] {subject}".strip()
+
+
+def _first_sentence(text: str, max_len: int = 120) -> str:
+    """Return the first sentence of ``text``, capped at ``max_len`` chars.
+
+    Used as the slice-PR program blurb — meant to be a 1-line hook, not
+    a paragraph. The blurb ends at whichever boundary comes first:
+
+    * the first ``.``/``!``/``?`` followed by whitespace or end-of-string;
+    * the first newline (so a description that opens with a markdown
+      bullet list or a header doesn't bleed into the blurb);
+    * ``max_len`` chars (truncated with a trailing ``...``).
+
+    Returns ``""`` when ``text`` is empty / whitespace-only.
+    """
+    if not text:
+        return ""
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    # Take everything up to the first newline (in the original string,
+    # before collapsing whitespace) so a list / header on the second
+    # line is excluded from the blurb.
+    first_line = stripped.split("\n", 1)[0]
+    collapsed = " ".join(first_line.split())
+    if not collapsed:
+        return ""
+    match = re.search(r"[.!?](?:\s|$)", collapsed)
+    if match:
+        end = match.start() + 1
+        sentence = collapsed[:end]
+    else:
+        sentence = collapsed
+    if len(sentence) > max_len:
+        sentence = sentence[: max_len - 3].rstrip() + "..."
+    return sentence
+
+
+def _render_pre_merge_obligations(
+    program_deferred_actions: list[dict[str, str]],
+) -> str:
+    """Thin wrapper around ``pr_obligations.render_obligations_section_from_normalized``.
+
+    Kept here so the import is resolved lazily once and the umbrella
+    rendering path stays at parity with the legacy
+    ``_auto_create_pr`` path."""
+    try:
+        from pr_obligations import render_obligations_section_from_normalized
+    except ImportError:
+        from orchestrator.pr_obligations import (  # type: ignore[no-redef]
+            render_obligations_section_from_normalized,
+        )
+    return render_obligations_section_from_normalized(program_deferred_actions)
+
+
+def _append_task_bullets(
+    body_lines: list[str],
+    slice_tasks: list[dict[str, Any]] | None,
+    *,
+    header: str | None = None,
+) -> None:
+    """Append task bullets — full descriptions + acceptance criteria.
+
+    Drops the pre-#2745 300-char truncation. Acceptance criteria render
+    as a nested bullet when present. Whitespace is collapsed to a single
+    line so list rendering on GitHub stays stable.
+    """
+    if not slice_tasks:
+        return
+    if header:
+        body_lines.append("")
+        body_lines.append(header)
+    for task in slice_tasks:
+        desc = task.get("description") or task.get("id") or ""
+        desc = " ".join(str(desc).split())
+        task_id = task.get("id") or ""
+        bullet_prefix = f"- {task_id}: " if task_id else "- "
+        body_lines.append(f"{bullet_prefix}{desc}")
+        ac = task.get("acceptance_criteria") or ""
+        ac = " ".join(str(ac).split())
+        if ac:
+            body_lines.append(f"  - Acceptance criteria: {ac}")
+
+
+def _append_this_slice_section(
+    body_lines: list[str],
+    slice_name: str,
+    slice_files_affected: list[str] | None,
+    slice_tasks: list[dict[str, Any]] | None,
+) -> None:
+    """Render the ``## This slice`` block: subject + files + tasks.
+
+    ``slice_files_affected`` is treated as already deduplicated /
+    empty-filtered by the caller (``_run_one_slice_inner`` is the only
+    production caller and does this work under the contract-state lock).
+    """
+    body_lines.append("## This slice")
+    body_lines.append("")
+    body_lines.append(slice_name)
+    if slice_files_affected:
+        body_lines.append("")
+        body_lines.append("Files affected:")
+        for path in slice_files_affected:
+            body_lines.append(f"- `{path}`")
+    if slice_tasks:
+        body_lines.append("")
+        body_lines.append("Tasks:")
+        _append_task_bullets(body_lines, slice_tasks, header=None)
+    body_lines.append("")
+
+
+def _format_stack_block(
+    *,
+    pipeline_id: str,
+    slice_id: str,
+    slice_index: int | None,
+    slice_count: int | None,
+    base_branch: str,
+    context_pr_number: int | None,
+    is_terminal_slice: bool,
+) -> list[str]:
+    r"""Render the ``## Stack`` footer with base PR + position pointers.
+
+    Replaces the pre-#2745 trailing ``"Slice X of pipeline Y. Stacked
+    on top of \`base\`."`` line with a structured block so reviewers
+    can navigate the stack without leaving the PR.
+
+    A ``Parent PR:`` line would also be useful here, but slice PR numbers
+    aren't persisted on the contract yet, so the parent PR # isn't
+    available at slice-PR-creation time. Tracked separately.
+    """
+    lines: list[str] = ["## Stack", ""]
+    if slice_index is not None and slice_count is not None and slice_count >= 1:
+        position = (
+            f"merge-gate (slice {slice_index} of {slice_count})"
+            if is_terminal_slice
+            else f"slice {slice_index} of {slice_count}"
+        )
+    else:
+        position = "merge-gate" if is_terminal_slice else slice_id
+    lines.append(f"- Position: {position} in pipeline `{pipeline_id}`")
+    if context_pr_number is not None and context_pr_number >= 1:
+        lines.append(f"- Base PR: #{context_pr_number}")
+    lines.append(f"- Stacked on top of `{base_branch}`")
+    lines.append("")
+    # Keep the legacy footer string so existing tooling / scrapers that
+    # look for "Slice <id> of pipeline <pipeline>" keep working. The
+    # structured ``## Stack`` block above is the human-facing surface.
+    lines.append(f"Slice {slice_id} of pipeline {pipeline_id}. Stacked on top of `{base_branch}`.")
+    return lines
+
+
 class GatewayClient:
     """Client for interacting with the gateway sidecar.
 
@@ -1261,7 +1469,7 @@ class GatewayClient:
         *,
         slice_id: str,
         slice_name: str,
-        slice_tasks: list[dict[str, str]] | None,
+        slice_tasks: list[dict[str, Any]] | None,
         head: str,
         base: str,
         issue_number: int | None = None,
@@ -1274,44 +1482,61 @@ class GatewayClient:
         program_manual_steps: str | None = None,
         program_deferred_actions: list[dict[str, str]] | None = None,
         terminal_slice_id: str | None = None,
+        slice_index: int | None = None,
+        slice_count: int | None = None,
+        slice_files_affected: list[str] | None = None,
+        context_pr_number: int | None = None,
     ) -> str | None:
-        """Open a PR for one slice in a stacked-PR chain.
+        """Open a PR for one slice in a stacked-PR chain (#2745).
 
-        Every slice — terminal or not — carries the planner-authored
-        program narrative (title, description, test plan, manual steps)
-        when ``contract.pr`` is populated, so reviewers see the program
-        rationale on whichever slice PR they open first (#2538).
+        Slice PRs are scoped to their own slice: subject + files
+        affected + full task descriptions with acceptance criteria.
+        Strategic context (analysis doc, plan doc, refine/plan BRC
+        history) lives on the base/context PR opened by #2548, which
+        slice PRs link to via ``context_pr_number``. The terminal
+        slice keeps the umbrella treatment (program-level test plan /
+        manual steps + pre-merge obligations) because it is the merge
+        gate — those are execution-time concerns, not strategic-direction
+        artifacts.
 
-        * **Title.** The terminal slice gets the bare ``program_title``;
-          non-terminal slices get a ``[<slice-id>] `` prefix so the
-          GitHub PR list stays scannable when several stacked PRs are
-          open at once. When ``program_title`` is empty (older contracts
-          / planner skipped the field), every slice falls back to the
-          deterministic ``{slice_id}: {slice_name}`` form (#2539).
-        * **Body.** Program description → ``## This slice`` (slice name
-          and task bullets) → ``## Test Plan`` → ``## Manual Steps`` →
-          stack footer. The terminal slice prepends a "merge gate /
-          umbrella" banner and (when ``program_deferred_actions`` is
-          non-empty) injects the ``## ⚠️ Pre-merge Obligations`` /
-          ``## ✅ Resolved within this PR`` section before
-          ``## Test Plan`` — same placement as the legacy
-          ``_auto_create_pr`` path. ``program_deferred_actions`` is
-          terminal-only by convention (the merge gate is the
-          last-to-merge PR in the stack); the assertion below fails
-          fast if a caller wires obligations through to a non-terminal
-          slice (#2354 review nit).
+        * **Title.** ``[<program-slug>][slice-N/M] <slice subject>`` for
+          non-terminal slices; ``[<program-slug>][merge-gate] <program_title>``
+          for the terminal slice. ``<program-slug>`` is derived from
+          ``pipeline_id`` (``issue-<N>`` collapsed to ``issue-<N>``;
+          ``pipeline-<hash>`` truncated). When ``program_title`` is empty
+          (older contracts / planner skipped the field), titles fall back
+          to the deterministic ``{slice_id}: {slice_name}`` form (#2539).
+        * **Body (non-terminal).** Optional 1-line program blurb →
+          ``**Base PR:** #<context_pr_number>`` → ``## This slice``
+          (subject, files affected, full task descriptions + acceptance
+          criteria) → ``## Stack`` (base PR, position).
+        * **Body (terminal — umbrella).** Umbrella banner → program
+          description → pre-merge obligations → ``## This slice`` →
+          ``## Test Plan`` → ``## Manual Steps`` → ``## Stack``. The
+          umbrella rollup stays here because the base/context PR is a
+          *strategic-direction* surface (analysis + plan + BRC history,
+          per #2548), not a merge-the-whole-stack rollup. Execution-time
+          concerns (test plan, manual steps, obligations) live on the
+          merge gate.
 
-        The caller passes the *normalized* obligation shape produced
-        by ``routes.pipelines._collect_pre_merge_obligations`` (a list
-        of ``{reviewer, condition, resolved_in_diff}`` dicts) so this
-        path stays at parity with the legacy single-PR renderer.
+        ``program_deferred_actions`` is terminal-only by convention
+        (the merge gate is the last-to-merge PR in the stack); each
+        non-terminal body branch (``program_title is None`` umbrella
+        fallback, lean, inline-fallback) asserts ``program_deferred_actions
+        is None`` so a mis-routed obligations payload fails fast instead
+        of being silently dropped (#2354 review nit, #2746 review
+        item 1). The whitespace-only ``program_title`` case is
+        intentionally not covered — that's a ``PRMetadata`` data bug,
+        not a slice-routing error.
 
-        ``terminal_slice_id`` is the caller's signal for "this is a
-        non-terminal slice; the terminal slice's id is X." It's no
-        longer rendered into the body (every slice carries its own
-        narrative now), but it still selects the title shape: the
-        terminal slice gets the bare ``program_title``, non-terminal
-        slices get the ``[<slice-id>] `` prefix.
+        When ``context_pr_number is None`` (covers the #2744 regression
+        where the base/context PR is silently not opened) the
+        non-terminal body falls back to the pre-#2745 shape — inline
+        program description + test plan + manual steps — so slice PRs
+        stay reviewable as standalone diffs against ``/work``. This is a
+        **UX backstop**, not a structural fix: the stack is still
+        unmergeable in that state because no PR exists for
+        ``/work → main``.
         """
         has_program_title = bool(program_title and program_title.strip())
         # ``pipelines.py`` sets ``terminal_slice_id`` only for
@@ -1320,14 +1545,31 @@ class GatewayClient:
         # ``program_title`` identifies the terminal slice (or a
         # single-slice pipeline, which is also terminal).
         is_terminal_slice = has_program_title and terminal_slice_id is None
+        has_base_pr = context_pr_number is not None and context_pr_number >= 1
+
+        # Pre-merge obligations belong only on the merge-gate (terminal
+        # slice). The assertions live inside each non-terminal body
+        # branch below — not at the top — because a whitespace-only
+        # ``program_title`` (which ``PRMetadata.title`` allows under its
+        # ``min_length=1`` validator) flows into the deterministic
+        # else-branch and is a different bug (PRMetadata data
+        # validation), not a slice-routing error (#2354 review
+        # observation B). The branch-local assertions cover the lean /
+        # inline non-terminal paths that #2746 review item 1 flagged.
+
+        program_slug = _derive_program_slug(pipeline_id)
+        position_marker = _format_position_marker(
+            slice_id, slice_index, slice_count, is_terminal_slice
+        )
 
         if has_program_title:
             assert program_title is not None  # implied by has_program_title
             program_title_clean = program_title.strip()
             if is_terminal_slice:
-                title = program_title_clean
+                subject = program_title_clean
             else:
-                title = f"[{slice_id}] {program_title_clean}"
+                subject = (slice_name or slice_id).strip() or slice_id
+            title = _format_slice_title(program_slug, position_marker, subject)
         else:
             # Defensive: obligations belong only on the umbrella. Failing
             # fast here catches a caller wiring ``program_deferred_actions``
@@ -1352,16 +1594,19 @@ class GatewayClient:
 
         body_lines: list[str] = []
 
-        if has_program_title:
-            if is_terminal_slice:
-                body_lines.append(
-                    f"> **Program-level umbrella PR — terminal slice of pipeline `{pipeline_id}`.**"
-                )
-                body_lines.append(
-                    "> Roll-up of the slice-PR chain; this PR is the merge gate "
-                    "for the program. Pre-merge obligations (when present) live here."
-                )
-                body_lines.append("")
+        if has_program_title and is_terminal_slice:
+            # Terminal slice — the merge-gate umbrella. Carries the
+            # program-level test plan / manual steps / obligations so
+            # the PR that people actually click "Merge" on has the
+            # execution-time concerns visible.
+            body_lines.append(
+                f"> **Program-level umbrella PR — terminal slice of pipeline `{pipeline_id}`.**"
+            )
+            body_lines.append(
+                "> Roll-up of the slice-PR chain; this PR is the merge gate "
+                "for the program. Pre-merge obligations (when present) live here."
+            )
+            body_lines.append("")
             if program_description and program_description.strip():
                 body_lines.append(program_description.strip())
                 body_lines.append("")
@@ -1372,38 +1617,58 @@ class GatewayClient:
             # scrolling past plan/steps). Same placement as the legacy
             # ``_auto_create_pr`` path.
             if program_deferred_actions:
-                try:
-                    from pr_obligations import render_obligations_section_from_normalized
-                except ImportError:
-                    from orchestrator.pr_obligations import (  # type: ignore[no-redef]
-                        render_obligations_section_from_normalized,
-                    )
-                obligations_section = render_obligations_section_from_normalized(
-                    program_deferred_actions
-                )
+                obligations_section = _render_pre_merge_obligations(program_deferred_actions)
                 if obligations_section:
                     body_lines.append(obligations_section)
                     body_lines.append("")
-            # Per-slice scope: slice name + task bullets. Sits between
-            # obligations and the test plan so reviewers see "what does
-            # the program do (and what's blocking merge)" → "what does
-            # this slice contribute" → "how do we verify the program"
-            # in reading order.
-            body_lines.append("## This slice")
-            body_lines.append("")
-            body_lines.append(slice_name)
-            if slice_tasks:
+            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
+            if program_test_plan and program_test_plan.strip():
+                body_lines.append("## Test Plan")
                 body_lines.append("")
-                body_lines.append("Tasks:")
-                for task in slice_tasks:
-                    desc = task.get("description") or task.get("id") or ""
-                    desc = " ".join(desc.split())  # collapse whitespace
-                    if len(desc) > 300:
-                        desc = desc[:297] + "..."
-                    task_id = task.get("id") or ""
-                    bullet_prefix = f"- {task_id}: " if task_id else "- "
-                    body_lines.append(f"{bullet_prefix}{desc}")
+                body_lines.append(program_test_plan.strip())
+                body_lines.append("")
+            if program_manual_steps and program_manual_steps.strip():
+                body_lines.append("## Manual Steps")
+                body_lines.append("")
+                body_lines.append(program_manual_steps.strip())
+                body_lines.append("")
+        elif has_program_title and not is_terminal_slice and has_base_pr:
+            # Non-terminal slice with a base/context PR opened: lean
+            # body. Defer the strategic narrative to the base PR.
+            #
+            # Pre-merge obligations belong on the merge-gate only — fail
+            # fast here so the lean branch doesn't silently drop them
+            # (#2746 review item 1).
+            assert program_deferred_actions is None, (
+                "program_deferred_actions must be None on non-terminal slices; "
+                "obligations belong on the umbrella PR only"
+            )
+            blurb = _first_sentence(program_description) if program_description else ""
+            if blurb:
+                body_lines.append(blurb)
+                body_lines.append("")
+            body_lines.append(f"**Base PR:** #{context_pr_number}")
             body_lines.append("")
+            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
+        elif has_program_title and not is_terminal_slice and not has_base_pr:
+            # UX backstop for the #2744 regression: no base PR exists,
+            # so inline the program narrative so the slice PR is still
+            # reviewable as a standalone diff against ``/work``. NOTE:
+            # the stack is still unmergeable in this state — fixing the
+            # body here does not fix the missing-base-PR structural
+            # break.
+            #
+            # Pre-merge obligations belong on the merge-gate only — fail
+            # fast here so the inline-fallback branch doesn't silently
+            # drop them (#2746 review item 1).
+            assert program_deferred_actions is None, (
+                "program_deferred_actions must be None on non-terminal slices; "
+                "obligations belong on the umbrella PR only"
+            )
+            if program_description and program_description.strip():
+                body_lines.append(program_description.strip())
+                body_lines.append("")
+            _append_this_slice_section(body_lines, slice_name, slice_files_affected, slice_tasks)
             if program_test_plan and program_test_plan.strip():
                 body_lines.append("## Test Plan")
                 body_lines.append("")
@@ -1418,22 +1683,23 @@ class GatewayClient:
             # Fallback: contract.pr missing or program_title empty.
             # Render the deterministic per-slice body with no narrative.
             body_lines.append(slice_name)
-            if slice_tasks:
-                body_lines.append("")
-                body_lines.append("Tasks in this slice:")
-                for task in slice_tasks:
-                    desc = task.get("description") or task.get("id") or ""
-                    desc = " ".join(desc.split())  # collapse whitespace
-                    if len(desc) > 300:
-                        desc = desc[:297] + "..."
-                    task_id = task.get("id") or ""
-                    bullet_prefix = f"- {task_id}: " if task_id else "- "
-                    body_lines.append(f"{bullet_prefix}{desc}")
+            _append_task_bullets(body_lines, slice_tasks, header="Tasks in this slice:")
             body_lines.append("")
 
-        body_lines.append(
-            f"Slice {slice_id} of pipeline {pipeline_id}. Stacked on top of `{base}`."
+        # ``## Stack`` block — parent PR + base PR + position. Replaces
+        # the old "Slice X of pipeline Y. Stacked on top of `<base>`."
+        # footer with structured links so reviewers can navigate the
+        # stack without leaving the PR.
+        stack_lines = _format_stack_block(
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            slice_index=slice_index,
+            slice_count=slice_count,
+            base_branch=base,
+            context_pr_number=context_pr_number,
+            is_terminal_slice=is_terminal_slice,
         )
+        body_lines.extend(stack_lines)
         body = "\n".join(body_lines)
 
         return self.create_pr(
@@ -2248,8 +2514,9 @@ class GatewayClient:
         :func:`stacked_pr_reconciler.find_orphaned_child_prs`'s
         contract. The transport is the standard
         ``/api/v1/gh/execute`` route — ``pr list`` is on the
-        ``READONLY_GH_COMMANDS`` allowlist (gateway/github_client.py:54)
-        so no privileged endpoint is introduced (decision-15).
+        ``ALLOWED_GH_COMMANDS`` deny-by-default allowlist
+        (gateway/github_client.py) so no privileged endpoint is introduced
+        (decision-15).
 
         On any error (gateway 4xx/5xx, JSON parse failure) the
         function logs and returns an empty list — the reconciler

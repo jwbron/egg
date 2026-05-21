@@ -134,16 +134,18 @@ try:
         validate_repo_path,
     )
     from .github_client import (
+        ALLOWED_GH_COMMANDS,
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
-        READONLY_GH_COMMANDS,
         GitHubClient,
         extract_comment_edit_info,
         extract_issue_label_info,
         extract_pr_review_info,
         extract_pr_reviewer_info,
         extract_repo_from_gh_command,
+        find_gh_command_index,
         get_github_client,
+        is_gh_command_allowed,
         parse_gh_api_args,
         resolve_gh_api_template_variables,
         validate_gh_api_path,
@@ -236,16 +238,18 @@ except ImportError:
         validate_repo_path,
     )
     from github_client import (  # type: ignore[no-redef, import-untyped]
+        ALLOWED_GH_COMMANDS,
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
-        READONLY_GH_COMMANDS,
         GitHubClient,
         extract_comment_edit_info,
         extract_issue_label_info,
         extract_pr_review_info,
         extract_pr_reviewer_info,
         extract_repo_from_gh_command,
+        find_gh_command_index,
         get_github_client,
+        is_gh_command_allowed,
         parse_gh_api_args,
         resolve_gh_api_template_variables,
         validate_gh_api_path,
@@ -4261,15 +4265,48 @@ def gh_execute() -> tuple[Response, int] | Response:
             )
             return make_error(
                 f"Command '{blocked}' is not allowed through the gateway. "
-                f"Allowed read-only commands: {', '.join(sorted(READONLY_GH_COMMANDS))}",
+                f"Allowed: {', '.join(sorted(ALLOWED_GH_COMMANDS))}, api.",
                 status_code=403,
                 details={"blocked_command": blocked, "command_args": args},
             )
 
+    # --- Deny-by-default allowlist (parity with git_execute) ---
+    # A generic gh command must be on ALLOWED_GH_COMMANDS, or be `gh api`
+    # (further constrained below by GH_API_ALLOWED_PATHS). Anything else fails
+    # closed — this is what keeps credential-adjacent and otherwise
+    # unanticipated subcommands from executing by default.
+    gh_allowed, gh_cmd_key = is_gh_command_allowed(args)
+    if not gh_allowed:
+        audit_log(
+            "gh_command_not_allowed",
+            "gh_execute",
+            success=False,
+            details={"command_args": args, "command_key": gh_cmd_key},
+        )
+        _display_key = gh_cmd_key or "(no subcommand)"
+        return make_error(
+            f"Command 'gh {_display_key}' is not permitted through the gateway. "
+            f"Allowed: {', '.join(sorted(ALLOWED_GH_COMMANDS))}, api.",
+            status_code=403,
+            details={"command_key": gh_cmd_key, "command_args": args},
+        )
+
     # --- Phase and role-based operation filtering ---
     # Block operations like "issue comment" / "issue edit" when phase or role restricts them.
     # Build a command string from the first 3 non-flag args for matching.
-    non_flag_args = [a for a in args if not a.startswith("-")]
+    #
+    # Normalize past any leading -R/--repo selector before constructing the
+    # command string used by the phase and role filters — parity with the
+    # overseer block below (line 4379) and the api-path guard further down
+    # (line 4541). Without this, an argv like `["-R", "owner/repo", "issue",
+    # "comment", "1032", "--body", "..."]` keys as `"owner/repo issue
+    # comment"`, which doesn't fnmatch `"issue comment *"` (phase filter)
+    # and doesn't `startswith("issue comment")` (_BLOCKED_GH_OPS), letting
+    # the role/phase enforcement be bypassed entirely. The allowlist check
+    # above already normalizes via `find_gh_command_index`, so doing the
+    # same here keeps the three positional-key call sites consistent.
+    _filter_cmd_idx = find_gh_command_index(args)
+    non_flag_args = [a for a in args[_filter_cmd_idx:] if not a.startswith("-")]
     gh_command_str = " ".join(non_flag_args[:3])
 
     session_phase = getattr(g, "session_phase", None)
@@ -4343,12 +4380,22 @@ def gh_execute() -> tuple[Response, int] | Response:
     # repo enforcement against EGG_PIPELINE_REPO, label injection,
     # title/body size limits, and a defense-in-depth secret-pattern
     # scan on the body. Failure is a structured 403.
+    #
+    # The guard looks past any leading `-R`/`--repo` selector via
+    # `find_gh_command_index` so an argv like
+    # `[-R owner/repo issue create --title ... --body <secret>]`
+    # still runs the secret-pattern scan; otherwise the leading
+    # selector would put the `"issue"` token at args[2] instead of
+    # args[0], so an `args[0] == "issue"` check would miss it and
+    # the entire overseer block would be silently skipped (parity
+    # fix with the api-path guard below).
+    _overseer_cmd_idx = find_gh_command_index(args)
     if (
         session_role
         and session_role.lower() == "overseer"
-        and len(args) >= 2
-        and args[0] == "issue"
-        and args[1] == "create"
+        and _overseer_cmd_idx + 1 < len(args)
+        and args[_overseer_cmd_idx] == "issue"
+        and args[_overseer_cmd_idx + 1] == "create"
     ):
         from .agent_restrictions import check_overseer_gh_issue_create
 
@@ -4390,7 +4437,11 @@ def gh_execute() -> tuple[Response, int] | Response:
                 )
             return val, None
 
-        i = 2
+        # Start past the `issue create` tokens; `_overseer_cmd_idx` is the
+        # index of `"issue"`, so the flag walk begins at `_overseer_cmd_idx
+        # + 2`. With no leading selector this collapses to the original
+        # `i = 2`.
+        i = _overseer_cmd_idx + 2
         while i < len(args):
             tok = args[i]
             if tok in _OVERSEER_VALUE_FLAGS:
@@ -4493,12 +4544,17 @@ def gh_execute() -> tuple[Response, int] | Response:
                 },
             )
 
-    # For 'gh api' commands, validate the path against allowlist
+    # For 'gh api' commands, validate the path against allowlist.
+    # Look past any leading -R/--repo selector so `gh -R owner/repo api /path`
+    # is still subjected to GH_API_ALLOWED_PATHS — otherwise the leading
+    # selector would shift args[0] off "api" and the path check would be
+    # silently skipped.
     api_path: str | None = None
     method: str = "GET"
-    if args and args[0] == "api" and len(args) > 1:
+    _gh_cmd_idx = find_gh_command_index(args)
+    if _gh_cmd_idx < len(args) and args[_gh_cmd_idx] == "api" and len(args) > _gh_cmd_idx + 1:
         # Parse arguments to find the actual API path (skip flags like -X, --method, etc.)
-        api_path, method = parse_gh_api_args(args[1:])
+        api_path, method = parse_gh_api_args(args[_gh_cmd_idx + 1 :])
         if api_path is None:
             audit_log(
                 "api_path_missing",

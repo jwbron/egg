@@ -2,6 +2,26 @@
 
 Run `egg-orch --help` for full usage. All commands support `--json`. Full reference: `$EGG_REPO_PATH/docs/reference/orchestrator-cli.md`
 
+**Use the structured orchestrator tools — do not compose an `egg-orch`
+command for the `Bash` tool.** Several subcommands carry LLM-authored
+free text — `overseer alert --summary "…" --detail "…" --recommend "…"`,
+`progress emit --step "…" --detail "…" --blocker "…"`,
+`signal error --error "…"`, `anchor init --task "…"`. In a `Bash`
+command string the shell interprets backticks, `$(...)`, `$VAR`, `<`,
+`>`, `;`, `|`, and `&` — so prose that contains them (a markdown code
+span, a URL, a `<` comparison) is silently corrupted, and a backtick or
+`$(...)` span is *executed* as a command rather than stored. The
+structured tools pass each field as data and never touch a shell:
+
+- **`claude_agent_sdk` harness** — the `mcp__brc__*` / `mcp__progress__*`
+  tools (mapped below).
+- **`EGG_HARNESS=egg`** — the `EggOrch` tool: subcommand as `command`,
+  each flag and value as a separate `args` element.
+
+The `egg-orch` commands below are the reference for what each operation
+does and stay available to human operators; agents invoke them through
+the structured tool.
+
 **Essential commands:**
 
 | Command | Purpose |
@@ -30,11 +50,13 @@ Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` ar
 
 **Related CLIs**: `egg-contract`, `egg-pipeline-watch`, `egg-checkpoint`
 
-## Prefer MCP tools over the CLI
+## MCP tool equivalents (`claude_agent_sdk` harness)
 
-Sandbox agents on the default harness should call the in-process MCP
-tools instead of shelling out — they share the same handler the CLI
-uses (drift-gate enforced) and avoid a subprocess + JSON parsing step.
+On the `claude_agent_sdk` harness the operations above are also exposed
+as in-process MCP tools, which share the same handler the CLI uses
+(drift-gate enforced). Prefer them for the reason in the callout above:
+free-text routed to the CLI through the `Bash` tool is mangled by the
+shell.
 
 BRC consensus + heartbeats:
 
