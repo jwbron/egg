@@ -70,9 +70,11 @@ class PipelineMode(StrEnum):
 
     Unlike ISSUE mode, the pipeline terminates after the selected phase
     reaches CONSENSUS_REACHED — no auto-advance through refine/plan/
-    implement. ``pr_number`` is accepted and enables per-role staging-branch
-    + head-move-guard semantics when supplied. The resolved role roster
-    is persisted on ``Pipeline.active_roles``. See #1762.
+    implement. ``pr_number`` is accepted and enables per-role staging
+    branches when supplied; the BRC consensus output stays on those
+    staging branches and is not pushed back to the PR head. The
+    resolved role roster is persisted on ``Pipeline.active_roles``.
+    See #1762.
     """
 
 
@@ -876,11 +878,12 @@ class Pipeline(BaseModel):
     pr_head_sha: str | None = Field(
         default=None,
         description="The PR head commit SHA captured at pipeline creation. "
-        "Used to namespace per-role staging branches "
+        "Used purely as a namespacing input for per-role staging branches "
         "(egg/custom-pr/{pr}/{short-sha}/{role}) and the BRC-history "
-        "identifier (pr-{pr}-{short-sha}). A subsequent remote HEAD move "
-        "invalidates the cycle because the stored SHA no longer matches "
-        "origin/<head_branch>.",
+        "identifier (pr-{pr}-{short-sha}); it is not an invalidation "
+        "signal. A subsequent remote HEAD move during the cycle does not "
+        "affect pipeline progression — the consensus output stays on the "
+        "staging branches regardless.",
     )
     active_roles: list[str] | None = Field(
         default=None,

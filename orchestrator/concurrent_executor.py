@@ -229,12 +229,15 @@ class ConcurrentPhaseExecutor:
         isolated from each other and from the PR's head branch, each
         producer is given a namespaced staging branch derived from the
         PR number, the PR head short-SHA, and the role
-        (``egg/custom-pr/{pr}/{short-sha}/{role}``).  This keeps commits
-        rebase-able onto the PR head and lets reviewers ACK/NACK each
-        role's staging branch independently before the final merge-and-push
-        to the PR head moves forward.  If the PR head SHA is not known at
-        call time, we fall back to the PR head branch so agents can still
-        operate against the live PR.
+        (``egg/custom-pr/{pr}/{short-sha}/{role}``).  Reviewers ACK/NACK
+        each role's staging branch independently; the staging branches
+        *are* the terminal state for the consensus diff. CUSTOM mode
+        terminates after the chosen phase reaches CONSENSUS_REACHED and
+        does not push a merge commit back to the PR head — the operator
+        retrieves the diff from the staging refs via ``git show`` and
+        applies it manually if desired. If the PR head SHA is not known
+        at call time, we fall back to the PR head branch so agents can
+        still operate against the live PR.
 
         Slice-aware mode (#2137): when ``slice_id`` is supplied, **every
         agent in the slice shares the slice's integration branch
