@@ -627,7 +627,10 @@ PIPELINE_TOOLS = [
             "resets its consensus state, and respawns it with the same configuration. "
             "The agent's worktree is preserved so committed work is retained. "
             "Works on pipelines in running, awaiting-human, failed, or cancelled "
-            "state (cancelled pipelines come from cancel_task with cleanup=false)."
+            "state (cancelled pipelines come from cancel_task with cleanup=false). "
+            "For a per-slice agent in a multi-slice implement phase, omit slice_id "
+            "to let the orchestrator derive it from the phase's agent records; if "
+            "the restart is rejected as ambiguous, re-issue with an explicit slice_id."
         ),
         "inputSchema": {
             "type": "object",
@@ -643,6 +646,16 @@ PIPELINE_TOOLS = [
                 "reason": {
                     "type": "string",
                     "description": "Reason for restarting the agent",
+                },
+                "slice_id": {
+                    "type": "string",
+                    "description": (
+                        "Slice scope (e.g. 'slice-2') for a per-slice agent in a "
+                        "multi-slice implement phase. Omit it and the orchestrator "
+                        "derives the slice from the phase's agent records when "
+                        "unambiguous; supply it explicitly when an omitted-slice "
+                        "restart is rejected with reason 'slice_id_required'."
+                    ),
                 },
             },
             "required": ["task_id", "agent_role"],
@@ -2517,6 +2530,13 @@ class PipelineToolHandler:
         data: dict[str, Any] = {}
         if args.get("reason"):
             data["reason"] = args["reason"]
+        # Forward ``slice_id`` so a per-slice agent restart targets the
+        # slice's Job, worktree, and BRC tracker (#2759). When omitted the
+        # route auto-derives it from the phase's agent records, but on an
+        # ambiguous restart the route rejects and asks for an explicit
+        # value — which is unreachable unless the MCP tool can carry it.
+        if args.get("slice_id"):
+            data["slice_id"] = args["slice_id"]
         try:
             result = self._make_request(
                 f"/api/v1/pipelines/{task_id}/agents/{agent_role}/restart",

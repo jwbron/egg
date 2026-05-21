@@ -201,9 +201,11 @@ The `restart_agent_container()` method requires the `mode` parameter (gateway ne
 | Method | How |
 |--------|-----|
 | **CLI** | `egg-orch agent restart <role> [--reason "..."]` |
-| **API** | `POST /api/v1/pipelines/{id}/agents/{role}/restart` with optional `{"reason": "..."}` body |
-| **MCP tool** | `restart_agent(task_id, agent_role, reason)` via the orchestrator MCP server |
+| **API** | `POST /api/v1/pipelines/{id}/agents/{role}/restart` with optional `{"reason": "...", "slice_id": "slice-N"}` body (`slice_id` also accepted as a query param) |
+| **MCP tool** | `restart_agent(task_id, agent_role, reason?, slice_id?)` via the orchestrator MCP server |
 | **Overseer** | Automatic — after consecutive heartbeat failures or unresponsive nudges (see below) |
+
+For a per-slice agent in a multi-slice implement phase, `slice_id` scopes the restart to the slice's Job, worktree, and BRC tracker. When omitted, the route derives it from the phase's agent records: if exactly one slice has a non-complete record for the role, that slice is used; if the choice is ambiguous the request is rejected with HTTP 400 reason `slice_id_required` and a `details` object listing `known_slices` / `restart_candidates`. This guards against a slice-mode restart silently spawning an unscoped agent — `EGG_SLICE_ID` unset — whose BRC signals route to the bare pipeline tracker instead of the slice's, wedging the slice's consensus ([#2759](https://github.com/jwbron/egg/issues/2759)).
 
 ### Worktree Preservation
 

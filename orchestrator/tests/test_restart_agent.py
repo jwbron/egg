@@ -1176,6 +1176,235 @@ class TestRestartAgentEndpointSliceScope:
 
 
 # ---------------------------------------------------------------------------
+# Issue #2759: omitted slice_id is derived from the phase's agent records
+# ---------------------------------------------------------------------------
+
+
+def _make_pipeline_with_slice_agents(role, slice_records, pipeline_id="issue-100"):
+    """Pipeline whose current phase carries per-slice ``AgentExecution`` records.
+
+    ``slice_records`` is a list of ``(slice_id, status)`` tuples — one per
+    slice that has run (or is running) ``role``. Exercises the #2759 slice
+    auto-derivation in ``restart_agent``.
+    """
+    pipeline = Pipeline(
+        id=pipeline_id,
+        issue_number=100,
+        repo="owner/repo",
+        branch="egg/issue-100/work",
+        status=PipelineStatus.RUNNING,
+        current_phase=PipelinePhase.IMPLEMENT,
+    )
+    pipeline.phases = {
+        "implement": PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[
+                AgentExecution(
+                    role=role,
+                    status=status,
+                    container_id=f"container-{sid}",
+                    slice_id=sid,
+                )
+                for sid, status in slice_records
+            ],
+        ),
+    }
+    return pipeline
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartAgentEndpointSliceDerivation:
+    """Omitted ``slice_id`` is derived from phase agent records (#2759).
+
+    A slice-mode restart that omits ``slice_id`` would otherwise spawn the
+    agent pipeline-level — ``EGG_SLICE_ID`` unset — so its BRC signals
+    route to the bare pipeline tracker instead of the slice's tracker and
+    the slice's consensus wedges with no message-bus recovery path.
+    """
+
+    @patch("egg_contracts.loader.load_contract")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_omitted_slice_id_derived_from_single_non_complete_record(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_load_contract, client
+    ):
+        """One non-complete slice record → its slice_id is derived and forwarded."""
+        from egg_contracts.models import Contract, Slice
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        # slice-1 finished cleanly; slice-2's reviewer crashed.
+        pipeline = _make_pipeline_with_slice_agents(
+            AgentRole.REVIEWER_CODE_HOLISTIC,
+            [
+                ("slice-1", AgentExecutionStatus.COMPLETE),
+                ("slice-2", AgentExecutionStatus.FAILED),
+            ],
+        )
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_load_contract.return_value = Contract(
+            pipeline_id="issue-100",
+            slices=[Slice(id="slice-1", name="First"), Slice(id="slice-2", name="Second")],
+        )
+
+        mock_spawner = MagicMock()
+        mock_spawner.restart_agent_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-2-reviewer_code_holistic",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.REVIEWER_CODE_HOLISTIC,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/reviewer_code_holistic/restart",
+            json={"reason": "container crashed"},
+        )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        # The crashed slice is derived: the spawner sets EGG_SLICE_ID from
+        # this and targets the slice integration branch, so the respawned
+        # agent rejoins slice-2's BRC tracker rather than the bare one.
+        assert restart_call.kwargs["slice_id"] == "slice-2"
+        assert restart_call.kwargs["branch"] == "egg/issue-100/slice-2"
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_omitted_slice_id_ambiguous_rejected(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """Multiple non-complete slice records → 400 with the candidate list."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_slice_agents(
+            AgentRole.REVIEWER_CODE_HOLISTIC,
+            [
+                ("slice-1", AgentExecutionStatus.COMPLETE),
+                ("slice-2", AgentExecutionStatus.FAILED),
+                ("slice-3", AgentExecutionStatus.RUNNING),
+            ],
+        )
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/reviewer_code_holistic/restart",
+            json={},
+        )
+
+        assert response.status_code == 400
+        body = response.get_json()
+        assert body["success"] is False
+        assert body["reason"] == "slice_id_required"
+        assert body["details"]["restart_candidates"] == ["slice-2", "slice-3"]
+        assert body["details"]["known_slices"] == ["slice-1", "slice-2", "slice-3"]
+        # Never silently spawn an unscoped agent on an ambiguous restart.
+        mock_spawner.restart_agent_container.assert_not_called()
+
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_omitted_slice_id_all_complete_rejected(
+        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    ):
+        """All slice records complete → 400 (no unambiguous restart target)."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_slice_agents(
+            AgentRole.REVIEWER_CODE_HOLISTIC,
+            [
+                ("slice-1", AgentExecutionStatus.COMPLETE),
+                ("slice-2", AgentExecutionStatus.COMPLETE),
+            ],
+        )
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/reviewer_code_holistic/restart",
+            json={},
+        )
+
+        assert response.status_code == 400
+        body = response.get_json()
+        assert body["reason"] == "slice_id_required"
+        assert body["details"]["restart_candidates"] == []
+        mock_spawner.restart_agent_container.assert_not_called()
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_explicit_slice_id_bypasses_derivation(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """An explicit slice_id wins even when records would derive otherwise.
+
+        Derivation runs only when ``slice_id`` is absent; an explicit
+        value (even one with no agent record) is forwarded as-is, so this
+        path does not regress the #2410 explicit-scope contract.
+        """
+        from egg_contracts.models import Contract, Slice
+
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_slice_agents(
+            AgentRole.REVIEWER_CODE_HOLISTIC,
+            [("slice-2", AgentExecutionStatus.FAILED)],
+        )
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.restart_agent_container.return_value = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-slice-1-reviewer_code_holistic",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.REVIEWER_CODE_HOLISTIC,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("egg_contracts.loader.load_contract") as mock_load_contract:
+            mock_load_contract.return_value = Contract(
+                pipeline_id="issue-100",
+                slices=[Slice(id="slice-1", name="First"), Slice(id="slice-2", name="Second")],
+            )
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/reviewer_code_holistic/restart?slice_id=slice-1",
+                json={},
+            )
+
+        assert response.status_code == 200
+        restart_call = mock_spawner.restart_agent_container.call_args
+        assert restart_call.kwargs["slice_id"] == "slice-1"
+
+
+# ---------------------------------------------------------------------------
 # Issue #2439: spawner ``base_branch`` matches the slice forest's parent edge
 # ---------------------------------------------------------------------------
 

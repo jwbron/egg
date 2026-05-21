@@ -2550,8 +2550,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         slice_id: Slice scope (``slice-<N>``). When supplied, the
             slice-scoped Job and worktree are restarted, ``EGG_SLICE_ID``
             is propagated to the new Job, and consensus reset targets
-            the per-slice tracker. Pipeline-level agents omit it.
-            ``slice_id`` may also be supplied via the JSON body.
+            the per-slice tracker. ``slice_id`` may also be supplied via
+            the JSON body. When omitted for a role that runs as a
+            per-slice agent, it is derived from the phase's agent records
+            (#2759): if exactly one slice has a non-complete record for
+            the role, that slice is used; otherwise the request is
+            rejected with the candidate list rather than spawning an
+            unscoped agent. Genuinely pipeline-level agents (no per-slice
+            records for the role) omit it.
 
     Request body (optional):
         {
@@ -2610,6 +2616,70 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         slice_id = extract_slice_id(slice_payload)
     except ValueError as e:
         return make_error_response(str(e), status_code=400)
+
+    # Slice auto-derivation (#2759). A slice-mode restart that omits
+    # ``slice_id`` would otherwise spawn the agent pipeline-level:
+    # ``EGG_SLICE_ID`` is set by the spawner only when ``slice_id`` is
+    # non-None, so the respawned agent's BRC signals route to the bare
+    # pipeline tracker instead of the slice's tracker. The slice's own
+    # tracker keeps the dead agent registered while the live one ACKs
+    # into the wrong tracker — the slice's consensus then wedges with no
+    # message-bus recovery path. Since ``restart_agent`` is the
+    # operator's normal tool for recovering a failed container, the
+    # omission must not silently produce an unscoped agent.
+    #
+    # When the role runs as a per-slice agent (it has slice-scoped
+    # records in the current phase), derive the slice: the k8s monitor
+    # marks a cleanly-exited agent COMPLETE and a crashed one FAILED, so
+    # a single non-COMPLETE record isolates the slice that needs the
+    # restart. If the choice is ambiguous — multiple non-COMPLETE
+    # records, or none at all — reject with the candidate list so the
+    # operator re-issues with an explicit ``slice_id``.
+    if slice_id is None:
+        derive_phase_exec = pipeline.phases.get(pipeline.current_phase.value)
+        if derive_phase_exec is not None:
+            role_records = [
+                a
+                for a in derive_phase_exec.agents
+                if hasattr(a, "role")
+                and (a.role == role or (hasattr(a.role, "value") and a.role.value == role.value))
+            ]
+            sliced_records = [a for a in role_records if getattr(a, "slice_id", None)]
+            if sliced_records:
+                known_slices = sorted({a.slice_id for a in sliced_records})
+                restart_candidates = sorted(
+                    {
+                        a.slice_id
+                        for a in sliced_records
+                        if a.status != AgentExecutionStatus.COMPLETE
+                    }
+                )
+                if len(restart_candidates) == 1:
+                    slice_id = restart_candidates[0]
+                    logger.info(
+                        "restart_agent: derived slice_id from phase agent records",
+                        pipeline_id=pipeline_id,
+                        agent_role=agent_role,
+                        slice_id=slice_id,
+                    )
+                else:
+                    detail = (
+                        "no slice has a non-complete agent record for this role"
+                        if not restart_candidates
+                        else f"{len(restart_candidates)} slices have a non-complete record"
+                    )
+                    return make_error_response(
+                        f"Agent role {agent_role!r} runs as a per-slice agent in "
+                        f"pipeline {pipeline_id}; restart_agent could not derive "
+                        f"slice_id ({detail}). Re-issue with an explicit slice_id.",
+                        status_code=400,
+                        details={
+                            "agent_role": agent_role,
+                            "known_slices": known_slices,
+                            "restart_candidates": restart_candidates,
+                        },
+                        reason="slice_id_required",
+                    )
 
     # Slice-existence check (#2421): a well-formed but unknown
     # ``slice_id`` would otherwise spawn an orphan Job + worktree
