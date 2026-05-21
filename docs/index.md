@@ -31,7 +31,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md) | The foundational work-review-feedback cycle that drives quality |
 | [Why egg Works](architecture/collaboration-effectiveness.md) | How the public, sandboxed, async model delivers safety and collaboration |
 | [Integration-Test Trust Boundary](architecture/integration-test-trust-boundary.md) | Test execution contexts (in-sandbox-agent / trusted-CI-runner / human-operator) and fixture tiers; authoritative reference for plan-phase Trust-Boundary Audit (#2594) |
-| [Claude Code Substrate](architecture/claude-code-substrate.md) | Substrate-swap walking-skeleton (#2623): four `Protocol`s (`AgentSpawner` / `MessageBus` / `PolicyEnforcer` / `WorktreeManager`) under `orchestrator/substrate/`, env-var-selected via `EGG_SUBSTRATE`, with Claude-Code-native implementations and an in-process orchestrator generator (`run_pipeline_in_process`) |
 
 ### Development
 

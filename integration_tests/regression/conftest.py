@@ -280,7 +280,7 @@ def lifecycle_secret() -> str | None:
             timeout=15,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):  # fmt: skip
+    except OSError, subprocess.TimeoutExpired:
         return None
     if result.returncode != 0 or not result.stdout:
         return None
@@ -290,7 +290,7 @@ def lifecycle_secret() -> str | None:
         # a ``\n`` inside ``f"Bearer {secret}"`` is rejected by
         # ``http.client.putheader``.
         return base64.b64decode(result.stdout).decode("utf-8").strip()
-    except (ValueError, UnicodeDecodeError):  # fmt: skip
+    except ValueError, UnicodeDecodeError:
         return None
 
 
@@ -588,60 +588,6 @@ def advisory_blocker_graph() -> ReviewGraph:
     )
 
 
-# ---------------------------------------------------------------------------
-# Substrate parametrization (#2623 — Claude Code substrate spike, slice-1)
-# ---------------------------------------------------------------------------
-#
-# The substrate fixture parametrizes a test across the two substrate
-# implementations: ``"k3s"`` (the existing k3s-native stack) and
-# ``"claude-code"`` (the in-process Claude Code substrate from #2623).
-# Both legs run pure-Python in-process — neither dimension shells out
-# to ``kubectl`` or spawns a real subagent. The k3s leg uses
-# ``K3sSpawnerAdapter`` with a mocked ``create_concurrent_spawn_fn``;
-# the claude-code leg uses ``ClaudeCodeSpawner`` with the Claude Code
-# Agent-tool dispatch monkey-patched (the parent session is what would
-# normally provide it).
-#
-# The claude-code dimension is skipped when running inside an
-# in-sandbox-agent trust context (``EGG_AGENT_ROLE`` set), because the
-# spike is for orchestrator-side execution, not for agents recursively
-# spawning agents. Pinned per task-1-8 acceptance criterion.
-
-
-def _in_sandbox_agent_context() -> bool:
-    """Return True when the test runner is itself an egg sandbox agent.
-
-    The orchestrator sets ``EGG_AGENT_ROLE`` on every spawned agent
-    container; tests running inside that context should skip the
-    claude-code substrate dimension because the in-process substrate is
-    only meant to run from the parent Claude Code session, not from a
-    sandboxed agent that's already been dispatched.
-    """
-    return bool(os.environ.get("EGG_AGENT_ROLE"))
-
-
-@pytest.fixture(params=["k3s", "claude-code"])
-def substrate(request: pytest.FixtureRequest) -> str:
-    """Parametrize a test over both substrate implementations.
-
-    Tests taking this fixture run twice (once per dimension). The
-    claude-code dimension is skipped inside an egg sandbox-agent trust
-    context (``EGG_AGENT_ROLE`` set) per task-1-8 acceptance criterion.
-
-    The fixture returns the substrate name string. The test body is
-    expected to call ``select_substrate({"EGG_SUBSTRATE": substrate})``
-    (from ``orchestrator/substrate/__init__.py``) to obtain the wired
-    bundle and exercise it.
-    """
-    if request.param == "claude-code" and _in_sandbox_agent_context():
-        pytest.skip(
-            "claude-code substrate dimension skipped inside an egg "
-            "sandbox-agent context (EGG_AGENT_ROLE set) — the in-process "
-            "substrate is for orchestrator-side execution only"
-        )
-    return request.param
-
-
 __all__ = [
     # HITL HTTP round-trip helpers (#2474, #2634).
     "deterministic_pipeline_id",
@@ -667,6 +613,4 @@ __all__ = [
     "filter_events",
     "single_reviewer_graph",
     "two_reviewer_graph",
-    # Substrate parametrization (#2623 slice-1).
-    "substrate",
 ]
