@@ -5378,7 +5378,7 @@ class TestDualRoleExecutionOrdering:
                 "dual-role agents (#2749)."
             )
 
-    def test_dual_role_banner_present_in_review_graph_fallback(self):
+    def test_dual_role_banner_present_in_review_graph_fallback(self, monkeypatch):
         """The hard-coded role-list fallback at the top of
         ``_build_brc_preamble`` (the ``except Exception`` branch
         protecting against ``review_graph`` import failure) must
@@ -5387,17 +5387,13 @@ class TestDualRoleExecutionOrdering:
         get the banner."""
         import review_graph
 
-        original = review_graph.get_review_graph_for_phase
-
         def _raise(*_args, **_kwargs):
             raise RuntimeError("simulated review_graph failure")
 
-        review_graph.get_review_graph_for_phase = _raise
-        try:
-            tester_preamble = _build_brc_preamble("tester", "implement")
-            coder_preamble = _build_brc_preamble("coder", "implement")
-        finally:
-            review_graph.get_review_graph_for_phase = original
+        monkeypatch.setattr(review_graph, "get_review_graph_for_phase", _raise)
+
+        tester_preamble = _build_brc_preamble("tester", "implement")
+        coder_preamble = _build_brc_preamble("coder", "implement")
 
         assert "### Dual-Role Execution Order" in tester_preamble, (
             "Fallback hard-coded role lists must still classify "
