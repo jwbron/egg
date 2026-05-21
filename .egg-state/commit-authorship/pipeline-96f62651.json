@@ -1,5 +1,12 @@
 {
   "entries": {
+    "003da2e2c52317d2309da141c86c2d74d39c33b3": {
+      "branch": "egg/pipeline-96f62651/work",
+      "pipeline_id": "pipeline-96f62651",
+      "registered_at": "2026-05-21T18:19:40.649048+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
+    },
     "049a3a2d69b0bfadeec7102b8e2a49951fec1ed4": {
       "branch": "egg/pipeline-96f62651/work",
       "pipeline_id": "pipeline-96f62651",
