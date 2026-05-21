@@ -422,6 +422,11 @@ egg-orch consensus confirmed
 
 # Check overall consensus status
 egg-orch consensus status
+
+# Scope to one slice's BRC consensus in a slice-DAG implement phase.
+# Per-slice agents inherit this from $EGG_SLICE_ID automatically;
+# without a slice scope only pipeline-level consensus is shown (#2761).
+egg-orch consensus status --slice-id slice-7
 ```
 
 **Exit-2 rejections (#2142):** `consensus propose` (re-propose), `consensus ack`, `consensus nack`, and `consensus confirmed` all return exit 2 with structured rejection details on the orchestrator-side concurrency-control paths. Producers see exit 2 + an `open_nacks_blocked` envelope on a re-propose attempt while ≥2 reviewers have NACKed the current version and the producer hasn't been informed of the full set yet — the response inlines every NACK so the producer can aggregate findings into one re-propose. Reviewers see exit 2 + a `stale_version` envelope when their ACK / NACK targets a superseded proposal — the response inlines the producer's current proposal snapshot so they can re-fetch and re-review without a separate status query. Both rejections are transient: act on the inlined details and retry. See [Concurrent Execution — BRC Protocol Flow](../guides/concurrent-execution.md#brc-protocol-flow) for the underlying race semantics.

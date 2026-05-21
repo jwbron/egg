@@ -222,6 +222,111 @@ class TestGetConcurrentStatusUnit:
         assert result["agents"][0]["status"] == "unknown"
 
 
+class TestGetConcurrentStatusSliceAware:
+    """_get_concurrent_status resolves the per-slice BRC tracker (#2761).
+
+    In a slice-DAG implement phase each slice runs its own consensus,
+    keyed ``{pipeline_id}/{slice_id}``. Before #2761 this function looked
+    up only the bare pipeline id, so it reported a misleading
+    cross-slice reconstruction instead of the slice's real tracker.
+    """
+
+    @staticmethod
+    def _brc_state():
+        return {
+            "is_complete": False,
+            "blocking_agents": ["coder"],
+            "agents": {"coder": {"producer_phase": "PROPOSED", "confirmed": False}},
+            "protocol": "brc",
+        }
+
+    def test_slice_id_routes_to_per_slice_tracker(self):
+        """A slice-scoped query looks up get_peer_consensus_tracker(pid, slice_id)."""
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-555")
+        slice_tracker = MagicMock()
+        slice_tracker.get_state.return_value = self._brc_state()
+
+        captured: list[tuple] = []
+
+        def fake_lookup(pid, slice_id=None):
+            captured.append((pid, slice_id))
+            return slice_tracker if slice_id == "slice-7" else None
+
+        with (
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("message_store.get_message_store") as mock_get_store,
+            patch("peer_consensus.get_peer_consensus_tracker", side_effect=fake_lookup),
+        ):
+            mock_store = MagicMock()
+            mock_store.get_status.return_value = {"total": 0, "by_type": {}}
+            mock_get_store.return_value = mock_store
+
+            result = _get_concurrent_status(pipeline, slice_id="slice-7")
+
+        assert ("issue-555", "slice-7") in captured
+        assert result["consensus"]["agents"]["coder"]["producer_phase"] == "PROPOSED"
+
+    def test_no_slice_id_does_not_surface_per_slice_tracker(self):
+        """A non-slice query must not report a per-slice tracker's state.
+
+        The per-slice tracker exists under ``{pid}/slice-7`` but a
+        ``slice_id=None`` lookup resolves the bare key only. Reconstruction
+        is then attempted pipeline-level (slice_id=None), so a slice-DAG
+        pipeline yields no consensus block rather than a fabricated one.
+        """
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-555")
+        slice_tracker = MagicMock()
+        slice_tracker.get_state.return_value = self._brc_state()
+
+        def fake_lookup(pid, slice_id=None):
+            return slice_tracker if slice_id == "slice-7" else None
+
+        with (
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("message_store.get_message_store") as mock_get_store,
+            patch("peer_consensus.get_peer_consensus_tracker", side_effect=fake_lookup),
+            patch(
+                "peer_consensus.reconstruct_tracker_from_messages", return_value=None
+            ) as mock_recon,
+            patch("consensus.get_consensus_evaluator", side_effect=ImportError("n/a")),
+        ):
+            mock_store = MagicMock()
+            mock_store.get_status.return_value = {"total": 0, "by_type": {}}
+            mock_get_store.return_value = mock_store
+
+            result = _get_concurrent_status(pipeline)
+
+        assert "consensus" not in result
+        # Reconstruction was scoped pipeline-level, never to a sibling slice.
+        _, recon_kwargs = mock_recon.call_args
+        assert recon_kwargs.get("slice_id") is None
+
+    def test_slice_query_with_no_tracker_skips_legacy_evaluator(self):
+        """A slice-scoped query with no BRC tracker reports no consensus.
+
+        It must not fall back to the legacy readiness evaluator — that
+        evaluator is pipeline-level only and would report sibling-slice
+        or stale pipeline-wide state.
+        """
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-555")
+
+        with (
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("message_store.get_message_store") as mock_get_store,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+            patch("peer_consensus.reconstruct_tracker_from_messages", return_value=None),
+            patch("consensus.get_consensus_evaluator") as mock_evaluator,
+        ):
+            mock_store = MagicMock()
+            mock_store.get_status.return_value = {"total": 0, "by_type": {}}
+            mock_get_store.return_value = mock_store
+
+            result = _get_concurrent_status(pipeline, slice_id="slice-7")
+
+        assert "consensus" not in result
+        mock_evaluator.assert_not_called()
+
+
 class TestPipelineStatusConcurrentEndpoint:
     """Tests for the pipeline status endpoint with concurrent data."""
 
@@ -329,6 +434,31 @@ class TestPipelineStatusConcurrentEndpoint:
         data = json.loads(resp.data)
 
         assert "consensus" not in data["data"]["concurrent"]
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_status_forwards_slice_id_query_param(self, mock_resolve, mock_repo_path, client):
+        """A ``?slice_id=`` query param is threaded into _get_concurrent_status (#2761)."""
+        pipeline = _make_concurrent_pipeline()
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        with patch("routes.pipelines._get_concurrent_status", return_value=None) as mock_gcs:
+            resp = client.get("/api/v1/pipelines/issue-999/status?slice_id=slice-7")
+
+        assert resp.status_code == 200
+        _, kwargs = mock_gcs.call_args
+        assert kwargs.get("slice_id") == "slice-7"
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_status_rejects_malformed_slice_id(self, mock_resolve, mock_repo_path, client):
+        """A malformed ``?slice_id=`` is rejected with 400, not silently ignored."""
+        pipeline = _make_concurrent_pipeline()
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        resp = client.get("/api/v1/pipelines/issue-999/status?slice_id=not-a-slice")
+
+        assert resp.status_code == 400
 
 
 def _make_pipeline_with_pr_artifact(pr_url: str | None) -> Pipeline:

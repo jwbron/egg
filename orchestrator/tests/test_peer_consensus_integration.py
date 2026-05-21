@@ -1846,7 +1846,14 @@ class _FakeMessage:
     """Minimal message object for reconstruction tests."""
 
     def __init__(
-        self, message_type, from_role, to_role="all", body="", metadata=None, timestamp=None
+        self,
+        message_type,
+        from_role,
+        to_role="all",
+        body="",
+        metadata=None,
+        timestamp=None,
+        phase=None,
     ):
         from datetime import UTC, datetime
 
@@ -1857,6 +1864,7 @@ class _FakeMessage:
         self.body = body
         self.metadata = metadata or {}
         self.timestamp = timestamp or datetime.now(UTC)
+        self.phase = phase
 
 
 class _FakeMessageStore:
@@ -2075,6 +2083,116 @@ class TestReconstructTrackerFromMessages:
         assert tracker is not None
         state = tracker.evaluate()
         assert state["agents"]["coder"]["producer_phase"] == "PROPOSED"
+
+
+class TestReconstructTrackerSliceAware:
+    """Slice-scoped reconstruction: replay is filtered by metadata slice_id / phase (#2761).
+
+    Before #2761, ``reconstruct_tracker_from_messages`` replayed every
+    consensus message under the bare pipeline id — for a slice-DAG
+    implement phase that mingled all slices into one tracker, so
+    ``egg-orch consensus status`` reported a meaningless cross-slice
+    state. Reconstruction now scopes the replay to a single slice.
+    """
+
+    _KEYS = ("recon-slice", "recon-slice/slice-1", "recon-slice/slice-7")
+
+    def setup_method(self):
+        with _trackers_lock:
+            for key in self._KEYS:
+                _trackers.pop(key, None)
+
+    def teardown_method(self):
+        with _trackers_lock:
+            for key in self._KEYS:
+                _trackers.pop(key, None)
+
+    @staticmethod
+    def _propose(role, *, slice_id=None, phase="implement", ts=None):
+        from datetime import UTC, datetime
+
+        metadata = {"payload": {"summary": f"work by {role}", "artifacts": ["a.py"]}}
+        if slice_id is not None:
+            metadata["slice_id"] = slice_id
+        return _FakeMessage(
+            "CONSENSUS_PROPOSE",
+            role,
+            "all",
+            metadata=metadata,
+            timestamp=ts or datetime.now(UTC),
+            phase=phase,
+        )
+
+    def test_slice_scoped_replay_isolates_slices(self, simple_graph):
+        """slice_id replays only that slice's messages, under the nested key."""
+        from datetime import UTC, datetime, timedelta
+
+        base = datetime.now(UTC)
+        # slice-1 has both producers proposing; slice-7 has only coder.
+        messages = [
+            self._propose("coder", slice_id="slice-1", ts=base),
+            self._propose("tester", slice_id="slice-1", ts=base + timedelta(seconds=1)),
+            self._propose("coder", slice_id="slice-7", ts=base + timedelta(seconds=2)),
+        ]
+        store = _FakeMessageStore(messages)
+
+        tracker = reconstruct_tracker_from_messages(
+            "recon-slice",
+            simple_graph,
+            message_store=store,
+            slice_id="slice-7",
+            phase="implement",
+        )
+
+        assert tracker is not None
+        state = tracker.evaluate()
+        # Only slice-7's coder proposed; slice-1's tester must not leak in.
+        assert state["agents"]["coder"]["producer_phase"] == "PROPOSED"
+        assert state["agents"]["tester"]["producer_phase"] == "WORKING"
+        # Registered under the nested {pipeline}/{slice} key, never the bare id.
+        with _trackers_lock:
+            assert "recon-slice/slice-7" in _trackers
+            assert "recon-slice" not in _trackers
+
+    def test_none_slice_skips_slice_tagged_messages(self, simple_graph):
+        """slice_id=None replays only pipeline-level messages; slice-tagged ones are skipped.
+
+        This is the "honest emptiness" guarantee — a slice-DAG pipeline
+        queried without a slice scope reconstructs nothing rather than a
+        fabricated cross-slice tracker.
+        """
+        messages = [
+            self._propose("coder", slice_id="slice-7"),
+            self._propose("tester", slice_id="slice-7"),
+        ]
+        store = _FakeMessageStore(messages)
+
+        tracker = reconstruct_tracker_from_messages(
+            "recon-slice",
+            simple_graph,
+            message_store=store,
+            slice_id=None,
+            phase="implement",
+        )
+
+        assert tracker is None
+        with _trackers_lock:
+            assert "recon-slice" not in _trackers
+
+    def test_phase_filter_excludes_other_phase_messages(self, simple_graph):
+        """A phase filter drops consensus messages from a different pipeline phase."""
+        messages = [self._propose("coder", slice_id="slice-7", phase="plan")]
+        store = _FakeMessageStore(messages)
+
+        tracker = reconstruct_tracker_from_messages(
+            "recon-slice",
+            simple_graph,
+            message_store=store,
+            slice_id="slice-7",
+            phase="implement",
+        )
+
+        assert tracker is None
 
 
 class TestACKGuardErrorMessage:

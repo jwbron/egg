@@ -3802,8 +3802,18 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             if pr_number is not None:
                 data["pr_number"] = pr_number
 
-        # Include concurrent execution monitoring when enabled
-        concurrent_data = _get_concurrent_status(pipeline)
+        # Include concurrent execution monitoring when enabled. An
+        # optional ``slice_id`` query param scopes the consensus block to
+        # one slice's BRC tracker in a slice-DAG implement phase (#2761);
+        # without it, only pipeline-level consensus is reported.
+        raw_slice_id = request.args.get("slice_id")
+        try:
+            status_slice_id = extract_slice_id(
+                {"slice_id": raw_slice_id} if raw_slice_id is not None else {}
+            )
+        except ValueError as e:
+            return make_error_response(str(e), status_code=400)
+        concurrent_data = _get_concurrent_status(pipeline, slice_id=status_slice_id)
         if concurrent_data:
             data["concurrent"] = concurrent_data
 
@@ -4233,7 +4243,7 @@ def _get_pr_info(pipeline: Pipeline) -> tuple[str | None, int | None]:
     return pr_url, pr_number
 
 
-def _get_concurrent_status(pipeline: Pipeline) -> dict | None:
+def _get_concurrent_status(pipeline: Pipeline, slice_id: str | None = None) -> dict | None:
     """Get concurrent execution monitoring data for a pipeline.
 
     Returns None if concurrent execution is not enabled for this pipeline.
@@ -4253,6 +4263,16 @@ def _get_concurrent_status(pipeline: Pipeline) -> dict | None:
 
     Dependencies on other concurrent-mode modules (message_store, consensus) are
     imported lazily and degrade gracefully to empty structures when unavailable.
+
+    ``slice_id``: in a slice-DAG implement phase each slice runs its own
+    BRC consensus, keyed ``{pipeline_id}/{slice_id}``. The bare pipeline
+    id has no tracker, so a non-slice lookup reported a misleading
+    cross-slice reconstruction (#2761). Callers querying a per-slice
+    agent's consensus must pass that agent's ``slice_id``; the consensus
+    block then reflects exactly that slice's tracker. When omitted, only
+    pipeline-level (non-slice) consensus is reported — a slice-DAG
+    pipeline queried without a slice yields no ``consensus`` block rather
+    than a fabricated one.
     """
     try:
         from concurrent_executor import is_concurrent_execution
@@ -4301,9 +4321,12 @@ def _get_concurrent_status(pipeline: Pipeline) -> dict | None:
         except ImportError:
             from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-        tracker = get_peer_consensus_tracker(pipeline.id)
+        tracker = get_peer_consensus_tracker(pipeline.id, slice_id)
         if not tracker:
-            # Attempt lazy reconstruction from message store for concurrent pipelines
+            # Attempt lazy reconstruction from message store for concurrent
+            # pipelines. ``slice_id`` scopes the replay to one slice's
+            # tracker; without it, only pipeline-level messages replay so a
+            # slice-DAG pipeline does not reconstruct cross-slice (#2761).
             try:
                 from review_graph import get_review_graph_for_phase
 
@@ -4318,7 +4341,12 @@ def _get_concurrent_status(pipeline: Pipeline) -> dict | None:
                     graph = get_review_graph_for_phase(
                         pipeline.current_phase.value, repo=pipeline.repo
                     )
-                    tracker = reconstruct_tracker_from_messages(pipeline.id, graph)
+                    tracker = reconstruct_tracker_from_messages(
+                        pipeline.id,
+                        graph,
+                        slice_id=slice_id,
+                        phase=pipeline.current_phase.value,
+                    )
             except ImportError:
                 pass  # Fall through to legacy evaluator
             except Exception as e:
@@ -4326,9 +4354,16 @@ def _get_concurrent_status(pipeline: Pipeline) -> dict | None:
                     "Tracker reconstruction failed",
                     error=str(e),
                     pipeline_id=pipeline.id,
+                    slice_id=slice_id,
                 )
         if tracker:
             consensus_state = tracker.get_state()
+        elif slice_id is not None:
+            # Slice-scoped query with no BRC tracker: the legacy readiness
+            # evaluator is pipeline-level only, so falling back to it would
+            # report sibling-slice (or stale pipeline-wide) state. Report
+            # no consensus block instead of a misleading one (#2761).
+            consensus_state = None
         else:
             try:
                 from consensus import get_consensus_evaluator

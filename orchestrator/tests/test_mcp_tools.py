@@ -407,6 +407,96 @@ class TestGetConsensusStatus:
         assert "note" in result["consensus"]
 
 
+class TestGetConsensusStatusSliceScope:
+    """get_consensus_status scopes to a slice's BRC consensus (#2761).
+
+    In a slice-DAG implement phase each slice runs its own consensus.
+    The tool must forward ``slice_id`` to the status endpoint and, on
+    the message-inference fallback, filter to that slice's messages —
+    otherwise an operator diagnosing a wedged slice sees a meaningless
+    cross-slice view.
+    """
+
+    def test_slice_id_forwarded_to_status_endpoint(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                {
+                    "data": {
+                        "concurrent": {
+                            "consensus": {
+                                "is_complete": False,
+                                "blocking_agents": [],
+                                "agents": {"coder": {"producer_phase": "PROPOSED"}},
+                            }
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call(
+                "get_consensus_status", {"task_id": "issue-42", "slice_id": "slice-7"}
+            )
+
+        status_endpoints = [
+            call.args[0] for call in mock_req.call_args_list if "/status" in call.args[0]
+        ]
+        assert status_endpoints == ["/api/v1/pipelines/issue-42/status?slice_id=slice-7"]
+        assert result["slice_id"] == "slice-7"
+
+    def test_message_fallback_filters_by_slice_id(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                # No structured consensus → message-inference fallback.
+                {"data": {}},
+                {
+                    "data": {
+                        "messages": [
+                            {
+                                "message_type": "CONSENSUS_PROPOSE",
+                                "from_role": "coder",
+                                "metadata": {"slice_id": "slice-7"},
+                            },
+                            {
+                                "message_type": "CONSENSUS_CONFIRMED",
+                                "from_role": "coder",
+                                "metadata": {"slice_id": "slice-7"},
+                            },
+                            # A sibling slice's message must not leak in.
+                            {
+                                "message_type": "CONSENSUS_PROPOSE",
+                                "from_role": "tester",
+                                "metadata": {"slice_id": "slice-1"},
+                            },
+                        ]
+                    }
+                },
+            ]
+            result = handler.handle_tool_call(
+                "get_consensus_status", {"task_id": "issue-42", "slice_id": "slice-7"}
+            )
+
+        consensus = result["consensus"]
+        assert consensus["confirmed_agents"] == ["coder"]
+        assert "tester" not in consensus["blocking_agents"]
+
+
 class TestInferConsensusFromMessages:
     def test_all_confirmed(self, handler):
         messages = [

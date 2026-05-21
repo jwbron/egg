@@ -1864,13 +1864,14 @@ def handle_consensus_confirmed_signal(
         _repo = None
 
         # Attempt reconstruction from message store before returning 404.
-        # Slice-scoped trackers are NOT reconstructed today: the message
-        # store keys messages by bare pipeline_id only, so a per-slice
-        # replay would mingle other slices' messages and reach false
-        # consensus. Tracked in #2409 (orchestrator-restart recovery for
-        # slice-scoped trackers; needs a slice_id field on Message and a
-        # filtered replay). For pipeline-level (slice_id is None) requests
-        # the existing replay path is unchanged.
+        # ``reconstruct_tracker_from_messages`` can now do a slice-scoped
+        # replay (it filters on ``metadata['slice_id']``; #2761), but the
+        # CONFIRMED handler still deliberately reconstructs only the
+        # pipeline-level (slice_id is None) tracker: accepting a CONFIRMED
+        # off a reconstructed slice tracker would complete consensus from
+        # replayed state, and the false-consensus review for that write
+        # path is tracked separately in #2409. For pipeline-level
+        # requests the existing replay path is unchanged.
         try:
             from peer_consensus import reconstruct_tracker_from_messages
             from review_graph import get_review_graph_for_phase

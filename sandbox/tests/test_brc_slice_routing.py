@@ -208,3 +208,77 @@ class TestSliceIdHelper:
 
         monkeypatch.setenv("EGG_SLICE_ID", "")
         assert get_slice_id() is None
+
+
+def _captured_endpoint(mock_request: Any) -> str:
+    assert mock_request.called, "orchestrator_request was not invoked"
+    return str(mock_request.call_args.args[0])
+
+
+_STATE_REQ = {"pipeline_id": "issue-2403"}
+
+
+class TestGetStateSliceScope:
+    """``brc_get_state`` scopes the /status read to the agent's slice (#2761).
+
+    A per-slice agent's BRC consensus lives in the per-slice tracker
+    ``{pipeline_id}/{slice_id}``. ``brc_get_state`` must forward the
+    slice scope to the status endpoint so ``mcp__brc__get_state`` /
+    ``egg-orch consensus status`` report the agent's own slice rather
+    than a pipeline-level (non-slice) reconstruction.
+    """
+
+    def test_get_state_appends_slice_id_from_env(self, monkeypatch):
+        from egg_agent_tools.handlers import brc as handlers
+
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-2")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"data": {}},
+        ) as mock_request:
+            resp = handlers.brc_get_state(dict(_STATE_REQ))
+
+        assert (
+            _captured_endpoint(mock_request)
+            == "/api/v1/pipelines/issue-2403/status?slice_id=slice-2"
+        )
+        assert resp["slice_id"] == "slice-2"
+
+    def test_get_state_omits_slice_id_when_env_unset(self, monkeypatch):
+        from egg_agent_tools.handlers import brc as handlers
+
+        monkeypatch.delenv("EGG_SLICE_ID", raising=False)
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"data": {}},
+        ) as mock_request:
+            resp = handlers.brc_get_state(dict(_STATE_REQ))
+
+        endpoint = _captured_endpoint(mock_request)
+        assert endpoint == "/api/v1/pipelines/issue-2403/status"
+        assert "?" not in endpoint
+        assert resp["slice_id"] is None
+
+    def test_get_state_req_slice_id_overrides_env(self, monkeypatch):
+        from egg_agent_tools.handlers import brc as handlers
+
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-9")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"data": {}},
+        ) as mock_request:
+            handlers.brc_get_state({**_STATE_REQ, "slice_id": "slice-3"})
+
+        assert "slice_id=slice-3" in _captured_endpoint(mock_request)
+
+    def test_get_state_rejects_malformed_slice_id(self, monkeypatch):
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import HandlerError
+
+        monkeypatch.setenv("EGG_SLICE_ID", "slice-2/../etc")
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"data": {}},
+        ):
+            with pytest.raises(HandlerError, match="slice_id"):
+                handlers.brc_get_state(dict(_STATE_REQ))
