@@ -407,6 +407,200 @@ class TestGetConsensusStatus:
         assert "note" in result["consensus"]
 
 
+class TestGetConsensusStatusSliceScope:
+    """get_consensus_status scopes to a slice's BRC consensus (#2761).
+
+    In a slice-DAG implement phase each slice runs its own consensus.
+    The tool must forward ``slice_id`` to the status endpoint and, on
+    the message-inference fallback, filter to that slice's messages —
+    otherwise an operator diagnosing a wedged slice sees a meaningless
+    cross-slice view.
+    """
+
+    def test_slice_id_forwarded_to_status_endpoint(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                {
+                    "data": {
+                        "concurrent": {
+                            "consensus": {
+                                "is_complete": False,
+                                "blocking_agents": [],
+                                "agents": {"coder": {"producer_phase": "PROPOSED"}},
+                            }
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call(
+                "get_consensus_status", {"task_id": "issue-42", "slice_id": "slice-7"}
+            )
+
+        status_endpoints = [
+            call.args[0] for call in mock_req.call_args_list if "/status" in call.args[0]
+        ]
+        assert status_endpoints == ["/api/v1/pipelines/issue-42/status?slice_id=slice-7"]
+        assert result["slice_id"] == "slice-7"
+
+    def test_message_fallback_filters_by_slice_id(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                # No structured consensus → message-inference fallback.
+                {"data": {}},
+                {
+                    "data": {
+                        "messages": [
+                            {
+                                "message_type": "CONSENSUS_PROPOSE",
+                                "from_role": "coder",
+                                "metadata": {"slice_id": "slice-7"},
+                            },
+                            {
+                                "message_type": "CONSENSUS_CONFIRMED",
+                                "from_role": "coder",
+                                "metadata": {"slice_id": "slice-7"},
+                            },
+                            # A sibling slice's message must not leak in.
+                            {
+                                "message_type": "CONSENSUS_PROPOSE",
+                                "from_role": "tester",
+                                "metadata": {"slice_id": "slice-1"},
+                            },
+                        ]
+                    }
+                },
+            ]
+            result = handler.handle_tool_call(
+                "get_consensus_status", {"task_id": "issue-42", "slice_id": "slice-7"}
+            )
+
+        consensus = result["consensus"]
+        assert consensus["confirmed_agents"] == ["coder"]
+        assert "tester" not in consensus["blocking_agents"]
+
+    def test_message_fallback_filters_when_slice_id_is_none(self, handler):
+        """slice_id=None on the fallback keeps only pipeline-level (untagged) messages.
+
+        Symmetric with ``reconstruct_tracker_from_messages`` — without
+        this filter a slice-DAG pipeline queried without a scope would
+        still get a cross-slice "soup" inference (review of #2764).
+        """
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                # No structured consensus → message-inference fallback.
+                {"data": {}},
+                {
+                    "data": {
+                        "messages": [
+                            # Pipeline-level (untagged) — must be kept.
+                            {
+                                "message_type": "CONSENSUS_PROPOSE",
+                                "from_role": "refiner",
+                                "metadata": {},
+                            },
+                            # Slice-tagged messages — must NOT bleed in.
+                            {
+                                "message_type": "CONSENSUS_CONFIRMED",
+                                "from_role": "coder",
+                                "metadata": {"slice_id": "slice-7"},
+                            },
+                            {
+                                "message_type": "CONSENSUS_PROPOSE",
+                                "from_role": "tester",
+                                "metadata": {"slice_id": "slice-1"},
+                            },
+                        ]
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-42"})
+
+        assert result["slice_id"] is None
+        consensus = result["consensus"]
+        # Only the pipeline-level refiner propose was inferred; no
+        # slice-tagged producer leaked in as confirmed or blocking.
+        assert "coder" not in consensus.get("confirmed_agents", [])
+        assert "tester" not in consensus.get("blocking_agents", [])
+
+    def test_slice_id_always_present_in_response(self, handler):
+        """``slice_id`` is always in the response (matches ``brc_get_state``).
+
+        The two tools' response shapes diverged before #2764 — this
+        tool only emitted ``slice_id`` when truthy, while
+        ``brc_get_state`` always emits ``slice_id: <value-or-None>``.
+        Callers that read ``resp["slice_id"]`` unconditionally
+        otherwise see KeyError vs. None depending on which tool they
+        hit (review of #2764).
+        """
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                {"data": {"concurrent": {}}},
+                {"data": {"messages": []}},
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-42"})
+
+        assert "slice_id" in result
+        assert result["slice_id"] is None
+
+    def test_malformed_slice_id_rejected_client_side(self, handler):
+        """A malformed ``slice_id`` surfaces as a clear error, not silent degradation.
+
+        Before #2764 the malformed value reached the status endpoint,
+        which 400'd; the bare ``except Exception`` then dropped
+        ``concurrent`` to ``{}`` and yielded a (slice-mingled)
+        inference. The validator surfaces the operator-facing error
+        before any orchestrator request (review of #2764). The MCP
+        dispatcher wraps the ``ValueError`` into ``{"error": ...}``
+        rather than propagating, so callers see the message in the
+        tool result.
+        """
+        with patch.object(handler, "_make_request") as mock_req:
+            result = handler.handle_tool_call(
+                "get_consensus_status",
+                {"task_id": "issue-42", "slice_id": "../etc/passwd"},
+            )
+        assert "error" in result
+        assert "slice_id" in result["error"]
+        # Validation fires before any orchestrator hit.
+        assert mock_req.call_count == 0
+
+
 class TestInferConsensusFromMessages:
     def test_all_confirmed(self, handler):
         messages = [

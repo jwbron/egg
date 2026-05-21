@@ -2793,8 +2793,16 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
 
     pid = require_pipeline_id(args)
 
+    # Scope to a slice when one is given (or inherited from $EGG_SLICE_ID
+    # inside a per-slice agent sandbox). In a slice-DAG implement phase
+    # each slice runs its own BRC consensus; querying without a slice
+    # scope reports only pipeline-level consensus (#2761).
+    req: dict[str, Any] = {"pipeline_id": pid}
+    if getattr(args, "slice_id", None):
+        req["slice_id"] = args.slice_id
+
     try:
-        resp = _handlers.brc_get_state({"pipeline_id": pid})
+        resp = _handlers.brc_get_state(req)
     except (GatewayError, HandlerError) as err:
         return _render_handler_error(err)
 
@@ -2804,9 +2812,16 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
         return 0
 
     if not consensus:
-        print("No consensus data available.")
+        scope = resp.get("slice_id")
+        if scope:
+            print(f"No consensus data available for {scope}.")
+        else:
+            print("No consensus data available.")
         return 0
 
+    scope = resp.get("slice_id")
+    if scope:
+        print(f"Slice: {scope}")
     is_complete = consensus.get("is_complete", False)
     print(f"Consensus complete: {is_complete}")
 
@@ -3596,6 +3611,17 @@ def create_parser() -> argparse.ArgumentParser:
     # consensus status
     cons_status = consensus_sub.add_parser("status", help="Show consensus status")
     cons_status.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    cons_status.add_argument(
+        "--slice-id",
+        dest="slice_id",
+        default=None,
+        help=(
+            "Slice to scope the consensus status to (e.g. 'slice-7'). In a "
+            "slice-DAG implement phase each slice runs its own BRC "
+            "consensus; without a slice scope only pipeline-level "
+            "consensus is shown. Defaults to $EGG_SLICE_ID."
+        ),
+    )
     _add_json_flag(cons_status)
     cons_status.set_defaults(func=cmd_consensus_status)
 

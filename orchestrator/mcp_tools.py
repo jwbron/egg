@@ -41,6 +41,15 @@ except ImportError:
         return logging.getLogger(name)
 
 
+# Canonical slice id shape (``slice-<N>``). Imported from the shared
+# validator so this seam stays in lockstep with the orchestrator-side
+# ``extract_slice_id`` regex and the sandbox-side ``resolve_slice_id``.
+try:
+    from slice_id_validation import SLICE_ID_PATTERN as _SLICE_ID_PATTERN
+except ImportError:
+    _SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
+
+
 logger = get_logger("orchestrator.mcp_tools")
 
 
@@ -345,7 +354,10 @@ PIPELINE_TOOLS = [
         "description": (
             "Get BRC consensus status for a pipeline. Shows which agents have "
             "proposed, ACKed, NACKed, or confirmed. Falls back to message-based "
-            "inference when structured consensus data is unavailable."
+            "inference when structured consensus data is unavailable. In a "
+            "slice-DAG implement phase each slice runs its own consensus — "
+            "pass slice_id to scope the result to one slice; without it, only "
+            "pipeline-level consensus is reported."
         ),
         "inputSchema": {
             "type": "object",
@@ -353,6 +365,13 @@ PIPELINE_TOOLS = [
                 "task_id": {
                     "type": "string",
                     "description": "Pipeline/task ID",
+                },
+                "slice_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional slice to scope consensus to (e.g. "
+                        "'slice-7') in a slice-DAG implement phase."
+                    ),
                 },
             },
             "required": ["task_id"],
@@ -1997,10 +2016,34 @@ class PipelineToolHandler:
         )
 
     def _handle_get_consensus_status(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Get consensus status for a pipeline's current phase."""
-        task_id = quote(args["task_id"], safe="")
+        """Get consensus status for a pipeline's current phase.
 
-        result: dict[str, Any] = {}
+        ``slice_id`` scopes the result to one slice's BRC consensus in a
+        slice-DAG implement phase — each slice runs its own consensus,
+        keyed ``{pipeline_id}/{slice_id}``. Without it, only
+        pipeline-level consensus is reported, and a slice-DAG pipeline
+        yields no consensus rather than a misleading cross-slice view
+        (#2761).
+        """
+        task_id = quote(args["task_id"], safe="")
+        raw_slice_id = args.get("slice_id") or None
+
+        # Validate ``slice_id`` client-side against the canonical
+        # ``slice-<N>`` shape so a malformed value yields a clear error
+        # instead of being swallowed by the bare ``except Exception``
+        # around ``_make_request`` and silently degraded into a (now
+        # slice-filtered) inference fallback. Matches the orchestrator's
+        # ``extract_slice_id`` regex and ``resolve_slice_id`` on the
+        # sandbox side; see review of #2764.
+        if raw_slice_id is not None and not _SLICE_ID_PATTERN.fullmatch(raw_slice_id):
+            raise ValueError(f"Invalid slice_id {raw_slice_id!r}: must match 'slice-<N>'")
+        slice_id = raw_slice_id
+
+        # Always include ``slice_id`` in the response (matches the
+        # ``brc_get_state`` handler's shape — callers that read
+        # ``resp["slice_id"]`` unconditionally see ``None`` rather than
+        # a missing key on a pipeline-level query).
+        result: dict[str, Any] = {"slice_id": slice_id}
 
         # Get pipeline base info
         pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
@@ -2010,8 +2053,11 @@ class PipelineToolHandler:
         result["status"] = pipeline_data.get("status", "")
 
         # Try to get structured consensus from status endpoint
+        status_endpoint = f"/api/v1/pipelines/{task_id}/status"
+        if slice_id:
+            status_endpoint += "?slice_id=" + quote(str(slice_id), safe="")
         try:
-            status_result = self._make_request(f"/api/v1/pipelines/{task_id}/status")
+            status_result = self._make_request(status_endpoint)
             concurrent = status_result.get("data", {}).get("concurrent", {})
         except Exception:
             concurrent = {}
@@ -2027,12 +2073,24 @@ class PipelineToolHandler:
                 "agents": consensus.get("agents", {}),
             }
         else:
-            # Fall back to message-based inference
+            # Fall back to message-based inference. Filter messages by
+            # the requested slice scope — symmetric with
+            # ``reconstruct_tracker_from_messages``: a non-None
+            # ``slice_id`` keeps only that slice's tagged messages, and
+            # ``slice_id is None`` keeps only pipeline-level (untagged)
+            # messages. Without the ``slice_id is None`` filter a
+            # slice-DAG pipeline queried without a scope would still
+            # mingle every slice's ``CONSENSUS_*`` into one inference —
+            # exactly the cross-slice "soup" the orchestrator-side fix
+            # is meant to eliminate (#2761).
             try:
                 messages_result = self._make_request(
                     f"/api/v1/pipelines/{task_id}/messages?limit=50"
                 )
                 messages = messages_result.get("data", {}).get("messages", [])
+                messages = [
+                    m for m in messages if (m.get("metadata") or {}).get("slice_id") == slice_id
+                ]
                 result["consensus"] = self._infer_consensus_from_messages(messages)
                 result["consensus"]["note"] = (
                     "Inferred from messages — structured consensus data not available"

@@ -606,16 +606,17 @@ class ConcurrentPhaseExecutor:
                 slice_id=self._slice_id,
             )
             # Attempt lazy reconstruction from message store — pipeline-
-            # scoped only. Slice-scoped reconstruction is unsafe today:
-            # CONSENSUS_* messages are persisted under the bare
-            # pipeline_id, so a per-slice replay would mingle siblings'
-            # messages and reach false consensus the moment a fresh
-            # slice spawns roles whose names match an already-confirmed
-            # prior slice. Per-slice trackers are stateless event
-            # consumers and are recreated by the slice scheduler on the
-            # next iteration; the pipeline run loop's empty-tracker
-            # iteration will simply observe is_complete=False, which is
-            # the correct answer for a brand-new slice (#2535).
+            # scoped only. ``reconstruct_tracker_from_messages`` can do a
+            # filtered per-slice replay (#2761), but completing consensus
+            # off a reconstructed slice tracker risks false consensus the
+            # moment a fresh slice spawns roles whose names match an
+            # already-confirmed prior slice. So this completion path
+            # still reconstructs only the pipeline-level tracker.
+            # Per-slice trackers are stateless event consumers and are
+            # recreated by the slice scheduler on the next iteration; the
+            # pipeline run loop's empty-tracker iteration will simply
+            # observe is_complete=False, which is the correct answer for
+            # a brand-new slice (#2535).
             if self._slice_id is None:
                 try:
                     from peer_consensus import reconstruct_tracker_from_messages

@@ -1903,11 +1903,26 @@ def remove_peer_consensus_tracker(pipeline_id: str, slice_id: str | None = None)
             tracker.clear()
 
 
+def _message_slice_id(message: Any) -> str | None:
+    """Return the ``slice_id`` a consensus message was tagged with, or ``None``.
+
+    Every ``CONSENSUS_*`` message written by a per-slice agent carries
+    ``slice_id`` in ``metadata`` (the ``_slice_meta`` spread in
+    ``orchestrator/routes/signals.py``); pipeline-level messages omit it.
+    Reconstruction reads it from there so a per-slice replay never
+    mingles sibling slices' messages into one tracker.
+    """
+    metadata = getattr(message, "metadata", None) or {}
+    return metadata.get("slice_id")
+
+
 def reconstruct_tracker_from_messages(
     pipeline_id: str,
     graph: ReviewGraph,
     *,
     message_store: Any = None,
+    slice_id: str | None = None,
+    phase: str | None = None,
 ) -> PeerConsensusTracker | None:
     """Reconstruct a consensus tracker by replaying messages from the message store.
 
@@ -1916,13 +1931,29 @@ def reconstruct_tracker_from_messages(
     WITHDRAW, and CONFIRMED messages in timestamp order to rebuild state.
 
     Args:
-        pipeline_id: Pipeline ID to reconstruct.
+        pipeline_id: Pipeline ID to reconstruct. Always the *bare* id — the
+            message store keys messages by bare pipeline_id regardless of
+            slice scope.
         graph: ReviewGraph for the pipeline's current phase.
         message_store: Optional message store override (for testing).
+        slice_id: When set, replay only messages tagged with this slice
+            (``metadata['slice_id']``) and register the tracker under the
+            nested ``{pipeline_id}/{slice_id}`` key. When ``None``, replay
+            only pipeline-level messages (those with no ``slice_id`` tag) —
+            so a slice-DAG pipeline queried without a slice scope does not
+            silently reconstruct a cross-slice tracker (#2761).
+        phase: When set, replay only messages from this pipeline phase.
+            Guards against replaying an earlier phase's consensus (e.g.
+            refine/plan) into the current phase's review graph. A
+            message with ``phase is None`` is treated as matching any
+            phase — symmetric with the CONSENSUS_CONFIRMED idempotency
+            probe in ``routes/signals.py`` (a null phase is the
+            conservative match: every emitter sets it, but if one
+            doesn't, include rather than drop).
 
     Returns:
         Reconstructed tracker registered in the global tracker dict,
-        or None if no consensus messages were found.
+        or None if no matching consensus messages were found.
     """
     if message_store is None:
         try:
@@ -1951,8 +1982,33 @@ def reconstruct_tracker_from_messages(
     }
     consensus_msgs = [m for m in messages if m.message_type in consensus_types]
 
+    # Scope the replay to the requested slice and phase. Without the
+    # slice filter a slice-DAG pipeline's messages — all keyed under the
+    # bare pipeline_id but tagged per-slice in metadata — would replay
+    # into one tracker and reach a meaningless cross-slice state (#2761).
+    #
+    # Null-phase semantics mirror the CONSENSUS_CONFIRMED idempotency
+    # probe in ``routes/signals.py`` (see comment at
+    # ``_handle_consensus_confirmed_idempotency_probe``): a message with
+    # ``phase is None`` is treated as matching any phase filter. In
+    # practice every CONSENSUS_* message that ``routes/signals.py``
+    # emits sets a phase, but if one somehow doesn't, the conservative
+    # choice is to *include* it rather than drop it — symmetric with the
+    # probe, where the divergence would otherwise let one path replay a
+    # null-phase message that the other path silently skipped.
+    consensus_msgs = [
+        m
+        for m in consensus_msgs
+        if _message_slice_id(m) == slice_id
+        and (
+            phase is None or getattr(m, "phase", None) is None or getattr(m, "phase", None) == phase
+        )
+    ]
+
     if not consensus_msgs:
         return None
+
+    tracker_key = _tracker_key(pipeline_id, slice_id)
 
     # Create tracker with relaxed attestation and no cooldown for replaying
     # historical messages. RELAXED mode is kept for the tracker's remaining
@@ -1962,7 +2018,7 @@ def reconstruct_tracker_from_messages(
     # graph structure (required reviewers, quorum), just not by attestation
     # signature checks.
     tracker = PeerConsensusTracker(
-        pipeline_id,
+        tracker_key,
         graph,
         attestation_strictness=AttestationStrictness.RELAXED,
         cooldown_seconds=0,
@@ -2093,19 +2149,23 @@ def reconstruct_tracker_from_messages(
             )
 
     # Register the reconstructed tracker globally, but avoid overwriting
-    # a tracker that was created by a concurrent reconstruction or live messages.
+    # a tracker that was created by a concurrent reconstruction or live
+    # messages. Slice-scoped trackers register under the nested
+    # ``{pipeline_id}/{slice_id}`` key so they never collide with the
+    # bare pipeline tracker or a sibling slice.
     with _trackers_lock:
-        if pipeline_id not in _trackers:
-            _trackers[pipeline_id] = tracker
+        if tracker_key not in _trackers:
+            _trackers[tracker_key] = tracker
             was_registered = True
         else:
-            tracker = _trackers[pipeline_id]
+            tracker = _trackers[tracker_key]
             was_registered = False
 
     if was_registered:
         logger.info(
             "Reconstructed consensus tracker from messages",
             pipeline_id=pipeline_id,
+            slice_id=slice_id,
             messages_replayed=len(consensus_msgs),
             confirmed_roles=sorted(tracker.confirmed_roles),
         )
@@ -2113,6 +2173,7 @@ def reconstruct_tracker_from_messages(
         logger.info(
             "Reconstruction discarded: tracker already exists",
             pipeline_id=pipeline_id,
+            slice_id=slice_id,
         )
 
     return tracker

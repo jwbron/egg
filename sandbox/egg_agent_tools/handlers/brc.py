@@ -9,6 +9,7 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from egg_agent_tools.handlers._gateway import (
     get_agent_role,
@@ -678,8 +679,18 @@ def brc_confirm(req: dict[str, Any]) -> dict[str, Any]:
 def brc_get_state(req: dict[str, Any]) -> dict[str, Any]:
     """Fetch the current BRC consensus state for the pipeline.
 
+    Slice-aware (#2761): in a slice-DAG implement phase each slice runs
+    its own BRC consensus, keyed ``{pipeline_id}/{slice_id}``. The
+    ``slice_id`` is read from the request or, by default, the
+    ``EGG_SLICE_ID`` env var the orchestrator sets on per-slice agents —
+    so a per-slice agent's ``mcp__brc__get_state`` / ``egg-orch
+    consensus status`` reflects *its own* slice's tracker rather than a
+    misleading pipeline-level reconstruction. Pipeline-level agents
+    leave it unset and see pipeline-level consensus.
+
     Request:
         pipeline_id: override.
+        slice_id: override; defaults to ``EGG_SLICE_ID``.
         verbose (bool): include the full orchestrator status payload.
 
     Response:
@@ -692,12 +703,17 @@ def brc_get_state(req: dict[str, Any]) -> dict[str, Any]:
     """
     pid = _require_pipeline_id(req)
     verbose = bool(req.get("verbose", False))
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
+    slice_id = resolve_slice_id(req)
+    endpoint = f"/api/v1/pipelines/{pid}/status"
+    if slice_id:
+        endpoint += "?" + urlencode({"slice_id": slice_id})
+    result = orchestrator_request(endpoint)
     data = result.get("data", {})
     consensus = data.get("concurrent", {}).get("consensus", {})
 
     response: dict[str, Any] = {
         "ok": True,
+        "slice_id": slice_id,
         "consensus": consensus,
         "is_complete": bool(consensus.get("is_complete", False)),
         "blocking_agents": list(consensus.get("blocking_agents", []) or []),
