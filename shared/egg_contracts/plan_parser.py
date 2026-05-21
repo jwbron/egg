@@ -684,7 +684,7 @@ def parse_phases_from_yaml(
         # Handle both numeric and string IDs
         try:
             phase_num = int(phase_id)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             # Try extracting number from string like "phase-1" or "slice-1"
             id_match = re.search(r"(\d+)", str(phase_id))
             if id_match:
