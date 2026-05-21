@@ -157,12 +157,12 @@ slices:
 > **Slices vs. phases (#2137)**: The plan parser accepts either `slices:`
 > (canonical, post-#2137) or `phases:` (legacy alias) at the top of the
 > `# yaml-tasks` block. New plans should emit `slices:` so they ingest as
-> the slice-DAG implement model expects. Within each slice,
-> `depends_on:` is accepted as a non-canonical alias for the schema-
-> canonical `dependencies:` key (#2743). When both keys are present the
-> canonical key wins and a validation warning is emitted; using
-> `depends_on:` alone is accepted without a warning. Use `dependencies:`
-> in new plans. Each slice is independently
+> the slice-DAG implement model expects. Within each slice, `depends_on:`
+> is accepted as a non-canonical alias for the schema-canonical
+> `dependencies:` key (#2743). When both keys are present the canonical
+> key wins and a validation warning is emitted; using `depends_on:` alone
+> is accepted without a warning. Use `dependencies:` in new plans. Each
+> slice is independently
 > implementable and gets its own integration branch, agent team, BRC
 > consensus, and PR. The slice DAG must be a **forest** — each slice has
 > at most one DAG parent. Multi-parent slices are rejected at plan
