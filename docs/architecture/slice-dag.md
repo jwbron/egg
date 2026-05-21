@@ -483,8 +483,8 @@ steps, pre-merge obligations) because it is the merge gate.
   the fallback is a presentational fix only.
 
 The `## Stack` block is the human-facing footer, but `_format_stack_block`
-also appends a legacy plain-text line (`Slice <slice-id> of pipeline
-<pipeline>. Stacked on top of \`<base>\`.`) after it, preserved so
+also appends a legacy plain-text line (``Slice <slice-id> of pipeline
+<pipeline>. Stacked on top of `<base>`.``) after it, preserved so
 existing tooling / scrapers that grep for that exact phrase keep
 working.
 
