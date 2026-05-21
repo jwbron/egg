@@ -101,38 +101,6 @@ async def run_agent_async(
     # lands the agent in the repo on its first tool call.  See #1993.
     resolved_cwd: str | None = str(cwd) if cwd else (os.environ.get("EGG_REPO_PATH") or None)
 
-    # --- Harness selection (opt-in via EGG_HARNESS env var) ---
-    harness = os.environ.get("EGG_HARNESS", "claude-sdk")
-    if harness == "egg":
-        logger.warning("Using egg harness (experimental). Check subscription terms.")
-
-        from egg_harness_integration.harness_factory import create_egg_harness
-
-        loop, event_bus, config = create_egg_harness(
-            model=model,
-            max_turns=max_turns or 200,
-            system_prompt=system_prompt,
-            cwd=resolved_cwd,
-            timeout=timeout,
-            on_output=on_output,
-            env=env,
-            intercept_tools=intercept_tools,
-        )
-
-        logger.info(
-            "Agent session init",
-            event_type="system",
-            event_subtype="init",
-            model=model,
-            sdk="egg_harness",
-        )
-
-        # system_prompt is already stored in the HarnessConfig (set by
-        # create_egg_harness).  Do not pass it again to loop.run() to
-        # avoid overriding the assembled prompt with None.
-        return await loop.run(prompt)  # type: ignore[return-value]
-
-    # --- Default: claude_agent_sdk path ---
     try:
         from claude_agent_sdk import (
             AssistantMessage,

@@ -192,27 +192,18 @@ says "the agent calls gateway route X" is fine; a task that says
 
 ## Scripted LLM trajectories
 
-`ScriptedProvider` lives at
-`shared/tests/test_egg_harness/test_integration.py:130`. It is a
-test double for the harness module — unit-test scope only. A
-`grep -rn ScriptedProvider sandbox/ k8s/ orchestrator/` returns
-zero hits, and that is the design.
+`ScriptedProvider` was a unit-test-only LLM provider double that
+lived in the `egg_harness` package; the package was removed when the
+custom-harness experiment ended. The trust-boundary point is
+unchanged: deployed agent pods always run the real provider, and no
+env var / ConfigMap / entrypoint flag swaps the LLM provider at pod
+runtime — swapping would require new infrastructure (track in a
+separate issue if needed; see #2585 for the related
+`TestCredentialIsolation` k3s rewrite).
 
-Tests that need canned LLM trajectories must pick **one** of:
-
-1. **In-process unit tests** against the orchestrator's Python API,
-   driving `ScriptedProvider` directly. This is the supported
-   path today.
-2. **Future: pod-level injection.** Swapping the LLM provider inside
-   a deployed pod requires a ConfigMap / env-var / entrypoint
-   contract that does not exist yet. Building that infrastructure
-   is in scope for a separate issue (see #2585 for the related
-   `TestCredentialIsolation` k3s rewrite); do not assume it in a
-   plan unless that issue has landed.
-
-A k3s integration test that "drives a refiner with
-`ScriptedProvider`" is a hard plan-phase NACK until option (2)
-exists.
+A k3s integration test that "drives a refiner with a scripted
+provider" is a hard plan-phase NACK until pod-level injection
+infrastructure lands.
 
 ## What plan-phase reviewers should do
 

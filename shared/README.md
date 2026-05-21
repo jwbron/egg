@@ -4,61 +4,11 @@ Reusable Python libraries shared between the gateway sidecar and sandbox contain
 
 ## Packages
 
-### [egg_harness](egg_harness/README.md)
-
-Custom coding harness for egg's agent runtime with multi-provider LLM support, context management, and session persistence. Designed as an extractable, self-contained package with no egg-specific imports.
-
-- **Provider-abstracted LLM client** — Anthropic (via SDK) and OpenAI-compatible endpoints (via httpx)
-- **8 standard tools** — Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch
-- **Core agent loop** — streaming, tool execution, turn limits, timeouts, SIGTERM graceful shutdown
-- **Context management** — token tracking, threshold-based compaction, loop protection
-- **Session persistence** — JSONL serialization for conversation resume across restarts
-- **Event system** — composable callbacks (on_output, on_tool_call, on_compaction, on_error, on_turn_complete)
-
-```python
-from egg_harness.client import run_agent, run_agent_async
-
-# Synchronous
-result = run_agent("Fix the authentication bug", model="opus", max_turns=200)
-print(f"Cost: ${result.cost_usd:.4f}, Turns: {result.num_turns}")
-
-# Async with streaming
-result = await run_agent_async(
-    prompt="Fix the bug",
-    model="opus",
-    max_turns=200,
-    on_output=lambda text: print(text, end=""),
-)
-```
-
-**CLI**: `python3 -m egg_harness --model opus --max-turns 200 "prompt"` (drop-in replacement for `python3 -m egg_agent`)
-
-See [egg_harness README](egg_harness/README.md) for full documentation and the [Custom Harness Architecture](../docs/architecture/custom-harness.md) for design decisions.
-
-### [egg_harness_integration](egg_harness_integration/README.md)
-
-Egg-specific integration layer that wires egg's tools, permissions, prompt assembly, and compaction into the core `egg_harness`.
-
-- **Egg-native tools** — EggOrch, EggContract, EggCheckpoint, GitOps, GhCli (shell out to CLIs)
-- **CLAUDE.md rule-merging** — replicates exact `setup_agent_rules()` behavior
-- **Role-based permissions** — wraps `egg_restrictions` for file access enforcement
-- **Anchor-based compaction** — persists state to agent anchors on compaction (#1032)
-- **Harness factory** — single entry point wiring all integrations together
-
-```python
-from egg_harness_integration.harness_factory import create_egg_harness
-
-loop = create_egg_harness(model="opus", max_turns=200)
-result = await loop.run("Fix the authentication bug")
-```
-
-**Harness selection** via `EGG_HARNESS` env var: `egg` (new harness), `claude-sdk` (default), `claude-code` (interactive CLI). See [egg_harness_integration README](egg_harness_integration/README.md) for details.
-
 ### egg_agent
 
-Claude Agent SDK wrapper for in-sandbox agent execution and orchestrator command building. Supports harness selection — routes to `egg_harness` when `EGG_HARNESS=egg`, otherwise uses the Claude Agent SDK (default).
+Claude Agent SDK wrapper for in-sandbox agent execution and orchestrator command building.
 
-- `run_agent()` / `run_agent_async()` — run a Claude agent in-process (routes via `EGG_HARNESS` setting)
+- `run_agent()` / `run_agent_async()` — run a Claude agent in-process
 - `build_agent_command()` — build the agent command list for orchestrator-spawned containers
 - `AgentResult` — dataclass with response text, success flag, and metadata (cost, turns, duration)
 
@@ -79,7 +29,7 @@ spawner.spawn_agent_container(..., command=cmd)
 ```
 
 **Files:**
-- `client.py` — `run_agent()`, `run_agent_async()` with harness selection routing
+- `client.py` — `run_agent()`, `run_agent_async()` in-process Agent SDK wrapper
 - `command.py` — `build_agent_command()` for orchestrator-spawned containers
 - `result.py` — `AgentResult` dataclass
 - `tool_interceptor.py` — pre-execution file write checks against role restrictions

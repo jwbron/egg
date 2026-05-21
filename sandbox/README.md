@@ -7,21 +7,9 @@ The untrusted container where the LLM agent runs with no credentials and restric
 The sandbox container provides a secure, isolated environment for the LLM agent. It includes:
 - Container entrypoint and lifecycle management
 - Git/gh wrappers that route all operations through the gateway sidecar
-- Multiple agent runtime options (Claude Code, Claude Agent SDK, or custom `egg_harness`)
+- Agent runtimes (Claude Code CLI for interactive sessions, Claude Agent SDK for headless execution via `python3 -m egg_agent`)
 - Interactive tools for agent use
 - Shared directories for communication with the host
-
-### Agent Runtimes
-
-The sandbox supports three agent runtime harnesses, selectable via the `EGG_HARNESS` environment variable:
-
-| Value | Runtime | Description |
-|-------|---------|-------------|
-| `claude-sdk` (default) | Claude Agent SDK | Headless agent execution via `python3 -m egg_agent` |
-| `claude-code` | Claude Code CLI | Interactive sessions via `claude --dangerously-skip-permissions` |
-| `egg` | Custom Harness | Multi-provider support, owned context management via `python3 -m egg_harness` |
-
-The custom `egg` harness (`shared/egg_harness/`) is a self-contained package supporting Anthropic and OpenAI-compatible providers, threshold-based context compaction, session persistence, and an event system. See the [Harness Configuration Guide](../docs/guides/harness-configuration.md) and [egg_harness README](../shared/egg_harness/README.md) for details.
 
 ## Directory Structure
 
@@ -216,5 +204,3 @@ See [Configuration README](../config/README.md#per-repo-build-commands-dependenc
 - [Claude Code Configuration](agent-config/README.md) - Agent rules and commands
 - [Gateway Sidecar](../gateway/README.md) - Policy enforcement gateway
 - [Architecture Overview](../docs/architecture/README.md) - System design
-- [Harness Configuration](../docs/guides/harness-configuration.md) - Agent runtime selection and configuration
-- [Custom Harness Architecture](../docs/architecture/custom-harness.md) - Harness design decisions and security model
