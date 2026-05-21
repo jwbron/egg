@@ -28,6 +28,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
     },
+    "675fd343b3016daff7c22e382230fcc9b335da24": {
+      "branch": "egg/pipeline-8b81ed32/slice-2",
+      "pipeline_id": "pipeline-8b81ed32",
+      "registered_at": "2026-05-21T05:39:12.941653+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "6b21f58accd05aa7315557b4da364a4ed8bc46b3": {
       "branch": "egg/pipeline-8b81ed32/slice-1",
       "pipeline_id": "pipeline-8b81ed32",
