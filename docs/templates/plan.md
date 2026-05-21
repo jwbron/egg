@@ -82,7 +82,7 @@ pr:
   #   history that approved each, and the agent transcripts —
   #   so reviewers approaching the slice stack can see the strategic
   #   narrative on a PR that targets the configured base branch.
-phases:
+slices:
   - id: 1
     name: |-
       [Phase Name]
@@ -159,9 +159,10 @@ phases:
 > `# yaml-tasks` block. New plans should emit `slices:` so they ingest as
 > the slice-DAG implement model expects. Within each slice,
 > `depends_on:` is accepted as a non-canonical alias for the schema-
-> canonical `dependencies:` key (#2743) — validation emits a warning and
-> the canonical key wins when both are present. Use `dependencies:` in
-> new plans. Each slice is independently
+> canonical `dependencies:` key (#2743). When both keys are present the
+> canonical key wins and a validation warning is emitted; using
+> `depends_on:` alone is accepted without a warning. Use `dependencies:`
+> in new plans. Each slice is independently
 > implementable and gets its own integration branch, agent team, BRC
 > consensus, and PR. The slice DAG must be a **forest** — each slice has
 > at most one DAG parent. Multi-parent slices are rejected at plan
