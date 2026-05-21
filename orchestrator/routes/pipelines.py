@@ -12362,7 +12362,8 @@ def _build_brc_preamble(
         "BRC lifecycle**.\n",
     ]
 
-    if is_producer and is_reviewer:
+    is_dual_role = is_producer and is_reviewer
+    if is_dual_role:
         role_type_desc = "PRODUCER and REVIEWER (dual role)"
     elif is_producer:
         role_type_desc = "PRODUCER"
@@ -12383,6 +12384,53 @@ def _build_brc_preamble(
         roster = _build_agent_roster(all_roles, role_value, phase)
         if roster:
             lines.append(roster)
+
+    # Dual-role ordering banner (#2749). A dual-role agent (today: only
+    # TESTER in the implement graph) receives both the Producer and
+    # Reviewer Lifecycle blocks below. Without an explicit ordering
+    # constraint, agents observed in pipelines f4c7d780 / 8b81ed32
+    # entered the reviewer-style ``wait-loop --for CONSENSUS_PROPOSE``
+    # BEFORE issuing their own producer PROPOSE — self-blocking the BRC
+    # round for 8–20 minutes per slice until they eventually proposed.
+    # The fix is two-pronged: (1) state the execution order up-front so
+    # the agent does not improvise it, and (2) augment the producer
+    # pre-confirm + STAY ALIVE waits (steps 4 and 6 below) to also wake
+    # on ``CONSENSUS_PROPOSE`` so the dual-role agent does not need a
+    # second wait-loop for its reviewer POLL after it has proposed.
+    if is_dual_role:
+        lines.append(
+            "### Dual-Role Execution Order (READ FIRST — #2749)\n\n"
+            "You are both PRODUCER and REVIEWER. **The BRC round cannot "
+            "close until every producer (including you) has issued "
+            "`mcp__brc__propose` / `egg-orch consensus propose`.** If you "
+            "enter a reviewer-style `wait-loop --for CONSENSUS_PROPOSE` "
+            "before you have proposed your own work, you self-block the "
+            "round: peer producers waiting for your version sit idle, "
+            "your own reviewers have no version to ACK, and the slice "
+            "burns wall-clock until the overseer escalates.\n\n"
+            "**Execute the lifecycles in this strict order:**\n\n"
+            "1. **Producer steps 1–3 (ORIENT → WORK → PROPOSE) come "
+            "FIRST.** While you are doing them, you may *opportunistically* "
+            "do the Reviewer Lifecycle's `1. PREPARE` work — read the "
+            "contract, scan the upstream producer's commits as they "
+            "land on the branch, draft scaffolding — but **do NOT call "
+            "`egg-orch message wait-loop --for CONSENSUS_PROPOSE` as your "
+            "scheduling primitive.** Your propose-ready iteration starts "
+            "at the upstream producer's first commit, not their first "
+            "propose.\n"
+            "2. **After your PROPOSE**, your producer pre-confirm wait "
+            "(step 4) and STAY ALIVE wait (step 6) are **augmented to "
+            "also wake on `CONSENSUS_PROPOSE`** (see the filters in "
+            "those steps). That augmented wait IS your reviewer POLL "
+            "— you do NOT issue a second `wait-loop` for the reviewer "
+            "POLL step. When a `CONSENSUS_PROPOSE` arrives, fall "
+            "through to Reviewer Lifecycle step 3 (SYNC) → step 5 "
+            "(ACK/NACK), then re-enter the same producer wait.\n"
+            "3. **Re-reviews (`CONSENSUS_RE_REVIEW`) and terminal "
+            "events (`CONSENSUS_CONFIRMED`)** continue to land on the "
+            "same waits — the augmented filter is a strict superset of "
+            "the pure-producer filter.\n"
+        )
 
     if is_producer:
         producer_lifecycle: list[str] = ["### Producer Lifecycle"]
@@ -12462,9 +12510,21 @@ def _build_brc_preamble(
                 "built, what was tested, and which contract tasks it satisfies. "
                 "Boilerplate like 'looks good' or 'approved' will be rejected.",
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers with "
-                "`egg-orch message wait-loop --for CONSENSUS_ACK "
-                "--for CONSENSUS_NACK --for CONSENSUS_RE_REVIEW "
-                "--for STATUS --for OVERSEER_ALERT`. Do **not** include "
+                + (
+                    "`egg-orch message wait-loop --for CONSENSUS_ACK "
+                    "--for CONSENSUS_NACK --for CONSENSUS_PROPOSE "
+                    "--for CONSENSUS_RE_REVIEW --for STATUS "
+                    "--for OVERSEER_ALERT` (the `CONSENSUS_PROPOSE` "
+                    "entry is the dual-role augmentation from #2749 — "
+                    "see the *Dual-Role Execution Order* banner above; "
+                    "it folds your reviewer POLL into this wait so you "
+                    "do not issue a second `wait-loop`)."
+                    if is_dual_role
+                    else "`egg-orch message wait-loop --for CONSENSUS_ACK "
+                    "--for CONSENSUS_NACK --for CONSENSUS_RE_REVIEW "
+                    "--for STATUS --for OVERSEER_ALERT`."
+                )
+                + " Do **not** include "
                 "`CONSENSUS_CONFIRMED` in this pre-confirm wait — your own "
                 "confirm is part of what generates that signal, so the "
                 "orchestrator rejects the wait with HTTP 400 "
@@ -12517,9 +12577,19 @@ def _build_brc_preamble(
                 "is real, fix it and re-propose rather than arguing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Block on the next BRC event with "
-                "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
-                "--for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT "
-                "--timeout 60` until the orchestrator stops you. "
+                + (
+                    "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
+                    "--for CONSENSUS_PROPOSE --for CONSENSUS_RE_REVIEW "
+                    "--for OVERSEER_ALERT --timeout 60` (the "
+                    "`CONSENSUS_PROPOSE` entry is the dual-role "
+                    "augmentation from #2749 so peer producer proposals "
+                    "still wake you for review after you have confirmed) "
+                    if is_dual_role
+                    else "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
+                    "--for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT "
+                    "--timeout 60` "
+                )
+                + "until the orchestrator stops you. "
                 "**Don't** wrap this in a shell `for i in 1..N` loop; "
                 "**don't** prefix it with `sleep N`.  The wait-loop "
                 "blocks server-side and returns the moment a NEW BRC "
@@ -12579,26 +12649,40 @@ def _build_brc_preamble(
                     mode=mode,
                     pr_number=pr_number,
                 ),
-                "2. **POLL**: Block on `CONSENSUS_PROPOSE` from assigned producers "
-                "with `egg-orch message wait-loop --for CONSENSUS_PROPOSE`.  "
-                "`wait-loop` blocks server-side and returns exit 0 the moment "
-                "a proposal arrives (stdout has it); exit 1 means a permanent "
-                "error (surface it — do NOT retry).  It re-issues the inner "
-                "long-poll internally so timeouts never surface to you.  "
-                "**Re-enter the same command** after each ACK/NACK to wait "
-                "for the next producer's proposal — cursor threading across "
-                "these re-entries is automatic (issue #2323): the CLI "
-                "persists the response cursor under "
-                "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* "
-                "so a proposal "
-                "that lands in the gap between your previous wait returning "
-                "and the next one entering is still delivered.  Do NOT "
-                "wrap this in a shell `for` loop, do NOT `sleep N`, and "
-                "do NOT use bare `egg-orch message wait` here — a bare "
-                "`wait` exits 1 on each timeout which the tool surface "
-                "renders as an error and invites a tight retry loop "
-                "(issue #1943).  Finish your preparation work from "
-                "step 1 before entering the wait-loop.",
+                "2. **POLL**: "
+                + (
+                    "**For dual-role agents (you), this step folds into "
+                    "Producer Lifecycle step 4 / step 6 — those waits "
+                    "already include `--for CONSENSUS_PROPOSE` per #2749. "
+                    "Do NOT issue a separate `wait-loop --for "
+                    "CONSENSUS_PROPOSE` before your own PROPOSE; that "
+                    "would self-block the BRC round (see the "
+                    "*Dual-Role Execution Order* banner above).** When "
+                    "your producer wait returns with a `CONSENSUS_PROPOSE` "
+                    "event, fall through to step 3 (SYNC) and step 5 "
+                    "(ACK/NACK) here, then re-enter the producer wait."
+                    if is_dual_role
+                    else "Block on `CONSENSUS_PROPOSE` from assigned producers "
+                    "with `egg-orch message wait-loop --for CONSENSUS_PROPOSE`.  "
+                    "`wait-loop` blocks server-side and returns exit 0 the moment "
+                    "a proposal arrives (stdout has it); exit 1 means a permanent "
+                    "error (surface it — do NOT retry).  It re-issues the inner "
+                    "long-poll internally so timeouts never surface to you.  "
+                    "**Re-enter the same command** after each ACK/NACK to wait "
+                    "for the next producer's proposal — cursor threading across "
+                    "these re-entries is automatic (issue #2323): the CLI "
+                    "persists the response cursor under "
+                    "/tmp/egg-wait-cursor-${EGG_PIPELINE_ID}-${EGG_AGENT_ROLE}-* "
+                    "so a proposal "
+                    "that lands in the gap between your previous wait returning "
+                    "and the next one entering is still delivered.  Do NOT "
+                    "wrap this in a shell `for` loop, do NOT `sleep N`, and "
+                    "do NOT use bare `egg-orch message wait` here — a bare "
+                    "`wait` exits 1 on each timeout which the tool surface "
+                    "renders as an error and invites a tight retry loop "
+                    "(issue #1943).  Finish your preparation work from "
+                    "step 1 before entering the wait-loop."
+                ),
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge "
                 + _resolve_origin_ref(branch or base_branch)

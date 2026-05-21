@@ -5061,6 +5061,173 @@ class TestDirectedCoordinationGuidance:
         assert "supplementary" in preamble or "consensus" in preamble.lower()
 
 
+class TestDualRoleExecutionOrdering:
+    """#2749 — dual-role agents (TESTER) must be told to PROPOSE before
+    entering any reviewer wait on ``CONSENSUS_PROPOSE``.
+
+    Background: across pipelines ``f4c7d780`` and ``8b81ed32`` the
+    dual-role tester repeatedly entered a reviewer-style
+    ``wait-loop --for CONSENSUS_PROPOSE`` before issuing its own
+    ``mcp__brc__propose``. The BRC round cannot close until every
+    producer has proposed, so the round burned 8–20 minutes per
+    slice until the tester eventually proposed. The fix is two
+    pieces of prompt scaffolding:
+
+    1. An explicit *Dual-Role Execution Order* banner BEFORE the
+       lifecycles stating the structural constraint and the strict
+       order (Producer 1–3 first, reviewer wait folds into producer
+       step 4 / step 6 afterwards).
+    2. ``CONSENSUS_PROPOSE`` added to the producer pre-confirm wait
+       (step 4) and STAY ALIVE wait (step 6) for dual-role agents
+       so the reviewer POLL collapses into the producer wait — the
+       agent never has to issue a second ``wait-loop``.
+
+    These tests pin both pieces on the dual-role roles and verify the
+    pure-producer / pure-reviewer waits are untouched.
+    """
+
+    def test_dual_role_banner_present_for_tester(self):
+        preamble = _build_brc_preamble("tester", "implement")
+        assert "### Dual-Role Execution Order" in preamble
+        assert "#2749" in preamble
+
+    def test_dual_role_banner_states_propose_first(self):
+        preamble = _build_brc_preamble("tester", "implement")
+        banner_start = preamble.index("### Dual-Role Execution Order")
+        # Banner ends at the Producer Lifecycle header — that's the
+        # next ``### `` heading we emit.
+        banner_end = preamble.index("### Producer Lifecycle", banner_start)
+        banner = preamble[banner_start:banner_end]
+        # Must call out the structural constraint by name.
+        assert "BRC round cannot close" in banner
+        # Must give the explicit ordering directive.
+        assert "ORIENT" in banner and "PROPOSE" in banner
+        # Must forbid the failure mode the issue documented.
+        assert "wait-loop --for CONSENSUS_PROPOSE" in banner
+        assert "self-block" in banner
+
+    def test_dual_role_banner_appears_before_producer_lifecycle(self):
+        preamble = _build_brc_preamble("tester", "implement")
+        banner_pos = preamble.index("### Dual-Role Execution Order")
+        producer_pos = preamble.index("### Producer Lifecycle")
+        reviewer_pos = preamble.index("### Reviewer Lifecycle")
+        assert banner_pos < producer_pos, (
+            "Dual-Role banner must come BEFORE Producer Lifecycle so "
+            "the agent reads the ordering constraint first."
+        )
+        assert banner_pos < reviewer_pos
+
+    def test_dual_role_banner_absent_for_pure_producer(self):
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "### Dual-Role Execution Order" not in preamble
+
+    def test_dual_role_banner_absent_for_pure_reviewer(self):
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "### Dual-Role Execution Order" not in preamble
+
+    def test_dual_role_pre_confirm_wait_includes_consensus_propose(self):
+        """Producer step 4 wait for a dual-role agent must include
+        ``--for CONSENSUS_PROPOSE`` so peer producer proposals wake
+        it without a second wait-loop."""
+        preamble = _build_brc_preamble("tester", "implement")
+        respond_start = preamble.index("**RESPOND TO REVIEWS**")
+        respond_end = preamble.index("**CONFIRM**", respond_start)
+        respond_block = preamble[respond_start:respond_end]
+        assert "--for CONSENSUS_PROPOSE" in respond_block, (
+            "Dual-role producer pre-confirm wait must include "
+            "`--for CONSENSUS_PROPOSE` (#2749) so the tester wakes "
+            "on peer proposals without a separate reviewer wait-loop."
+        )
+        # Other pre-confirm entries must still be there.
+        for required in (
+            "--for CONSENSUS_ACK",
+            "--for CONSENSUS_NACK",
+            "--for CONSENSUS_RE_REVIEW",
+            "--for STATUS",
+            "--for OVERSEER_ALERT",
+        ):
+            assert required in respond_block
+        # CONSENSUS_CONFIRMED still excluded (#2064).
+        assert "--for CONSENSUS_CONFIRMED" not in respond_block
+
+    def test_pure_producer_pre_confirm_wait_excludes_consensus_propose(self):
+        """Pure producers (coder, documenter) must NOT have
+        ``--for CONSENSUS_PROPOSE`` in their pre-confirm wait — the
+        augmentation is specific to dual-role agents."""
+        for role in ("coder", "documenter"):
+            preamble = _build_brc_preamble(role, "implement")
+            respond_start = preamble.index("**RESPOND TO REVIEWS**")
+            respond_end = preamble.index("**CONFIRM**", respond_start)
+            respond_block = preamble[respond_start:respond_end]
+            assert "--for CONSENSUS_PROPOSE" not in respond_block, (
+                f"Pure producer {role!r} pre-confirm wait must NOT "
+                "include `--for CONSENSUS_PROPOSE` — it is dual-role "
+                "specific (#2749)."
+            )
+
+    def test_dual_role_stay_alive_wait_includes_consensus_propose(self):
+        """Producer step 6 STAY ALIVE wait for a dual-role agent must
+        include ``--for CONSENSUS_PROPOSE`` so it keeps reviewing peer
+        producer re-proposes after its own confirm."""
+        preamble = _build_brc_preamble("tester", "implement")
+        # The producer-lifecycle STAY ALIVE block is between ``**STAY
+        # ALIVE**`` and the next producer-lifecycle step ``**HANDLE
+        # RE-REVIEW**``. (The reviewer lifecycle has its own STAY
+        # ALIVE block later but the producer lifecycle is emitted
+        # first.)
+        sa_start = preamble.index("**STAY ALIVE**")
+        sa_end = preamble.index("**HANDLE RE-REVIEW**", sa_start)
+        sa_block = preamble[sa_start:sa_end]
+        assert "--for CONSENSUS_PROPOSE" in sa_block, (
+            "Dual-role producer STAY ALIVE wait must include "
+            "`--for CONSENSUS_PROPOSE` (#2749) so peer re-proposes "
+            "still wake the tester after its own confirm."
+        )
+
+    def test_pure_producer_stay_alive_wait_excludes_consensus_propose(self):
+        """Pure producer STAY ALIVE wait must NOT include
+        ``--for CONSENSUS_PROPOSE`` — coders/documenters never
+        review and have nothing to wake up for on peer proposals."""
+        for role in ("coder", "documenter"):
+            preamble = _build_brc_preamble(role, "implement")
+            sa_start = preamble.index("**STAY ALIVE**")
+            sa_end = preamble.index("**HANDLE RE-REVIEW**", sa_start)
+            sa_block = preamble[sa_start:sa_end]
+            assert "--for CONSENSUS_PROPOSE" not in sa_block, (
+                f"Pure producer {role!r} STAY ALIVE wait must NOT "
+                "include `--for CONSENSUS_PROPOSE` — the role does "
+                "not review, so peer proposals are not relevant."
+            )
+
+    def test_dual_role_reviewer_poll_redirects_to_producer_wait(self):
+        """Reviewer Lifecycle step 2 POLL for a dual-role agent must
+        tell the agent that the reviewer POLL collapses into the
+        producer pre-confirm / STAY ALIVE wait — and explicitly
+        forbid issuing a separate ``wait-loop --for CONSENSUS_PROPOSE``
+        before the producer has proposed (the #2749 failure mode)."""
+        preamble = _build_brc_preamble("tester", "implement")
+        # POLL spans from the reviewer-lifecycle ``**POLL**`` header
+        # to ``**SYNC**``. The producer lifecycle has no POLL step,
+        # so a single ``.index("**POLL**")`` resolves to the
+        # reviewer-lifecycle one.
+        poll_start = preamble.index("**POLL**")
+        poll_end = preamble.index("**SYNC**", poll_start)
+        poll_block = preamble[poll_start:poll_end]
+        assert "Producer Lifecycle step 4" in poll_block
+        assert "Do NOT issue a separate" in poll_block
+
+    def test_pure_reviewer_poll_unchanged(self):
+        """Pure-reviewer (e.g. ``reviewer_code``) still issues the
+        canonical ``wait-loop --for CONSENSUS_PROPOSE`` — the dual-role
+        redirect must not leak into pure-reviewer prompts."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        poll_start = preamble.index("**POLL**")
+        poll_end = preamble.index("**SYNC**", poll_start)
+        poll_block = preamble[poll_start:poll_end]
+        assert "egg-orch message wait-loop --for CONSENSUS_PROPOSE" in poll_block
+        assert "Producer Lifecycle step 4" not in poll_block
+
+
 # ---------------------------------------------------------------------------
 # #2527 — plan reviewer's task role↔files alignment check
 # ---------------------------------------------------------------------------
