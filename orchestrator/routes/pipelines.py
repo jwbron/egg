@@ -20488,7 +20488,7 @@ def _run_pipeline(
             # and any auxiliary callers agree on the canonical rule.
             #
             # Note: ``EGG_PIPELINE_MODE`` is already taken (PipelineMode:
-            # 'issue' / 'custom' — set above at L19349).
+            # 'issue' — set above at L19349).
             # ``EGG_EPIC_MODE`` is the orthogonal Jira-epic dimension.
             try:
                 from prompt_loader import derive_pipeline_mode
