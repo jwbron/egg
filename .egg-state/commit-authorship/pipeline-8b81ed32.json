@@ -161,6 +161,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
     },
+    "51bc5b352f76dcf6b36ebf716bd127d9073568c6": {
+      "branch": "egg/pipeline-8b81ed32/slice-7",
+      "pipeline_id": "pipeline-8b81ed32",
+      "registered_at": "2026-05-21T09:13:14.244335+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
+    },
     "584b4fa3508ba7d957ddedada2624e1a0d60f623": {
       "branch": "egg/pipeline-8b81ed32/slice-6",
       "pipeline_id": "pipeline-8b81ed32",
@@ -244,6 +251,13 @@
       "registered_at": "2026-05-21T06:32:25.490416+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
+    },
+    "a19363b89f110d220484b801744b3dfc66127c7d": {
+      "branch": "egg/pipeline-8b81ed32/slice-7",
+      "pipeline_id": "pipeline-8b81ed32",
+      "registered_at": "2026-05-21T09:13:14.237585+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "tester"
     },
     "a20055320b25eccfd051a07cf9844de2ad357b62": {
       "branch": "egg/pipeline-8b81ed32/slice-1",
