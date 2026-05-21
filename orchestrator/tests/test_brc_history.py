@@ -1479,7 +1479,7 @@ class TestBuildBrcHistoryLinkLine:
         assert f"[`implement-{_DEFAULT_IMPLEMENT_SLICE_ID}`]" in result
 
     def test_string_identifier_works(self, tmp_path):
-        """Babysit-pr identifiers like 'pr-123-abc1234' glob the corresponding files."""
+        """PR-targeting identifiers like 'pr-123-abc1234' glob the corresponding files."""
         from routes.pipelines import _build_brc_history_link_line
 
         impl_file = f"pr-123-abc1234-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
@@ -1768,15 +1768,15 @@ class TestPerSliceImplementBrcHistory:
         kwargs = warning_calls[0][1]
         assert kwargs.get("dropped_count") == 2
 
-    def test_all_messages_unattributed_writes_aggregate_babysit_fallback(self, tmp_path):
+    def test_all_messages_unattributed_writes_aggregate_fallback(self, tmp_path):
         """When EVERY implement-phase BRC message lacks ``slice_id``, the
         writer falls back to the aggregate ``{identifier}-implement.{md,json}``
-        filename so non-slice pipelines (babysit_pr) keep producing the
-        artifact documented in ``skills/babysit-pr/SKILL.md``.
+        filename so non-slice pipelines (CUSTOM+PR) keep producing an
+        artifact.
 
         Surfaced as v2-NACK reviewer_code_holistic finding #2 (#2548): v2
-        dropped the entire BRC stream for babysit_pr; v3 falls back to
-        aggregate when no message carries a canonical slice_id.
+        dropped the entire BRC stream for non-slice pipelines; v3 falls
+        back to aggregate when no message carries a canonical slice_id.
         """
         from routes.pipelines import _write_brc_history
 
@@ -1802,18 +1802,17 @@ class TestPerSliceImplementBrcHistory:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
-        # Babysit fallback: aggregate IS produced when no slice_id anywhere.
+        # Fallback: aggregate IS produced when no slice_id anywhere.
         assert (history_dir / "42-implement.md").exists(), (
-            "Babysit fallback: aggregate file MUST be written when no message "
-            "carries slice_id (preserves documented babysit_pr artifact)"
+            "Fallback: aggregate file MUST be written when no message carries slice_id"
         )
         assert (history_dir / "42-implement.json").exists()
         # And NO per-slice files were produced.
         per_slice = list(history_dir.glob("42-implement-*.md"))
-        assert per_slice == [], f"Babysit fallback must NOT write per-slice files, got: {per_slice}"
+        assert per_slice == [], f"Fallback must NOT write per-slice files, got: {per_slice}"
 
-    def test_babysit_aggregate_fallback_contains_all_messages(self, tmp_path):
-        """The babysit aggregate fallback contains every (BRC-eligible)
+    def test_aggregate_fallback_contains_all_messages(self, tmp_path):
+        """The aggregate fallback contains every (BRC-eligible)
         implement-phase message — no message is silently dropped just
         because no message in the bucket happened to carry slice_id."""
         from routes.pipelines import _write_brc_history
@@ -1823,7 +1822,7 @@ class TestPerSliceImplementBrcHistory:
                 pipeline_id="issue-42",
                 from_role="coder",
                 message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Babysit-PROPOSE",
+                subject="PR-PROPOSE",
                 body="alpha",
                 phase="implement",
                 slice_id=None,
@@ -1832,7 +1831,7 @@ class TestPerSliceImplementBrcHistory:
                 pipeline_id="issue-42",
                 from_role="reviewer_code",
                 message_type=MessageType.CONSENSUS_ACK,
-                subject="Babysit-ACK",
+                subject="PR-ACK",
                 body="beta",
                 phase="implement",
                 slice_id=None,
@@ -1845,10 +1844,10 @@ class TestPerSliceImplementBrcHistory:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
-        assert "alpha" in content, "Babysit aggregate dropped the PROPOSE body"
-        assert "beta" in content, "Babysit aggregate dropped the ACK body"
-        assert "Babysit-PROPOSE" in content
-        assert "Babysit-ACK" in content
+        assert "alpha" in content, "Aggregate dropped the PROPOSE body"
+        assert "beta" in content, "Aggregate dropped the ACK body"
+        assert "PR-PROPOSE" in content
+        assert "PR-ACK" in content
 
     def test_refine_phase_keeps_aggregate_filename(self, tmp_path):
         """Regression: refine phase still writes the aggregate
@@ -2107,8 +2106,8 @@ class TestPerSliceImplementBrcHistory:
 
         When mixed with at least one canonical-attributed message, the
         empty-slice_id messages are dropped with a warning. When all
-        messages have empty slice_id, the babysit aggregate fallback
-        engages (separate test).
+        messages have empty slice_id, the aggregate fallback engages
+        (separate test).
         """
         from routes.pipelines import _write_brc_history
 
@@ -2306,7 +2305,7 @@ class TestPerSliceImplementBrcHistory:
         from routes.pipelines import _write_brc_history
 
         # A canonical slice-1 message so the writer engages partition mode
-        # (otherwise it would fall back to the babysit aggregate).
+        # (otherwise it would fall back to the aggregate).
         canonical = _make_brc_message(
             pipeline_id="issue-42",
             phase="implement",

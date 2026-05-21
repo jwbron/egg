@@ -1,15 +1,12 @@
 """
-Tests for the ``has_contract`` and ``pr_head_sha`` fields on the ``Pipeline``
-model, plus ``PipelineMode.BABYSIT`` semantics.
+Tests for the ``has_contract`` and ``pr_head_sha`` fields on the
+``Pipeline`` model.
 
-These fields/enum values were added to support the babysit-pr pipeline mode
-(see #1748). The tests pin:
+The tests pin:
 
 - Backward-compatible defaults (``has_contract=True``, ``pr_head_sha=None``).
 - Round-trip serialization via ``model_dump``/``model_validate``.
 - Legacy JSON (without the new fields) still deserializes.
-- The ``BABYSIT`` enum value remains the string ``"babysit"`` — this is a
-  silent semantic swap, the string is load-bearing for existing state files.
 - The ``pr_number`` field rejects 0 and negative values (``ge=1``).
 """
 
@@ -72,28 +69,22 @@ class TestPrHeadSha:
         assert restored.pr_head_sha == sha
 
 
-class TestPipelineModeBabysit:
-    """``PipelineMode.BABYSIT`` is the string ``"babysit"`` (semantic swap)."""
+class TestPipelineModeCustomPr:
+    """CUSTOM-mode pipelines with a PR target serialise correctly."""
 
-    def test_babysit_value_is_babysit_string(self):
-        # The enum value is load-bearing for existing on-disk state.
-        # Even though the semantics changed (legacy fixer loop -> implement-
-        # phase BRC cycle), the string stays the same.
-        assert PipelineMode.BABYSIT.value == "babysit"
-
-    def test_pipeline_with_babysit_mode_and_pr_number_serializes(self):
+    def test_pipeline_with_custom_mode_and_pr_number_serializes(self):
         pipeline = Pipeline(
             id="x",
             repo="o/r",
-            mode=PipelineMode.BABYSIT,
+            mode=PipelineMode.CUSTOM,
             pr_number=42,
         )
         data = pipeline.model_dump()
-        assert data["mode"] == "babysit"
+        assert data["mode"] == "custom"
         assert data["pr_number"] == 42
 
         restored = Pipeline.model_validate(data)
-        assert restored.mode == PipelineMode.BABYSIT
+        assert restored.mode == PipelineMode.CUSTOM
         assert restored.pr_number == 42
 
 

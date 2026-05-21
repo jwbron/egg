@@ -212,7 +212,6 @@ MCP-compatible host (Claude Code, etc.):
 
 ```
 submit_task(issue_number=123, repo="owner/name")
-babysit_pr(pr_number=42, repo="owner/name")
 run_agent_task(phase="refine", roles=["refiner"], repo="owner/name",
                description="Investigate foo")
 ```
@@ -224,8 +223,6 @@ See:
 - [Deployment Guide](docs/guides/deployment.md) for production options.
 - [Custom-Phase Guide](docs/guides/custom-phase.md) for the
   `run_agent_task` primitive that replaces interactive mode.
-- [Babysit-PR Guide](docs/guides/babysit-pr.md) for the PR-targeted
-  BRC cycle.
 
 ## Platform Support
 

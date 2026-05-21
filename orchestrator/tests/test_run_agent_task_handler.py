@@ -248,9 +248,8 @@ class TestPipelineIdDerivation:
         body = mock_req.call_args_list[0].kwargs.get("data") or mock_req.call_args_list[0].args[2]
         assert body["pipeline_id"] == "issue-100-custom"
 
-    def test_pr_only_is_babysit_compatible(self, handler):
-        """The plan says pr-only pipelines must use the BABYSIT ID
-        (``pr-<N>``) to subsume BABYSIT internally (decision-2)."""
+    def test_pr_only_uses_pr_pipeline_id(self, handler):
+        """pr-only pipelines use the ``pr-<N>`` pipeline ID."""
         side_effects = _mock_success_response("pr-42")
         with patch.object(handler, "_make_request", side_effect=side_effects) as mock_req:
             handler.handle_tool_call(

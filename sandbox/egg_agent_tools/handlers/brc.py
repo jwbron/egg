@@ -903,7 +903,7 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
       slice transcript and the cross-cutting context interleaved.
       Pass ``include_unattributed=False`` to skip the merge.
     * ``phase == "implement"`` and ``EGG_SLICE_ID`` is unset — reads
-      the aggregate ``{identifier}-implement.json`` file (babysit_pr
+      the aggregate ``{identifier}-implement.json`` file (CUSTOM+PR
       and other non-slice pipelines).
 
     Security: caller-supplied ``pipeline_id``/``issue``/``repo_path``

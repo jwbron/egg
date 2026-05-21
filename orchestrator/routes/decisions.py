@@ -284,7 +284,7 @@ def _persist_deferred_actions(
     if not new_actions:
         return
 
-    # PR metadata may be absent (e.g. on babysit pipelines with
+    # PR metadata may be absent (e.g. on CUSTOM+PR pipelines with
     # has_contract=False — unlikely here since the gate requires a tracker,
     # but defensive). Create a minimal stub using the issue title if so.
     if contract.pr is None:

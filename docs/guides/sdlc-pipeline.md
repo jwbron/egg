@@ -55,7 +55,7 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 
 ## Pipeline Architecture
 
-> **Note**: The architecture below describes the standard **issue mode** pipeline. For the **babysit mode** — a one-off implement-phase BRC cycle against an existing PR — see the [Babysit-PR Guide](babysit-pr.md). Babysit mode reuses the implement-phase machinery below (producers, reviewers, BRC consensus) but drops refine/plan and operates on the PR diff instead of a contract.
+> **Note**: The architecture below describes the standard **issue mode** pipeline. For one-off single-phase runs against a custom roster (or an existing PR), see the [Custom-Phase Guide](custom-phase.md).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -1124,14 +1124,14 @@ egg-orch pipeline create --issue 123
 | `fresh` | Treat the epic as having no usable children — the planner ignores existing tickets and proposes a clean slate of new children. |
 | `reassess` | Force the reassess flow — requires the ticket to be an Epic with at least one existing child (the orchestrator rejects `reassess` on a non-epic ticket with HTTP 400). |
 
-`mode` is only meaningful in combination with `jira_ticket`; passing it without one returns an error. The orchestrator forwards it as the wire field `epic_mode` on the create-pipeline API so it doesn't collide with the existing `mode` field (`PipelineMode`: `issue` / `babysit` / `custom`). At runtime the orchestrator exports two derived env vars into the agent sandboxes: `EGG_IS_EPIC` (`'true'` / `'false'`) and `EGG_EPIC_MODE` (canonical `ticket` / `github_issue` / `epic-fresh` / `epic-reassess`); the refiner / task-planner / applier prompts switch on these to pick the right mode block. See [`plugins/refine-plan/skills/refine-plan/agents/refiner.md`](../../plugins/refine-plan/skills/refine-plan/agents/refiner.md) for the mode-switch table.
+`mode` is only meaningful in combination with `jira_ticket`; passing it without one returns an error. The orchestrator forwards it as the wire field `epic_mode` on the create-pipeline API so it doesn't collide with the existing `mode` field (`PipelineMode`: `issue` / `custom`). At runtime the orchestrator exports two derived env vars into the agent sandboxes: `EGG_IS_EPIC` (`'true'` / `'false'`) and `EGG_EPIC_MODE` (canonical `ticket` / `github_issue` / `epic-fresh` / `epic-reassess`); the refiner / task-planner / applier prompts switch on these to pick the right mode block. See [`plugins/refine-plan/skills/refine-plan/agents/refiner.md`](../../plugins/refine-plan/skills/refine-plan/agents/refiner.md) for the mode-switch table.
 
 **Qualifier support**: The `submit_task` MCP tool accepts an optional `"qualifier"` suffix for both issue-driven and JIRA-driven pipelines (e.g. `"qualifier": "backend"` produces pipeline ID `issue-123-backend` / branch `egg/issue-123-backend`). When using the REST API directly, append the qualifier to `pipeline_id` and `branch` manually (e.g. `"pipeline_id": "KORE-1234-backend"`, `"branch": "egg/KORE-1234-backend"`). If the target branch already exists and an active pipeline is running for that ID, the orchestrator returns HTTP 409 with a hint to use a qualifier. Branches from prior terminal (cancelled/failed/complete) pipelines are reused automatically.
 
 Pipeline ID formats:
 - `issue-{number}[-qualifier]` — GitHub issue-driven
 - `{TICKET}[-qualifier]` — JIRA ticket-driven (e.g. `KORE-1234`, `KORE-1234-backend`)
-- `pr-{number}` — babysit mode (one-off implement-phase BRC cycle against a PR; triggered via the `/babysit-pr` MCP skill with `mode=babysit` and `pr_number=N`)
+- `pr-{number}` — CUSTOM mode targeting an existing PR (`run_agent_task(pr_number=N, ...)`)
 - `local-{8hex}` / `pipeline-{8hex}` — prompt-driven
 
 **Short-flow pipelines** — skip refine/plan phases and start directly at implement by passing `start_phase: implement` in `config`, along with pre-generated `analysis` and `plan` content. The orchestrator writes these to draft files and parses the plan's `yaml-tasks` appendix to populate the contract:

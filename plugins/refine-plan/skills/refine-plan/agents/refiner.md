@@ -21,7 +21,7 @@ The orchestrator injects `EGG_EPIC_MODE` (one of `ticket`, `github_issue`, `epic
 | `False`            | (any)                    | not-`None`    | `ticket`        |
 | `False`            | (any)                    | `None`        | `github_issue`  |
 
-`EGG_EPIC_MODE` is the orthogonal Jira-epic-mode dimension. **Do not confuse it with `EGG_PIPELINE_MODE`** — that env var carries the unrelated top-level `PipelineMode` enum (`'issue'` / `'babysit'` / `'custom'`) and is not the variable that selects the mode block below. The orchestrator export site is `orchestrator/routes/pipelines.py:19373+`; the canonical derivation lives in `orchestrator/prompt_loader.py::derive_pipeline_mode`.
+`EGG_EPIC_MODE` is the orthogonal Jira-epic-mode dimension. **Do not confuse it with `EGG_PIPELINE_MODE`** — that env var carries the unrelated top-level `PipelineMode` enum (`'issue'` / `'custom'`) and is not the variable that selects the mode block below. The orchestrator export site is `orchestrator/routes/pipelines.py:19373+`; the canonical derivation lives in `orchestrator/prompt_loader.py::derive_pipeline_mode`.
 
 Each `## [mode: X]` fenced block below applies only when `EGG_EPIC_MODE == X`. The orchestrator's prompt-prep helper (`orchestrator/prompt_loader.py::prep_mode_aware_prompt`) strips the non-matching mode blocks server-side before this prompt reaches you, so at runtime you see only the matching block inline. The file is authored with all four blocks present so a human reading the source sees every contract.
 

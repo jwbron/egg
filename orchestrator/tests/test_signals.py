@@ -1556,7 +1556,7 @@ class TestExcuseProducerHITLGate:
         """Pipeline-level (non-slice) ready-to-confirm STATUS MUST NOT
         carry a ``slice_id`` key. ``_emit_ready_to_confirm_nudges``
         defaults the parameter to ``None``; the writer treats absence as
-        "no slice scope" so babysit_pr et al. continue to land in the
+        "no slice scope" so non-slice pipelines continue to land in the
         aggregate file."""
         with app.app_context():
             from routes.signals import _emit_ready_to_confirm_nudges
@@ -1579,8 +1579,7 @@ class TestExcuseProducerHITLGate:
     def test_excuse_producer_status_omits_slice_id_when_pipeline_level(self, app):
         """Non-slice (pipeline-level) excuse-producer STATUS MUST NOT
         carry a ``slice_id`` key — the BRC writer treats absence as
-        "no slice scope" and falls back to the aggregate filename
-        (babysit_pr et al.)."""
+        "no slice scope" and falls back to the aggregate filename."""
         with app.app_context():
             from models import DecisionStatus
             from routes.signals import handle_consensus_excuse_producer_signal

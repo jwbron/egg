@@ -35,14 +35,13 @@ class TestPipelineModeCustom:
         assert str(PipelineMode.CUSTOM) == "custom"
         assert PipelineMode("custom") is PipelineMode.CUSTOM
 
-    def test_issue_and_babysit_still_defined(self):
-        """Additive change — prior values must still exist."""
+    def test_issue_still_defined(self):
+        """Prior values must still exist."""
         assert PipelineMode.ISSUE.value == "issue"
-        assert PipelineMode.BABYSIT.value == "babysit"
 
     def test_all_expected_modes_present(self):
         values = {m.value for m in PipelineMode}
-        assert {"issue", "babysit", "custom"} <= values
+        assert {"issue", "custom"} <= values
 
 
 # ---------------------------------------------------------------------------

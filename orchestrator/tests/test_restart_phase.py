@@ -1663,7 +1663,7 @@ class TestRestartPhaseEmptyAgentsFallback:
     def test_empty_agents_uses_active_roles_override_when_set(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
     ):
-        """CUSTOM-mode / BABYSIT pipelines persist their roster on
+        """CUSTOM-mode pipelines persist their roster on
         ``Pipeline.active_roles``; the fallback must honour it rather
         than expanding to the full phase-default roster."""
         mock_repo.return_value = "/repo"

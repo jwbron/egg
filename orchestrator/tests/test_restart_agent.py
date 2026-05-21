@@ -1049,8 +1049,8 @@ class TestRestartAgentEndpointSliceScope:
     ):
         """``slice_id`` is rejected for pipelines with ``has_contract=False`` (#2421).
 
-        BABYSIT and CUSTOM+PR pipelines are not slice-aware (no
-        contract = no slices), so any non-``None`` ``slice_id`` against
+        CUSTOM+PR pipelines are not slice-aware (no contract = no
+        slices), so any non-``None`` ``slice_id`` against
         them is by definition unknown. Rejecting outright also avoids a
         wasted ``resolve_worktree_path`` + ``load_contract`` call that
         would always raise ``ContractNotFoundError``.

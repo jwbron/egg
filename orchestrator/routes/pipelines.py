@@ -759,11 +759,9 @@ def _ensure_pipeline_work_ref(branch: str | None) -> str | None:
       ``/work``-shaped branch later).
     * ``egg/<id>`` → ``egg/<id>/work`` (issue / CUSTOM submissions).
     * ``egg/<id>/work`` → unchanged (resubmission, internal callers).
-    * non-``egg/`` (passed unchanged) — primarily babysit PR head refs;
-      the route-level caller already skips BABYSIT before reaching this
-      helper, so the only non-``egg/`` branch that lands here is a
-      CUSTOM-mode pipeline pointed at a foreign branch (e.g.
-      ``feature/foo``). CUSTOM-with-slices on a non-``egg/`` branch is
+    * non-``egg/`` (passed unchanged) — the only non-``egg/`` branch that
+      lands here is a CUSTOM-mode pipeline pointed at a foreign branch
+      (e.g. ``feature/foo``). CUSTOM-with-slices on a non-``egg/`` branch is
       not a guaranteed-safe shape and is intentionally not normalised
       here — the conflict would resurface at the slice push and is
       tracked separately.
@@ -873,14 +871,11 @@ def _pipeline_identifier(
 
 
 def _uses_per_role_staging(pipeline: Pipeline) -> bool:
-    """Return True when a pipeline uses BABYSIT-style per-role staging branches.
+    """Return True when a pipeline uses per-role staging branches.
 
-    Broadened from the BABYSIT-only check in #1748 to cover CUSTOM-mode
-    pipelines whose ``pr_number`` is set (see #1762 TASK-2-7). The two
-    modes share staging-branch derivation, PR-diff-aware orient prompts,
-    and ``has_contract=False`` semantics because a CUSTOM pipeline with a
-    PR target is effectively BABYSIT under the hood — the only
-    user-facing difference is the MCP tool name.
+    True for CUSTOM-mode pipelines whose ``pr_number`` is set (see #1762
+    TASK-2-7) — those share staging-branch derivation, PR-diff-aware
+    orient prompts, and ``has_contract=False`` semantics.
     """
     try:
         from models import PipelineMode as _PipelineMode
@@ -889,8 +884,6 @@ def _uses_per_role_staging(pipeline: Pipeline) -> bool:
     mode = getattr(pipeline, "mode", None)
     if mode is None:
         return False
-    if mode == _PipelineMode.BABYSIT:
-        return True
     if mode == _PipelineMode.CUSTOM and getattr(pipeline, "pr_number", None) is not None:
         return True
     return False
@@ -900,12 +893,12 @@ def _brc_history_identifier(pipeline) -> int | str:
     """Return the identifier used to namespace BRC-history artifacts.
 
     For issue-mode pipelines this mirrors :func:`_pipeline_identifier`
-    (favouring the issue number).  For BABYSIT and CUSTOM+PR pipelines
-    this returns ``pr-{pr_number}-{short_sha}`` so every one-off BRC
-    cycle writes to a distinct history file — letting operators replay
-    runs against the same PR without clobbering prior consensus
-    transcripts.  Falls back to the generic identifier when either the
-    PR number or the captured head SHA is missing.
+    (favouring the issue number).  For CUSTOM+PR pipelines this returns
+    ``pr-{pr_number}-{short_sha}`` so every one-off BRC cycle writes to
+    a distinct history file — letting operators replay runs against the
+    same PR without clobbering prior consensus transcripts.  Falls back
+    to the generic identifier when either the PR number or the captured
+    head SHA is missing.
     """
     try:
         from models import PipelineMode as _PipelineMode
@@ -913,16 +906,13 @@ def _brc_history_identifier(pipeline) -> int | str:
         _PipelineMode = None  # type: ignore[assignment]
 
     mode = getattr(pipeline, "mode", None)
-    # BABYSIT and CUSTOM+PR both target a specific PR commit; use
-    # SHA-based keys to preserve historical transcripts across re-runs
-    # on the same PR (subsumption parity — #1762 review suggestion 2).
+    # CUSTOM+PR targets a specific PR commit; use SHA-based keys to
+    # preserve historical transcripts across re-runs on the same PR.
     if (
         _PipelineMode is not None
         and mode is not None
-        and (
-            mode == _PipelineMode.BABYSIT
-            or (mode == _PipelineMode.CUSTOM and getattr(pipeline, "pr_number", None))
-        )
+        and mode == _PipelineMode.CUSTOM
+        and getattr(pipeline, "pr_number", None)
     ):
         pr = getattr(pipeline, "pr_number", None)
         sha = getattr(pipeline, "pr_head_sha", None)
@@ -1487,15 +1477,8 @@ def create_pipeline() -> tuple[Response, int]:
     if mode not in valid_modes:
         return make_error_response(f"Invalid mode: {mode!r} (must be one of {sorted(valid_modes)})")
 
-    # Babysit mode requires pr_number
-    if mode == PipelineMode.BABYSIT:
-        if not pr_number:
-            return make_error_response("Missing pr_number (required for babysit mode)")
-        if not isinstance(pr_number, int) or pr_number < 1:
-            return make_error_response("pr_number must be a positive integer")
-
     # CUSTOM mode: validate phase early so the remaining pipeline fits
-    # on the rails shared with BABYSIT/ISSUE (#1762 TASK-2-1).
+    # on the rails shared with ISSUE (#1762 TASK-2-1).
     _CUSTOM_ALLOWED_PHASES = {"refine", "plan", "implement"}
     if mode == PipelineMode.CUSTOM:
         if not custom_phase:
@@ -1511,7 +1494,6 @@ def create_pipeline() -> tuple[Response, int]:
                 status_code=400,
                 details={"reason": "invalid_phase"},
             )
-        # If caller passed pr_number, validate it the same way BABYSIT does.
         if pr_number is not None:
             if not isinstance(pr_number, int) or pr_number < 1:
                 return make_error_response(
@@ -1570,19 +1552,17 @@ def create_pipeline() -> tuple[Response, int]:
                 exc_info=True,
             )
 
-    # PR pre-flight — applied uniformly to BABYSIT and to CUSTOM pipelines
-    # that supply a ``pr_number`` (#1762 TASK-2-6). Refuses merged/closed/
-    # fork PRs and PRs with no diff before any container spawn. When gh is
-    # unavailable the helper returns {} and we proceed — downstream agents
-    # will surface the error organically.
-    _needs_pr_preflight = (mode == PipelineMode.BABYSIT) or (
-        mode == PipelineMode.CUSTOM and pr_number is not None
-    )
-    babysit_pr_state: dict[str, Any] | None = None
+    # PR pre-flight — applied to CUSTOM pipelines that supply a
+    # ``pr_number`` (#1762 TASK-2-6). Refuses merged/closed/fork PRs and
+    # PRs with no diff before any container spawn. When gh is unavailable
+    # the helper returns {} and we proceed — downstream agents will
+    # surface the error organically.
+    _needs_pr_preflight = mode == PipelineMode.CUSTOM and pr_number is not None
+    pr_state_info: dict[str, Any] | None = None
     if _needs_pr_preflight:
-        babysit_pr_state = _fetch_pr_state(pr_number, repo=repo)
-        if babysit_pr_state:
-            pr_state = babysit_pr_state.get("state")
+        pr_state_info = _fetch_pr_state(pr_number, repo=repo)
+        if pr_state_info:
+            pr_state = pr_state_info.get("state")
             if pr_state == "MERGED":
                 return make_error_response(
                     f"PR #{pr_number} is already merged — cannot run against merged PRs.",
@@ -1595,8 +1575,8 @@ def create_pipeline() -> tuple[Response, int]:
                     status_code=409,
                     details={"reason": "pr_closed", "pr_number": pr_number},
                 )
-            if babysit_pr_state.get("is_fork"):
-                head_repo = babysit_pr_state.get("head_repository_name_with_owner") or "fork"
+            if pr_state_info.get("is_fork"):
+                head_repo = pr_state_info.get("head_repository_name_with_owner") or "fork"
                 return make_error_response(
                     f"PR #{pr_number} is from a fork ({head_repo}). Only "
                     "same-repo PRs are supported because staging branches must "
@@ -1604,7 +1584,7 @@ def create_pipeline() -> tuple[Response, int]:
                     status_code=400,
                     details={"reason": "pr_from_fork", "pr_number": pr_number},
                 )
-            if not babysit_pr_state.get("changed_files"):
+            if not pr_state_info.get("changed_files"):
                 return make_error_response(
                     f"PR #{pr_number} has no changed files — nothing to review.",
                     status_code=409,
@@ -1613,11 +1593,11 @@ def create_pipeline() -> tuple[Response, int]:
         # Auto-populate branch from PR head and base_branch from PR base when
         # the caller did not pass them explicitly.  The agents still need a
         # working branch to rebase against and to push staging branches from.
-        if babysit_pr_state:
-            if not branch and babysit_pr_state.get("head_ref"):
-                branch = babysit_pr_state["head_ref"]
-            if not base_branch and babysit_pr_state.get("base_ref"):
-                base_branch = babysit_pr_state["base_ref"]
+        if pr_state_info:
+            if not branch and pr_state_info.get("head_ref"):
+                branch = pr_state_info["head_ref"]
+            if not base_branch and pr_state_info.get("base_ref"):
+                base_branch = pr_state_info["base_ref"]
 
     # Validate branch and base_branch — reject values that could be
     # interpreted as git flags (e.g. "--upload-pack=...") or contain
@@ -1633,8 +1613,6 @@ def create_pipeline() -> tuple[Response, int]:
     # Issue-driven or explicitly-named pipelines require a branch;
     # prompt-driven ones do not.
     pipeline_id = data.get("pipeline_id")
-    if not pipeline_id and mode == PipelineMode.BABYSIT:
-        pipeline_id = f"pr-{pr_number}"
 
     # CUSTOM mode: auto-generate a branch (``egg/custom-<pipeline_id>``) when
     # the caller did not supply one AND there is no PR to take the head
@@ -1653,21 +1631,14 @@ def create_pipeline() -> tuple[Response, int]:
         else:
             branch = f"egg/custom-{pipeline_id}"
 
-    if (
-        (issue_number or pipeline_id)
-        and not branch
-        and mode not in (PipelineMode.BABYSIT, PipelineMode.CUSTOM)
-    ):
+    if (issue_number or pipeline_id) and not branch and mode != PipelineMode.CUSTOM:
         return make_error_response("Missing branch")
 
     # #2399 — push the pipeline tip to ``<branch>/work`` so slice
     # integration branches at ``<branch>/slice-N`` can coexist as
     # siblings under the same namespace (git rejects a leaf ref and
     # children of that ref's path with ``directory file conflict``).
-    # Skipped for BABYSIT (the branch is an existing PR head we don't
-    # own) and for non-``egg/`` branches.
-    if mode != PipelineMode.BABYSIT:
-        branch = _ensure_pipeline_work_ref(branch)
+    branch = _ensure_pipeline_work_ref(branch)
 
     # Wait for the gateway to be ready before any gateway-dependent work.
     # On fresh deploys / pod restarts the orchestrator can accept requests
@@ -1871,16 +1842,11 @@ def create_pipeline() -> tuple[Response, int]:
                 f"{field_name} exceeds maximum length ({len(value)} > {_MAX_DRAFT_LEN})"
             )
 
-    # Babysit-pr pipelines run a one-off implement-phase BRC cycle against a
-    # PR diff — no upstream SDLC contract exists, so reviewer_contract is
-    # filtered out of the active roster. CUSTOM pipelines with a PR target
-    # follow the same semantics (#1762 TASK-2-7). CUSTOM without a PR
-    # computes has_contract from whether analysis/plan/issue_contract is
-    # available (TASK-2-2).
-    if mode == PipelineMode.BABYSIT:
-        has_contract = False
-    elif mode == PipelineMode.CUSTOM:
-        # CUSTOM+PR: subsume BABYSIT — no upstream contract.
+    # CUSTOM pipelines targeting a PR have no upstream SDLC contract, so
+    # reviewer_contract is filtered out of the active roster (#1762
+    # TASK-2-7). CUSTOM without a PR computes has_contract from whether
+    # analysis/plan/issue_contract is available (TASK-2-2).
+    if mode == PipelineMode.CUSTOM:
         if pr_number is not None:
             has_contract = False
         else:
@@ -1901,15 +1867,14 @@ def create_pipeline() -> tuple[Response, int]:
     else:
         has_contract = True
     pr_head_sha: str | None = None
-    if _needs_pr_preflight and babysit_pr_state:
-        _candidate_sha = babysit_pr_state.get("head_sha")
+    if _needs_pr_preflight and pr_state_info:
+        _candidate_sha = pr_state_info.get("head_sha")
         if isinstance(_candidate_sha, str) and _candidate_sha:
             pr_head_sha = _candidate_sha
 
-    # Resolve the roster override for CUSTOM mode (and for BABYSIT, whose
-    # subsumption path persists the same list for runtime consistency —
-    # #1762 TASK-4-1). For ISSUE-mode pipelines active_roles stays None so
-    # the executor uses the full phase-default roster.
+    # Resolve the roster override for CUSTOM mode. For ISSUE-mode
+    # pipelines active_roles stays None so the executor uses the full
+    # phase-default roster.
     active_roles_to_persist: list[str] | None = None
     if mode == PipelineMode.CUSTOM:
         # Only validate when the caller supplied a roles field; None /
@@ -1940,20 +1905,6 @@ def create_pipeline() -> tuple[Response, int]:
                 details={"reason": _err or "invalid_roles"},
             )
         active_roles_to_persist = [r.value for r in _resolved]
-    elif mode == PipelineMode.BABYSIT:
-        # TASK-4-1: populate active_roles on BABYSIT pipelines so the
-        # CUSTOM+PR code path and BABYSIT share the same runtime plumbing.
-        try:
-            from egg_contracts.agent_roles import get_roles_for_phase as _get_roles
-
-            _babysit_roles = _get_roles(
-                "implement", include_reviewers=True, repo=repo, has_contract=False
-            )
-            active_roles_to_persist = [r.value for r in _babysit_roles]
-        except Exception:
-            # Defensive: if role resolution fails we leave active_roles as
-            # None and fall back to the executor's default path.
-            active_roles_to_persist = None
 
     # Issue #1557: epic detection. Before persisting, resolve
     # is_epic + pipeline_mode against the gateway when a jira_ticket
@@ -2666,7 +2617,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # ``extract_slice_id`` only catches malformed values; only the
     # contract knows which slices the pipeline actually has.
     #
-    # Pipelines without a contract (BABYSIT, CUSTOM+PR) are not
+    # Pipelines without a contract (CUSTOM+PR) are not
     # slice-aware, so any non-``None`` ``slice_id`` targeting them is
     # by definition unknown — reject outright. For contracted
     # pipelines, load the contract and check membership; fall through
@@ -3274,7 +3225,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         #    on ``phase_exec.agents`` since it reflects the roster from
         #    the most recent spawn, but fall back to the deterministic
         #    source the executor itself consults — ``pipeline.active_roles``
-        #    first (CUSTOM-mode / BABYSIT overrides, #1762), then
+        #    first (CUSTOM-mode overrides, #1762), then
         #    ``get_roles_for_phase`` for ISSUE-mode pipelines. Without
         #    this fallback a restart whose clear step ran
         #    (``phase_exec.agents = []`` below) but whose spawn step
@@ -8262,93 +8213,6 @@ def _detect_default_branch(worktree_repo_path: Path) -> str:
     return "main"
 
 
-def get_pr_base_branch(
-    pr_number: int | None,
-    repo: str | None = None,
-    *,
-    worktree_repo_path: Path | None = None,
-) -> str:
-    """Resolve the base branch for a PR, falling back to the repo's default branch.
-
-    .. deprecated::
-        Prefer :func:`_fetch_pr_state` for babysit-pr pipelines — it returns
-        the full PR state (base_ref, head_ref, head_sha, is_fork) in a single
-        ``gh`` call. This helper is kept as a thin single-field shim for
-        callers that only need the base branch (and for backwards-compatible
-        test coverage in ``orchestrator/tests/test_pr_base_branch.py``).
-
-    Fallback order:
-    1. If ``pr_number`` is provided, consult ``gh pr view <N> --json baseRefName``
-       (optionally pinning ``--repo`` when ``repo`` is supplied).
-    2. If ``worktree_repo_path`` is provided, delegate to
-       :func:`_detect_default_branch` which probes ``origin/HEAD`` and then
-       ``origin/main``/``origin/master``.
-    3. Literal ``"main"`` as an absolute fallback.
-
-    Args:
-        pr_number: GitHub PR number. When ``None``, the PR lookup is skipped.
-        repo: Repository in ``owner/name`` format. When provided, passed to
-            ``gh`` via ``--repo`` so the lookup is unambiguous even from a
-            worktree without a configured remote.
-        worktree_repo_path: Path of a local clone to fall back to when no
-            PR context is available. When ``None``, skips the local probe.
-
-    Returns:
-        The bare branch name (e.g. ``"main"`` or ``"develop"``), never prefixed
-        with ``"origin/"``.
-    """
-    # Primary: ask GitHub via the gh CLI.
-    if pr_number is not None:
-        gh_cmd = ["gh", "pr", "view", str(pr_number), "--json", "baseRefName"]
-        if repo:
-            gh_cmd.extend(["--repo", repo])
-        try:
-            result = subprocess.run(
-                gh_cmd,
-                capture_output=True,
-                text=True,
-                timeout=20,
-                check=False,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                try:
-                    data = json.loads(result.stdout)
-                    ref = data.get("baseRefName")
-                    if isinstance(ref, str) and ref:
-                        return ref
-                except json.JSONDecodeError, ValueError:
-                    logger.warning(
-                        "get_pr_base_branch: gh output was not valid JSON; falling back",
-                        pr_number=pr_number,
-                        repo=repo,
-                    )
-            else:
-                logger.warning(
-                    "get_pr_base_branch: gh pr view failed; falling back",
-                    pr_number=pr_number,
-                    repo=repo,
-                    returncode=result.returncode,
-                    stderr=result.stderr.strip()[:200],
-                )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning(
-                "get_pr_base_branch: gh pr view raised; falling back",
-                pr_number=pr_number,
-                repo=repo,
-                error=str(exc),
-            )
-
-    # Secondary: probe the local clone's default branch.
-    if worktree_repo_path is not None:
-        try:
-            return _detect_default_branch(worktree_repo_path)
-        except Exception:
-            pass
-
-    # Absolute fallback.
-    return "main"
-
-
 def _resolve_origin_ref(base_branch: str | None) -> str:
     """Return ``origin/<branch>``, falling back to ``origin/main``.
 
@@ -8361,94 +8225,6 @@ def _resolve_origin_ref(base_branch: str | None) -> str:
     if ref.startswith("origin/"):
         return ref
     return f"origin/{ref}"
-
-
-def _verify_pr_head_unchanged(pipeline, worktree_repo_path: Path) -> tuple[bool, str | None]:
-    """Return (ok, actual_sha) for the babysit-pr final-push head-move guard.
-
-    Fetches ``origin`` and resolves ``origin/<pipeline.branch>`` (the PR
-    head branch) inside ``worktree_repo_path``, then compares the remote
-    tip against ``pipeline.pr_head_sha`` captured at pipeline creation.
-
-    - Returns ``(True, <sha>)`` when the remote head still matches the
-      stored SHA (safe to push).
-    - Returns ``(True, None)`` when the stored SHA or branch is unknown —
-      there is nothing to compare against, so we do not block (but
-      callers may choose to still warn).
-    - Returns ``(False, <actual_sha>)`` when the remote head has advanced.
-      Callers should abort the final push and raise a HITL decision.
-
-    The helper never raises.  Git/subprocess failures are retried once;
-    if both attempts fail the function returns ``(False, None)`` so that
-    callers treat the result as "unsafe" and escalate via HITL rather
-    than silently allowing a push that might overwrite concurrent work.
-    """
-    stored_sha = getattr(pipeline, "pr_head_sha", None)
-    branch = getattr(pipeline, "branch", None)
-    if not stored_sha or not branch:
-        return True, None
-
-    max_attempts = 2
-    for attempt in range(1, max_attempts + 1):
-        try:
-            fetch = subprocess.run(
-                ["git", "-C", str(worktree_repo_path), "fetch", "origin", branch],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            if fetch.returncode != 0:
-                logger.warning(
-                    "_verify_pr_head_unchanged: fetch failed (attempt %d/%d)",
-                    attempt,
-                    max_attempts,
-                    pipeline_id=getattr(pipeline, "id", None),
-                    branch=branch,
-                    stderr=fetch.stderr.strip()[:200],
-                )
-                if attempt < max_attempts:
-                    continue
-                return False, None
-            rev = subprocess.run(
-                ["git", "-C", str(worktree_repo_path), "rev-parse", f"origin/{branch}"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning(
-                "_verify_pr_head_unchanged: git raised (attempt %d/%d)",
-                attempt,
-                max_attempts,
-                pipeline_id=getattr(pipeline, "id", None),
-                branch=branch,
-                error=str(exc),
-            )
-            if attempt < max_attempts:
-                continue
-            return False, None
-        if rev.returncode != 0:
-            logger.warning(
-                "_verify_pr_head_unchanged: rev-parse failed (attempt %d/%d)",
-                attempt,
-                max_attempts,
-                pipeline_id=getattr(pipeline, "id", None),
-                branch=branch,
-                stderr=rev.stderr.strip()[:200],
-            )
-            if attempt < max_attempts:
-                continue
-            return False, None
-        actual = rev.stdout.strip()
-        if not actual:
-            if attempt < max_attempts:
-                continue
-            return False, None
-        return actual == stored_sha, actual
-
-    return False, None  # pragma: no cover - unreachable but defensive
 
 
 def _fetch_pr_state(pr_number: int, repo: str | None = None) -> dict[str, Any]:
@@ -8580,8 +8356,6 @@ def _format_rescue_hint(pipeline) -> str:
 def _should_skip_pr_phase_auto_pr(
     worktree_repo_path: Path,
     pipeline_id: str,
-    *,
-    is_babysit_mode: bool,
 ) -> tuple[bool, str | None]:
     """Decide whether the PR phase should open a ``<pipeline_branch> → main`` PR.
 
@@ -8597,17 +8371,11 @@ def _should_skip_pr_phase_auto_pr(
         implement path (``_use_slice_loop = _slice_count > 1`` at the
         implement-phase gate).
 
-    It is **not** the right thing for:
-
-      * Babysit-pr mode — the PR already exists; the caller passes
-        ``is_babysit_mode=True`` and we short-circuit unconditionally.
-        (The head-move guard still runs at the call site after this
-        helper returns and may force the skip independently.)
-      * Slice-DAG mode (``len(contract.slices) > 1``) — every slice
-        already opened its own PR via ``create_slice_pr``, stacked on
-        top of the context PR (#2548). Opening another
-        ``egg/<id>/work → main`` PR creates a redundant program-level
-        surface and confuses reviewers (#2685).
+    It is **not** the right thing for slice-DAG mode
+    (``len(contract.slices) > 1``) — every slice already opened its own
+    PR via ``create_slice_pr``, stacked on top of the context PR
+    (#2548). Opening another ``egg/<id>/work → main`` PR creates a
+    redundant program-level surface and confuses reviewers (#2685).
 
     Errors loading the contract fail safe to *not* skipping — the legacy
     auto-PR path runs and the pipeline still produces a PR rather than
@@ -8615,9 +8383,6 @@ def _should_skip_pr_phase_auto_pr(
     implement-phase slice-loop gate (``except`` at the call site;
     callers fall back to the monolithic path).
     """
-    if is_babysit_mode:
-        return True, "babysit_pr_already_exists"
-
     try:
         from egg_contracts.loader import (
             load_contract as _load_contract_for_pr_gate,
@@ -8682,7 +8447,7 @@ def _finalize_pr_phase_failed(
 
     if pr_url:
         # Parse the PR number from the URL so downstream consumers
-        # (overseer, get_pipeline_snapshot, babysit-worker handoffs) can
+        # (overseer, get_pipeline_snapshot) can
         # rely on ``pipeline.pr_number`` directly instead of re-deriving
         # it from the ``pr_url`` artifact.  Match mirrors ``_get_pr_info``.
         match = re.search(r"/pull/(\d+)", pr_url)
@@ -8978,11 +8743,9 @@ def _write_brc_history(
         than dropped, so the audit trail stays complete and reviewers
         of any per-slice transcript can cross-reference.
 
-    * If **no** BRC message carries a slice_id (babysit_pr and other
+    * If **no** BRC message carries a slice_id (CUSTOM+PR and other
       non-slice pipelines), the writer falls back to the aggregate
-      ``{identifier}-implement.{md,json}`` filename. This preserves
-      the documented babysit_pr artifact named in
-      ``skills/babysit-pr/SKILL.md``.
+      ``{identifier}-implement.{md,json}`` filename.
 
     No-ops gracefully when the message store is unavailable or contains no
     BRC messages for the pipeline and phase.
@@ -9045,11 +8808,9 @@ def _write_brc_history(
         # the orchestrator's CONSENSUS_* signal handlers tag every
         # implement-phase consensus message with `metadata['slice_id']`,
         # and this writer buckets them into one transcript file per
-        # slice. Babysit_pr and other non-slice pipelines have no slice
+        # slice. CUSTOM+PR and other non-slice pipelines have no slice
         # scope on any message, so they fall back to the aggregate
-        # `{identifier}-implement.{md,json}` filename (preserving the
-        # documented babysit_pr artifact named in
-        # `skills/babysit-pr/SKILL.md`).
+        # `{identifier}-implement.{md,json}` filename.
         #
         # ``metadata['slice_id']`` is interpolated into the on-disk
         # filename below, so this is a gateway-facing seam in the same
@@ -9090,7 +8851,7 @@ def _write_brc_history(
 
         if not buckets:
             # No slice-attributed messages anywhere — this is a non-slice
-            # pipeline (babysit_pr or any other implement-phase run that
+            # pipeline (CUSTOM+PR or any other implement-phase run that
             # never spawned slice scopes). Fall back to the aggregate
             # `{identifier}-implement.{md,json}` filename so we never
             # silently drop the entire BRC stream when no per-slice
@@ -10903,7 +10664,7 @@ def _derive_producer_roles_with_tasks(
     Behavior:
 
     * Returns ``None`` when ``slice_id`` is ``None`` or the pipeline has
-      no contract (CUSTOM-mode / BABYSIT / prompt-mode pipelines) —
+      no contract (CUSTOM-mode / prompt-mode pipelines) —
       preserves pre-#2581 unconditional-roster behavior, no seed.
     * Otherwise loads the contract, locates the slice, and returns
       ``{(task.role or "coder") for task in slice.tasks}``. ``Task.role``
@@ -12312,7 +12073,7 @@ def _build_brc_preamble(
 
     Args:
         mode: Pipeline execution mode. Forwarded to producer/reviewer orient
-            builders so babysit-pr pipelines receive PR-diff-aware prompts.
+            builders so CUSTOM+PR pipelines receive PR-diff-aware prompts.
         pr_number: GitHub PR number; forwarded with ``mode``.
         is_pre_seeded_empty_producer: True when this role is a pure producer
             (coder, documenter) whose slice plan contains no tasks for the
@@ -12909,20 +12670,18 @@ def _build_reviewer_preparation(
         branch: The pipeline's work branch, if any.
         base_branch: The resolved base branch for diff/log commands. Falls
             back to ``main`` when ``None``.
-        mode: Pipeline execution mode. When :attr:`PipelineMode.BABYSIT`
-            or :attr:`PipelineMode.CUSTOM` with a PR target (#1762),
-            reviewer text instructs them to orient on the PR diff
-            (``base...head``) before producers broadcast.
-        pr_number: GitHub PR number (meaningful for BABYSIT and CUSTOM+PR).
+        mode: Pipeline execution mode. When :attr:`PipelineMode.CUSTOM`
+            with a PR target (#1762), reviewer text instructs them to
+            orient on the PR diff (``base...head``) before producers
+            broadcast.
+        pr_number: GitHub PR number (meaningful for CUSTOM+PR).
     """
     base_ref = _resolve_origin_ref(base_branch)
 
-    # Babysit or CUSTOM+PR: reviewers orient on the PR diff against its
-    # configured base branch, as if it were a fresh proposal from the
-    # producers (#1748, #1762).
-    _is_pr_diff_aware = mode is not None and (
-        mode == PipelineMode.BABYSIT or (mode == PipelineMode.CUSTOM and pr_number is not None)
-    )
+    # CUSTOM+PR: reviewers orient on the PR diff against its configured
+    # base branch, as if it were a fresh proposal from the producers
+    # (#1762).
+    _is_pr_diff_aware = mode is not None and mode == PipelineMode.CUSTOM and pr_number is not None
     if _is_pr_diff_aware and phase == "implement":
         pr_hint = f"PR #{pr_number}" if pr_number else "the PR under review"
         # Without an explicit PR-head checkout the worktree sits on the base
@@ -12994,8 +12753,8 @@ def _build_reviewer_preparation(
                 "(c) Draft tests that would lock the desired behaviour so you can "
                 "finalize them against the producer's proposal when it arrives."
             )
-        # reviewer_contract is filtered out in babysit mode; fall through for
-        # any other implement-phase reviewers that land here.
+        # reviewer_contract is filtered out for CUSTOM+PR pipelines; fall
+        # through for any other implement-phase reviewers that land here.
 
     if phase == "implement":
         if role_value == "reviewer_code":
@@ -13242,12 +13001,13 @@ def _build_producer_orientation(
         branch: The pipeline's working branch, used for sync instructions.
         base_branch: Resolved base branch for rebase/merge targets. Falls
             back to the default branch when ``None``.
-        mode: Pipeline execution mode. When :attr:`PipelineMode.BABYSIT`,
-            implement-phase producer orient text instructs them to rebase
-            the PR base into their worktree, resolve conflicts within their
-            role's file scope, and escalate cross-role overlap to the
-            on-demand ``conflict_resolver`` role (#1748).
-        pr_number: GitHub PR number (only meaningful in babysit mode).
+        mode: Pipeline execution mode. When :attr:`PipelineMode.CUSTOM`
+            with a PR target, implement-phase producer orient text
+            instructs them to rebase the PR base into their worktree,
+            resolve conflicts within their role's file scope, and
+            escalate cross-role overlap to the on-demand
+            ``conflict_resolver`` role (#1762).
+        pr_number: GitHub PR number (only meaningful for CUSTOM+PR).
         is_pre_seeded_empty_producer: True when this role has no tasks in
             the slice and its matrix entry was pre-seeded (#2581). The
             orient text is shortened to "read the contract, confirm there
@@ -13274,24 +13034,24 @@ def _build_producer_orientation(
             "keep their review criteria in mind as you work."
         )
 
-    # Babysit or CUSTOM+PR: producers rebase the PR's base branch into
-    # their staging worktree, resolve conflicts only within their own
-    # role's file scope, and escalate cross-role overlap via the
-    # on-demand `conflict_resolver` role. A soft scope-expansion hint
-    # discourages off-diff refactors (#1748, #1762).
-    _producer_is_pr_diff_aware = mode is not None and (
-        mode == PipelineMode.BABYSIT or (mode == PipelineMode.CUSTOM and pr_number is not None)
+    # CUSTOM+PR: producers rebase the PR's base branch into their
+    # staging worktree, resolve conflicts only within their own role's
+    # file scope, and escalate cross-role overlap via the on-demand
+    # `conflict_resolver` role. A soft scope-expansion hint discourages
+    # off-diff refactors (#1762).
+    _producer_is_pr_diff_aware = (
+        mode is not None and mode == PipelineMode.CUSTOM and pr_number is not None
     )
     if _producer_is_pr_diff_aware and phase == "implement":
         base_ref = _resolve_origin_ref(base_branch)
         base_label = (base_branch or "the PR base branch").strip() or "the PR base branch"
         pr_hint = f"PR #{pr_number}" if pr_number else "the PR under review"
         # Step (0) is the PR-head checkout — without it the worktree is sitting
-        # on the base branch and none of the PR's changes are visible (#1748
-        # reviewer_code B1). ``gh pr checkout`` handles same-repo PRs; we
-        # require gh to be present in the sandbox (it is for all roles).
+        # on the base branch and none of the PR's changes are visible.
+        # ``gh pr checkout`` handles same-repo PRs; we require gh to be present
+        # in the sandbox (it is for all roles).
         pr_checkout = f"gh pr checkout {pr_number}" if pr_number else "gh pr checkout <pr_number>"
-        babysit_preamble = (
+        pr_preamble = (
             f"you are working on {pr_hint} via a one-off BRC cycle against the "
             "PR diff. Orient in this order: "
             f"(0) **check out the PR head into your worktree** first — run "
@@ -13316,7 +13076,7 @@ def _build_producer_orientation(
             "(5) Check existing patterns, conventions, and test infrastructure "
             "before making edits." + reviewer_awareness
         )
-        return babysit_preamble
+        return pr_preamble
 
     if phase == "implement":
         if role_value == "coder":
@@ -16534,9 +16294,9 @@ def _run_concurrent_phase(
     roles: list[AgentRole] = []
     _roster_override = getattr(pipeline, "active_roles", None)
     if _roster_override:
-        # CUSTOM-mode (#1762) and BABYSIT pipelines persist their resolved
-        # roster on pipeline.active_roles. Use it verbatim so in-flight
-        # pipelines survive role-roster version bumps.
+        # CUSTOM-mode pipelines (#1762) persist their resolved roster on
+        # pipeline.active_roles. Use it verbatim so in-flight pipelines
+        # survive role-roster version bumps.
         for r_value in _roster_override:
             try:
                 roles.append(AgentRole(r_value))
@@ -16576,8 +16336,8 @@ def _run_concurrent_phase(
     # tasks to (#2581). Used to pre-seed auto-ACKs for pure producers
     # (e.g. CODER, DOCUMENTER) that the planner didn't include —
     # otherwise their empty proposal can deadlock BRC consensus when
-    # reviewers NACK "nothing to review". CUSTOM-mode, BABYSIT, and
-    # prompt-mode pipelines (and contract-load failures) get ``None``,
+    # reviewers NACK "nothing to review". CUSTOM-mode and prompt-mode
+    # pipelines (and contract-load failures) get ``None``,
     # which preserves the pre-#2581 unconditional-roster behavior.
     producer_roles_with_tasks = _derive_producer_roles_with_tasks(
         pipeline.id,
@@ -20963,7 +20723,7 @@ def _run_pipeline(
             # and any auxiliary callers agree on the canonical rule.
             #
             # Note: ``EGG_PIPELINE_MODE`` is already taken (PipelineMode:
-            # 'issue' / 'babysit' / 'custom' — set above at L19349).
+            # 'issue' / 'custom' — set above at L19349).
             # ``EGG_EPIC_MODE`` is the orthogonal Jira-epic dimension.
             try:
                 from prompt_loader import derive_pipeline_mode
@@ -21106,23 +20866,19 @@ def _run_pipeline(
 
             # --- Auto PR creation: skip agent spawn for PR phase ---
             if current_phase.value == "pr":
-                is_babysit_mode = getattr(pipeline, "mode", None) == PipelineMode.BABYSIT
                 # Decide up front whether to skip the legacy auto-PR so
                 # the entry log accurately reflects which path the PR
-                # phase will take (babysit / slice-DAG / monolithic
-                # auto-PR). The same helper is consulted again below to
-                # gate the actual ``_finalize_pr_phase_failed`` call.
+                # phase will take (slice-DAG / monolithic auto-PR). The
+                # same helper is consulted again below to gate the actual
+                # ``_finalize_pr_phase_failed`` call.
                 # ``_should_skip_pr_phase_auto_pr`` fails safe to "run
                 # auto-PR" on any contract-load error, matching the
                 # implement-phase slice-loop gate.
                 _skip_decision, _skip_reason = _should_skip_pr_phase_auto_pr(
                     worktree_repo_path,
                     pipeline_id,
-                    is_babysit_mode=is_babysit_mode,
                 )
-                if is_babysit_mode:
-                    _entry_msg = "Finalising babysit-pr cycle (skipping PR creation)"
-                elif _skip_decision:
+                if _skip_decision:
                     _entry_msg = "Skipping PR-phase auto-PR (slice-DAG mode: per-slice PRs exist)"
                 else:
                     _entry_msg = "Auto-creating PR (skipping agent spawn)"
@@ -21140,53 +20896,8 @@ def _run_pipeline(
                     phase_execution.work_started_at = datetime.now(UTC)
                     store.save_pipeline(pipeline)
 
-                # Babysit-pr final-push head-move guard (#1748): the PR already
-                # exists, so a remote HEAD move on the PR branch since pipeline
-                # creation means either a human pushed to the PR mid-cycle or
-                # a concurrent babysit run landed first.  Either way we should
-                # NOT push the orchestrator's housekeeping commits — aborting
-                # preserves the existing PR state and escalates via HITL.
-                # Skip the normal push+PR-create path when the guard trips OR
-                # when we are in babysit mode (the PR already exists).
                 skip_pr_creation = False
-                if is_babysit_mode:
-                    head_ok, actual_sha = _verify_pr_head_unchanged(pipeline, worktree_repo_path)
-                    if not head_ok:
-                        stored_sha = getattr(pipeline, "pr_head_sha", None) or "unknown"
-                        actual_display = actual_sha or "unknown"
-                        error_msg = (
-                            f"babysit-pr aborted: PR head moved from "
-                            f"{stored_sha[:7]} to {actual_display[:7]} on "
-                            f"origin/{pipeline.branch} during the cycle. "
-                            "Refusing to push orchestrator housekeeping commits — "
-                            "re-run babysit-pr against the current PR head or "
-                            "resolve the conflict manually."
-                        )
-                        logger.error(
-                            "babysit-pr head-move guard tripped",
-                            pipeline_id=pipeline_id,
-                            stored_sha=stored_sha,
-                            actual_sha=actual_sha,
-                            branch=pipeline.branch,
-                        )
-                        with get_pipeline_state_lock(pipeline_id):
-                            pipeline = store.load_pipeline(pipeline_id)
-                            phase_execution = pipeline.get_phase_execution(current_phase)
-                            phase_execution.status = PipelineStatus.FAILED
-                            phase_execution.error = error_msg
-                            phase_execution.completed_at = datetime.now(UTC)
-                            pipeline.status = PipelineStatus.FAILED
-                            pipeline.error = error_msg
-                            store.save_pipeline(pipeline)
-                        phase_failed = True
-                        skip_pr_creation = True
-                    else:
-                        # Guard passed — still skip gh pr create because
-                        # the PR already exists in babysit mode.  The
-                        # push below updates the PR head with the cycle's
-                        # consensus output.
-                        skip_pr_creation = True
-                elif _skip_decision:
+                if _skip_decision:
                     # Slice-DAG mode: per-slice PRs already exist stacked
                     # on the context PR, so the legacy
                     # ``<pipeline_branch> → main`` auto-PR would just
@@ -21237,9 +20948,6 @@ def _run_pipeline(
                     # Per-phase writes happen at phase completion, but pushes
                     # can fail silently — re-writing here guarantees the files
                     # are on the branch before the PR is created.
-                    # Babysit-pr pipelines use pr-{N}-{short-sha} so repeated
-                    # babysit runs against the same PR do not clobber each
-                    # other's history (#1748).
                     identifier = _brc_history_identifier(pipeline)
 
                     # Drop .egg-state/agent-outputs/ before any other PR-phase
@@ -21267,12 +20975,8 @@ def _run_pipeline(
                 # (e.g. the remote advanced while the PR-phase worktree was
                 # adding BRC commits), push_worktree_branch reconciles via
                 # fetch+rebase and retries once internally (#1706/#1731/#1808).
-                # Babysit-pr with a tripped head-move guard skips the push
-                # entirely to preserve the existing PR state (#1748).
                 push_ok = True
-                if phase_failed and is_babysit_mode:
-                    push_ok = False
-                elif pipeline.branch and worktree_repo_path != repo_path:
+                if pipeline.branch and worktree_repo_path != repo_path:
                     commits_ahead = "unknown"
                     try:
                         ahead_result = subprocess.run(
@@ -21340,10 +21044,9 @@ def _run_pipeline(
                 # the PR opens against whatever is on origin/<branch>
                 # (the agents' work), dropping orchestrator housekeeping
                 # commits rather than failing the whole pipeline (#1731).
-                # Skip PR creation when:
-                #   * babysit-pr mode — the PR already exists.
-                #   * slice-DAG mode — per-slice PRs already exist
-                #     stacked on the context PR (#2685).
+                # Skip PR creation when slice-DAG mode is in effect —
+                # per-slice PRs already exist stacked on the context PR
+                # (#2685).
                 if skip_pr_creation:
                     logger.info(
                         "Skipping PR creation",
@@ -21938,8 +21641,8 @@ def _run_pipeline(
 
             # Write BRC consensus history for this phase before committing
             # statefiles so the history file is included in the commit.
-            # Babysit-pr pipelines use pr-{N}-{short-sha} to avoid clobbering
-            # prior runs against the same PR (#1748).
+            # CUSTOM+PR pipelines use pr-{N}-{short-sha} to avoid clobbering
+            # prior runs against the same PR.
             try:
                 _write_brc_history(
                     worktree_repo_path,
@@ -22412,8 +22115,6 @@ def _run_pipeline(
 
             # CUSTOM-mode pipelines run exactly one phase and then
             # terminate — no auto-advance (#1762 TASK-2-9 / decision-9).
-            # Mirrors BABYSIT's effective single-phase semantics (BABYSIT
-            # starts at IMPLEMENT and the PR step is a no-op).
             _is_custom_mode = getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
 
             if not next_phases or _is_custom_mode:

@@ -14,7 +14,7 @@ You are **not** a refiner, planner, coder, or implement-phase agent. Your job is
 
 ## Context (orchestrator-injected)
 
-- `EGG_EPIC_MODE` — one of `epic-fresh` / `epic-reassess`. Non-epic modes never spawn this role. (Note: `EGG_PIPELINE_MODE` carries the unrelated top-level `PipelineMode` enum `'issue'` / `'babysit'` / `'custom'`; do not switch on that variable.)
+- `EGG_EPIC_MODE` — one of `epic-fresh` / `epic-reassess`. Non-epic modes never spawn this role. (Note: `EGG_PIPELINE_MODE` carries the unrelated top-level `PipelineMode` enum `'issue'` / `'custom'`; do not switch on that variable.)
 - `EGG_IS_EPIC` — always `'true'` here.
 - `EGG_JIRA_TICKET` — the epic key (e.g. `ENG-123`). Required.
 - `EGG_PHASE` — `'apply'`.

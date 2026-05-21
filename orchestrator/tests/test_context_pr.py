@@ -465,9 +465,9 @@ class TestOpenContextPRShortCircuits:
 
     def test_skips_when_no_refine_or_plan_artifacts_present(self, tmp_path, pipeline, make_spawner):
         """An empty ``.egg-state/`` tree on the work worktree is a real
-        possibility on babysit / custom mode pipelines that skipped the
-        refine/plan phases.  The hook must short-circuit cleanly rather
-        than open an empty PR."""
+        possibility on custom-mode pipelines that skipped the refine/plan
+        phases.  The hook must short-circuit cleanly rather than open an
+        empty PR."""
         # Don't seed any drafts / brc-history / agent-outputs files —
         # just rely on the autouse ``neutralise_git`` fixture so the
         # subprocess shells become no-ops.

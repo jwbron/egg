@@ -3084,7 +3084,7 @@ class TestHeartbeatRoute:
         """Non-slice (pipeline-level) HEARTBEATs MUST NOT carry a
         ``slice_id`` key in metadata. The BRC writer treats absence as
         "no slice scope" and falls back to the aggregate filename for
-        non-slice pipelines (babysit_pr et al.); a stray empty/None value
+        non-slice pipelines (CUSTOM+PR et al.); a stray empty/None value
         would smuggle these messages into the slice-aware path."""
         from message_store import get_message_store
 

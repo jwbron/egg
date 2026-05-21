@@ -40,9 +40,8 @@ If `.venv` is absent, run `make deps` to install everything. This installs `uv` 
 - **Headless agents** use the Agent SDK (`egg_agent` package)
 - **One-off agent work** goes through the MCP server — see
   [`run_agent_task`](docs/guides/custom-phase.md) (single-phase, subset
-  roster), [`submit_task`](docs/guides/sdlc-pipeline.md) (full
-  refine → plan → implement), and
-  [`babysit_pr`](docs/guides/babysit-pr.md) (implement-phase BRC on a
-  PR). The legacy interactive-mode CLI (`bin/egg`) was removed in
+  roster) and [`submit_task`](docs/guides/sdlc-pipeline.md) (full
+  refine → plan → implement). The legacy interactive-mode CLI
+  (`bin/egg`) was removed in
   [#1762](https://github.com/jwbron/egg/issues/1762).
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, branching, and PR workflow

@@ -28,8 +28,8 @@ state change.
    stdout, silent on `no_change`. Exit codes per the
    [§3 contract](../reference/agent-wait-patterns.md#3-egg-orch-message-wait--exit-code-contract):
    0 terminal, 1 max-iter (test only), 2 transient, 3 permanent.
-3. **SDLC skill rewritten.** Phase 3 (Monitor) and Phase S5
-   (`babysit_pr`) call the new CLI via Bash. `get_status` MCP stays
+3. **SDLC skill rewritten.** Phase 3 (Monitor) calls the new CLI via
+   Bash. `get_status` MCP stays
    for one-shot snapshots. The cursor-handling protocol persists but
    moves from "thread `response.cursor` into next MCP call's
    `since`" to "thread last JSON-line's `cursor` into next Bash

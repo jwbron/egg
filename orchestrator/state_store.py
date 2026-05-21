@@ -39,7 +39,7 @@ logger = logging.getLogger("orchestrator.state_store")
 #   {LETTERS}-{digits}[-qualifier[-...]] — JIRA ticket-driven (e.g. KORE-1234, KORE-1234-v2-hotfix)
 #   local-{8 hex chars}         — local dev
 #   pipeline-{8 hex chars}      — auto-generated
-#   pr-{number}                 — babysit mode
+#   pr-{number}                 — CUSTOM mode targeting a PR
 PIPELINE_ID_PATTERN = re.compile(
     r"^("
     r"issue-[0-9]+(-[a-z0-9]+)*"
@@ -1010,8 +1010,8 @@ class StateStore:
             prompt: User prompt (for prompt-driven pipelines)
             pipeline_id: Explicit pipeline ID (auto-generated if not provided)
             network_mode: Network mode for spawned containers ("public", "private", or None)
-            mode: Pipeline mode (ISSUE, BABYSIT, or CUSTOM). Defaults to ISSUE.
-            pr_number: PR number for babysit-mode pipelines (optional).
+            mode: Pipeline mode (ISSUE or CUSTOM). Defaults to ISSUE.
+            pr_number: PR number for CUSTOM-mode pipelines targeting a PR (optional).
             analysis: Pre-generated analysis markdown for short flow pipelines (optional).
             plan: Pre-generated plan markdown with yaml-tasks appendix (optional).
             source_branch: Source branch to read prior-run artifacts from (optional).
@@ -1019,14 +1019,14 @@ class StateStore:
                 the source branch (e.g. ``"issue-1570-v3"``).  Overrides
                 the default pipeline_id-based prefix when reading artifacts.
             active_roles: Resolved role subset for the pipeline's active phase.
-                Populated by run_agent_task (CUSTOM mode) and by the BABYSIT
-                subsumption path. None preserves the legacy default-roster
-                behaviour for ISSUE-mode pipelines (see #1762).
+                Populated by run_agent_task (CUSTOM mode). None preserves
+                the legacy default-roster behaviour for ISSUE-mode pipelines
+                (see #1762).
             custom_phase: Phase name to start a CUSTOM-mode pipeline on
                 (e.g. "refine", "plan", "implement"). When set alongside
                 ``mode=PipelineMode.CUSTOM``, the phase is applied atomically
-                during creation — matching the BABYSIT pattern — so callers
-                never observe a stale ``current_phase`` via ``get_status``.
+                during creation so callers never observe a stale
+                ``current_phase`` via ``get_status``.
 
         Returns:
             Created pipeline
@@ -1106,18 +1106,11 @@ class StateStore:
             # gets to update it.
             if pipeline.config.start_phase:
                 pipeline.current_phase = PipelinePhase(pipeline.config.start_phase)
-            elif mode == PipelineMode.BABYSIT:
-                # babysit-pr is a one-off implement-phase BRC cycle against an
-                # existing PR; it skips refine/plan entirely (#1748 TASK-2-3).
-                # Set the phase at creation time so the first get_status call
-                # (e.g. from the scheduler) sees IMPLEMENT rather than the
-                # default REFINE.
-                pipeline.current_phase = PipelinePhase.IMPLEMENT
             elif mode == PipelineMode.CUSTOM and custom_phase:
                 # CUSTOM-mode pipelines run a single requested phase; set it
-                # atomically during creation (matching the BABYSIT pattern) so
-                # get_status never returns a stale phase between create and
-                # save (#1762 / review feedback item 1).
+                # atomically during creation so get_status never returns a
+                # stale phase between create and save (#1762 / review
+                # feedback item 1).
                 pipeline.current_phase = PipelinePhase(custom_phase)
 
             commit_msg = f"Create pipeline {pipeline_id}"

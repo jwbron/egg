@@ -9,7 +9,7 @@ Covers the route-level validation added by Phase 2 of the
       structured HTTP 400 with ``details.reason``.
     * Auto-generated ``egg/custom-<pipeline_id>`` branch fallback.
     * ``active_roles`` persisted on the created pipeline.
-    * CUSTOM + PR inherits BABYSIT pre-flight (merged/closed/fork/empty).
+    * CUSTOM + PR runs PR pre-flight (merged/closed/fork/empty).
 
 These tests call the Flask route directly with
 ``store.create_pipeline`` mocked — we verify that the route assembles
@@ -274,7 +274,7 @@ class TestCustomRolesValidation:
 class TestCustomPhaseThreading:
     """Verify that the route threads ``custom_phase`` into
     ``create_pipeline`` so the phase is set atomically during creation
-    (matching the BABYSIT pattern) instead of via a post-creation fixup."""
+    instead of via a post-creation fixup."""
 
     @pytest.mark.parametrize(
         "phase,role",
@@ -406,7 +406,7 @@ class TestRepoValidation:
 
 
 # ---------------------------------------------------------------------------
-# CUSTOM + PR inherits BABYSIT pre-flight
+# CUSTOM + PR runs PR pre-flight
 # ---------------------------------------------------------------------------
 
 

@@ -3638,18 +3638,17 @@ class TestReviewerPreparation:
         assert "no_doc_changes_needed" in prep
         assert "#2444" in prep
 
-    def test_code_reviewer_prep_callouts_documenter_no_op_babysit(self):
-        """Babysit / PR-diff-aware reviewer_code prep also names the
+    def test_code_reviewer_prep_callouts_documenter_no_op_custom_pr(self):
+        """CUSTOM+PR PR-diff-aware reviewer_code prep also names the
         documenter no-op path. Both prompt branches must be covered —
-        the documenter ships in babysit-mode rosters via
+        the documenter ships in CUSTOM+PR rosters via
         ``get_roles_for_phase("implement", include_reviewers=True)`` so
-        a missing callout here is a real reviewer-instruction gap (#2444,
-        review feedback on #2458).
+        a missing callout here is a real reviewer-instruction gap (#2444).
         """
         from models import PipelineMode
 
         prep = _build_reviewer_preparation(
-            "reviewer_code", "implement", mode=PipelineMode.BABYSIT, pr_number=42
+            "reviewer_code", "implement", mode=PipelineMode.CUSTOM, pr_number=42
         )
         assert "no_doc_changes_needed" in prep
         assert "#2444" in prep

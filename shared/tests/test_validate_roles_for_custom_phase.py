@@ -55,7 +55,7 @@ class TestDefaultRosterFallback:
 
     def test_none_respects_has_contract_false_filter(self):
         """Default roster must drop ``reviewer_contract`` when
-        has_contract=False to match the BABYSIT subsumption path."""
+        has_contract=False."""
         resolved, err = validate_roles_for_custom_phase(
             "implement", None, EGG_REPO, has_contract=False
         )
