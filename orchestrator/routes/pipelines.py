@@ -20998,9 +20998,9 @@ def _run_pipeline(
 
                 # Ensure contract and statefiles exist before PR creation
                 # (safety net for short-flow pipelines where initial push
-                # may have failed).  Skip when the pipeline already failed
-                # (e.g. head-move guard tripped) — these are wasted work
-                # against a failed pipeline and could have side effects.
+                # may have failed).  Skip when the pipeline already failed —
+                # these are wasted work against a failed pipeline and could
+                # have side effects.
                 if not phase_failed:
                     if not _ensure_statefiles_on_branch(worktree_repo_path, pipeline):
                         logger.warning(

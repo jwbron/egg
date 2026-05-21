@@ -259,8 +259,10 @@ class ConcurrentPhaseExecutor:
                 short_sha = sha[:7]
                 return f"egg/custom-pr/{pr_number}/{short_sha}/{role.value}"
             # Fall back to the PR head branch so the agent still has a
-            # starting point; the final-push head-move guard (Phase 5) will
-            # keep things safe if the remote head has since moved.
+            # starting point. There is no compensating safety net later in
+            # the pipeline — the only safety is "don't reach this fallback",
+            # i.e. ``_fetch_pr_state`` must populate ``pr_head_sha`` during
+            # pre-flight so the per-role staging branch is used instead.
             if self.pipeline.branch:
                 return self.pipeline.branch
 

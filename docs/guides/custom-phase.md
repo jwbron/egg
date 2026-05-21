@@ -97,7 +97,7 @@ run_agent_task(
 | `roles` | `list[str]` | no | Full phase roster | Subset of the phase's roles. Must contain ≥1 producer. Cross-phase roles rejected. |
 | `branch` | `str` | no | `egg/custom-<pipeline_id>` | Target branch. Created from `base_branch` if it doesn't exist. |
 | `base_branch` | `str` | no | Repo default branch | Base for the target branch. |
-| `pr_number` | `int` | no | — | Target an existing PR. Uses per-role staging-branch / head-move guard semantics. |
+| `pr_number` | `int` | no | — | Target an existing PR. Uses per-role staging-branch semantics; BRC consensus output stays on the staging branches and is not pushed back to the PR head. |
 | `issue_number` | `int` | no | — | Issue context. The CUSTOM pipeline's contract file is still keyed by `pipeline_id` (not `issue-<N>.json`) so concurrent ISSUE-mode pipelines on the same issue don't collide. |
 | `analysis` | `str` | no | — | Pre-populated analysis draft. Written to `.egg-state/drafts/` on first run. Producers may overwrite. |
 | `plan` | `str` | no | — | Pre-populated plan draft. Same semantics as `analysis`. |
@@ -307,6 +307,13 @@ run_agent_task(
 )
 ```
 
+The BRC consensus output stays on the per-role staging branches
+(`egg/custom-pr/<pr>/<sha>/<role>`); the pipeline terminates after the
+chosen phase reaches CONSENSUS_REACHED and **does not push a commit
+back to the PR head**. If you want the consensus diff applied to the
+PR, retrieve it from the staging branches via `git show` (see
+[Artifact Retrieval](#artifact-retrieval)) and apply it manually.
+
 ### Pre-populated analysis / plan
 
 When you already have an analysis or plan document and want to feed it
@@ -404,7 +411,7 @@ show` from.
 | `ISSUE` | `submit_task` | GitHub issue body | refine → plan → implement (full) |
 | `ISSUE` (short) | `submit_task --start-phase=<P>` | Issue + explicit start phase | `<P>` and later |
 | `CUSTOM` | `run_agent_task` | MCP call with explicit phase + roles | One phase, user-chosen roster |
-| `CUSTOM` + `pr_number` | `run_agent_task(pr_number=N, ...)` | Open non-fork non-empty PR | Chosen phase, PR diff as input |
+| `CUSTOM` + `pr_number` | `run_agent_task(pr_number=N, ...)` | Open non-fork non-empty PR | Chosen phase, PR diff as input. Output stays on staging branches; no commit pushed back to the PR head. |
 
 ## Related Documentation
 
