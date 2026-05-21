@@ -28,6 +28,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
     },
+    "21136c7b8e87d53de23925ff8db48c3dc4cfe944": {
+      "branch": "egg/pipeline-f4c7d780/slice-6",
+      "pipeline_id": "pipeline-f4c7d780",
+      "registered_at": "2026-05-21T03:28:42.512103+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
+    },
     "22be9f4a09113c40c5ecd4924252c3551b3a3b28": {
       "branch": "egg/pipeline-f4c7d780/slice-6",
       "pipeline_id": "pipeline-f4c7d780",
