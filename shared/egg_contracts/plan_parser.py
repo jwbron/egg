@@ -248,13 +248,26 @@ class ParsedPhase:
         # Normalize dependencies to slice-N format
         normalized_deps: list[str] = []
         if self.dependencies:
-            raw_deps: str | list[str] = self.dependencies
-            # Handle both list and string formats
+            raw_deps: Any = self.dependencies
+            # Handle scalar (int / str), list, and integer formats. The
+            # bare-int branch (``depends_on: 3``) was added for #2743:
+            # pipeline-8b81ed32 declared ``depends_on: <int>`` on every
+            # slice and the contract came back with empty deps because
+            # the int fell through ``isinstance(dep_list, list)`` below.
             dep_list: list[str]
-            if isinstance(raw_deps, str):
+            if isinstance(raw_deps, bool):
+                # ``bool`` is a subclass of ``int`` in Python — reject
+                # explicitly to avoid silently converting ``True`` to
+                # ``slice-1``.
+                dep_list = []
+            elif isinstance(raw_deps, int):
+                dep_list = [str(raw_deps)]
+            elif isinstance(raw_deps, str):
                 dep_list = [d.strip() for d in raw_deps.split(",") if d.strip()]
+            elif isinstance(raw_deps, list):
+                dep_list = [str(d) for d in raw_deps]
             else:
-                dep_list = raw_deps
+                dep_list = []
             if isinstance(dep_list, list):
                 for dep in dep_list:
                     dep_str = str(dep).strip()
@@ -367,9 +380,17 @@ FILES_PATTERN = re.compile(r"\[([^\]]+)\]")
 
 # Pattern for YAML code fence with yaml-tasks marker
 # Matches: ```yaml\n# yaml-tasks\n...\n```
+#
+# The closing ``` must start at a line boundary (optionally preceded by 0–3
+# CommonMark-style spaces). Without that anchor the non-greedy capture stops
+# at the first inner ``` inside a YAML block scalar — e.g. a slice's ``goal:
+# |`` block that demonstrates a shell command — silently truncating the rest
+# of the slices block.  Issue #2743 (pipeline-f4c7d780): only 7 of 15 slices
+# made it into the contract because slice 7's goal embedded an indented
+# fenced example.
 YAML_FENCE_PATTERN = re.compile(
-    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```",
-    re.DOTALL | re.IGNORECASE,
+    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n((?:.*\n)*?)[ ]{0,3}```\s*(?:\n|$)",
+    re.IGNORECASE,
 )
 
 
@@ -691,7 +712,27 @@ def parse_phases_from_yaml(
 
         phase_name = phase_data.get("name", f"Slice {phase_num}")
         phase_goal = phase_data.get("goal", "")
-        phase_dependencies = phase_data.get("dependencies", "")
+        # #2743 — accept ``depends_on`` as an alias for ``dependencies``.
+        # Pipeline-8b81ed32 produced a plan that used ``depends_on: <int>``
+        # on every phase and the contract came back with empty deps because
+        # the parser only consulted ``dependencies``. ``dependencies`` is
+        # the schema-canonical key (.egg/schemas/yaml-tasks.schema.json);
+        # when both are present it wins and a warning is recorded.
+        if "dependencies" in phase_data and "depends_on" in phase_data:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"Slice {phase_num} declares both 'dependencies' "
+                        "and 'depends_on' — preferring 'dependencies' "
+                        "(canonical key per yaml-tasks.schema.json). "
+                        "Remove 'depends_on' to silence this warning."
+                    ),
+                )
+            )
+            phase_dependencies = phase_data["dependencies"]
+        else:
+            phase_dependencies = phase_data.get("dependencies", phase_data.get("depends_on", ""))
         phase_exit_criteria = phase_data.get("exit_criteria", "")
         # ``serialized_chain_order`` is a planner-emitted field added in
         # #2137. The planner uses it to record the deliberate ordering

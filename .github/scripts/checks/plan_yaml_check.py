@@ -46,8 +46,13 @@ class PlanYamlCheck(CheckRunner):
 
         # Extract yaml-tasks block
         # Pattern: ```yaml followed by # yaml-tasks comment, then content, then ```
-        yaml_pattern = r"```yaml\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```"
-        match = re.search(yaml_pattern, content, re.DOTALL)
+        # The closing ``` must start at a line boundary (#2743) — otherwise
+        # a nested fence inside a YAML block scalar truncates the capture.
+        yaml_pattern = (
+            r"```yaml\s*\n\s*#\s*yaml-tasks\s*\n"
+            r"((?:.*\n)*?)[ ]{0,3}```\s*(?:\n|$)"
+        )
+        match = re.search(yaml_pattern, content)
 
         if not match:
             return self.create_result(

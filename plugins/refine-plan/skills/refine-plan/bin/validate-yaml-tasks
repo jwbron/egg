@@ -26,9 +26,11 @@ except ImportError:
     print("FAIL: PyYAML not installed (try: python3 -m pip install pyyaml)", file=sys.stderr)
     sys.exit(2)
 
+# Closing ``` must start at a line boundary — see issue #2743. A nested
+# code fence inside a YAML block scalar would otherwise terminate the
+# non-greedy capture early and the validator would pass a truncated plan.
 FENCE_RE = re.compile(
-    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```",
-    re.DOTALL,
+    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n((?:.*\n)*?)[ ]{0,3}```\s*(?:\n|$)",
 )
 TASK_ID_RE = re.compile(r"^TASK-\d+-\d+$", re.IGNORECASE)
 SLICE_NUMBER_RE = re.compile(r"^(?:slice-|phase-)?(\d+)$", re.IGNORECASE)
@@ -80,6 +82,8 @@ def _normalise_dep(raw: object) -> str | None:
     if m:
         return f"slice-{m.group(1)}"
     return None
+
+
 VALID_ROLES = {"coder", "tester", "documenter"}
 # Mirrors .egg/schemas/yaml-tasks.schema.json: only `pr.title` is required;
 # description/test_plan/manual_steps are optional. shared/egg_contracts/
@@ -144,17 +148,33 @@ def validate(plan_path: str) -> tuple[int, list[str], list[str]]:
             )
         else:
             if canonical in seen_slice_ids:
-                errors.append(
-                    f"duplicate slice id {slice_id!r} (canonical {canonical!r})"
-                )
+                errors.append(f"duplicate slice id {slice_id!r} (canonical {canonical!r})")
             seen_slice_ids.add(canonical)
-        for field in ("dependencies", "serialized_chain_order"):
-            raw = sl.get(field, [])
-            if isinstance(raw, str):
+        # #2743 — also walk ``depends_on`` so the planner gets a NACK if
+        # its non-canonical alias contains malformed entries. The contract
+        # emitter accepts ``depends_on`` as an alias for ``dependencies``.
+        if "depends_on" in sl and "dependencies" not in sl:
+            warnings.append(
+                f"slice {slice_id}: 'depends_on' is a non-canonical alias "
+                "for 'dependencies' (per yaml-tasks.schema.json). Accepted "
+                "for now, but please rename."
+            )
+        for field in ("dependencies", "depends_on", "serialized_chain_order"):
+            if field not in sl:
+                continue
+            raw = sl[field]
+            if isinstance(raw, bool):
+                errors.append(
+                    f"slice {slice_id}: '{field}' must be an int, string, or list — got bool"
+                )
+                continue
+            if isinstance(raw, int):
+                raw = [raw]
+            elif isinstance(raw, str):
                 raw = [d.strip() for d in raw.split(",") if d.strip()]
             elif not isinstance(raw, list):
                 errors.append(
-                    f"slice {slice_id}: '{field}' must be a list or comma string"
+                    f"slice {slice_id}: '{field}' must be a list, comma string, or single int"
                 )
                 continue
             for entry in raw:
@@ -169,10 +189,7 @@ def validate(plan_path: str) -> tuple[int, list[str], list[str]]:
                 # Mirrors plan_parser.py's seen_contract_ids check (#1988).
                 contract_id = tid.lower()
                 if contract_id in seen_task_ids:
-                    errors.append(
-                        f"duplicate task id {contract_id!r} "
-                        f"(source id {tid!r})"
-                    )
+                    errors.append(f"duplicate task id {contract_id!r} (source id {tid!r})")
                 seen_task_ids.add(contract_id)
             role = t.get("role") if isinstance(t, dict) else None
             if role is not None and role not in VALID_ROLES:
@@ -187,8 +204,7 @@ def validate(plan_path: str) -> tuple[int, list[str], list[str]]:
         norm = _normalise_dep(entry)
         if norm is None:
             errors.append(
-                f"slice {src_slice}: {field} entry {entry!r} is not a "
-                "valid slice reference"
+                f"slice {src_slice}: {field} entry {entry!r} is not a valid slice reference"
             )
         elif norm not in seen_slice_ids:
             errors.append(
