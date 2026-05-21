@@ -437,11 +437,6 @@ complete shell CLI surface.
 
 ## Known limitations
 
-- **Harness coverage (decision-3 of #1765):** Only the
-  `claude_agent_sdk` harness registers the MCP tools. The
-  experimental `EGG_HARNESS=egg` path is **not yet covered** — when
-  it graduates from experimental to supported, a parallel
-  registration will land (decision-10 of #1917 keeps this deferred).
 - **Anchor verbs (decision-2 of #1917):** The capability audit also
   surfaced `anchor_init` / `anchor_update` / `anchor_get`. They are
   deferred to iteration 3 so the anchor design can be done
@@ -515,9 +510,6 @@ SDK release notes rather than silently breaking every sandbox.
   namespace exposes.
 - [Sandbox environment rules](../../sandbox/agent-config/rules/environment.md) —
   `EGG_MCP_TOOLS` alongside other sandbox env flags.
-- [Custom Harness](../architecture/custom-harness.md) — harness
-  coverage (decision-3 of #1765): MCP tools are
-  `claude_agent_sdk`-only today.
 - [#1765](https://github.com/jwbron/egg/issues/1765) — iteration 1
   (mechanism + 18 verbs).
 - [#1917](https://github.com/jwbron/egg/issues/1917) — iteration 2

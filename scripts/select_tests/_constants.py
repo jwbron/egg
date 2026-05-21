@@ -40,8 +40,6 @@ SOURCE_PACKAGES: tuple[str, ...] = (
     "shared.egg_container",
     "shared.egg_contracts",
     "shared.egg_git",
-    "shared.egg_harness",
-    "shared.egg_harness_integration",
     "shared.egg_health",
     "shared.egg_logging",
     "shared.egg_orchestrator",

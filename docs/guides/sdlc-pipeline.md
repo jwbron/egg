@@ -1544,7 +1544,7 @@ Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions
 
 Or export it in a local-quickstart shell before running `egg-sdlc`. When the flag is opted out, `shared/egg_agent/client.py::run_agent_async` runs the pre-#1765 code path verbatim — no `mcp_servers` registration, no system-prompt changes, no import cost.
 
-The `claude_agent_sdk` harness is the only harness covered (decision-3 of #1765); `EGG_HARNESS=egg` does not yet register the tools. Iteration 2 (#1917) shipped peer-read, checkpoint, overseer-alert, task-gap, and additional contract/phase verbs; anchor verbs remain deferred to iteration 3. The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
+Iteration 2 (#1917) shipped peer-read, checkpoint, overseer-alert, task-gap, and additional contract/phase verbs; anchor verbs remain deferred to iteration 3. The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
 
 ## Pipeline Health Monitoring
 

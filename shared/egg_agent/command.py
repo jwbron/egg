@@ -7,8 +7,6 @@ which returns the command list passed to :func:`spawn_agent_container`.
 
 from __future__ import annotations
 
-import os
-
 
 def build_agent_command(
     prompt: str,
@@ -33,16 +31,10 @@ def build_agent_command(
     Returns:
         Command list suitable for container execution.
     """
-    # Select the Python module based on the EGG_HARNESS env var.
-    # When EGG_HARNESS=egg, route to the new egg_harness module;
-    # otherwise default to the existing egg_agent module.
-    harness = os.environ.get("EGG_HARNESS", "claude-sdk")
-    module = "egg_harness" if harness == "egg" else "egg_agent"
-
     cmd: list[str] = [
         "python3",
         "-m",
-        module,
+        "egg_agent",
         "--model",
         model,
         "--max-turns",

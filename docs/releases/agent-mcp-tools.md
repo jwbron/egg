@@ -6,10 +6,10 @@ tool calls re-deriving them from source.
 
 ## What changed
 
-Sandbox agents running under the `claude_agent_sdk` harness can now
-invoke 15 pipeline-lifecycle verbs as first-class Claude Agent SDK MCP
-tools on the same `tool_use` stream they already handle, instead of
-shelling out to `egg-contract` / `egg-orch` via `Bash`.
+Sandbox agents can now invoke 15 pipeline-lifecycle verbs as
+first-class Claude Agent SDK MCP tools on the same `tool_use` stream
+they already handle, instead of shelling out to `egg-contract` /
+`egg-orch` via `Bash`.
 
 The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server`
 — no new network service, no new auth layer, no new process. The MCP
@@ -26,10 +26,6 @@ The surface is **on by default** since [#1942](https://github.com/jwbron/egg/iss
 |------|--------|
 | `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Register the 15 tools and append `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
 | `EGG_MCP_TOOLS=false` / `0` / `no` / `off` | Opt-out. Code path is byte-identical to the pre-#1765 behaviour — no import cost, no prompt changes. |
-
-**Currently `claude_agent_sdk` harness only.** `EGG_HARNESS=egg` is
-not yet covered (decision-3) and will register the tools in parallel
-when that harness graduates from experimental to supported.
 
 ## Iteration-1 verbs (15 total)
 
@@ -106,8 +102,6 @@ test-collection time rather than silently breaking every sandbox.
 - **Iteration 2 verbs — [#1917](https://github.com/jwbron/egg/issues/1917):**
   Roughly 15 additional verbs surfaced in the capability audit (peer,
   checkpoint, anchor, overseer, task-gap) are tracked there.
-- **Harness coverage — decision-3:** When `EGG_HARNESS=egg` graduates
-  from experimental, a parallel MCP registration will land.
 
 ## References
 

@@ -111,10 +111,8 @@ Each major component has detailed documentation:
 | [Gateway Sidecar](../gateway/README.md) | `gateway/` | Policy enforcement, credential injection, API endpoints |
 | [Orchestrator](../orchestrator/README.md) | `orchestrator/` | Local SDLC pipeline execution, state management, container lifecycle |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
-| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, SDLC contracts, custom harness |
+| [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, SDLC contracts |
 | [Logging](../shared/egg_logging/README.md) | `shared/egg_logging/` | Structured JSON logging with grep-friendly inline console format |
-| [Custom Harness](../shared/egg_harness/README.md) | `shared/egg_harness/` | Provider-abstracted agent runtime with context management |
-| [Harness Integration](../shared/egg_harness_integration/README.md) | `shared/egg_harness_integration/` | Egg-specific harness wiring (tools, permissions, prompt, compaction) |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
 | [CLI Entry Points](../bin/README.md) | `bin/` | `egg-sdlc`, `egg-deploy`, and other CLI tools |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
@@ -155,8 +153,6 @@ Each major component has detailed documentation:
 | **Checkpoint redaction** | [Redaction Reference](reference/redaction.md) | [Checkpoint Access](guides/checkpoint-access.md), [Architecture Overview](architecture/README.md) |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
 | **Pipeline health monitoring** | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md) | [Health Checks README](../orchestrator/health_checks/README.md), [Agent Roles](reference/agent-roles.md), [Orchestrator Architecture](architecture/orchestrator.md) |
-| **Custom harness / multi-provider** | [Custom Harness Architecture](architecture/custom-harness.md) | [Harness Configuration](guides/harness-configuration.md), [egg_harness README](../shared/egg_harness/README.md), [egg_harness_integration README](../shared/egg_harness_integration/README.md), [Credential Injection](architecture/credential-injection.md) |
-| **Harness selection / EGG_HARNESS** | [Harness Configuration](guides/harness-configuration.md) | [egg_harness_integration README](../shared/egg_harness_integration/README.md), [Custom Harness Architecture](architecture/custom-harness.md), [Sandbox README](../sandbox/README.md) |
 | **Generating repository documentation** | [GitHub Automation: Documentation Onboarding](guides/github-automation.md#documentation-onboarding) | [Onboarding prompt](../shared/prompts/onboarding-docs-prompt.md), `egg-onboarding-docs` CLI |
 
 ## Quick Navigation
