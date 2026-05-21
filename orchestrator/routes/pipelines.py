@@ -22641,8 +22641,12 @@ def _run_pipeline(
             # ``write_per_slice=False`` (see #2755), so per-slice
             # implement-phase transcripts are on the slice integration
             # branches, and the work commit picks up only the
-            # unattributed sibling (plus any non-implement aggregate)
-            # before we wipe the message store here.
+            # unattributed sibling plus whatever aggregate the writer
+            # still emits — refine/plan/pr aggregates, and the
+            # non-slice-implement aggregate that babysit_pr (and any
+            # other implement-phase run without slice scope) lands on
+            # work via the ``not buckets`` branch — before we wipe the
+            # message store here.
             from routes.phases import _clear_concurrent_state
 
             _clear_concurrent_state(pipeline_id)
