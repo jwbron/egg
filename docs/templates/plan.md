@@ -111,6 +111,7 @@ phases:
       [Phase Name]
     goal: |-
       [What this phase achieves]
+    dependencies: [1]
     tasks:
       - id: TASK-2-1
         description: |-
@@ -126,7 +127,10 @@ phases:
 > `description`, and `acceptance`. Plain unquoted scalars break when the
 > text contains `` `code: type` `` snippets or other `: ` sequences —
 > PyYAML reads them as nested mappings and the parser silently drops back
-> to markdown fallback, losing the `pr:` block (see issue #1974).
+> to markdown fallback, losing the `pr:` block (see issue #1974). Block
+> scalars may safely contain nested `` ``` `` code fence examples; the
+> yaml-tasks fence parser (#2743) anchors on line-boundary `` ``` ``
+> markers so inner fences don't truncate the block.
 
 > **Role assignment**: The optional `role` field assigns a task to a specific execution agent
 > (`coder`, `tester`, or `documenter`). Assign roles based on which agent is permitted to modify
@@ -153,7 +157,11 @@ phases:
 > **Slices vs. phases (#2137)**: The plan parser accepts either `slices:`
 > (canonical, post-#2137) or `phases:` (legacy alias) at the top of the
 > `# yaml-tasks` block. New plans should emit `slices:` so they ingest as
-> the slice-DAG implement model expects. Each slice is independently
+> the slice-DAG implement model expects. Within each slice,
+> `depends_on:` is accepted as a non-canonical alias for the schema-
+> canonical `dependencies:` key (#2743) — validation emits a warning and
+> the canonical key wins when both are present. Use `dependencies:` in
+> new plans. Each slice is independently
 > implementable and gets its own integration branch, agent team, BRC
 > consensus, and PR. The slice DAG must be a **forest** — each slice has
 > at most one DAG parent. Multi-parent slices are rejected at plan
