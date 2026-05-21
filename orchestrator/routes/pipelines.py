@@ -22636,10 +22636,13 @@ def _run_pipeline(
             # a stale plan-phase tracker keyed under the bare
             # ``pipeline_id`` for ``_get_concurrent_status`` to find and
             # report as ``is_complete: True`` long after the implement
-            # phase had started.  ``_write_brc_history`` already ran
-            # earlier in this iteration (line ~16753) so the BRC
-            # transcript is already on disk by the time we wipe the
-            # message store here.
+            # phase had started.  ``_write_brc_history`` runs at the
+            # bottom of each phase iteration with
+            # ``write_per_slice=False`` (see #2755), so per-slice
+            # implement-phase transcripts are on the slice integration
+            # branches, and the work commit picks up only the
+            # unattributed sibling (plus any non-implement aggregate)
+            # before we wipe the message store here.
             from routes.phases import _clear_concurrent_state
 
             _clear_concurrent_state(pipeline_id)

@@ -309,7 +309,7 @@ class TestHappyPath:
             # per-slice files at the staging path on its scan step.
             stub = _writer_stub(tmp_path)
             stub(worktree, pipeline_id, phase, identifier, **kwargs)
-            writer_calls.append((str(worktree), pipeline_id, phase, identifier))
+            writer_calls.append((str(worktree), pipeline_id, phase, identifier, dict(kwargs)))
 
         with patch("routes.pipelines._write_brc_history", _spy_writer):
             _commit_slice_brc_history_to_integration_branch(
@@ -321,7 +321,7 @@ class TestHappyPath:
             )
 
         assert len(writer_calls) == 1, "writer must be called exactly once per hook tick"
-        wt, pid, phase, identifier = writer_calls[0]
+        wt, pid, phase, identifier, kwargs = writer_calls[0]
         # Writer must NOT be called against the work worktree (#2755).
         # The hook stages into a temp directory so concurrent slice hooks
         # do not leave per-slice files on ``work`` that would conflict
@@ -335,6 +335,16 @@ class TestHappyPath:
         # Identifier resolves via ``_brc_history_identifier`` — for an
         # issue pipeline that's the issue number (2548).
         assert identifier == 2548
+        # The slice hook depends on per-slice file rendering — passing
+        # ``write_per_slice=False`` here would silently skip the per-slice
+        # bucket loop and break the feature (the downstream scan would
+        # find no files and the hook would return False). Pin the kwarg
+        # so a future regression that flips the default cannot escape
+        # via ``_writer_stub``'s ``**kwargs`` permissiveness.
+        assert kwargs.get("write_per_slice", True) is True, (
+            f"slice hook must not pass write_per_slice=False to the writer (#2755); "
+            f"got kwargs={kwargs!r}"
+        )
 
     def test_fetches_integration_branch_before_worktree_add(self, tmp_path, pipeline, make_spawner):
         """Step 2: the local remote-tracking ref is refreshed via
