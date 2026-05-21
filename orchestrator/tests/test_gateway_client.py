@@ -1342,7 +1342,7 @@ class TestCreatePR:
 
 
 class TestCreateSlicePR:
-    """Body / title composition for create_slice_pr (#2340)."""
+    """Body / title composition for create_slice_pr (#2340, #2538, #2745)."""
 
     def _capture(self, gateway_client):
         """Patch create_pr to capture (title, body) and return a dummy URL."""
@@ -1379,14 +1379,78 @@ class TestCreateSlicePR:
         assert "Program-level umbrella PR" not in captured["body"]
         assert "## This slice" not in captured["body"]
 
-    def test_non_terminal_slice_carries_program_narrative_with_slice_id_prefix(
+    def test_non_terminal_slice_with_base_pr_renders_lean_body(self, gateway_client):
+        """#2745: when the base/context PR (#2548) exists, non-terminal slice
+        bodies are lean — a 1-line program blurb + ``Base PR:`` link + the
+        per-slice ``## This slice`` scope. The duplicated program test plan
+        / manual steps that pre-#2745 every slice carried is gone."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[
+                    {
+                        "id": "task-1-1",
+                        "description": "Add the barrel re-export so callers route through it.",
+                        "acceptance_criteria": "Imports through the barrel succeed; mypy green.",
+                    },
+                ],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files; ratchet allowlist",
+                program_description=(
+                    "The lint added in #2250 caps Python files at 1500 lines. "
+                    "Multiple files cross that cap; this program decomposes them."
+                ),
+                program_test_plan="- Automated: make lint and make test-all green.",
+                program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
+                terminal_slice_id="slice-3",
+                slice_index=1,
+                slice_count=3,
+                slice_files_affected=["orchestrator/foo.py", "shared/bar.py"],
+                context_pr_number=99,
+            )
+        # Title: ``[<program-slug>][slice-N/M] <slice subject>``.
+        assert captured["title"] == "[issue-42][slice-1/3] Pattern adoption"
+        body = captured["body"]
+        # Program-wide rollups are GONE on lean non-terminal slices —
+        # they live on the base PR / terminal slice now.
+        assert "Program-level umbrella PR" not in body
+        assert "## Test Plan" not in body
+        assert "## Manual Steps" not in body
+        # First-sentence blurb is present; rest of the description is not.
+        assert "The lint added in #2250 caps Python files at 1500 lines." in body
+        assert "Multiple files cross that cap" not in body
+        # Base PR link is present and points to the context PR number.
+        assert "**Base PR:** #99" in body
+        # Per-slice scope: subject, files affected, full task + AC.
+        assert "## This slice" in body
+        assert "Pattern adoption" in body
+        assert "Files affected:" in body
+        assert "`orchestrator/foo.py`" in body
+        assert "`shared/bar.py`" in body
+        assert "- task-1-1: Add the barrel re-export so callers route through it." in body
+        assert "Acceptance criteria: Imports through the barrel succeed; mypy green." in body
+        # ``## Stack`` block names parent / base PR position.
+        assert "## Stack" in body
+        assert "- Base PR: #99" in body
+        assert "- Stacked on top of `egg/issue-42/work`" in body
+        assert "- Position: slice 1 of 3 in pipeline `issue-42`" in body
+        # Legacy footer string kept for tooling/scrapers.
+        assert "Slice slice-1 of pipeline issue-42" in body
+
+    def test_non_terminal_slice_without_base_pr_falls_back_to_inline_narrative(
         self, gateway_client
     ):
-        """#2538: every slice — including non-terminal ones — carries the
-        planner-authored narrative on its PR so reviewers see program
-        context on whichever slice they open first. Non-terminal slices
-        get a ``[<slice-id>] `` title prefix to disambiguate in the
-        GitHub PR list."""
+        """#2745 / #2744: UX backstop. When ``context_pr_number`` is None
+        (the base/context PR was not opened — #2744 regression), the slice
+        PR body falls back to the pre-#2745 inline-narrative shape so the
+        slice PR is still reviewable as a standalone diff against
+        ``/work``. NOTE: the stack is still structurally unmergeable in
+        this state; this is a body-rendering backstop, not a fix."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
             gateway_client.create_slice_pr(
@@ -1396,46 +1460,46 @@ class TestCreateSlicePR:
                 slice_name="Pattern adoption",
                 slice_tasks=[{"id": "task-1-1", "description": "Add the barrel re-export"}],
                 head="egg/issue-42/slice-1",
-                base="egg/issue-42",
+                base="egg/issue-42/work",
                 program_title="Decompose oversize files; ratchet allowlist",
                 program_description="The lint added in #2250 caps Python files at 1500 lines.",
                 program_test_plan="- Automated: make lint and make test-all green.",
                 program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
                 terminal_slice_id="slice-3",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=None,
             )
-        assert captured["title"] == "[slice-1] Decompose oversize files; ratchet allowlist"
         body = captured["body"]
-        # No "umbrella" banner on non-terminals — that's the merge-gate marker
-        # and belongs only on the terminal slice.
-        assert "Program-level umbrella PR" not in body
-        # Program narrative is present.
-        assert "The lint added in #2250" in body
+        # Title still uses the new shape.
+        assert captured["title"] == "[issue-42][slice-1/3] Pattern adoption"
+        # Inline narrative is present because there's no base PR to defer to.
+        assert "The lint added in #2250 caps Python files at 1500 lines." in body
         assert "## Test Plan" in body
         assert "make lint" in body
         assert "## Manual Steps" in body
         assert "seam tables" in body
-        # Per-slice scope section appears after the program description and
-        # carries the slice name + task bullets.
+        # No Base PR pointer — there is no base PR in this state.
+        assert "**Base PR:**" not in body
+        assert "- Base PR:" not in body
+        # Per-slice scope is still rendered.
         assert "## This slice" in body
         assert "Pattern adoption" in body
-        assert "- task-1-1: Add the barrel re-export" in body
         # Section ordering: description → This slice → Test Plan → Manual Steps.
         assert body.index("The lint added in #2250") < body.index("## This slice")
         assert body.index("## This slice") < body.index("## Test Plan")
         assert body.index("## Test Plan") < body.index("## Manual Steps")
-        # Stack footer survives.
-        assert "Slice slice-1 of pipeline issue-42" in body
-        # Pointer line from the old non-terminal shape is gone — narrative is
-        # right here, no need to send reviewers elsewhere.
-        assert "program-level narrative" not in body
-        assert "carries the program-level" not in body
 
-    def test_terminal_slice_uses_program_title_and_planner_authored_body(self, gateway_client):
-        """When ``program_title`` is set and ``terminal_slice_id`` is None
-        (the terminal slice itself), the helper emits the planner-authored
-        title + description / per-slice / test plan / manual steps body,
-        prefixed with the umbrella banner so reviewers can tell the PR is
-        the program merge gate."""
+    def test_terminal_slice_keeps_umbrella_rollup_and_uses_merge_gate_marker(self, gateway_client):
+        """#2745: terminal slice keeps the umbrella treatment — program
+        description + ``## Test Plan`` + ``## Manual Steps`` + pre-merge
+        obligations — because the base/context PR (#2548) is a strategic-
+        direction surface (analysis + plan + BRC history), not a merge-the-
+        whole-stack rollup. Execution-time concerns live on the merge gate.
+
+        Title now uses the ``[<slug>][merge-gate] <program_title>`` shape so
+        the terminal PR is still distinguishable from the program-level
+        base PR by title alone (the original #2745 complaint)."""
         captured, ctx = self._capture(gateway_client)
         with ctx:
             gateway_client.create_slice_pr(
@@ -1450,9 +1514,13 @@ class TestCreateSlicePR:
                 program_description="The lint added in #2250 caps Python files at 1500 lines.",
                 program_test_plan="- Automated: make lint and make test-all green.",
                 program_manual_steps="Pre-merge (terminal slice only): verify seam tables.",
+                slice_index=3,
+                slice_count=3,
+                context_pr_number=99,
             )
-        # Terminal title is bare program_title (no slice-id prefix).
-        assert captured["title"] == "Decompose oversize files; ratchet allowlist"
+        assert captured["title"] == (
+            "[issue-42][merge-gate] Decompose oversize files; ratchet allowlist"
+        )
         body = captured["body"]
         assert "Program-level umbrella PR" in body
         assert "issue-42" in body
@@ -1461,18 +1529,24 @@ class TestCreateSlicePR:
         assert "## This slice" in body
         assert "Apply the ratchet" in body
         assert "- task-3-1: Bump the allowlist" in body
+        # Program test plan / manual steps still rendered on terminal —
+        # this is the merge gate; execution-time concerns live here.
         assert "## Test Plan" in body
         assert "make lint" in body
         assert "## Manual Steps" in body
         assert "seam tables" in body
-        # Slice-context footer survives so reviewers still see chain position.
+        # ``## Stack`` block names the merge-gate position.
+        assert "## Stack" in body
+        assert "- Base PR: #99" in body
+        assert "- Position: merge-gate (slice 3 of 3) in pipeline `issue-42`" in body
+        # Legacy footer string survives.
         assert "Slice slice-3 of pipeline issue-42" in body
-        # No "see <terminal-slice-id>'s PR" pointer on the terminal PR itself.
-        assert "program-level narrative" not in body
 
-    def test_terminal_slice_truncates_long_program_title_to_70_chars(self, gateway_client):
-        """Title-length cap is symmetric for planner-authored titles so the
-        existing PR-title guidance still holds."""
+    def test_terminal_slice_truncates_long_title_to_70_chars(self, gateway_client):
+        """Title-length cap (70 chars) is symmetric for the new
+        ``[<slug>][merge-gate] <program_title>`` shape. The slug + marker
+        prefix survives the truncation — only the subject is cut — so
+        reviewers can still tell it's the merge gate by title alone."""
         captured, ctx = self._capture(gateway_client)
         long_title = "A" * 90
         with ctx:
@@ -1485,9 +1559,15 @@ class TestCreateSlicePR:
                 head="egg/issue-42/slice-3",
                 base="egg/issue-42/slice-2",
                 program_title=long_title,
+                slice_index=3,
+                slice_count=3,
             )
         assert len(captured["title"]) == 70
         assert captured["title"].endswith("...")
+        # Pin the new shape: slug + merge-gate marker must survive the
+        # 70-char truncation so reviewers can still tell it's the merge
+        # gate by title alone (#2746 review item 7).
+        assert captured["title"].startswith("[issue-42][merge-gate] ")
 
     def test_terminal_slice_renders_program_deferred_actions(self, gateway_client):
         """#2354: when the terminal slice receives ``program_deferred_actions``
@@ -1523,6 +1603,8 @@ class TestCreateSlicePR:
                         "resolved_in_diff": "2c319626a",
                     },
                 ],
+                slice_index=3,
+                slice_count=3,
             )
         body = captured["body"]
         assert "## ⚠️ Pre-merge Obligations" in body
@@ -1609,6 +1691,58 @@ class TestCreateSlicePR:
                 ],
             )
 
+    def test_non_terminal_slice_lean_branch_with_obligations_raises(self, gateway_client):
+        """#2746 review item 1: the lean non-terminal branch (program_title
+        set, base PR opened) must also reject mis-routed
+        ``program_deferred_actions``. The pre-fix code only asserted in
+        the no-program-title branch, so a non-terminal slice with a
+        program_title silently dropped obligations."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx, pytest.raises(AssertionError, match="program_deferred_actions must be None"):
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                terminal_slice_id="slice-3",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=99,  # lean branch
+                program_deferred_actions=[
+                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
+                ],
+            )
+
+    def test_non_terminal_slice_inline_fallback_branch_with_obligations_raises(
+        self, gateway_client
+    ):
+        """#2746 review item 1: the inline-fallback non-terminal branch
+        (program_title set, no base PR) must also reject mis-routed
+        ``program_deferred_actions`` — same reason as the lean branch."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx, pytest.raises(AssertionError, match="program_deferred_actions must be None"):
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[{"id": "task-1-1", "description": "do X"}],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                terminal_slice_id="slice-3",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=None,  # inline-fallback branch
+                program_deferred_actions=[
+                    {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
+                ],
+            )
+
     def test_whitespace_program_title_does_not_trigger_assertion(self, gateway_client):
         """``PRMetadata.title`` validates with ``min_length=1`` but does not
         ``.strip()`` — so a whitespace-only title (e.g. ``" "``) currently
@@ -1635,6 +1769,65 @@ class TestCreateSlicePR:
                     {"reviewer": "r1", "condition": "do X", "resolved_in_diff": ""},
                 ],
             )
+
+    def test_task_descriptions_not_truncated_and_acceptance_criteria_rendered(self, gateway_client):
+        """#2745: drop the 300-char task description truncation introduced
+        in pre-#2745 ``create_slice_pr`` (cuts task descriptions
+        mid-sentence with ``...``). Slice PR bodies surface full task
+        descriptions and per-task acceptance criteria when present."""
+        long_desc = "x" * 500
+        long_ac = "y" * 400
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                slice_id="slice-1",
+                slice_name="Pattern adoption",
+                slice_tasks=[
+                    {
+                        "id": "task-1-1",
+                        "description": long_desc,
+                        "acceptance_criteria": long_ac,
+                    },
+                ],
+                head="egg/issue-42/slice-1",
+                base="egg/issue-42/work",
+                program_title="Decompose oversize files",
+                program_description="A long-form description.",
+                terminal_slice_id="slice-3",
+                slice_index=1,
+                slice_count=3,
+                context_pr_number=99,
+            )
+        body = captured["body"]
+        assert long_desc in body  # full description, no ``...`` truncation
+        assert long_ac in body  # full acceptance criteria
+
+    def test_pipeline_hash_id_truncates_slug_in_title(self, gateway_client):
+        """Pipelines opened via ``submit_task`` without an issue number get
+        identifiers like ``pipeline-f4c7d780``. The program slug truncates
+        long identifiers so the title stays scannable."""
+        captured, ctx = self._capture(gateway_client)
+        with ctx:
+            gateway_client.create_slice_pr(
+                pipeline_id="pipeline-f4c7d780abc123",
+                repo="owner/repo",
+                slice_id="slice-2",
+                slice_name="Bring up the orchestrator wire",
+                slice_tasks=None,
+                head="egg/pipeline-f4c7d780abc123/slice-2",
+                base="egg/pipeline-f4c7d780abc123/slice-1",
+                program_title="Actionable Plan Framework MVP",
+                terminal_slice_id="slice-15",
+                slice_index=2,
+                slice_count=15,
+                context_pr_number=5,
+            )
+        # Slug should be truncated to the configured max (18 chars).
+        assert captured["title"].startswith("[pipeline-f4c7d780")
+        assert "[slice-2/15]" in captured["title"]
+        assert "Bring up the orchestrator wire" in captured["title"]
 
 
 class TestSelfIpResolution:

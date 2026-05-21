@@ -15947,12 +15947,56 @@ def _run_implement_phase_slices(
                                 if is_terminal or not umbrella_has_program_block
                                 else chosen_terminal
                             )
+                            # #2745: derive 1-based slice position +
+                            # total slice count from declared contract
+                            # order so the slice PR title can carry
+                            # ``[slice-N/M]`` for non-terminal slices.
+                            slice_count = len(contract_post.slices)
+                            slice_index_lookup = next(
+                                (
+                                    i + 1
+                                    for i, s in enumerate(contract_post.slices)
+                                    if s.id == slice_id
+                                ),
+                                None,
+                            )
+                            # Union of ``task.files_affected`` across the
+                            # slice's tasks; rendered under
+                            # ``## This slice`` so reviewers see what
+                            # this slice actually touches without
+                            # opening the diff (#2745).
+                            slice_files_affected_list: list[str] = []
+                            seen_paths: set[str] = set()
+                            for t in slice_obj.tasks or []:
+                                for path in t.files_affected or []:
+                                    if path and path not in seen_paths:
+                                        seen_paths.add(path)
+                                        slice_files_affected_list.append(path)
                             slice_pr_data = {
                                 "slice_name": slice_obj.name or slice_id,
                                 "slice_tasks": [
-                                    {"id": t.id, "description": t.description}
+                                    {
+                                        "id": t.id,
+                                        "description": t.description,
+                                        "acceptance_criteria": t.acceptance_criteria,
+                                    }
                                     for t in (slice_obj.tasks or [])
                                 ],
+                                "slice_index": slice_index_lookup,
+                                "slice_count": slice_count,
+                                "slice_files_affected": slice_files_affected_list or None,
+                                # ``context_pr_number`` is populated by
+                                # ``_open_context_pr_for_pipeline`` after
+                                # the base/context PR opens (#2548). When
+                                # None — covers the #2744 regression where
+                                # the base PR is silently not opened —
+                                # ``create_slice_pr`` falls back to the
+                                # pre-#2745 inline-narrative body so the
+                                # slice PR stays reviewable as a
+                                # standalone diff against ``/work``.
+                                "context_pr_number": (
+                                    program_pr.context_pr_number if program_pr else None
+                                ),
                                 "program_title": (program_pr.title if program_pr else None),
                                 "program_description": (
                                     program_pr.description if program_pr else None
@@ -16048,6 +16092,10 @@ def _run_implement_phase_slices(
                             program_manual_steps=slice_pr_data["program_manual_steps"],
                             program_deferred_actions=slice_pr_data["program_deferred_actions"],
                             terminal_slice_id=slice_pr_data["terminal_slice_id"],
+                            slice_index=slice_pr_data["slice_index"],
+                            slice_count=slice_pr_data["slice_count"],
+                            slice_files_affected=slice_pr_data["slice_files_affected"],
+                            context_pr_number=slice_pr_data["context_pr_number"],
                         )
                     except Exception as pr_err:  # noqa: BLE001
                         logger.error(
