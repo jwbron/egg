@@ -867,16 +867,16 @@ class TestCallSiteWiring:
 
     def test_pipelines_py_has_expected_call_sites(self):
         """``pipelines.py`` calls the helper from auto-advance,
-        implement-entry backstop, and HITL resume — three call sites
-        with three distinct, recognised source values.  The wrapper
-        definition itself is an ``ast.FunctionDef`` and is excluded
-        by the AST filter."""
+        implement-entry backstop, HITL resume, and the slice-loop
+        entry safety net (#2744) — four call sites with four distinct,
+        recognised source values.  The wrapper definition itself is an
+        ``ast.FunctionDef`` and is excluded by the AST filter."""
         pl_path = _orchestrator_path / "routes" / "pipelines.py"
         sources = _collect_helper_call_sources(pl_path)
-        assert len(sources) == 3, (
-            f"expected 3 call sites in pipelines.py (auto-advance, "
-            f"implement-entry backstop, HITL resume), got {len(sources)} "
-            f"with sources {sources!r}"
+        assert len(sources) == 4, (
+            f"expected 4 call sites in pipelines.py (auto-advance, "
+            f"implement-entry backstop, HITL resume, slice-loop entry), "
+            f"got {len(sources)} with sources {sources!r}"
         )
         # No call site should pass a non-literal ``source`` — that
         # would defeat the per-path log tagging.
@@ -887,6 +887,7 @@ class TestCallSiteWiring:
             "run_pipeline_autoadvance",
             "implement_entry_backstop",
             "hitl_resume",
+            "slice_loop_entry",
         }, f"unexpected source values in pipelines.py: {sources!r}"
 
     def test_phases_py_has_expected_call_site(self):
