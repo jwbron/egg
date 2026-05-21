@@ -10989,7 +10989,7 @@ def _maybe_open_base_pr_for_plan_to_implement(
 ) -> None:
     """Open the doc-only base/context PR for the plan→implement transition (#2548, #2593).
 
-    Single call site for every plan→implement code path:
+    Shared wrapper for every plan→implement code path:
 
     * the inline auto-advance in :func:`_run_pipeline` (the path #2548
       originally wired up);
@@ -11005,7 +11005,17 @@ def _maybe_open_base_pr_for_plan_to_implement(
       ``routes/phases.py:379``) bypass the backstop and so must call
       the wrapper directly; the inner short-circuit on
       ``context_pr_number`` makes any path that DOES re-enter the
-      backstop a no-op).
+      backstop a no-op);
+    * the slice-loop entry in :func:`_run_implement_phase_slices`
+      (#2744) — a defensive safety net for pipeline shapes where the
+      four earlier paths silently missed.  Slice-1 base resolution
+      reads ``contract.pr.context_branch`` and falls back to
+      ``pipeline_branch`` when it is empty, leaving the whole slice
+      stack stranded on ``/work`` with no path to ``main``.  Calling
+      the wrapper here, before any slice provisions, converts that
+      failure mode into "context PR opens at the last second."  The
+      inner short-circuit makes the call cheap when an earlier path
+      already opened the PR.
 
     CUSTOM-mode pipelines run a single phase and terminate (#1762) —
     they never advance to implement, so opening a context PR for them
@@ -15451,6 +15461,35 @@ def _run_implement_phase_slices(
             error=str(exc),
         )
         return 1, f"slice scheduler validation failed: {exc}"
+
+    # #2744 — defensive context-PR safety net at slice-loop entry.
+    # The four plan→implement transition paths (``_run_pipeline``
+    # auto-advance, ``advance_phase`` REST, ``start_pipeline`` HITL
+    # recovery, IMPLEMENT entry backstop) should each have opened the
+    # context PR before we reach the slice loop.  But #2593 / #2744
+    # show those paths can silently miss on specific pipeline shapes
+    # (most recently a non-issue-keyed ``pipeline-<hex>`` pipeline),
+    # and the only failure signal is slice-1 stacking on
+    # ``pipeline_branch`` instead of the context branch — exactly the
+    # stranded-stack symptom this hook exists to prevent.
+    #
+    # The wrapper is idempotent: its inner
+    # ``contract.pr.context_pr_number`` fast-path makes a fifth call
+    # cheap (one contract read) when one of the earlier paths already
+    # ran.  Failures here are logged and swallowed by the wrapper, so
+    # this never strands the slice loop.  Adding the safety net here —
+    # before any slice provisions, so slice-1's
+    # ``_resolve_slice_1_context_branch_from_contract`` lookup at
+    # ``_run_one_slice_inner`` finds the populated context_branch —
+    # converts "every slice PR stranded on /work" into "context PR
+    # opens at the last second."
+    _maybe_open_base_pr_for_plan_to_implement(
+        pipeline,
+        spawner,
+        worktree_repo_path,
+        gateway_mode=gateway_mode,  # type: ignore[arg-type]
+        source="slice_loop_entry",
+    )
 
     def _contract_loader() -> Any:
         try:
