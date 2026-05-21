@@ -13,7 +13,7 @@ GitHub access MUST go through the gateway sidecar (not the proxy) for policy enf
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `EGG_MCP_TOOLS` | unset (on) | **On by default since #1942.** Registers the in-process SDK MCP tool surface (29 verbs across 6 namespaces: `mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`) on `ClaudeAgentOptions.mcp_servers` and appends a bootstrap paragraph to the system prompt. Prefer these tools over Bash-ing `egg-contract` / `egg-orch` / `egg-checkpoint`. Set to `false` / `0` / `no` / `off` to opt out; the code path is then byte-identical to pre-#1765 behaviour. See `../../../docs/reference/agent-tools.md`. Currently `claude_agent_sdk`-only; `EGG_HARNESS=egg` is not yet covered. |
+| `EGG_MCP_TOOLS` | unset (on) | **On by default since #1942.** Registers the in-process SDK MCP tool surface (29 verbs across 6 namespaces: `mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`, `mcp__checkpoint__*`) on `ClaudeAgentOptions.mcp_servers` and appends a bootstrap paragraph to the system prompt. Prefer these tools over Bash-ing `egg-contract` / `egg-orch` / `egg-checkpoint`. Set to `false` / `0` / `no` / `off` to opt out; the code path is then byte-identical to pre-#1765 behaviour. See `../../../docs/reference/agent-tools.md`. |
 
 ## Capabilities
 

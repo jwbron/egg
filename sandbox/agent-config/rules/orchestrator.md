@@ -11,12 +11,8 @@ command string the shell interprets backticks, `$(...)`, `$VAR`, `<`,
 `>`, `;`, `|`, and `&` — so prose that contains them (a markdown code
 span, a URL, a `<` comparison) is silently corrupted, and a backtick or
 `$(...)` span is *executed* as a command rather than stored. The
-structured tools pass each field as data and never touch a shell:
-
-- **`claude_agent_sdk` harness** — the `mcp__brc__*` / `mcp__progress__*`
-  tools (mapped below).
-- **`EGG_HARNESS=egg`** — the `EggOrch` tool: subcommand as `command`,
-  each flag and value as a separate `args` element.
+`mcp__brc__*` / `mcp__progress__*` tools (mapped below) pass each field
+as data and never touch a shell.
 
 The `egg-orch` commands below are the reference for what each operation
 does and stay available to human operators; agents invoke them through
@@ -50,13 +46,12 @@ Pipeline ID/agent role can be omitted when `EGG_PIPELINE_ID`/`EGG_AGENT_ROLE` ar
 
 **Related CLIs**: `egg-contract`, `egg-pipeline-watch`, `egg-checkpoint`
 
-## MCP tool equivalents (`claude_agent_sdk` harness)
+## MCP tool equivalents
 
-On the `claude_agent_sdk` harness the operations above are also exposed
-as in-process MCP tools, which share the same handler the CLI uses
-(drift-gate enforced). Prefer them for the reason in the callout above:
-free-text routed to the CLI through the `Bash` tool is mangled by the
-shell.
+The operations above are also exposed as in-process MCP tools, which
+share the same handler the CLI uses (drift-gate enforced). Prefer them
+for the reason in the callout above: free-text routed to the CLI through
+the `Bash` tool is mangled by the shell.
 
 BRC consensus + heartbeats:
 
