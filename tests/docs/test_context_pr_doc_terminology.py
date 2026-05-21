@@ -21,9 +21,8 @@ Each test pins one acceptance-criterion line to a literal-string check
 so the failure message points directly at the missing element. The
 deprecated-filename grep uses a directory-scoped scan with an explicit
 allow-list of known-legitimate references (operational documentation
-covering CUSTOM+PR / non-slice mode where the aggregate file is still
-emitted, plus the file-tree reference in
-``docs/guides/sdlc-pipeline.md``).
+covering non-slice mode where the aggregate file is still emitted, plus
+the file-tree reference in ``docs/guides/sdlc-pipeline.md``).
 
 If the documenter moves a section heading or changes wording, this file
 will fail loudly and direct the change to the planner: docs drift is

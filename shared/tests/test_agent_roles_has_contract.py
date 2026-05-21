@@ -1,9 +1,10 @@
 """Tests for the ``has_contract`` parameter of ``get_roles_for_phase()``.
 
-CUSTOM+PR pipelines (#1762) run without an upstream SDLC contract. In that
-mode the ``reviewer_contract`` reviewer has no artifacts to verify, so it must
-be filtered out of the phase roster so BRC does not wait on an agent that
-cannot ACK. These tests lock in that behavior.
+Pipelines that run without an upstream SDLC contract (e.g. an ISSUE-mode
+pipeline that hasn't yet produced a contract draft) give the
+``reviewer_contract`` reviewer no artifacts to verify, so it must be filtered
+out of the phase roster so BRC does not wait on an agent that cannot ACK.
+These tests lock in that behavior.
 """
 
 from __future__ import annotations

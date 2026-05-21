@@ -1238,7 +1238,8 @@ def get_roles_for_phase(
         has_contract: Whether the pipeline has an upstream SDLC contract
             (default True). When False, reviewers whose upstream artifacts
             are absent are filtered out — currently ``reviewer_contract``.
-            CUSTOM+PR pipelines set this to False (#1762).
+            ISSUE-mode pipelines set this to False when they haven't yet
+            produced a contract draft.
 
     Returns:
         List of AgentRole values for that phase.
