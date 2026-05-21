@@ -449,9 +449,10 @@ class TestDeriveProducerRolesWithTasks:
         monkeypatch.setattr(loader_module, "load_contract", loader_fn)
 
     def test_returns_none_when_slice_id_is_none(self):
-        """CUSTOM-mode / prompt-mode pipelines have no slice id — the
-        helper short-circuits with ``None`` and the loader is never
-        called. This is the pre-#2581 no-seed path."""
+        """Pipelines with no slice id — the helper short-circuits with
+        ``None`` and the loader is never called. This is the pre-#2581
+        no-seed path, now reached only by the ISSUE-mode unconditional-
+        roster fallback."""
         from routes.pipelines import _derive_producer_roles_with_tasks
 
         # No loader patch — if the helper called load_contract here, the
@@ -465,8 +466,9 @@ class TestDeriveProducerRolesWithTasks:
         assert result is None
 
     def test_returns_none_when_pipeline_has_no_contract(self):
-        """``has_contract=False`` (CUSTOM-mode with no contract draft)
-        short-circuits the same way — the helper never attempts to load."""
+        """``has_contract=False`` (ISSUE-mode pipeline that hasn't yet
+        produced a contract draft) short-circuits the same way — the
+        helper never attempts to load."""
         from routes.pipelines import _derive_producer_roles_with_tasks
 
         result = _derive_producer_roles_with_tasks(
