@@ -17,7 +17,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Architecture Overview](architecture/README.md) | High-level system design and security model |
-| [Custom Harness](architecture/custom-harness.md) | Custom coding harness: multi-provider LLM support, context management, session persistence |
 | [Orchestrator Architecture](architecture/orchestrator.md) | Orchestrator deployment modes and sandbox-to-orchestrator communication |
 | [Git Isolation](architecture/git-isolation.md) | Gateway sidecar design for worktree isolation and credential separation |
 | [Gateway Auto-Filter](architecture/gateway-auto-filter.md) | Restricted-path rejection on push (`403 restricted_path_modified`) and the commit-authorship registry that backs attribution |
@@ -59,7 +58,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Babysit-PR](guides/babysit-pr.md) | One-off implement-phase BRC cycle against an existing PR: role-typed producers (coder/tester/documenter) + `reviewer_code`, staging-branch isolation, single final consensus push |
 | [Custom-Phase (`run_agent_task`)](guides/custom-phase.md) | Run a single SDLC phase against a repo with an explicitly chosen subset of that phase's roles (refine / plan / implement), MCP-driven replacement for the removed interactive mode |
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
-| [Harness Configuration](guides/harness-configuration.md) | Selecting and configuring agent runtime harness (egg, claude-sdk, claude-code) |
 | [Deployment Diagnostics](guides/deployment-diagnostics.md) | When to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, and redaction guarantees |
 | [File Decomposition Pattern](guides/decomposition-pattern.md) | Canonical sub-package + explicit re-export barrel pattern for decomposing oversize Python files under the `scripts/file-size-allowlist.yaml` cap; covers conversion mechanics, method-modules-on-class shape, audit recipe, allowlist rebase, and routes-handling convention |
 
