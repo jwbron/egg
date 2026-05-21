@@ -122,20 +122,38 @@ _CLI_INPUT_SCHEMA: dict[str, Any] = {
 _EGG_TOOL_SPECS: list[tuple[str, str, str]] = [
     (
         "EggOrch",
-        "Execute egg-orch CLI commands for orchestrator interactions "
-        "(pipeline status, signaling, health checks, anchor management).",
+        "Orchestrator interactions via egg-orch subcommands: pipeline "
+        "status, signaling, health checks, progress events, overseer "
+        "alerts, anchor management, and message waits. Use this tool "
+        "for every egg-orch operation; pass the subcommand as `command` "
+        "and each flag and value as a separate `args` element. Never "
+        "invoke egg-orch through the Bash tool: free-text fields such "
+        "as --summary, --detail, --recommend, --step, --blocker, "
+        "--error, and --task are corrupted (or executed) by shell "
+        "metacharacters there.",
         "egg-orch",
     ),
     (
         "EggContract",
-        "Execute egg-contract CLI commands for SDLC contract tracking "
-        "(task completion, phase management, decisions).",
+        "SDLC contract tracking via egg-contract subcommands: show, "
+        "add-commit, complete-task, complete-phase, update-notes, "
+        "verify-criterion, add-decision, and add-feedback. Use this "
+        "tool for every egg-contract operation; pass the subcommand as "
+        "`command` and each flag and value as a separate `args` "
+        "element. Never invoke egg-contract through the Bash tool: "
+        "free-text fields such as --question, --options, and --notes "
+        "are corrupted (or executed) by shell metacharacters there.",
         "egg-contract",
     ),
     (
         "EggCheckpoint",
-        "Execute egg-checkpoint CLI commands for browsing agent checkpoints "
-        "(transcripts, tool calls, files, token usage).",
+        "Browse agent checkpoints (transcripts, tool calls, files, "
+        "token usage) via egg-checkpoint subcommands. Use this tool "
+        "for every egg-checkpoint operation; pass the subcommand as "
+        "`command` and each flag and value as a separate `args` "
+        "element. Never invoke egg-checkpoint through the Bash tool: "
+        "free-text fields such as --text are corrupted (or executed) "
+        "by shell metacharacters there.",
         "egg-checkpoint",
     ),
     (

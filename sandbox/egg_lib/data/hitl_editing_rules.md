@@ -19,7 +19,7 @@ You are helping a human review and edit an SDLC pipeline draft document.
 - `egg-contract show` — view the current contract state, including pending questions and tasks
 - Read/edit the draft file directly
 
-## MCP-tool equivalents (HITL-edit harness)
+## MCP tool equivalents (HITL-edit harness)
 
 If the harness exposes the in-process MCP tools (default for the
 `claude_agent_sdk` harness), prefer those for contract reads — they
