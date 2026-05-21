@@ -3769,6 +3769,20 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
     """
     repo_path = get_repo_path()
 
+    # Validate ``slice_id`` BEFORE the StateStore disk read in
+    # ``_resolve_pipeline`` — a malformed value is going to 400 anyway,
+    # and the read is wasted (#2764 review). ``InvalidPipelineIdError``
+    # / ``PipelineNotFoundError`` from ``_resolve_pipeline`` still
+    # naturally take precedence on the happy path: this validator only
+    # fires when a slice scope is supplied at all.
+    raw_slice_id = request.args.get("slice_id")
+    try:
+        status_slice_id = extract_slice_id(
+            {"slice_id": raw_slice_id} if raw_slice_id is not None else {}
+        )
+    except ValueError as e:
+        return make_error_response(str(e), status_code=400)
+
     try:
         _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
 
@@ -3802,17 +3816,11 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             if pr_number is not None:
                 data["pr_number"] = pr_number
 
-        # Include concurrent execution monitoring when enabled. An
-        # optional ``slice_id`` query param scopes the consensus block to
-        # one slice's BRC tracker in a slice-DAG implement phase (#2761);
-        # without it, only pipeline-level consensus is reported.
-        raw_slice_id = request.args.get("slice_id")
-        try:
-            status_slice_id = extract_slice_id(
-                {"slice_id": raw_slice_id} if raw_slice_id is not None else {}
-            )
-        except ValueError as e:
-            return make_error_response(str(e), status_code=400)
+        # Include concurrent execution monitoring when enabled. The
+        # ``?slice_id=`` query param (validated above before the
+        # StateStore read) scopes the consensus block to one slice's
+        # BRC tracker in a slice-DAG implement phase (#2761); without
+        # it, only pipeline-level consensus is reported.
         concurrent_data = _get_concurrent_status(pipeline, slice_id=status_slice_id)
         if concurrent_data:
             data["concurrent"] = concurrent_data

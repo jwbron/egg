@@ -41,6 +41,15 @@ except ImportError:
         return logging.getLogger(name)
 
 
+# Canonical slice id shape (``slice-<N>``). Imported from the shared
+# validator so this seam stays in lockstep with the orchestrator-side
+# ``extract_slice_id`` regex and the sandbox-side ``resolve_slice_id``.
+try:
+    from slice_id_validation import SLICE_ID_PATTERN as _SLICE_ID_PATTERN
+except ImportError:
+    _SLICE_ID_PATTERN = re.compile(r"^slice-[0-9]+$")
+
+
 logger = get_logger("orchestrator.mcp_tools")
 
 
@@ -2282,11 +2291,24 @@ class PipelineToolHandler:
         (#2761).
         """
         task_id = quote(args["task_id"], safe="")
-        slice_id = args.get("slice_id") or None
+        raw_slice_id = args.get("slice_id") or None
 
-        result: dict[str, Any] = {}
-        if slice_id:
-            result["slice_id"] = slice_id
+        # Validate ``slice_id`` client-side against the canonical
+        # ``slice-<N>`` shape so a malformed value yields a clear error
+        # instead of being swallowed by the bare ``except Exception``
+        # around ``_make_request`` and silently degraded into a (now
+        # slice-filtered) inference fallback. Matches the orchestrator's
+        # ``extract_slice_id`` regex and ``resolve_slice_id`` on the
+        # sandbox side; see review of #2764.
+        if raw_slice_id is not None and not _SLICE_ID_PATTERN.fullmatch(raw_slice_id):
+            raise ValueError(f"Invalid slice_id {raw_slice_id!r}: must match 'slice-<N>'")
+        slice_id = raw_slice_id
+
+        # Always include ``slice_id`` in the response (matches the
+        # ``brc_get_state`` handler's shape — callers that read
+        # ``resp["slice_id"]`` unconditionally see ``None`` rather than
+        # a missing key on a pipeline-level query).
+        result: dict[str, Any] = {"slice_id": slice_id}
 
         # Get pipeline base info
         pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
@@ -2316,19 +2338,24 @@ class PipelineToolHandler:
                 "agents": consensus.get("agents", {}),
             }
         else:
-            # Fall back to message-based inference. When a slice scope is
-            # given, filter to that slice's messages first — inferring
-            # over all slices' CONSENSUS_* would mingle sibling slices
-            # the same way a non-slice tracker lookup did (#2761).
+            # Fall back to message-based inference. Filter messages by
+            # the requested slice scope — symmetric with
+            # ``reconstruct_tracker_from_messages``: a non-None
+            # ``slice_id`` keeps only that slice's tagged messages, and
+            # ``slice_id is None`` keeps only pipeline-level (untagged)
+            # messages. Without the ``slice_id is None`` filter a
+            # slice-DAG pipeline queried without a scope would still
+            # mingle every slice's ``CONSENSUS_*`` into one inference —
+            # exactly the cross-slice "soup" the orchestrator-side fix
+            # is meant to eliminate (#2761).
             try:
                 messages_result = self._make_request(
                     f"/api/v1/pipelines/{task_id}/messages?limit=50"
                 )
                 messages = messages_result.get("data", {}).get("messages", [])
-                if slice_id:
-                    messages = [
-                        m for m in messages if (m.get("metadata") or {}).get("slice_id") == slice_id
-                    ]
+                messages = [
+                    m for m in messages if (m.get("metadata") or {}).get("slice_id") == slice_id
+                ]
                 result["consensus"] = self._infer_consensus_from_messages(messages)
                 result["consensus"]["note"] = (
                     "Inferred from messages — structured consensus data not available"

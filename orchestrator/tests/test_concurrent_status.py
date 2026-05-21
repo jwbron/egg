@@ -270,15 +270,19 @@ class TestGetConcurrentStatusSliceAware:
         """A non-slice query must not report a per-slice tracker's state.
 
         The per-slice tracker exists under ``{pid}/slice-7`` but a
-        ``slice_id=None`` lookup resolves the bare key only. Reconstruction
-        is then attempted pipeline-level (slice_id=None), so a slice-DAG
+        ``slice_id=None`` lookup must resolve the bare key only and
+        never reach the per-slice tracker. Reconstruction is then
+        attempted pipeline-level (slice_id=None), so a slice-DAG
         pipeline yields no consensus block rather than a fabricated one.
         """
         pipeline = _make_concurrent_pipeline(pipeline_id="issue-555")
         slice_tracker = MagicMock()
         slice_tracker.get_state.return_value = self._brc_state()
 
+        captured: list[tuple] = []
+
         def fake_lookup(pid, slice_id=None):
+            captured.append((pid, slice_id))
             return slice_tracker if slice_id == "slice-7" else None
 
         with (
@@ -297,6 +301,10 @@ class TestGetConcurrentStatusSliceAware:
             result = _get_concurrent_status(pipeline)
 
         assert "consensus" not in result
+        # Tracker lookup happened only at pipeline scope — the
+        # per-slice tracker under {pid}/slice-7 was never consulted.
+        assert ("issue-555", None) in captured
+        assert not any(slice_id == "slice-7" for _, slice_id in captured)
         # Reconstruction was scoped pipeline-level, never to a sibling slice.
         _, recon_kwargs = mock_recon.call_args
         assert recon_kwargs.get("slice_id") is None

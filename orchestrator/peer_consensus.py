@@ -1944,7 +1944,12 @@ def reconstruct_tracker_from_messages(
             silently reconstruct a cross-slice tracker (#2761).
         phase: When set, replay only messages from this pipeline phase.
             Guards against replaying an earlier phase's consensus (e.g.
-            refine/plan) into the current phase's review graph.
+            refine/plan) into the current phase's review graph. A
+            message with ``phase is None`` is treated as matching any
+            phase — symmetric with the CONSENSUS_CONFIRMED idempotency
+            probe in ``routes/signals.py`` (a null phase is the
+            conservative match: every emitter sets it, but if one
+            doesn't, include rather than drop).
 
     Returns:
         Reconstructed tracker registered in the global tracker dict,
@@ -1981,11 +1986,23 @@ def reconstruct_tracker_from_messages(
     # slice filter a slice-DAG pipeline's messages — all keyed under the
     # bare pipeline_id but tagged per-slice in metadata — would replay
     # into one tracker and reach a meaningless cross-slice state (#2761).
+    #
+    # Null-phase semantics mirror the CONSENSUS_CONFIRMED idempotency
+    # probe in ``routes/signals.py`` (see comment at
+    # ``_handle_consensus_confirmed_idempotency_probe``): a message with
+    # ``phase is None`` is treated as matching any phase filter. In
+    # practice every CONSENSUS_* message that ``routes/signals.py``
+    # emits sets a phase, but if one somehow doesn't, the conservative
+    # choice is to *include* it rather than drop it — symmetric with the
+    # probe, where the divergence would otherwise let one path replay a
+    # null-phase message that the other path silently skipped.
     consensus_msgs = [
         m
         for m in consensus_msgs
         if _message_slice_id(m) == slice_id
-        and (phase is None or getattr(m, "phase", None) == phase)
+        and (
+            phase is None or getattr(m, "phase", None) is None or getattr(m, "phase", None) == phase
+        )
     ]
 
     if not consensus_msgs:

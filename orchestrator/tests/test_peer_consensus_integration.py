@@ -2194,6 +2194,98 @@ class TestReconstructTrackerSliceAware:
 
         assert tracker is None
 
+    def test_slice_full_lifecycle_isolates_from_sibling_slice_state(self, simple_graph):
+        """A full propose+ACK+CONFIRMED lifecycle in slice-7 reconstructs correctly,
+        even when slice-1 sits in a totally different state.
+
+        The reconstructed tracker for slice-7 must reflect *only*
+        slice-7's lifecycle — coder confirmed — and not bleed in
+        slice-1's bare-propose state. This is the "positive" companion
+        to ``test_slice_scoped_replay_isolates_slices`` (which only
+        exercises CONSENSUS_PROPOSE) and the most direct proof that the
+        registered tracker really reflects its slice's full lifecycle
+        (review of #2764).
+        """
+        from datetime import UTC, datetime, timedelta
+
+        base = datetime.now(UTC)
+
+        def _ack(reviewer, target, *, slice_id, ts):
+            return _FakeMessage(
+                "CONSENSUS_ACK",
+                reviewer,
+                target,
+                metadata={"slice_id": slice_id, "payload": {"reason": "lgtm"}},
+                timestamp=ts,
+                phase="implement",
+            )
+
+        def _confirmed(role, *, slice_id, ts):
+            return _FakeMessage(
+                "CONSENSUS_CONFIRMED",
+                role,
+                "all",
+                metadata={"slice_id": slice_id},
+                timestamp=ts,
+                phase="implement",
+            )
+
+        messages = [
+            # slice-7: full lifecycle for BOTH producers (propose +
+            # CRITICAL ACKs + CONFIRMED). The graph requires every
+            # registered producer to have proposed before CONFIRMED is
+            # accepted (zero-proposal guard).
+            self._propose("coder", slice_id="slice-7", ts=base),
+            self._propose("tester", slice_id="slice-7", ts=base + timedelta(seconds=1)),
+            _ack(
+                "reviewer_code",
+                "coder",
+                slice_id="slice-7",
+                ts=base + timedelta(seconds=2),
+            ),
+            _ack(
+                "reviewer_contract",
+                "coder",
+                slice_id="slice-7",
+                ts=base + timedelta(seconds=3),
+            ),
+            _ack(
+                "reviewer_code",
+                "tester",
+                slice_id="slice-7",
+                ts=base + timedelta(seconds=4),
+            ),
+            _confirmed("coder", slice_id="slice-7", ts=base + timedelta(seconds=5)),
+            _confirmed("tester", slice_id="slice-7", ts=base + timedelta(seconds=6)),
+            # slice-1: bare propose only — entirely different state.
+            # Must not bleed into slice-7's reconstructed tracker.
+            self._propose("coder", slice_id="slice-1", ts=base + timedelta(seconds=7)),
+        ]
+        store = _FakeMessageStore(messages)
+
+        tracker = reconstruct_tracker_from_messages(
+            "recon-slice",
+            simple_graph,
+            message_store=store,
+            slice_id="slice-7",
+            phase="implement",
+        )
+
+        assert tracker is not None
+        state = tracker.evaluate()
+        # slice-7's full lifecycle: both producers confirmed.
+        assert state["agents"]["coder"]["producer_phase"] == "CONFIRMED"
+        assert state["agents"]["coder"]["confirmed"] is True
+        assert state["agents"]["tester"]["producer_phase"] == "CONFIRMED"
+        assert state["agents"]["tester"]["confirmed"] is True
+        # Registered under the nested {pipeline}/{slice-7} key only —
+        # slice-1's propose did NOT create a sibling tracker, and the
+        # bare pipeline key is untouched.
+        with _trackers_lock:
+            assert "recon-slice/slice-7" in _trackers
+            assert "recon-slice/slice-1" not in _trackers
+            assert "recon-slice" not in _trackers
+
 
 class TestACKGuardErrorMessage:
     """Test that ACK guard error includes explicit guidance (RC2)."""
