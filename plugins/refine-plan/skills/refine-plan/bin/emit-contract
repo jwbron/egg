@@ -103,7 +103,11 @@ def _slice_number_from_id(raw_id: object, fallback: int) -> int:
             break
     try:
         return int(s)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # fmt: skip
+        # Keep parens explicit: this script is portable by design (see module
+        # docstring) and may run under Python <3.14, where the unparenthesized
+        # form is a SyntaxError. The file has no .py extension today so ruff
+        # format skips it, but a future rename would silently strip the parens.
         return fallback
 
 
