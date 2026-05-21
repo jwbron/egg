@@ -332,7 +332,12 @@ class TestRewriteBrcHistoryForPr:
         ):
             _rewrite_brc_history_for_pr(tmp_path, "issue-99", phases, 1599)
 
-        mock_write.assert_called_once_with(tmp_path, "issue-99", "implement", 1599)
+        # ``write_per_slice=False`` is passed (#2755) so per-slice
+        # implement-phase files do not duplicate onto the work
+        # worktree, where they would conflict with slice PR merges.
+        mock_write.assert_called_once_with(
+            tmp_path, "issue-99", "implement", 1599, write_per_slice=False
+        )
 
     def test_commits_after_rewrite(self, tmp_path):
         """_commit_statefiles_to_worktree is called after history writes."""

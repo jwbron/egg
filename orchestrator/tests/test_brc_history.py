@@ -2429,16 +2429,185 @@ class TestPerSliceImplementBrcHistory:
         ], f"Expected natural-sort iteration order, got {slice_ids_in_order}"
 
 
-class TestPerSliceImplementBrcHistoryRewriteForPr:
-    """The PR-phase safety-net rewrite (``_rewrite_brc_history_for_pr``)
-    inherits the per-slice partitioning from ``_write_brc_history`` (#2548).
-    These tests verify the rewrite path treats per-slice files correctly
-    and never produces an aggregate.
+class TestWritePerSliceFlag:
+    """Tests for the ``write_per_slice`` keyword arg on ``_write_brc_history`` (#2755).
+
+    The flag lets callers writing to the work worktree opt out of the
+    per-slice bucketing loop. Per-slice files live on each slice's
+    integration branch (committed by
+    :func:`_commit_slice_brc_history_to_integration_branch`);
+    duplicating them onto ``work`` causes add/add merge conflicts
+    when slice PRs try to merge.
+
+    The flag has no effect outside ``phase == "implement"`` and no
+    effect on non-slice pipelines (where the writer falls back to the
+    aggregate ``{identifier}-implement.{md,json}`` filename).
     """
 
-    def test_rewrite_for_pr_emits_per_slice_implement_files(self, tmp_path):
-        """When the PR phase rewrites BRC history, the implement-phase
-        rewrite produces per-slice files and no aggregate file."""
+    def test_default_writes_per_slice_files(self, tmp_path):
+        """Default ``write_per_slice=True`` produces the per-slice files,
+        same as pre-#2755 behavior — preserved so the slice hook and any
+        out-of-tree callers do not need to be updated."""
+        from routes.pipelines import _write_brc_history
+
+        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-1")
+        messages.extend(
+            _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-2")
+        )
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        assert (history_dir / "42-implement-slice-1.md").exists()
+        assert (history_dir / "42-implement-slice-2.md").exists()
+        assert (history_dir / "42-implement-slice-1.json").exists()
+        assert (history_dir / "42-implement-slice-2.json").exists()
+
+    def test_write_per_slice_false_skips_per_slice_files(self, tmp_path):
+        """With ``write_per_slice=False`` the writer skips the per-slice
+        bucketing loop for slice-aware implement-phase messages, so
+        ``{identifier}-implement-{slice_id}.{md,json}`` files are not
+        produced (#2755)."""
+        from routes.pipelines import _write_brc_history
+
+        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-1")
+        messages.extend(
+            _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-2")
+        )
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42, write_per_slice=False)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        assert not (history_dir / "42-implement-slice-1.md").exists(), (
+            "per-slice .md leaked despite write_per_slice=False (#2755)"
+        )
+        assert not (history_dir / "42-implement-slice-2.md").exists(), (
+            "per-slice .md leaked despite write_per_slice=False (#2755)"
+        )
+        assert not (history_dir / "42-implement-slice-1.json").exists()
+        assert not (history_dir / "42-implement-slice-2.json").exists()
+        # And no aggregate file either — slice-aware pipelines never
+        # produce one (#2548 hard switchover).
+        assert not (history_dir / "42-implement.md").exists()
+        assert not (history_dir / "42-implement.json").exists()
+
+    def test_write_per_slice_false_still_writes_unattributed_sibling(self, tmp_path):
+        """The ``{identifier}-implement-unattributed.{md,json}`` sibling
+        holds non-CONSENSUS BRC messages that lack slice scope
+        (HEARTBEAT, AGENT_FAILED, etc.). It is owned by ``work``, not
+        any slice, so ``write_per_slice=False`` must still produce it
+        when relevant messages exist (#2755)."""
+        from message_store import MessageType
+        from routes.pipelines import _write_brc_history
+
+        # One slice-attributed CONSENSUS message (forces slice-aware
+        # mode) plus one unattributed HEARTBEAT (lands in the
+        # unattributed sibling).
+        messages = [
+            _make_brc_message(
+                pipeline_id="issue-42",
+                phase="implement",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                slice_id="slice-1",
+            ),
+            _make_brc_message(
+                pipeline_id="issue-42",
+                phase="implement",
+                from_role="health_monitor",
+                message_type=MessageType.HEARTBEAT,
+                subject="heartbeat",
+                body="",
+                slice_id=None,
+            ),
+        ]
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42, write_per_slice=False)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        # Unattributed sibling MUST exist — it carries the orchestrator-
+        # owned signals that have no slice scope.
+        assert (history_dir / "42-implement-unattributed.md").exists(), (
+            "unattributed sibling missing despite present unattributed messages (#2755)"
+        )
+        assert (history_dir / "42-implement-unattributed.json").exists()
+        # Per-slice files must NOT exist.
+        assert not (history_dir / "42-implement-slice-1.md").exists()
+
+    def test_write_per_slice_false_non_slice_pipeline_still_writes_aggregate(self, tmp_path):
+        """Non-slice pipelines (babysit_pr, custom phases) never produce
+        per-slice files — they hit the ``not buckets`` branch and write
+        the aggregate ``{identifier}-implement.{md,json}`` file. The
+        ``write_per_slice`` flag only gates the per-slice bucket loop,
+        so the aggregate path is unaffected (#2755)."""
+        from routes.pipelines import _write_brc_history
+
+        # All messages explicitly lack slice metadata → non-slice pipeline.
+        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id=None)
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42, write_per_slice=False)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        # Aggregate file MUST exist — this is the babysit_pr artifact
+        # path and the flag does not gate it.
+        assert (history_dir / "42-implement.md").exists()
+        assert (history_dir / "42-implement.json").exists()
+
+    def test_write_per_slice_false_is_noop_for_non_implement_phases(self, tmp_path):
+        """The flag only affects implement-phase writes. Refine, plan,
+        and PR phases always produce a single aggregate file regardless
+        of ``write_per_slice`` (#2755)."""
+        from routes.pipelines import _write_brc_history
+
+        messages = _make_brc_messages(pipeline_id="issue-42", phase="refine")
+
+        mock_store = MagicMock(spec=MessageStore)
+        mock_store.get_messages.return_value = messages
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "refine", 42, write_per_slice=False)
+
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        assert (history_dir / "42-refine.md").exists()
+        assert (history_dir / "42-refine.json").exists()
+
+
+class TestPerSliceImplementBrcHistoryRewriteForPr:
+    """The PR-phase safety-net rewrite (``_rewrite_brc_history_for_pr``)
+    calls ``_write_brc_history`` against the work worktree.
+
+    Pre-#2755 it produced per-slice ``{identifier}-implement-{slice_id}.{md,json}``
+    files there too, but those duplicated the files committed onto each
+    slice's integration branch by
+    :func:`_commit_slice_brc_history_to_integration_branch` and caused
+    add/add merge conflicts when slice PRs tried to merge into ``work``.
+
+    Post-#2755 the rewrite passes ``write_per_slice=False`` so per-slice
+    files no longer land on the work worktree. The unattributed sibling
+    and any aggregate non-implement files are still produced.
+    """
+
+    def test_rewrite_for_pr_skips_per_slice_implement_files_on_work(self, tmp_path):
+        """When the PR phase rewrites BRC history on the work worktree,
+        the implement-phase rewrite must NOT produce per-slice files
+        (#2755). Each slice owns its own per-slice file on its
+        integration branch; duplicating onto ``work`` would conflict
+        when the slice PR merges."""
         from routes.pipelines import _rewrite_brc_history_for_pr
 
         messages = _make_brc_messages(pipeline_id="issue-42", phase="implement", slice_id="slice-1")
@@ -2460,14 +2629,24 @@ class TestPerSliceImplementBrcHistoryRewriteForPr:
             _rewrite_brc_history_for_pr(tmp_path, "issue-42", phases, 42)
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
-        assert (history_dir / "42-implement-slice-1.md").exists()
-        assert (history_dir / "42-implement-slice-2.md").exists()
+        # Per-slice files MUST NOT land on the work worktree (#2755).
+        assert not (history_dir / "42-implement-slice-1.md").exists(), (
+            "per-slice file leaked onto work worktree — would conflict with slice PR (#2755)"
+        )
+        assert not (history_dir / "42-implement-slice-2.md").exists(), (
+            "per-slice file leaked onto work worktree — would conflict with slice PR (#2755)"
+        )
+        assert not (history_dir / "42-implement-slice-1.json").exists()
+        assert not (history_dir / "42-implement-slice-2.json").exists()
+        # Aggregate implement file also must not exist — #2548 hard
+        # switchover; slice-aware pipelines do not produce one.
         assert not (history_dir / "42-implement.md").exists()
         assert not (history_dir / "42-implement.json").exists()
 
-    def test_rewrite_for_pr_mixes_aggregate_refine_and_per_slice_implement(self, tmp_path):
+    def test_rewrite_for_pr_emits_aggregate_refine_only(self, tmp_path):
         """Mixed multi-phase rewrite: refine emits aggregate, implement
-        emits per-slice — both shapes coexist in the same brc-history dir."""
+        emits **nothing** on the work worktree (#2755 — per-slice files
+        live on each slice's integration branch instead)."""
         from routes.pipelines import _rewrite_brc_history_for_pr
 
         all_messages = []
@@ -2491,12 +2670,13 @@ class TestPerSliceImplementBrcHistoryRewriteForPr:
             _rewrite_brc_history_for_pr(tmp_path, "issue-42", phases, 42)
 
         history_dir = tmp_path / ".egg-state" / "brc-history"
-        # Refine: aggregate. Implement: per-slice.
+        # Refine: aggregate still lands on work (refine is not partitioned
+        # per slice and the conflict pattern only applies to implement).
         assert (history_dir / "42-refine.md").exists()
         assert (history_dir / "42-refine.json").exists()
-        assert (history_dir / "42-implement-slice-1.md").exists()
-        assert (history_dir / "42-implement-slice-1.json").exists()
-        # No aggregate implement file.
+        # Implement: nothing on work (#2755).
+        assert not (history_dir / "42-implement-slice-1.md").exists()
+        assert not (history_dir / "42-implement-slice-1.json").exists()
         assert not (history_dir / "42-implement.md").exists()
         assert not (history_dir / "42-implement.json").exists()
         # Refine never partitions by slice.

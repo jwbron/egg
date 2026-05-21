@@ -9,22 +9,28 @@ approved the slice's code.
 
 Key invariants this file pins:
 
-* Happy path: writer is called, files are copied to the integration
-  worktree, the orchestrator-authored commit is recorded, and the
-  branch is pushed via ``push_worktree_branch``.
+* Happy path: writer is called against a per-tick **staging
+  directory** (not the work worktree, #2755), files are copied to
+  the integration worktree, the orchestrator-authored commit is
+  recorded, and the branch is pushed via ``push_worktree_branch``.
 * Best-effort failure semantics: every step (writer, fetch, worktree
   add, commit, push) returns ``False`` on failure rather than raising
-  — so PR creation can still proceed with the work-worktree files as
-  a fallback audit trail.
+  — so PR creation can still proceed (the slice PR opens without
+  its consensus transcript in that case).
 * Idempotency: the hook is safe to re-run mid-flight.  The commit
   step skips when nothing is staged, and the push fast-forwards on
   no-op.
 * Per-slice scoping: ONLY the named slice's files are copied; other
-  slices' BRC files (and the unattributed sibling) stay on the work
-  worktree alone.
+  slices' BRC files (and the unattributed sibling) stay in the
+  per-tick staging directory and are cleaned up with it.
+* Staging isolation: the writer's output lives in a ``mkdtemp``-rooted
+  staging directory created per hook tick (#2755); the work worktree
+  is never written to, so concurrent slice hooks cannot leave
+  per-slice files on ``work`` that would later conflict with slice
+  PR merges.
 * Symlink defense: a planted symlink in
   ``.egg-state/brc-history/`` is skipped — never copied or staged —
-  so an attacker-controlled symlink can't smuggle unrelated content
+  so a future writer change cannot leak attacker-controlled content
   onto the slice PR.
 * No-op short-circuit: pipeline without a remote ``repo`` returns
   ``False`` without touching git or the gateway.
@@ -162,10 +168,17 @@ def _seed_per_slice_brc_files(
     *,
     slice_ids: list[str],
 ) -> dict[str, Path]:
-    """Populate ``.egg-state/brc-history/`` with per-slice BRC files.
+    """Pre-seed ``<repo_root>/.egg-state/brc-history/`` with per-slice BRC files.
 
     Returns a mapping of ``"<slice_id>-md"`` / ``"<slice_id>-json"``
     keys to the absolute file paths so individual tests can introspect.
+
+    Note: after the #2755 refactor, the hook reads per-slice files from
+    a per-tick staging directory (not the work worktree). Tests pair
+    this seed with :func:`_writer_stub` patched in for
+    ``_write_brc_history``; the stub copies the seeded files into the
+    staging directory the hook passes to the writer, so the hook's
+    scan-and-copy logic sees them at the expected staging path.
     """
     brc = repo_root / ".egg-state" / "brc-history"
     brc.mkdir(parents=True, exist_ok=True)
@@ -180,13 +193,73 @@ def _seed_per_slice_brc_files(
     return paths
 
 
-def _no_op_write_brc_history(*args, **kwargs):
-    """Replacement for the writer — leaves the seeded files untouched.
+def _writer_stub(seed_root: Path):
+    """Build a ``_write_brc_history`` replacement that mirrors seeds into staging.
 
-    The real ``_write_brc_history`` re-renders the per-slice files from
-    the message store, but our tests seed the files directly so the
-    writer is a noop.  Tests that need to exercise writer-failure paths
-    override this with their own patch.
+    The real writer renders per-slice files from the message store into
+    ``<worktree>/.egg-state/brc-history/``. After #2755 the slice hook
+    passes a per-tick staging directory as that worktree argument.
+
+    This stub:
+
+    * Records the staging path the hook passed (tests can inspect
+      ``stub.staging_paths`` to assert the hook did NOT pass the work
+      worktree).
+    * Mirrors anything in ``<seed_root>/.egg-state/brc-history/`` into
+      ``<staging>/.egg-state/brc-history/``, preserving symlinks so the
+      symlink-defense path can be exercised.
+
+    The factory returns the stub callable; the callable carries the
+    ``staging_paths`` attribute for assertions.
+    """
+    import os
+
+    seen: list[str] = []
+
+    def _stub(*args, **kwargs):
+        # The writer's first positional arg is the destination path. We
+        # accept any extra args/kwargs so adding parameters to
+        # ``_write_brc_history`` (e.g. ``write_per_slice``) doesn't break
+        # patched tests.
+        if not args:
+            return
+        staging_path = Path(args[0])
+        seen.append(str(staging_path))
+        src_brc = seed_root / ".egg-state" / "brc-history"
+        if not src_brc.exists():
+            return
+        dst_brc = staging_path / ".egg-state" / "brc-history"
+        dst_brc.mkdir(parents=True, exist_ok=True)
+        for src in src_brc.iterdir():
+            dst = dst_brc / src.name
+            if src.is_symlink():
+                # Preserve as a symlink so the hook's symlink defense
+                # can be exercised in a path that mirrors production
+                # (where the writer would have to be coerced into
+                # producing a symlink for the defense to fire).
+                target = os.readlink(src)
+                if dst.exists() or dst.is_symlink():
+                    dst.unlink()
+                os.symlink(target, dst)
+            elif src.is_file():
+                # Use raw bytes I/O rather than ``shutil.copy2`` so tests
+                # that spy on ``shutil.copy2`` only see the hook's own
+                # copy calls (staging → integration worktree), not the
+                # stub's internal seed mirror (seed root → staging).
+                dst.write_bytes(src.read_bytes())
+
+    _stub.staging_paths = seen  # type: ignore[attr-defined]
+    return _stub
+
+
+def _no_op_write_brc_history(*args, **kwargs):
+    """Replacement for the writer that does nothing.
+
+    Used by tests that explicitly want NO files in the hook's staging
+    directory (e.g. the "no per-slice files produced" path that must
+    return False). Tests that DO want files staged use
+    :func:`_writer_stub` instead, which mirrors pre-seeded files into
+    the staging directory the hook passes to the writer.
     """
 
 
@@ -202,7 +275,7 @@ class TestHappyPath:
         gateway, and the helper returns True."""
         _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
         spawner = make_spawner()
-        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+        with patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)):
             ok = _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
@@ -223,13 +296,19 @@ class TestHappyPath:
         assert push_kwargs["base_branch"] == "main"
 
     def test_calls_write_brc_history_to_refresh_files(self, tmp_path, pipeline, make_spawner):
-        """Step 1: the writer is invoked so messages that landed since
-        the last phase-boundary write are captured."""
+        """Step 1: the writer is invoked against a per-tick **staging
+        directory** (#2755) so messages that landed since the last
+        phase-boundary write are captured without touching the work
+        worktree."""
         _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
         spawner = make_spawner()
         writer_calls: list[tuple] = []
 
-        def _spy_writer(worktree, pipeline_id, phase, identifier):
+        def _spy_writer(worktree, pipeline_id, phase, identifier, **kwargs):
+            # Mirror real writer side-effects so the hook can find the
+            # per-slice files at the staging path on its scan step.
+            stub = _writer_stub(tmp_path)
+            stub(worktree, pipeline_id, phase, identifier, **kwargs)
             writer_calls.append((str(worktree), pipeline_id, phase, identifier))
 
         with patch("routes.pipelines._write_brc_history", _spy_writer):
@@ -243,7 +322,14 @@ class TestHappyPath:
 
         assert len(writer_calls) == 1, "writer must be called exactly once per hook tick"
         wt, pid, phase, identifier = writer_calls[0]
-        assert wt == str(tmp_path)
+        # Writer must NOT be called against the work worktree (#2755).
+        # The hook stages into a temp directory so concurrent slice hooks
+        # do not leave per-slice files on ``work`` that would conflict
+        # with the slice PRs' add of the same paths.
+        assert wt != str(tmp_path), (
+            f"writer must not be called against the work worktree (#2755); "
+            f"got {wt!r} which is the work-worktree path"
+        )
         assert pid == "issue-2548"
         assert phase == "implement"
         # Identifier resolves via ``_brc_history_identifier`` — for an
@@ -256,7 +342,7 @@ class TestHappyPath:
         stale tip."""
         _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
         spawner = make_spawner()
-        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+        with patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)):
             _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
@@ -281,7 +367,7 @@ class TestHappyPath:
         _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
         spawner = make_spawner()
         spawner.gateway.fetch_branch.side_effect = RuntimeError("network blip")
-        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+        with patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)):
             _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
@@ -360,7 +446,7 @@ class TestPerSliceScoping:
             return original_copy(src, dst, *args, **kwargs)
 
         with (
-            patch("routes.pipelines._write_brc_history", _no_op_write_brc_history),
+            patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)),
             patch("shutil.copy2", _spy_copy),
         ):
             _commit_slice_brc_history_to_integration_branch(
@@ -391,7 +477,7 @@ class TestPerSliceScoping:
         brc = tmp_path / ".egg-state" / "brc-history"
         brc.mkdir(parents=True, exist_ok=True)
         spawner = make_spawner()
-        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+        with patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)):
             ok = _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
@@ -410,11 +496,16 @@ class TestPerSliceScoping:
 
 class TestSymlinkDefense:
     def test_symlink_brc_file_is_skipped(self, tmp_path, pipeline, make_spawner):
-        """A planted symlink in ``.egg-state/brc-history/`` must not be
-        copied onto the integration worktree.  Without this defense an
-        attacker-controlled metadata blob could plant a symlink to a
-        secret file outside the worktree, then claim it as the BRC
-        transcript and leak its contents into the slice PR diff."""
+        """A symlink in the staged ``.egg-state/brc-history/`` directory
+        must not be copied onto the integration worktree.
+
+        After #2755 the hook scans a per-tick staging directory rather
+        than the work worktree, so the seeded symlink lives at the
+        seed root and ``_writer_stub`` mirrors it (as a symlink) into
+        staging. The defense is defense-in-depth — even though staging
+        is freshly ``mkdtemp``'d per hook tick, a future writer change
+        that synthesised a symlink from attacker-controlled metadata
+        would otherwise smuggle unrelated content onto the slice PR."""
         brc = tmp_path / ".egg-state" / "brc-history"
         brc.mkdir(parents=True, exist_ok=True)
 
@@ -440,7 +531,7 @@ class TestSymlinkDefense:
             return original_copy(src, dst, *args, **kwargs)
 
         with (
-            patch("routes.pipelines._write_brc_history", _no_op_write_brc_history),
+            patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)),
             patch("shutil.copy2", _spy_copy),
         ):
             _commit_slice_brc_history_to_integration_branch(
@@ -451,12 +542,14 @@ class TestSymlinkDefense:
                 integration_branch="egg/issue-2548/slice-1",
             )
 
-        # The symlinked .md must NOT have been copied.
-        for src, _dst in copy_calls:
-            assert ".md" not in src or "secret" not in src, f"symlink leaked into copy_calls: {src}"
-        # And the symlinked filename literally must not appear as a src.
-        assert not any(str(sym_md) == src for src, _ in copy_calls), (
-            "symlinked .md was copied — symlink defense broken"
+        # No ``.md`` file should appear in copy_calls — the only ``.md``
+        # path under the staged ``brc-history`` directory is a symlink,
+        # and the defense must skip it. The ``.json`` companion (a real
+        # file) is still copied, so the hook is not a no-op.
+        md_srcs = [src for src, _ in copy_calls if src.endswith(".md")]
+        assert not md_srcs, f"symlinked .md leaked into copy_calls (defense broken): {md_srcs}"
+        assert any(src.endswith(".json") for src, _ in copy_calls), (
+            "the real .json companion should still have been copied"
         )
 
 
@@ -507,7 +600,7 @@ class TestFailureSemantics:
             return result
 
         with (
-            patch("routes.pipelines._write_brc_history", _no_op_write_brc_history),
+            patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)),
             patch("subprocess.run", _selective_run),
         ):
             ok = _commit_slice_brc_history_to_integration_branch(
@@ -527,7 +620,7 @@ class TestFailureSemantics:
         the best-effort semantics promise to prevent."""
         _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
         spawner = make_spawner(push_raise=RuntimeError("gateway unavailable"))
-        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+        with patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)):
             ok = _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
@@ -545,7 +638,7 @@ class TestFailureSemantics:
         spawner = make_spawner(
             push_result=PushResult(ok=False, category="non_fast_forward", detail="rejected")
         )
-        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+        with patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)):
             ok = _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
@@ -566,7 +659,7 @@ class TestFailureSemantics:
             raise RuntimeError("git add failed")
 
         with (
-            patch("routes.pipelines._write_brc_history", _no_op_write_brc_history),
+            patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)),
             patch("routes.pipelines._commit_statefiles_to_worktree", _raising_commit),
         ):
             ok = _commit_slice_brc_history_to_integration_branch(
@@ -603,7 +696,7 @@ class TestIdempotencyAndCleanup:
             return result
 
         with (
-            patch("routes.pipelines._write_brc_history", _no_op_write_brc_history),
+            patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)),
             patch("subprocess.run", _spy_run),
         ):
             _commit_slice_brc_history_to_integration_branch(
@@ -636,7 +729,7 @@ class TestIdempotencyAndCleanup:
             return result
 
         with (
-            patch("routes.pipelines._write_brc_history", _no_op_write_brc_history),
+            patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)),
             patch("subprocess.run", _spy_run),
         ):
             ok = _commit_slice_brc_history_to_integration_branch(
@@ -659,7 +752,7 @@ class TestIdempotencyAndCleanup:
         re-run."""
         _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
         spawner = make_spawner()
-        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+        with patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)):
             ok1 = _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
@@ -692,9 +785,10 @@ class TestIdentifierResolution:
         """The hook uses ``_brc_history_identifier(pipeline)`` to build
         the per-slice filename.  For an issue pipeline, that's the
         issue number (int) — the path interpolation must produce
-        ``2548-implement-slice-1.md`` etc."""
-        # Seed under the issue-number identifier.
-        paths = _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
+        ``2548-implement-slice-1.md`` etc., regardless of whether the
+        source is the work worktree (pre-#2755) or the per-tick
+        staging directory (post-#2755)."""
+        _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
         spawner = make_spawner()
 
         copy_srcs: list[str] = []
@@ -707,7 +801,7 @@ class TestIdentifierResolution:
             return original_copy(src, dst, *args, **kwargs)
 
         with (
-            patch("routes.pipelines._write_brc_history", _no_op_write_brc_history),
+            patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)),
             patch("shutil.copy2", _spy_copy),
         ):
             _commit_slice_brc_history_to_integration_branch(
@@ -718,9 +812,17 @@ class TestIdentifierResolution:
                 integration_branch="egg/issue-2548/slice-1",
             )
 
-        # The seeded files should have been picked up.
-        assert str(paths["slice-1-md"]) in copy_srcs
-        assert str(paths["slice-1-json"]) in copy_srcs
+        # The canonical filename ``2548-implement-slice-1.{md,json}``
+        # must appear as a copy source (which lives under the staging
+        # directory post-#2755 — the test does not pin the directory
+        # prefix because that is implementation detail).
+        copy_basenames = [Path(s).name for s in copy_srcs]
+        assert "2548-implement-slice-1.md" in copy_basenames, (
+            f"slice-1 .md must be copied; got copies {copy_basenames!r}"
+        )
+        assert "2548-implement-slice-1.json" in copy_basenames, (
+            f"slice-1 .json must be copied; got copies {copy_basenames!r}"
+        )
 
 
 # ----------------------------------------------------------------------
@@ -751,7 +853,7 @@ class TestGatewayAllowlistCompatibility:
 
         _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
         spawner = make_spawner()
-        with patch("routes.pipelines._write_brc_history", _no_op_write_brc_history):
+        with patch("routes.pipelines._write_brc_history", _writer_stub(tmp_path)):
             _commit_slice_brc_history_to_integration_branch(
                 pipeline,
                 spawner,
@@ -786,3 +888,100 @@ class TestGatewayAllowlistCompatibility:
         candidate = str(WORKTREE_BASE_DIR / "egg-slice-brc-pipeline-x-slice-y-abc" / "wt")
         ok, error = validate_repo_path(candidate)
         assert ok, f"WORKTREE_BASE_DIR drifted out of gateway ALLOWED_REPO_PATHS: {error}"
+
+
+# ----------------------------------------------------------------------
+# Work-worktree isolation (#2755 regression)
+# ----------------------------------------------------------------------
+
+
+class TestWorkWorktreeIsolation:
+    """Regression coverage for #2755.
+
+    Pre-fix, the slice hook called ``_write_brc_history`` against the
+    work worktree directly, leaving per-slice files on
+    ``work/.egg-state/brc-history/``. The end-of-implement-phase
+    commit then picked those up and committed them to ``work``,
+    causing add/add merge conflicts when slice PRs (slice → work)
+    tried to merge the same files.
+
+    Post-fix the hook stages to a per-tick temp directory; the work
+    worktree's ``.egg-state/brc-history/`` directory is never
+    written to by this hook.
+    """
+
+    def test_work_worktree_brc_history_untouched_by_slice_hook(
+        self, tmp_path, pipeline, make_spawner
+    ):
+        """After the slice hook runs against a clean work worktree,
+        ``<work>/.egg-state/brc-history/`` must contain no per-slice
+        files (#2755). The staged copy lives under a temp directory
+        rooted in ``WORKTREE_BASE_DIR`` and is cleaned up after the
+        hook returns."""
+        _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
+        # Capture the work-worktree brc-history state BEFORE the hook
+        # runs so we can compare against the AFTER state. The seed
+        # above writes into ``tmp_path/.egg-state/brc-history/`` to
+        # supply the ``_writer_stub`` source — but the hook's writer
+        # call (against staging) must not echo any new files back to
+        # this directory.
+        brc_dir = tmp_path / ".egg-state" / "brc-history"
+        before_files = sorted(p.name for p in brc_dir.iterdir())
+
+        spawner = make_spawner()
+        stub = _writer_stub(tmp_path)
+        with patch("routes.pipelines._write_brc_history", stub):
+            _commit_slice_brc_history_to_integration_branch(
+                pipeline,
+                spawner,
+                tmp_path,
+                slice_id="slice-1",
+                integration_branch="egg/issue-2548/slice-1",
+            )
+
+        after_files = sorted(p.name for p in brc_dir.iterdir())
+        # The work-worktree directory contents must be exactly what we
+        # seeded — the hook must not have added anything to it.
+        assert after_files == before_files, (
+            "slice hook touched the work-worktree brc-history dir (#2755 regression); "
+            f"before={before_files!r}, after={after_files!r}"
+        )
+
+        # And the writer must have been called against a path that is
+        # NOT the work worktree.
+        assert stub.staging_paths, "writer was never called"
+        for staging in stub.staging_paths:
+            assert staging != str(tmp_path), (
+                f"writer was called against the work worktree (#2755 regression): {staging}"
+            )
+
+    def test_staging_dir_cleaned_up_after_hook(self, tmp_path, pipeline, make_spawner, monkeypatch):
+        """The per-tick staging directory must be removed when the hook
+        returns, so pipelines do not accumulate stale staging dirs
+        under ``WORKTREE_BASE_DIR`` across slices (#2755)."""
+        import routes.pipelines as pipelines_mod
+
+        fake_base = tmp_path / "egg-worktrees-root"
+        fake_base.mkdir()
+        monkeypatch.setattr(pipelines_mod, "WORKTREE_BASE_DIR", fake_base)
+
+        _seed_per_slice_brc_files(tmp_path, identifier=2548, slice_ids=["slice-1"])
+        spawner = make_spawner()
+        stub = _writer_stub(tmp_path)
+        with patch("routes.pipelines._write_brc_history", stub):
+            _commit_slice_brc_history_to_integration_branch(
+                pipeline,
+                spawner,
+                tmp_path,
+                slice_id="slice-1",
+                integration_branch="egg/issue-2548/slice-1",
+            )
+
+        # The staging path was used; after cleanup it must no longer
+        # exist on disk (``shutil.rmtree(tmp_worktree, ignore_errors=True)``
+        # in the hook's ``finally`` clause).
+        assert stub.staging_paths, "writer was never called"
+        for staging in stub.staging_paths:
+            assert not Path(staging).exists(), (
+                f"staging directory {staging!r} leaked after hook returned"
+            )

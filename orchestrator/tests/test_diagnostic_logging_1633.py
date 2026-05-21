@@ -534,12 +534,17 @@ class TestIntegrationBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             mod._rewrite_brc_history_for_pr(worktree, pipeline_id, phases, identifier)
 
-        # Assertion (a): BRC history files written for both COMPLETE phases.
-        # #2548: implement phase is per-slice; aggregate file is gone.
+        # Assertion (a): BRC history files written for refine on the
+        # work worktree. Implement phase: NO per-slice files on work
+        # (#2755 — they're owned by each slice's integration branch
+        # and committed there by the slice hook; duplicating onto
+        # ``work`` would conflict with slice PR merges).
         brc_dir = worktree / ".egg-state" / "brc-history"
         assert (brc_dir / "42-refine.md").exists(), "BRC history for refine should exist"
         impl_file = brc_dir / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
-        assert impl_file.exists(), "Per-slice BRC history for implement should exist"
+        assert not impl_file.exists(), (
+            "Per-slice implement file leaked onto work worktree (#2755 regression)"
+        )
         assert not (brc_dir / "42-implement.md").exists(), (
             "Aggregate implement.md leaked through hard switchover"
         )
@@ -551,10 +556,6 @@ class TestIntegrationBrcHistory:
         assert "Pipeline: issue-42" in refine_content
         assert "CONSENSUS_PROPOSE" in refine_content
         assert "CONSENSUS_ACK" in refine_content
-
-        implement_content = impl_file.read_text()
-        assert "implement phase" in implement_content
-        assert "Tests pass" in implement_content
 
         # Assertion (c): _commit_statefiles_to_worktree was called (git commands issued)
         commit_cmds = [c for c in git_commands if "commit" in c]
@@ -575,7 +576,15 @@ class TestIntegrationBrcHistory:
         assert (drafts_dir / "99-analysis.md").exists(), "Pipeline 99's draft should be preserved"
 
     def test_brc_history_file_content(self, worktree, monkeypatch):
-        """BRC history files contain expected markdown content."""
+        """BRC history files contain expected markdown content.
+
+        Uses the refine phase because implement-phase BRC history no
+        longer lands on the work worktree (#2755) — per-slice files
+        are owned by each slice's integration branch. Refine still
+        writes an aggregate file to ``work``, so it's the right
+        surface for verifying the writer's markdown rendering on
+        the work-worktree path.
+        """
         import routes.pipelines as mod
 
         messages = [
@@ -585,7 +594,7 @@ class TestIntegrationBrcHistory:
                 message_type=MessageType.CONSENSUS_PROPOSE,
                 subject="Feature proposal",
                 body="Implementation details",
-                phase="implement",
+                phase="refine",
             ),
         ]
 
@@ -593,7 +602,7 @@ class TestIntegrationBrcHistory:
         mock_store.get_messages.return_value = messages
 
         phases = {
-            "implement": MagicMock(status=PipelineStatus.COMPLETE),
+            "refine": MagicMock(status=PipelineStatus.COMPLETE),
         }
 
         def fake_run(cmd, **kwargs):
@@ -606,18 +615,12 @@ class TestIntegrationBrcHistory:
         with patch("message_store.get_message_store", return_value=mock_store):
             mod._rewrite_brc_history_for_pr(worktree, "issue-42", phases, 42)
 
-        # #2548: implement is per-slice — the aggregate file is gone.
-        history_file = (
-            worktree
-            / ".egg-state"
-            / "brc-history"
-            / f"42-implement-{_DEFAULT_IMPLEMENT_SLICE_ID}.md"
-        )
+        history_file = worktree / ".egg-state" / "brc-history" / "42-refine.md"
         assert history_file.exists(), "BRC history file should exist on disk"
 
         content = history_file.read_text()
         assert "# BRC Consensus History" in content
-        assert "implement phase" in content
+        assert "refine phase" in content
         assert "Pipeline: issue-42" in content
         assert "coder" in content
         assert "CONSENSUS_PROPOSE" in content
