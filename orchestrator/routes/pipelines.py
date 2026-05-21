@@ -8714,6 +8714,8 @@ def _write_brc_history(
     pipeline_id: str,
     phase: str,
     identifier: int | str,
+    *,
+    write_per_slice: bool = True,
 ) -> None:
     """Write BRC consensus message history for a phase to .egg-state.
 
@@ -8755,6 +8757,17 @@ def _write_brc_history(
         pipeline_id: The pipeline ID to retrieve messages for
         phase: The pipeline phase name (e.g. "implement", "plan")
         identifier: The pipeline identifier for file naming
+        write_per_slice: When False and ``phase == "implement"`` in a
+            slice-aware pipeline, skip writing the per-slice
+            ``{identifier}-implement-{slice_id}.{md,json}`` files. The
+            ``unattributed`` sibling and any non-slice aggregate file
+            are still written. Per-slice files are owned by their
+            slice's integration branch (committed by
+            :func:`_commit_slice_brc_history_to_integration_branch`);
+            duplicating them onto ``work`` causes add/add merge
+            conflicts when slice PRs target ``work`` (#2755). Default
+            ``True`` preserves the historical behavior for the slice
+            hook itself and for any out-of-tree callers.
     """
     logger.info(
         "_write_brc_history: entering",
@@ -8911,6 +8924,21 @@ def _write_brc_history(
                 slice_id="unattributed",
             )
 
+        if not write_per_slice:
+            # Caller opted out of per-slice writes (#2755). The
+            # ``unattributed`` sibling has already been written above
+            # (when ``unattributed_other`` was non-empty); skip the
+            # per-slice bucket loop so we don't add files that the
+            # slice branches already own. See the docstring's
+            # ``write_per_slice`` arg for the merge-conflict rationale.
+            logger.info(
+                "_write_brc_history: skipping per-slice writes (write_per_slice=False)",
+                pipeline_id=pipeline_id,
+                phase=phase,
+                slice_bucket_count=len(buckets),
+            )
+            return
+
         # Natural sort by the integer suffix so a 12-slice pipeline iterates
         # `slice-1, slice-2, ..., slice-12` rather than the lexicographic
         # `slice-1, slice-10, slice-11, slice-12, slice-2`. Every key is
@@ -8977,6 +9005,12 @@ def _rewrite_brc_history_for_pr(
                     pipeline_id,
                     phase_name,
                     identifier,
+                    # Per-slice implement-phase files are owned by each
+                    # slice's integration branch (#2548 D2/D5); committing
+                    # them onto ``work`` would re-introduce the add/add
+                    # merge conflict from #2755. Only the aggregate /
+                    # unattributed sibling lands on ``work``.
+                    write_per_slice=False,
                 )
             except Exception as brc_err:
                 logger.warning(
@@ -9056,6 +9090,13 @@ def _persist_phase_brc_history(
             pipeline.id,
             phase,
             _brc_history_identifier(pipeline),
+            # Per-slice implement-phase files are owned by the slice's
+            # integration branch (committed by
+            # :func:`_commit_slice_brc_history_to_integration_branch`);
+            # the work-branch worktree must not duplicate them, otherwise
+            # slice PRs targeting ``work`` hit add/add merge conflicts
+            # (#2755). The parameter is a no-op for non-implement phases.
+            write_per_slice=False,
         )
     except Exception as brc_err:
         logger.warning(
@@ -11042,23 +11083,23 @@ def _commit_slice_brc_history_to_integration_branch(
 
     Steps:
 
-    1. Refresh the per-slice BRC history files
-       (``.egg-state/brc-history/<identifier>-implement-<slice_id>.{json,md}``)
-       on the **work worktree** via :func:`_write_brc_history`.  The
-       writer pulls messages from the message store and re-renders the
-       canonical files; running it again on each slice's consensus is
-       idempotent and ensures any messages that landed since the last
-       phase-boundary write are captured.
+    1. Materialise a per-tick temp directory under
+       ``WORKTREE_BASE_DIR`` (gateway-allowlisted; see #2684) and
+       render the per-slice BRC history files into a ``staging/``
+       subdirectory via :func:`_write_brc_history`. The writer pulls
+       messages from the message store; the staging directory is
+       scoped to this hook tick so concurrent slice hooks do not
+       cross-write each other (#2755).
     2. Materialise a temporary git worktree on
        ``origin/<integration_branch>`` (the slice's integration branch).
        ``-B`` re-points the local branch ref so a prior tick that
        crashed mid-flight can re-enter cleanly.
     3. Copy ONLY this slice's per-slice BRC files
-       (``<identifier>-implement-<slice_id>.{json,md}``) from the work
-       worktree to the integration worktree.  Other slices' files (or
-       the unattributed sibling) are deliberately not copied — each
-       slice PR carries only its own BRC transcript per D2 / D5 of
-       #2548.
+       (``<identifier>-implement-<slice_id>.{json,md}``) from the
+       staging directory to the integration worktree. Other slices'
+       files (or the unattributed sibling) are deliberately not
+       copied — each slice PR carries only its own BRC transcript per
+       D2 / D5 of #2548.
     4. Commit via :func:`_commit_statefiles_to_worktree`
        (orchestrator-authored, ``--no-verify``, idempotent: skips when
        staged is empty).
@@ -11069,8 +11110,10 @@ def _commit_slice_brc_history_to_integration_branch(
     Returns ``True`` on success or no-op (files already committed and
     push is a fast-forward no-op).  Returns ``False`` on any failure;
     the caller treats this as best-effort and proceeds with PR
-    creation, since the BRC files remain on the work worktree as a
-    fallback audit trail.
+    creation. The per-slice BRC files do not exist on the work
+    worktree under this design (#2755) — the integration branch is
+    the only on-disk surface that carries them, so a failure here
+    means the slice PR opens without its consensus transcript.
 
     Idempotency: every step is convergent — re-running mid-flight
     against an already-committed integration branch produces no new
@@ -11079,16 +11122,11 @@ def _commit_slice_brc_history_to_integration_branch(
 
     Concurrency: this hook runs from ``_run_one_slice_inner``, which
     is itself invoked concurrently across slices in a thread pool.
-    Two slices reaching consensus near-simultaneously will both call
-    ``_write_brc_history`` on the same work worktree, and the writer
-    iterates every bucket — so slice-N's hook re-writes slice-(N-1)'s
-    per-slice files even though only slice-N's files are then copied
-    onto the integration branch.  This is safe because post-consensus
-    BRC messages are immutable: both writers stage byte-identical
-    content, and a torn ``Path.write_text`` produces the same result
-    as a clean one.  Only the per-slice files for *this* slice are
-    copied to the integration worktree (Step 3), so concurrent writes
-    do not cross-pollinate slice PRs.
+    Each invocation creates its own ``mkdtemp``-rooted staging
+    directory, so two slices reaching consensus near-simultaneously
+    do not share any filesystem state (#2755 fix). Each slice copies
+    only its own per-slice files to its integration worktree
+    (Step 3), so concurrent writes do not cross-pollinate slice PRs.
     """
     pipeline_id = pipeline.id
 
@@ -11102,58 +11140,6 @@ def _commit_slice_brc_history_to_integration_branch(
 
     identifier = _brc_history_identifier(pipeline)
 
-    # --- Step 1: refresh per-slice BRC files on the work worktree ---
-    try:
-        _write_brc_history(
-            worktree_repo_path,
-            pipeline_id,
-            "implement",
-            identifier,
-        )
-    except Exception as brc_err:  # noqa: BLE001
-        logger.warning(
-            "Per-slice BRC commit: failed to refresh BRC history on work "
-            "worktree, skipping integration-branch commit (#2548)",
-            pipeline_id=pipeline_id,
-            slice_id=slice_id,
-            error=str(brc_err),
-        )
-        return False
-
-    # The per-slice files we will copy onto the integration worktree.
-    # Both files are produced by ``_write_brc_history`` (markdown and
-    # JSON companion).  Missing files are tolerated — the writer logs
-    # at warning level but still succeeds on the other format, so we
-    # copy whichever exists.
-    history_dir = worktree_repo_path / ".egg-state" / "brc-history"
-    per_slice_files: list[Path] = []
-    for ext in ("md", "json"):
-        candidate = history_dir / f"{identifier}-implement-{slice_id}.{ext}"
-        if candidate.is_symlink():
-            # Defense-in-depth: a planted symlink could point outside
-            # ``.egg-state/`` and leak unrelated content onto the slice
-            # PR.  Mirrors the symlink defense in
-            # :func:`_gather_context_pr_files`.
-            logger.warning(
-                "Per-slice BRC commit: skipping symlink in brc-history (#2548)",
-                pipeline_id=pipeline_id,
-                slice_id=slice_id,
-                path=str(candidate),
-            )
-            continue
-        if candidate.is_file():
-            per_slice_files.append(candidate)
-
-    if not per_slice_files:
-        logger.warning(
-            "Per-slice BRC commit: no per-slice BRC files produced "
-            "for slice — skipping integration-branch commit (#2548)",
-            pipeline_id=pipeline_id,
-            slice_id=slice_id,
-            identifier=str(identifier),
-        )
-        return False
-
     import shutil
     import tempfile
 
@@ -11166,28 +11152,6 @@ def _commit_slice_brc_history_to_integration_branch(
         "-C",
         str(worktree_repo_path),
     ]
-
-    # --- Step 2: refresh the local remote-tracking ref for the
-    # integration branch.  The slice's agents pushed directly to
-    # ``origin/<integration_branch>`` during the run, so the work
-    # worktree's local tracking ref may lag.  Best-effort: a failure
-    # here usually means the agent-side push has not yet propagated;
-    # the worktree-add below would then fail and we'd return False.
-    try:
-        spawner.gateway.fetch_branch(
-            pipeline_id,
-            str(worktree_repo_path),
-            args=[f"+refs/heads/{integration_branch}:refs/remotes/origin/{integration_branch}"],
-            mode=gateway_mode,  # type: ignore[arg-type]
-        )
-    except Exception as fetch_err:  # noqa: BLE001
-        logger.warning(
-            "Per-slice BRC commit: fetch of integration branch failed (continuing) (#2548)",
-            pipeline_id=pipeline_id,
-            slice_id=slice_id,
-            integration_branch=integration_branch,
-            error=str(fetch_err),
-        )
 
     # Root under WORKTREE_BASE_DIR so the temp path falls inside the
     # gateway's repo-path allowlist (gateway/git_client.py
@@ -11218,9 +11182,99 @@ def _commit_slice_brc_history_to_integration_branch(
             dir=tmp_dir_base,
         )
     )
+    # Per-tick staging directory so concurrent slice hooks do not
+    # share the writer's output (#2755). ``_write_brc_history``
+    # renders into ``<staging>/.egg-state/brc-history/`` — same
+    # relative layout it uses against a worktree — so the
+    # ``Path.relative_to(staging)`` step below preserves the
+    # canonical on-disk path when copying onto the integration
+    # worktree.
+    staging = tmp_worktree / "staging"
     wt_path = tmp_worktree / "wt"
 
     try:
+        # --- Step 1: render the per-slice BRC files into the staging
+        # directory.  The writer pulls messages from the message store
+        # and writes all per-slice files for the implement phase; we
+        # filter to this slice's files below.
+        try:
+            _write_brc_history(
+                staging,
+                pipeline_id,
+                "implement",
+                identifier,
+            )
+        except Exception as brc_err:  # noqa: BLE001
+            logger.warning(
+                "Per-slice BRC commit: failed to render BRC history into "
+                "staging dir, skipping integration-branch commit (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(brc_err),
+            )
+            return False
+
+        # The per-slice files we will copy onto the integration worktree.
+        # Both files are produced by ``_write_brc_history`` (markdown and
+        # JSON companion).  Missing files are tolerated — the writer logs
+        # at warning level but still succeeds on the other format, so we
+        # copy whichever exists.
+        history_dir = staging / ".egg-state" / "brc-history"
+        per_slice_files: list[Path] = []
+        for ext in ("md", "json"):
+            candidate = history_dir / f"{identifier}-implement-{slice_id}.{ext}"
+            if candidate.is_symlink():
+                # Defense-in-depth: a planted symlink could point outside
+                # ``.egg-state/`` and leak unrelated content onto the slice
+                # PR. The staging directory is freshly minted under
+                # ``tempfile.mkdtemp`` per hook tick, so a symlink at this
+                # path would have to come from the writer itself — but the
+                # check is cheap, mirrors the defense in
+                # :func:`_gather_context_pr_files`, and protects against
+                # any future writer change that might honour an attacker-
+                # controlled metadata blob when synthesising the filename.
+                logger.warning(
+                    "Per-slice BRC commit: skipping symlink in brc-history (#2548)",
+                    pipeline_id=pipeline_id,
+                    slice_id=slice_id,
+                    path=str(candidate),
+                )
+                continue
+            if candidate.is_file():
+                per_slice_files.append(candidate)
+
+        if not per_slice_files:
+            logger.warning(
+                "Per-slice BRC commit: no per-slice BRC files produced "
+                "for slice — skipping integration-branch commit (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                identifier=str(identifier),
+            )
+            return False
+
+        # --- Step 2: refresh the local remote-tracking ref for the
+        # integration branch.  The slice's agents pushed directly to
+        # ``origin/<integration_branch>`` during the run, so the work
+        # worktree's local tracking ref may lag.  Best-effort: a failure
+        # here usually means the agent-side push has not yet propagated;
+        # the worktree-add below would then fail and we'd return False.
+        try:
+            spawner.gateway.fetch_branch(
+                pipeline_id,
+                str(worktree_repo_path),
+                args=[f"+refs/heads/{integration_branch}:refs/remotes/origin/{integration_branch}"],
+                mode=gateway_mode,  # type: ignore[arg-type]
+            )
+        except Exception as fetch_err:  # noqa: BLE001
+            logger.warning(
+                "Per-slice BRC commit: fetch of integration branch failed (continuing) (#2548)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                integration_branch=integration_branch,
+                error=str(fetch_err),
+            )
+
         try:
             subprocess.run(
                 [
@@ -11249,13 +11303,13 @@ def _commit_slice_brc_history_to_integration_branch(
 
         # --- Step 3: copy ONLY this slice's BRC files onto the integration
         # worktree.  Each file lands at the same relative path it occupies
-        # on the work worktree (``.egg-state/brc-history/...``).
+        # in the staging dir (``.egg-state/brc-history/...``).
         for src in per_slice_files:
             try:
-                rel = src.relative_to(worktree_repo_path)
+                rel = src.relative_to(staging)
             except ValueError:
                 logger.warning(
-                    "Per-slice BRC commit: file outside work worktree, skipping it (#2548)",
+                    "Per-slice BRC commit: file outside staging dir, skipping it (#2548)",
                     pipeline_id=pipeline_id,
                     slice_id=slice_id,
                     src=str(src),
@@ -11317,7 +11371,7 @@ def _commit_slice_brc_history_to_integration_branch(
             pipeline_id=pipeline_id,
             slice_id=slice_id,
             integration_branch=integration_branch,
-            files=[str(p.relative_to(worktree_repo_path)) for p in per_slice_files],
+            files=[str(p.relative_to(staging)) for p in per_slice_files],
         )
         return True
     finally:
@@ -21864,6 +21918,13 @@ def _run_pipeline(
                     pipeline_id,
                     current_phase.value,
                     _brc_history_identifier(pipeline),
+                    # Per-slice implement-phase files are owned by each
+                    # slice's integration branch; committing them onto
+                    # ``work`` here would conflict with the slice
+                    # branches' add of the same paths and break slice
+                    # PR merges (#2755). The parameter is a no-op for
+                    # non-implement phases.
+                    write_per_slice=False,
                 )
             except Exception as brc_err:
                 logger.debug(
@@ -22404,9 +22465,16 @@ def _run_pipeline(
             # a stale plan-phase tracker keyed under the bare
             # ``pipeline_id`` for ``_get_concurrent_status`` to find and
             # report as ``is_complete: True`` long after the implement
-            # phase had started.  ``_write_brc_history`` already ran
-            # earlier in this iteration (line ~16753) so the BRC
-            # transcript is already on disk by the time we wipe the
+            # phase had started.  ``_write_brc_history`` runs at the
+            # bottom of each phase iteration with
+            # ``write_per_slice=False`` (see #2755), so per-slice
+            # implement-phase transcripts are on the slice integration
+            # branches, and the work commit picks up only the
+            # unattributed sibling plus whatever aggregate the writer
+            # still emits — refine/plan/pr aggregates, and the
+            # non-slice-implement aggregate that babysit_pr (and any
+            # other implement-phase run without slice scope) lands on
+            # work via the ``not buckets`` branch — before we wipe the
             # message store here.
             from routes.phases import _clear_concurrent_state
 
