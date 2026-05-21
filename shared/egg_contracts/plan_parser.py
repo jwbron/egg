@@ -731,8 +731,29 @@ def parse_phases_from_yaml(
                 )
             )
             phase_dependencies = phase_data["dependencies"]
+            dep_source_key = "dependencies"
+        elif "depends_on" in phase_data:
+            phase_dependencies = phase_data["depends_on"]
+            dep_source_key = "depends_on"
         else:
-            phase_dependencies = phase_data.get("dependencies", phase_data.get("depends_on", ""))
+            phase_dependencies = phase_data.get("dependencies", "")
+            dep_source_key = "dependencies"
+        # #2743 — surface a parse-time warning for ``bool`` values so a
+        # ``parse_plan`` consumer sees that the dep was discarded. The
+        # ``to_contract_slice`` branch drops bools to ``[]`` (since
+        # ``bool`` is an ``int`` subclass and we don't want ``True`` to
+        # become ``slice-1``); this warning records the silent drop.
+        if isinstance(phase_dependencies, bool):
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"Slice {phase_num} '{dep_source_key}' is a bool "
+                        f"({phase_dependencies!r}); dependencies dropped. "
+                        "Use an int, 'slice-N', or a list."
+                    ),
+                )
+            )
         phase_exit_criteria = phase_data.get("exit_criteria", "")
         # ``serialized_chain_order`` is a planner-emitted field added in
         # #2137. The planner uses it to record the deliberate ordering

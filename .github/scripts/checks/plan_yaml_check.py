@@ -81,22 +81,32 @@ class PlanYamlCheck(CheckRunner):
         if not isinstance(parsed, dict):
             errors.append("yaml-tasks must be a dictionary")
         else:
-            # Check for required fields
-            if "phases" not in parsed:
-                errors.append("Missing 'phases' field")
-            elif not isinstance(parsed["phases"], list):
-                errors.append("'phases' must be a list")
+            # Canonical key is ``slices`` (#2137); ``phases`` is the
+            # legacy alias still accepted by every other parser. Accept
+            # either; ``slices`` wins when both are present so the check
+            # mirrors ``parse_phases_from_yaml``.
+            if "slices" in parsed:
+                top_key = "slices"
+            elif "phases" in parsed:
+                top_key = "phases"
             else:
-                for i, phase in enumerate(parsed["phases"]):
-                    if not isinstance(phase, dict):
-                        errors.append(f"Phase {i + 1} must be a dictionary")
-                        continue
-                    if "id" not in phase:
-                        errors.append(f"Phase {i + 1} missing 'id' field")
-                    if "tasks" not in phase:
-                        errors.append(f"Phase {i + 1} missing 'tasks' field")
-                    elif not isinstance(phase.get("tasks"), list):
-                        errors.append(f"Phase {i + 1} 'tasks' must be a list")
+                top_key = None
+                errors.append("Missing 'slices' (or legacy 'phases') field")
+            if top_key is not None:
+                top_value = parsed[top_key]
+                if not isinstance(top_value, list):
+                    errors.append(f"'{top_key}' must be a list")
+                else:
+                    for i, slice_entry in enumerate(top_value):
+                        if not isinstance(slice_entry, dict):
+                            errors.append(f"Slice {i + 1} must be a dictionary")
+                            continue
+                        if "id" not in slice_entry:
+                            errors.append(f"Slice {i + 1} missing 'id' field")
+                        if "tasks" not in slice_entry:
+                            errors.append(f"Slice {i + 1} missing 'tasks' field")
+                        elif not isinstance(slice_entry.get("tasks"), list):
+                            errors.append(f"Slice {i + 1} 'tasks' must be a list")
 
         if errors:
             return self.create_result(
@@ -106,11 +116,12 @@ class PlanYamlCheck(CheckRunner):
                 fixable=False,
             )
 
+        slices_count = len(parsed.get("slices", parsed.get("phases", [])))
         return self.create_result(
             status=CheckStatus.PASS,
             message="Plan yaml-tasks block is valid",
             details={
-                "phases_count": len(parsed.get("phases", [])),
+                "slices_count": slices_count,
                 "has_pr_metadata": "pr" in parsed,
             },
         )

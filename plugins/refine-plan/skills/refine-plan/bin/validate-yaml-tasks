@@ -150,16 +150,33 @@ def validate(plan_path: str) -> tuple[int, list[str], list[str]]:
             if canonical in seen_slice_ids:
                 errors.append(f"duplicate slice id {slice_id!r} (canonical {canonical!r})")
             seen_slice_ids.add(canonical)
-        # #2743 — also walk ``depends_on`` so the planner gets a NACK if
-        # its non-canonical alias contains malformed entries. The contract
-        # emitter accepts ``depends_on`` as an alias for ``dependencies``.
-        if "depends_on" in sl and "dependencies" not in sl:
+        # #2743 — accept ``depends_on`` as a non-canonical alias for
+        # ``dependencies``. When both keys are present the canonical
+        # ``dependencies`` wins and ``depends_on`` is dropped (mirrors
+        # the emitter and ``parse_phases_from_yaml`` conflict policy);
+        # validating both would NACK on entries the emitter ignores.
+        if "depends_on" in sl and "dependencies" in sl:
+            warnings.append(
+                f"slice {slice_id}: declares both 'dependencies' and "
+                "'depends_on' — preferring 'dependencies' (canonical key "
+                "per yaml-tasks.schema.json). Remove 'depends_on' to "
+                "silence this warning."
+            )
+            dep_fields: tuple[str, ...] = ("dependencies",)
+        elif "depends_on" in sl:
             warnings.append(
                 f"slice {slice_id}: 'depends_on' is a non-canonical alias "
                 "for 'dependencies' (per yaml-tasks.schema.json). Accepted "
                 "for now, but please rename."
             )
-        for field in ("dependencies", "depends_on", "serialized_chain_order"):
+            dep_fields = ("depends_on",)
+        else:
+            dep_fields = ("dependencies",)
+        # Dependency fields accept int / str / list (the emitter and
+        # canonical parser both normalise a bare int to ``slice-<N>``);
+        # ``serialized_chain_order`` only accepts str / list to match
+        # the parser, which warns on any other type.
+        for field in dep_fields:
             if field not in sl:
                 continue
             raw = sl[field]
@@ -179,6 +196,17 @@ def validate(plan_path: str) -> tuple[int, list[str], list[str]]:
                 continue
             for entry in raw:
                 dep_refs.append((slice_id, field, entry))
+        if "serialized_chain_order" in sl:
+            raw = sl["serialized_chain_order"]
+            if isinstance(raw, str):
+                raw = [d.strip() for d in raw.split(",") if d.strip()]
+            elif not isinstance(raw, list):
+                errors.append(
+                    f"slice {slice_id}: 'serialized_chain_order' must be a list or comma string"
+                )
+                raw = []
+            for entry in raw:
+                dep_refs.append((slice_id, "serialized_chain_order", entry))
         for t in sl.get("tasks") or []:
             tid = str(t.get("id", "")) if isinstance(t, dict) else ""
             if not TASK_ID_RE.match(tid):

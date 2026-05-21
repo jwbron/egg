@@ -103,7 +103,7 @@ def _slice_number_from_id(raw_id: object, fallback: int) -> int:
             break
     try:
         return int(s)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return fallback
 
 

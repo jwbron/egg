@@ -961,10 +961,11 @@ slices:
         assert slices[1].dependencies == ["slice-1"]
         assert any("both 'dependencies' and 'depends_on'" in w.message for w in warnings)
 
-    def test_depends_on_bool_is_rejected(self):
-        """``depends_on: true`` must not silently coerce to ``slice-1``
-        (``bool`` is a subclass of ``int`` in Python — we reject it
-        explicitly so the planner gets a NACK for the typo).
+    def test_to_contract_slice_drops_bool_dependencies(self):
+        """``bool`` is a subclass of ``int`` in Python; without an
+        explicit branch ``True`` would coerce to ``slice-1``. The
+        ``to_contract_slice`` path drops bools instead so a typo like
+        ``depends_on: true`` doesn't fabricate a fake dependency.
         """
         phase = ParsedPhase(
             number=2,
@@ -973,6 +974,35 @@ slices:
             dependencies=True,  # type: ignore[arg-type]
         )
         assert phase.to_contract_slice().dependencies == []
+
+    def test_parse_phases_from_yaml_warns_on_bool_depends_on(self):
+        """The production parse path must emit a ParseWarning when
+        ``depends_on`` (or ``dependencies``) is a bool — otherwise the
+        dropped dep is invisible to ``parse_plan`` consumers.
+        Companion to ``test_to_contract_slice_drops_bool_dependencies``
+        that exercises the same case end-to-end through the parser.
+        """
+        yaml_data = {
+            "slices": [
+                {
+                    "id": 1,
+                    "name": "A",
+                    "tasks": [{"id": "TASK-1-1", "description": "a", "acceptance": "ok"}],
+                },
+                {
+                    "id": 2,
+                    "name": "B",
+                    "depends_on": True,
+                    "tasks": [{"id": "TASK-2-1", "description": "b", "acceptance": "ok"}],
+                },
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        slices = [p.to_contract_slice() for p in phases]
+        assert slices[1].dependencies == []
+        assert any(
+            "'depends_on' is a bool" in w.message and "Slice 2" in w.message for w in warnings
+        )
 
 
 class TestParsePhasesFromYaml:

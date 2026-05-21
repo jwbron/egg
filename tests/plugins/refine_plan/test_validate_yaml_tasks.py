@@ -377,6 +377,67 @@ def test_dep_rejects_unparseable_entry(tmp_path: Path):
     assert any("'garbage' is not a valid slice reference" in e for e in errors), errors
 
 
+def test_both_dependencies_and_depends_on_validates_canonical_only(tmp_path: Path):
+    """When both ``dependencies`` and ``depends_on`` are present, the
+    emitter drops ``depends_on``; the validator must follow suit and
+    not NACK on data that's about to be ignored (#2748 review).
+    """
+    mod = _load_module()
+    plan = _write(
+        tmp_path,
+        """
+        ```yaml
+        # yaml-tasks
+        slices:
+          - id: 1
+            name: a
+            tasks:
+              - id: TASK-1-1
+                description: x
+                acceptance: y
+          - id: 2
+            name: b
+            dependencies: slice-1
+            depends_on: slice-99
+            tasks:
+              - id: TASK-2-1
+                description: x
+                acceptance: y
+        ```
+        """,
+    )
+    code, errors, warnings = mod.validate(str(plan))
+    assert code == 0, errors
+    assert any("both 'dependencies' and 'depends_on'" in w for w in warnings), warnings
+
+
+def test_serialized_chain_order_rejects_bare_int(tmp_path: Path):
+    """``serialized_chain_order`` must stay symmetric with the
+    canonical parser (which accepts only str / list and warns
+    otherwise). A bare int here is not coerced (#2748 review).
+    """
+    mod = _load_module()
+    plan = _write(
+        tmp_path,
+        """
+        ```yaml
+        # yaml-tasks
+        slices:
+          - id: 1
+            name: a
+            serialized_chain_order: 1
+            tasks:
+              - id: TASK-1-1
+                description: x
+                acceptance: y
+        ```
+        """,
+    )
+    code, errors, _ = mod.validate(str(plan))
+    assert code == 1
+    assert any("serialized_chain_order" in e for e in errors), errors
+
+
 def test_serialized_chain_order_unknown_slice(tmp_path: Path):
     """``serialized_chain_order`` entries are also validated against defined slices."""
     mod = _load_module()
