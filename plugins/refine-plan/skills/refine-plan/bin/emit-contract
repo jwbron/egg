@@ -51,9 +51,11 @@ except ImportError:
     print("error: PyYAML not installed (try: python3 -m pip install pyyaml)", file=sys.stderr)
     sys.exit(2)
 
+# Closing ``` must start at a line boundary — see issue #2743. A nested
+# code fence inside a YAML block scalar would otherwise terminate the
+# non-greedy capture early and emit-contract would silently drop slices.
 FENCE_RE = re.compile(
-    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n(.*?)```",
-    re.DOTALL,
+    r"```(?:yaml|yml)\s*\n\s*#\s*yaml-tasks\s*\n((?:.*\n)*?)[ ]{0,3}```\s*(?:\n|$)",
 )
 TASK_ID_RE = re.compile(r"^TASK-(\d+)-(\d+)$", re.IGNORECASE)
 VALID_PHASES = {"refine", "plan", "implement", "pr"}
@@ -101,7 +103,11 @@ def _slice_number_from_id(raw_id: object, fallback: int) -> int:
             break
     try:
         return int(s)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # fmt: skip
+        # Keep parens explicit: this script is portable by design (see module
+        # docstring) and may run under Python <3.14, where the unparenthesized
+        # form is a SyntaxError. The file has no .py extension today so ruff
+        # format skips it, but a future rename would silently strip the parens.
         return fallback
 
 
@@ -140,9 +146,25 @@ def _emit_task(t: dict, slice_number: int) -> dict | None:
 
 def _emit_slice(sl: dict, slice_number: int) -> dict:
     """Build the Slice dict matching shared/egg_contracts/models.py::Slice."""
-    raw_deps = sl.get("dependencies", [])
-    if isinstance(raw_deps, str):
+    # #2743 — accept ``depends_on`` as an alias for ``dependencies`` and
+    # handle integer / scalar values. Pipeline-8b81ed32 declared
+    # ``depends_on: <int>`` on every slice and the emitted contract came
+    # back with empty ``dependencies`` because this emitter only read
+    # ``dependencies`` and never coerced a bare int.
+    if "dependencies" in sl:
+        raw_deps = sl["dependencies"]
+    else:
+        raw_deps = sl.get("depends_on", [])
+    if isinstance(raw_deps, bool):
+        # ``bool`` is a subclass of ``int`` — reject explicitly to avoid
+        # silently converting ``True`` to ``slice-1``.
+        raw_deps = []
+    elif isinstance(raw_deps, int):
+        raw_deps = [raw_deps]
+    elif isinstance(raw_deps, str):
         raw_deps = [d.strip() for d in raw_deps.split(",") if d.strip()]
+    elif not isinstance(raw_deps, list):
+        raw_deps = []
     deps: list[str] = []
     for d in raw_deps:
         norm = _normalise_dep(d)
@@ -201,10 +223,7 @@ def _emit_pr(pr: dict | None) -> dict | None:
 
 
 def main(argv: list[str]) -> int:
-    usage = (
-        f"usage: {argv[0]} <plan.md> <contract.json> <pipeline_id> "
-        "[--current-phase <phase>]"
-    )
+    usage = f"usage: {argv[0]} <plan.md> <contract.json> <pipeline_id> [--current-phase <phase>]"
     if len(argv) not in (4, 6):
         print(usage, file=sys.stderr)
         return 2
@@ -218,8 +237,7 @@ def main(argv: list[str]) -> int:
         current_phase = argv[5]
         if current_phase not in VALID_PHASES:
             print(
-                f"invalid --current-phase {current_phase!r}; "
-                f"must be one of {sorted(VALID_PHASES)}",
+                f"invalid --current-phase {current_phase!r}; must be one of {sorted(VALID_PHASES)}",
                 file=sys.stderr,
             )
             return 2

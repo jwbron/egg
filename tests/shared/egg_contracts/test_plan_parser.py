@@ -788,6 +788,222 @@ After"""
         assert "Before" in remaining
         assert "After" in remaining
 
+    def test_nested_code_fence_inside_block_scalar_not_truncated(self):
+        """Regression for #2743 (pipeline-f4c7d780): a nested ``` fenced
+        block inside a YAML block scalar (e.g. an inline example in a
+        slice's ``goal``) must not terminate the outer yaml-tasks fence.
+
+        The pre-fix non-greedy regex stopped at the first inner ``` and
+        silently truncated the contract to whatever slices had been
+        parsed up to that point — 7 of 15 in the offending pipeline.
+        """
+        content = """# Plan
+
+```yaml
+# yaml-tasks
+slices:
+  - id: 1
+    name: First
+    tasks:
+      - id: TASK-1-1
+        description: First task
+        acceptance: ok
+  - id: 2
+    name: Second
+    goal: |
+      Show an inline example:
+      ```
+      $ run-it
+      ```
+    dependencies: slice-1
+    tasks:
+      - id: TASK-2-1
+        description: Second task
+        acceptance: ok
+  - id: 3
+    name: Third
+    dependencies: slice-2
+    tasks:
+      - id: TASK-3-1
+        description: Third task
+        acceptance: ok
+```
+
+Trailing prose."""
+        yaml_data, _, warnings = parse_yaml_code_fence(content)
+        assert yaml_data is not None
+        assert "slices" in yaml_data
+        assert [s["id"] for s in yaml_data["slices"]] == [1, 2, 3]
+        # Block scalar preserves the inner ``` lines verbatim.
+        assert "$ run-it" in yaml_data["slices"][1]["goal"]
+        assert len(warnings) == 0
+
+    def test_nested_code_fence_full_parse_pipeline(self):
+        """End-to-end #2743: ``parse_plan`` returns all slices and
+        preserves their declared dependencies despite a nested ``` in
+        one slice's goal block scalar.
+        """
+        content = """# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: Test PR
+  description: Test
+  test_plan: Test
+  manual_steps: None
+slices:
+  - id: 1
+    name: First
+    tasks:
+      - id: TASK-1-1
+        description: First task
+        acceptance: ok
+  - id: 2
+    name: Second
+    goal: |
+      Inline example:
+      ```
+      $ demo
+      ```
+    dependencies: slice-1
+    tasks:
+      - id: TASK-2-1
+        description: Second task
+        acceptance: ok
+  - id: 3
+    name: Third
+    dependencies: slice-2
+    tasks:
+      - id: TASK-3-1
+        description: Third task
+        acceptance: ok
+```
+"""
+        result = parse_plan(content)
+        assert result.success, result.error
+        assert [p.number for p in result.phases] == [1, 2, 3]
+        # Dependencies survive the parse.
+        deps_by_id = {p.number: p.dependencies for p in result.phases}
+        assert deps_by_id[2] == "slice-1"
+        assert deps_by_id[3] == "slice-2"
+        # And the contract conversion preserves them.
+        slices = result.to_contract_slices()
+        assert [s.id for s in slices] == ["slice-1", "slice-2", "slice-3"]
+        assert slices[1].dependencies == ["slice-1"]
+        assert slices[2].dependencies == ["slice-2"]
+
+    def test_depends_on_alias_with_int_value(self):
+        """Regression for #2743 (pipeline-8b81ed32 follow-up): the
+        planner emitted ``depends_on: <int>`` on every slice and the
+        contract came back with empty dependencies because the parser
+        only consulted ``dependencies`` and never coerced a bare int.
+        ``depends_on`` is now accepted as an alias and integer values
+        normalise to ``slice-<N>``.
+        """
+        yaml_data, _, _ = parse_yaml_code_fence(
+            """```yaml
+# yaml-tasks
+slices:
+  - id: 1
+    name: First
+    tasks:
+      - id: TASK-1-1
+        description: First
+        acceptance: ok
+  - id: 2
+    name: Second
+    depends_on: 1
+    tasks:
+      - id: TASK-2-1
+        description: Second
+        acceptance: ok
+  - id: 3
+    name: Third
+    depends_on: 2
+    tasks:
+      - id: TASK-3-1
+        description: Third
+        acceptance: ok
+```
+"""
+        )
+        phases, _ = parse_phases_from_yaml(yaml_data)
+        slices = [p.to_contract_slice() for p in phases]
+        assert [s.id for s in slices] == ["slice-1", "slice-2", "slice-3"]
+        assert slices[0].dependencies == []
+        assert slices[1].dependencies == ["slice-1"]
+        assert slices[2].dependencies == ["slice-2"]
+
+    def test_depends_on_and_dependencies_both_present_warns(self):
+        """When both ``depends_on`` and ``dependencies`` are present the
+        canonical ``dependencies`` key wins and a warning is recorded —
+        matching the existing ``slices:`` / ``phases:`` conflict policy.
+        """
+        yaml_data = {
+            "slices": [
+                {
+                    "id": 1,
+                    "name": "A",
+                    "tasks": [{"id": "TASK-1-1", "description": "a", "acceptance": "ok"}],
+                },
+                {
+                    "id": 2,
+                    "name": "B",
+                    "dependencies": "slice-1",
+                    "depends_on": "slice-99",
+                    "tasks": [{"id": "TASK-2-1", "description": "b", "acceptance": "ok"}],
+                },
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        slices = [p.to_contract_slice() for p in phases]
+        assert slices[1].dependencies == ["slice-1"]
+        assert any("both 'dependencies' and 'depends_on'" in w.message for w in warnings)
+
+    def test_to_contract_slice_drops_bool_dependencies(self):
+        """``bool`` is a subclass of ``int`` in Python; without an
+        explicit branch ``True`` would coerce to ``slice-1``. The
+        ``to_contract_slice`` path drops bools instead so a typo like
+        ``depends_on: true`` doesn't fabricate a fake dependency.
+        """
+        phase = ParsedPhase(
+            number=2,
+            name="X",
+            goal="",
+            dependencies=True,  # type: ignore[arg-type]
+        )
+        assert phase.to_contract_slice().dependencies == []
+
+    def test_parse_phases_from_yaml_warns_on_bool_depends_on(self):
+        """The production parse path must emit a ParseWarning when
+        ``depends_on`` (or ``dependencies``) is a bool — otherwise the
+        dropped dep is invisible to ``parse_plan`` consumers.
+        Companion to ``test_to_contract_slice_drops_bool_dependencies``
+        that exercises the same case end-to-end through the parser.
+        """
+        yaml_data = {
+            "slices": [
+                {
+                    "id": 1,
+                    "name": "A",
+                    "tasks": [{"id": "TASK-1-1", "description": "a", "acceptance": "ok"}],
+                },
+                {
+                    "id": 2,
+                    "name": "B",
+                    "depends_on": True,
+                    "tasks": [{"id": "TASK-2-1", "description": "b", "acceptance": "ok"}],
+                },
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        slices = [p.to_contract_slice() for p in phases]
+        assert slices[1].dependencies == []
+        assert any(
+            "'depends_on' is a bool" in w.message and "Slice 2" in w.message for w in warnings
+        )
+
 
 class TestParsePhasesFromYaml:
     """Tests for parsing phases from structured YAML."""
