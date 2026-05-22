@@ -328,9 +328,17 @@ def get_default_agent_model(repo: str) -> str | None:
 
     Returns:
         The configured model string, or ``None`` when the repo has no
-        per-repo entry or the entry omits ``default_agent_model``.
+        per-repo entry, the entry omits ``default_agent_model``, or the
+        ``repositories.yaml`` file is absent (a missing config file is the
+        same observable as a missing entry — preserves the
+        no-op-by-default invariant for callers like ``resolve_agent_model``
+        that run inside spawn paths where the config file may not be
+        present, e.g. unit tests and ephemeral CI environments).
     """
-    value = get_repo_setting(repo, "default_agent_model", None)
+    try:
+        value = get_repo_setting(repo, "default_agent_model", None)
+    except FileNotFoundError:
+        return None
     if value is None:
         return None
     return cast(str, value)
