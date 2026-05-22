@@ -172,7 +172,14 @@ Behavior at the edges:
   proxy; they fall through to the existing upstream and let the
   upstream produce whatever error response it would have produced.
 
-## Recognized-alias mitigation (cq-5)
+## Recognized-alias mitigation (cq-5) — *plausible, not empirically proven*
+
+> The behavior described in this section is the cq-5 *mitigation* for
+> a harness compatibility risk — not a proven guarantee. Confirming
+> compaction math actually stays sane on long non-Claude sessions is
+> the cq-4-deferred operator smoke test below. Read the invariants
+> as "what the resolver enforces structurally" rather than "what
+> Claude Code is guaranteed to do."
 
 The harness Claude Code runs the agent inside makes **decisions keyed
 on the model name** that we cannot ask it to override:
@@ -192,11 +199,13 @@ The cq-5 mitigation, baked into the resolver's classifier above:
 > The gateway separately rewrites the on-the-wire `"model"` field to
 > the LiteLLM-side name (`"qwen3-coder-30b"` etc.).
 
-Two invariants follow:
+Two structural invariants follow (these are enforced by the resolver
+and tested explicitly; *whether* they are sufficient to keep Claude
+Code's compaction math sane on a given backend remains the smoke
+test's job):
 
 - The Claude-Code-facing alias is **always** a recognized Claude name
-  (`opus` by default). Claude Code's compaction math stays sane on
-  every route.
+  (`opus` by default).
 - The model name actually requested upstream is **always** the
   configured `upstream_model`. LiteLLM dispatches to the right
   `model_list` entry.
@@ -205,10 +214,6 @@ Tests in `orchestrator/tests/test_agent_model_resolution.py` and
 `tests/gateway/test_anthropic_proxy.py` assert both invariants
 explicitly — in particular that the Claude-Code-facing alias for a
 LiteLLM-routed agent is `"opus"`, never the upstream model name.
-
-> **Empirical validation.** This is a *plausible* mitigation, not a
-> proven one. Confirming compaction math actually stays sane on long
-> non-Claude sessions is the cq-4-deferred operator smoke test below.
 
 ## Operator walkthrough — Qwen for the refiner role
 
@@ -243,7 +248,7 @@ data:
     model_list:
       - model_name: qwen3-coder-30b
         litellm_params:
-          model: together_ai/qwen/Qwen2.5-Coder-32B-Instruct
+          model: together_ai/Qwen/Qwen2.5-Coder-32B-Instruct
           api_key: os.environ/TOGETHER_API_KEY
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
@@ -261,26 +266,34 @@ the LiteLLM Deployment.
 
 ### 3a. Per-repository default (recommended for stable rollouts)
 
-If every pipeline on the repo should default to Qwen for the refiner,
-edit `~/.config/egg/repositories.yaml`:
+If every role on this repo should default to the same model, edit
+`~/.config/egg/repositories.yaml`:
 
 ```yaml
 repositories:
   acme-corp/widgets:
-    default_agent_model: qwen3-coder-30b   # every role on this repo
+    # Every role on this repo defaults to qwen3-coder-30b, unless a
+    # pipeline passes its own agent_models entry.
+    default_agent_model: qwen3-coder-30b
 ```
 
 `default_agent_model` is a *repo-level default for every role* — to
-flip exactly one role, prefer 3b.
+flip exactly one role to a non-Claude backend (the common case for
+the cq-4 smoke test), prefer 3b.
 
 ### 3b. Per-pipeline override (recommended for the smoke test)
 
 For one-off pipelines (or the smoke test below), pass `agent_models`
-in the pipeline submission payload:
+in the `submit_task` MCP-tool arguments
+([`orchestrator/mcp_tools.py:74`](../../orchestrator/mcp_tools.py) —
+`required: ["description", "repo"]`; `issue_number`, `branch`, and
+`config` are optional):
 
 ```json
 {
-  "issue": 1234,
+  "description": "Smoke-test the refiner on hosted Qwen",
+  "repo": "acme-corp/widgets",
+  "issue_number": 1234,
   "config": {
     "agent_models": {
       "refiner": "qwen3-coder-30b"
@@ -289,6 +302,29 @@ in the pipeline submission payload:
 }
 ```
 
+The equivalent `POST /pipelines` HTTP body (see
+`orchestrator/routes/pipelines.py:1336` where the handler reads
+`data.get("issue_number")`) uses the same field names plus an
+optional `branch` override:
+
+```json
+{
+  "issue_number": 1234,
+  "repo": "acme-corp/widgets",
+  "branch": "egg/issue-1234/work",
+  "config": {
+    "agent_models": {
+      "refiner": "qwen3-coder-30b"
+    }
+  }
+}
+```
+
+> The orchestrator silently ignores unrecognized top-level keys
+> (`data.get("issue_number")` reads `issue_number` specifically), so
+> a misspelled `"issue": 1234` would submit a pipeline with **no
+> issue binding** without surfacing an error. Use `issue_number`.
+
 Per-pipeline `agent_models` entries **override** the repo-level
 `default_agent_model`. Both can be unset — the resolver falls back to
 the built-in `"opus"`.
@@ -296,16 +332,22 @@ the built-in `"opus"`.
 ### 4. Run the pipeline and observe routing
 
 Submit a pipeline. The gateway audit log records the per-session
-routing decision (see slice-1's
-`audit_log("session_created", …)` extension):
+routing decision **once per session** (slice-1's
+`audit_log("session_created", …)` extension at
+`gateway/gateway.py:8920` includes the resolved `upstream` and
+`upstream_model`); every subsequent `/v1/messages` request from that
+session inherits the decision implicitly via the session-keyed
+lookup, with no per-request routing log line:
 
-- **Refiner session**: `upstream=litellm`,
-  `upstream_model=qwen3-coder-30b`. Body forwarded to
-  `litellm.egg-system.svc.cluster.local:4000` with the rewritten
-  `"model"` field; LiteLLM routes to the hosted Qwen backend.
-- **Every other role**: `upstream=anthropic`,
-  `upstream_model=null`. Body forwarded byte-identically to
-  `api.anthropic.com`.
+- **Refiner session-created line**: `upstream=litellm`,
+  `upstream_model=qwen3-coder-30b`. Subsequent refiner requests have
+  their body forwarded to
+  `litellm.egg-system.svc.cluster.local:4000` with the
+  `_rewrite_upstream_model` helper substituting the `"model"` field;
+  LiteLLM routes to the hosted Qwen backend.
+- **Every other session-created line**: `upstream=anthropic`,
+  `upstream_model=null`. Subsequent requests have their body
+  forwarded byte-identically to `api.anthropic.com`.
 
 If anything is misconfigured (LiteLLM master key absent, LiteLLM pod
 unreachable, etc.), the failure policy is **fail closed**: a 502
