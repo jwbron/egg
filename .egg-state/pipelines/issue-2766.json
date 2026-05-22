@@ -190,10 +190,29 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "The issue references `docs/design/planning-contract-framework.md` as the in-repo working copy of the spec, but no such file exists (no git history under `docs/design/`). Where should plan/refine teams source the canonical grammar, JSON Schema (`plan-contract-1.0.json`), and Appendix C field crosswalk?",
+      "context": "Open contract question cq-1, registered by an agent during the refine phase.",
+      "options": [
+        "Land the spec + review notes into docs/design/ as a prerequisite slice before any parser/template work (recommended — gives plan/implement agents an in-repo source of truth and pins the schema version egg conforms to)",
+        "Pull the spec from Khan/actionable-plans on demand each cycle (no in-repo copy; depends on Khan repo access — currently private per gh)",
+        "Embed the relevant grammar + JSON Schema verbatim into this issue's body / the analysis document so downstream phases have local context",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:36.832072Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:36.115273Z",
+  "updated_at": "2026-05-22T01:00:36.840590Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -206,7 +225,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
