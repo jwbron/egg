@@ -361,5 +361,9 @@ class TestPlanTemplateValidatesAgainstSchema:
             pytest.skip("plan template not found")
         schema = _load_schema()
         doc, _, _ = parse_yaml_code_fence(PLAN_TEMPLATE_PATH.read_text())
-        assert doc is not None, "no '# yaml-tasks' fenced block found in docs/templates/plan.md"
+        assert doc is not None, (
+            "no valid '# yaml-tasks' block parsed from docs/templates/plan.md "
+            "(parse_yaml_code_fence returns None when the fence is absent, empty, "
+            "non-dict, or malformed YAML)"
+        )
         jsonschema.validate(doc, schema)
