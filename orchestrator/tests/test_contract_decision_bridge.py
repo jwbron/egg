@@ -368,9 +368,7 @@ class _OrderTrackingQueue(_FakeQueue):
         return super().wait_for_decision(decision_id)
 
 
-def test_bridge_queues_all_decisions_before_waiting(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path, monkeypatch: Any) -> None:
     """All queue_decision calls must precede the first wait_for_decision.
 
     Regression test for #1956: previously the bridge queued and waited on
