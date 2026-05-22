@@ -31,12 +31,18 @@ NS="egg-system"
 # images are egg-built and tag-rewritten by `make deploy`. Third-party
 # pods (e.g. the LiteLLM proxy) pull from an external registry, so
 # recreating them would not clear a registry-side pull failure.
-mapfile -t stuck < <(
+#
+# Capture kubectl's output into a variable first: a process substitution
+# hides its child's exit status from the parent and `mapfile` succeeds on
+# empty input, so feeding `kubectl` straight into `mapfile < <(...)` would
+# turn a transient kubectl failure (API hiccup, RBAC) into a silent no-op.
+# A plain assignment lets `set -e` abort on a real failure.
+pods=$(
   kubectl -n "$NS" get pods \
     -l 'app.kubernetes.io/component in (orchestrator,gateway)' \
-    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}{"\n"}{end}' \
-    | awk '/ImagePullBackOff|ErrImagePull/ { print $1 }'
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}{"\n"}{end}'
 )
+mapfile -t stuck < <(awk '/ImagePullBackOff|ErrImagePull/ { print $1 }' <<<"$pods")
 
 if [ "${#stuck[@]}" -eq 0 ]; then
   exit 0
