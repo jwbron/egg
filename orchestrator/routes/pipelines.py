@@ -2661,6 +2661,43 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     # and role-specific environment variables to function properly.
     command = None
     extra_env: dict[str, str] = {}
+
+    # Per-agent model resolution for the restart path (#2769 task-2-5).
+    # The default Anthropic decision keeps every restart kwarg byte-
+    # identical to the pre-#2769 wire shape; non-default decisions wire
+    # the right ``--model`` into the consensus wrapper and the right
+    # upstream/upstream_model into the gateway session.
+    try:
+        try:
+            from agent_model_resolution import (
+                UPSTREAM_ANTHROPIC,
+                resolve_agent_model,
+            )
+        except ImportError:
+            from ..agent_model_resolution import (  # type: ignore[import-not-found, no-redef]
+                UPSTREAM_ANTHROPIC,
+                resolve_agent_model,
+            )
+        _model_decision = resolve_agent_model(
+            role=role,
+            pipeline_config=pipeline.config,
+            repo=pipeline.repo,
+        )
+    except Exception as resolve_err:
+        # Resolution is pure data over already-validated inputs; logging
+        # and falling back to the built-in opus default preserves restart
+        # availability even if a future regression breaks the resolver.
+        logger.warning(
+            "Failed to resolve per-agent model decision for restart, "
+            "falling back to built-in opus default",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(resolve_err),
+        )
+        from agent_model_resolution import UPSTREAM_ANTHROPIC, classify_model
+
+        _model_decision = classify_model("opus")
+
     try:
         try:
             from concurrent_executor import ConcurrentPhaseExecutor, is_concurrent_execution
@@ -2701,7 +2738,9 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 if prompt_text:
                     from consensus_wrapper import build_consensus_wrapped_command
 
-                    command = build_consensus_wrapped_command(prompt_text)
+                    command = build_consensus_wrapped_command(
+                        prompt_text, model=_model_decision.claude_code_alias
+                    )
             except Exception as prompt_err:
                 logger.warning(
                     "Failed to reconstruct agent prompt for restart "
@@ -2720,6 +2759,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             error=str(e),
         )
 
+    # Forward upstream/upstream_model only on non-default decisions so a
+    # restart on the Claude default keeps the spawner kwargs byte-
+    # identical to today's pre-#2769 shape (regression guard).
+    restart_upstream_kwargs: dict[str, str | None] = {}
+    if _model_decision.upstream != UPSTREAM_ANTHROPIC or _model_decision.upstream_model is not None:
+        restart_upstream_kwargs["upstream"] = _model_decision.upstream
+        restart_upstream_kwargs["upstream_model"] = _model_decision.upstream_model
+
     try:
         spawned = spawner.restart_agent_container(
             pipeline_id=pipeline_id,
@@ -2736,6 +2783,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             spawn_max_retries=pipeline.config.spawn_max_retries,
             spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
             slice_id=slice_id,
+            **restart_upstream_kwargs,
         )
     except (ContainerSpawnError, KubernetesSpawnError) as e:
         # Revert early status update — the agent is not actually running.

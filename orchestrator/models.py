@@ -754,6 +754,43 @@ class PipelineConfig(BaseModel):
             "Subsequent attempts scale by 3x (e.g. 30s, 90s). See #1879."
         ),
     )
+    agent_models: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-role model overrides keyed by AgentRole value (e.g. "
+            "{'refiner': 'qwen3-coder-30b'}). The value is the upstream-side "
+            "model name: a Claude alias (opus / opus[1m] / sonnet / haiku / "
+            "claude-*) routes through the Anthropic upstream, anything else "
+            "routes through the in-cluster LiteLLM proxy with the recognised "
+            "alias 'opus' presented to Claude Code (cq-5 mitigation). When a "
+            "role is absent from this mapping the resolver falls back to the "
+            "repository-level default_agent_model setting and then to the "
+            "built-in 'opus' default. See #2769."
+        ),
+    )
+
+    @field_validator("agent_models")
+    @classmethod
+    def _validate_agent_models_roles(cls, v: dict[str, str]) -> dict[str, str]:
+        """Reject ``agent_models`` keys that are not recognised AgentRole values.
+
+        Catches typos at PipelineConfig construction time so misconfigured
+        overrides surface immediately instead of silently being ignored at
+        spawn time. See #2769 task-2-1.
+        """
+        if not v:
+            return v
+        # Lazy import to avoid a circular dependency with shared.egg_contracts
+        # when PipelineConfig is imported during package init.
+        from egg_contracts.agent_roles import AgentRole
+
+        valid = {role.value for role in AgentRole}
+        invalid = sorted(role for role in v if role not in valid)
+        if invalid:
+            raise ValueError(
+                f"Invalid agent_models role keys: {invalid}. Valid roles: {sorted(valid)}"
+            )
+        return v
 
     @model_validator(mode="after")
     def _validate_post_consensus_budgets(self) -> PipelineConfig:
