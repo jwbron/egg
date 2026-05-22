@@ -2028,3 +2028,156 @@ class TestSingletonClient:
         client2 = get_gateway_client()
 
         assert client1 is client2
+
+
+# ============================================================================
+# register_session upstream kwargs — slice-1 of issue #2769 (TASK-1-7)
+# ============================================================================
+#
+# Slice 1 extends ``GatewayClient.register_session`` with two optional
+# kwargs:
+#   - ``upstream: str | None = None``
+#   - ``upstream_model: str | None = None``
+#
+# When set, they're included in the POST body to ``/api/v1/sessions/create``.
+# When omitted, the body is unchanged from today's shape (back-compat
+# guard — no caller in slice 1 actually sends them).
+# ============================================================================
+
+
+class TestRegisterSessionUpstreamKwargs:
+    """Slice-1 wire-shape extensions to ``register_session``."""
+
+    def test_omits_upstream_keys_when_not_provided(self, gateway_client):
+        """Back-compat guard: no slice-1 caller passes the new kwargs.
+        The wire body must be byte-identical to today's shape.
+        """
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, use_launcher_auth):
+            captured["data"] = data
+            return {
+                "success": True,
+                "data": {
+                    "session_token": "tok-1",
+                    "created_at": datetime.now().isoformat(),
+                    "expires_at": datetime.now().isoformat(),
+                },
+            }
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            gateway_client.register_session(
+                container_id="abc",
+                container_ip="172.18.0.5",
+                mode="public",
+            )
+
+        assert "upstream" not in captured["data"], (
+            "register_session must omit 'upstream' from the POST body when "
+            "not provided — slice-1 no-op invariant"
+        )
+        assert "upstream_model" not in captured["data"], (
+            "register_session must omit 'upstream_model' from the POST body "
+            "when not provided — slice-1 no-op invariant"
+        )
+
+    def test_includes_upstream_litellm_when_provided(self, gateway_client):
+        """Explicit LiteLLM kwargs land in the POST body."""
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, use_launcher_auth):
+            captured["data"] = data
+            return {
+                "success": True,
+                "data": {
+                    "session_token": "tok-1",
+                    "created_at": datetime.now().isoformat(),
+                    "expires_at": datetime.now().isoformat(),
+                },
+            }
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            try:
+                gateway_client.register_session(
+                    container_id="qwen-agent",
+                    mode="private",
+                    upstream="litellm",
+                    upstream_model="qwen3-coder-30b",
+                )
+            except TypeError as e:
+                pytest.skip(
+                    f"GatewayClient.register_session does not yet accept "
+                    f"upstream kwargs: {e}"
+                )
+
+        assert captured["data"].get("upstream") == "litellm"
+        assert captured["data"].get("upstream_model") == "qwen3-coder-30b"
+
+    def test_includes_upstream_anthropic_explicit_when_provided(self, gateway_client):
+        """Explicit ``upstream='anthropic'`` is a valid no-op that still
+        lands in the body (so the audit log records the per-session
+        upstream — TASK-1-5 AC).
+        """
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, use_launcher_auth):
+            captured["data"] = data
+            return {
+                "success": True,
+                "data": {
+                    "session_token": "tok-1",
+                    "created_at": datetime.now().isoformat(),
+                    "expires_at": datetime.now().isoformat(),
+                },
+            }
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            try:
+                gateway_client.register_session(
+                    container_id="explicit-anthropic-agent",
+                    mode="private",
+                    upstream="anthropic",
+                )
+            except TypeError as e:
+                pytest.skip(
+                    f"GatewayClient.register_session does not yet accept "
+                    f"upstream kwargs: {e}"
+                )
+
+        assert captured["data"].get("upstream") == "anthropic"
+        # ``upstream_model`` not provided — should be omitted.
+        assert "upstream_model" not in captured["data"]
+
+    def test_upstream_only_without_upstream_model_emits_only_upstream(self, gateway_client):
+        """Asymmetric kwargs: ``upstream='litellm'`` without
+        ``upstream_model`` is valid (LiteLLM's default model_list will
+        be consulted upstream).
+        """
+        captured: dict = {}
+
+        def fake_make_request(endpoint, method, data, use_launcher_auth):
+            captured["data"] = data
+            return {
+                "success": True,
+                "data": {
+                    "session_token": "tok-1",
+                    "created_at": datetime.now().isoformat(),
+                    "expires_at": datetime.now().isoformat(),
+                },
+            }
+
+        with patch.object(gateway_client, "_make_request", side_effect=fake_make_request):
+            try:
+                gateway_client.register_session(
+                    container_id="litellm-default-agent",
+                    mode="private",
+                    upstream="litellm",
+                )
+            except TypeError as e:
+                pytest.skip(
+                    f"GatewayClient.register_session does not yet accept "
+                    f"upstream kwargs: {e}"
+                )
+
+        assert captured["data"].get("upstream") == "litellm"
+        assert "upstream_model" not in captured["data"]

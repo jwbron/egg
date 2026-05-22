@@ -1332,3 +1332,452 @@ class TestTranscriptCaptureFunctions:
             buffer = TranscriptBuffer(container_id, buffer_dir=tmp_path)
             entries = buffer.read_entries()
             assert len(entries) == 0
+
+
+# =============================================================================
+# Upstream routing — slice-1 of issue #2769 (TASK-1-3 / TASK-1-6)
+# =============================================================================
+#
+# Slice 1 wires the gateway's two proxy routes (``/v1/messages`` and
+# ``/v1/messages/count_tokens``) through a per-request ``UpstreamRegistry``
+# lookup keyed on ``session.upstream``.  When the session is absent or
+# ``session.upstream == "anthropic"`` the routes MUST behave
+# byte-identically to today's hard-wired Anthropic path — that's the
+# slice-1 no-op invariant.  When ``session.upstream == "litellm"`` the
+# routes MUST hit the LiteLLM client and inject the LiteLLM credential
+# instead.
+#
+# The tests below patch the registry / credential resolvers and drive
+# the Flask test client to assert the routing decision end-to-end
+# without needing a live upstream.
+# =============================================================================
+
+
+def _build_mock_session(upstream: str | None = None, upstream_model: str | None = None):
+    """Build a MagicMock Session with the upstream + upstream_model fields
+    needed by the slice-1 routing decision.  Falls back to ``"anthropic"``
+    when ``upstream is None`` to mirror the production default in the
+    Session dataclass.
+    """
+    session = MagicMock()
+    session.mode = "public"
+    session.container_id = "test-container-routing"
+    session.upstream = "anthropic" if upstream is None else upstream
+    session.upstream_model = upstream_model
+    return session
+
+
+class TestUpstreamRoutingMessages:
+    """``proxy_anthropic_messages`` routes per ``session.upstream``."""
+
+    @pytest.fixture
+    def client(self):
+        from gateway.gateway import app
+
+        app.config["TESTING"] = True
+        with app.test_client() as client:
+            yield client
+
+    def test_no_session_routes_to_anthropic(self, client):
+        """Backwards-compat: when no session exists for the remote IP,
+        the request still routes to the Anthropic upstream — the
+        slice-1 no-op invariant.
+        """
+        from httpx import Headers
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch("gateway.gateway.get_anthropic_client") as mock_anthropic_get,
+        ):
+            cred = MagicMock(header_name="x-api-key", header_value="sk-ant-test")
+            mock_creds_get.return_value.get_credential.return_value = cred
+
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = None
+            mock_sm_get.return_value = sm
+
+            mock_client = MagicMock()
+            mock_response = MagicMock()
+            mock_response.content = json.dumps({"content": "ok"}).encode()
+            mock_response.status_code = 200
+            mock_response.headers = Headers([("content-type", "application/json")])
+            mock_client.post.return_value = mock_response
+            mock_anthropic_get.return_value = mock_client
+
+            response = client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "claude-3"}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # When no session is found, defaulting to anthropic is the
+            # slice-1 invariant: the Anthropic httpx client MUST be used.
+            assert mock_client.post.called or mock_client.send.called, (
+                "Anthropic client was not invoked for a no-session request"
+            )
+
+    def test_anthropic_session_uses_anthropic_upstream(self, client):
+        """Explicit ``session.upstream == "anthropic"`` still routes to
+        the Anthropic upstream.
+        """
+        from httpx import Headers
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch("gateway.gateway.get_anthropic_client") as mock_anthropic_get,
+        ):
+            cred = MagicMock(header_name="x-api-key", header_value="sk-ant-test")
+            mock_creds_get.return_value.get_credential.return_value = cred
+
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(upstream="anthropic")
+            mock_sm_get.return_value = sm
+
+            mock_client = MagicMock()
+            mock_response = MagicMock()
+            mock_response.content = json.dumps({"content": "ok"}).encode()
+            mock_response.status_code = 200
+            mock_response.headers = Headers([("content-type", "application/json")])
+            mock_client.post.return_value = mock_response
+            mock_anthropic_get.return_value = mock_client
+
+            response = client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "claude-3"}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            assert mock_client.post.called or mock_client.send.called
+
+    def test_litellm_session_uses_litellm_upstream(self, client):
+        """``session.upstream == "litellm"`` routes to the LiteLLM client
+        from the upstream registry; the Anthropic client is NOT used.
+        """
+        from httpx import Headers
+
+        # The registry is the per-request lookup point.  Patch it to
+        # return a LiteLLM client distinct from the Anthropic one and
+        # assert THAT one is the one hit.
+        try:
+            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
+        except ImportError:
+            pytest.skip("upstream_registry not yet implemented (waiting on coder)")
+
+        litellm_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = json.dumps({"content": "ok"}).encode()
+        mock_response.status_code = 200
+        mock_response.headers = Headers([("content-type", "application/json")])
+        litellm_client.post.return_value = mock_response
+
+        anthropic_client = MagicMock()
+        # Anthropic client should NOT be called.
+        anthropic_client.post.side_effect = AssertionError(
+            "Anthropic client must not be invoked for a LiteLLM-routed request"
+        )
+
+        # Build a registry that dispatches per upstream name.
+        def _registry_get(upstream):
+            if upstream == "anthropic":
+                return (anthropic_client, lambda: MagicMock(header_name="x-api-key", header_value="sk-ant-test"))
+            if upstream == "litellm":
+                return (litellm_client, lambda: MagicMock(header_name="x-api-key", header_value="litellm-key"))
+            raise KeyError(upstream)
+
+        fake_registry = MagicMock()
+        fake_registry.get.side_effect = _registry_get
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch("gateway.gateway.get_upstream_registry", return_value=fake_registry, create=True),
+            patch("gateway.gateway.get_anthropic_client", return_value=anthropic_client),
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(
+                upstream="litellm", upstream_model="qwen3-coder-30b"
+            )
+            mock_sm_get.return_value = sm
+
+            response = client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "opus"}),  # cq-5 alias on the wire
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            assert litellm_client.post.called or litellm_client.send.called, (
+                "LiteLLM client was not invoked for a LiteLLM-routed request"
+            )
+
+    def test_litellm_request_injects_litellm_credential(self, client):
+        """The header injected on a LiteLLM-routed request must be the
+        LiteLLM ``x-api-key``, not the Anthropic one — otherwise the
+        gateway leaks the Anthropic credential to LiteLLM (and vice
+        versa).
+        """
+        from httpx import Headers
+
+        try:
+            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
+        except ImportError:
+            pytest.skip("upstream_registry not yet implemented (waiting on coder)")
+
+        captured_headers: dict[str, str] = {}
+
+        def _post_capture(*_args, **kwargs):
+            captured_headers.update(kwargs.get("headers", {}))
+            mock_response = MagicMock()
+            mock_response.content = b"{}"
+            mock_response.status_code = 200
+            mock_response.headers = Headers([("content-type", "application/json")])
+            return mock_response
+
+        litellm_client = MagicMock()
+        litellm_client.post.side_effect = _post_capture
+        anthropic_client = MagicMock()
+
+        def _registry_get(upstream):
+            if upstream == "anthropic":
+                return (anthropic_client, lambda: MagicMock(header_name="x-api-key", header_value="sk-ant-shouldnotleak"))
+            if upstream == "litellm":
+                return (litellm_client, lambda: MagicMock(header_name="x-api-key", header_value="litellm-key-only-this"))
+            raise KeyError(upstream)
+
+        fake_registry = MagicMock()
+        fake_registry.get.side_effect = _registry_get
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch("gateway.gateway.get_upstream_registry", return_value=fake_registry, create=True),
+            patch("gateway.gateway.get_anthropic_client", return_value=anthropic_client),
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-shouldnotleak"
+            )
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(
+                upstream="litellm", upstream_model="qwen3-coder-30b"
+            )
+            mock_sm_get.return_value = sm
+
+            client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "opus"}),
+                content_type="application/json",
+            )
+
+            assert (
+                captured_headers.get("x-api-key") == "litellm-key-only-this"
+            ), (
+                f"LiteLLM-routed request did not inject LiteLLM credential; "
+                f"got headers: {captured_headers}"
+            )
+            assert "sk-ant-shouldnotleak" not in captured_headers.values(), (
+                "Anthropic credential leaked into LiteLLM-routed request headers"
+            )
+
+
+class TestUpstreamRoutingCountTokens:
+    """``proxy_count_tokens`` mirrors the routing decision."""
+
+    @pytest.fixture
+    def client(self):
+        from gateway.gateway import app
+
+        app.config["TESTING"] = True
+        with app.test_client() as client:
+            yield client
+
+    def test_anthropic_session_count_tokens_uses_anthropic_upstream(self, client):
+        from httpx import Headers
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch("gateway.gateway.get_anthropic_client") as mock_anthropic_get,
+        ):
+            cred = MagicMock(header_name="x-api-key", header_value="sk-ant-test")
+            mock_creds_get.return_value.get_credential.return_value = cred
+
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(upstream="anthropic")
+            mock_sm_get.return_value = sm
+
+            mock_client = MagicMock()
+            mock_response = MagicMock()
+            mock_response.content = json.dumps({"input_tokens": 1}).encode()
+            mock_response.status_code = 200
+            mock_response.headers = Headers([("content-type", "application/json")])
+            mock_client.post.return_value = mock_response
+            mock_anthropic_get.return_value = mock_client
+
+            response = client.post(
+                "/v1/messages/count_tokens",
+                data=json.dumps({"model": "claude-3", "messages": []}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            assert mock_client.post.called
+
+    def test_litellm_session_count_tokens_uses_litellm_upstream(self, client):
+        from httpx import Headers
+
+        try:
+            import upstream_registry  # type: ignore[import-not-found]  # noqa: F401
+        except ImportError:
+            pytest.skip("upstream_registry not yet implemented (waiting on coder)")
+
+        litellm_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = json.dumps({"input_tokens": 7}).encode()
+        mock_response.status_code = 200
+        mock_response.headers = Headers([("content-type", "application/json")])
+        litellm_client.post.return_value = mock_response
+
+        anthropic_client = MagicMock()
+        anthropic_client.post.side_effect = AssertionError(
+            "Anthropic client must not be invoked for a LiteLLM count_tokens request"
+        )
+
+        def _registry_get(upstream):
+            if upstream == "anthropic":
+                return (anthropic_client, lambda: MagicMock(header_name="x-api-key", header_value="sk-ant-test"))
+            if upstream == "litellm":
+                return (litellm_client, lambda: MagicMock(header_name="x-api-key", header_value="litellm-key"))
+            raise KeyError(upstream)
+
+        fake_registry = MagicMock()
+        fake_registry.get.side_effect = _registry_get
+
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_creds_get,
+            patch("gateway.gateway.get_session_manager") as mock_sm_get,
+            patch("gateway.gateway.get_upstream_registry", return_value=fake_registry, create=True),
+            patch("gateway.gateway.get_anthropic_client", return_value=anthropic_client),
+        ):
+            mock_creds_get.return_value.get_credential.return_value = MagicMock(
+                header_name="x-api-key", header_value="sk-ant-test"
+            )
+            sm = MagicMock()
+            sm.get_session_by_ip.return_value = _build_mock_session(
+                upstream="litellm", upstream_model="qwen3-coder-30b"
+            )
+            mock_sm_get.return_value = sm
+
+            response = client.post(
+                "/v1/messages/count_tokens",
+                data=json.dumps({"model": "opus", "messages": []}),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            assert litellm_client.post.called, (
+                "LiteLLM client was not invoked for a LiteLLM count_tokens request"
+            )
+
+
+class TestInjectUpstreamCredentials:
+    """``_inject_upstream_credentials(headers, upstream)`` dispatches per upstream.
+
+    Back-compat: ``_inject_anthropic_credentials`` is preserved as a thin
+    alias calling through with ``upstream="anthropic"`` (TASK-1-3 AC).
+    """
+
+    @pytest.fixture
+    def _inject_fn(self):
+        """Return the upstream-aware injector if present, else skip."""
+        try:
+            from gateway.gateway import _inject_upstream_credentials  # type: ignore[attr-defined]
+
+            return _inject_upstream_credentials
+        except ImportError:
+            pytest.skip("_inject_upstream_credentials not yet implemented")
+
+    def test_anthropic_dispatch_matches_legacy_helper(self, _inject_fn):
+        """For ``upstream="anthropic"``, the new helper behaves
+        byte-identically to today's ``_inject_anthropic_credentials``.
+        """
+        from gateway.gateway import _inject_anthropic_credentials, app
+
+        with patch("gateway.gateway.get_credentials_manager") as mock_get:
+            cred = MagicMock(header_name="x-api-key", header_value="sk-ant-byte-identical")
+            mock_get.return_value.get_credential.return_value = cred
+
+            headers_a, error_a = _inject_anthropic_credentials({"Content-Type": "application/json"})
+            headers_b, error_b = _inject_fn(
+                {"Content-Type": "application/json"}, "anthropic"
+            )
+
+            assert error_a is None
+            assert error_b is None
+            assert headers_a == headers_b
+
+        # Also assert the 401 shape matches for the no-credential path.
+        with patch("gateway.gateway.get_credentials_manager") as mock_get:
+            mock_get.return_value.get_credential.return_value = None
+            with app.app_context():
+                _h_a, err_a = _inject_anthropic_credentials({"Content-Type": "application/json"})
+                _h_b, err_b = _inject_fn({"Content-Type": "application/json"}, "anthropic")
+            assert err_a is not None and err_b is not None
+            assert err_a[1] == err_b[1] == 401
+
+    def test_litellm_dispatch_injects_litellm_credential(self, _inject_fn):
+        """``upstream="litellm"`` injects the LiteLLM ``x-api-key`` from
+        the LiteLLM credential resolver, NOT the Anthropic one.
+        """
+        # Patch both resolvers; assert only LiteLLM's value lands in the
+        # headers.  The Anthropic resolver MUST NOT be consulted on this
+        # path.
+        with (
+            patch("gateway.gateway.get_credentials_manager") as mock_anthropic_get,
+        ):
+            # Make Anthropic resolver explosive — if it's called, the
+            # test fails loudly.
+            mock_anthropic_get.return_value.get_credential.side_effect = AssertionError(
+                "Anthropic resolver consulted on LiteLLM-routed request"
+            )
+            try:
+                with patch("gateway.gateway.get_litellm_credentials_manager") as mock_litellm_get:
+                    mock_litellm_get.return_value.get_credential.return_value = MagicMock(
+                        header_name="x-api-key",
+                        header_value="litellm-master-key-1234567890",
+                    )
+                    headers, error = _inject_fn(
+                        {"Content-Type": "application/json"}, "litellm"
+                    )
+                    assert error is None
+                    assert headers["x-api-key"] == "litellm-master-key-1234567890"
+            except AttributeError:
+                pytest.skip(
+                    "gateway.gateway.get_litellm_credentials_manager not yet exported"
+                )
+
+    def test_litellm_no_credential_returns_401(self, _inject_fn):
+        """Same 401 shape as today's Anthropic-no-credential path."""
+        from gateway.gateway import app
+
+        with patch("gateway.gateway.get_credentials_manager") as mock_anthropic_get:
+            mock_anthropic_get.return_value.get_credential.return_value = None
+            try:
+                with patch("gateway.gateway.get_litellm_credentials_manager") as mock_litellm_get:
+                    mock_litellm_get.return_value.get_credential.return_value = None
+                    with app.app_context():
+                        _headers, error = _inject_fn(
+                            {"Content-Type": "application/json"}, "litellm"
+                        )
+                    assert error is not None
+                    assert error[1] == 401
+            except AttributeError:
+                pytest.skip(
+                    "gateway.gateway.get_litellm_credentials_manager not yet exported"
+                )
