@@ -383,10 +383,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Should the `[1m]` Claude-only context-window syntax baked into the existing defaults (`shared/egg_agent/client.py:62`, `shared/egg_agent/__main__.py:35`, `sandbox/llm/runner.py:49`) be addressed in this change?",
+      "context": "Open contract question cq-11, registered by an agent during the refine phase.",
+      "options": [
+        "Leave it: Claude defaults keep `opus[1m]`; only non-Claude paths use a different model string. The `[1m]` is harmless on the Claude path — zero risk to existing behavior",
+        "Refactor: hoist the model string into a single config helper that strips `[1m]` when the resolved upstream is non-Claude — cleaner, but more churn outside the issue's scope",
+        "Deprecate `opus[1m]` and adopt plain `opus` everywhere — lose the 1M context window for current Claude agents to keep model strings backend-agnostic",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:49.145500Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:49.110538Z",
+  "updated_at": "2026-05-22T03:01:49.153346Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -399,7 +418,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23,
+  "version": 24,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
