@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: litellm
+    app.kubernetes.io/part-of: egg
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: litellm
+  ports:
+    # The gateway's UpstreamRegistry resolves to
+    # http://litellm.egg-system.svc.cluster.local:4000 by default
+    # (LITELLM_BASE_URL env override). No agent pods reach this Service —
+    # the gateway is the only client (issue #2769 cq-1).
+    - name: api
+      port: 4000
+      targetPort: 4000
+      protocol: TCP
