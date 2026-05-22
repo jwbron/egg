@@ -97,7 +97,7 @@ slices:
           [Criteria for completion]
         role: coder           # Optional: coder | tester | documenter
         files:
-          - [path/to/file]
+          - "[path/to/file]"
       - id: TASK-1-2
         description: |-
           [Task description]
@@ -105,13 +105,13 @@ slices:
           [Criteria for completion]
         role: tester
         files:
-          - [path/to/test_file]
+          - "[path/to/test_file]"
   - id: 2
     name: |-
       [Phase Name]
     goal: |-
       [What this phase achieves]
-    dependencies: [1]
+    dependencies: "slice-1"
     tasks:
       - id: TASK-2-1
         description: |-
@@ -120,7 +120,7 @@ slices:
           [Criteria for completion]
         role: coder
         files:
-          - [path/to/file]
+          - "[path/to/file]"
 ```
 
 > **YAML safety**: Always use block scalars (`|-`) for `name`, `goal`,
