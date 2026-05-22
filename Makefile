@@ -34,7 +34,7 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         test-integration test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
-        k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import
+        k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import sudo-keepalive
 
 # Default target
 help:
@@ -541,16 +541,18 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 	scripts/await-egg-deploy.sh "$(EGG_IMAGE_TAG)"
 	@echo "Deployment complete"
 
-redeploy: build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
+redeploy: sudo-keepalive build k3s-import deploy  ## Rebuild, re-import, and redeploy in one step
 
-k3s-import:  ## Import built images into k3s
-	@# Prime sudo and refresh it in the background: the long docker-save
-	@# streams between calls can outlast the credential cache otherwise.
+# Prompt for the sudo password immediately so `make redeploy` can be left
+# unattended through the long `build` step; the background loop refreshes the
+# credential cache every 60s and exits when this make run does.
+sudo-keepalive:
 	@sudo -v
+	@make_pid=$$PPID; \
+	( while kill -0 "$$make_pid" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 60; done ) &
+
+k3s-import: sudo-keepalive  ## Import built images into k3s
 	@set -o pipefail; \
-	( while true; do sudo -n true; sleep 60; kill -0 "$$$$" 2>/dev/null || exit; done ) & \
-	keepalive=$$!; \
-	trap 'kill "$$keepalive" 2>/dev/null' EXIT; \
 	docker save egg-gateway:latest | sudo k3s ctr images import - && \
 	docker save egg-gateway:$(EGG_IMAGE_TAG) | sudo k3s ctr images import - && \
 	docker save egg-orchestrator:latest | sudo k3s ctr images import - && \
