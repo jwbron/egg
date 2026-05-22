@@ -334,6 +334,13 @@ def get_default_agent_model(repo: str) -> str | None:
         no-op-by-default invariant for callers like ``resolve_agent_model``
         that run inside spawn paths where the config file may not be
         present, e.g. unit tests and ephemeral CI environments).
+
+    Raises:
+        ValueError: When ``default_agent_model`` is set to a non-string
+            YAML value (e.g. ``default_agent_model: 4``). Surfacing the
+            misconfiguration loudly here keeps it out of ``classify_model``,
+            where a non-string would otherwise raise an opaque ``TypeError``
+            from the regex internals.
     """
     try:
         value = get_repo_setting(repo, "default_agent_model", None)
@@ -341,7 +348,13 @@ def get_default_agent_model(repo: str) -> str | None:
         return None
     if value is None:
         return None
-    return cast(str, value)
+    if not isinstance(value, str):
+        raise ValueError(
+            f"default_agent_model for {repo!r} must be a string, got "
+            f"{type(value).__name__}: {value!r}. Set it to a recognised "
+            f"Claude alias (opus, sonnet, …) or a LiteLLM model name."
+        )
+    return value
 
 
 try:

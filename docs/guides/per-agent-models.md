@@ -37,7 +37,7 @@ no behavioral change.
 `agent_models: dict[str, str]` on
 [`PipelineConfig`](../../orchestrator/models.py) (the field lives next
 to the existing overseer-tier model fields around
-`orchestrator/models.py:405`). Keys are
+`orchestrator/models.py:757`). Keys are
 [`AgentRole`](../../shared/egg_contracts/agent_roles.py) values, but
 **only the SDLC phase producer and reviewer roles** (`"coder"`,
 `"refiner"`, `"tester"`, the `"reviewer_*"` roles, …) — the roles
@@ -131,10 +131,18 @@ command + gateway session-create call:
 | Restart path at `orchestrator/routes/pipelines.py:2704` | Same `--model` resolution | `restart_agent_job` → `spawn_agent_job` → `register_session(upstream=…, upstream_model=…)` — a restart respawns the Job and registers a **new** gateway session carrying the resolved decision |
 
 When the resolved decision is the default Claude case
-(`upstream="anthropic"`, `upstream_model=None`), the new
-`register_session` kwargs are omitted entirely — the wire shape is
-byte-identical to today. This is the slice-2 regression guard
-exercised by the existing concurrent-executor tests.
+(`upstream="anthropic"`, `upstream_model=None`),
+`ConcurrentPhaseExecutor._spawn_agent` omits the `upstream` /
+`upstream_model` kwargs from its `spawn_fn` call entirely
+(`concurrent_executor.py:501-503`), so test mocks and legacy spawn
+paths see the pre-#2769 call signature. One layer down,
+`spawn_agent_job` still passes both kwargs to
+`GatewayClient.register_session` (`kubernetes_spawner.py:770-771`) — as
+`None` on the default path — and `register_session` drops `None`
+values from the session-create request body
+(`gateway_client.py:707-712`), so the wire shape stays byte-identical
+to today. This is the slice-2 regression guard exercised by the
+existing concurrent-executor tests.
 
 ## The gateway-side body rewrite
 
@@ -417,7 +425,7 @@ misconfiguration on one does not silently activate the LiteLLM path.
 
 | Primitive | Location | Purpose |
 |-----------|----------|---------|
-| `PipelineConfig.agent_models: dict[str, str]` | `orchestrator/models.py:405` (alongside the existing `PipelineConfig` fields) | Per-pipeline, per-role model override; Pydantic validator rejects keys outside the phase producer / reviewer set (`agent_roles.MODEL_OVERRIDE_ROLES`) |
+| `PipelineConfig.agent_models: dict[str, str]` | `orchestrator/models.py:757` (alongside the existing `PipelineConfig` fields) | Per-pipeline, per-role model override; Pydantic validator rejects keys outside the phase producer / reviewer set (`agent_roles.MODEL_OVERRIDE_ROLES`) |
 | `default_agent_model: str \| None` | `config/repositories.yaml.example` (documented schema) | Repository-level default applied when `agent_models` does not pin the role |
 | `get_default_agent_model(repo)` | `config/repo_config.py` (mirrors `get_repo_setting` at `config/repo_config.py:248`) | Reader for the repo-level default; returns `None` when absent |
 | `resolve_agent_model(role, pipeline_config, repo)` + `AgentModelDecision` | `orchestrator/agent_model_resolution.py` *(new module)* | Walks precedence + classifies into `(claude_code_alias, upstream, upstream_model)` |

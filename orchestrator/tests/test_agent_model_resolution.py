@@ -13,8 +13,8 @@ Precedence (highest wins):
 
 Classifier (model string → upstream):
 
-    * ``"opus"``, ``"opus[1m]"``, ``"sonnet"``, ``"haiku"``,
-      ``"claude-*"``  → ``upstream="anthropic"``,
+    * ``"opus"``, ``"opus[1m]"``, ``"sonnet"``, ``"sonnet[1m]"``,
+      ``"haiku"``, ``"claude-*"``  → ``upstream="anthropic"``,
       ``claude_code_alias=<the string>``, ``upstream_model=None``.
     * anything else → ``upstream="litellm"``,
       ``claude_code_alias="opus"`` (cq-5 mitigation: Claude Code keeps
@@ -210,6 +210,24 @@ class TestResolutionPrecedence:
         assert d.claude_code_alias == "opus"
         assert d.upstream == "anthropic"
 
+    def test_non_string_repo_default_raises_value_error(self):
+        """A non-string ``default_agent_model`` in ``repositories.yaml``
+        MUST raise a clear ``ValueError`` rather than degrade silently.
+
+        Without the ``isinstance`` guard in ``get_default_agent_model`` a
+        non-string (e.g. ``default_agent_model: 4``) reaches
+        ``classify_model``, where the ``claude-*`` regex raises an opaque
+        ``TypeError`` from its internals — which the spawn-path
+        ``except Exception`` then swallows into the opus fallback with no
+        actionable log line. The guard converts that into an explicit,
+        operator-readable error naming the bad value.
+        """
+        from config.repo_config import get_default_agent_model
+
+        with patch("config.repo_config.get_repo_setting", return_value=4):
+            with pytest.raises(ValueError, match="must be a string"):
+                get_default_agent_model("owner/repo")
+
 
 # =============================================================================
 # Classifier: Anthropic vs LiteLLM dispatch by model name
@@ -227,7 +245,7 @@ class TestAnthropicClassification:
 
     @pytest.mark.parametrize(
         "model",
-        ["opus", "opus[1m]", "sonnet", "haiku"],
+        ["opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"],
     )
     def test_short_claude_alias_is_anthropic(self, model):
         resolve_agent_model = _resolver()
@@ -406,7 +424,14 @@ class TestAgentModelsValidation:
             )
 
     def test_multiple_known_roles_accepted(self):
-        """Many roles can be overridden simultaneously."""
+        """Many roles can be overridden simultaneously.
+
+        ``applier`` (the producer of the ``apply`` phase, threaded
+        through ``resolve_agent_model`` via ``_PHASE_ROLES["apply"]``) is
+        included deliberately: it is an honored role and must be accepted
+        as a key, even though it is easy to mistake for an unhonored
+        utility role.
+        """
         if not _agent_models_field_exists():
             pytest.skip("PipelineConfig.agent_models not yet implemented")
         config = _pipeline_config(
@@ -414,11 +439,13 @@ class TestAgentModelsValidation:
                 "refiner": "qwen3-coder-30b",
                 "coder": "claude-3-5-sonnet-20241022",
                 "tester": "sonnet",
+                "applier": "haiku",
             }
         )
         assert config.agent_models["refiner"] == "qwen3-coder-30b"
         assert config.agent_models["coder"] == "claude-3-5-sonnet-20241022"
         assert config.agent_models["tester"] == "sonnet"
+        assert config.agent_models["applier"] == "haiku"
 
     def test_one_bad_role_in_a_mix_still_fails(self):
         """Mixed dict — one bad role kills the whole construction."""
