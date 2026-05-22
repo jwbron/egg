@@ -363,10 +363,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "How should this work be decomposed into slices?",
+      "context": "Open contract question cq-10, registered by an agent during the refine phase.",
+      "options": [
+        "Single slice: gateway router + LiteLLM topology + per-agent model config + acceptance-test agent flip, all together (1 PR)",
+        "Two slices in parallel: [gateway upstream router + LiteLLM topology, no-op by default] || [per-agent model config + consensus_wrapper plumbing] (2 PRs) — acceptance-test agent flip becomes a follow-up",
+        "Two slices with dependency: [gateway router + LiteLLM topology, no-op] → [per-agent model config + acceptance-test agent flip on top] (2 PRs)",
+        "Three slices with dependency: [gateway router + LiteLLM topology, no-op] → [per-agent model config plumbing] → [acceptance-test agent flip + validation] (3 PRs)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T03:01:49.102423Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T01:20:20.590744Z",
-  "updated_at": "2026-05-22T03:01:49.065872Z",
+  "updated_at": "2026-05-22T03:01:49.110538Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -379,7 +399,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
