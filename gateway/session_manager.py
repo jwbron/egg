@@ -325,6 +325,14 @@ class Session:
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
     jira_ticket: str | None = None  # Advisory Jira ticket key (issue #1556)
     synthetic: bool = False  # Orchestrator-internal temp session — skip checkpoint capture
+    # Per-session upstream routing (issue #2769). ``upstream`` chooses which
+    # registered UpstreamRegistry entry serves /v1/messages traffic for this
+    # session ("anthropic" — default — or "litellm"). ``upstream_model`` is the
+    # upstream-side model name LiteLLM expects when the gateway rewrites the
+    # request body's ``model`` field (slice 2). Default-Anthropic sessions
+    # leave both at their defaults and are byte-identical to pre-#2769 sessions.
+    upstream: str = "anthropic"
+    upstream_model: str | None = None
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -374,6 +382,12 @@ class Session:
             result["jira_ticket"] = self.jira_ticket
         if self.synthetic:
             result["synthetic"] = True
+        # Only persist the upstream fields when they differ from the default —
+        # keeps disk layout byte-identical for the Claude-only path (issue #2769).
+        if self.upstream != "anthropic":
+            result["upstream"] = self.upstream
+        if self.upstream_model is not None:
+            result["upstream_model"] = self.upstream_model
         return result
 
     @classmethod
@@ -402,6 +416,8 @@ class Session:
             auto_commit_sha=data.get("auto_commit_sha"),
             jira_ticket=data.get("jira_ticket"),
             synthetic=bool(data.get("synthetic", False)),
+            upstream=data.get("upstream", "anthropic"),
+            upstream_model=data.get("upstream_model"),
         )
 
 
@@ -560,6 +576,8 @@ class SessionManager:
         branch: str | None = None,
         jira_ticket: str | None = None,
         synthetic: bool = False,
+        upstream: str = "anthropic",
+        upstream_model: str | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -576,10 +594,46 @@ class SessionManager:
             agent_anchor_id: Optional agent anchor ID for scoped anchor file writes
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing pipeline sessions
+            upstream: Upstream registry name driving ``/v1/messages``
+                traffic for this session (issue #2769). Defaults to
+                ``"anthropic"`` so all pre-#2769 callers keep byte-identical
+                behavior; pass ``"litellm"`` to route through the LiteLLM
+                proxy in egg-system. Validated against ``UpstreamRegistry``.
+            upstream_model: Optional upstream-side model name used by the
+                slice-2 body-rewrite path. ``None`` (default) leaves the
+                incoming request body's ``model`` field unchanged.
 
         Returns:
             Tuple of (session_token, Session)
+
+        Raises:
+            ValueError: If ``upstream`` is not a name the gateway's
+                ``UpstreamRegistry`` serves, or if ``upstream_model`` is
+                given but is not a non-empty string of ≤256 characters.
         """
+        # Validate the upstream against the registry (issue #2769). The
+        # /api/v1/sessions/create route validates too, but guard here so a
+        # direct caller (the slice-2 spawner, tests) cannot register a
+        # session whose upstream the gateway will not serve — that would
+        # land in the proxy routes' inconsistent unknown-upstream path.
+        from upstream_registry import get_upstream_registry  # type: ignore[import-untyped]
+
+        registry = get_upstream_registry()
+        if not registry.is_known(upstream):
+            known = ", ".join(sorted(registry.known_upstreams()))
+            raise ValueError(f"Unknown upstream '{upstream}'. Must be one of: {known}")
+
+        # Mirror the /api/v1/sessions/create route's upstream_model checks
+        # (issue #2769) so a direct caller cannot store a malformed model
+        # name that would only surface in the slice-2 body-rewrite path.
+        if upstream_model is not None:
+            if not isinstance(upstream_model, str):
+                raise ValueError("upstream_model must be a string")
+            if not upstream_model:
+                raise ValueError("upstream_model must be non-empty if provided")
+            if len(upstream_model) > 256:
+                raise ValueError("upstream_model must be 256 characters or fewer")
+
         # Generate cryptographically secure token
         token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
         token_hash = _hash_token(token)
@@ -603,6 +657,8 @@ class SessionManager:
             claude_code_version=claude_code_version,
             jira_ticket=jira_ticket,
             synthetic=synthetic,
+            upstream=upstream,
+            upstream_model=upstream_model,
         )
 
         if branch:

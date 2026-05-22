@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/component: litellm
+    app.kubernetes.io/part-of: egg
+spec:
+  # Single replica is sufficient — only the gateway pod is allowed to call
+  # this Service (no agent pods talk to it directly), so request volume is
+  # bounded by gateway concurrency. Issue #2769 cq-1.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+      app.kubernetes.io/component: litellm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litellm
+        app.kubernetes.io/component: litellm
+        app.kubernetes.io/part-of: egg
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: litellm
+          # Pinned image — bump via overlay when intentionally updating.
+          # LiteLLM's Anthropic-translation interface is the contract the
+          # gateway depends on; do not float ``latest`` (cq-1, feedback Q3).
+          image: ghcr.io/berriai/litellm:main-v1.55.10
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config
+            - /app/config.yaml
+            - --port
+            - "4000"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          ports:
+            - name: api
+              containerPort: 4000
+              protocol: TCP
+          env:
+            # readOnlyRootFilesystem is true and only /tmp is writable.
+            # Point HOME at the writable tmpfs so any home-relative path
+            # LiteLLM touches at startup (cache / config dirs, and the
+            # XDG_* defaults that derive from $HOME) lands somewhere
+            # writable instead of failing against the read-only root.
+            - name: HOME
+              value: /tmp
+            # LiteLLM master key — clients (the gateway) inject this as
+            # ``x-api-key`` on every request. Issue #2769 cq-7. Operators
+            # populate the matching value in
+            # ``~/.config/egg/secrets.env`` as ``LITELLM_MASTER_KEY``.
+            # Sourced here from the existing gateway-secrets Secret so
+            # both sides of the wire share one value of truth.
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: litellm-master-key
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: api
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+        - name: tmp
+          emptyDir: {}

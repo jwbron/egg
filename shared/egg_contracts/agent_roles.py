@@ -1209,6 +1209,23 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
 }
 
 
+# Roles whose per-pipeline ``PipelineConfig.agent_models`` override is
+# actually honored. ``orchestrator.agent_model_resolution.resolve_agent_model``
+# is consulted only by the concurrent-executor spawn path and the
+# ``restart_agent`` route, which between them spawn every phase producer
+# and reviewer in the two maps above. Utility roles (AUTOFIXER,
+# CONFLICT_RESOLVER) and interface roles (OVERSEER, INSPECTOR) spawn
+# through dedicated paths that never call the resolver, so an
+# ``agent_models`` entry naming one of them would be silently dropped at
+# spawn — ``PipelineConfig``'s validator rejects such keys up front. See
+# #2769.
+MODEL_OVERRIDE_ROLES: frozenset[AgentRole] = frozenset(
+    role
+    for role_group in (*_PHASE_ROLES.values(), *_PHASE_REVIEWERS.values())
+    for role in role_group
+)
+
+
 EGG_REPO = "jwbron/egg"
 
 # Reviewer roles that only apply to the egg repo itself

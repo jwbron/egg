@@ -244,6 +244,25 @@ See `plugins/refine-plan/skills/refine-plan/agents/applier.md`'s "Out of scope: 
 - Orchestrator-side drain hook: `orchestrator/routes/pipelines.py::_drain_wontdo_batch_after_apply` — invoked from both the auto-advance and HITL-resolution apply-phase exit paths; writes per-Task `jira_action_status` back via the `on_entry_result` callback.
 - Issue-level decision record: [#1557 decision-15](https://github.com/jwbron/egg/issues/1557) (trust-boundary for Jira transitions).
 
+## Upstream Routing (Per-Agent Model Backends, [#2769](https://github.com/jwbron/egg/issues/2769))
+
+Per-agent `/v1/messages` traffic routes through an `UpstreamRegistry`
+in the gateway that resolves the upstream (Anthropic vs LiteLLM) from
+per-session metadata declared by the orchestrator at session-create
+time — the same IP-keyed session lookup that already drives
+`session_mode`. Slice 1 of #2769 lands the router and the LiteLLM
+Deployment + Service in `egg-system`, no-op by default; slice 2 adds
+`PipelineConfig.agent_models` and a repository-level
+`default_agent_model` for the orchestrator-side resolution. Until an
+operator opts in, every existing pipeline keeps running on Claude
+with byte-identical gateway behavior.
+
+See [Upstream Routing](upstream-routing.md) for the gateway-side
+seam (registry, credential layout, request lifecycle, failure
+policy, and the no-op-by-default invariant). The operator-facing
+setup ships in slice 2 as `docs/guides/per-agent-models.md` (that
+file does not exist until slice 2 lands).
+
 ## Network Mode
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:

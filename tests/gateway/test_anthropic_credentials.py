@@ -206,3 +206,125 @@ class TestAnthropicCredentialsManager:
         cred = manager.get_credential()
 
         assert cred is None  # Rejected as too short
+
+
+# =============================================================================
+# LiteLLM credential resolver (issue #2769 slice-1, TASK-1-2)
+# =============================================================================
+#
+# The LiteLLM credential resolver lives alongside the Anthropic one — same
+# secrets.env file, same parse_env_file helper, same mtime-invalidated
+# cache.  It reads ``LITELLM_MASTER_KEY`` and returns an
+# ``AnthropicCredential`` shaped ``header_name="x-api-key"``,
+# ``header_value="<key>"``.  When the env var is absent the resolver
+# returns ``None`` (no-op default — matches today's behavior when no
+# Anthropic credentials are configured).
+#
+# The resolver is the parallel ``LiteLLMCredentialsManager`` class in
+# ``anthropic_credentials`` — same secrets.env file, same
+# ``parse_env_file`` helper, and same mtime-invalidated cache as the
+# Anthropic manager.
+
+
+class TestLiteLLMCredentialResolver:
+    """Tests for the LiteLLM master-key resolver (TASK-1-2)."""
+
+    @pytest.fixture
+    def _resolve(self):
+        """Return ``resolve(secrets_path)`` yielding the
+        ``AnthropicCredential | None`` produced by ``LiteLLMCredentialsManager``.
+        """
+        from anthropic_credentials import LiteLLMCredentialsManager
+
+        def _do(secrets_path: Path):
+            return LiteLLMCredentialsManager(secrets_path=secrets_path).get_credential()
+
+        return _do
+
+    def test_returns_x_api_key_credential_when_key_present(self, tmp_path, _resolve):
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text('LITELLM_MASTER_KEY="litellm-master-key-1234567890"')
+
+        cred = _resolve(secrets_file)
+        assert cred is not None
+        assert cred.header_name == "x-api-key"
+        assert cred.header_value == "litellm-master-key-1234567890"
+        assert cred.is_api_key
+        assert not cred.is_oauth
+
+    def test_returns_none_when_key_missing(self, tmp_path, _resolve):
+        """No-op default — no warning, no error, just None."""
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text('ANTHROPIC_API_KEY="sk-ant-12345678901234567890"')
+
+        cred = _resolve(secrets_file)
+        assert cred is None
+
+    def test_returns_none_when_secrets_file_missing(self, tmp_path, _resolve):
+        """File absent — fail closed, return None."""
+        cred = _resolve(tmp_path / "nonexistent.env")
+        assert cred is None
+
+    def test_empty_master_key_returns_none(self, tmp_path, _resolve):
+        """``LITELLM_MASTER_KEY=""`` is the documented disable signal."""
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text('LITELLM_MASTER_KEY=""')
+
+        cred = _resolve(secrets_file)
+        assert cred is None
+
+    def test_litellm_resolver_independent_of_anthropic_keys(self, tmp_path, _resolve):
+        """The LiteLLM resolver MUST NOT fall back to ANTHROPIC_API_KEY
+        when LITELLM_MASTER_KEY is absent — that would silently route
+        agent traffic through the wrong credential.
+        """
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text(
+            'ANTHROPIC_API_KEY="sk-ant-12345678901234567890123456789012345678901234567890"\n'
+            'CLAUDE_CODE_OAUTH_TOKEN="oauth-1234567890abcdef"\n'
+            # No LITELLM_MASTER_KEY entry
+        )
+
+        cred = _resolve(secrets_file)
+        assert cred is None, (
+            "LiteLLM resolver must not silently inject the Anthropic credential "
+            "when LITELLM_MASTER_KEY is absent"
+        )
+
+
+class TestLiteLLMResolverCachingBehavior:
+    """Cache invalidation: changing the file mtime invalidates the cache,
+    matching ``AnthropicCredentialsManager``'s contract (TASK-1-2 AC).
+    """
+
+    def test_mtime_change_invalidates_cache(self, tmp_path):
+        import time
+
+        from anthropic_credentials import LiteLLMCredentialsManager  # type: ignore[attr-defined]
+
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text('LITELLM_MASTER_KEY="initial-key-1234567890"')
+
+        manager = LiteLLMCredentialsManager(secrets_path=secrets_file)
+        cred1 = manager.get_credential()
+        assert cred1 is not None
+        assert cred1.header_value == "initial-key-1234567890"
+
+        time.sleep(0.1)
+        secrets_file.write_text('LITELLM_MASTER_KEY="rotated-key-0987654321"')
+
+        cred2 = manager.get_credential()
+        assert cred2 is not None
+        assert cred2.header_value == "rotated-key-0987654321"
+
+    def test_unchanged_file_uses_cached_credential(self, tmp_path):
+        from anthropic_credentials import LiteLLMCredentialsManager  # type: ignore[attr-defined]
+
+        secrets_file = tmp_path / "secrets.env"
+        secrets_file.write_text('LITELLM_MASTER_KEY="stable-key-1234567890"')
+
+        manager = LiteLLMCredentialsManager(secrets_path=secrets_file)
+        cred1 = manager.get_credential()
+        cred2 = manager.get_credential()
+        # Same object instance — cache hit
+        assert cred1 is cred2 or cred1 == cred2

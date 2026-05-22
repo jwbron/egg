@@ -84,7 +84,10 @@ try:
         check_agent_gh_operation,
         get_agent_pattern,  # noqa: F401 — re-exported for test patching
     )
-    from .anthropic_credentials import get_credentials_manager
+    from .anthropic_credentials import (
+        get_credentials_manager,
+        get_litellm_credentials_manager,
+    )
     from .checkpoint_handler import (
         _get_checkpoint_repo_for_path,
         capture_and_store_checkpoint,
@@ -201,6 +204,10 @@ try:
         validate_session_for_request,
     )
     from .transcript_buffer import get_transcript_buffer
+    from .upstream_registry import (
+        UnknownUpstreamError,
+        get_upstream_registry,
+    )
     from .worktree_manager import (
         REPOS_BASE_DIR,
         WORKTREE_BASE_DIR,
@@ -214,7 +221,10 @@ except ImportError:
         check_agent_gh_operation,
         get_agent_pattern,  # noqa: F401 — re-exported for test patching
     )
-    from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
+    from anthropic_credentials import (  # type: ignore[no-redef]
+        get_credentials_manager,
+        get_litellm_credentials_manager,
+    )
     from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
         _get_checkpoint_repo_for_path,
         capture_and_store_checkpoint,
@@ -350,6 +360,10 @@ except ImportError:
         validate_session_for_request,
     )
     from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-untyped]
+    from upstream_registry import (  # type: ignore[no-redef, import-untyped]
+        UnknownUpstreamError,
+        get_upstream_registry,
+    )
     from worktree_manager import (  # type: ignore[no-redef, import-untyped]
         REPOS_BASE_DIR,
         WORKTREE_BASE_DIR,
@@ -8573,6 +8587,10 @@ def session_create() -> tuple[Response, int] | Response:
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
     jira_ticket = data.get("jira_ticket")  # Optional Atlassian ticket key — advisory only
     synthetic = data.get("synthetic", False)  # Orchestrator-internal temp session
+    # Per-session upstream routing (issue #2769). Default to "anthropic" so
+    # pre-#2769 callers keep byte-identical session shape.
+    upstream = data.get("upstream", "anthropic")
+    upstream_model = data.get("upstream_model")
 
     # Validate required fields
     if not container_id:
@@ -8652,6 +8670,22 @@ def session_create() -> tuple[Response, int] | Response:
     # Validate synthetic if provided
     if not isinstance(synthetic, bool):
         return make_error("Invalid synthetic: must be a boolean")
+
+    # Validate upstream / upstream_model (issue #2769).
+    # ``upstream`` must be a name the UpstreamRegistry will serve — refuse
+    # silently routing unknown upstreams to Anthropic.
+    if not isinstance(upstream, str):
+        return make_error("Invalid upstream: must be a string")
+    if not get_upstream_registry().is_known(upstream):
+        known = ", ".join(sorted(get_upstream_registry().known_upstreams()))
+        return make_error(f"Invalid upstream: '{upstream}'. Must be one of: {known}")
+    if upstream_model is not None:
+        if not isinstance(upstream_model, str):
+            return make_error("Invalid upstream_model: must be a string")
+        if not upstream_model:
+            return make_error("Invalid upstream_model: must be non-empty if provided")
+        if len(upstream_model) > 256:
+            return make_error("Invalid upstream_model: must be 256 characters or fewer")
 
     # Validate worktree_container_id if provided
     if worktree_container_id is not None:
@@ -8857,6 +8891,8 @@ def session_create() -> tuple[Response, int] | Response:
         branch=branch,
         jira_ticket=jira_ticket if isinstance(jira_ticket, str) and jira_ticket else None,
         synthetic=synthetic,
+        upstream=upstream,
+        upstream_model=upstream_model,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,
@@ -8896,6 +8932,8 @@ def session_create() -> tuple[Response, int] | Response:
             "filtered_repos": filtered_repos,
             "worktree_count": len(worktrees),
             "worktree_errors": worktree_errors if worktree_errors else None,
+            "upstream": upstream,
+            "upstream_model": upstream_model,
         },
     )
 
@@ -9352,16 +9390,78 @@ def _filter_response_headers(headers: Any) -> dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() not in skip}
 
 
-def _inject_anthropic_credentials(
+def _inject_upstream_credentials(
     headers: dict[str, str],
+    upstream: str = "anthropic",
 ) -> tuple[dict[str, str], tuple[Any, int] | None]:
     """
-    Inject Anthropic credentials into headers.
+    Inject upstream credentials into headers.
+
+    Dispatches per-upstream so the gateway can carry both Anthropic and
+    LiteLLM credentials side-by-side (issue #2769 cq-7). For the Anthropic
+    upstream this is byte-identical to the legacy
+    ``_inject_anthropic_credentials`` helper — same OAuth/API-key precedence,
+    same 401 error shape on missing credentials, same client-supplied auth
+    fall-through. The LiteLLM upstream uses ``x-api-key`` only (no OAuth
+    path) and has no client-supplied-auth fall-through because Claude Code
+    never carries a LiteLLM master key.
+
+    An upstream the registry does not serve is rejected with a 502 — it
+    is never silently treated as Anthropic.
+
+    Args:
+        headers: Mutable header dict — credential is appended in place.
+        upstream: ``"anthropic"`` (default — back-compat) or ``"litellm"``.
 
     Returns:
         (headers, None) on success
         (headers, error_response_tuple) on failure - caller should return this
     """
+    # Refuse to silently treat an unknown upstream as Anthropic. Falling
+    # through to the Anthropic branch produced an observable error-code
+    # inconsistency — 401 vs 502 for the same invalid input depending on
+    # unrelated Anthropic-credential state. An unregistered upstream now
+    # fails closed with a 502, matching the proxy routes' own
+    # UnknownUpstreamError handling (issue #2769 review).
+    if not get_upstream_registry().is_known(upstream):
+        logger.warning(
+            "Unknown upstream for credential injection, refusing request",
+            upstream=upstream,
+        )
+        return headers, (
+            jsonify(
+                {
+                    "error": {
+                        "type": "api_error",
+                        "message": f"Unknown upstream '{upstream}'",
+                    }
+                }
+            ),
+            502,
+        )
+
+    if upstream == "litellm":
+        cred = get_litellm_credentials_manager().get_credential()
+        if cred:
+            headers[cred.header_name] = cred.header_value
+            return headers, None
+        logger.warning(
+            "No LiteLLM master key available for proxy request",
+            upstream=upstream,
+        )
+        return headers, (
+            jsonify(
+                {
+                    "error": {
+                        "type": "authentication_error",
+                        "message": "No LiteLLM credentials available",
+                    }
+                }
+            ),
+            401,
+        )
+
+    # Default: anthropic upstream — preserves the legacy behavior verbatim.
     credentials_manager = get_credentials_manager()
     cred = credentials_manager.get_credential()
 
@@ -9395,6 +9495,18 @@ def _inject_anthropic_credentials(
         ),
         401,
     )
+
+
+def _inject_anthropic_credentials(
+    headers: dict[str, str],
+) -> tuple[dict[str, str], tuple[Any, int] | None]:
+    """Back-compat alias delegating to the upstream-aware injector.
+
+    Kept so external test mocks targeting ``_inject_anthropic_credentials``
+    continue to work. New code paths should call
+    ``_inject_upstream_credentials(headers, upstream)`` directly.
+    """
+    return _inject_upstream_credentials(headers, upstream="anthropic")
 
 
 # Tools blocked in private mode to prevent data exfiltration
@@ -9457,6 +9569,63 @@ def _filter_blocked_tools(request_body: bytes, session_mode: str | None) -> byte
         logger.warning("Failed to parse request body for tool filtering", error=str(e))
 
     return request_body
+
+
+def _rewrite_upstream_model(request_body: bytes, upstream_model: str | None) -> bytes:
+    """
+    Rewrite the request body's top-level ``"model"`` field to *upstream_model*.
+
+    This is the gateway-side half of the cq-5 mitigation for per-agent
+    non-Claude routing (#2769 task-2-6). Claude Code is handed a recognised
+    Claude alias (``"opus"``) so its compaction heuristics stay calibrated
+    against a known family, but LiteLLM has no ``"opus"`` entry in its
+    ``model_list`` — it routes on whatever model name appears in the request
+    body. The orchestrator threads the upstream-side model name onto the
+    session at spawn time (``Session.upstream_model``); this helper swaps it
+    into the body before the gateway forwards to the non-Anthropic upstream.
+
+    Mirrors ``_filter_blocked_tools``'s bytes-in / bytes-out contract: parse
+    failures and a ``None`` *upstream_model* both return the original bytes
+    unchanged so the regression guard on the Anthropic path is byte-identical
+    and a malformed body never escapes as a 500. Callers MUST guard with
+    ``if upstream_name != "anthropic"`` so the helper is only invoked on the
+    LiteLLM-routed path; on Anthropic, the body must be forwarded verbatim.
+
+    Args:
+        request_body: Raw JSON request body.
+        upstream_model: Upstream-side model name to substitute, or ``None``
+            (no-op — body returned unchanged).
+
+    Returns:
+        Modified request body with ``"model"`` set to *upstream_model* (if
+        rewriting was applied) or the original body unchanged.
+    """
+    if upstream_model is None:
+        return request_body
+
+    try:
+        body = json.loads(request_body)
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(
+            "Failed to parse request body for upstream-model rewrite",
+            error=str(e),
+        )
+        return request_body
+
+    if not isinstance(body, dict):
+        return request_body
+
+    original = body.get("model")
+    if original == upstream_model:
+        return request_body
+
+    body["model"] = upstream_model
+    logger.info(
+        "Rewrote upstream model in request body",
+        original_model=original,
+        upstream_model=upstream_model,
+    )
+    return json.dumps(body).encode()
 
 
 def _is_streaming_request(request_body: bytes) -> bool:
@@ -9762,22 +9931,37 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     """
     start_time = time.time()
 
-    # Build headers with injected auth
-    headers = _get_forwarded_headers(request.headers)
-    headers, error = _inject_anthropic_credentials(headers)
-    if error:
-        return error
-
-    request_body = request.get_data()
-
     # Look up session by IP to determine mode (Claude Code doesn't send session tokens)
     session_manager = get_session_manager()
     session = session_manager.get_session_by_ip(request.remote_addr or "")
     session_mode = session.mode if session else None
     container_id = session.container_id if session else None
+    # Resolve per-session upstream (issue #2769). With no session, default to
+    # "anthropic" so today's Claude path is byte-identical when an unrelated
+    # client probes /v1/messages without first registering a session.
+    upstream_name = session.upstream if session else "anthropic"
+
+    # Build headers with injected auth — dispatches per-upstream so the
+    # LiteLLM master key is never paired with an Anthropic request and vice
+    # versa.
+    headers = _get_forwarded_headers(request.headers)
+    headers, error = _inject_upstream_credentials(headers, upstream=upstream_name)
+    if error:
+        return error
+
+    request_body = request.get_data()
     request_body = _filter_blocked_tools(
         request_body, session_mode
     )  # Remove web tools in private mode
+    # cq-5 mitigation (#2769 task-2-6): on the LiteLLM-routed path, swap
+    # the cq-5 alias ("opus") that Claude Code was handed for the
+    # upstream-side model name LiteLLM's model_list keys on. The
+    # Anthropic path keeps the original body byte-identical so today's
+    # wire shape is preserved.
+    if upstream_name != "anthropic":
+        request_body = _rewrite_upstream_model(
+            request_body, session.upstream_model if session else None
+        )
     is_streaming = _is_streaming_request(request_body)
 
     # Parse request body for transcript capture
@@ -9786,7 +9970,30 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     except json.JSONDecodeError, TypeError:
         request_json = {}
 
-    client = get_anthropic_client()
+    # Resolve the upstream httpx client per request. The Anthropic path
+    # keeps calling ``get_anthropic_client()`` so behavior — including
+    # existing test mocks patching that symbol — is byte-identical to
+    # today. Non-Anthropic upstreams (currently only ``"litellm"``) resolve
+    # through the registry, which is the swap-out seam (issue #2769
+    # feedback Q3).
+    if upstream_name == "anthropic":
+        client = get_anthropic_client()
+    else:
+        try:
+            client, _ = get_upstream_registry().get(upstream_name)
+        except UnknownUpstreamError:
+            logger.warning(
+                "Unknown upstream on session, refusing request",
+                upstream=upstream_name,
+            )
+            return jsonify(
+                {
+                    "error": {
+                        "type": "api_error",
+                        "message": f"Unknown upstream '{upstream_name}'",
+                    }
+                }
+            ), 502
 
     try:
         if is_streaming:
@@ -9983,34 +10190,34 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             )
 
     except httpx.ConnectError as e:
-        logger.error("Anthropic API connection failed", error=str(e))
+        logger.error("Upstream connection failed", upstream=upstream_name, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Failed to connect to Anthropic API: {e}",
+                    "message": f"Failed to connect to {upstream_name} upstream: {e}",
                 }
             }
         ), 502
 
     except httpx.TimeoutException as e:
-        logger.error("Anthropic API request timed out", error=str(e))
+        logger.error("Upstream request timed out", upstream=upstream_name, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Anthropic API request timed out: {e}",
+                    "message": f"{upstream_name} upstream request timed out: {e}",
                 }
             }
         ), 504
 
     except Exception as e:
-        logger.exception("Anthropic API proxy error")
+        logger.exception("Upstream proxy error", upstream=upstream_name)
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Anthropic API proxy error: {e}",
+                    "message": f"{upstream_name} upstream proxy error: {e}",
                 }
             }
         ), 502
@@ -10024,18 +10231,52 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
     This endpoint allows Claude Code to use ANTHROPIC_BASE_URL to route
     token counting requests through the gateway.
     """
+    # Mirror the per-session upstream lookup used by proxy_anthropic_messages
+    # so count_tokens and messages always agree on which backend serves a
+    # given agent (issue #2769).
+    session_manager = get_session_manager()
+    session = session_manager.get_session_by_ip(request.remote_addr or "")
+    upstream_name = session.upstream if session else "anthropic"
+
     headers = _get_forwarded_headers(request.headers)
-    headers, error = _inject_anthropic_credentials(headers)
+    headers, error = _inject_upstream_credentials(headers, upstream=upstream_name)
     if error:
         return error
 
-    client = get_anthropic_client()
+    if upstream_name == "anthropic":
+        client = get_anthropic_client()
+    else:
+        try:
+            client, _ = get_upstream_registry().get(upstream_name)
+        except UnknownUpstreamError:
+            logger.warning(
+                "Unknown upstream on session, refusing request",
+                upstream=upstream_name,
+            )
+            return jsonify(
+                {
+                    "error": {
+                        "type": "api_error",
+                        "message": f"Unknown upstream '{upstream_name}'",
+                    }
+                }
+            ), 502
+
+    # cq-5 mitigation (#2769 task-2-6): mirror proxy_anthropic_messages —
+    # the LiteLLM-routed path must have the cq-5 alias swapped for the
+    # upstream-side model name LiteLLM keys on, while the Anthropic path
+    # forwards bytes verbatim so the regression guard stays intact.
+    count_tokens_body = request.get_data()
+    if upstream_name != "anthropic":
+        count_tokens_body = _rewrite_upstream_model(
+            count_tokens_body, session.upstream_model if session else None
+        )
 
     try:
         response = client.post(
             "/v1/messages/count_tokens",
             headers=headers,
-            content=request.get_data(),
+            content=count_tokens_body,
         )
         return Response(
             response.content,
@@ -10044,34 +10285,34 @@ def proxy_count_tokens() -> tuple[Response, int] | Response:
         )
 
     except httpx.ConnectError as e:
-        logger.error("Anthropic API connection failed", error=str(e))
+        logger.error("Upstream connection failed", upstream=upstream_name, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Failed to connect to Anthropic API: {e}",
+                    "message": f"Failed to connect to {upstream_name} upstream: {e}",
                 }
             }
         ), 502
 
     except httpx.TimeoutException as e:
-        logger.error("Anthropic API request timed out", error=str(e))
+        logger.error("Upstream request timed out", upstream=upstream_name, error=str(e))
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Anthropic API request timed out: {e}",
+                    "message": f"{upstream_name} upstream request timed out: {e}",
                 }
             }
         ), 504
 
     except Exception as e:
-        logger.exception("Anthropic API proxy error")
+        logger.exception("Upstream proxy error", upstream=upstream_name)
         return jsonify(
             {
                 "error": {
                     "type": "api_error",
-                    "message": f"Anthropic API proxy error: {e}",
+                    "message": f"{upstream_name} upstream proxy error: {e}",
                 }
             }
         ), 502

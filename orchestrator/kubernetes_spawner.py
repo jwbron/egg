@@ -493,6 +493,8 @@ class KubernetesSpawner:
         spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
         jira_ticket: str | None = None,
         slice_id: str | None = None,
+        upstream: str | None = None,
+        upstream_model: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -516,6 +518,13 @@ class KubernetesSpawner:
                 worktree-creation failures. ``0`` disables retry (#1839).
             spawn_retry_initial_backoff_seconds: Initial backoff between retries;
                 subsequent attempts scale by ``_SPAWN_RETRY_BACKOFF_MULTIPLIER``.
+            upstream: Per-agent upstream identifier (#2769 slice-2).
+                Forwarded to the gateway session-create call only when
+                set; ``None`` keeps the default Anthropic routing.
+            upstream_model: Upstream-side model name to rewrite the
+                request body's ``model`` field to (#2769 slice-2).
+                ``None`` on the Anthropic path — the body is forwarded
+                unchanged.
 
         Returns:
             SpawnedContainer with Job and session info
@@ -754,6 +763,12 @@ class KubernetesSpawner:
                     worktree_container_id=(
                         agent_worktree_id if worktree_created_this_call else None
                     ),
+                    # Per-agent upstream routing (#2769 slice-2). Both fields
+                    # are forwarded to the gateway only when set, so the
+                    # default-Claude case keeps the request body byte-
+                    # identical to the pre-#2769 wire shape.
+                    upstream=upstream,
+                    upstream_model=upstream_model,
                 )
                 session_token = session_info.session_token
 
@@ -1253,6 +1268,8 @@ class KubernetesSpawner:
         spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
         slice_id: str | None = None,
         wait_for_gateway: bool = True,
+        upstream: str | None = None,
+        upstream_model: str | None = None,
     ) -> SpawnedContainer:
         """Restart an agent Job: delete and respawn preserving worktree.
 
@@ -1285,6 +1302,15 @@ class KubernetesSpawner:
                 slice gets an independent budget.
             wait_for_gateway: Wait for gateway health before respawning.
                 Forwarded to ``spawn_agent_job``.
+            upstream: Per-agent upstream identifier (#2769 slice-2),
+                forwarded to ``spawn_agent_job`` so the restarted Job
+                registers its gateway session against the same upstream
+                as the initial spawn. ``None`` keeps the default
+                Anthropic routing.
+            upstream_model: Upstream-side model name to rewrite the
+                request body's ``model`` field to (#2769 slice-2),
+                forwarded to ``spawn_agent_job``. ``None`` on the
+                Anthropic path — the body is forwarded unchanged.
 
         Returns:
             SpawnedContainer with new Job info.
@@ -1412,6 +1438,13 @@ class KubernetesSpawner:
                 spawn_max_retries=spawn_max_retries,
                 spawn_retry_initial_backoff_seconds=spawn_retry_initial_backoff_seconds,
                 slice_id=slice_id,
+                # Per-agent upstream routing (#2769 slice-2). Forwarded so a
+                # restart picks the same upstream as the initial spawn — the
+                # gateway session is otherwise rebuilt against the
+                # ``anthropic`` default and would silently route the
+                # restarted agent to the wrong upstream.
+                upstream=upstream,
+                upstream_model=upstream_model,
             )
 
             logger.info(
@@ -1684,6 +1717,8 @@ class KubernetesSpawner:
             branch: str | None = None,
             extra_env: dict[str, str] | None = None,
             command: list[str] | None = None,
+            upstream: str | None = None,
+            upstream_model: str | None = None,
         ) -> SpawnedContainer:
             merged_env = {**(sandbox_env or {}), **(extra_env or {})}
             return self.spawn_agent_job(
@@ -1702,6 +1737,8 @@ class KubernetesSpawner:
                 spawn_max_retries=spawn_max_retries,
                 spawn_retry_initial_backoff_seconds=(spawn_retry_initial_backoff_seconds),
                 slice_id=slice_id,
+                upstream=upstream,
+                upstream_model=upstream_model,
             )
 
         return _spawn

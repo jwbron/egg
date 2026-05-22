@@ -618,6 +618,8 @@ class GatewayClient:
         worktree_container_id: str | None = None,
         jira_ticket: str | None = None,
         synthetic: bool = False,
+        upstream: str | None = None,
+        upstream_model: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -643,6 +645,20 @@ class GatewayClient:
                 call.  When provided, the gateway reuses those worktrees
                 instead of re-creating them — avoids a second
                 ``git worktree add`` racing on ``.git/config.lock`` (#1857).
+            upstream: Optional per-session upstream selector — ``"anthropic"``
+                (default behavior when omitted) or ``"litellm"`` to route the
+                session's ``/v1/messages`` traffic through the LiteLLM proxy
+                in egg-system (issue #2769). Omitted callers produce a
+                request body byte-identical to today. The gateway is
+                authoritative: it validates this against its
+                ``UpstreamRegistry`` and rejects an unknown value with
+                HTTP 400, so a slice-2 resolution bug fails fast at
+                session-create rather than producing a bogus-upstream
+                session.
+            upstream_model: Optional upstream-side model name used by the
+                slice-2 body-rewrite path on the gateway. Only meaningful
+                when ``upstream="litellm"``; the gateway leaves the request
+                body's ``model`` field untouched when this is omitted.
 
         Returns:
             SessionInfo with the created session
@@ -688,6 +704,12 @@ class GatewayClient:
             request_data["jira_ticket"] = jira_ticket
         if synthetic:
             request_data["synthetic"] = True
+        if upstream is not None:
+            # Only include when caller opts in — omitting the field keeps
+            # the wire shape byte-identical for pre-#2769 callers.
+            request_data["upstream"] = upstream
+        if upstream_model is not None:
+            request_data["upstream_model"] = upstream_model
         result = self._make_request(
             "/api/v1/sessions/create",
             method="POST",

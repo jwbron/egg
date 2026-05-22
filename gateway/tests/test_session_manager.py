@@ -2148,3 +2148,191 @@ class TestBackgroundPruner:
         manager.stop_background_pruner(timeout=2.0)
         assert manager._prune_thread is None
         assert manager._prune_shutdown is None
+
+
+# ===========================================================================
+# Upstream fields — slice-1 of issue #2769 (TASK-1-4)
+# ===========================================================================
+#
+# Slice 1 adds two optional fields to the Session dataclass:
+#   - ``upstream: str = "anthropic"``
+#   - ``upstream_model: str | None = None``
+#
+# The fields must round-trip through ``to_dict_for_persistence`` /
+# ``from_persistence`` and existing persisted dicts WITHOUT the fields
+# must rehydrate cleanly (back-compat with persisted sessions on disk).
+# ``SessionManager.register_session`` must accept the two optional kwargs
+# and store them on the returned Session.
+# ===========================================================================
+
+
+class TestSessionUpstreamFields:
+    """Slice-1 ``upstream`` / ``upstream_model`` Session fields."""
+
+    def _make_session(self, **overrides):
+        now = datetime.now(UTC)
+        defaults = {
+            "session_token": "test-token",
+            "session_token_hash": _hash_token("test-token"),
+            "container_id": "test-container",
+            "container_ip": "172.18.0.5",
+            "mode": "private",
+            "created_at": now,
+            "last_seen": now,
+            "expires_at": now + timedelta(hours=24),
+        }
+        defaults.update(overrides)
+        return Session(**defaults)
+
+    def test_default_upstream_is_anthropic(self):
+        """A Session built without upstream= keeps the no-op default."""
+        session = self._make_session()
+        assert session.upstream == "anthropic"
+        assert session.upstream_model is None
+
+    def test_explicit_upstream_litellm(self):
+        session = self._make_session(upstream="litellm", upstream_model="qwen3-coder-30b")
+        assert session.upstream == "litellm"
+        assert session.upstream_model == "qwen3-coder-30b"
+
+    def test_roundtrip_default_upstream(self):
+        """Default values round-trip through persistence."""
+        session = self._make_session()
+        d = session.to_dict_for_persistence()
+        restored = Session.from_persistence(d)
+        assert restored.upstream == "anthropic"
+        assert restored.upstream_model is None
+
+    def test_roundtrip_explicit_litellm(self):
+        session = self._make_session(upstream="litellm", upstream_model="qwen3-coder-30b")
+        d = session.to_dict_for_persistence()
+        restored = Session.from_persistence(d)
+        assert restored.upstream == "litellm"
+        assert restored.upstream_model == "qwen3-coder-30b"
+
+    def test_persisted_dict_without_upstream_fields_rehydrates_cleanly(self):
+        """Back-compat guard: existing on-disk sessions written before
+        slice-1 land MUST still load with default ``upstream='anthropic'``
+        and ``upstream_model=None``.  This is the most important slice-1
+        invariant for session_manager — a missed default breaks every
+        already-running gateway on upgrade.
+        """
+        now = datetime.now(UTC)
+        legacy_dict = {
+            "session_token_hash": _hash_token("legacy-token"),
+            "container_id": "legacy-container",
+            "container_ip": "172.18.0.5",
+            "mode": "private",
+            "created_at": now.isoformat(),
+            "last_seen": now.isoformat(),
+            "expires_at": (now + timedelta(hours=24)).isoformat(),
+            # NOTE: no "upstream" or "upstream_model" keys — the legacy
+            # shape from before #2769 slice-1.
+        }
+        restored = Session.from_persistence(legacy_dict)
+        assert restored.upstream == "anthropic"
+        assert restored.upstream_model is None
+
+    def test_anthropic_default_omitted_from_persistence(self):
+        """Mirroring the existing pattern (synthetic etc.), the default
+        ``upstream='anthropic'`` should not bloat the persisted dict.
+
+        This is a lenient guard: the conditional asserts below accept
+        either an omitted field (preferred) or one present at its
+        default value — an always-emitted default is acceptable as long
+        as the back-compat read still works. The test fails only if a
+        non-default value is persisted unexpectedly.
+        """
+        session = self._make_session()
+        d = session.to_dict_for_persistence()
+        # Either omitted entirely (preferred) OR present with the
+        # default value — both are acceptable.  The test fails ONLY
+        # if a non-default value is present unexpectedly.
+        if "upstream" in d:
+            assert d["upstream"] == "anthropic"
+        if "upstream_model" in d:
+            assert d["upstream_model"] is None
+
+
+class TestSessionManagerRegisterUpstream:
+    """``SessionManager.register_session`` accepts the new upstream kwargs."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_register_without_upstream_kwargs_defaults_to_anthropic(self, manager):
+        """Back-compat: existing callers that don't pass the new kwargs
+        get the no-op Anthropic default."""
+        _token, session = manager.register_session(
+            container_id="legacy-caller",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        assert session.upstream == "anthropic"
+        assert session.upstream_model is None
+
+    def test_register_with_litellm_upstream_stores_both_fields(self, manager):
+        """Explicit LiteLLM registration stores both fields on the Session."""
+        _token, session = manager.register_session(
+            container_id="qwen-agent",
+            container_ip="172.18.0.7",
+            mode="private",
+            upstream="litellm",
+            upstream_model="qwen3-coder-30b",
+        )
+        assert session.upstream == "litellm"
+        assert session.upstream_model == "qwen3-coder-30b"
+
+    def test_register_with_anthropic_upstream_explicit(self, manager):
+        """Explicit ``upstream='anthropic'`` is a valid no-op."""
+        _token, session = manager.register_session(
+            container_id="explicit-anthropic-agent",
+            container_ip="172.18.0.8",
+            mode="private",
+            upstream="anthropic",
+        )
+        assert session.upstream == "anthropic"
+        assert session.upstream_model is None
+
+    def test_register_with_unknown_upstream_raises(self, manager):
+        """An upstream the gateway cannot serve is rejected at registration
+        (issue #2769 review) — a direct caller must not be able to create
+        a bogus-upstream session that bypasses the session-create route's
+        validation.
+        """
+        with pytest.raises(ValueError, match="Unknown upstream"):
+            manager.register_session(
+                container_id="bogus-agent",
+                container_ip="172.18.0.9",
+                mode="private",
+                upstream="bogus_upstream_name",
+            )
+
+    def test_register_with_empty_upstream_model_raises(self, manager):
+        """An empty ``upstream_model`` is rejected at registration, mirroring
+        the session-create route's validation (issue #2769 review) — a
+        direct caller must not be able to store a malformed model name.
+        """
+        with pytest.raises(ValueError, match="upstream_model must be non-empty"):
+            manager.register_session(
+                container_id="empty-model-agent",
+                container_ip="172.18.0.10",
+                mode="private",
+                upstream="litellm",
+                upstream_model="",
+            )
+
+    def test_register_with_oversized_upstream_model_raises(self, manager):
+        """An ``upstream_model`` over 256 characters is rejected at
+        registration, mirroring the session-create route (issue #2769
+        review).
+        """
+        with pytest.raises(ValueError, match="256 characters or fewer"):
+            manager.register_session(
+                container_id="long-model-agent",
+                container_ip="172.18.0.11",
+                mode="private",
+                upstream="litellm",
+                upstream_model="x" * 257,
+            )
