@@ -209,10 +209,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the cutover handle in-flight pipelines and pre-existing contracts (the legacy `slice-N` / `task-N-M` ID shape, the `# yaml-tasks` YAML appendix, and existing `.egg-state/contracts/*.json` files)?",
+      "context": "Open contract question cq-2, registered by an agent during the refine phase.",
+      "options": [
+        "Hard cutover: new pipelines only use the new grammar; in-flight pipelines finish on the legacy parser; old contracts remain in their legacy shape and aren’t migrated",
+        "Dual-parse transition window: parser accepts both grammars for one egg release, with a deprecation warning on the YAML appendix; existing contracts continue to work",
+        "Big-bang migration: write a one-shot migrator that rewrites every `.egg-state/contracts/*.json` and in-flight pipeline state to the new shape on upgrade",
+        "Defer the decision to plan phase: refine just flags the migration concern; plan decides between hard cutover vs. transition based on slice decomposition",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-05-22T01:00:36.875338Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-05-22T00:17:19.158221Z",
-  "updated_at": "2026-05-22T01:00:36.840590Z",
+  "updated_at": "2026-05-22T01:00:36.883349Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -225,7 +245,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
