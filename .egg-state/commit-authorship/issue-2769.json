@@ -147,6 +147,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code"
     },
+    "33074a76ed61dc56a2f669e67e61c1c3808ac768": {
+      "branch": "egg/issue-2769/slice-2",
+      "pipeline_id": "issue-2769",
+      "registered_at": "2026-05-22T07:19:38.143320+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_concurrency"
+    },
     "336f7bc71afecda25a000718017edde10f6fc790": {
       "branch": "egg/issue-2769/slice-1",
       "pipeline_id": "issue-2769",
@@ -335,6 +342,13 @@
       "registered_at": "2026-05-22T06:48:05.710859+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
+    },
+    "73934fd019b3f214593a023c4a18aac1216d6254": {
+      "branch": "egg/issue-2769/slice-2",
+      "pipeline_id": "issue-2769",
+      "registered_at": "2026-05-22T07:19:39.740906+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_security"
     },
     "741114de184501d4fcbc6efbe07c131d5acbde99": {
       "branch": "egg/issue-2769/slice-2",
@@ -609,6 +623,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "architect"
     },
+    "c7773ba3952495c438c325814a244e84ed254e83": {
+      "branch": "egg/issue-2769/slice-2",
+      "pipeline_id": "issue-2769",
+      "registered_at": "2026-05-22T07:19:37.716128+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code"
+    },
     "cb2f665979241e5208a50f429209ec827c5db8cf": {
       "branch": "egg/issue-2769/slice-2",
       "pipeline_id": "issue-2769",
@@ -636,6 +657,13 @@
       "registered_at": "2026-05-22T06:45:52.209270+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "coder"
+    },
+    "d20c747bd3f028d2d08ae0105390b57337060a35": {
+      "branch": "egg/issue-2769/slice-2",
+      "pipeline_id": "issue-2769",
+      "registered_at": "2026-05-22T07:19:37.063135+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_code_holistic"
     },
     "d26722247cb94d347d424289d4767abdcc022dd7": {
       "branch": "egg/issue-2769/slice-1",
